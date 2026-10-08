@@ -9,14 +9,28 @@
  * and addresses are stored in the shared `PostalAddress` shape (either
  * shape is accepted on input).
  *
+ * US entities (docs/plans/weldbooks-us.md §11) also take: `entityType` and
+ * `taxClassification` (an LLC may elect S or C corporation status), `dba`,
+ * `accountingMethod` (the default basis of every report), a month-based
+ * `fiscalYearStart` or a 52–53-week `fiscalYearConfig`, the EIN in
+ * `taxIdentifiers.einOrSsn`, and a write-only `ssn` for a sole proprietor
+ * without an EIN. The SSN is encrypted into `ssnEncrypted` and never returned
+ * (only `ssnLast4` and `hasSsn`); `POST /:id/reveal-ssn` needs
+ * `tax_ids:reveal` and writes an append-only `tax_id_reveals` row first.
+ * Seeding passes the type and classification to the chart template, which
+ * adds the matching equity section; accounts get their income-tax line
+ * (`accounts.tax_line`) and 1099 box. `POST /:id/apply-tax-lines` re-maps the
+ * lines after the classification changes.
+ *
  * Lock dates (`PATCH /:id/lock-dates`) and their logged, time-limited
  * per-user exceptions (`/:id/lock-exceptions`) are set here; the posting
  * service enforces them.
  *
- * Permissions: entities:read | entities:create | entities:update | entities:delete.
+ * Permissions: entities:read | entities:create | entities:update | entities:delete,
+ * accounts:update (apply-tax-lines), tax_ids:reveal (reveal-ssn).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, isNull, lte, or } from 'drizzle-orm';
@@ -26,6 +40,7 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { decryptField, encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import { getAdapter, hasAdapter, listJurisdictions } from '@weldsuite/books-domain/jurisdictions/registry';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
@@ -33,8 +48,25 @@ import {
   extractStateCodeFromGstin,
   validateGstin,
 } from '@weldsuite/books-domain/jurisdictions/in';
+import { US_ENTITY_TYPE_INFO, US_ENTITY_TYPES, taxFormForClassification } from '@weldsuite/books-domain/jurisdictions/us/entity-types';
+import { maskTin, tinLast4 } from '@weldsuite/books-domain/jurisdictions/us/identifiers';
+import { TAX_FORM_LABELS } from '@weldsuite/books-domain/jurisdictions/us/tax-lines';
+import {
+  EntitySetupError,
+  applyTaxLines,
+  buildSeedAccounts,
+  checkSsn,
+  checkUsAddress,
+  defaultUsTimeZone,
+  formOfEntity,
+  looksLikeSsn,
+  resolveEntityKind,
+  taxYearOf,
+} from '../../services/accounting-entity-setup';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 type TaxIdentifiers = {
   vatNumber?: string;
@@ -43,8 +75,17 @@ type TaxIdentifiers = {
   other?: Record<string, string>;
 };
 
-const VALIDATED_TAX_IDS = ['vatNumber', 'registrationNumber'] as const;
+const VALIDATED_TAX_IDS = ['vatNumber', 'registrationNumber', 'einOrSsn'] as const;
 type ValidatedTaxId = (typeof VALIDATED_TAX_IDS)[number];
+
+/**
+ * The identifiers the adapter checks. The US adapter takes the EIN in both
+ * `vatNumber` (the slot invoices print) and `einOrSsn`, and a state tax ID in
+ * `registrationNumber`.
+ */
+function validatedFieldsFor(jurisdictionCode: string): readonly ValidatedTaxId[] {
+  return jurisdictionCode.toUpperCase() === 'US' ? ['vatNumber', 'registrationNumber', 'einOrSsn'] : ['vatNumber', 'registrationNumber'];
+}
 
 /**
  * Check the tax identifiers a request touched with the jurisdiction adapter
@@ -60,7 +101,7 @@ function validateTaxIdentifiersWithAdapter(
   if (!taxIdentifiers || touched.size === 0) return { taxIdentifiers: taxIdentifiers ?? undefined };
   const adapter = getAdapter(jurisdictionCode);
   const next: TaxIdentifiers = { ...taxIdentifiers };
-  for (const field of VALIDATED_TAX_IDS) {
+  for (const field of validatedFieldsFor(jurisdictionCode)) {
     if (!touched.has(field)) continue;
     const value = next[field];
     if (value === undefined) continue;
@@ -72,7 +113,29 @@ function validateTaxIdentifiersWithAdapter(
     if (!check.valid) {
       return { error: check.error ?? `Invalid ${field}` };
     }
-    next[field] = check.formatted ?? value.trim();
+    const formatted = check.formatted ?? value.trim();
+    // A Social Security number never goes in the plain-text identifiers.
+    if (field === 'einOrSsn' && looksLikeSsn(formatted)) {
+      return { error: 'Enter a Social Security number in the ssn field; the EIN field takes an EIN (XX-XXXXXXX)' };
+    }
+    next[field] = formatted;
+  }
+
+  // A US entity has one EIN, kept in both slots.
+  if (jurisdictionCode.toUpperCase() === 'US' && (touched.has('einOrSsn') || touched.has('vatNumber'))) {
+    const given = [touched.has('einOrSsn') ? next.einOrSsn : undefined, touched.has('vatNumber') ? next.vatNumber : undefined].filter(
+      (v): v is string => Boolean(v),
+    );
+    if (given.length === 2 && given[0] !== given[1]) {
+      return { error: 'vatNumber and einOrSsn hold the same EIN for a US entity' };
+    }
+    if (given[0]) {
+      next.einOrSsn = given[0];
+      next.vatNumber = given[0];
+    } else {
+      delete next.einOrSsn;
+      delete next.vatNumber;
+    }
   }
   return { taxIdentifiers: next };
 }
@@ -188,10 +251,26 @@ const brandingSchema = z.object({
   termsAndConditions: z.string().optional(),
 }).partial();
 
+/** A 52–53-week year: ends on the last (or nearest) `weekday` of `endMonth`. */
+const fiscalYearConfigSchema = z.object({
+  type: z.literal('fifty_two_fifty_three'),
+  endMonth: z.number().int().min(1).max(12),
+  /** 0 = Sunday … 6 = Saturday */
+  weekday: z.number().int().min(0).max(6),
+  rule: z.enum(['last', 'nearest']),
+});
+
 const createEntitySchema = z.object({
   name: z.string().min(1).max(255),
   legalName: z.string().max(255).optional(),
+  /** US: sole_proprietorship | single_member_llc | multi_member_llc | partnership | s_corp | c_corp | nonprofit. */
   entityType: z.string().max(20).optional(),
+  /** US: sole_proprietor | disregarded | partnership | s_corp | c_corp | exempt. Defaults from the entity type. */
+  taxClassification: z.string().max(20).optional(),
+  /** Doing-business-as name. */
+  dba: z.string().max(255).nullable().optional(),
+  /** Default basis of the entity's reports; null = the workspace setting. */
+  accountingMethod: z.enum(['accrual', 'cash']).nullable().optional(),
   jurisdictionCode: z.string().min(2).max(5).optional(),
   /** Shared-schema alias for jurisdictionCode. */
   jurisdiction: z.string().min(2).max(5).optional(),
@@ -201,11 +280,15 @@ const createEntitySchema = z.object({
   locale: z.string().max(10).optional(),
   timezone: z.string().max(50).optional(),
   taxIdentifiers: taxIdentifiersSchema.optional(),
+  /** US: Social Security number of a sole proprietor without an EIN. Write-only; null clears it. */
+  ssn: z.string().max(20).nullable().optional(),
   address: addressSchema.nullable().optional(),
   contact: contactSchema.optional(),
   bankDetails: bankDetailsSchema.optional(),
   branding: brandingSchema.optional(),
   fiscalYearStart: z.number().int().min(1).max(12).optional(),
+  /** 52–53-week fiscal year; null returns to the month-based year of `fiscalYearStart`. */
+  fiscalYearConfig: fiscalYearConfigSchema.nullable().optional(),
   isDefault: z.boolean().optional(),
   /** Jurisdiction-specific settings, e.g. `{ kor: { enabled, startDate } }` for NL. */
   jurisdictionSettings: z.record(z.unknown()).optional(),
@@ -214,6 +297,47 @@ const createEntitySchema = z.object({
 });
 
 const updateEntitySchema = createEntitySchema.partial().omit({ seedDefaults: true });
+
+/**
+ * An entity as the API returns it: the encrypted SSN and sales tax credentials
+ * never leave the database (`hasSsn` / `ssnLast4` say one is stored), and an
+ * SSN that was typed into the EIN field before it was checked is masked.
+ */
+function serializeEntity<T extends { ssnEncrypted?: string | null; salesTaxCredentialsEncrypted?: string | null; taxIdentifiers?: TaxIdentifiers | null }>(row: T) {
+  const { ssnEncrypted, salesTaxCredentialsEncrypted, ...rest } = row;
+  const ids = rest.taxIdentifiers;
+  return {
+    ...rest,
+    ...(ids?.einOrSsn && looksLikeSsn(ids.einOrSsn) ? { taxIdentifiers: { ...ids, einOrSsn: maskTin(ids.einOrSsn, 'ssn') } } : {}),
+    hasSsn: Boolean(ssnEncrypted),
+    hasSalesTaxCredentials: Boolean(salesTaxCredentialsEncrypted),
+  };
+}
+
+/** Audit-log view of a changed column: tax IDs masked, the encrypted SSN left out. */
+function auditValue(column: string, value: unknown): unknown {
+  if (column === 'taxIdentifiers' && value && typeof value === 'object') {
+    const ids = value as TaxIdentifiers;
+    return ids.einOrSsn ? { ...ids, einOrSsn: maskTin(ids.einOrSsn) } : ids;
+  }
+  return value;
+}
+
+function auditChanges(patch: Record<string, unknown>, before: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(patch)
+      .filter(([k, v]) => k !== 'updatedAt' && k !== 'ssnEncrypted' && v !== undefined)
+      .map(([k, v]) => [k, { old: auditValue(k, before[k]), new: auditValue(k, v) }]),
+  );
+}
+
+async function readOptionalJson(c: AppContext): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    return {};
+  }
+}
 
 // GET /
 app.get('/', requirePermission('entities:read'), async (c) => {
@@ -224,16 +348,40 @@ app.get('/', requirePermission('entities:read'), async (c) => {
       .from(schema.entities)
       .where(isNull(schema.entities.deletedAt))
       .orderBy(schema.entities.name);
-    return success(c, results);
+    return success(c, results.map(serializeEntity));
   } catch (err) {
     console.error('[app-api/accounting-entities] list failed:', err);
     return error.internal(c, 'Failed to fetch entities');
   }
 });
 
-// GET /jurisdictions — supported jurisdiction adapters
+// GET /jurisdictions — supported jurisdiction adapters; the US entry lists the
+// entity types with their allowed tax classifications and the return each files
 app.get('/jurisdictions', requirePermission('entities:read'), (c) => {
-  return success(c, listJurisdictions());
+  return success(
+    c,
+    listJurisdictions().map((jurisdiction) =>
+      jurisdiction.code === 'US'
+        ? {
+            ...jurisdiction,
+            entityTypes: US_ENTITY_TYPES.map((type) => {
+              const info = US_ENTITY_TYPE_INFO[type];
+              return {
+                type,
+                label: info.label,
+                description: info.description,
+                minOwners: info.minOwners,
+                defaultClassification: info.classifications[0],
+                classifications: info.classifications.map((classification) => {
+                  const form = taxFormForClassification(classification);
+                  return { value: classification, form, formLabel: TAX_FORM_LABELS[form] };
+                }),
+              };
+            }),
+          }
+        : jurisdiction,
+    ),
+  );
 });
 
 // GET /:id
@@ -246,7 +394,7 @@ app.get('/:id', requirePermission('entities:read'), async (c) => {
       .where(and(eq(schema.entities.id, c.req.param('id')), isNull(schema.entities.deletedAt)))
       .limit(1);
     if (!entity) return error.notFound(c, 'Entity', c.req.param('id'));
-    return success(c, entity);
+    return success(c, serializeEntity(entity));
   } catch (err) {
     console.error('[app-api/accounting-entities] get failed:', err);
     return error.internal(c, 'Failed to fetch entity');
@@ -267,6 +415,8 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
   }
 
   const adapter = getAdapter(jurisdictionCode);
+  const code = jurisdictionCode.toUpperCase();
+  const isUs = code === 'US';
   const mergedTaxIdentifiers =
     data.vatNumber !== undefined
       ? { ...data.taxIdentifiers, vatNumber: data.taxIdentifiers?.vatNumber ?? data.vatNumber }
@@ -291,13 +441,30 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     return error.badRequest(c, checked.error);
   }
 
-  const taxIdentifiers = checked.taxIdentifiers;
-  const jurisdictionSettings = india.jurisdictionSettings;
-  const timezone = india.timezone;
-  const locale = data.locale ?? adapter.defaultLocale;
-  const baseCurrency = data.baseCurrency ?? adapter.defaultCurrency;
-
   try {
+    const kind = resolveEntityKind(code, { entityType: data.entityType, taxClassification: data.taxClassification });
+    const address = isUs ? checkUsAddress(normalizePostalAddress(data.address)) : normalizePostalAddress(data.address);
+
+    let ssnEncrypted: string | null = null;
+    let ssnLast4: string | null = null;
+    if (data.ssn) {
+      if (!isUs) return error.badRequest(c, 'An SSN can only be stored on a US entity');
+      const ssn = checkSsn(data.ssn);
+      const keyring = keyringFromEnv(c.env);
+      if (!keyring.v1 && !keyring.v2) return error.unavailable(c, 'Encryption is not configured, so an SSN can not be stored');
+      ssnEncrypted = await encryptField(ssn, keyring);
+      ssnLast4 = tinLast4(ssn);
+    }
+
+    const taxIdentifiers = checked.taxIdentifiers;
+    const jurisdictionSettings = india.jurisdictionSettings;
+    const timezone = isUs ? (data.timezone ?? defaultUsTimeZone(address?.state)) : india.timezone;
+    const locale = data.locale ?? adapter.defaultLocale;
+    const baseCurrency = data.baseCurrency ?? adapter.defaultCurrency;
+
+    const fiscalYearConfig = data.fiscalYearConfig ?? null;
+    const fiscalYearStart = data.fiscalYearStart ?? (fiscalYearConfig ? (fiscalYearConfig.endMonth % 12) + 1 : 1);
+
     const now = new Date();
     const entityId = generateId('ent');
 
@@ -305,18 +472,24 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
       id: entityId,
       name: data.name,
       legalName: data.legalName,
-      entityType: data.entityType,
-      jurisdictionCode: jurisdictionCode.toUpperCase(),
+      entityType: kind.entityType ?? undefined,
+      taxClassification: kind.taxClassification,
+      dba: data.dba ?? null,
+      accountingMethod: data.accountingMethod ?? (isUs ? 'accrual' : null),
+      jurisdictionCode: code,
       baseCurrency,
       locale,
       timezone,
       taxIdentifiers,
-      address: normalizePostalAddress(data.address),
+      address,
       contact: data.contact,
       bankDetails: data.bankDetails,
       branding: data.branding,
       jurisdictionSettings,
-      fiscalYearStart: data.fiscalYearStart ?? 1,
+      fiscalYearStart,
+      fiscalYearConfig,
+      ssnEncrypted,
+      ssnLast4,
       isDefault: data.isDefault ?? false,
       isActive: true,
       createdAt: now,
@@ -349,24 +522,16 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     let taxRatesCreated = 0;
 
     if (data.seedDefaults) {
-      const coaTemplate = adapter.getChartOfAccountsTemplate();
-      const seedAccounts = coaTemplate.map((row) => ({
-        id: generateId('acc'),
+      const seedAccounts = buildSeedAccounts({
+        adapter,
         entityId,
-        code: row.code,
-        name: row.name,
-        type: row.type,
-        subtype: row.subtype,
-        normalSide: row.normalSide,
-        currency: baseCurrency,
-        isActive: true,
-        isSystemAccount: row.isSystemAccount ?? false,
-        openingBalance: '0',
-        currentBalance: '0',
-        metadata: row.systemRole ? { systemRole: row.systemRole } : undefined,
-        createdAt: now,
-        updatedAt: now,
-      }));
+        jurisdictionCode: code,
+        baseCurrency,
+        entityType: kind.entityType,
+        taxClassification: kind.taxClassification,
+        taxYear: taxYearOf(timezone),
+        now,
+      });
 
       if (seedAccounts.length > 0) {
         await db.insert(schema.accounts).values(seedAccounts);
@@ -419,10 +584,17 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
       entityId,
       action: 'created',
     });
-    publishEntityEvent({ c, entityType: 'accounting_entity', entityId, action: 'created', data: { id: entityId, name: newEntity.name, jurisdictionCode: newEntity.jurisdictionCode } });
+    publishEntityEvent({
+      c,
+      entityType: 'accounting_entity',
+      entityId,
+      action: 'created',
+      data: { id: entityId, name: newEntity.name, jurisdictionCode: newEntity.jurisdictionCode, entityType: kind.entityType, taxClassification: kind.taxClassification },
+    });
 
-    return success(c, { ...newEntity, accountsCreated, taxRatesCreated }, 201);
+    return success(c, { ...serializeEntity(newEntity), accountsCreated, taxRatesCreated }, 201);
   } catch (err) {
+    if (err instanceof EntitySetupError) return error.badRequest(c, err.message);
     console.error('[app-api/accounting-entities] create failed:', err);
     return error.internal(c, 'Failed to create entity');
   }
@@ -431,8 +603,8 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
 // PATCH /:id
 app.patch('/:id', requirePermission('entities:update'), zValidator('json', updateEntitySchema), async (c) => {
   const db = c.get('tenantDb');
-  // `jurisdiction`/`vatNumber` are request-shape aliases, not columns.
-  const { jurisdiction: jurisdictionAlias, vatNumber: vatAlias, ...data } = c.req.valid('json');
+  // `jurisdiction`/`vatNumber` are request-shape aliases, not columns; `ssn` is encrypted before it is stored.
+  const { jurisdiction: jurisdictionAlias, vatNumber: vatAlias, ssn, ...data } = c.req.valid('json');
   const id = c.req.param('id');
   try {
     const [existing] = await db
@@ -450,6 +622,7 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
     if ((data.jurisdictionCode || jurisdictionAlias) && !hasAdapter(nextJurisdiction)) {
       return error.badRequest(c, unsupportedJurisdictionMessage(nextJurisdiction));
     }
+    const isUs = nextJurisdiction === 'US';
 
     const mergedWithoutAlias = data.taxIdentifiers
       ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
@@ -491,7 +664,8 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       patch.taxIdentifiers = checked.taxIdentifiers;
     }
     if (data.address !== undefined) {
-      patch.address = normalizePostalAddress(data.address);
+      const normalized = normalizePostalAddress(data.address);
+      patch.address = isUs ? checkUsAddress(normalized) : normalized;
     }
     if (nextJurisdiction === 'IN') {
       patch.jurisdictionSettings = india.jurisdictionSettings ?? existing.jurisdictionSettings;
@@ -499,6 +673,46 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
         patch.timezone = india.timezone;
       } else if (india.timezone && data.timezone === undefined && nextJurisdiction === 'IN') {
         // keep existing timezone unless explicitly patched
+      }
+    }
+
+    // Entity type and tax classification (US) are checked against each other.
+    let formChanged = false;
+    if (data.entityType !== undefined || data.taxClassification !== undefined || (isUs && existing.jurisdictionCode !== 'US')) {
+      const kind = resolveEntityKind(
+        nextJurisdiction,
+        { entityType: data.entityType, taxClassification: data.taxClassification },
+        { entityType: existing.entityType, taxClassification: existing.taxClassification },
+      );
+      patch.entityType = kind.entityType ?? undefined;
+      patch.taxClassification = kind.taxClassification;
+      formChanged =
+        isUs &&
+        (existing.jurisdictionCode !== 'US' ||
+          formOfEntity(existing) !== formOfEntity({ entityType: kind.entityType, taxClassification: kind.taxClassification }));
+    }
+
+    // A 52–53-week year replaces the month-based one, and the other way round.
+    if (data.fiscalYearConfig !== undefined) {
+      patch.fiscalYearConfig = data.fiscalYearConfig;
+      if (data.fiscalYearConfig && data.fiscalYearStart === undefined) {
+        patch.fiscalYearStart = (data.fiscalYearConfig.endMonth % 12) + 1;
+      }
+    } else if (data.fiscalYearStart !== undefined) {
+      patch.fiscalYearConfig = null;
+    }
+
+    if (ssn !== undefined) {
+      if (ssn === null || ssn === '') {
+        patch.ssnEncrypted = null;
+        patch.ssnLast4 = null;
+      } else {
+        if (!isUs) return error.badRequest(c, 'An SSN can only be stored on a US entity');
+        const formatted = checkSsn(ssn);
+        const keyring = keyringFromEnv(c.env);
+        if (!keyring.v1 && !keyring.v2) return error.unavailable(c, 'Encryption is not configured, so an SSN can not be stored');
+        patch.ssnEncrypted = await encryptField(formatted, keyring);
+        patch.ssnLast4 = tinLast4(formatted);
       }
     }
 
@@ -517,18 +731,103 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       entityType: 'accounting_entity',
       entityId: id,
       action: 'updated',
-      changes: Object.fromEntries(
-        Object.entries(patch)
-          .filter(([k, v]) => k !== 'updatedAt' && v !== undefined)
-          .map(([k, v]) => [k, { old: (existing as Record<string, unknown>)[k], new: v }]),
-      ),
+      changes: auditChanges(patch, existing as Record<string, unknown>),
     });
     publishEntityEvent({ c, entityType: 'accounting_entity', entityId: id, action: 'updated', data: { id, name: updated?.name } });
 
-    return success(c, updated);
+    // After a classification change the accounts still point at the old return's lines.
+    return success(c, { ...serializeEntity(updated), taxLineRemapNeeded: formChanged });
   } catch (err) {
+    if (err instanceof EntitySetupError) return error.badRequest(c, err.message);
     console.error('[app-api/accounting-entities] update failed:', err);
     return error.internal(c, 'Failed to update entity');
+  }
+});
+
+// POST /:id/apply-tax-lines — point every account at the line of the entity's
+// current return (Schedule C, 1065, 1120-S, ...). Lines set by hand on this
+// return stay unless `overwrite`; accounts on another return's lines are
+// translated. Run it after changing the tax classification.
+app.post('/:id/apply-tax-lines', requirePermission('accounts:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const body = z
+    .object({ overwrite: z.boolean().default(false), taxYear: z.number().int().min(2023).max(2100).optional() })
+    .safeParse(await readOptionalJson(c));
+  if (!body.success) return error.badRequest(c, 'Invalid request body', body.error.flatten());
+
+  try {
+    const entity = await findActiveEntity(db, id);
+    if (!entity) return error.notFound(c, 'Entity', id);
+    if (entity.jurisdictionCode !== 'US') return error.badRequest(c, 'Tax lines are only available for US entities');
+
+    const result = await applyTaxLines(db, entity, getAdapter('US'), {
+      overwrite: body.data.overwrite,
+      taxYear: body.data.taxYear ?? taxYearOf(entity.timezone),
+    });
+
+    if (result.updated > 0) {
+      await writeAccountingAudit(c, db, {
+        accountingEntityId: id,
+        entityType: 'accounting_entity',
+        entityId: id,
+        action: 'tax_lines_applied',
+        changes: { taxLines: { old: null, new: { form: result.form, updated: result.updated } } },
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'accounting_entity',
+        entityId: id,
+        action: 'updated',
+        data: { id, name: entity.name, taxLinesApplied: result.updated, taxForm: result.form },
+      });
+    }
+    return success(c, result);
+  } catch (err) {
+    console.error('[books-api/accounting-entities] apply tax lines failed:', err);
+    return error.internal(c, 'Failed to apply tax lines');
+  }
+});
+
+// POST /:id/reveal-ssn — the stored SSN in clear text. Needs tax_ids:reveal; the
+// reveal is written to the append-only tax_id_reveals log before it is returned.
+app.post('/:id/reveal-ssn', requirePermission('tax_ids:reveal'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  const body = z.object({ reason: z.string().trim().max(255).optional() }).safeParse(await readOptionalJson(c));
+  if (!body.success) return error.badRequest(c, 'Invalid request body', body.error.flatten());
+
+  try {
+    const entity = await findActiveEntity(db, id);
+    if (!entity) return error.notFound(c, 'Entity', id);
+    if (!entity.ssnEncrypted) return error.notFound(c, 'SSN of entity', id);
+
+    const plaintext = await decryptField(entity.ssnEncrypted, keyringFromEnv(c.env));
+
+    // No log row, no reveal.
+    await db.insert(schema.taxIdReveals).values({
+      id: generateId('tir'),
+      entityId: id,
+      subjectType: 'entity',
+      subjectId: id,
+      field: 'ssn',
+      revealedBy: c.get('userId') ?? 'unknown',
+      reason: body.data.reason ?? null,
+    });
+
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: id,
+      entityType: 'accounting_entity',
+      entityId: id,
+      action: 'ssn_revealed',
+    });
+    publishEntityEvent({ c, entityType: 'accounting_entity', entityId: id, action: 'updated', data: { id, name: entity.name, taxIdRevealed: 'ssn' } });
+
+    c.header('Cache-Control', 'no-store');
+    return success(c, { ssn: plaintext });
+  } catch (err) {
+    console.error('[books-api/accounting-entities] reveal ssn failed:', err);
+    return error.internal(c, 'Failed to reveal the SSN');
   }
 });
 
@@ -669,7 +968,7 @@ app.patch(
           .filter(([field, value]) => (existing as Record<string, unknown>)[field] !== value)
           .map(([field, value]) => [field, { old: (existing as Record<string, unknown>)[field], new: value }]),
       );
-      if (Object.keys(changes).length === 0) return success(c, existing);
+      if (Object.keys(changes).length === 0) return success(c, serializeEntity(existing));
 
       // The hard-lock guard is repeated in the WHERE clause so two concurrent
       // requests can't move it backwards between the read above and this write.
@@ -709,7 +1008,7 @@ app.patch(
         },
       });
 
-      return success(c, updated);
+      return success(c, serializeEntity(updated));
     } catch (err) {
       console.error('[books-api/accounting-entities] lock dates failed:', err);
       return error.internal(c, 'Failed to update lock dates');

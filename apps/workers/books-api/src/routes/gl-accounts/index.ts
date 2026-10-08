@@ -8,6 +8,11 @@
  *   - accounts with journal lines can never be deleted (administratieplicht —
  *     deactivate instead so the trail stays reconstructable)
  *
+ * US entities map every account to a line of their income-tax return
+ * (`taxLine`, e.g. `sch_c.8`) and, for payments to contractors, to a 1099 box
+ * (`form1099Box`). `GET /tax-lines` lists the lines the entity's return has;
+ * the mapping of all accounts at once is `POST /api/accounting-entities/:id/apply-tax-lines`.
+ *
  * Permissions: accounts:read | accounts:create | accounts:update | accounts:delete.
  */
 
@@ -21,12 +26,44 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { TAX_FORM_LABELS, getTaxLineCatalog } from '@weldsuite/books-domain/jurisdictions/us/tax-lines';
 import { resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
+import { form1099BoxError, formOfEntity, taxLineError, taxYearOf } from '../../services/accounting-entity-setup';
+import { TAX_SECTION_LABELS } from '../../services/accounting-tax-worksheet';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.accounts;
+
+async function findEntity(db: Database, entityId: string) {
+  const [entity] = await db
+    .select()
+    .from(schema.entities)
+    .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
+    .limit(1);
+  return entity ?? null;
+}
+
+/** Error message for a tax line or 1099 box the entity can't use; null when both are fine. */
+async function mappingError(
+  db: Database,
+  entityId: string,
+  mapping: { taxLine?: string | null; form1099Box?: string | null },
+): Promise<string | null> {
+  if (!mapping.taxLine && !mapping.form1099Box) return null;
+  const entity = await findEntity(db, entityId);
+  if (!entity) return 'Accounting entity not found';
+  if (mapping.taxLine) {
+    const message = taxLineError(entity, mapping.taxLine, taxYearOf(entity.timezone));
+    if (message) return message;
+  }
+  if (mapping.form1099Box) {
+    if (entity.jurisdictionCode !== 'US') return '1099 boxes are only available for US entities';
+    return form1099BoxError(mapping.form1099Box);
+  }
+  return null;
+}
 
 const createAccountSchema = z.object({
   code: z.string().min(1).max(20),
@@ -39,10 +76,39 @@ const createAccountSchema = z.object({
   normalSide: z.enum(['debit', 'credit']),
   defaultTaxRateId: z.string().max(30).optional(),
   openingBalance: z.string().optional(),
+  /** US: line of the entity's income-tax return (`sch_c.8`, `f1120s.16`, ...); null clears it. */
+  taxLine: z.string().max(40).nullable().optional(),
+  /** US: default 1099 box for payments booked here (`nec_1`, `misc_1`, ... or `omit`); null clears it. */
+  form1099Box: z.string().max(20).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
 });
 
 const updateAccountSchema = createAccountSchema.partial();
+
+// GET /tax-lines?year= — the lines of the entity's income-tax return for a tax
+// year (default: the current one), for the account mapping screen
+app.get('/tax-lines', requirePermission('accounts:read'), async (c) => {
+  const db = c.get('tenantDb');
+  try {
+    const entityId = await resolveEntityId(c, db);
+    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+    const entity = await findEntity(db, entityId);
+    if (!entity) return error.notFound(c, 'Entity', entityId);
+    if (entity.jurisdictionCode !== 'US') return error.badRequest(c, 'Tax lines are only available for US entities');
+
+    const yearParam = c.req.query('year');
+    const taxYear = yearParam ? Number.parseInt(yearParam, 10) : taxYearOf(entity.timezone);
+    if (!Number.isInteger(taxYear) || taxYear < 2000 || taxYear > 2100) return error.badRequest(c, 'year must be a four-digit year');
+
+    const form = formOfEntity(entity);
+    const lines = getTaxLineCatalog(form, taxYear);
+    const sections = [...new Set(lines.map((l) => l.section))].map((key) => ({ key, label: TAX_SECTION_LABELS[key] }));
+    return success(c, { form, formLabel: TAX_FORM_LABELS[form], taxYear, sections, lines });
+  } catch (err) {
+    console.error('[books-api/gl-accounts] tax lines failed:', err);
+    return error.internal(c, 'Failed to fetch tax lines');
+  }
+});
 
 // GET / — list accounts (chart of accounts, entity-scoped, ordered by code)
 app.get('/', requirePermission('accounts:read'), async (c) => {
@@ -54,11 +120,18 @@ app.get('/', requirePermission('accounts:read'), async (c) => {
     const activeFilter = c.req.query('isActive');
     const search = c.req.query('search');
     const parentId = c.req.query('parentAccountId');
+    const taxLineFilter = c.req.query('taxLine');
 
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
     const conditions = [isNull(t.deletedAt), eq(t.entityId, entityId)];
 
+    // `taxLine=none`: income and expense accounts without a tax line; otherwise the accounts on that line.
+    if (taxLineFilter === 'none') {
+      conditions.push(isNull(t.taxLine), inArray(t.type, ['revenue', 'expense']));
+    } else if (taxLineFilter) {
+      conditions.push(eq(t.taxLine, taxLineFilter));
+    }
     if (typeFilter) conditions.push(eq(t.type, typeFilter));
     if (subtypeFilter) conditions.push(eq(t.subtype, subtypeFilter));
     if (activeFilter !== undefined) conditions.push(eq(t.isActive, activeFilter === 'true'));
@@ -171,6 +244,9 @@ app.post('/', requirePermission('accounts:create'), zValidator('json', createAcc
       return error.conflict(c, `Account code '${data.code}' already exists`);
     }
 
+    const invalidMapping = await mappingError(db, entityId, data);
+    if (invalidMapping) return error.badRequest(c, invalidMapping);
+
     const newAccount = {
       id: generateId('acc'),
       entityId,
@@ -229,6 +305,9 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('accounts:update'), zValidato
         return error.conflict(c, `Account code '${data.code}' already exists`);
       }
     }
+
+    const invalidMapping = await mappingError(db, account.entityId, data);
+    if (invalidMapping) return error.badRequest(c, invalidMapping);
 
     await db
       .update(t)
