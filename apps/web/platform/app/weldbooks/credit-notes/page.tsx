@@ -9,7 +9,7 @@ import {
   type ColumnDef,
 } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 interface CreditNoteRow {
   id: string;
@@ -47,7 +47,7 @@ export default function CreditNotesPage() {
   const { t } = useI18n();
   const tcn = t.accounting.creditNotesPage;
   const tsl = t.accounting.statusLabels.invoice;
-  const { formatMoney } = useCurrentEntityCurrency();
+  const { formatMoney, formatDate } = useWeldbooksFormat();
 
   const creditNotes = (data?.data ?? []) as unknown as CreditNoteRow[];
 
@@ -68,7 +68,7 @@ export default function CreditNotesPage() {
       id: 'date',
       header: tcn.colDate,
       width: 'w-[140px]',
-      render: (cn) => <span className="text-muted-foreground">{cn.issueDate ?? '—'}</span>,
+      render: (cn) => <span className="text-muted-foreground">{formatDate(cn.issueDate)}</span>,
     },
     {
       id: 'source',

@@ -5,9 +5,10 @@
  * Ported from apps/api-worker/src/routes/accounting/recurring-invoices.ts:
  *   - Entity scoping via resolveEntityId (header/query/default).
  *   - Pause/resume lifecycle (PATCH /:id/pause | /:id/resume).
- *   - POST /:id/generate materialises the next invoice from the template,
- *     numbering it via nextEntityNumber(db, entityId, 'invoice'), and rolls
- *     nextIssueDate forward by the schedule frequency.
+ *   - POST /:id/generate materialises the next invoice from the template
+ *     (services/accounting-recurring): claims the period so it can't be billed
+ *     twice, calculates tax like a manual invoice, and finalizes (posts) it
+ *     when the schedule has autoFinalize. The daily cron uses the same service.
  *
  * Integrity: every mutation is written to the accounting audit log.
  *
@@ -24,29 +25,17 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
+import { resolveEntityId } from '../../lib/entity-context';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
+import {
+  generateRecurringInvoice,
+  RecurringAlreadyGeneratedError,
+  recurringTemplateSchema,
+} from '../../services/accounting-recurring';
+import { PostingError } from '../../services/accounting-posting';
+import { TaxCalculationError } from '../../services/accounting-tax-resolve';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const recurringTemplateSchema = z.object({
-  items: z.array(z.object({
-    description: z.string(),
-    quantity: z.number(),
-    unitPrice: z.number(),
-    unit: z.string().optional(),
-    taxRateId: z.string().optional(),
-    accountId: z.string().optional(),
-  })).optional(),
-  notes: z.string().optional(),
-  internalNotes: z.string().optional(),
-  paymentTermsDays: z.number().optional(),
-  revenueAccountId: z.string().optional(),
-  reference: z.string().optional(),
-  currency: z.string().length(3).optional(),
-});
-
-type RecurringTemplateData = z.infer<typeof recurringTemplateSchema>;
 
 const createRecurringSchema = z.object({
   name: z.string().max(255).optional(),
@@ -270,142 +259,34 @@ app.patch('/:id/resume', requirePermission('invoices:update'), async (c) => {
   }
 });
 
-// POST /:id/generate — generate next invoice from recurring template
+// POST /:id/generate — generate the next invoice from the recurring template
 app.post('/:id/generate', requirePermission('invoices:create'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const userId = c.get('userId');
+  const userId = c.get('userId') ?? null;
 
   try {
-    const { recurringInvoices, invoices, invoiceItems, parties } = schema;
-
-    const [rec] = await db.select().from(recurringInvoices)
-      .where(and(eq(recurringInvoices.id, id), isNull(recurringInvoices.deletedAt))).limit(1);
+    const [rec] = await db.select().from(schema.recurringInvoices)
+      .where(and(eq(schema.recurringInvoices.id, id), isNull(schema.recurringInvoices.deletedAt))).limit(1);
     if (!rec) return error.notFound(c, 'Recurring invoice', id);
     if (rec.status !== 'active') return error.badRequest(c, 'Recurring invoice is not active');
 
-    // Get contact info
-    const [contact] = await db.select().from(parties)
-      .where(and(eq(parties.id, rec.contactId), isNull(parties.deletedAt))).limit(1);
-
     const resolvedEntityId = await resolveEntityId(c, db);
-    const entityIdForNumbering = rec.entityId || resolvedEntityId;
-    if (!entityIdForNumbering) return error.badRequest(c, 'No accounting entity resolved');
     if (resolvedEntityId && rec.entityId && rec.entityId !== resolvedEntityId) {
       return error.badRequest(c, 'Recurring invoice belongs to a different accounting entity');
     }
-    const { formatted: invoiceNumber } = await nextEntityNumber(db, entityIdForNumbering, 'invoice');
 
-    const parsedTemplate = recurringTemplateSchema.safeParse(rec.templateData ?? {});
-    const template: RecurringTemplateData = parsedTemplate.success ? parsedTemplate.data : {};
-    const currency =
-      (typeof template.currency === 'string' && template.currency) ||
-      (await resolveEntityBaseCurrency(db, entityIdForNumbering));
-    const items = template.items || [];
-    const paymentTermsDays = template.paymentTermsDays || rec.dayOfMonth || 30;
-
-    // Calculate totals
-    let subtotal = 0;
-    let taxTotal = 0;
-    const processedItems = items.map((item, idx) => {
-      const qty = item.quantity || 1;
-      const price = item.unitPrice || 0;
-      const lineTotal = qty * price;
-      subtotal += lineTotal;
-      return {
-        id: generateId('ili'),
-        invoiceId: '', // will be set below
-        description: item.description,
-        quantity: String(qty),
-        unitPrice: String(price),
-        unit: item.unit || null,
-        discountPercent: '0',
-        taxRateId: item.taxRateId || null,
-        taxRate: null as string | null,
-        taxAmount: '0',
-        lineTotal: lineTotal.toFixed(2),
-        lineTotalWithTax: lineTotal.toFixed(2),
-        accountId: item.accountId || template.revenueAccountId || null,
-        sortOrder: idx,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-    });
-
-    const total = subtotal + taxTotal;
-    const issueDate = new Date();
-    const dueDate = new Date(issueDate.getTime() + paymentTermsDays * 24 * 60 * 60 * 1000);
-
-    const invoiceId = generateId('inv');
-    await db.insert(invoices).values({
-      id: invoiceId,
-      entityId: entityIdForNumbering,
-      invoiceNumber,
-      type: 'standard',
-      status: rec.autoFinalize ? 'sent' : 'draft',
-      contactId: rec.contactId,
-      contactName: contact?.displayName || null,
-      contactEmail: null,
-      issueDate,
-      dueDate,
-      currency,
-      subtotal: subtotal.toFixed(2),
-      discountTotal: '0',
-      taxTotal: taxTotal.toFixed(2),
-      total: total.toFixed(2),
-      amountPaid: '0',
-      balanceDue: total.toFixed(2),
-      paymentTermsDays,
-      reference: template.reference || null,
-      notes: template.notes || null,
-      internalNotes: template.internalNotes || null,
-      recurringInvoiceId: id,
-      createdBy: userId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    // Insert items
-    if (processedItems.length > 0) {
-      await db.insert(invoiceItems).values(
-        processedItems.map((item) => ({ ...item, entityId: entityIdForNumbering, invoiceId })),
-      );
-    }
-
-    // Calculate next issue date based on frequency
-    const currentNext = new Date(rec.nextIssueDate);
-    const nextDate = new Date(currentNext);
-    switch (rec.frequency) {
-      case 'weekly': nextDate.setDate(nextDate.getDate() + 7); break;
-      case 'biweekly': nextDate.setDate(nextDate.getDate() + 14); break;
-      case 'monthly': nextDate.setMonth(nextDate.getMonth() + 1); break;
-      case 'quarterly': nextDate.setMonth(nextDate.getMonth() + 3); break;
-      case 'biannually': nextDate.setMonth(nextDate.getMonth() + 6); break;
-      case 'yearly': nextDate.setFullYear(nextDate.getFullYear() + 1); break;
-    }
-
-    // Check if end date reached
-    const newStatus = rec.endDate && nextDate > new Date(rec.endDate) ? 'completed' : 'active';
-
-    // Update recurring invoice
-    await db.update(recurringInvoices).set({
-      nextIssueDate: nextDate,
-      generatedCount: (rec.generatedCount || 0) + 1,
-      lastGeneratedAt: new Date(),
-      lastGeneratedInvoiceId: invoiceId,
-      status: newStatus,
-      updatedAt: new Date(),
-    }).where(eq(recurringInvoices.id, id));
+    const generated = await generateRecurringInvoice(db, rec, { userId });
 
     await writeAccountingAudit(c, db, {
-      accountingEntityId: entityIdForNumbering,
+      accountingEntityId: rec.entityId,
       entityType: 'recurring_invoice',
       entityId: id,
       action: 'generated',
       changes: {
-        lastGeneratedInvoiceId: { old: rec.lastGeneratedInvoiceId, new: invoiceId },
+        lastGeneratedInvoiceId: { old: rec.lastGeneratedInvoiceId, new: generated.invoiceId },
         generatedCount: { old: rec.generatedCount, new: (rec.generatedCount || 0) + 1 },
-        status: { old: rec.status, new: newStatus },
+        status: { old: rec.status, new: generated.status },
       },
     });
     publishEntityEvent({
@@ -413,11 +294,27 @@ app.post('/:id/generate', requirePermission('invoices:create'), async (c) => {
       entityType: 'recurring_invoice',
       entityId: id,
       action: 'updated',
-      data: { id, invoiceId, invoiceNumber, nextIssueDate: nextDate.toISOString(), status: newStatus, generatedCount: (rec.generatedCount || 0) + 1 },
+      data: {
+        id,
+        invoiceId: generated.invoiceId,
+        invoiceNumber: generated.invoiceNumber,
+        nextIssueDate: generated.nextIssueDate.toISOString(),
+        status: generated.status,
+        generatedCount: (rec.generatedCount || 0) + 1,
+      },
     });
-    return success(c, { invoiceId, invoiceNumber, nextIssueDate: nextDate.toISOString(), status: newStatus }, 201);
+    return success(c, {
+      invoiceId: generated.invoiceId,
+      invoiceNumber: generated.invoiceNumber,
+      nextIssueDate: generated.nextIssueDate.toISOString(),
+      status: generated.status,
+      journalEntryId: generated.journalEntryId,
+      finalizeError: generated.finalizeError,
+    }, 201);
   } catch (err) {
-    console.error('[app-api/recurring-invoices] generate failed:', err);
+    if (err instanceof RecurringAlreadyGeneratedError) return error.conflict(c, err.message);
+    if (err instanceof PostingError || err instanceof TaxCalculationError) return error.badRequest(c, err.message);
+    console.error('[books-api/recurring-invoices] generate failed:', err);
     return error.internal(c, 'Failed to generate recurring invoice');
   }
 });

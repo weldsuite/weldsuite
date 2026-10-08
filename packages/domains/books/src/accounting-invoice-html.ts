@@ -8,7 +8,8 @@
  * that can be converted to PDF via the browser's print dialog or a headless renderer.
  */
 
-import type { Entity } from '@weldsuite/db/schema';
+import type { Entity, StoredPostalAddress } from '@weldsuite/db/schema';
+import { formatPostalAddressLines, normalizePostalAddress } from './accounting-address';
 import { getAdapter } from './jurisdictions/registry';
 import type { InvoiceLabels } from './jurisdictions/types';
 
@@ -47,13 +48,10 @@ export interface InvoiceRenderData {
    * decides which apply based on the tax rates used and the entity's regime.
    */
   complianceNotices?: string[];
-  billingAddress?: {
-    street?: string;
-    houseNumber?: string;
-    postalCode?: string;
-    city?: string;
-    country?: string;
-  } | null;
+  /** Buyer's billing address, in the shared or the legacy (street/houseNumber) shape. */
+  billingAddress?: StoredPostalAddress | null;
+  /** Ship-to address; printed in its own block when it differs from the billing address. */
+  shippingAddress?: StoredPostalAddress | null;
   reference?: string | null;
   notes?: string | null;
   items: InvoiceLineItem[];
@@ -94,6 +92,24 @@ function escapeHtml(str: string): string {
     .replaceAll('\'', '&#039;');
 }
 
+/**
+ * Branding colours are interpolated into inline `style` attributes, where
+ * escaping alone still lets a value smuggle extra CSS in ("red;background:
+ * url(...)"). Only plain colour values pass; anything else gets the default.
+ */
+const SAFE_COLOR = /^(#[0-9a-f]{3,8}|[a-z]{3,20}|(rgb|rgba|hsl|hsla)\([\d.,%\s/]+\))$/i;
+
+function safeColor(value: string | null | undefined, fallback: string): string {
+  const color = value?.trim();
+  return color && SAFE_COLOR.test(color) ? escapeHtml(color) : fallback;
+}
+
+/** Logo URLs: http(s) or an inline image only, never `javascript:` and friends. */
+function safeImageUrl(value: string | null | undefined): string | null {
+  const url = value?.trim();
+  return url && /^(https?:\/\/|data:image\/)/i.test(url) ? url : null;
+}
+
 type CurrencyFmt = (value: string | number) => string;
 type Branding = NonNullable<Entity['branding']>;
 type TaxIdentifiers = NonNullable<Entity['taxIdentifiers']>;
@@ -105,9 +121,9 @@ function buildItemRows(items: InvoiceLineItem[], fmtCurrency: CurrencyFmt): stri
       (item) => `
     <tr>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;">${escapeHtml(item.description)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}${item.unit ? ` ${item.unit}` : ''}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${escapeHtml(String(item.quantity))}${item.unit ? ` ${escapeHtml(item.unit)}` : ''}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${fmtCurrency(item.unitPrice)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${item.taxRate ? `${item.taxRate}%` : '—'}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${item.taxRate ? `${escapeHtml(String(item.taxRate))}%` : '—'}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:500;">${fmtCurrency(item.lineTotal)}</td>
     </tr>
   `,
@@ -124,7 +140,7 @@ function buildTaxRows(
     .map(
       (tb) => `
     <tr>
-      <td style="padding:4px 0;">${labels.tax} ${tb.taxRate}% ${fmtCurrency(tb.taxableAmount)}</td>
+      <td style="padding:4px 0;">${labels.tax} ${escapeHtml(String(tb.taxRate))}% ${fmtCurrency(tb.taxableAmount)}</td>
       <td style="padding:4px 0;text-align:right;">${fmtCurrency(tb.taxAmount)}</td>
     </tr>
   `,
@@ -132,31 +148,37 @@ function buildTaxRows(
     .join('');
 }
 
-function buildBillingAddressBlock(address: InvoiceRenderData['billingAddress']): string {
-  if (!address) return '';
-  return [
-    address.street,
-    address.houseNumber,
-    [address.postalCode, address.city].filter(Boolean).join(' '),
-    address.country,
-  ]
-    .filter(Boolean)
-    .join('<br>');
+/**
+ * An address as escaped HTML lines (either stored shape; state and county
+ * included). `omitCountry` drops the country line when it equals that code.
+ */
+function buildAddressBlock(
+  address: StoredPostalAddress | null | undefined,
+  omitCountry?: string,
+): string {
+  return formatPostalAddressLines(address, { omitCountry }).map(escapeHtml).join('<br>');
 }
 
-function buildEntityAddressBlock(entityAddress: NonNullable<Entity['address']>): string {
-  return [
-    entityAddress.street,
-    [entityAddress.postalCode, entityAddress.city].filter(Boolean).join(' '),
-    entityAddress.country,
-  ]
-    .filter(Boolean)
-    .join('<br>');
+/** The ship-to address, only when there is one and it isn't the billing address. */
+function distinctShippingAddress(invoice: InvoiceRenderData): StoredPostalAddress | null {
+  const shipping = normalizePostalAddress(invoice.shippingAddress);
+  if (!shipping) return null;
+  const billing = normalizePostalAddress(invoice.billingAddress);
+  return JSON.stringify(shipping) === JSON.stringify(billing) ? null : shipping;
+}
+
+function buildShipToBlock(shipToBlock: string, labels: InvoiceLabels): string {
+  if (!shipToBlock) return '';
+  return `<div style="margin-top:16px;">
+        <div style="font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;">${escapeHtml(labels.shipTo)}</div>
+        <div style="font-size:14px;color:#555;">${shipToBlock}</div>
+      </div>`;
 }
 
 function buildLogoHtml(branding: Branding, entityName: string, primaryColor: string): string {
-  return branding.logoUrl
-    ? `<img src="${escapeHtml(branding.logoUrl)}" alt="${escapeHtml(entityName)}" style="max-height:60px;max-width:200px;" />`
+  const logoUrl = safeImageUrl(branding.logoUrl);
+  return logoUrl
+    ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(entityName)}" style="max-height:60px;max-width:200px;" />`
     : `<div style="font-size:24px;font-weight:bold;color:${primaryColor};">${escapeHtml(entityName)}</div>`;
 }
 
@@ -296,8 +318,8 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const fmtDate = makeDateFmt(locale);
 
   const branding = entity.branding ?? {};
-  const primaryColor = branding.primaryColor || '#1a1a2e';
-  const accentColor = branding.accentColor || '#16213e';
+  const primaryColor = safeColor(branding.primaryColor, '#1a1a2e');
+  const accentColor = safeColor(branding.accentColor, '#16213e');
 
   const typeLabel = invoice.type === 'credit_note' ? labels.creditNote : labels.invoice;
 
@@ -306,8 +328,17 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
 
   const itemRows = buildItemRows(invoice.items, fmtCurrency);
   const taxRows = buildTaxRows(invoice.taxBreakdown || [], labels, fmtCurrency);
-  const addressBlock = buildBillingAddressBlock(invoice.billingAddress);
-  const entityAddressBlock = buildEntityAddressBlock(entity.address ?? {});
+  // Countries print only when the invoice crosses a border: the buyer's
+  // addresses drop the seller's own country, and the seller's address shows
+  // its country only to a foreign buyer.
+  const sellerCountry = (
+    normalizePostalAddress(entity.address)?.country ?? entity.jurisdictionCode
+  ).toUpperCase();
+  const buyerCountry = normalizePostalAddress(invoice.billingAddress)?.country;
+  const crossBorder = !!buyerCountry && buyerCountry !== sellerCountry;
+  const addressBlock = buildAddressBlock(invoice.billingAddress, sellerCountry);
+  const shipToBlock = buildAddressBlock(distinctShippingAddress(invoice), sellerCountry);
+  const entityAddressBlock = buildAddressBlock(entity.address, crossBorder ? undefined : sellerCountry);
   const logoHtml = buildLogoHtml(branding, entity.name, primaryColor);
 
   const balanceDue = Number.parseFloat(invoice.balanceDue || invoice.total);
@@ -341,7 +372,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
 
   <div style="display:flex;justify-content:space-between;margin-bottom:30px;">
     <div style="flex:1;">
-      <div style="font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;">${labels.billTo === 'Bill to' ? 'From' : 'Van'}</div>
+      <div style="font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;">${escapeHtml(labels.from)}</div>
       <div style="font-weight:600;">${escapeHtml(entity.legalName ?? entity.name)}</div>
       <div style="font-size:14px;color:#555;">${entityAddressBlock}</div>
       ${buildSellerTaxIds(taxIds, labels)}
@@ -350,6 +381,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
       <div style="font-size:11px;text-transform:uppercase;color:#999;margin-bottom:8px;">${labels.billTo}</div>
       <div style="font-weight:600;">${escapeHtml(invoice.contactName)}</div>
       ${buildBuyerDetails(invoice, addressBlock, labels)}
+      ${buildShipToBlock(shipToBlock, labels)}
     </div>
   </div>
 

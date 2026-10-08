@@ -27,24 +27,34 @@ function isSupportedIso4217(code: string): boolean {
   }
 }
 
+function usableLocale(locale: string | null | undefined): string | undefined {
+  if (!locale) return undefined;
+  try {
+    return Intl.NumberFormat.supportedLocalesOf([locale]).length > 0 ? locale : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Format a WeldBooks amount with the entity (or document) currency.
+ * Format a WeldBooks amount with the entity (or document) currency and the
+ * entity locale.
  *
- * Falls back to EUR only when the code is missing or not a valid ISO 4217
- * currency — never assume Euro just because the locale is nl-NL.
+ * Never assumes a currency: when the code is missing or not a valid ISO 4217
+ * currency the amount is shown as a plain number with two decimals. A missing
+ * or malformed locale falls back to the browser's.
  */
 export function formatWeldbooksMoney(
   value: number | string | null | undefined,
   currency?: string | null,
   locale?: string | null,
 ): string {
-  const code = currency && isSupportedIso4217(currency) ? currency.toUpperCase() : 'EUR';
-  const loc = locale && locale.length > 0 ? locale : 'nl-NL';
+  const code = currency && isSupportedIso4217(currency) ? currency.toUpperCase() : null;
+  const loc = usableLocale(locale);
   const amount = Number(value ?? 0);
   const safeAmount = Number.isFinite(amount) ? amount : 0;
-  try {
-    return new Intl.NumberFormat(loc, { style: 'currency', currency: code }).format(safeAmount);
-  } catch {
-    return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(safeAmount);
+  if (!code) {
+    return new Intl.NumberFormat(loc, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safeAmount);
   }
+  return new Intl.NumberFormat(loc, { style: 'currency', currency: code }).format(safeAmount);
 }

@@ -14,6 +14,7 @@ import {
 import { useBalanceSheetReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 type Amount = string | number | null;
 
@@ -82,8 +83,9 @@ function AccountSection({
 export default function BalanceSheetReportPage() {
   const { t } = useI18n();
   const tr = t.accounting.reports;
+  const { today } = useWeldbooksFormat();
 
-  const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
+  const [asOf, setAsOf] = useState(() => today());
   const { data, isLoading, refetch } = useBalanceSheetReport({ asOf });
   const report = data?.data as BalanceSheetReport | undefined;
 

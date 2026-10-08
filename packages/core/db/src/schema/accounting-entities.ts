@@ -2,11 +2,13 @@ import {
   pgTable,
   varchar,
   timestamp,
+  date,
   integer,
   boolean,
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
+import type { StoredPostalAddress } from './accounting-address';
 
 export const entities = pgTable('entities', {
   id: varchar('id', { length: 30 }).primaryKey(),
@@ -29,14 +31,7 @@ export const entities = pgTable('entities', {
     other?: Record<string, string>;
   }>(),
 
-  address: jsonb('address').$type<{
-    street?: string;
-    houseNumber?: string;
-    postalCode?: string;
-    city?: string;
-    province?: string;
-    country?: string;
-  }>(),
+  address: jsonb('address').$type<StoredPostalAddress>(),
 
   contact: jsonb('contact').$type<{
     email?: string;
@@ -64,6 +59,20 @@ export const entities = pgTable('entities', {
   jurisdictionSettings: jsonb('jurisdiction_settings').$type<Record<string, unknown>>(),
 
   fiscalYearStart: integer('fiscal_year_start').default(1),
+
+  /**
+   * Lock dates: postings dated on or before a lock date are refused.
+   * sales = invoices and credit notes; purchase = bills; tax = anything that
+   * carries tax (set when a tax return is filed); period = everything. Each
+   * of these can be bypassed by a logged `lock_date_exceptions` row. The hard
+   * lock has no exceptions and can only move forward.
+   */
+  salesLockDate: date('sales_lock_date'),
+  purchaseLockDate: date('purchase_lock_date'),
+  taxLockDate: date('tax_lock_date'),
+  periodLockDate: date('period_lock_date'),
+  hardLockDate: date('hard_lock_date'),
+
   isDefault: boolean('is_default').default(false),
   isActive: boolean('is_active').default(true),
 }, (table) => [

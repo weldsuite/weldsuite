@@ -14,7 +14,8 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { BOOKED_STATUSES } from '../../services/accounting-posting';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -112,7 +113,7 @@ app.get('/:id/transactions', requirePermission('accounts:read'), async (c) => {
     const where = and(
       eq(journalLines.accountId, accountId),
       isNull(journalLines.deletedAt),
-      eq(journalEntries.status, 'posted'),
+      inArray(journalEntries.status, BOOKED_STATUSES),
     );
 
     const [{ total }] = await db

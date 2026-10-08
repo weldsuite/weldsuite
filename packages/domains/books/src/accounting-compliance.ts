@@ -13,6 +13,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { Entity } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { getAdapter, hasAdapter } from './jurisdictions/registry';
+import type { InvoiceRequirements } from './jurisdictions/types';
 import {
   NL_NOTICE_KOR,
   NL_NOTICE_REVERSE_CHARGE_DOMESTIC,
@@ -93,8 +94,12 @@ export interface ComplianceCheckResult {
   buyerVatNumber: string | null;
 }
 
-/** Labels of the legally required invoice fields the entity has not filled in. */
-function missingEntityInvoiceFields(entity: Entity, requiredFields: readonly string[]): string[] {
+/**
+ * Labels of the legally required invoice fields the entity has not filled in.
+ * The tax-id labels come from the jurisdiction adapter in the entity's locale
+ * ("BTW-nummer" / "VAT number", "GSTIN", ...), not a fixed Dutch wording.
+ */
+function missingEntityInvoiceFields(entity: Entity, requirements: InvoiceRequirements): string[] {
   const present: Record<string, boolean> = {
     vatNumber: !!entity.taxIdentifiers?.vatNumber,
     registrationNumber: !!entity.taxIdentifiers?.registrationNumber,
@@ -102,12 +107,14 @@ function missingEntityInvoiceFields(entity: Entity, requiredFields: readonly str
     bic: !!entity.bankDetails?.bic,
   };
   const labels: Record<string, string> = {
-    vatNumber: 'BTW-nummer',
-    registrationNumber: 'KvK-nummer',
+    vatNumber: requirements.labels.vatNumberLabel,
+    registrationNumber: requirements.labels.registrationLabel,
     iban: 'IBAN',
     bic: 'BIC',
   };
-  return requiredFields.filter((field) => field in labels && !present[field]).map((field) => labels[field]);
+  return requirements.requiredFields
+    .filter((field) => field in labels && !present[field])
+    .map((field) => labels[field]);
 }
 
 interface ReverseChargeCheck {
@@ -175,7 +182,7 @@ export async function validateInvoiceForFinalize(
     const requirements = getAdapter(entity.jurisdictionCode).getInvoiceRequirements(
       entity.locale ?? undefined,
     );
-    const missing = missingEntityInvoiceFields(entity, requirements.requiredFields);
+    const missing = missingEntityInvoiceFields(entity, requirements);
     if (missing.length > 0) {
       errors.push(
         `Entity is missing legally required invoice fields: ${missing.join(', ')}. Add them in the entity settings before finalizing.`,

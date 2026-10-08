@@ -1,8 +1,14 @@
 # Invoices
 
-Customer invoices (accounts receivable). Mutations require the `invoices:write` scope; reads require `invoices:read`. {{ className: 'lead' }}
+Customer invoices (accounts receivable). Reads require the `invoices:read` scope. {{ className: 'lead' }}
 
 <ResourceVersionBanner />
+
+---
+
+## Read-only resource
+
+Invoices are read-only through the public API because every invoice and credit note is tax-calculated, numbered and posted to the ledger in WeldBooks, and a write that skips those steps would leave the books out of balance. `POST`, `PUT`, `PATCH` and `DELETE` on `/v1/invoices` answer `405 METHOD_NOT_ALLOWED`; make changes in WeldBooks.
 
 ---
 
@@ -11,8 +17,7 @@ Customer invoices (accounts receivable). Mutations require the `invoices:write` 
 Every invoice belongs to one **accounting entity** (legal company / set of books). The `entityId` field on each record references an [accounting entity](/accounting-entities) (`ent_*`).
 
 - **On read:** responses include `entityId` — that is how you know which books a record belongs to.
-- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity.
-- **On create:** send `entityId` in the JSON body. The external API does **not** pick a default for you. Read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
+- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity. To find the id, read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
 
 ---
 
@@ -79,53 +84,6 @@ Every invoice belongs to one **accounting entity** (legal company / set of books
 
 ---
 
-## Create an invoice {{ tag: 'POST', label: '/v1/invoices' }}
-
-<Row>
-  <Col>
-
-    Create an invoice.
-    
-    ### Accounting entity
-    
-    Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).
-    
-    Common fields: `entityId`, `customerId`, `customerName`, `reference`, `issueDate`, `dueDate`, `currency`, line items via `items`. Workflow actions (finalize, send, PDF) are available on the first-party app API.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="POST" label="/v1/invoices">
-
-    ```bash {{ title: 'cURL' }}
-    curl https://api.weldsuite.org/v1/invoices \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "entityId": "ent_abc123",
-        "customerName": "Smith Industries",
-        "currency": "EUR"
-      }'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "inv_new456",
-        "entityId": "ent_abc123",
-        "createdAt": "2024-12-01T14:00:00Z",
-        "updatedAt": "2024-12-01T14:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
 ## Retrieve an invoice {{ tag: 'GET', label: '/v1/invoices/:id' }}
 
 <Row>
@@ -152,69 +110,6 @@ Every invoice belongs to one **accounting entity** (legal company / set of books
         "entityId": "ent_abc123"
       }
     }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Update an invoice {{ tag: 'PATCH', label: '/v1/invoices/:id' }}
-
-<Row>
-  <Col>
-
-    Partially update a invoice. Only the fields you send are changed. You may update `entityId` to move a record to another accounting entity when your workflow allows it.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="PATCH" label="/v1/invoices/inv_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X PATCH https://api.weldsuite.org/v1/invoices/inv_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{}'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "inv_abc123",
-        "updatedAt": "2024-12-01T15:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Delete an invoice {{ tag: 'DELETE', label: '/v1/invoices/:id' }}
-
-<Row>
-  <Col>
-
-    Soft-delete a invoice. Returns `204 No Content`.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="DELETE" label="/v1/invoices/inv_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X DELETE https://api.weldsuite.org/v1/invoices/inv_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key"
-    ```
-
-    </CodeGroup>
-
-    ```text {{ title: 'Response' }}
-    204 No Content
     ```
 
   </Col>

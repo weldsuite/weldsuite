@@ -9,7 +9,7 @@
  */
 
 import type { Context } from 'hono';
-import { and, eq, gte, isNull, lte } from 'drizzle-orm';
+import { and, eq, gt, gte, isNull, lte } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
@@ -56,6 +56,121 @@ export async function assertPeriodOpen(
 
   if (closed) {
     throw new ClosedPeriodError(closed.name, iso);
+  }
+}
+
+/** Which lock dates apply to a posting besides the period and hard locks. */
+export type PostingLockKind = 'sales' | 'purchase' | 'general';
+
+type LockType = 'sales' | 'purchase' | 'tax' | 'period' | 'hard';
+
+const LOCK_LABELS: Record<LockType, string> = {
+  sales: 'Sales',
+  purchase: 'Purchases',
+  tax: 'Tax',
+  period: 'The books',
+  hard: 'The books (hard lock)',
+};
+
+export class LockedPeriodError extends Error {
+  readonly lockType: LockType;
+  readonly lockDate: string;
+  constructor(lockType: LockType, lockDate: string, date: string) {
+    const remedy =
+      lockType === 'hard'
+        ? 'The hard lock cannot be lifted; use a later date.'
+        : 'Use a later date or ask an admin for a lock exception.';
+    super(
+      `${LOCK_LABELS[lockType]} are locked up to and including ${lockDate} — a booking dated ${date} is not allowed. ${remedy}`,
+    );
+    this.name = 'LockedPeriodError';
+    this.lockType = lockType;
+    this.lockDate = lockDate;
+  }
+}
+
+function toIsoDate(date: string | Date): string {
+  return typeof date === 'string' ? date.slice(0, 10) : date.toISOString().slice(0, 10);
+}
+
+/**
+ * Refuse a posting that falls inside a closed fiscal period or on/before one
+ * of the entity's lock dates.
+ *
+ * - hard lock: everything, no exceptions;
+ * - period lock: everything;
+ * - sales / purchase lock: postings of that kind (invoices and credit notes /
+ *   bills);
+ * - tax lock: postings that carry tax, so a filed return can't change.
+ *
+ * Every lock except the hard lock can be bypassed by an active, unrevoked
+ * `lock_date_exceptions` row for the user (or for everyone).
+ */
+export async function assertPostingAllowed(
+  db: Database,
+  args: {
+    entityId: string;
+    date: string | Date;
+    kind: PostingLockKind;
+    affectsTax: boolean;
+    userId?: string | null;
+    now?: Date;
+  },
+): Promise<void> {
+  await assertPeriodOpen(db, args.entityId, args.date);
+
+  const iso = toIsoDate(args.date);
+  const [entity] = await db
+    .select({
+      salesLockDate: schema.entities.salesLockDate,
+      purchaseLockDate: schema.entities.purchaseLockDate,
+      taxLockDate: schema.entities.taxLockDate,
+      periodLockDate: schema.entities.periodLockDate,
+      hardLockDate: schema.entities.hardLockDate,
+    })
+    .from(schema.entities)
+    .where(eq(schema.entities.id, args.entityId))
+    .limit(1);
+  if (!entity) return;
+
+  if (entity.hardLockDate && iso <= entity.hardLockDate) {
+    throw new LockedPeriodError('hard', entity.hardLockDate, iso);
+  }
+
+  const candidates: Array<{ type: Exclude<LockType, 'hard'>; lockDate: string | null }> = [
+    { type: 'period', lockDate: entity.periodLockDate },
+  ];
+  if (args.kind === 'sales') candidates.push({ type: 'sales', lockDate: entity.salesLockDate });
+  if (args.kind === 'purchase') candidates.push({ type: 'purchase', lockDate: entity.purchaseLockDate });
+  if (args.affectsTax) candidates.push({ type: 'tax', lockDate: entity.taxLockDate });
+
+  const hits = candidates.filter((c): c is { type: Exclude<LockType, 'hard'>; lockDate: string } =>
+    Boolean(c.lockDate && iso <= c.lockDate),
+  );
+  if (hits.length === 0) return;
+
+  const now = args.now ?? new Date();
+  const exceptions = await db
+    .select({
+      lockType: schema.lockDateExceptions.lockType,
+      userId: schema.lockDateExceptions.userId,
+    })
+    .from(schema.lockDateExceptions)
+    .where(
+      and(
+        eq(schema.lockDateExceptions.entityId, args.entityId),
+        isNull(schema.lockDateExceptions.revokedAt),
+        gt(schema.lockDateExceptions.endsAt, now),
+      ),
+    );
+
+  for (const hit of hits) {
+    const excepted = exceptions.some(
+      (e) =>
+        e.lockType === hit.type &&
+        (e.userId === null || (args.userId != null && e.userId === args.userId)),
+    );
+    if (!excepted) throw new LockedPeriodError(hit.type, hit.lockDate, iso);
   }
 }
 

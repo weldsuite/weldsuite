@@ -4,19 +4,23 @@
  * Used for money that is not a customer payment or supplier bill: fee refunds,
  * payment-processor settlements, interest, owner deposits, bank charges.
  *
- * Journal:
- *   money in  →  Dr bank ledger   /   Cr category (e.g. Other income, Bank fees)
- *   money out →  Dr category      /   Cr bank ledger
+ * Journal (gross = the bank amount):
+ *   money in  →  Dr bank ledger (gross)  /  Cr category (net), Cr tax payable (tax)
+ *   money out →  Dr category (net), Dr input tax (tax)  /  Cr bank ledger (gross)
+ *
+ * The tax split only happens when a tax rate is chosen; the bank amount is
+ * treated as tax-inclusive. Under the Dutch KOR purchase tax is not deductible
+ * and stays in the category amount.
  *
  * The bank account's cashbook balance is already updated on import/create.
- * This only posts the GL so P&L and the balance sheet stay in sync.
+ * This only posts the GL so P&L, balance sheet and the tax ledger stay in sync.
  */
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { generateId } from '@weldsuite/worker-kit/id';
-import { nextEntityNumber, resolveEntityBaseCurrency } from '../lib/entity-context';
-import { assertPeriodOpen } from '@weldsuite/books-domain/accounting-guards';
+import { isKorActive } from '@weldsuite/books-domain/accounting-guards';
+import { accountForRole, loadEntityAccounts, postJournalEntry, roundMoney, type PostingLine, type PostingTaxLine } from './accounting-posting';
+import { loadEntity } from './accounting-document-posting';
 
 export class BankCategorizeError extends Error {
   constructor(message: string) {
@@ -29,33 +33,13 @@ export interface CategorizeBankTransactionInput {
   txn: typeof schema.bankTransactions.$inferSelect;
   categoryAccountId: string;
   contactId?: string | null;
+  taxRateId?: string | null;
   userId: string | null;
 }
 
 export interface CategorizeBankTransactionResult {
   journalEntryId: string;
   entryNumber: string;
-}
-
-async function applyLineBalances(
-  db: Database,
-  lines: Array<{ accountId: string; debit: string; credit: string }>,
-): Promise<void> {
-  const { accounts } = schema;
-  for (const line of lines) {
-    const debit = Number.parseFloat(line.debit || '0');
-    const credit = Number.parseFloat(line.credit || '0');
-    const netChange = debit - credit;
-    if (netChange !== 0) {
-      await db
-        .update(accounts)
-        .set({
-          currentBalance: sql`(${accounts.currentBalance}::numeric + ${netChange})`,
-          updatedAt: new Date(),
-        })
-        .where(eq(accounts.id, line.accountId));
-    }
-  }
 }
 
 function bankEntryDescription(description: string | null, moneyIn: boolean, counterparty: string): string {
@@ -67,8 +51,8 @@ export async function categorizeBankTransaction(
   db: Database,
   args: CategorizeBankTransactionInput,
 ): Promise<CategorizeBankTransactionResult> {
-  const { txn, categoryAccountId, contactId, userId } = args;
-  const { bankAccounts, bankTransactions, accounts, journalEntries, journalLines } = schema;
+  const { txn, categoryAccountId, userId } = args;
+  const { bankAccounts, bankTransactions } = schema;
 
   if (txn.status !== 'unreconciled') {
     throw new BankCategorizeError('Transaction is already reconciled or excluded');
@@ -77,139 +61,134 @@ export async function categorizeBankTransaction(
     throw new BankCategorizeError('Transaction already has a journal entry');
   }
 
-  const abs = Math.abs(Number(txn.amount));
-  if (!Number.isFinite(abs) || abs === 0) {
+  const gross = roundMoney(Math.abs(Number(txn.amount)));
+  if (!Number.isFinite(gross) || gross === 0) {
     throw new BankCategorizeError('Transaction amount must be non-zero');
   }
-  const amount = abs.toFixed(2);
   const moneyIn = Number(txn.amount) > 0;
 
   const [bankAccount] = await db
     .select()
     .from(bankAccounts)
-    .where(and(eq(bankAccounts.id, txn.bankAccountId), isNull(bankAccounts.deletedAt)))
+    .where(and(eq(bankAccounts.id, txn.bankAccountId), eq(bankAccounts.entityId, txn.entityId), isNull(bankAccounts.deletedAt)))
     .limit(1);
   if (!bankAccount) {
     throw new BankCategorizeError('Bank account not found');
   }
+
+  const accounts = await loadEntityAccounts(db, txn.entityId);
+  const ledger = accounts.byId(bankAccount.ledgerAccountId);
   if (!bankAccount.ledgerAccountId) {
     throw new BankCategorizeError(
       'This bank account is not linked to a ledger account. Edit the bank account and choose a GL account first.',
     );
   }
-
-  const [category] = await db
-    .select()
-    .from(accounts)
-    .where(
-      and(
-        eq(accounts.id, categoryAccountId),
-        eq(accounts.entityId, txn.entityId),
-        isNull(accounts.deletedAt),
-      ),
-    )
-    .limit(1);
-  if (!category) {
-    throw new BankCategorizeError('Category account not found');
-  }
-  if (category.id === bankAccount.ledgerAccountId) {
-    throw new BankCategorizeError('Pick an income or expense account, not the bank ledger account itself');
-  }
-
-  const [ledger] = await db
-    .select()
-    .from(accounts)
-    .where(
-      and(
-        eq(accounts.id, bankAccount.ledgerAccountId),
-        eq(accounts.entityId, txn.entityId),
-        isNull(accounts.deletedAt),
-      ),
-    )
-    .limit(1);
   if (!ledger) {
     throw new BankCategorizeError('Linked ledger account was not found');
   }
+  const category = accounts.byId(categoryAccountId);
+  if (!category) {
+    throw new BankCategorizeError('Category account not found');
+  }
+  if (category.id === ledger.id) {
+    throw new BankCategorizeError('Pick an income or expense account, not the bank ledger account itself');
+  }
 
-  await assertPeriodOpen(db, txn.entityId, txn.date);
-
-  const { formatted: entryNumber } = await nextEntityNumber(db, txn.entityId, 'journal');
-  const journalEntryId = generateId('je');
-  const now = new Date();
-  const currency = bankAccount.currency || (await resolveEntityBaseCurrency(db, txn.entityId));
+  const entity = await loadEntity(db, txn.entityId);
+  const contactId = args.contactId || txn.contactId || null;
+  const currency = bankAccount.currency || entity.baseCurrency;
   const counterparty = txn.counterpartyName ? ` — ${txn.counterpartyName}` : '';
   const description = bankEntryDescription(txn.description, moneyIn, counterparty);
+  const meta = { contactId, currency, description };
 
-  const bankDebit = moneyIn ? amount : '0.00';
-  const bankCredit = moneyIn ? '0.00' : amount;
-  const categoryDebit = moneyIn ? '0.00' : amount;
-  const categoryCredit = moneyIn ? amount : '0.00';
+  let tax = 0;
+  let taxLines: PostingTaxLine[] = [];
+  let taxAccountId: string | null = null;
+  const taxRateId = args.taxRateId || null;
+  if (taxRateId) {
+    const [rate] = await db
+      .select()
+      .from(schema.taxRates)
+      .where(and(eq(schema.taxRates.id, taxRateId), eq(schema.taxRates.entityId, txn.entityId), isNull(schema.taxRates.deletedAt)))
+      .limit(1);
+    if (!rate) throw new BankCategorizeError('Tax rate not found for this accounting entity');
+    const percent = Number(rate.rate);
+    const deductible = moneyIn || !isKorActive(entity, txn.date);
+    tax = roundMoney((gross * percent) / (100 + percent));
+    if (deductible) {
+      const direction = moneyIn ? 'sales' : 'purchase';
+      const taxAccount =
+        accounts.byId(rate.ledgerAccountId) ??
+        (direction === 'purchase' ? accountForRole(accounts, 'tax_input', ['1730']) : undefined) ??
+        accountForRole(accounts, 'tax_payable', ['1700']);
+      if (!taxAccount) throw new BankCategorizeError('No tax account found. Link the tax rate to a ledger account.');
+      taxAccountId = taxAccount.id;
+      taxLines = [
+        {
+          direction,
+          taxRateId: rate.id,
+          taxRateName: rate.name,
+          taxCategoryCode: rate.taxCategoryCode ?? null,
+          rate: percent,
+          taxableAmount: roundMoney(gross - tax),
+          taxAmount: tax,
+          currency,
+          baseTaxableAmount: roundMoney(gross - tax),
+          baseTaxAmount: tax,
+          contactId,
+        },
+      ];
+    } else {
+      tax = 0; // KOR: the whole amount is the cost
+    }
+  }
+  const net = roundMoney(gross - tax);
 
-  await db.insert(journalEntries).values({
-    id: journalEntryId,
+  const lines: PostingLine[] = moneyIn
+    ? [
+        { accountId: ledger.id, debit: gross, ...meta },
+        { accountId: category.id, credit: net, ...meta },
+        ...(taxAccountId && tax > 0 ? [{ accountId: taxAccountId, credit: tax, taxRateId, taxAmount: tax, ...meta }] : []),
+      ]
+    : [
+        { accountId: category.id, debit: net, ...meta },
+        ...(taxAccountId && tax > 0 ? [{ accountId: taxAccountId, debit: tax, taxRateId, taxAmount: tax, ...meta }] : []),
+        { accountId: ledger.id, credit: gross, ...meta },
+      ];
+
+  const now = new Date();
+  const posted = await postJournalEntry(db, {
     entityId: txn.entityId,
-    entryNumber,
     date: txn.date,
-    status: 'posted',
     description,
     reference: txn.reference || null,
     sourceType: 'bank_transaction',
     sourceId: txn.id,
-    totalDebit: amount,
-    totalCredit: amount,
-    isAutomatic: true,
+    // Versioned by the line's last change: a retry finds the same entry, but a
+    // line that was unreconciled and is categorized again posts anew.
+    postingKey: `bank_transaction:${txn.id}:categorize:${txn.updatedAt.getTime()}`,
+    lockKind: 'general',
+    lines,
+    taxLines,
     createdBy: userId,
-    createdAt: now,
-    updatedAt: now,
+    alsoWrite: (h, entry) => [
+      h
+        .update(bankTransactions)
+        .set({
+          status: 'reconciled',
+          reconciliationType: 'manual',
+          categoryAccountId,
+          taxRateId,
+          journalEntryId: entry.journalEntryId,
+          contactId,
+          updatedAt: now,
+        })
+        .where(eq(bankTransactions.id, txn.id)),
+    ],
   });
 
-  await db.insert(journalLines).values([
-    {
-      id: generateId('jl'),
-      entityId: txn.entityId,
-      journalEntryId,
-      accountId: ledger.id,
-      description,
-      debit: bankDebit,
-      credit: bankCredit,
-      contactId: contactId || txn.contactId || null,
-      currency,
-      sortOrder: 0,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId('jl'),
-      entityId: txn.entityId,
-      journalEntryId,
-      accountId: category.id,
-      description,
-      debit: categoryDebit,
-      credit: categoryCredit,
-      contactId: contactId || txn.contactId || null,
-      currency,
-      sortOrder: 1,
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]);
-
-  await applyLineBalances(db, [
-    { accountId: ledger.id, debit: bankDebit, credit: bankCredit },
-    { accountId: category.id, debit: categoryDebit, credit: categoryCredit },
-  ]);
-
-  await db
-    .update(bankTransactions)
-    .set({
-      status: 'reconciled',
-      reconciliationType: 'manual',
-      categoryAccountId,
-      journalEntryId,
-      contactId: contactId || txn.contactId || null,
-      updatedAt: now,
-    })
-    .where(eq(bankTransactions.id, txn.id));
-
-  return { journalEntryId, entryNumber };
+  if (!posted.journalEntryId || !posted.entryNumber) {
+    throw new BankCategorizeError('Nothing to post for this transaction');
+  }
+  return { journalEntryId: posted.journalEntryId, entryNumber: posted.entryNumber };
 }

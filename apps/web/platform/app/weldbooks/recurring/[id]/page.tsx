@@ -7,7 +7,7 @@ import { ArrowLeft, Play, Pause, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 const STATUS_BADGE_VARIANTS: Record<string, 'default' | 'secondary' | 'outline'> = {
   active: 'default',
@@ -29,7 +29,7 @@ function withItemKeys<T extends { description?: string; quantity?: number; unitP
 
 export default function RecurringInvoiceDetailPage() {
   const { t } = useI18n();
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate, formatDateTime } = useWeldbooksFormat();
   const trp = t.accounting.recurringPage;
   const tslRec = t.accounting.statusLabels.recurringInvoice;
 
@@ -118,7 +118,7 @@ export default function RecurringInvoiceDetailPage() {
         <Card>
           <CardHeader><CardTitle className="text-sm">{trp.nextIssueDate}</CardTitle></CardHeader>
           <CardContent>
-            <span className="text-lg font-medium">{rec.nextIssueDate?.slice(0, 10)}</span>
+            <span className="text-lg font-medium">{formatDate(rec.nextIssueDate)}</span>
           </CardContent>
         </Card>
         <Card>
@@ -130,7 +130,7 @@ export default function RecurringInvoiceDetailPage() {
         <Card>
           <CardHeader><CardTitle className="text-sm">{trp.lastGenerated}</CardTitle></CardHeader>
           <CardContent>
-            <span className="text-lg font-medium">{rec.lastGeneratedAt?.slice(0, 10) || trp.never}</span>
+            <span className="text-lg font-medium">{formatDateTime(rec.lastGeneratedAt, trp.never)}</span>
           </CardContent>
         </Card>
       </div>
@@ -151,7 +151,7 @@ export default function RecurringInvoiceDetailPage() {
           {rec.endDate && (
             <div className="flex justify-between">
               <span className="text-muted-foreground">{trp.endDate}</span>
-              <span>{rec.endDate?.slice(0, 10)}</span>
+              <span>{formatDate(rec.endDate)}</span>
             </div>
           )}
           <div className="flex justify-between">

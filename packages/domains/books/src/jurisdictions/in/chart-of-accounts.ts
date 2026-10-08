@@ -178,6 +178,8 @@ export const inChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '4650', name: 'Bank charges', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4700', name: 'Depreciation', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4800', name: 'Interest expense', type: 'expense', subtype: 'other_expense', normalSide: 'debit' },
+  { code: '4900', name: 'General expenses', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'general_expense' },
+  { code: '4910', name: 'Bad debts', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'bad_debt_expense' },
   {
     code: '4950',
     name: 'Foreign exchange loss',

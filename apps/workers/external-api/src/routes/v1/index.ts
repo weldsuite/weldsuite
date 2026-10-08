@@ -20,9 +20,9 @@ import {
   fiscalPeriods,
   fxRates,
   vatReturns,
+  icpDeclarations,
   accountingDocuments,
-} from './accounting/crud-routes';
-import icpDeclarations from './icp-declarations';
+} from './accounting/read-only-routes';
 import activities from './activities';
 import appStorage from './app-storage';
 import articles from './articles';

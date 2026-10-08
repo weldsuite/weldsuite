@@ -13,7 +13,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import { useTrialBalanceReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 type Amount = string | number | null;
 
@@ -33,12 +33,12 @@ interface TrialBalanceReport {
 
 export default function TrialBalanceReportPage() {
   const { t } = useI18n();
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, today } = useWeldbooksFormat();
   const tr = t.accounting.reports;
 
-  const today = new Date();
-  const [from, setFrom] = useState(`${today.getFullYear()}-01-01`);
-  const [to, setTo] = useState(today.toISOString().slice(0, 10));
+  const todayIso = today();
+  const [from, setFrom] = useState(`${todayIso.slice(0, 4)}-01-01`);
+  const [to, setTo] = useState(todayIso);
   const { data, isLoading, refetch } = useTrialBalanceReport({ from, to });
   const report = data?.data as TrialBalanceReport | undefined;
 

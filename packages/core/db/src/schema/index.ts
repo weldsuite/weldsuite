@@ -297,6 +297,10 @@ export * from './accounting-audit-log';
 export * from './accounting-contacts';
 export * from './accounting-vies-checks';
 export * from './accounting-icp-declarations';
+export * from './accounting-address';
+export * from './accounting-tax-lines';
+export * from './accounting-payment-allocations';
+export * from './accounting-lock-date-exceptions';
 
 // Calendar module
 export * from './calendars';

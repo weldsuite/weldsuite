@@ -1,31 +1,41 @@
 import { useState } from 'react';
+import { Link } from '@tanstack/react-router';
+import { toast } from 'sonner';
+import { Pencil } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
-import { Label } from '@weldsuite/ui/components/label';
 import { useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-
-interface AccountingCompanyDetails {
-  name?: string;
-  btwNumber?: string;
-  kvkNumber?: string;
-  iban?: string;
-}
+import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
+import { formatPostalAddressLines } from '@/components/address/postal-address';
+import { countryName } from '@/components/address/countries';
+import { LedgerCatchUpCard } from './components/ledger-catch-up-card';
 
 interface AccountingEmailSettings {
   inboxAddress?: string;
   autoScanEnabled?: boolean;
 }
 
+function SummaryRow({ label, value, empty }: Readonly<{ label: string; value: React.ReactNode; empty: string }>) {
+  return (
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-4 py-2 border-b last:border-b-0">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm font-medium sm:text-right">{value || <span className="text-muted-foreground">{empty}</span>}</span>
+    </div>
+  );
+}
+
 export default function AccountingSettingsPage() {
   const { data, isLoading } = useAccountingSettings();
   const qc = useQueryClient();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const ts = t.accounting.settings;
+  const { entity, features, terminology, labels } = useJurisdictionLabels();
   const [inboxEmail, setInboxEmail] = useState('');
   const [xafYear, setXafYear] = useState(String(new Date().getFullYear() - 1));
   const [xafDownloading, setXafDownloading] = useState(false);
@@ -46,7 +56,6 @@ export default function AccountingSettingsPage() {
   if (isLoading) return <PageLoader fullScreen={false} />;
 
   const settings = data?.data;
-  const companyDetails = (settings?.companyDetails ?? {}) as AccountingCompanyDetails;
   const emailSettings = (settings?.emailSettings ?? {}) as AccountingEmailSettings;
 
   const handleXafDownload = async () => {
@@ -60,64 +69,59 @@ export default function AccountingSettingsPage() {
       a.download = `auditfile-${xafYear}.xaf`;
       a.click();
       URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(ts.xafFailed, { description: err instanceof Error ? err.message : undefined });
     } finally {
       setXafDownloading(false);
     }
   };
 
+  const ids = entity?.taxIdentifiers;
+  const taxId = terminology.taxId === 'ein' ? ids?.einOrSsn : ids?.vatNumber;
+  const addressLines = formatPostalAddressLines(normalizeAccountingAddress(entity?.address), {
+    countryName: (code) => countryName(code, language || 'en'),
+  });
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <h1 className="text-2xl font-semibold">{ts.title}</h1>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{ts.companyDetails}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>{ts.companyName}</Label>
-              <Input defaultValue={companyDetails.name ?? ''} placeholder={ts.companyNamePlaceholder} />
-            </div>
-            <div className="space-y-2">
-              <Label>{ts.vatNumber}</Label>
-              <Input defaultValue={companyDetails.btwNumber ?? ''} placeholder={ts.vatNumberPlaceholder} />
-            </div>
-            <div className="space-y-2">
-              <Label>{ts.chamberOfCommerce}</Label>
-              <Input defaultValue={companyDetails.kvkNumber ?? ''} placeholder={ts.cocPlaceholder} />
-            </div>
-            <div className="space-y-2">
-              <Label>{ts.iban}</Label>
-              <Input defaultValue={companyDetails.iban ?? ''} placeholder={ts.ibanPlaceholder} />
-            </div>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle>{ts.companyDetails}</CardTitle>
+            <CardDescription>{ts.companyDetailsDesc}</CardDescription>
           </div>
-          <Button>{ts.saveCompanyDetails}</Button>
-        </CardContent>
+          {entity ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/weldbooks/entities/$id/edit" params={{ id: entity.id }}>
+                <Pencil className="h-4 w-4 mr-1" aria-hidden />
+                {ts.editEntityDetails}
+              </Link>
+            </Button>
+          ) : null}
+        </CardHeader>
+        {entity ? (
+          <CardContent>
+            <SummaryRow label={ts.legalNameLabel} value={entity.legalName || entity.name} empty={ts.notSet} />
+            <SummaryRow label={labels.taxId} value={taxId} empty={ts.notSet} />
+            <SummaryRow label={labels.registrationId} value={ids?.registrationNumber} empty={ts.notSet} />
+            <SummaryRow
+              label={ts.addressLabel}
+              value={
+                addressLines.length > 0 ? (
+                  <span className="block">
+                    {addressLines.map((line) => <span key={line} className="block">{line}</span>)}
+                  </span>
+                ) : null
+              }
+              empty={ts.notSet}
+            />
+          </CardContent>
+        ) : null}
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{ts.numbering}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>{ts.invoicePrefix}</Label>
-              <Input defaultValue={settings?.invoiceNumberPrefix ?? 'INV-'} placeholder="INV-" />
-            </div>
-            <div className="space-y-2">
-              <Label>{ts.nextInvoiceNumber}</Label>
-              <Input
-                type="number"
-                defaultValue={settings?.invoiceNumberNext ?? 1}
-                placeholder="1"
-              />
-            </div>
-          </div>
-          <Button>{ts.saveNumbering}</Button>
-        </CardContent>
-      </Card>
+      <LedgerCatchUpCard />
 
       <Card>
         <CardHeader>
@@ -129,7 +133,7 @@ export default function AccountingSettingsPage() {
               <span className="text-muted-foreground">{ts.activeInbox} </span>
               <span className="font-medium">{emailSettings.inboxAddress}</span>
               {emailSettings.autoScanEnabled && (
-                <span className="ml-2 text-green-600 text-xs">{ts.autoScanEnabled}</span>
+                <span className="ml-2 text-green-600 dark:text-green-400 text-xs">{ts.autoScanEnabled}</span>
               )}
             </div>
           ) : (
@@ -137,13 +141,14 @@ export default function AccountingSettingsPage() {
               {ts.noInboxRegistered}
             </p>
           )}
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Input
               type="email"
+              aria-label={ts.emailInbox}
               placeholder={ts.inboxEmailPlaceholder}
               value={inboxEmail}
               onChange={(e) => setInboxEmail(e.target.value)}
-              className="max-w-sm"
+              className="sm:max-w-sm"
             />
             <Button
               variant="outline"
@@ -154,7 +159,7 @@ export default function AccountingSettingsPage() {
             </Button>
           </div>
           {registerInbox.isSuccess && (
-            <p className="text-sm text-green-600">{ts.inboxRegistered}</p>
+            <p className="text-sm text-green-600 dark:text-green-400">{ts.inboxRegistered}</p>
           )}
         </CardContent>
       </Card>
@@ -177,32 +182,35 @@ export default function AccountingSettingsPage() {
             </Button>
           </div>
           {seedWorkflows.isSuccess && (
-            <p className="text-sm text-green-600">
+            <p className="text-sm text-green-600 dark:text-green-400">
               {ts.workflowsSeeded.replace('{count}', String(seedWorkflows.data?.data?.templatesCreated ?? 0))}
             </p>
           )}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{ts.xafTitle}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">{ts.xafDesc}</p>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              value={xafYear}
-              onChange={(e) => setXafYear(e.target.value)}
-              className="max-w-[120px]"
-            />
-            <Button onClick={handleXafDownload} disabled={xafDownloading} variant="outline">
-              {xafDownloading ? ts.xafDownloading : ts.xafDownload}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {features.xafExport && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{ts.xafTitle}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">{ts.xafDesc}</p>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                aria-label={ts.xafTitle}
+                value={xafYear}
+                onChange={(e) => setXafYear(e.target.value)}
+                className="max-w-[120px]"
+              />
+              <Button onClick={handleXafDownload} disabled={xafDownloading} variant="outline">
+                {xafDownloading ? ts.xafDownloading : ts.xafDownload}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

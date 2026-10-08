@@ -20,7 +20,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi, type Account } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { CategorizeBankTransactionPanel } from '@/components/accounting/categorize-bank-transaction-panel';
 
 interface TransactionSuggestion {
@@ -43,7 +43,7 @@ export default function BankReconciliationPage() {
   const { t } = useI18n();
   const tbp = t.accounting.bankingPages;
   const tsl = t.accounting.statusLabels;
-  const { formatMoney: fmt, currency: entityCurrency } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate, currency: entityCurrency } = useWeldbooksFormat();
 
   const { data: txnData, isLoading } = useAccountingBankTransactions(
     selectedAccountId ? { bankAccountId: selectedAccountId, status: 'unreconciled' } : undefined
@@ -122,7 +122,7 @@ export default function BankReconciliationPage() {
               <span className="text-xs text-muted-foreground truncate max-w-[200px]">
                 {txn.description}
               </span>
-              <span className="text-xs text-muted-foreground">{txn.date?.slice(0, 10)}</span>
+              <span className="text-xs text-muted-foreground">{formatDate(txn.date)}</span>
             </div>
           </div>
         ))}

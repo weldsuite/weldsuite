@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { useForm, useFieldArray } from 'react-hook-form';
+import { useEffect, useMemo, useRef } from 'react';
+import { Controller, useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@weldsuite/ui/components/button';
@@ -24,6 +24,7 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import {
+  useAccountingCustomer,
   useAccountingCustomers,
   useAccountingTaxRates,
   useAccountingAccounts,
@@ -32,7 +33,25 @@ import type { BillDetail } from '@/lib/api/domains/weldbooks';
 import { Plus, Trash2 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { AddressFields } from '@/components/address/address-fields';
+import {
+  cleanPostalAddress,
+  toPostalAddressFormValue,
+  type PostalAddress,
+} from '@/components/address/postal-address';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
+import { addDaysToIsoDate, toCalendarDate } from '@/lib/weldbooks/format';
+
+const addressSchema = z.object({
+  line1: z.string().optional(),
+  line2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  postalCode: z.string().optional(),
+  country: z.string().optional(),
+});
 
 function createBillFormSchema(st: (key: string) => string) {
   const lineItemSchema = z.object({
@@ -52,11 +71,33 @@ function createBillFormSchema(st: (key: string) => string) {
     externalReference: z.string().optional(),
     notes: z.string().optional(),
     internalNotes: z.string().optional(),
+    vendorAddress: addressSchema,
     items: z.array(lineItemSchema).min(1, st('sweep.weldbooks.billForm.atLeastOneLineItem')),
   });
 }
 
-export type BillFormValues = z.infer<ReturnType<typeof createBillFormSchema>>;
+type BillFormValues = z.infer<ReturnType<typeof createBillFormSchema>>;
+
+/** The bills create/update body the form produces. */
+export interface BillPayload {
+  contactId: string;
+  issueDate: string;
+  dueDate: string;
+  externalReference?: string;
+  notes?: string;
+  internalNotes?: string;
+  vendorAddress?: PostalAddress;
+  items: Array<{
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    unit?: string;
+    discountPercent?: number;
+    /** null = no tax; never an empty string or placeholder. */
+    taxRateId: string | null;
+    accountId?: string;
+  }>;
+}
 
 export interface BillPrefill {
   contactName?: string | null;
@@ -83,7 +124,7 @@ interface BillFormProps {
   mode: 'add' | 'edit';
   bill?: BillDetail;
   prefill?: BillPrefill;
-  onSubmit: (data: BillFormValues) => void;
+  onSubmit: (data: BillPayload) => void;
   isSubmitting?: boolean;
 }
 
@@ -100,7 +141,8 @@ const emptyItem = {
 export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readonly<BillFormProps>) {
   const { t } = useI18n();
   const st = useTranslations();
-  const { formatMoney } = useCurrentEntityCurrency();
+  const { formatMoney, today: localToday } = useWeldbooksFormat();
+  const { labels } = useJurisdictionLabels();
   const displayCurrency = bill?.currency;
   const tb = t.accounting.billForm;
   const submitLabel = mode === 'add' ? tb.createBill : tb.updateBill;
@@ -113,8 +155,8 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const taxRates = taxRatesData?.data ?? [];
   const accounts = accountsData?.data ?? [];
 
-  const today = new Date().toISOString().split('T')[0];
-  const defaultDue = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+  const today = localToday();
+  const defaultDue = addDaysToIsoDate(today, 30);
 
   const prefilledItems =
     prefill?.items && prefill.items.length > 0
@@ -133,15 +175,12 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
     resolver: zodResolver(billFormSchema),
     defaultValues: {
       contactId: bill?.contactId ?? prefill?.matchedContactId ?? '',
-      issueDate:
-        bill?.issueDate?.split('T')[0] ??
-        (prefill?.issueDate ? prefill.issueDate.split('T')[0] : today),
-      dueDate:
-        bill?.dueDate?.split('T')[0] ??
-        (prefill?.dueDate ? prefill.dueDate.split('T')[0] : defaultDue),
+      issueDate: toCalendarDate(bill?.issueDate) ?? toCalendarDate(prefill?.issueDate) ?? today,
+      dueDate: toCalendarDate(bill?.dueDate) ?? toCalendarDate(prefill?.dueDate) ?? defaultDue,
       externalReference: bill?.externalReference ?? prefill?.externalReference ?? '',
       notes: bill?.notes ?? '',
       internalNotes: bill?.internalNotes ?? '',
+      vendorAddress: toPostalAddressFormValue(normalizeAccountingAddress(bill?.vendorAddress)),
       items: bill?.items?.length
         ? bill.items.map((item) => ({
             description: item.description,
@@ -183,15 +222,55 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const taxTotal = watchedItems.reduce((sum, item) => sum + calculateLineTax(item), 0);
   const total = subtotal + taxTotal;
 
+  // Copy the supplier's billing address in when the supplier changes (not
+  // when an existing bill is opened).
+  const watchedContactId = form.watch('contactId');
+  const { data: contactData } = useAccountingCustomer(watchedContactId);
+  const prefilledFor = useRef<string | null>(mode === 'edit' ? (bill?.contactId ?? null) : null);
+  useEffect(() => {
+    const contact = contactData?.data;
+    if (!watchedContactId || !contact || contact.id !== watchedContactId) return;
+    if (prefilledFor.current === watchedContactId) return;
+    prefilledFor.current = watchedContactId;
+    form.setValue(
+      'vendorAddress',
+      toPostalAddressFormValue(normalizeAccountingAddress(contact.billingAddress)),
+      { shouldDirty: true },
+    );
+  }, [watchedContactId, contactData, form]);
+
+  const submit = (values: BillFormValues) => {
+    const vendorAddress = cleanPostalAddress(values.vendorAddress);
+    onSubmit({
+      contactId: values.contactId,
+      issueDate: values.issueDate,
+      dueDate: values.dueDate,
+      externalReference: values.externalReference || undefined,
+      notes: values.notes || undefined,
+      internalNotes: values.internalNotes || undefined,
+      // On edit an emptied address is sent as {} so the stored one is cleared.
+      vendorAddress: vendorAddress ?? (mode === 'edit' ? {} : undefined),
+      items: values.items.map((item) => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        unit: item.unit || undefined,
+        discountPercent: item.discountPercent || undefined,
+        taxRateId: item.taxRateId ? item.taxRateId : null,
+        accountId: item.accountId || undefined,
+      })),
+    });
+  };
+
   return (
-    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+    <form onSubmit={form.handleSubmit(submit)} className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>{tb.billDetails}</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="contactId">{tb.supplier}</Label>
+            <Label htmlFor="contactId">{labels.supplier}</Label>
             <Select
               value={form.watch('contactId')}
               onValueChange={(val) => form.setValue('contactId', val, { shouldValidate: true })}
@@ -240,6 +319,22 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
       </Card>
 
       <Card>
+        <CardHeader>
+          <CardTitle>{labels.supplierAddress}</CardTitle>
+          <p className="text-sm text-muted-foreground">{tb.vendorAddressHelp}</p>
+        </CardHeader>
+        <CardContent>
+          <Controller
+            control={form.control}
+            name="vendorAddress"
+            render={({ field }) => (
+              <AddressFields idPrefix="vendor" value={field.value} onChange={field.onChange} />
+            )}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>{tb.lineItems}</CardTitle>
           <Button
@@ -265,7 +360,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                 <TableHead className="w-[80px]">{tb.qty}</TableHead>
                 <TableHead className="w-[110px]">{tb.unitPrice}</TableHead>
                 <TableHead className="w-[80px]">{tb.discountPercent}</TableHead>
-                <TableHead className="w-[150px]">{tb.taxRate}</TableHead>
+                <TableHead className="w-[150px]">{labels.taxRate}</TableHead>
                 <TableHead className="w-[150px]">{tb.account}</TableHead>
                 <TableHead className="w-[110px] text-right">{tb.lineTotal}</TableHead>
                 <TableHead className="w-[40px]" />
@@ -279,6 +374,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                     <TableCell>
                       <Input
                         placeholder={tb.description}
+                        aria-label={tb.description}
                         {...form.register(`items.${index}.description`)}
                       />
                       {form.formState.errors.items?.[index]?.description && (
@@ -292,6 +388,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                         type="number"
                         step="0.01"
                         min="0"
+                        aria-label={tb.qty}
                         {...form.register(`items.${index}.quantity`, { valueAsNumber: true })}
                       />
                     </TableCell>
@@ -300,6 +397,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                         type="number"
                         step="0.01"
                         min="0"
+                        aria-label={tb.unitPrice}
                         {...form.register(`items.${index}.unitPrice`, { valueAsNumber: true })}
                       />
                     </TableCell>
@@ -309,6 +407,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                         step="0.01"
                         min="0"
                         max="100"
+                        aria-label={tb.discountPercent}
                         {...form.register(`items.${index}.discountPercent`, {
                           valueAsNumber: true,
                         })}
@@ -324,14 +423,14 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                           )
                         }
                       >
-                        <SelectTrigger>
-                          <SelectValue placeholder={tb.none} />
+                        <SelectTrigger aria-label={labels.taxRate}>
+                          <SelectValue placeholder={labels.noTax} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none__">{tb.none}</SelectItem>
+                          <SelectItem value="__none__">{labels.noTax}</SelectItem>
                           {taxRates.map((tr) => (
                             <SelectItem key={tr.id} value={tr.id}>
-                              {tr.name} ({tr.rate}%)
+                              {tr.name} ({Number(tr.rate)}%)
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -347,7 +446,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                           )
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger aria-label={tb.account}>
                           <SelectValue placeholder={tb.none} />
                         </SelectTrigger>
                         <SelectContent>
@@ -390,7 +489,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                 <span>{formatMoney(subtotal, displayCurrency)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{tb.tax}</span>
+                <span className="text-muted-foreground">{labels.tax}</span>
                 <span>{formatMoney(taxTotal, displayCurrency)}</span>
               </div>
               <Separator />

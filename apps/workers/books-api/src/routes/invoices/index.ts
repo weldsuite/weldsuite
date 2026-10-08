@@ -1,51 +1,85 @@
 /**
  * Invoice routes — flat /api/invoices/* surface backed by `invoices`.
  *
- * Full port of the legacy api-worker accounting/invoices route: entity-scoped
- * list/detail, line-item tax calculation on create/update, gapless sequence
- * numbers via entityNumberSequences, finalize (dual journal entry + account
- * balances), duplicate, credit note, payment recording, printable HTML, and
- * invoice-from-commerce-order.
+ * Entity-scoped list/detail, server-side tax calculation on create/update
+ * (services/accounting-tax-resolve), gapless sequence numbers, finalize (one
+ * atomic posting through services/accounting-posting: journal entry, tax
+ * ledger, account balances), duplicate, credit note, payment recording,
+ * write-off, printable HTML, and invoice-from-commerce-order.
  *
  * Integrity rules (administratieplicht — do not weaken):
  *   - Only draft invoices may be edited or deleted; finalized/sent invoices
  *     are immutable — corrections go through POST /:id/credit-note.
- *   - Finalize, credit-note, and record-payment are blocked inside closed
- *     fiscal periods (assertPeriodOpen).
+ *   - Every posting is refused inside closed fiscal periods and on/before the
+ *     entity's lock dates (assertPostingAllowed), and posts at most once.
  *   - Every mutation is written to the accounting audit log.
  *
  * Permissions: invoices:read | invoices:create | invoices:update | invoices:delete
  * (record-payment keeps the legacy banking:create key).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, isNull, like, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, like, lte, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent, computeChanges } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import {
-  assertPeriodOpen,
   ClosedPeriodError,
+  LockedPeriodError,
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
 import { generateInvoiceHtml } from '@weldsuite/books-domain/accounting-invoice-html';
+import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { streamDocumentAttachment } from '../../lib/document-attachment';
 import {
   buildComplianceNotices,
   collectInvoiceTaxCategories,
   getContactVatNumber,
   invoiceUsesReverseCharge,
-  validateInvoiceForFinalize,
 } from '@weldsuite/books-domain/accounting-compliance';
-import { buildTaxTotalsWithRates, loadPlaceOfSupply } from '../../services/accounting-tax-resolve';
+import { calculateDocumentTax, TaxCalculationError } from '../../services/accounting-tax-resolve';
+import { PostingError, postInvoiceWriteOff } from '../../services/accounting-document-posting';
+import { finalizeInvoice, InvoiceComplianceError } from '../../services/accounting-invoice-finalize';
+import { recordPayment } from '../../services/accounting-payments';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+/** 400 for errors the user can fix (closed period, lock date, posting rules, tax rates); undefined otherwise. */
+function accountingErrorResponse(c: AppContext, err: unknown): Response | undefined {
+  if (
+    err instanceof ClosedPeriodError ||
+    err instanceof LockedPeriodError ||
+    err instanceof PostingError ||
+    err instanceof TaxCalculationError ||
+    err instanceof InvoiceComplianceError
+  ) {
+    return error.badRequest(c, err.message);
+  }
+  return undefined;
+}
+
+/** Accepts the shared address shape and the legacy Dutch one (street + houseNumber, province). */
+const addressSchema = z.object({
+  line1: z.string().optional(),
+  line2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  postalCode: z.string().optional(),
+  country: z.string().optional(),
+  county: z.string().optional(),
+  street: z.string().optional(),
+  houseNumber: z.string().optional(),
+  province: z.string().optional(),
+});
 
 const lineItemSchema = z.object({
   description: z.string().min(1),
@@ -53,10 +87,10 @@ const lineItemSchema = z.object({
   unitPrice: z.string(),
   unit: z.string().max(20).optional(),
   discountPercent: z.string().optional().default('0'),
-  taxRateId: z.string().max(30).optional(),
+  taxRateId: z.string().max(30).nullable().optional(),
   taxRate: z.string().optional(),
-  accountId: z.string().max(30).optional(),
-  productId: z.string().max(30).optional(),
+  accountId: z.string().max(30).nullable().optional(),
+  productId: z.string().max(30).nullable().optional(),
   period: z.object({ from: z.string().optional(), to: z.string().optional() }).optional(),
   sortOrder: z.number().optional(),
 });
@@ -85,14 +119,8 @@ const createInvoiceSchema = z.object({
   reference: z.string().max(255).optional(),
   notes: z.string().optional(),
   internalNotes: z.string().optional(),
-  billingAddress: z.object({
-    street: z.string().optional(),
-    houseNumber: z.string().optional(),
-    postalCode: z.string().optional(),
-    city: z.string().optional(),
-    province: z.string().optional(),
-    country: z.string().optional(),
-  }).optional(),
+  billingAddress: addressSchema.nullable().optional(),
+  shippingAddress: addressSchema.nullable().optional(),
   revenueAccountId: z.string().max(30).optional(),
   creditNoteForInvoiceId: z.string().max(30).optional(),
   items: z.array(lineItemSchema).min(1),
@@ -105,7 +133,9 @@ const updateInvoiceSchema = createInvoiceSchema.omit({ status: true }).partial()
 const recordPaymentSchema = z.object({
   amount: z.string(),
   date: z.string(),
-  paymentMethod: z.string().optional(),
+  /** See PAYMENT_METHODS; older values (card, manual) are mapped. */
+  paymentMethod: z.string().max(30).optional(),
+  checkNumber: z.string().max(30).optional(),
   reference: z.string().optional(),
   bankAccountId: z.string().optional(),
   notes: z.string().optional(),
@@ -159,126 +189,20 @@ function buildInvoiceFieldUpdates(data: UpdateInvoiceInput): Record<string, unkn
   if (data.reference !== undefined) updateData.reference = data.reference;
   if (data.notes !== undefined) updateData.notes = data.notes;
   if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes;
-  if (data.billingAddress !== undefined) updateData.billingAddress = data.billingAddress;
+  if (data.billingAddress !== undefined) updateData.billingAddress = normalizePostalAddress(data.billingAddress);
+  if (data.shippingAddress !== undefined) updateData.shippingAddress = normalizePostalAddress(data.shippingAddress);
   if (data.revenueAccountId !== undefined) updateData.revenueAccountId = data.revenueAccountId;
 
   return updateData;
 }
 
-type InvoiceRow = typeof schema.invoices.$inferSelect;
-type AccountRow = typeof schema.accounts.$inferSelect;
-
-function buildJournalLine(
-  invoice: InvoiceRow,
-  journalEntryId: string,
-  fields: { accountId: string; description: string; debit: string; credit: string; sortOrder: number },
+/** Address that decides place of supply: shipping, else billing. */
+function taxAddress(
+  shipping: Parameters<typeof normalizePostalAddress>[0],
+  billing: Parameters<typeof normalizePostalAddress>[0],
 ) {
-  return {
-    id: generateId('jl'),
-    entityId: invoice.entityId,
-    journalEntryId,
-    ...fields,
-    contactId: invoice.contactId,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-}
-
-type JournalLineRow = ReturnType<typeof buildJournalLine>;
-type LinesResult = { lines: JournalLineRow[] } | { error: string };
-
-interface TaxLineContext {
-  invoice: InvoiceRow;
-  journalEntryId: string;
-  taxTotal: number;
-  byRole: (role: string) => AccountRow | undefined;
-  taxPayableAccount: AccountRow | undefined;
-}
-
-/** Per-component GST credit lines (CGST/SGST/IGST), rounding remainder absorbed by the last. */
-function buildComponentTaxLines(
-  ctx: TaxLineContext,
-  componentRows: Array<{ taxRateName?: string; taxAmount?: number; accountRole?: string }>,
-): LinesResult {
-  const { invoice, journalEntryId, taxTotal, byRole, taxPayableAccount } = ctx;
-  let sortOrder = 2;
-  let postedTax = 0;
-  const componentLines: JournalLineRow[] = [];
-  for (const row of componentRows) {
-    const taxAccount = byRole(row.accountRole!) ?? taxPayableAccount;
-    if (!taxAccount) {
-      return { error: `No account found for tax component role '${row.accountRole}'. Please run seed first.` };
-    }
-    const amount = Number(row.taxAmount);
-    postedTax += amount;
-    componentLines.push(
-      buildJournalLine(invoice, journalEntryId, {
-        accountId: taxAccount.id,
-        description: `${row.taxRateName ?? 'GST'} ${invoice.invoiceNumber}`,
-        debit: '0',
-        credit: amount.toFixed(2),
-        sortOrder,
-      }),
-    );
-    sortOrder += 1;
-  }
-
-  // Absorb rounding remainder into the last component so credits match taxTotal
-  const remainder = Math.round((taxTotal - postedTax) * 100) / 100;
-  const last = componentLines.at(-1);
-  if (last && Math.abs(remainder) >= 0.01) {
-    last.credit = (Number(last.credit) + remainder).toFixed(2);
-  }
-  return { lines: componentLines };
-}
-
-/** Credit tax: prefer per-component GST accounts (CGST/SGST/IGST), else tax payable. */
-function buildTaxCreditLines(ctx: TaxLineContext): LinesResult {
-  const { invoice, journalEntryId, taxTotal, taxPayableAccount } = ctx;
-  const breakdown = (invoice.taxBreakdown ?? []) as Array<{
-    taxRateName?: string;
-    taxAmount?: number;
-    accountRole?: string;
-    component?: string;
-  }>;
-  const componentRows = breakdown.filter((b) => b.accountRole && (b.taxAmount ?? 0) > 0);
-
-  if (componentRows.length > 0) return buildComponentTaxLines(ctx, componentRows);
-  if (taxTotal <= 0) return { lines: [] };
-  if (!taxPayableAccount) return { error: 'Tax payable account not found. Please run seed first.' };
-  return {
-    lines: [
-      buildJournalLine(invoice, journalEntryId, {
-        accountId: taxPayableAccount.id,
-        description: `Tax ${invoice.invoiceNumber}`,
-        debit: '0',
-        credit: taxTotal.toFixed(2),
-        sortOrder: 2,
-      }),
-    ],
-  };
-}
-
-/** Apply each journal line's net change to its account's running balance. */
-async function applyBalances(
-  db: Database,
-  lines: Array<{ accountId: string; debit: string | null; credit: string | null }>,
-) {
-  const { accounts } = schema;
-  for (const line of lines) {
-    const debit = Number.parseFloat(line.debit || '0');
-    const credit = Number.parseFloat(line.credit || '0');
-    const netChange = debit - credit;
-    if (netChange !== 0) {
-      await db
-        .update(accounts)
-        .set({
-          currentBalance: sql`(${accounts.currentBalance}::numeric + ${netChange})::text`,
-          updatedAt: new Date(),
-        })
-        .where(eq(accounts.id, line.accountId));
-    }
-  }
+  const address = normalizePostalAddress(shipping) ?? normalizePostalAddress(billing);
+  return { buyerCountry: address?.country, billingProvince: address?.state };
 }
 
 // GET / — list invoices (entity-scoped, filters)
@@ -366,11 +290,25 @@ app.get('/:id', requirePermission('invoices:read'), async (c) => {
       .where(and(eq(invoiceItems.invoiceId, invoiceId), isNull(invoiceItems.deletedAt)))
       .orderBy(invoiceItems.sortOrder);
 
-    const invoicePayments = await db
+    // Payments that settle this invoice: directly (older single-invoice
+    // payments) or through an allocation (a payment covering several).
+    const allocations = await db
+      .select({ paymentId: schema.paymentAllocations.paymentId, amount: schema.paymentAllocations.amount })
+      .from(schema.paymentAllocations)
+      .where(and(eq(schema.paymentAllocations.invoiceId, invoiceId), isNull(schema.paymentAllocations.deletedAt)));
+    const allocatedPaymentIds = allocations.map((a) => a.paymentId);
+    const paymentRows = await db
       .select()
       .from(paymentsTable)
-      .where(and(eq(paymentsTable.invoiceId, invoiceId), isNull(paymentsTable.deletedAt)))
+      .where(and(
+        isNull(paymentsTable.deletedAt),
+        allocatedPaymentIds.length > 0
+          ? or(eq(paymentsTable.invoiceId, invoiceId), inArray(paymentsTable.id, allocatedPaymentIds))
+          : eq(paymentsTable.invoiceId, invoiceId),
+      ))
       .orderBy(desc(paymentsTable.date));
+    const allocatedAmount = new Map(allocations.map((a) => [a.paymentId, a.amount]));
+    const invoicePayments = paymentRows.map((p) => ({ ...p, allocatedAmount: allocatedAmount.get(p.id) ?? p.amount }));
 
     return success(c, { ...invoice, items, payments: invoicePayments });
   } catch (err) {
@@ -453,6 +391,7 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
         contactVatNumber,
         complianceNotices,
         billingAddress: invoice.billingAddress,
+        shippingAddress: invoice.shippingAddress,
         reference: invoice.reference,
         notes: invoice.notes,
         items: items.map((i) => ({
@@ -502,11 +441,14 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
     const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));
 
-    const place = await loadPlaceOfSupply(db, entityId, {
-      buyerCountry: data.billingAddress?.country,
-      billingProvince: data.billingAddress?.province,
+    const billingAddress = normalizePostalAddress(data.billingAddress);
+    const shippingAddress = normalizePostalAddress(data.shippingAddress);
+    const totals = await calculateDocumentTax(db, {
+      entityId,
+      direction: 'sales',
+      items: data.items,
+      ...taxAddress(shippingAddress, billingAddress),
     });
-    const totals = await buildTaxTotalsWithRates(db, data.items, place);
 
     const invoiceId = generateId('inv');
     const status = data.status ?? 'draft';
@@ -532,7 +474,8 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       reference: data.reference || null,
       notes: data.notes || null,
       internalNotes: data.internalNotes || null,
-      billingAddress: data.billingAddress || null,
+      billingAddress,
+      shippingAddress,
       revenueAccountId: data.revenueAccountId || null,
       creditNoteForInvoiceId: data.creditNoteForInvoiceId || null,
       taxBreakdown: totals.taxBreakdown,
@@ -540,8 +483,6 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-
-    await db.insert(invoices).values(newInvoice);
 
     // Create line items
     const itemRecords = data.items.map((item, idx) => ({
@@ -553,8 +494,8 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       unitPrice: item.unitPrice,
       unit: item.unit || null,
       discountPercent: item.discountPercent || '0',
-      taxRateId: item.taxRateId || null,
-      taxRate: item.taxRate || null,
+      taxRateId: totals.processedItems[idx].taxRateId,
+      taxRate: totals.processedItems[idx].taxRate,
       taxAmount: totals.processedItems[idx].taxAmount,
       lineTotal: totals.processedItems[idx].lineTotal,
       lineTotalWithTax: totals.processedItems[idx].lineTotalWithTax,
@@ -566,9 +507,11 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       updatedAt: new Date(),
     }));
 
-    if (itemRecords.length > 0) {
-      await db.insert(invoiceItems).values(itemRecords);
-    }
+    // Header and lines land together or not at all (neon-http has no transactions).
+    await atomically(db, (h) => [
+      h.insert(invoices).values(newInvoice),
+      ...(itemRecords.length > 0 ? [h.insert(invoiceItems).values(itemRecords)] : []),
+    ]);
 
     // Promote the contact's role — first invoice flips role=none→customer,
     // or supplier→both. No-op if already correct.
@@ -599,6 +542,8 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
 
     return success(c, { ...newInvoice, items: itemRecords }, 201);
   } catch (err) {
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
     console.error('[app-api/invoices] create failed:', err);
     return error.internal(c, 'Failed to create invoice');
   }
@@ -628,18 +573,17 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
 
     const updateData: Record<string, unknown> = buildInvoiceFieldUpdates(data);
 
+    let newItems: Array<typeof invoiceItems.$inferInsert> | undefined;
     if (data.items) {
-      // Replace all line items
-      await db
-        .update(invoiceItems)
-        .set({ deletedAt: new Date() })
-        .where(eq(invoiceItems.invoiceId, invoiceId));
-
-      const place = await loadPlaceOfSupply(db, invoice.entityId, {
-        buyerCountry: data.billingAddress?.country ?? invoice.billingAddress?.country,
-        billingProvince: data.billingAddress?.province ?? invoice.billingAddress?.province,
+      const totals = await calculateDocumentTax(db, {
+        entityId: invoice.entityId,
+        direction: 'sales',
+        items: data.items,
+        ...taxAddress(
+          data.shippingAddress !== undefined ? data.shippingAddress : invoice.shippingAddress,
+          data.billingAddress !== undefined ? data.billingAddress : invoice.billingAddress,
+        ),
       });
-      const totals = await buildTaxTotalsWithRates(db, data.items, place);
 
       updateData.subtotal = totals.subtotal;
       updateData.discountTotal = totals.discountTotal;
@@ -648,7 +592,7 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
       updateData.balanceDue = String(Number.parseFloat(totals.total) - Number.parseFloat(invoice.amountPaid || '0'));
       updateData.taxBreakdown = totals.taxBreakdown;
 
-      const newItems = data.items.map((item, idx) => ({
+      newItems = data.items.map((item, idx) => ({
         id: generateId('ili'),
         entityId: invoice.entityId,
         invoiceId,
@@ -657,8 +601,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
         unitPrice: item.unitPrice,
         unit: item.unit || null,
         discountPercent: item.discountPercent || '0',
-        taxRateId: item.taxRateId || null,
-        taxRate: item.taxRate || null,
+        taxRateId: totals.processedItems[idx].taxRateId,
+        taxRate: totals.processedItems[idx].taxRate,
         taxAmount: totals.processedItems[idx].taxAmount,
         lineTotal: totals.processedItems[idx].lineTotal,
         lineTotalWithTax: totals.processedItems[idx].lineTotalWithTax,
@@ -670,15 +614,22 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
         updatedAt: new Date(),
       }));
 
-      if (newItems.length > 0) {
-        await db.insert(invoiceItems).values(newItems);
-      }
     }
 
-    await db
-      .update(invoices)
-      .set(updateData)
-      .where(eq(invoices.id, invoiceId));
+    // Replace the lines and update the header together (neon-http has no transactions).
+    const replacedAt = new Date();
+    await atomically(db, (h) => [
+      ...(newItems
+        ? [
+            h
+              .update(invoiceItems)
+              .set({ deletedAt: replacedAt })
+              .where(and(eq(invoiceItems.invoiceId, invoiceId), isNull(invoiceItems.deletedAt))),
+            ...(newItems.length > 0 ? [h.insert(invoiceItems).values(newItems)] : []),
+          ]
+        : []),
+      h.update(invoices).set(updateData).where(eq(invoices.id, invoiceId)),
+    ]);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: invoice.entityId,
@@ -703,6 +654,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
 
     return success(c, { ...invoice, ...updateData });
   } catch (err) {
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
     console.error('[app-api/invoices] update failed:', err);
     return error.internal(c, 'Failed to update invoice');
   }
@@ -755,7 +708,8 @@ app.delete('/:id', requirePermission('invoices:delete'), async (c) => {
   }
 });
 
-// PATCH /:id/send — mark as sent
+// PATCH /:id/send — mark as sent. A draft is finalized (posted) first, so
+// nothing reaches a customer without being in the ledger.
 app.patch('/:id/send', requirePermission('invoices:update'), async (c) => {
   const db = c.get('tenantDb');
   const invoiceId = c.req.param('id');
@@ -769,19 +723,30 @@ app.patch('/:id/send', requirePermission('invoices:update'), async (c) => {
       .limit(1);
 
     if (!invoice) return error.notFound(c, 'Invoice', invoiceId);
+    if (invoice.status === 'cancelled') return error.badRequest(c, 'A cancelled invoice cannot be sent');
 
     const now = new Date();
-    await db
-      .update(invoices)
-      .set({ status: 'sent', sentAt: now, updatedAt: now })
-      .where(eq(invoices.id, invoiceId));
+    let journalEntryId = invoice.journalEntryId;
+    if (invoice.status === 'draft') {
+      const finalized = await finalizeInvoice(db, invoiceId, { userId: c.get('userId') ?? null, markSent: true });
+      journalEntryId = finalized.journalEntryId;
+    } else {
+      await db
+        .update(invoices)
+        .set({ sentAt: now, updatedAt: now })
+        .where(eq(invoices.id, invoiceId));
+    }
+    const status = invoice.status === 'draft' ? 'sent' : invoice.status;
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: invoice.entityId,
       entityType: 'invoice',
       entityId: invoiceId,
       action: 'sent',
-      changes: { status: { old: invoice.status, new: 'sent' } },
+      changes: {
+        status: { old: invoice.status, new: status },
+        ...(journalEntryId !== invoice.journalEntryId ? { journalEntryId: { old: null, new: journalEntryId } } : {}),
+      },
     });
     publishEntityEvent({
       c,
@@ -791,25 +756,29 @@ app.patch('/:id/send', requirePermission('invoices:update'), async (c) => {
       data: {
         id: invoiceId,
         invoiceNumber: invoice.invoiceNumber,
-        status: 'sent',
+        status,
         total: invoice.total || '0',
         currency: invoice.currency,
         contactId: invoice.contactId,
       },
       changes: computeChanges(
         invoice as unknown as Record<string, unknown>,
-        { status: 'sent', sentAt: now } as unknown as Record<string, unknown>,
+        { status, sentAt: now } as unknown as Record<string, unknown>,
       ),
     });
 
-    return success(c, { ...invoice, status: 'sent', sentAt: now });
+    return success(c, { ...invoice, status, sentAt: now, journalEntryId });
   } catch (err) {
-    console.error('[app-api/invoices] send failed:', err);
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/invoices] send failed:', err);
     return error.internal(c, 'Failed to send invoice');
   }
 });
 
-// PATCH /:id/status — change status
+// PATCH /:id/status — cancel an invoice that was never booked, or write a
+// booked one off as uncollectible (bad debt). A booked invoice is corrected
+// with a credit note, never cancelled.
 app.patch('/:id/status', requirePermission('invoices:update'), zValidator('json', z.object({ status: z.enum(['cancelled', 'uncollectible']) })), async (c) => {
   const db = c.get('tenantDb');
   const invoiceId = c.req.param('id');
@@ -824,18 +793,37 @@ app.patch('/:id/status', requirePermission('invoices:update'), zValidator('json'
       .limit(1);
 
     if (!invoice) return error.notFound(c, 'Invoice', invoiceId);
+    if (invoice.status === newStatus) return success(c, invoice);
 
-    await db
-      .update(invoices)
-      .set({ status: newStatus, updatedAt: new Date() })
-      .where(eq(invoices.id, invoiceId));
+    let journalEntryId: string | null = null;
+    if (newStatus === 'cancelled') {
+      if (invoice.journalEntryId) {
+        return error.badRequest(
+          c,
+          'This invoice is booked and cannot be cancelled. Create a credit note (POST /:id/credit-note) to correct it.',
+        );
+      }
+      await db.update(invoices).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(invoices.id, invoiceId));
+    } else {
+      if (!invoice.journalEntryId) {
+        return error.badRequest(c, 'Only a finalized invoice can be written off as uncollectible');
+      }
+      if (Number.parseFloat(invoice.balanceDue ?? '0') <= 0) {
+        return error.badRequest(c, 'This invoice has no open balance to write off');
+      }
+      const posted = await postInvoiceWriteOff(db, invoice, { userId: c.get('userId') ?? null });
+      journalEntryId = posted.journalEntryId;
+    }
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: invoice.entityId,
       entityType: 'invoice',
       entityId: invoiceId,
-      action: 'updated',
-      changes: { status: { old: invoice.status, new: newStatus } },
+      action: newStatus === 'uncollectible' ? 'written_off' : 'updated',
+      changes: {
+        status: { old: invoice.status, new: newStatus },
+        ...(journalEntryId ? { writeOffEntryId: { old: null, new: journalEntryId } } : {}),
+      },
     });
     publishEntityEvent({
       c,
@@ -852,25 +840,29 @@ app.patch('/:id/status', requirePermission('invoices:update'), zValidator('json'
       },
     });
 
-    return success(c, { ...invoice, status: newStatus });
+    return success(c, {
+      ...invoice,
+      status: newStatus,
+      ...(newStatus === 'uncollectible' ? { balanceDue: '0.00', writeOffEntryId: journalEntryId } : {}),
+    });
   } catch (err) {
-    console.error('[app-api/invoices] status failed:', err);
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/invoices] status failed:', err);
     return error.internal(c, 'Failed to update invoice status');
   }
 });
 
-// POST /:id/finalize — post journal entry and lock
+// POST /:id/finalize — enforce the invoice requirements, post to the ledger, lock
 app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
   const db = c.get('tenantDb');
   const invoiceId = c.req.param('id');
-  const userId = c.get('userId');
-  const { invoices, journalEntries, journalLines, accounts } = schema;
 
   try {
     const [invoice] = await db
       .select()
-      .from(invoices)
-      .where(and(eq(invoices.id, invoiceId), isNull(invoices.deletedAt)))
+      .from(schema.invoices)
+      .where(and(eq(schema.invoices.id, invoiceId), isNull(schema.invoices.deletedAt)))
       .limit(1);
 
     if (!invoice) return error.notFound(c, 'Invoice', invoiceId);
@@ -878,118 +870,10 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
       return error.badRequest(c, 'Can only finalize draft invoices');
     }
 
-    // Bookings in closed fiscal periods are not allowed.
-    await assertPeriodOpen(db, invoice.entityId, invoice.issueDate);
-
-    // Factuureisen: finalizing turns the draft into a legal document, so the
-    // jurisdiction's invoice requirements are enforced here (entity BTW/KvK/
-    // IBAN present, VIES-valid buyer VAT number on reverse-charge invoices,
-    // no VAT under KOR).
-    const [entityRow] = await db
-      .select()
-      .from(schema.entities)
-      .where(and(eq(schema.entities.id, invoice.entityId), isNull(schema.entities.deletedAt)))
-      .limit(1);
-    if (!entityRow) return error.notFound(c, 'Entity', invoice.entityId);
-
-    const taxCategories = await collectInvoiceTaxCategories(db, invoiceId);
-    const compliance = await validateInvoiceForFinalize(db, entityRow, invoice, taxCategories);
-    if (!compliance.ok) {
-      return error.badRequest(c, compliance.errors.join(' '));
+    const result = await finalizeInvoice(db, invoiceId, { userId: c.get('userId') ?? null });
+    for (const warning of result.warnings) {
+      console.warn(`[books-api/invoices] finalize warning for ${invoiceId}: ${warning}`);
     }
-    for (const warning of compliance.warnings) {
-      console.warn(`[app-api/invoices] finalize warning for ${invoiceId}: ${warning}`);
-    }
-
-    const { formatted: entryNumber } = await nextEntityNumber(db, invoice.entityId, 'journal');
-
-    // Find system accounts (scoped to the invoice's entity — codes repeat
-    // across administrations in the multi-entity model)
-    const entityAccounts = await db
-      .select()
-      .from(accounts)
-      .where(and(eq(accounts.entityId, invoice.entityId), isNull(accounts.deletedAt)));
-
-    const byRole = (role: string) =>
-      entityAccounts.find((a) => (a.metadata as { systemRole?: string } | null)?.systemRole === role);
-    const byCode = (code: string) => entityAccounts.find((a) => a.code === code);
-
-    const debiteurenAccount = byRole('accounts_receivable') ?? byCode('1300');
-    const revenueAccount = byRole('sales_revenue') ?? byCode('8000');
-    const taxPayableAccount = byRole('tax_payable') ?? byCode('1700');
-
-    if (!debiteurenAccount || !revenueAccount) {
-      return error.badRequest(c, 'System accounts not found. Please run seed first.');
-    }
-
-    // Client-supplied revenueAccountId must belong to this entity (prevent cross-entity posting)
-    let resolvedRevenueAccountId = revenueAccount.id;
-    if (invoice.revenueAccountId) {
-      const owned = entityAccounts.find((a) => a.id === invoice.revenueAccountId);
-      if (!owned) {
-        return error.badRequest(c, 'revenueAccountId does not belong to this accounting entity');
-      }
-      resolvedRevenueAccountId = owned.id;
-    }
-
-    const total = Number.parseFloat(invoice.total || '0');
-    const taxTotal = Number.parseFloat(invoice.taxTotal || '0');
-    const subtotal = total - taxTotal;
-
-    // Create journal entry
-    const journalEntryId = generateId('je');
-    await db.insert(journalEntries).values({
-      id: journalEntryId,
-      entityId: invoice.entityId,
-      entryNumber,
-      date: invoice.issueDate,
-      status: 'posted',
-      description: `Invoice ${invoice.invoiceNumber} - ${invoice.contactName || ''}`,
-      sourceType: 'invoice',
-      sourceId: invoiceId,
-      totalDebit: total.toFixed(2),
-      totalCredit: total.toFixed(2),
-      isAutomatic: true,
-      createdBy: userId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    // Debit: Debiteuren (total incl. tax)
-    const lines = [
-      buildJournalLine(invoice, journalEntryId, {
-        accountId: debiteurenAccount.id,
-        description: `Invoice ${invoice.invoiceNumber}`,
-        debit: total.toFixed(2),
-        credit: '0',
-        sortOrder: 0,
-      }),
-      // Credit: Revenue (subtotal excl. tax)
-      buildJournalLine(invoice, journalEntryId, {
-        accountId: resolvedRevenueAccountId,
-        description: `Revenue ${invoice.invoiceNumber}`,
-        debit: '0',
-        credit: subtotal.toFixed(2),
-        sortOrder: 1,
-      }),
-    ];
-
-    const taxLines = buildTaxCreditLines({ invoice, journalEntryId, taxTotal, byRole, taxPayableAccount });
-    if ('error' in taxLines) return error.badRequest(c, taxLines.error);
-    lines.push(...taxLines.lines);
-
-    await db.insert(journalLines).values(lines);
-
-    // Update invoice status and link journal entry
-    await db
-      .update(invoices)
-      .set({ status: 'sent', journalEntryId, updatedAt: new Date() })
-      .where(eq(invoices.id, invoiceId));
-
-    // The journal entry is born posted, so apply every line's balance effect
-    // (the legacy route only updated the debiteuren account and left the
-    // revenue/BTW balances stale).
-    await applyBalances(db, lines);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: invoice.entityId,
@@ -998,7 +882,7 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
       action: 'finalized',
       changes: {
         status: { old: 'draft', new: 'sent' },
-        journalEntryId: { old: null, new: journalEntryId },
+        journalEntryId: { old: null, new: result.journalEntryId },
       },
     });
     publishEntityEvent({
@@ -1015,11 +899,26 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
         contactId: invoice.contactId,
       },
     });
+    if (result.journalEntryId && !result.alreadyPosted) {
+      publishEntityEvent({
+        c,
+        entityType: 'journal_entry',
+        entityId: result.journalEntryId,
+        action: 'created',
+        data: { id: result.journalEntryId, sourceType: invoice.type === 'credit_note' ? 'credit_note' : 'invoice', sourceId: invoiceId },
+      });
+    }
 
-    return success(c, { invoiceId, journalEntryId, entryNumber, status: 'sent' });
+    return success(c, {
+      invoiceId,
+      journalEntryId: result.journalEntryId,
+      entryNumber: result.entryNumber,
+      status: 'sent',
+    });
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
-    console.error('[app-api/invoices] finalize failed:', err);
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/invoices] finalize failed:', err);
     return error.internal(c, 'Failed to finalize invoice');
   }
 });
@@ -1047,11 +946,17 @@ app.post('/:id/duplicate', requirePermission('invoices:create'), async (c) => {
 
     const newId = generateId('inv');
     const now = new Date();
+    // A copy of a credit note is a credit note; everything else is a new invoice.
+    const { formatted: newNumber } = await nextEntityNumber(
+      db,
+      invoice.entityId,
+      invoice.type === 'credit_note' ? 'creditNote' : 'invoice',
+    );
 
-    await db.insert(invoices).values({
+    const duplicateRow = {
       ...invoice,
       id: newId,
-      invoiceNumber: null,
+      invoiceNumber: newNumber,
       status: 'draft',
       issueDate: now,
       dueDate: new Date(now.getTime() + (invoice.paymentTermsDays || 30) * 24 * 60 * 60 * 1000),
@@ -1066,19 +971,19 @@ app.post('/:id/duplicate', requirePermission('invoices:create'), async (c) => {
       createdBy: userId,
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    const duplicateItems = items.map(item => ({
+      ...item,
+      id: generateId('ili'),
+      invoiceId: newId,
+      createdAt: now,
+      updatedAt: now,
+    }));
 
-    if (items.length > 0) {
-      await db.insert(invoiceItems).values(
-        items.map(item => ({
-          ...item,
-          id: generateId('ili'),
-          invoiceId: newId,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
-    }
+    await atomically(db, (h) => [
+      h.insert(invoices).values(duplicateRow),
+      ...(duplicateItems.length > 0 ? [h.insert(invoiceItems).values(duplicateItems)] : []),
+    ]);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: invoice.entityId,
@@ -1101,14 +1006,17 @@ app.post('/:id/duplicate', requirePermission('invoices:create'), async (c) => {
       },
     });
 
-    return success(c, { id: newId }, 201);
+    return success(c, { id: newId, invoiceNumber: newNumber }, 201);
   } catch (err) {
     console.error('[app-api/invoices] duplicate failed:', err);
     return error.internal(c, 'Failed to duplicate invoice');
   }
 });
 
-// POST /:id/credit-note — create credit note
+// POST /:id/credit-note — draft credit note mirroring a finalized invoice.
+// It is a new document dated today (the correction lands in the current
+// period, so a closed period never blocks a correction); finalizing it posts
+// the invoice's entry in reverse.
 app.post('/:id/credit-note', requirePermission('invoices:create'), async (c) => {
   const db = c.get('tenantDb');
   const invoiceId = c.req.param('id');
@@ -1123,10 +1031,10 @@ app.post('/:id/credit-note', requirePermission('invoices:create'), async (c) => 
       .limit(1);
 
     if (!invoice) return error.notFound(c, 'Invoice', invoiceId);
-
-    // The credit note inherits the original issue date — block if that
-    // date falls inside a closed fiscal period.
-    await assertPeriodOpen(db, invoice.entityId, invoice.issueDate);
+    if (invoice.type === 'credit_note') return error.badRequest(c, 'A credit note cannot itself be credited');
+    if (invoice.status === 'draft') {
+      return error.badRequest(c, 'A draft invoice can simply be edited or deleted — no credit note needed');
+    }
 
     const items = await db
       .select()
@@ -1138,35 +1046,38 @@ app.post('/:id/credit-note', requirePermission('invoices:create'), async (c) => 
     const newId = generateId('inv');
     const now = new Date();
 
-    await db.insert(invoices).values({
+    const creditNoteRow = {
       ...invoice,
       id: newId,
       invoiceNumber: creditNoteNumber,
       type: 'credit_note',
       status: 'draft',
+      issueDate: now,
+      dueDate: now,
       creditNoteForInvoiceId: invoiceId,
       paidAt: null,
       sentAt: null,
       viewedAt: null,
       amountPaid: '0',
+      balanceDue: invoice.total,
       journalEntryId: null,
       emailHistory: null,
       createdBy: userId,
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    const creditNoteItems = items.map(item => ({
+      ...item,
+      id: generateId('ili'),
+      invoiceId: newId,
+      createdAt: now,
+      updatedAt: now,
+    }));
 
-    if (items.length > 0) {
-      await db.insert(invoiceItems).values(
-        items.map(item => ({
-          ...item,
-          id: generateId('ili'),
-          invoiceId: newId,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
-    }
+    await atomically(db, (h) => [
+      h.insert(invoices).values(creditNoteRow),
+      ...(creditNoteItems.length > 0 ? [h.insert(invoiceItems).values(creditNoteItems)] : []),
+    ]);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: invoice.entityId,
@@ -1192,19 +1103,21 @@ app.post('/:id/credit-note', requirePermission('invoices:create'), async (c) => 
 
     return success(c, { id: newId, invoiceNumber: creditNoteNumber }, 201);
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
-    console.error('[app-api/invoices] credit-note failed:', err);
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/invoices] credit-note failed:', err);
     return error.internal(c, 'Failed to create credit note');
   }
 });
 
-// POST /:id/record-payment — record payment against invoice
+// POST /:id/record-payment — record a payment against this invoice (posted:
+// Dr bank / Cr receivable, and the invoice's paid amount and status updated).
 app.post('/:id/record-payment', requirePermission('banking:create'), zValidator('json', recordPaymentSchema), async (c) => {
   const db = c.get('tenantDb');
   const invoiceId = c.req.param('id');
   const data = c.req.valid('json');
-  const userId = c.get('userId');
-  const { invoices, payments } = schema;
+  const userId = c.get('userId') ?? null;
+  const { invoices } = schema;
 
   try {
     const [invoice] = await db
@@ -1215,45 +1128,29 @@ app.post('/:id/record-payment', requirePermission('banking:create'), zValidator(
 
     if (!invoice) return error.notFound(c, 'Invoice', invoiceId);
 
-    // Payments dated inside a closed fiscal period are not allowed.
-    await assertPeriodOpen(db, invoice.entityId, data.date);
-
-    const paymentAmount = Number.parseFloat(data.amount);
-    const currentPaid = Number.parseFloat(invoice.amountPaid || '0');
-    const invoiceTotal = Number.parseFloat(invoice.total || '0');
-    const newAmountPaid = currentPaid + paymentAmount;
-    const newBalanceDue = invoiceTotal - newAmountPaid;
-    const isFullyPaid = newBalanceDue <= 0;
-
-    const paymentId = generateId('pay');
-    await db.insert(payments).values({
-      id: paymentId,
+    const amount = Number.parseFloat(data.amount);
+    const result = await recordPayment(db, {
       entityId: invoice.entityId,
       type: 'received',
-      amount: data.amount,
+      amount,
+      currency: invoice.currency,
+      exchangeRate: invoice.exchangeRate,
       date: new Date(data.date),
-      paymentMethod: data.paymentMethod || null,
-      reference: data.reference || null,
-      invoiceId,
+      paymentMethod: data.paymentMethod ?? null,
+      checkNumber: data.checkNumber ?? null,
+      reference: data.reference ?? null,
+      notes: data.notes ?? null,
       contactId: invoice.contactId,
-      bankAccountId: data.bankAccountId || null,
-      notes: data.notes || null,
-      isPartial: !isFullyPaid,
-      createdBy: userId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      bankAccountId: data.bankAccountId ?? null,
+      allocations: [{ invoiceId, amount }],
+      userId,
     });
 
-    await db
-      .update(invoices)
-      .set({
-        amountPaid: newAmountPaid.toFixed(2),
-        balanceDue: Math.max(0, newBalanceDue).toFixed(2),
-        status: isFullyPaid ? 'paid' : 'partial',
-        paidAt: isFullyPaid ? new Date() : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(invoices.id, invoiceId));
+    const [updated] = await db
+      .select({ amountPaid: invoices.amountPaid, balanceDue: invoices.balanceDue, status: invoices.status })
+      .from(invoices)
+      .where(eq(invoices.id, invoiceId))
+      .limit(1);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: invoice.entityId,
@@ -1261,17 +1158,17 @@ app.post('/:id/record-payment', requirePermission('banking:create'), zValidator(
       entityId: invoiceId,
       action: 'payment_recorded',
       changes: {
-        amountPaid: { old: invoice.amountPaid, new: newAmountPaid.toFixed(2) },
-        status: { old: invoice.status, new: isFullyPaid ? 'paid' : 'partial' },
+        amountPaid: { old: invoice.amountPaid, new: updated?.amountPaid ?? null },
+        status: { old: invoice.status, new: updated?.status ?? null },
       },
     });
     publishEntityEvent({
       c,
       entityType: 'payment',
-      entityId: paymentId,
+      entityId: result.paymentId,
       action: 'created',
       data: {
-        id: paymentId,
+        id: result.paymentId,
         invoiceId,
         amount: data.amount,
         date: data.date,
@@ -1280,14 +1177,16 @@ app.post('/:id/record-payment', requirePermission('banking:create'), zValidator(
     });
 
     return success(c, {
-      paymentId,
-      amountPaid: newAmountPaid.toFixed(2),
-      balanceDue: Math.max(0, newBalanceDue).toFixed(2),
-      status: isFullyPaid ? 'paid' : 'partial',
+      paymentId: result.paymentId,
+      journalEntryId: result.journalEntryId,
+      amountPaid: updated?.amountPaid ?? null,
+      balanceDue: updated?.balanceDue ?? null,
+      status: updated?.status ?? null,
     }, 201);
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
-    console.error('[app-api/invoices] record-payment failed:', err);
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/invoices] record-payment failed:', err);
     return error.internal(c, 'Failed to record payment');
   }
 });
@@ -1358,19 +1257,29 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       });
     }
 
-    const place = await loadPlaceOfSupply(db, entityId, {
-      buyerCountry: order.billingAddress?.country ?? order.shippingAddress?.country,
-      billingProvince:
-        order.billingAddress?.state ??
-        order.shippingAddress?.state,
+    // Link each derived percentage to the entity's own sales rate when one
+    // matches, so the tax reaches the tax ledger (and the return).
+    const salesRates = await db
+      .select({ id: schema.taxRates.id, rate: schema.taxRates.rate, type: schema.taxRates.type })
+      .from(schema.taxRates)
+      .where(and(eq(schema.taxRates.entityId, entityId), isNull(schema.taxRates.deletedAt), eq(schema.taxRates.isActive, true)));
+    const rateFor = (percent: string) =>
+      salesRates.find((r) => r.type !== 'purchase' && Math.abs(Number(r.rate) - Number(percent)) < 0.01)?.id ?? null;
+    const taxedLines = lineInputs.map((line) => ({ ...line, taxRateId: rateFor(line.taxRate) }));
+
+    const billingAddress = normalizePostalAddress(order.billingAddress ?? order.shippingAddress);
+    const shippingAddress = normalizePostalAddress(order.shippingAddress);
+    const totals = await calculateDocumentTax(db, {
+      entityId,
+      direction: 'sales',
+      items: taxedLines,
+      ...taxAddress(shippingAddress, billingAddress),
     });
-    const totals = await buildTaxTotalsWithRates(db, lineInputs, place);
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
     const currency = order.currency || (await resolveEntityBaseCurrency(db, entityId));
 
     const invoiceId = generateId('inv');
     const now = new Date();
-    const billing = order.billingAddress || order.shippingAddress;
 
     const newInvoice = {
       id: invoiceId,
@@ -1391,15 +1300,8 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       amountPaid: '0',
       balanceDue: totals.balanceDue,
       reference: order.orderNumber,
-      billingAddress: billing
-        ? {
-            street: billing.line1,
-            postalCode: billing.postalCode,
-            city: billing.city,
-            province: billing.state,
-            country: billing.country,
-          }
-        : null,
+      billingAddress,
+      shippingAddress,
       commerceOrderId: orderId,
       taxBreakdown: totals.taxBreakdown,
       createdBy: userId,
@@ -1407,9 +1309,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       updatedAt: now,
     };
 
-    await db.insert(invoices).values(newInvoice);
-
-    const itemRecords = lineInputs.map((item, idx) => ({
+    const itemRecords = taxedLines.map((item, idx) => ({
       id: generateId('ili'),
       entityId,
       invoiceId,
@@ -1417,7 +1317,8 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       discountPercent: item.discountPercent,
-      taxRate: item.taxRate,
+      taxRateId: totals.processedItems[idx].taxRateId,
+      taxRate: totals.processedItems[idx].taxRate,
       taxAmount: totals.processedItems[idx].taxAmount,
       lineTotal: totals.processedItems[idx].lineTotal,
       lineTotalWithTax: totals.processedItems[idx].lineTotalWithTax,
@@ -1427,7 +1328,10 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       updatedAt: now,
     }));
 
-    await db.insert(invoiceItems).values(itemRecords);
+    await atomically(db, (h) => [
+      h.insert(invoices).values(newInvoice),
+      h.insert(invoiceItems).values(itemRecords),
+    ]);
 
     await promoteAccountingRole(db, contactId, 'customer');
 

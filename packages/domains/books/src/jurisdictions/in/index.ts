@@ -113,6 +113,22 @@ export const inAdapter: JurisdictionAdapter = {
   name: 'India',
   defaultLocale: 'en-IN',
   defaultCurrency: 'INR',
+  features: {
+    vatReturn: false,
+    icp: false,
+    xafExport: false,
+    smallBusinessScheme: false,
+    gstReturn: true,
+    salesTax: false,
+    form1099: false,
+  },
+  terminology: {
+    tax: 'gst',
+    taxId: 'gstin',
+    registrationId: 'pan',
+    supplier: 'supplier',
+    creditNote: 'credit_note',
+  },
 
   getChartOfAccountsTemplate() {
     return inChartOfAccounts;

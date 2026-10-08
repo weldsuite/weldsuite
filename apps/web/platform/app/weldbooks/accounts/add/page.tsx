@@ -72,7 +72,7 @@ function createAccountSchema(st: (key: string) => string) {
     type: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense']),
     subtype: z.string().optional(),
     normalSide: z.enum(['debit', 'credit']),
-    currency: z.string().default('EUR'),
+    currency: z.string().optional(),
     openingBalance: z.coerce.number().optional(),
   });
 }
@@ -85,7 +85,7 @@ export default function AddAccountPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const ta = t.accounting.accounts;
-  const { currency } = useCurrentEntityCurrency();
+  const { entityCurrency } = useCurrentEntityCurrency();
   const accountSchema = useMemo(() => createAccountSchema(st), [st]);
 
   const form = useForm({
@@ -97,7 +97,7 @@ export default function AddAccountPage() {
       type: 'asset',
       subtype: '',
       normalSide: 'debit',
-      currency: 'EUR',
+      currency: entityCurrency ?? '',
       openingBalance: 0,
     },
   });
@@ -106,13 +106,14 @@ export default function AddAccountPage() {
   const subtypes = subtypesByType[selectedType] ?? [];
 
   useEffect(() => {
-    if (!form.formState.dirtyFields.currency) {
-      form.setValue('currency', currency);
+    if (entityCurrency && !form.formState.dirtyFields.currency) {
+      form.setValue('currency', entityCurrency);
     }
-  }, [currency, form]);
+  }, [entityCurrency, form]);
 
   const onSubmit = async (values: AccountFormValues) => {
-    await createAccount.mutateAsync(values as Record<string, unknown>);
+    // An empty currency is left out so the API falls back to the entity's.
+    await createAccount.mutateAsync({ ...values, currency: values.currency || undefined } as Record<string, unknown>);
     navigate({ to: '/weldbooks/accounts' });
   };
 

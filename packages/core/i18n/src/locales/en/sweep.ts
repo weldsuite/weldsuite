@@ -223,7 +223,7 @@ export const sweep = {
       "panLabel": "PAN",
       "bankAccountLabel": "Bank account",
       "optional": "optional",
-      "vatPlaceholder": "e.g. NL123456789B01",
+      "vatPlaceholder": "As shown on your tax registration",
       "gstinPlaceholder": "e.g. 27AABCU9603R1ZM",
       "createFailed": "Failed to create entity",
       "creating": "Creating…",
@@ -374,7 +374,7 @@ export const sweep = {
       "icpCalculationFailed": "ICP calculation failed",
       "icpFilingFailed": "ICP filing failed",
       "skippedContacts": "Skipped {count} contact(s) without a VAT number",
-      "suppletieCheckFailed": "Suppletie check failed",
+      "suppletieCheckFailed": "Correction check failed",
       "statusCheckFailed": "Status check failed"
     },
     "entitiesList": {

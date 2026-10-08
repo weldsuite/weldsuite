@@ -1,7 +1,8 @@
 import { useNavigate, Link, getRouteApi } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { useCreateBill } from '@/hooks/queries/use-accounting-queries';
-import { BillForm, type BillFormValues, type BillPrefill } from '../components/bill-form';
+import { BillForm, type BillPayload, type BillPrefill } from '../components/bill-form';
 import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { PageLoader } from '@/components/page-loader';
@@ -27,7 +28,7 @@ export default function AddBillPage() {
     enabled: !!fromDocument,
   });
 
-  const handleSubmit = (data: BillFormValues) => {
+  const handleSubmit = (data: BillPayload) => {
     const payload: Record<string, unknown> = { ...data };
     const ocrCurrency = (prefillQuery.data?.data as BillPrefill | undefined)?.currency;
     const currency = ocrCurrency || entityCurrency;
@@ -36,6 +37,9 @@ export default function AddBillPage() {
     createBill.mutate(payload, {
       onSuccess: () => {
         navigate({ to: '/weldbooks/bills' });
+      },
+      onError: (err) => {
+        toast.error(tb.saveFailed, { description: err instanceof Error ? err.message : undefined });
       },
     });
   };

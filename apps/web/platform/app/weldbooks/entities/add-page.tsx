@@ -16,24 +16,12 @@ import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { entityTypesFor } from '@/lib/weldbooks/entity-types';
 
 interface Jurisdiction {
   code: string;
   name: string;
 }
-
-const ENTITY_TYPE_VALUES: Array<{ value: string; label?: string }> = [
-  { value: 'bv', label: 'BV (Besloten Vennootschap)' },
-  { value: 'nv', label: 'NV (Naamloze Vennootschap)' },
-  { value: 'pvt_ltd', label: 'Private Limited (Pvt Ltd)' },
-  { value: 'llp', label: 'LLP' },
-  { value: 'gmbh', label: 'GmbH' },
-  { value: 'ag', label: 'AG' },
-  { value: 'ltd', label: 'Ltd' },
-  { value: 'inc', label: 'Inc' },
-  { value: 'sarl', label: 'SARL' },
-  { value: 'sole' },
-];
 
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
 
@@ -49,10 +37,6 @@ export default function AddEntityPage() {
   const { t } = useI18n();
   const st = useTranslations();
   const te = t.accounting.entities;
-  const ENTITY_TYPES = ENTITY_TYPE_VALUES.map((et) => ({
-    value: et.value,
-    label: et.label ?? st('sweep.weldbooks.entityForm.soleProprietor'),
-  }));
 
   const [name, setName] = useState('');
   const [legalName, setLegalName] = useState('');
@@ -67,6 +51,10 @@ export default function AddEntityPage() {
 
   const isIndia = jurisdictionCode === 'IN';
   const jurisdictionDefaults = JURISDICTION_DEFAULTS[jurisdictionCode];
+  const entityTypes = entityTypesFor(jurisdictionCode, entityType).map((value) => ({
+    value,
+    label: t.accounting.entityTypes[value],
+  }));
 
   const { data: jurisdictions = [] } = useQuery<Jurisdiction[]>({
     queryKey: ['accounting', 'jurisdictions'],
@@ -139,7 +127,7 @@ export default function AddEntityPage() {
           <Select value={entityType} onValueChange={setEntityType}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {ENTITY_TYPES.map((et) => (
+              {entityTypes.map((et) => (
                 <SelectItem key={et.value} value={et.value}>{et.label}</SelectItem>
               ))}
             </SelectContent>
@@ -154,8 +142,8 @@ export default function AddEntityPage() {
               setJurisdictionCode(v);
               const d = JURISDICTION_DEFAULTS[v];
               if (d) setBaseCurrency(d.baseCurrency);
-              if (v === 'IN' && entityType === 'bv') setEntityType('pvt_ltd');
-              if (v === 'NL' && (entityType === 'pvt_ltd' || entityType === 'llp')) setEntityType('bv');
+              const allowed = entityTypesFor(v);
+              if (!allowed.includes(entityType as (typeof allowed)[number])) setEntityType(allowed[0]);
             }}
           >
             <SelectTrigger><SelectValue /></SelectTrigger>

@@ -10,6 +10,8 @@ import { nlTaxCategories } from './tax-categories';
 import { getNlInvoiceRequirements } from './invoice-format';
 import { buildNlBtwReturn } from './btw-return';
 
+export { computeNlRubrieken } from './btw-return';
+
 const EU_COUNTRIES = new Set([
   'AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI',
   'FR', 'GR', 'HR', 'HU', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT',
@@ -38,6 +40,22 @@ export const nlAdapter: JurisdictionAdapter = {
   name: 'Netherlands',
   defaultLocale: 'nl-NL',
   defaultCurrency: 'EUR',
+  features: {
+    vatReturn: true,
+    icp: true,
+    xafExport: true,
+    smallBusinessScheme: true,
+    gstReturn: false,
+    salesTax: false,
+    form1099: false,
+  },
+  terminology: {
+    tax: 'vat',
+    taxId: 'vat_number',
+    registrationId: 'kvk',
+    supplier: 'supplier',
+    creditNote: 'credit_note',
+  },
 
   getChartOfAccountsTemplate() {
     return nlChartOfAccounts;

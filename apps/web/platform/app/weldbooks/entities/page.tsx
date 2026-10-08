@@ -1,9 +1,14 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useCan } from '@weldsuite/permissions/react';
 import { Badge } from '@weldsuite/ui/components/badge';
+import { Button } from '@weldsuite/ui/components/button';
 import { Switch } from '@weldsuite/ui/components/switch';
-import { Building2 } from 'lucide-react';
+import { Building2, Pencil } from 'lucide-react';
+import { useAccountingJurisdictions } from '@/hooks/queries/use-accounting-queries';
+import { localToday } from '@/lib/weldbooks/format';
+import { DEFAULT_TERMINOLOGY } from '@/lib/weldbooks/jurisdiction';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   EmptyStateIllustration,
@@ -11,7 +16,6 @@ import {
 } from '@/components/entity-list';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useI18n } from '@/lib/i18n/provider';
-import { useTranslations } from '@weldsuite/i18n/client';
 
 interface EntityRow {
   id: string;
@@ -37,7 +41,6 @@ export default function EntitiesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useI18n();
-  const st = useTranslations();
   const te = t.accounting.entities;
 
   const { data = [], isLoading } = useQuery<EntityRow[]>({
@@ -48,12 +51,18 @@ export default function EntitiesPage() {
     },
   });
 
+  const { data: jurisdictions = [] } = useAccountingJurisdictions();
+  const canUpdate = useCan('entities:update');
+  const jurisdictionOf = (e: EntityRow) =>
+    jurisdictions.find((j) => j.code.toUpperCase() === e.jurisdictionCode?.toUpperCase());
+  const tt = t.accounting.terminology;
+
   const korMutation = useMutation({
     mutationFn: async ({ entity, enabled }: { entity: EntityRow; enabled: boolean }) => {
       const jurisdictionSettings = {
         ...entity.jurisdictionSettings,
         kor: enabled
-          ? { enabled: true, startDate: new Date().toISOString().slice(0, 10) }
+          ? { enabled: true, startDate: localToday() }
           : { enabled: false },
       };
       await weldbooksApi.patch(`/accounting-entities/${entity.id}`, { jurisdictionSettings });
@@ -105,29 +114,34 @@ export default function EntitiesPage() {
       id: 'taxIds',
       header: te.colTaxIds,
       width: 'w-[200px]',
-      render: (e) => (
-        <div className="text-xs text-muted-foreground">
-          {e.taxIdentifiers?.vatNumber ? <div>{st('sweep.weldbooks.entitiesList.vatPrefix', { value: e.taxIdentifiers.vatNumber })}</div> : null}
-          {e.taxIdentifiers?.registrationNumber ? (
-            <div>{st('sweep.weldbooks.entitiesList.regPrefix', { value: e.taxIdentifiers.registrationNumber })}</div>
-          ) : null}
-        </div>
-      ),
+      render: (e) => {
+        const terminology = jurisdictionOf(e)?.terminology ?? DEFAULT_TERMINOLOGY;
+        const taxId = e.taxIdentifiers?.vatNumber;
+        return (
+          <div className="text-xs text-muted-foreground">
+            {taxId ? <div>{`${tt.taxId[terminology.taxId]}: ${taxId}`}</div> : null}
+            {e.taxIdentifiers?.registrationNumber ? (
+              <div>{`${tt.registrationId[terminology.registrationId]}: ${e.taxIdentifiers.registrationNumber}`}</div>
+            ) : null}
+          </div>
+        );
+      },
     },
     {
       id: 'kor',
       header: te.colKor,
-      width: 'w-[80px]',
+      width: 'w-[120px]',
       render: (e) =>
-        e.jurisdictionCode === 'NL' ? (
+        jurisdictionOf(e)?.features.smallBusinessScheme ? (
           <div
             role="presentation"
             title={e.jurisdictionSettings?.kor?.enabled ? te.korEnabled : te.korDisabled}
             onClick={(ev) => ev.stopPropagation()}
           >
             <Switch
+              aria-label={te.colKor}
               checked={e.jurisdictionSettings?.kor?.enabled ?? false}
-              disabled={korMutation.isPending}
+              disabled={!canUpdate || korMutation.isPending}
               onCheckedChange={(enabled) => korMutation.mutate({ entity: e, enabled })}
             />
           </div>
@@ -136,13 +150,24 @@ export default function EntitiesPage() {
     {
       id: 'badges',
       header: '',
-      width: 'w-[120px]',
+      width: 'w-[180px]',
       render: (e) => (
-        <div className="flex justify-end gap-1">
+        <div className="flex items-center justify-end gap-1">
           {e.isDefault ? <Badge variant="secondary">{te.badgeDefault}</Badge> : null}
           {e.isActive === false ? (
             <Badge variant="outline">{te.badgeInactive}</Badge>
           ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(ev) => {
+              ev.stopPropagation();
+              navigate({ to: '/weldbooks/entities/$id/edit', params: { id: e.id } });
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5 mr-1" aria-hidden />
+            {te.editEntity}
+          </Button>
         </div>
       ),
     },
@@ -153,6 +178,7 @@ export default function EntitiesPage() {
       items={data}
       isLoading={isLoading}
       columns={columns}
+      onRowClick={(e) => navigate({ to: '/weldbooks/entities/$id/edit', params: { id: e.id } })}
       searchFields={['name', 'legalName']}
       searchPlaceholder={te.colName}
       createButton={{
