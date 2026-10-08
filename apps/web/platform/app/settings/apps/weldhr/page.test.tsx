@@ -19,17 +19,8 @@ vi.mock('@weldsuite/permissions/react', () => ({
 vi.mock('@/app/weldhr/settings/components/departments-tab', () => ({
   DepartmentsTab: () => <div>departments panel</div>,
 }));
-vi.mock('@/app/weldhr/settings/components/templates-tab', () => ({
-  TemplatesTab: () => <div>templates panel</div>,
-}));
 vi.mock('@/app/weldhr/settings/components/leave-types-tab', () => ({
   LeaveTypesTab: () => <div>leave types panel</div>,
-}));
-vi.mock('@/app/weldhr/settings/components/evaluation-forms-tab', () => ({
-  EvaluationFormsTab: () => <div>evaluation forms panel</div>,
-}));
-vi.mock('@/app/weldhr/settings/components/kpis-tab', () => ({
-  KpisTab: () => <div>kpis panel</div>,
 }));
 
 describe('WeldHR settings page', () => {
@@ -45,14 +36,14 @@ describe('WeldHR settings page', () => {
     expect(screen.getByRole('heading', { name: en.settings.weldhr.title })).toBeTruthy();
     expect(screen.getByText(en.settings.weldhr.description)).toBeTruthy();
     expect(screen.getByText('departments panel')).toBeTruthy();
-    expect(screen.queryByText('templates panel')).toBeNull();
+    expect(screen.queryByText('leave types panel')).toBeNull();
   });
 
   it('opens the tab from the query string', () => {
-    tab = 'templates';
+    tab = 'leave-types';
     render(<WeldHrSettingsPage />);
 
-    expect(screen.getByText('templates panel')).toBeTruthy();
+    expect(screen.getByText('leave types panel')).toBeTruthy();
     expect(screen.queryByText('departments panel')).toBeNull();
   });
 

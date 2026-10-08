@@ -432,6 +432,8 @@ export const common = {
         hidePassword: 'Ocultar contraseña',
         forgotPassword: '¿Olvidaste tu contraseña?',
         continueWithGoogle: 'Continuar con Google',
+        signInWithPasskey: 'Iniciar sesión con una llave de acceso',
+        passkeySignInFailed: 'No se pudo iniciar sesión con la llave de acceso. Inténtalo de nuevo o usa tu contraseña.',
         orDivider: 'o',
         signIn: 'Iniciar sesión',
         signingIn: 'Iniciando sesión...',

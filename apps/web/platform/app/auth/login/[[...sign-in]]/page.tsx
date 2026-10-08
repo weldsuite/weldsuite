@@ -12,8 +12,9 @@ import {
   InputOTPSlot,
 } from '@weldsuite/ui/components/input-otp';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
-import { Loader2, Mail, Lock, KeyRound, ChevronLeft, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Mail, Lock, KeyRound, ChevronLeft, Eye, EyeOff, Fingerprint } from 'lucide-react';
 import { getSafeCallbackUrl, getClerkErrorMessage } from '../../utils';
+import { isPasskeySupported, isPasskeyAutofillSupported, isPasskeyDismissed } from '@/lib/passkeys';
 import { getTranslations } from '@/lib/i18n';
 
 type LoginStep = 'credentials' | 'two-factor' | 'email-verify' | 'first-factor-verify';
@@ -251,6 +252,10 @@ export default function LoginPage() {
   const [useBackupCode, setUseBackupCode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
+  // Inside the Electron shell the passkey button hands off to the system
+  // browser (like Google), so it is shown there even without WebAuthn.
+  const [showPasskeyButton] = useState(() => isDesktop() || isPasskeySupported());
   const [error, setError] = useState<string | null>(null);
 
   // Redirect if already signed in
@@ -333,6 +338,95 @@ export default function LoginPage() {
     void handleGoogleSignIn();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, signIn, isDesktopHandoff]);
+
+  // Shared by the passkey button and the autofill (conditional UI) flow.
+  // A passkey normally satisfies MFA on its own, but fall through to the
+  // second-factor step if the instance still asks for one.
+  const handlePasskeyResult = async (result: SignInResource) => {
+    if (!isLoaded || !signIn) return;
+    if (result.status === 'complete') {
+      await setActive({ session: result.createdSessionId });
+      // Land on the dashboard; the shell forwards org-less users to /onboarding.
+      setTimeout(() => {
+        window.location.href = postSignInUrl;
+      }, 500);
+      return;
+    }
+    if (result.status === 'needs_second_factor') {
+      const nextStep = await resolveSecondFactorStep(signIn, result.supportedSecondFactors);
+      if (nextStep) {
+        setStep(nextStep);
+        return;
+      }
+    }
+    setError(t.auth.login.passkeySignInFailed);
+  };
+
+  const handlePasskeySignIn = async () => {
+    if (!isLoaded || !signIn) {
+      return;
+    }
+
+    setError(null);
+
+    // In the Electron shell WebAuthn is unreliable (no platform authenticator
+    // on every OS), so sign in through the system browser and come back via
+    // the desktop handoff, exactly like Google.
+    if (isDesktop()) {
+      setIsPasskeyLoading(true);
+      try {
+        const returnTo = 'weldsuite://auth';
+        await getDesktop()?.signInExternally({
+          path: `/auth/login?desktop=1&return_to=${encodeURIComponent(returnTo)}`,
+          returnTo,
+        });
+      } catch {
+        setError(t.auth.login.couldNotOpenBrowser);
+        setIsPasskeyLoading(false);
+      }
+      return;
+    }
+
+    setIsPasskeyLoading(true);
+    try {
+      const result = await signIn.authenticateWithPasskey({ flow: 'discoverable' });
+      await handlePasskeyResult(result);
+      if (result.status !== 'complete') setIsPasskeyLoading(false);
+    } catch (err) {
+      if (!isPasskeyDismissed(err)) {
+        setError(getClerkErrorMessage(err, t.auth.login.passkeySignInFailed));
+      }
+      setIsPasskeyLoading(false);
+    }
+  };
+
+  // Passkey autofill: offer the user's passkeys in the email field's
+  // autocomplete dropdown (WebAuthn conditional mediation). The request stays
+  // pending until a passkey is picked; Clerk aborts it when another WebAuthn
+  // request starts (the passkey button), which is ignored as a dismissal.
+  // Errors here are never shown: the request starts unprompted on page load,
+  // so a failure (e.g. passkeys not enabled on the Clerk instance) must not
+  // put an error banner in front of every visitor. The button reports them.
+  const passkeyAutofillRef = useRef(false);
+  useEffect(() => {
+    if (passkeyAutofillRef.current) return;
+    if (!isLoaded || !signIn) return;
+    if (isDesktop() || prefillEmail) return;
+
+    passkeyAutofillRef.current = true;
+    void (async () => {
+      if (!(await isPasskeyAutofillSupported())) return;
+      try {
+        const result = await signIn.authenticateWithPasskey({ flow: 'autofill' });
+        setIsPasskeyLoading(true);
+        await handlePasskeyResult(result);
+        if (result.status !== 'complete') setIsPasskeyLoading(false);
+      } catch {
+        setIsPasskeyLoading(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- start the pending autofill request once, when Clerk is ready.
+  }, [isLoaded, signIn]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -762,6 +856,27 @@ export default function LoginPage() {
             )}
           </Button>
 
+          {/* Passkey Sign In */}
+          {showPasskeyButton && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handlePasskeySignIn}
+              disabled={isPasskeyLoading || !isLoaded}
+              className="w-full h-[42px] mt-3 shadow-none rounded-[calc(var(--radius)+1px)] !border-gray-300 !bg-white !text-gray-700 hover:!bg-gray-50 hover:!text-gray-700 text-[14px]"
+              size="lg"
+            >
+              {isPasskeyLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  <Fingerprint className="h-5 w-5 mr-2" />
+                  {t.auth.login.signInWithPasskey}
+                </>
+              )}
+            </Button>
+          )}
+
           {/* Divider */}
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
@@ -781,7 +896,9 @@ export default function LoginPage() {
                   id="email"
                   type="text"
                   inputMode="email"
-                  autoComplete="email"
+                  // `webauthn` lets the browser list passkeys in this field's
+                  // autofill dropdown (see the passkey autofill effect).
+                  autoComplete="username webauthn"
                   placeholder={t.auth.login.emailPlaceholder}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}

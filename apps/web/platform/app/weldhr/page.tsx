@@ -1,26 +1,18 @@
 /**
- * WeldHR dashboard: headcount, today's attendance/leave, lifecycle, coaching follow-ups, recent evaluations, client accounts.
+ * WeldHR dashboard: headcount, today's attendance/leave, upcoming starts.
  * Members who can only use My HR (`employees:self`, no HR read permission) are sent to /weldhr/me instead.
  */
 
 import { useEffect } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import {
-  CalendarClock,
-  ClipboardList,
-  Clock,
-  MessageCircle,
-  Palmtree,
-  Star,
-  Users,
-} from 'lucide-react';
+import { CalendarClock, Clock, Palmtree, Users } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
 import { useHrDashboard } from '@/hooks/queries/use-weldhr-queries';
 import { DashboardPage, KpiCard, KpiGrid, SectionCard, EmptyText, useHrBreadcrumbs } from './components/page-kit';
-import { EmployeeAvatar, ErrorBanner, ScoreBadge, StatusBadge, errorMessage, formatDate } from './components/shared';
+import { EmployeeAvatar, ErrorBanner, errorMessage, formatDate } from './components/shared';
 
 /** Any of these opens the back-office dashboard; without one, a member with `employees:self` lands on My HR. */
 const BACK_OFFICE_PERMISSIONS = ['employees:read', 'attendance:read', 'leave:read', 'coaching:read', 'evaluations:read'];
@@ -63,41 +55,10 @@ function DashboardContent() {
               icon={CalendarClock}
               tone={data.pendingLeaveRequests > 0 ? 'warning' : 'default'}
             />
-            <KpiCard
-              label={t('weldhr.dashboard.openOnboardingTasks')}
-              value={data.lifecycle.openTasks}
-              icon={ClipboardList}
-              hint={
-                data.lifecycle.overdueTasks > 0
-                  ? t('weldhr.dashboard.overdueOnboardingTasks', { count: data.lifecycle.overdueTasks })
-                  : undefined
-              }
-              tone={data.lifecycle.overdueTasks > 0 ? 'danger' : 'default'}
-            />
-            <KpiCard
-              label={t('weldhr.dashboard.coachingFollowUpsDue')}
-              value={data.coachingFollowUpsDue}
-              icon={MessageCircle}
-              tone={data.coachingFollowUpsDue > 0 ? 'warning' : 'default'}
-            />
-            <KpiCard
-              label={t('weldhr.dashboard.avgEvaluationScore')}
-              value={data.evaluations.averageScore90d !== null ? data.evaluations.averageScore90d.toFixed(1) : '—'}
-              icon={Star}
-            />
           </KpiGrid>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <SectionCard
-              title={t('weldhr.dashboard.upcomingStarts.title')}
-              action={
-                <Link to="/weldhr/lifecycle">
-                  <Button variant="ghost" size="sm">
-                    {t('weldhr.dashboard.links.lifecycle')}
-                  </Button>
-                </Link>
-              }
-            >
+            <SectionCard title={t('weldhr.dashboard.upcomingStarts.title')}>
               {data.lifecycle.upcomingStarts.length === 0 ? (
                 <EmptyText>{t('weldhr.dashboard.upcomingStarts.empty')}</EmptyText>
               ) : (
@@ -148,72 +109,6 @@ function DashboardContent() {
                       <span className="shrink-0 text-xs text-muted-foreground">
                         {l.leaveTypeName ? `${l.leaveTypeName} · ` : ''}
                         {t('weldhr.dashboard.onLeave.until', { date: formatDate(l.endDate) })}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </SectionCard>
-
-            <SectionCard
-              title={t('weldhr.dashboard.recentEvaluations.title')}
-              action={
-                <Link to="/weldhr/evaluations">
-                  <Button variant="ghost" size="sm">
-                    {t('weldhr.dashboard.links.evaluations')}
-                  </Button>
-                </Link>
-              }
-            >
-              {data.evaluations.recent.length === 0 ? (
-                <EmptyText>{t('weldhr.dashboard.recentEvaluations.empty')}</EmptyText>
-              ) : (
-                <ul className="space-y-2">
-                  {data.evaluations.recent.map((ev) => (
-                    <li key={ev.id} className="flex items-center justify-between gap-2 text-sm">
-                      <Link
-                        to="/weldhr/employees/$employeeId"
-                        params={{ employeeId: ev.employeeId }}
-                        className="truncate hover:underline"
-                      >
-                        {ev.employeeName}
-                      </Link>
-                      <div className="flex shrink-0 items-center gap-2">
-                        <StatusBadge group="evaluation" status={ev.status} />
-                        <ScoreBadge score={ev.overallScore} />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </SectionCard>
-
-            <SectionCard
-              title={t('weldhr.dashboard.clients.title')}
-              action={
-                <Link to="/weldhr/clients">
-                  <Button variant="ghost" size="sm">
-                    {t('weldhr.dashboard.clients.viewAll')}
-                  </Button>
-                </Link>
-              }
-            >
-              {data.clients.length === 0 ? (
-                <EmptyText>{t('weldhr.dashboard.clients.empty')}</EmptyText>
-              ) : (
-                <ul className="space-y-2">
-                  {data.clients.slice(0, 8).map((c) => (
-                    <li key={c.companyId} className="flex items-center justify-between gap-2 text-sm">
-                      <Link
-                        to="/weldhr/clients/$companyId"
-                        params={{ companyId: c.companyId }}
-                        className="truncate hover:underline"
-                      >
-                        {c.companyName ?? c.companyId}
-                      </Link>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {t('weldhr.dashboard.clients.headcount', { count: c.activeCount })} ·{' '}
-                        {t('weldhr.dashboard.clients.fte', { fte: c.fte.toFixed(1) })}
                       </span>
                     </li>
                   ))}

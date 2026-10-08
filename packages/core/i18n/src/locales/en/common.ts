@@ -451,6 +451,8 @@ export const common = {
         hidePassword: 'Hide password',
         forgotPassword: 'Forgot password?',
         continueWithGoogle: 'Continue with Google',
+        signInWithPasskey: 'Sign in with a passkey',
+        passkeySignInFailed: 'Passkey sign in failed. Please try again or use your password.',
         orDivider: 'or',
         signIn: 'Sign In',
         signingIn: 'Signing in...',

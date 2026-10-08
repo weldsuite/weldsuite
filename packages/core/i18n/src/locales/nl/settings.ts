@@ -75,7 +75,7 @@ export const settings = {
       mailAccounts: 'Mail-accounts',
       manageMailAccounts: 'E-mailaccounts beheren',
       weldhrSettings: 'WeldHR',
-      configureWeldhr: 'Afdelingen, checklisttemplates, verloftypes, beoordelingsformulieren en KPI\'s',
+      configureWeldhr: 'Afdelingen en verloftypes',
     },
 
     companyInfo: {
@@ -309,6 +309,38 @@ export const settings = {
         signOutPartial: '{count} appara(a)t(en) uitgelogd. {failedCount} mislukt.',
         signOutSuccess: 'Succesvol uitgelogd op {count} andere appara(a)t(en).',
         noOtherSessions: 'Er zijn geen andere actieve sessies.',
+      },
+      passkeys: {
+        title: 'Passkeys',
+        description: 'Meld u aan met uw vingerafdruk, gezicht of schermvergrendeling in plaats van een wachtwoord. Passkeys zijn bestand tegen phishing en blijven op uw apparaat.',
+        add: 'Passkey toevoegen',
+        adding: 'Toevoegen…',
+        name: 'Naam',
+        created: 'Aangemaakt',
+        lastUsed: 'Laatst gebruikt',
+        never: 'Nooit',
+        empty: 'U heeft nog geen passkeys.',
+        unsupported: 'Deze browser ondersteunt geen passkeys. Open WeldSuite in een actuele browser om er een toe te voegen.',
+        rename: 'Naam wijzigen',
+        remove: 'Verwijderen',
+        renameTitle: 'Naam van passkey wijzigen',
+        renameDescription: 'Geef deze passkey een herkenbare naam, bijvoorbeeld het apparaat waarop hij staat.',
+        save: 'Opslaan',
+        cancel: 'Annuleren',
+        removeTitle: 'Deze passkey verwijderen?',
+        removeDescription: 'U kunt zich niet meer aanmelden met "{name}". Verwijder hem ook van uw apparaat of uit uw wachtwoordbeheerder.',
+        removeConfirm: 'Passkey verwijderen',
+        unnamed: 'Passkey',
+        messages: {
+          added: 'Passkey toegevoegd. U kunt hem nu gebruiken om u aan te melden.',
+          addFailed: 'Passkey toevoegen mislukt: {error}',
+          cancelled: 'Het instellen van de passkey is geannuleerd.',
+          alreadyExists: 'Dit apparaat heeft al een passkey voor uw account.',
+          renamed: 'Naam van passkey gewijzigd.',
+          renameFailed: 'Naam van passkey wijzigen mislukt: {error}',
+          removed: 'Passkey verwijderd.',
+          removeFailed: 'Passkey verwijderen mislukt: {error}',
+        },
       },
       deleteAccount: {
         sectionTitle: 'Gevarenzone',
@@ -1038,7 +1070,7 @@ export const settings = {
 
     weldhr: {
       title: 'WeldHR',
-      description: 'Afdelingen, checklisttemplates, verloftypes, beoordelingsformulieren en KPI-definities.',
+      description: 'Afdelingen en verloftypes.',
     },
 
     weldcrm: {
