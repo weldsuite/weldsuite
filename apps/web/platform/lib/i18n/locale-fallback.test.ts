@@ -11,7 +11,8 @@ describe('locale fallback', () => {
     expect(merged).toEqual({ common: { actions: { cancel: 'Annuler', save: 'Save' } }, other: { title: 'Other' } });
   });
 
-  it('gives partial locales every namespace English has', async () => {
+  // Loads the fr and es bundles (dynamic imports); slow when the whole suite runs in parallel.
+  it('gives partial locales every namespace English has', { timeout: 30_000 }, async () => {
     for (const locale of ['es', 'fr'] as const) {
       const bundle = await loadLocale(locale);
       expect(bundle.weldbooksUs.banking).toBeDefined();

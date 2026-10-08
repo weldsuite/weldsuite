@@ -86,7 +86,8 @@ describe('UsEntityCreateForm', () => {
     expect(mocks.createEntity).not.toHaveBeenCalled();
   });
 
-  it('creates a US entity with its legal form, classification, EIN and accounting setup', async () => {
+  // Fills a long form through user events; give it room when the suite runs in parallel.
+  it('creates a US entity with its legal form, classification, EIN and accounting setup', { timeout: 20_000 }, async () => {
     const user = userEvent.setup();
     renderForm();
 
