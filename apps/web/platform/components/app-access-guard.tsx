@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { usePathname, useRouter } from '@/lib/router';
 import { useInstalledApps } from '@/hooks/use-installed-apps';
-import { useIsGuest } from '@/hooks/use-current-member';
+import { useIsEmployeeMember, useIsGuest } from '@/hooks/use-current-member';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { getAppPermissionObjects } from '@/lib/apps/app-permission-objects';
 
@@ -29,6 +29,28 @@ const GUEST_ALLOWED_PREFIXES = ['/weldchat'];
 /** Where guests land when they hit a disallowed route. */
 const GUEST_FALLBACK_PATH = '/weldchat';
 
+/**
+ * Where EMPLOYEE members (WeldHR) may go: My HR, WeldChat and their own
+ * account settings. Same idea as the guest list: the server ceiling is their
+ * fixed permission set, this only keeps them off pages that would 403.
+ */
+const EMPLOYEE_ALLOWED_PREFIXES = [
+  '/weldhr/me',
+  '/weldchat',
+  '/settings/appearance',
+  '/settings/notifications',
+  '/settings/shortcuts',
+  '/settings/security',
+  '/settings/desktop',
+];
+/** Exact paths EMPLOYEE members may open ("/settings" is their profile). */
+const EMPLOYEE_ALLOWED_PATHS = ['/settings'];
+const EMPLOYEE_FALLBACK_PATH = '/weldhr/me';
+
+function matchesPrefix(pathname: string, prefixes: string[]): boolean {
+  return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(prefix + '/'));
+}
+
 function getAppCodeFromPathname(pathname: string): string | null {
   const segments = pathname.split('/').filter(Boolean);
   if (segments.length === 0) return null;
@@ -41,6 +63,7 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
   const { data: installedApps, isLoading } = useInstalledApps();
   const perms = usePermissionsMaybe();
   const isGuest = useIsGuest();
+  const isEmployeeMember = useIsEmployeeMember();
 
   useEffect(() => {
     if (isLoading || perms?.isLoading) return;
@@ -54,11 +77,22 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
     // the guest allowlist. Root path "/" is also redirected so guests
     // land directly in chat instead of an empty dashboard.
     if (isGuest) {
-      const allowed = GUEST_ALLOWED_PREFIXES.some(
-        (prefix) => pathname === prefix || pathname.startsWith(prefix + '/'),
-      );
-      if (!allowed && pathname !== GUEST_FALLBACK_PATH) {
+      if (!matchesPrefix(pathname, GUEST_ALLOWED_PREFIXES) && pathname !== GUEST_FALLBACK_PATH) {
         router.replace(GUEST_FALLBACK_PATH);
+      }
+      return;
+    }
+
+    // EMPLOYEE members: My HR + WeldChat only; "/" lands them in My HR
+    // (or chat, should WeldHR have been uninstalled).
+    if (isEmployeeMember) {
+      const allowed =
+        EMPLOYEE_ALLOWED_PATHS.includes(pathname) || matchesPrefix(pathname, EMPLOYEE_ALLOWED_PREFIXES);
+      const fallback = installedApps.some((app) => app.appCode === 'weldhr')
+        ? EMPLOYEE_FALLBACK_PATH
+        : GUEST_FALLBACK_PATH;
+      if (!allowed && pathname !== fallback) {
+        router.replace(fallback);
       }
       return;
     }
@@ -94,7 +128,7 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
         router.replace('/');
       }
     }
-  }, [pathname, installedApps, isLoading, router, perms, isGuest]);
+  }, [pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember]);
 
   return <>{children}</>;
 }

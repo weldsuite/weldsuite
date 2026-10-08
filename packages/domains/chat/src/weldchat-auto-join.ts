@@ -30,7 +30,9 @@ export async function autoJoinUserToPublicChannels(
   userId: string,
   memberType: string | null | undefined,
 ): Promise<PublicChannelInfo[]> {
-  if (memberType !== 'INTERNAL') return [];
+  // Staff (INTERNAL and My HR-only EMPLOYEE members) join public channels;
+  // external guests only see the channels they're invited to.
+  if (memberType !== 'INTERNAL' && memberType !== 'EMPLOYEE') return [];
 
   const { chatChannels, chatChannelMembers } = schema;
 

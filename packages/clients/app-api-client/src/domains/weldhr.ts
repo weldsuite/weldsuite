@@ -27,6 +27,9 @@ import type {
   CreateHrMilestoneInput,
   CreateHrShiftInput,
   HrEmployeeSensitiveInput,
+  HrSelfServiceAcknowledgeInput,
+  HrSelfServiceClockInput,
+  HrSelfServiceLeaveRequestInput,
   ImportHrAttendanceInput,
   ImportHrKpiValuesInput,
   InviteHrPortalAccessInput,
@@ -584,6 +587,186 @@ export interface HrDashboard {
   clients: HrClientAccount[];
 }
 
+/** A workspace member who can be made an employee (see `listAvailableMembers`). */
+export interface HrAvailableMember {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  picture: string | null;
+  title: string | null;
+  phone: string | null;
+  memberType: 'INTERNAL' | 'EMPLOYEE';
+}
+
+// ---------------------------------------------------------------------------
+// My HR — the signed-in member's own employee record (`/weldhr/me/*`).
+// Same shapes the workforce portal serves; see services/weldhr/portal-self-service.
+// ---------------------------------------------------------------------------
+
+export interface HrSelfProfile {
+  id: string;
+  displayName: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  jobTitle: string | null;
+  employeeNumber: string | null;
+  status: HrEmployeeStatus;
+  employmentType: HrEmploymentType;
+  startDate: string | null;
+  location: string | null;
+  departmentName: string | null;
+  manager: { displayName: string; email: string | null } | null;
+  clients: HrClientRef[];
+}
+
+export interface HrSelfFeatures {
+  /** Clock in/out from My HR (WeldHR settings → portal → self clock-in). */
+  selfClockIn: boolean;
+  /** Request leave from My HR (WeldHR settings → portal → leave requests). */
+  leaveRequests: boolean;
+}
+
+export interface HrSelf {
+  /** Null when the member is not linked to an employee record (or it was terminated). */
+  employee: HrSelfProfile | null;
+  features: HrSelfFeatures;
+}
+
+export interface HrSelfOverview {
+  profile: HrSelfProfile;
+  clock: { clockedIn: boolean; since: string | null };
+  upcomingShifts: Array<{ id: string; startsAt: string; endsAt: string; companyName: string | null }>;
+  leaveBalances: HrLeaveBalance[];
+  openTasks: number;
+  toAcknowledge: { coaching: number; evaluations: number };
+  latestEvaluation: { id: string; overallScore: number | null; formName: string | null; submittedAt: string | null } | null;
+  milestones: { achieved: number; open: number };
+}
+
+export interface HrSelfAttendance {
+  records: Array<{
+    id: string;
+    date: string;
+    clockIn: string | null;
+    clockOut: string | null;
+    breakMinutes: number | null;
+    workedMinutes: number | null;
+    lateMinutes: number | null;
+    status: HrAttendanceStatus;
+    source: string;
+    approved: boolean;
+    companyName: string | null;
+  }>;
+  shifts: Array<{ id: string; startsAt: string; endsAt: string; companyName: string | null; notes: string | null }>;
+}
+
+export interface HrSelfClockResult {
+  id: string;
+  date: string;
+  clockIn: string | null;
+  clockOut: string | null;
+  status: HrAttendanceStatus;
+  workedMinutes: number | null;
+  lateMinutes: number | null;
+}
+
+export interface HrSelfLeaveRequest {
+  id: string;
+  leaveTypeId: string;
+  leaveTypeName: string | null;
+  leaveTypeColor: string | null;
+  startDate: string;
+  endDate: string;
+  days: number;
+  reason: string | null;
+  status: HrLeaveStatus;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+}
+
+export interface HrSelfLeave {
+  types: Array<{ id: string; name: string; color: string | null; requiresApproval: boolean }>;
+  balances: HrLeaveBalance[];
+  requests: HrSelfLeaveRequest[];
+}
+
+export interface HrSelfTask {
+  id: string;
+  title: string;
+  description: string | null;
+  dueDate: string | null;
+  assigneeRole: HrAssigneeRole;
+  completedAt: string | null;
+  /** Only tasks assigned to the employee role, on a checklist still in progress. */
+  canComplete: boolean;
+  checklistName: string;
+  checklistKind: 'onboarding' | 'offboarding';
+}
+
+export interface HrSelfCoachingLog {
+  id: string;
+  sessionDate: string;
+  category: HrCoachingCategory;
+  topic: string;
+  notes: string | null;
+  actionItems: HrCoachingActionItem[];
+  followUpDate: string | null;
+  status: HrCoachingStatus;
+  coachName: string | null;
+  acknowledgedAt: string | null;
+  employeeComment: string | null;
+}
+
+export interface HrSelfEvaluation {
+  id: string;
+  formName: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  criteria: HrEvaluationCriterion[];
+  scores: HrEvaluationScore[];
+  overallScore: number | null;
+  summary: string | null;
+  status: HrEvaluationStatus;
+  evaluatorName: string | null;
+  submittedAt: string | null;
+  acknowledgedAt: string | null;
+  employeeComment: string | null;
+}
+
+export interface HrSelfPerformance {
+  kpis: Array<{
+    id: string;
+    kpiId: string;
+    kpiName: string;
+    unit: HrKpiUnit;
+    direction: HrKpiDirection;
+    target: number | null;
+    value: number;
+    onTarget: boolean | null;
+    periodStart: string;
+    periodEnd: string;
+  }>;
+  milestones: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    type: HrMilestoneType;
+    status: HrMilestoneStatus;
+    dueDate: string | null;
+    achievedAt: string | null;
+    companyName: string | null;
+  }>;
+}
+
+export interface HrSelfAcknowledgeResult {
+  id: string;
+  acknowledgedAt: string | null;
+  status: string;
+}
+
 export interface HrEmployeeListParams {
   search?: string;
   status?: string;
@@ -633,6 +816,10 @@ export function createWeldHrApi(api: ClientApi) {
     },
     createEmployeeFromMember(body: CreateHrEmployeeFromMemberInput): Promise<DataResponse<HrEmployee>> {
       return api.post(`${base}/employees/from-member`, body);
+    },
+    /** Active INTERNAL / EMPLOYEE members not yet linked to an employee. */
+    listAvailableMembers(params: { search?: string; limit?: number } = {}): Promise<DataResponse<HrAvailableMember[]>> {
+      return api.get(`${base}/employees/available-members${qs(params)}`);
     },
     updateEmployee(id: string, body: UpdateHrEmployeeInput): Promise<DataResponse<HrEmployee>> {
       return api.patch(`${base}/employees/${id}`, body);
@@ -900,6 +1087,50 @@ export function createWeldHrApi(api: ClientApi) {
     },
     deletePortalAccess(id: string): Promise<void> {
       return api.delete(`${base}/portal/access/${id}`);
+    },
+
+    // My HR (the caller's own employee record) -------------------------------
+    me(): Promise<DataResponse<HrSelf>> {
+      return api.get(`${base}/me`);
+    },
+    meOverview(): Promise<DataResponse<HrSelfOverview>> {
+      return api.get(`${base}/me/overview`);
+    },
+    meAttendance(params: { from?: string; to?: string } = {}): Promise<DataResponse<HrSelfAttendance>> {
+      return api.get(`${base}/me/attendance${qs(params)}`);
+    },
+    meClock(body: HrSelfServiceClockInput): Promise<DataResponse<HrSelfClockResult>> {
+      return api.post(`${base}/me/clock`, body);
+    },
+    meLeave(): Promise<DataResponse<HrSelfLeave>> {
+      return api.get(`${base}/me/leave`);
+    },
+    meRequestLeave(body: HrSelfServiceLeaveRequestInput): Promise<DataResponse<HrLeaveRequest>> {
+      return api.post(`${base}/me/leave`, body);
+    },
+    meCancelLeave(id: string): Promise<DataResponse<HrLeaveRequest>> {
+      return api.post(`${base}/me/leave/${id}/cancel`, {});
+    },
+    meTasks(): Promise<DataResponse<HrSelfTask[]>> {
+      return api.get(`${base}/me/tasks`);
+    },
+    meCompleteTask(id: string, done = true): Promise<DataResponse<{ ok: true; checklistCompleted: boolean }>> {
+      return api.post(`${base}/me/tasks/${id}/complete${done ? '' : '?undo=true'}`, {});
+    },
+    meCoaching(): Promise<DataResponse<HrSelfCoachingLog[]>> {
+      return api.get(`${base}/me/coaching`);
+    },
+    meAcknowledgeCoaching(id: string, body: HrSelfServiceAcknowledgeInput = {}): Promise<DataResponse<HrSelfAcknowledgeResult>> {
+      return api.post(`${base}/me/coaching/${id}/acknowledge`, body);
+    },
+    meEvaluations(): Promise<DataResponse<HrSelfEvaluation[]>> {
+      return api.get(`${base}/me/evaluations`);
+    },
+    meAcknowledgeEvaluation(id: string, body: HrSelfServiceAcknowledgeInput = {}): Promise<DataResponse<HrSelfAcknowledgeResult>> {
+      return api.post(`${base}/me/evaluations/${id}/acknowledge`, body);
+    },
+    mePerformance(): Promise<DataResponse<HrSelfPerformance>> {
+      return api.get(`${base}/me/performance`);
     },
   };
 }

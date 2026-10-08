@@ -250,7 +250,10 @@ async function assertUserIdFree(db: Database, userId: string | null | undefined,
   }
 }
 
-/** Active Clerk-backed workspace member (not a pending invite placeholder). */
+/** Member types that can be an employee. External guests are outside collaborators, never staff. */
+const EMPLOYABLE_MEMBER_TYPES = ['INTERNAL', 'EMPLOYEE'];
+
+/** Active Clerk-backed workspace member (not a pending invite placeholder) who can be an employee. */
 export async function requireActiveWorkspaceMember(db: Database, userId: string) {
   if (!userId || userId.startsWith('invited_')) {
     throw new HrValidationError('That is not an active workspace member');
@@ -264,6 +267,69 @@ export async function requireActiveWorkspaceMember(db: Database, userId: string)
   if (row.status !== 'ACTIVE') {
     throw new HrValidationError('Only active workspace members can be linked to an employee');
   }
+  if (!EMPLOYABLE_MEMBER_TYPES.includes(row.memberType)) {
+    throw new HrValidationError('External guests cannot be employees');
+  }
+  return row;
+}
+
+export interface AvailableMember {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  picture: string | null;
+  title: string | null;
+  phone: string | null;
+  memberType: 'INTERNAL' | 'EMPLOYEE';
+}
+
+/**
+ * Members who can still become an employee: active, INTERNAL or EMPLOYEE, and
+ * not linked to a (non-deleted) employee yet. Feeds the "New employee" picker.
+ */
+export async function listAvailableMembers(
+  db: Database,
+  filters: { search?: string; limit?: number } = {},
+): Promise<AvailableMember[]> {
+  const m = schema.workspaceMembers;
+  const limit = Math.min(filters.limit ?? 100, 200);
+  const conditions: SQL[] = [
+    isNull(m.deletedAt),
+    eq(m.status, 'ACTIVE'),
+    inArray(m.memberType, EMPLOYABLE_MEMBER_TYPES),
+    sql`${m.userId} not like 'invited\\_%'`,
+    sql`not exists (select 1 from ${t} where ${t.userId} = ${m.userId} and ${t.deletedAt} is null)`,
+  ];
+  if (filters.search?.trim()) {
+    const q = `%${filters.search.trim().replace(/[%_]/g, (ch) => `\\${ch}`)}%`;
+    const match = or(ilike(m.name, q), ilike(m.email, q));
+    if (match) conditions.push(match);
+  }
+  const rows = await db
+    .select({
+      userId: m.userId,
+      name: m.name,
+      email: m.email,
+      picture: m.picture,
+      title: m.title,
+      phone: m.phone,
+      memberType: m.memberType,
+    })
+    .from(m)
+    .where(and(...conditions))
+    .orderBy(asc(m.name), asc(m.email))
+    .limit(limit);
+  return rows.map((r) => ({ ...r, memberType: r.memberType === 'EMPLOYEE' ? 'EMPLOYEE' : 'INTERNAL' }));
+}
+
+/** The caller's own employee record, or null (not linked, deleted or terminated). Used by My HR. */
+export async function employeeForUser(db: Database, userId: string): Promise<HrEmployee | null> {
+  const [row] = await db
+    .select()
+    .from(t)
+    .where(and(eq(t.userId, userId), isNull(t.deletedAt)))
+    .limit(1);
+  if (!row || row.status === 'terminated') return null;
   return row;
 }
 
@@ -312,18 +378,25 @@ export type EmployeeWriteInput = {
   customFields?: Record<string, unknown>;
 };
 
+/**
+ * Every employee is a member of this workspace: `userId` must be an active
+ * INTERNAL or EMPLOYEE member who isn't linked to another employee yet.
+ * (Rows from before this rule may still have no `userId`; they keep working
+ * and can be linked later, see `updateEmployee`.)
+ */
 export async function createEmployee(
   db: Database,
-  input: EmployeeWriteInput & { firstName: string; lastName: string; email: string },
+  input: EmployeeWriteInput & { firstName: string; lastName: string; email: string; userId: string },
   opts: { createdBy: string; sensitive?: HrEmployeeSensitive; keyring?: EncryptionKeyring },
 ): Promise<HrEmployee> {
+  if (!input.userId) {
+    throw new HrValidationError('An employee must be a member of this workspace. Invite them first.');
+  }
   assertDateOrder(input.startDate, input.endDate, 'Employment');
+  await requireActiveWorkspaceMember(db, input.userId);
+  await assertUserIdFree(db, input.userId);
   await assertEmailFree(db, input.email);
   await assertManager(db, input.managerId);
-  if (input.userId) {
-    await requireActiveWorkspaceMember(db, input.userId);
-    await assertUserIdFree(db, input.userId);
-  }
 
   const id = generateId('hremp');
   const sensitiveEncrypted =
@@ -394,10 +467,12 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
   }
   if (input.managerId !== undefined) await assertManager(db, input.managerId, id);
   if (input.userId !== undefined && input.userId !== existing.userId) {
-    if (input.userId) {
-      await requireActiveWorkspaceMember(db, input.userId);
-      await assertUserIdFree(db, input.userId, id);
+    // Re-pointing at another member is fine; unlinking is not.
+    if (!input.userId) {
+      throw new HrValidationError('An employee stays linked to a workspace member. Link a different member instead.');
     }
+    await requireActiveWorkspaceMember(db, input.userId);
+    await assertUserIdFree(db, input.userId, id);
   }
 
   const [row] = await db

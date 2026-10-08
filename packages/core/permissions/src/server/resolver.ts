@@ -5,10 +5,11 @@
  * Generic over the database type so it works in any Hono worker.
  *
  * effectivePermissions = rolePermissions UNION teamPermissions[] UNION memberExtraPermissions
+ *                        (an EMPLOYEE member: EMPLOYEE_MEMBER_PERMISSIONS, nothing else)
  * denies               = memberDenies (applied at check time, a deny always wins)
  */
 
-import { SYSTEM_ROLES } from '../catalog';
+import { EMPLOYEE_MEMBER_PERMISSIONS, SYSTEM_ROLES } from '../catalog';
 import type { ResolvedPermissions } from '../types';
 
 /**
@@ -24,6 +25,8 @@ export interface PermissionDbQuery {
     permissions: string[] | null;
     /** Explicit per-member denies. Absent until the column exists. */
     permissionDenies?: string[] | null;
+    /** INTERNAL, EXTERNAL_GUEST or EMPLOYEE. Absent on adapters that don't select it. */
+    memberType?: string | null;
   } | null>;
 
   getRolePermissions(roleId: string): Promise<string[] | null>;
@@ -36,6 +39,7 @@ export interface PermissionDbQuery {
  *
  * Resolution order:
  * 1. If OWNER role → return ['*'] immediately
+ *    If an EMPLOYEE member → return EMPLOYEE_MEMBER_PERMISSIONS (+ denies)
  * 2. Get role permissions (from custom roleId or system role fallback)
  * 3. Get team permissions (all teams the member belongs to)
  * 4. Get extra member permissions
@@ -56,6 +60,19 @@ export async function resolveEffectivePermissions(
   // OWNER shortcut — the owner can never be restricted, so no denies.
   if (isOwner) {
     return { permissions: ['*'], denies: [], role: 'OWNER', roleId: member.roleId, isOwner: true };
+  }
+
+  // EMPLOYEE members (My HR + WeldChat) get a fixed set. Their role, teams and
+  // per-member extras are ignored so nothing widens them by accident; explicit
+  // denies still apply.
+  if (member.memberType === 'EMPLOYEE') {
+    return {
+      permissions: [...EMPLOYEE_MEMBER_PERMISSIONS],
+      denies: member.permissionDenies ?? [],
+      role: member.role,
+      roleId: member.roleId,
+      isOwner: false,
+    };
   }
 
   // 1. Role permissions
@@ -122,6 +139,9 @@ export function createDrizzlePermissionQueries(
       // keeps working against tenant DBs that predate it.
       if (schema.workspaceMembers.permissionDenies) {
         columns.permissionDenies = schema.workspaceMembers.permissionDenies;
+      }
+      if (schema.workspaceMembers.memberType) {
+        columns.memberType = schema.workspaceMembers.memberType;
       }
       const [member] = await db
         .select(columns)

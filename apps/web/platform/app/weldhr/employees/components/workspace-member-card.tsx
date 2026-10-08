@@ -1,6 +1,10 @@
 /**
  * Workspace account card on the employee detail page.
- * Link an existing team member, or invite the employee as a workspace member.
+ *
+ * New employees are always created from a workspace member, so this card only
+ * has work to do for employees from before that rule: link them to an
+ * existing member, or invite them (as an Employee member by default, which
+ * gives them My HR and WeldChat only) and link them once they've accepted.
  */
 
 import { useMemo, useState } from 'react';
@@ -28,13 +32,15 @@ import type { HrEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr'
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useTeamMembers } from '@/hooks/queries/use-team-queries';
 import { useWorkspaceRoles } from '@/hooks/queries/use-settings-queries';
-import { useHrEmployees, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
+import { useHrAvailableMembers, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
 import { ErrorBanner, errorMessage } from '../../components/shared';
 import { EmptyText, SectionCard } from '../../components/page-kit';
 
 type Props = Readonly<{
   employee: HrEmployeeDetail;
 }>;
+
+type InviteAs = 'EMPLOYEE' | 'INTERNAL';
 
 function memberEmail(member: { email?: string | null } | object): string | null {
   return 'email' in member && typeof member.email === 'string' ? member.email : null;
@@ -54,17 +60,22 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
   const updateEmployee = useUpdateHrEmployee();
   const canReadTeam = can('team:read');
   const canInvite = can('team:create');
-  const canLink = can('employees:update') || can('employees:manage');
+  // PATCH /employees/:id (the link) and the available-members list both need employees:update.
+  const canLink = can('employees:update');
 
+  // Only to show who a linked employee is; every member type, since the
+  // linked member is often an EMPLOYEE member.
   const { data: membersResponse } = useTeamMembers(
-    canReadTeam ? { limit: 100, status: 'ACTIVE', memberType: 'INTERNAL' } : undefined,
+    canReadTeam && employee.userId ? { limit: 100, status: 'ACTIVE', memberType: 'all' } : undefined,
   );
-  const { data: linkedEmployees } = useHrEmployees(canLink ? { limit: 200 } : undefined);
+  // Members who are free to link: active INTERNAL / EMPLOYEE, not an employee yet.
+  const { data: availableMembers } = useHrAvailableMembers({ limit: 200 }, { enabled: canLink && !employee.userId });
   const { data: rolesResponse } = useWorkspaceRoles(canInvite);
   const roles = rolesResponse?.data ?? [];
 
   const [dialog, setDialog] = useState<'invite' | 'link' | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [inviteAs, setInviteAs] = useState<InviteAs>('EMPLOYEE');
   const [roleId, setRoleId] = useState<string>('');
   const [failure, setFailure] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -74,32 +85,16 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
     return (membersResponse?.data ?? []).find((m) => m.userId === employee.userId) ?? null;
   }, [employee.userId, membersResponse]);
 
-  const linkedUserIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const emp of linkedEmployees?.data ?? []) {
-      if (emp.userId && emp.id !== employee.id) ids.add(emp.userId);
-    }
-    return ids;
-  }, [linkedEmployees, employee.id]);
-
-  const linkableMembers = useMemo(() => {
-    const members = membersResponse?.data ?? [];
-    return members.filter(
-      (m) =>
-        m.status === 'ACTIVE' &&
-        m.memberType !== 'EXTERNAL_GUEST' &&
-        !m.userId.startsWith('invited_') &&
-        !linkedUserIds.has(m.userId),
-    );
-  }, [membersResponse, linkedUserIds]);
+  const linkableMembers = useMemo(() => availableMembers ?? [], [availableMembers]);
 
   const emailMatch = useMemo(() => {
     const email = employee.email.trim().toLowerCase();
-    return linkableMembers.find((m) => (memberEmail(m) ?? '').toLowerCase() === email) ?? null;
+    return linkableMembers.find((m) => (m.email ?? '').toLowerCase() === email) ?? null;
   }, [linkableMembers, employee.email]);
 
   function openInvite() {
     setFailure(null);
+    setInviteAs('EMPLOYEE');
     setRoleId(pickDefaultRoleId(roles));
     setDialog('invite');
   }
@@ -117,8 +112,9 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
       await teamMembers.inviteMember({
         email: employee.email,
         name: employee.displayName,
-        roleId: roleId || null,
-        memberType: 'INTERNAL',
+        // An Employee member's access is fixed; the server ignores a role for them.
+        roleId: inviteAs === 'INTERNAL' ? roleId || null : null,
+        memberType: inviteAs,
       });
       toast.success(t('weldhr.employees.workspace.inviteSent'));
       setDialog(null);
@@ -173,7 +169,7 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
           </p>
         )}
         <div className="flex flex-wrap gap-2">
-          {canLink && canReadTeam && (
+          {canLink && (
             <Button size="sm" variant="outline" onClick={openLink}>
               <Link2 className="mr-1.5 h-4 w-4" />
               {emailMatch
@@ -211,26 +207,49 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
                 })}
               </p>
               <div className="space-y-2">
-                <Label>{t('weldhr.employees.workspace.role')}</Label>
-                <Select value={roleId || '__none'} onValueChange={(v) => setRoleId(v === '__none' ? '' : v)}>
+                <Label>{t('weldhr.employees.workspace.inviteAs')}</Label>
+                <Select value={inviteAs} onValueChange={(v) => setInviteAs(v as InviteAs)}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="EMPLOYEE">{t('weldhr.employees.workspace.inviteAsEmployee')}</SelectItem>
+                    <SelectItem value="INTERNAL">{t('weldhr.employees.workspace.inviteAsTeamMember')}</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  {inviteAs === 'EMPLOYEE'
+                    ? t('weldhr.employees.workspace.inviteAsEmployeeHint')
+                    : t('weldhr.employees.workspace.inviteAsTeamMemberHint')}
+                </p>
               </div>
+              {inviteAs === 'INTERNAL' && (
+                <div className="space-y-2">
+                  <Label>{t('weldhr.employees.workspace.role')}</Label>
+                  <Select value={roleId || '__none'} onValueChange={(v) => setRoleId(v === '__none' ? '' : v)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialog(null)} disabled={pending}>
                 {t('weldhr.common.cancel')}
               </Button>
-              <Button type="button" onClick={() => void inviteMember()} disabled={pending || !roleId}>
+              <Button
+                type="button"
+                onClick={() => void inviteMember()}
+                disabled={pending || (inviteAs === 'INTERNAL' && !roleId)}
+              >
                 {pending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
                 {t('weldhr.employees.workspace.inviteSubmit')}
               </Button>

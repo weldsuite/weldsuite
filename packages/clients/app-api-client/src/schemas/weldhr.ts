@@ -80,7 +80,11 @@ export const createHrEmployeeSchema = z.object({
   jobTitle: shortText(160).nullable().optional(),
   departmentId: id.nullable().optional(),
   managerId: id.nullable().optional(),
-  userId: z.string().max(255).nullable().optional(),
+  /**
+   * Clerk id of the workspace member this employee is. Required: every
+   * employee is someone in this workspace (an INTERNAL or EMPLOYEE member).
+   */
+  userId: z.string().trim().min(1).max(255),
   employmentType: hrEmploymentTypeSchema.optional(),
   status: hrEmployeeStatusSchema.optional(),
   startDate: isoDate.nullable().optional(),
@@ -95,6 +99,7 @@ export const createHrEmployeeSchema = z.object({
   /** Start this onboarding template right away. */
   onboardingTemplateId: id.optional(),
 });
+/** `userId` can be pointed at another member, never cleared (it is not nullable). */
 export const updateHrEmployeeSchema = createHrEmployeeSchema
   .omit({ onboardingTemplateId: true })
   .partial();
@@ -106,6 +111,12 @@ export const createHrEmployeeFromMemberSchema = createHrEmployeeSchema
   .extend({
     userId: z.string().trim().min(1).max(255),
   });
+
+/** Members who can become an employee: active, INTERNAL or EMPLOYEE, not linked yet. */
+export const listHrAvailableMembersQuerySchema = z.object({
+  search: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
 
 export const listHrEmployeesQuerySchema = z.object({
   search: z.string().max(200).optional(),
@@ -484,4 +495,7 @@ export type CreateHrMilestoneInput = z.infer<typeof createHrMilestoneSchema>;
 export type UpdateHrMilestoneInput = z.infer<typeof updateHrMilestoneSchema>;
 export type UpdateHrPortalSettingsInput = z.infer<typeof updateHrPortalSettingsSchema>;
 export type InviteHrPortalAccessInput = z.infer<typeof inviteHrPortalAccessSchema>;
+export type HrSelfServiceLeaveRequestInput = z.infer<typeof hrPortalLeaveRequestSchema>;
+export type HrSelfServiceClockInput = z.infer<typeof hrPortalClockSchema>;
+export type HrSelfServiceAcknowledgeInput = z.infer<typeof hrPortalAcknowledgeSchema>;
 export type CreateHrDepartmentInput = z.infer<typeof createHrDepartmentSchema>;

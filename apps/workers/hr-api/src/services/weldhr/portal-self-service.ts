@@ -78,7 +78,14 @@ export async function employeeTasks(db: Database, employeeId: string) {
   }));
 }
 
-export async function completeEmployeeTask(db: Database, employeeId: string, taskId: string, done: boolean) {
+/** `completedBy` defaults to the portal principal; My HR passes the member's user id. */
+export async function completeEmployeeTask(
+  db: Database,
+  employeeId: string,
+  taskId: string,
+  done: boolean,
+  completedBy: string = `portal:${employeeId}`,
+) {
   const t = schema.hrChecklistTasks;
   const [task] = await db.select().from(t).where(eq(t.id, taskId)).limit(1);
   if (task?.employeeId !== employeeId || !task.visibleToEmployee) throw new HrNotFoundError('Task', taskId);
@@ -86,7 +93,7 @@ export async function completeEmployeeTask(db: Database, employeeId: string, tas
   const now = new Date();
   await db
     .update(t)
-    .set(done ? { completedAt: now, completedBy: `portal:${employeeId}`, updatedAt: now } : { completedAt: null, completedBy: null, updatedAt: now })
+    .set(done ? { completedAt: now, completedBy, updatedAt: now } : { completedAt: null, completedBy: null, updatedAt: now })
     .where(eq(t.id, taskId));
   return { checklistId: task.checklistId, outcome: await settleChecklist(db, task.checklistId) };
 }
