@@ -40,6 +40,7 @@ import { weldsuiteHome } from './weldsuiteHome';
 import { welddata } from './welddata';
 import { weldknow } from './weldknow';
 import { deskInbox2 } from './desk-inbox2';
+import { blockEditor } from './block-editor';
 import { sweep } from './sweep';
 
 export const es = {
@@ -84,5 +85,6 @@ export const es = {
   welddata,
   weldknow,
   deskInbox2,
+  blockEditor,
   sweep,
 };

@@ -75,8 +75,6 @@ export interface KnowledgeSpaceTreeProps {
    * personal "Private" section, which is its own sidebar group.
    */
   flat?: boolean;
-  /** Shown when there is nothing to list. */
-  emptyLabel?: string;
   onToggleSpace: (id: string) => void;
   onTogglePage: (id: string) => void;
   onCreateSpace: () => void;
@@ -110,7 +108,6 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
     canCreate,
     canDelete,
     flat = false,
-    emptyLabel,
     onToggleSpace,
     onTogglePage,
     onCreateSpace,
@@ -139,9 +136,7 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
     return (
       <SidebarMenu>
         <SidebarMenuItem>
-          {emptyLabel ? (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel}</p>
-          ) : canCreate ? (
+          {canCreate ? (
             <Button
               variant="ghost"
               onClick={onCreateSpace}
@@ -254,9 +249,8 @@ export function KnowledgeSpaceTree(props: Readonly<KnowledgeSpaceTreeProps>) {
   if (flat) {
     const space = spaces[0]!;
     const tree = treesBySpace.get(space.id) ?? [];
-    if (tree.length === 0) {
-      return <p className="px-2 py-1.5 text-xs text-muted-foreground">{emptyLabel ?? t.sidebar.noPagesInSpace}</p>;
-    }
+    // An empty flat section shows just its heading (and "add" button).
+    if (tree.length === 0) return null;
     return <SidebarMenu>{tree.map((node) => renderPage(node, space, 0))}</SidebarMenu>;
   }
 

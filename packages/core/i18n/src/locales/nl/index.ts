@@ -43,6 +43,7 @@ import { weldhr } from './weldhr';
 import { weldknow } from './weldknow';
 import { weldads } from './weldads';
 import { deskInbox2 } from './desk-inbox2';
+import { blockEditor } from './block-editor';
 import { weldapps } from './weldapps';
 import { weldobjects } from './weldobjects';
 import { sweep } from './sweep';
@@ -93,6 +94,7 @@ export const nl = {
   weldknow,
   weldads,
   deskInbox2,
+  blockEditor,
   weldapps,
   weldobjects,
   sweep,

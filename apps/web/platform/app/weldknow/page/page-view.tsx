@@ -1,49 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  History,
-  Lock,
-  LockOpen,
-  MoreHorizontal,
-  Move,
-  Star,
-  Trash2,
-} from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useCan } from '@weldsuite/permissions/react';
 import { getTranslations } from '@/lib/i18n';
-import { useRouter } from '@/lib/router';
 import { PageLoader } from '@/components/page-loader';
-import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import {
   BlockEditor,
   type BlockEditorHandle,
   type BlockNoteEditorInstance,
 } from '@/components/block-editor/block-editor';
+import type { PageLinkSource } from '@/components/block-editor/slash-menu';
 import type { Block, PartialBlock } from '@blocknote/core';
 import {
-  useAddKnowledgeFavorite,
-  useDeleteKnowledgePage,
+  useCreateKnowledgePage,
   useJoinKnowledgeSpace,
-  useKnowledgeFavorites,
   useKnowledgePage,
   useKnowledgePageTree,
   useKnowledgeSpaces,
-  useRemoveKnowledgeFavorite,
   useSaveKnowledgePageContent,
   useUpdateKnowledgePageMeta,
 } from '@/hooks/queries/use-knowledge-queries';
-import { MovePageDialog } from '../components/move-page-dialog';
-import { VersionHistorySheet } from '../components/version-history-sheet';
 
 const AUTOSAVE_DELAY_MS = 1500;
 /** How many of this editor's own saves to remember when recognising their echo. */
@@ -84,33 +63,23 @@ interface PageViewProps {
 
 export default function PageView({ pageId }: Readonly<PageViewProps>) {
   const t = getTranslations('weldknow');
-  const router = useRouter();
   const canUpdate = useCan('knowledge:update');
-  const canDelete = useCan('knowledge:delete');
 
   const { data: pageData, isLoading, isError } = useKnowledgePage(pageId);
   const { data: treeData } = useKnowledgePageTree();
-  const { data: favoritesData } = useKnowledgeFavorites();
   const { data: spacesData } = useKnowledgeSpaces();
 
   const updateMeta = useUpdateKnowledgePageMeta();
   const joinSpace = useJoinKnowledgeSpace();
   const saveContent = useSaveKnowledgePageContent();
-  const deletePage = useDeleteKnowledgePage();
-  const addFavorite = useAddKnowledgeFavorite();
-  const removeFavorite = useRemoveKnowledgeFavorite();
+  const { mutateAsync: createPage } = useCreateKnowledgePage();
 
   const page = pageData?.data;
   const allNodes = useMemo(() => treeData?.data ?? [], [treeData]);
-  const favorites = favoritesData?.data ?? [];
-  const isFavorite = favorites.some((f) => f.pageId === pageId);
 
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState('');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [showMoveDialog, setShowMoveDialog] = useState(false);
-  const [showVersions, setShowVersions] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const titleSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -121,7 +90,6 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
   // content last compared against them — see the sync effect below.
   const sentContentRef = useRef<string[]>([]);
   const seenContentRef = useRef<{ pageId: string; contentJson: unknown } | null>(null);
-  const [restoreCount, setRestoreCount] = useState(0);
 
   // Sync local title/icon state whenever a different page loads.
   useEffect(() => {
@@ -142,6 +110,38 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     }
     return chain;
   }, [page, allNodes, t]);
+
+  // The editor's "Page" and "Link to page" commands: a new page becomes a
+  // child of this one, and links can point at any page in the sidebar tree.
+  const pageSpaceId = page?.spaceId;
+  const pageLinks = useMemo<PageLinkSource>(
+    () => ({
+      create: async () => {
+        if (!pageSpaceId) return null;
+        try {
+          const result = await createPage({ spaceId: pageSpaceId, parentId: pageId });
+          return { id: result.data.id, title: t.sidebar.untitled, href: `/weldknow/page/${result.data.id}` };
+        } catch {
+          toast.error(t.page.createError);
+          return null;
+        }
+      },
+      search: (query) => {
+        const needle = query.trim().toLowerCase();
+        return allNodes
+          .filter((node) => node.id !== pageId && (node.title || '').toLowerCase().includes(needle))
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+          .slice(0, 10)
+          .map((node) => ({
+            id: node.id,
+            title: node.title || t.sidebar.untitled,
+            icon: node.icon,
+            href: `/weldknow/page/${node.id}`,
+          }));
+      },
+    }),
+    [allNodes, createPage, pageId, pageSpaceId, t],
+  );
 
   useBreadcrumbs(
     [
@@ -210,7 +210,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
 
   // Every autosave comes back as a realtime-triggered refetch. Only load server
   // content into the open editor when it is not our own save echoing back
-  // (a restored version, or an edit made elsewhere), and never over unsaved edits.
+  // (an edit made elsewhere), and never over unsaved edits.
   useEffect(() => {
     if (!page) return;
     const seen = seenContentRef.current;
@@ -225,18 +225,7 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
     blockEditorRef.current?.replaceContent(
       (page.contentJson ?? []) as unknown as Parameters<BlockEditorHandle['replaceContent']>[0],
     );
-  }, [page?.id, page?.contentJson, restoreCount]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // A restored version must win over anything this editor sent or still holds.
-  const handleVersionRestored = useCallback(() => {
-    if (contentSaveTimeout.current) {
-      clearTimeout(contentSaveTimeout.current);
-      contentSaveTimeout.current = null;
-    }
-    sentContentRef.current = [];
-    if (seenContentRef.current) seenContentRef.current.contentJson = undefined;
-    setRestoreCount((count) => count + 1);
-  }, []);
+  }, [page?.id, page?.contentJson]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Flush any pending saves when navigating away from this page.
   useEffect(() => {
@@ -251,42 +240,6 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
       }
     };
   }, [pageId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleToggleFavorite = useCallback(async () => {
-    try {
-      if (isFavorite) {
-        await removeFavorite.mutateAsync(pageId);
-        toast.success(t.page.unfavoriteSuccess);
-      } else {
-        await addFavorite.mutateAsync(pageId);
-        toast.success(t.page.favoriteSuccess);
-      }
-    } catch {
-      toast.error(t.page.favoriteError);
-    }
-  }, [isFavorite, pageId, addFavorite, removeFavorite, t]);
-
-  const handleToggleLock = useCallback(async () => {
-    if (!page) return;
-    try {
-      await updateMeta.mutateAsync({ id: pageId, data: { isLocked: !page.isLocked } });
-      toast.success(page.isLocked ? t.page.unlockSuccess : t.page.lockSuccess);
-    } catch {
-      toast.error(t.page.updateError);
-    }
-  }, [page, pageId, updateMeta, t]);
-
-  const handleDelete = useCallback(async () => {
-    try {
-      await deletePage.mutateAsync(pageId);
-      toast.success(t.page.deleteSuccess);
-      router.push('/weldknow');
-    } catch {
-      toast.error(t.page.deleteError);
-    } finally {
-      setShowDeleteConfirm(false);
-    }
-  }, [deletePage, pageId, router, t]);
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -317,65 +270,19 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Page actions — breadcrumbs live in the shared AppHeader */}
-      <div className="flex items-center justify-end gap-2 px-6 py-2">
-        <div className="flex items-center gap-2 shrink-0">
-          {page.isLocked && (
-            <Badge variant="secondary" className="gap-1">
-              <Lock className="h-3 w-3" />
-              {t.page.locked}
-            </Badge>
-          )}
-          {saveState !== 'idle' && (
-            <span className="text-xs text-muted-foreground">
-              {saveState === 'saving' ? t.page.saving : t.page.saved}
-            </span>
-          )}
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleToggleFavorite}>
-            <Star className={isFavorite ? 'h-4 w-4 fill-yellow-400 text-yellow-400' : 'h-4 w-4'} />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setShowVersions(true)}>
-                <History className="mr-2 h-4 w-4" />
-                {t.page.versionHistory}
-              </DropdownMenuItem>
-              {canWrite && (
-                <DropdownMenuItem onClick={handleToggleLock}>
-                  {page.isLocked ? (
-                    <LockOpen className="mr-2 h-4 w-4" />
-                  ) : (
-                    <Lock className="mr-2 h-4 w-4" />
-                  )}
-                  {page.isLocked ? t.page.unlock : t.page.lock}
-                </DropdownMenuItem>
-              )}
-              {canWrite && (
-                <DropdownMenuItem onClick={() => setShowMoveDialog(true)}>
-                  <Move className="mr-2 h-4 w-4" />
-                  {t.page.moveTo}
-                </DropdownMenuItem>
-              )}
-              {canDelete && canWrite && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-red-600 focus:text-red-600"
-                    onClick={() => setShowDeleteConfirm(true)}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {t.page.delete}
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+      {/* Page status — breadcrumbs live in the shared AppHeader */}
+      <div className="flex h-9 shrink-0 items-center justify-end gap-2 px-6">
+        {page.isLocked && (
+          <Badge variant="secondary" className="gap-1">
+            <Lock className="h-3 w-3" />
+            {t.page.locked}
+          </Badge>
+        )}
+        {saveState !== 'idle' && (
+          <span className="text-xs text-muted-foreground">
+            {saveState === 'saving' ? t.page.saving : t.page.saved}
+          </span>
+        )}
       </div>
 
       {/* Body */}
@@ -422,34 +329,13 @@ export default function PageView({ pageId }: Readonly<PageViewProps>) {
             editable={!readOnly}
             entityId={page.id}
             onContentChange={handleContentChange}
+            pageLinks={readOnly ? undefined : pageLinks}
             onEditorReady={(editor) => {
               editorRef.current = editor;
             }}
           />
         </div>
       </div>
-
-      <MovePageDialog pageId={pageId} open={showMoveDialog} onOpenChange={setShowMoveDialog} />
-
-      <VersionHistorySheet
-        pageId={pageId}
-        open={showVersions}
-        onOpenChange={setShowVersions}
-        onRestored={handleVersionRestored}
-        canEdit={canWrite}
-      />
-
-      <ConfirmDialog
-        open={showDeleteConfirm}
-        onOpenChange={setShowDeleteConfirm}
-        title={t.page.deleteTitle}
-        description={t.page.deleteDescription}
-        confirmLabel={t.common.delete}
-        cancelLabel={t.common.cancel}
-        variant="destructive"
-        loading={deletePage.isPending}
-        onConfirm={handleDelete}
-      />
     </div>
   );
 }
