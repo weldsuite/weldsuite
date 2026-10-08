@@ -198,7 +198,6 @@ async function matchInvoices(
   },
 ): Promise<ReconciliationSuggestion[]> {
   const { invoices, parties } = schema;
-  const suggestions: ReconciliationSuggestion[] = [];
 
   // Find open invoices with matching amount
   const openInvoices = await db
@@ -216,38 +215,41 @@ async function matchInvoices(
     )
     .limit(100);
 
-  for (const inv of openInvoices) {
-    const balanceDue = Number.parseFloat(inv.balanceDue || '0');
+  // A page of at most 100 documents; the only I/O is a read-only IBAN lookup,
+  // so score them together and keep the document order.
+  const scored = await Promise.all(
+    openInvoices.map(async (inv: (typeof openInvoices)[number]): Promise<ReconciliationSuggestion | null> => {
+      const balanceDue = Number.parseFloat(inv.balanceDue || '0');
 
-    // Amount match
-    const amountScore = scoreAmountMatch(balanceDue, absAmount);
-    if (!amountScore) continue; // Skip if amount doesn't match at all
-    let confidence = amountScore.confidence;
-    const reasons: string[] = [amountScore.reason];
+      // Amount match
+      const amountScore = scoreAmountMatch(balanceDue, absAmount);
+      if (!amountScore) return null; // Skip if amount doesn't match at all
+      let confidence = amountScore.confidence;
+      const reasons: string[] = [amountScore.reason];
 
-    // Reference / betalingskenmerk match
-    const ref = transaction.reference || transaction.description || '';
-    if (inv.invoiceNumber && ref.includes(inv.invoiceNumber)) {
-      confidence += 0.4;
-      reasons.push('invoice number in reference');
-    }
-    if (transaction.endToEndId && inv.invoiceNumber && transaction.endToEndId.includes(inv.invoiceNumber)) {
-      confidence += 0.3;
-      reasons.push('invoice number in end-to-end ID');
-    }
+      // Reference / betalingskenmerk match
+      const ref = transaction.reference || transaction.description || '';
+      if (inv.invoiceNumber && ref.includes(inv.invoiceNumber)) {
+        confidence += 0.4;
+        reasons.push('invoice number in reference');
+      }
+      if (transaction.endToEndId && inv.invoiceNumber && transaction.endToEndId.includes(inv.invoiceNumber)) {
+        confidence += 0.3;
+        reasons.push('invoice number in end-to-end ID');
+      }
 
-    // Counterparty IBAN match
-    if (
-      transaction.counterpartyIban &&
-      inv.contactId &&
-      (await contactIbanMatches(db, parties, inv.contactId, transaction.counterpartyIban))
-    ) {
-      confidence += 0.3;
-      reasons.push('counterparty IBAN matches contact');
-    }
+      // Counterparty IBAN match
+      if (
+        transaction.counterpartyIban &&
+        inv.contactId &&
+        (await contactIbanMatches(db, parties, inv.contactId, transaction.counterpartyIban))
+      ) {
+        confidence += 0.3;
+        reasons.push('counterparty IBAN matches contact');
+      }
 
-    if (confidence > 0) {
-      suggestions.push({
+      if (confidence <= 0) return null;
+      return {
         type: 'invoice',
         entityId: inv.id,
         entityNumber: inv.invoiceNumber,
@@ -255,11 +257,11 @@ async function matchInvoices(
         amount: inv.balanceDue || '0',
         confidence: Math.min(confidence, 1),
         reason: reasons.join(', '),
-      });
-    }
-  }
+      };
+    }),
+  );
 
-  return suggestions;
+  return scored.filter((s): s is ReconciliationSuggestion => s !== null);
 }
 
 async function matchBills(
@@ -275,7 +277,6 @@ async function matchBills(
   },
 ): Promise<ReconciliationSuggestion[]> {
   const { bills, parties } = schema;
-  const suggestions: ReconciliationSuggestion[] = [];
 
   // Find open bills with matching amount
   const openBills = await db
@@ -293,40 +294,43 @@ async function matchBills(
     )
     .limit(100);
 
-  for (const bill of openBills) {
-    const balanceDue = Number.parseFloat(bill.balanceDue || '0');
+  // A page of at most 100 documents; the only I/O is a read-only IBAN lookup,
+  // so score them together and keep the document order.
+  const scored = await Promise.all(
+    openBills.map(async (bill: (typeof openBills)[number]): Promise<ReconciliationSuggestion | null> => {
+      const balanceDue = Number.parseFloat(bill.balanceDue || '0');
 
-    // Amount match
-    const amountScore = scoreAmountMatch(balanceDue, absAmount);
-    if (!amountScore) continue;
-    let confidence = amountScore.confidence;
-    const reasons: string[] = [amountScore.reason];
+      // Amount match
+      const amountScore = scoreAmountMatch(balanceDue, absAmount);
+      if (!amountScore) return null;
+      let confidence = amountScore.confidence;
+      const reasons: string[] = [amountScore.reason];
 
-    // Reference match
-    const ref = transaction.reference || transaction.description || '';
-    if (bill.externalReference && ref.includes(bill.externalReference)) {
-      confidence += 0.4;
-      reasons.push('external reference in description');
-    }
+      // Reference match
+      const ref = transaction.reference || transaction.description || '';
+      if (bill.externalReference && ref.includes(bill.externalReference)) {
+        confidence += 0.4;
+        reasons.push('external reference in description');
+      }
 
-    // Counterparty IBAN match
-    if (
-      transaction.counterpartyIban &&
-      bill.contactId &&
-      (await contactIbanMatches(db, parties, bill.contactId, transaction.counterpartyIban))
-    ) {
-      confidence += 0.3;
-      reasons.push('counterparty IBAN matches vendor');
-    }
+      // Counterparty IBAN match
+      if (
+        transaction.counterpartyIban &&
+        bill.contactId &&
+        (await contactIbanMatches(db, parties, bill.contactId, transaction.counterpartyIban))
+      ) {
+        confidence += 0.3;
+        reasons.push('counterparty IBAN matches vendor');
+      }
 
-    // Counterparty name match
-    if (namesOverlap(transaction.counterpartyName, bill.contactName)) {
-      confidence += 0.15;
-      reasons.push('counterparty name matches vendor');
-    }
+      // Counterparty name match
+      if (namesOverlap(transaction.counterpartyName, bill.contactName)) {
+        confidence += 0.15;
+        reasons.push('counterparty name matches vendor');
+      }
 
-    if (confidence > 0) {
-      suggestions.push({
+      if (confidence <= 0) return null;
+      return {
         type: 'bill',
         entityId: bill.id,
         entityNumber: bill.billNumber,
@@ -334,9 +338,9 @@ async function matchBills(
         amount: bill.balanceDue || '0',
         confidence: Math.min(confidence, 1),
         reason: reasons.join(', '),
-      });
-    }
-  }
+      };
+    }),
+  );
 
-  return suggestions;
+  return scored.filter((s): s is ReconciliationSuggestion => s !== null);
 }

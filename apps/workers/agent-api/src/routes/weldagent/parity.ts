@@ -360,36 +360,38 @@ app.post('/connectors/events', requirePermission('weldagent:manage', 'weldagent:
     event: data.event,
     text: data.text,
   });
-  const started: Array<{ routineId: string; runId: string }> = [];
-  for (const routine of matches.slice(0, 5)) {
-    const runId = await createRoutineRun(db, {
-      routineId: routine.id,
-      agentId: routine.agentId,
-      trigger: `connector:${data.provider}`,
-    });
-    await markRoutineScheduled(db, routine);
-    // Durable job: the agent run outlives the ~30s waitUntil budget.
-    await enqueueWeldAgentJob(
-      c.env,
-      (p) => c.executionCtx.waitUntil(p),
-      {
-        kind: 'agent-run',
-        workspaceId: c.get('workspaceId'),
-        actorUserId: c.get('userId'),
+  // At most five routines, each with its own run row and job: start them together.
+  const started: Array<{ routineId: string; runId: string }> = await Promise.all(
+    matches.slice(0, 5).map(async (routine) => {
+      const runId = await createRoutineRun(db, {
+        routineId: routine.id,
         agentId: routine.agentId,
-        triggerType: 'event',
-        triggerData: { routineId: routine.id, connector: data },
-        userMessage:
-          `Connector event from ${data.provider}.\n` +
-          `Match text: ${data.text ?? '(none)'}\n` +
-          `Follow routine "${routine.name}":\n${routine.instructions}`,
-        routineRunId: runId,
-        skipApprovals: !routine.requireApproval,
-      },
-      db,
-    );
-    started.push({ routineId: routine.id, runId });
-  }
+        trigger: `connector:${data.provider}`,
+      });
+      await markRoutineScheduled(db, routine);
+      // Durable job: the agent run outlives the ~30s waitUntil budget.
+      await enqueueWeldAgentJob(
+        c.env,
+        (p) => c.executionCtx.waitUntil(p),
+        {
+          kind: 'agent-run',
+          workspaceId: c.get('workspaceId'),
+          actorUserId: c.get('userId'),
+          agentId: routine.agentId,
+          triggerType: 'event',
+          triggerData: { routineId: routine.id, connector: data },
+          userMessage:
+            `Connector event from ${data.provider}.\n` +
+            `Match text: ${data.text ?? '(none)'}\n` +
+            `Follow routine "${routine.name}":\n${routine.instructions}`,
+          routineRunId: runId,
+          skipApprovals: !routine.requireApproval,
+        },
+        db,
+      );
+      return { routineId: routine.id, runId };
+    }),
+  );
   return success(c, { matched: matches.length, started });
 });
 

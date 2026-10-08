@@ -937,36 +937,40 @@ function MessageInput({
       e.target.value = '';
       if (files.length === 0 || !onUploadFile) return;
 
-      for (const file of files) {
-        // Optimistic placeholder so the user sees the file immediately with a
-        // spinner; replaced with the real attachment (shareable URL) once the
-        // upload resolves, or removed on failure.
-        const tempId = `uploading_${Date.now()}_${randomIdSuffix(6)}`;
-        const placeholder: ChatMessageAttachment = {
-          id: tempId,
-          fileName: file.name,
-          fileSize: file.size,
-          mimeType: file.type,
-          url: '',
-          _uploading: true,
-        };
-        setAttachments((prev) => [...prev, placeholder]);
-        setUploadCount((n) => n + 1);
+      // The files of one picker selection: upload them together. Each placeholder
+      // is added before its upload's first await, so they still appear in order.
+      await Promise.all(
+        files.map(async (file) => {
+          // Optimistic placeholder so the user sees the file immediately with a
+          // spinner; replaced with the real attachment (shareable URL) once the
+          // upload resolves, or removed on failure.
+          const tempId = `uploading_${Date.now()}_${randomIdSuffix(6)}`;
+          const placeholder: ChatMessageAttachment = {
+            id: tempId,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.type,
+            url: '',
+            _uploading: true,
+          };
+          setAttachments((prev) => [...prev, placeholder]);
+          setUploadCount((n) => n + 1);
 
-        try {
-          const uploaded = await onUploadFile(file);
-          setAttachments((prev) =>
-            uploaded
-              ? prev.map((a) => (a.id === tempId ? { ...uploaded, _uploading: false } : a))
-              : prev.filter((a) => a.id !== tempId),
-          );
-        } catch (err) {
-          console.error('[MeetingChat] File upload failed:', err);
-          setAttachments((prev) => prev.filter((a) => a.id !== tempId));
-        } finally {
-          setUploadCount((n) => Math.max(0, n - 1));
-        }
-      }
+          try {
+            const uploaded = await onUploadFile(file);
+            setAttachments((prev) =>
+              uploaded
+                ? prev.map((a) => (a.id === tempId ? { ...uploaded, _uploading: false } : a))
+                : prev.filter((a) => a.id !== tempId),
+            );
+          } catch (err) {
+            console.error('[MeetingChat] File upload failed:', err);
+            setAttachments((prev) => prev.filter((a) => a.id !== tempId));
+          } finally {
+            setUploadCount((n) => Math.max(0, n - 1));
+          }
+        }),
+      );
     },
     [onUploadFile],
   );
