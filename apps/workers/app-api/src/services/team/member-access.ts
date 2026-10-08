@@ -18,7 +18,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { appName } from '../roles';
-import { EMPLOYEE_MEMBER_PERMISSIONS, SYSTEM_ROLES } from '@weldsuite/permissions';
+import { EMPLOYEE_MEMBER_PERMISSIONS, SYSTEM_ROLES, getRoleRowPermissions } from '@weldsuite/permissions';
 
 const { workspaceMembers, roles, userAppAssignments, workspaceInstalledApps } = schema;
 
@@ -90,11 +90,11 @@ export async function getMemberPermissions(
   let rolePermissions: string[] = [];
   if (member.roleId) {
     const [role] = await db
-      .select({ permissions: roles.permissions })
+      .select({ permissions: roles.permissions, isSystem: roles.isSystem, name: roles.name })
       .from(roles)
       .where(and(eq(roles.id, member.roleId), isNull(roles.deletedAt)))
       .limit(1);
-    rolePermissions = (role?.permissions as string[] | null) || [];
+    rolePermissions = role ? getRoleRowPermissions(role) : [];
   }
 
   const memberOverrides = (member.permissions as string[] | null) || [];

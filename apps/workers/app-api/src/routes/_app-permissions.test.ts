@@ -273,6 +273,26 @@ describe('hasObjectAccessInApp (sidebar / app gating)', () => {
   it('prefix-matches workspace-level objects with runtime keys', () => {
     expect(hasObjectAccessInApp(subject(['weldobjects:*:read']), 'weldobjects', 'weldcrm')).toBe(true);
   });
+
+  // The platform's AppAccessGuard sends anyone without a grant in an app back
+  // to `/`. A new app whose objects no system role grants is owner-only by
+  // accident (WeldKnow shipped that way and bounced its admins).
+  it('opens every registered app for a system ADMIN', () => {
+    const admin = subject(SYSTEM_ROLES.ADMIN!.permissions);
+    for (const app of PERMISSION_APPS) {
+      expect(app.objects.some((o) => hasObjectAccessInApp(admin, o, app.code)), app.code).toBe(true);
+    }
+  });
+
+  it('opens WeldKnow for every system role, read-only for VIEWER', () => {
+    for (const roleName of ['ADMIN', 'MEMBER', 'VIEWER'] as const) {
+      const s = subject(SYSTEM_ROLES[roleName]!.permissions);
+      expect(hasObjectAccessInApp(s, 'knowledge', 'weldknow'), roleName).toBe(true);
+    }
+    expect(hasPermission(SYSTEM_ROLES.VIEWER!.permissions, 'knowledge:create')).toBe(false);
+    expect(hasPermission(SYSTEM_ROLES.MEMBER!.permissions, 'knowledge:manage')).toBe(false);
+    expect(hasPermission(SYSTEM_ROLES.ADMIN!.permissions, 'knowledge:manage')).toBe(true);
+  });
 });
 
 describe('X-Weld-App: workspace', () => {

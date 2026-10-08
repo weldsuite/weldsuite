@@ -536,6 +536,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'leave:read', 'leave:create', 'leave:update', 'leave:delete', 'leave:approve',
   'coaching:read', 'coaching:create', 'coaching:update', 'coaching:delete',
   'evaluations:read', 'evaluations:create', 'evaluations:update', 'evaluations:delete',
+  // WeldKnow — admins also see and fix every teamspace (knowledge:manage)
+  'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete', 'knowledge:manage',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [
@@ -647,6 +649,9 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // personal vault and can start a shared one. Access inside a vault is by
   // membership, so this grants nothing over anyone else's passwords.
   'passwords:use', 'passwords:create',
+  // WeldKnow — teamspace membership decides which pages a member reads and
+  // edits, so these only open the app; they grant nothing inside a teamspace.
+  'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [
@@ -664,6 +669,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'weldagent:read',
   // WeldObjects — read-only, own records only
   'weldobjects:read', 'weldobjects:*:read',
+  // WeldKnow — read-only
+  'knowledge:read',
 ];
 
 export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {
@@ -692,6 +699,23 @@ export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {
     permissions: migratePermissionKeys(LEGACY_VIEWER_PERMISSIONS),
   },
 };
+
+/**
+ * What a `roles` row grants. Each workspace seeds the system roles as rows
+ * (Owner/Admin/Member/Viewer), and the invite dialog assigns them by id, so
+ * most members point at one. Those rows can't be edited, which means their
+ * stored copy only ever lags behind grants added here after the workspace was
+ * seeded (WeldKnow's `knowledge` keys, for one) — answer them from the code.
+ */
+export function getRoleRowPermissions(role: {
+  isSystem: boolean;
+  name: string;
+  permissions: unknown;
+}): string[] {
+  const systemRole = role.isSystem ? SYSTEM_ROLES[role.name.toUpperCase()] : undefined;
+  if (systemRole) return [...systemRole.permissions];
+  return (role.permissions as string[] | null) ?? [];
+}
 
 /**
  * The complete access of a workspace member with `memberType = 'EMPLOYEE'`:

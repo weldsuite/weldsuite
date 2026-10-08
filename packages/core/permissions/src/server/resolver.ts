@@ -9,7 +9,7 @@
  * denies               = memberDenies (applied at check time, a deny always wins)
  */
 
-import { EMPLOYEE_MEMBER_PERMISSIONS, SYSTEM_ROLES } from '../catalog';
+import { EMPLOYEE_MEMBER_PERMISSIONS, SYSTEM_ROLES, getRoleRowPermissions } from '../catalog';
 import type { ResolvedPermissions } from '../types';
 
 /**
@@ -159,12 +159,16 @@ export function createDrizzlePermissionQueries(
 
     async getRolePermissions(roleId: string) {
       const [role] = await db
-        .select({ permissions: schema.roles.permissions })
+        .select({
+          permissions: schema.roles.permissions,
+          isSystem: schema.roles.isSystem,
+          name: schema.roles.name,
+        })
         .from(schema.roles)
         .where(and(eq(schema.roles.id, roleId), isNull(schema.roles.deletedAt)))
         .limit(1);
 
-      return (role?.permissions as string[]) ?? null;
+      return role ? getRoleRowPermissions(role) : null;
     },
 
     async getTeamPermissions(memberId: string) {

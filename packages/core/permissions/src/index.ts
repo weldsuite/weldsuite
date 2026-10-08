@@ -62,6 +62,7 @@ export {
   EMPLOYEE_MEMBER_PERMISSIONS,
   ROUTE_TO_APP,
   getAllPermissionKeys,
+  getRoleRowPermissions,
 } from './catalog';
 
 // WeldObjects — runtime-generated per-object permission keys
