@@ -66,9 +66,9 @@ const MeetingPiPWidget = lazy(() =>
   import('@/app/weldmeet/components/meeting-pip-widget').then((m) => ({ default: m.MeetingPiPWidget })),
 );
 
-/** /auth, /onboarding and /invite bootstrap their own org context. */
+/** /auth, /onboarding and /invite bootstrap their own org context; the public /w9 form has none at all. */
 function bootstrapsOwnOrg(pathname: string): boolean {
-  return pathname.startsWith('/auth/') || pathname === '/onboarding' || pathname.startsWith('/invite');
+  return pathname.startsWith('/auth/') || pathname === '/onboarding' || pathname.startsWith('/invite') || pathname.startsWith('/w9/');
 }
 
 /** Drop the persisted query cache (it belongs to the old org) and reload. */
@@ -108,6 +108,8 @@ function isMinimalPath(pathname: string): boolean {
     pathname === '/onboarding' ||
     pathname === '/invite' ||
     pathname.startsWith('/invite/') ||
+    // The vendor-facing W-9 form: no shell, no sign-in, the token in the link is the credential.
+    pathname.startsWith('/w9/') ||
     pathname === '/call-room'
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -27,6 +27,7 @@ import {
 } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { DimensionSelects, useHasDimensions } from '@/app/weldbooks/invoices/components/dimension-selects';
 
 interface JournalLine {
   /** Client-only stable React key; never sent to the API. */
@@ -35,6 +36,9 @@ interface JournalLine {
   description: string;
   debit: string;
   credit: string;
+  /** Reporting dimensions (accounting_dimension_values ids); empty = none. */
+  classId: string;
+  locationId: string;
 }
 
 let nextLineKey = 0;
@@ -45,6 +49,8 @@ const emptyLine = (): JournalLine => ({
   description: '',
   debit: '',
   credit: '',
+  classId: '',
+  locationId: '',
 });
 
 export default function AddJournalEntryPage() {
@@ -55,6 +61,7 @@ export default function AddJournalEntryPage() {
   const { t } = useI18n();
   const tj = t.accounting.journalEntry;
   const { formatMoney: fmt, today } = useWeldbooksFormat();
+  const hasDimensions = useHasDimensions();
 
   const [date, setDate] = useState(() => today());
   const [description, setDescription] = useState('');
@@ -89,6 +96,8 @@ export default function AddJournalEntryPage() {
         description: l.description,
         debit: l.debit || '0',
         credit: l.credit || '0',
+        classId: l.classId || null,
+        locationId: l.locationId || null,
       })),
     });
     navigate({ to: '/weldbooks/journal' });
@@ -156,7 +165,8 @@ export default function AddJournalEntryPage() {
               </TableHeader>
               <TableBody>
                 {lines.map((line, idx) => (
-                  <TableRow key={line.key}>
+                  <Fragment key={line.key}>
+                  <TableRow>
                     <TableCell>
                       <Select
                         value={line.accountId}
@@ -213,6 +223,21 @@ export default function AddJournalEntryPage() {
                       </Button>
                     </TableCell>
                   </TableRow>
+                  {hasDimensions && (
+                    <TableRow className="bg-muted/30 hover:bg-muted/30">
+                      <TableCell colSpan={5}>
+                        <DimensionSelects
+                          idPrefix={`journal-${idx}`}
+                          classId={line.classId}
+                          locationId={line.locationId}
+                          onClassChange={(value) => updateLine(idx, 'classId', value)}
+                          onLocationChange={(value) => updateLine(idx, 'locationId', value)}
+                          className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </Fragment>
                 ))}
                 <TableRow>
                   <TableCell colSpan={2} className="text-right font-medium">

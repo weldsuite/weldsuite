@@ -1,8 +1,8 @@
 import type { BankFileParseResult, ParsedBankTransaction } from './types';
 
 /**
- * Parse CSV bank statement files.
- * Auto-detects Dutch bank formats: ING, ABN AMRO, Rabobank.
+ * Parse the Dutch bank CSV exports (ING, ABN AMRO, Rabobank) and, for older callers, a generic header-matched layout.
+ * Anything else goes through the explicit-format parser in csv-format.ts.
  */
 export function parseCSV(content: string): BankFileParseResult {
   const result: BankFileParseResult = {
@@ -93,6 +93,18 @@ function detectCSVFormat(headerLine: string, dataLine: string): CSVFormat {
   }
 
   return 'generic';
+}
+
+/**
+ * The Dutch bank export this file is (ING, ABN AMRO, Rabobank), or null when
+ * its layout is not a known bank format. Known layouts need no explicit
+ * `CsvFormat`; every other CSV does (see csv-format.ts).
+ */
+export function knownBankCsv(content: string): 'ing' | 'abn' | 'rabo' | null {
+  const lines = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim().split('\n');
+  if (lines.length < 2) return null;
+  const format = detectCSVFormat(lines[0], lines[1]);
+  return format === 'generic' ? null : format;
 }
 
 // --- Shared row helpers ---

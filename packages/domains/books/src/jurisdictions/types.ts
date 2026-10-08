@@ -13,6 +13,20 @@ export interface ChartOfAccountsTemplateRow {
   isSystemAccount?: boolean;
   /** Semantic role so services can look up accounts by purpose rather than hardcoded code. */
   systemRole?: SystemAccountRole;
+  /** Code of the parent row (sub-accounts), e.g. a per-agency Sales Tax Payable child. */
+  parentCode?: string;
+  /** US: default income-tax line (see us/tax-lines.ts), stored on accounts.tax_line. */
+  taxLine?: string;
+  /** US: default 1099 box for payments booked here (nec_1, misc_1, ... or omit). */
+  form1099Box?: string;
+}
+
+/** What the chart template may vary on (US: the equity section differs per entity type). */
+export interface ChartOfAccountsTemplateOptions {
+  /** entities.entity_type */
+  entityType?: string | null;
+  /** entities.tax_classification */
+  taxClassification?: string | null;
 }
 
 export type SystemAccountRole =
@@ -34,7 +48,27 @@ export type SystemAccountRole =
   | 'retained_earnings'
   | 'realized_fx_gain'
   | 'realized_fx_loss'
-  | 'rounding';
+  | 'rounding'
+  // US (and any jurisdiction that wants them)
+  | 'undeposited_funds'
+  | 'sales_tax_payable'
+  | 'use_tax_payable'
+  | 'owner_equity'
+  | 'owner_draws'
+  | 'opening_balance_equity'
+  | 'credit_card_payable'
+  | 'backup_withholding_payable'
+  | 'sales_tax_vendor_discount'
+  | 'tax_penalties_interest'
+  | 'accumulated_depreciation'
+  | 'depreciation_expense'
+  | 'fixed_assets'
+  | 'gain_loss_on_disposal'
+  | 'payroll_wages_expense'
+  | 'payroll_tax_expense'
+  | 'payroll_liabilities'
+  | 'unapplied_cash_payment_income'
+  | 'unapplied_cash_bill_payment_expense';
 
 /** GST component code used in India tax expansion (CGST/SGST/IGST). */
 export type GstComponentCode = 'cgst' | 'sgst' | 'igst';
@@ -91,13 +125,18 @@ export interface InvoiceLabels {
   registrationLabel: string;
 }
 
+/** Entity identifiers an invoice can print. `einOrSsn` is the US tax ID (print it only when it is an EIN). */
+export type InvoiceField = 'vatNumber' | 'registrationNumber' | 'einOrSsn' | 'iban' | 'bic';
+
 export interface InvoiceRequirements {
   /** Format an entity-scoped sequence number (prefix + padded number). */
   formatInvoiceNumber(prefix: string, value: number, padding: number): string;
   /** Default padding for new number sequences in this jurisdiction. */
   defaultPadding: number;
   /** Legally required display fields on an invoice. */
-  requiredFields: Array<'vatNumber' | 'registrationNumber' | 'iban' | 'bic'>;
+  requiredFields: InvoiceField[];
+  /** Fields printed when the entity has them although no law requires them (US: the EIN). */
+  recommendedFields?: InvoiceField[];
   /** Free-form legally required text to append to the invoice. */
   requiredFooter?: string;
   /** Translated labels for invoice rendering. */
@@ -167,6 +206,30 @@ export interface TaxReturnLine {
   /** Purchase tax the buyer accounts for itself (reverse charge, imports). */
   selfAssessed?: boolean;
   jurisdictionMetadata?: Record<string, unknown>;
+
+  // US sales tax detail, from the tax_lines columns of the same name.
+  /** sales tax charged, or use tax accrued on purchases. */
+  kind?: 'sales' | 'use';
+  agencyId?: string | null;
+  stateCode?: string | null;
+  jurisdictionCode?: string | null;
+  jurisdictionName?: string | null;
+  jurisdictionLevel?: string | null;
+  reportingCode?: string | null;
+  rate?: number;
+  grossAmount?: number;
+  exemptAmount?: number;
+  nonTaxableAmount?: number;
+  exemptReason?: string | null;
+  taxCode?: string | null;
+  shipToState?: string | null;
+  marketplaceFacilitated?: boolean;
+  sourceType?: string;
+  sourceId?: string | null;
+  /** tax_lines.source_line_id: the rows of one document line share it, so its gross is counted once. */
+  sourceLineId?: string | null;
+  certificateId?: string | null;
+  taxDate?: string;
 }
 
 export interface TaxReturnArtifact {
@@ -199,6 +262,17 @@ export interface JurisdictionFeatures {
 }
 
 /**
+ * How tax a supplier charges on a purchase is accounted for.
+ *
+ * - `recoverable`: input VAT / GST, a receivable the buyer reclaims on its
+ *   return (NL, IN). Bills post it to an input tax account.
+ * - `cost`: sales tax the buyer can never reclaim (US). Bills post it into
+ *   the line's expense or asset account; use tax the buyer accrues itself is
+ *   the only purchase tax that reaches a return.
+ */
+export type PurchaseTaxTreatment = 'recoverable' | 'cost';
+
+/**
  * Words that differ per jurisdiction, as codes the UI translates (en/nl/…):
  * a US user sees "Sales tax", "EIN", "Vendor" and "Credit memo" where a Dutch
  * user sees "BTW", "BTW-nummer", "Leverancier" and "Creditnota".
@@ -225,8 +299,10 @@ export interface JurisdictionAdapter {
   readonly defaultCurrency: string;
   readonly features: JurisdictionFeatures;
   readonly terminology: JurisdictionTerminology;
+  /** Bills post supplier-charged tax as a receivable (`recoverable`) or into the cost (`cost`). */
+  readonly purchaseTax: PurchaseTaxTreatment;
 
-  getChartOfAccountsTemplate(): ChartOfAccountsTemplateRow[];
+  getChartOfAccountsTemplate(opts?: ChartOfAccountsTemplateOptions): ChartOfAccountsTemplateRow[];
 
   getStandardTaxCategories(): TaxCategoryTemplate[];
 

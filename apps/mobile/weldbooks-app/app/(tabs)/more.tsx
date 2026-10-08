@@ -28,6 +28,7 @@ import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { IconTile } from '@/components/detail';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n } from '@/lib/i18n';
 
 type MenuItem = {
@@ -43,6 +44,7 @@ export default function MoreScreen() {
   const router = useRouter();
   const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
   const { t, format } = useI18n();
+  const { features, terms } = useJurisdiction();
 
   const SECTIONS: { title: string; items: MenuItem[] }[] = [
     {
@@ -62,13 +64,18 @@ export default function MoreScreen() {
           color: ACCENTS.reconciliation,
           route: '/reconciliation',
         },
-        {
-          title: t.more.vatReturns,
-          subtitle: t.more.vatReturnsSub,
-          icon: FileCheck,
-          color: ACCENTS.vat,
-          route: '/vat',
-        },
+        // The Dutch BTW return: only entities whose jurisdiction files one (features.vatReturn).
+        ...(features.vatReturn
+          ? [
+              {
+                title: t.more.vatReturns,
+                subtitle: t.more.vatReturnsSub,
+                icon: FileCheck,
+                color: ACCENTS.vat,
+                route: '/vat',
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -95,7 +102,7 @@ export default function MoreScreen() {
       items: [
         {
           title: t.more.contacts,
-          subtitle: t.more.contactsSub,
+          subtitle: format(t.more.contactsSub, terms),
           icon: Users,
           color: ACCENTS.contacts,
           route: '/contacts',

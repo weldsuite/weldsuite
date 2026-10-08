@@ -3,12 +3,14 @@ import {
   varchar,
   timestamp,
   integer,
+  boolean,
   numeric,
   text,
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
 import type { StoredPostalAddress } from './accounting-address';
+import type { DocumentTaxBreakdownRow } from './accounting-tax-lines';
 
 export const invoices = pgTable('invoices', {
   id: varchar('id', { length: 30 }).primaryKey(),
@@ -65,21 +67,19 @@ export const invoices = pgTable('invoices', {
     subject: string;
     status: string;
   }>>(),
-  taxBreakdown: jsonb('tax_breakdown').$type<Array<{
-    taxRateId: string;
-    taxRateName: string;
-    taxRate: number;
-    taxableAmount: number;
-    taxAmount: number;
-    /** GST component when expanded (cgst / sgst / igst). */
-    component?: string;
-    /** System account role for journal posting. */
-    accountRole?: string;
-    /** The rate's tax category (standard, reduced, reverse_charge, ...). */
-    taxCategoryCode?: string;
-    /** Purchase tax the buyer self-assesses (reverse charge, imports): not owed to the supplier. */
-    selfAssessed?: boolean;
-  }>>(),
+  taxBreakdown: jsonb('tax_breakdown').$type<DocumentTaxBreakdownRow[]>(),
+
+  /** Origin for origin-sourced US sales tax; defaults to the entity address. */
+  shipFromAddress: jsonb('ship_from_address').$type<StoredPostalAddress>(),
+  /** Sales tax engine that produced taxBreakdown (manual, stripe_tax, avalara), its reference and warnings. */
+  taxEngine: varchar('tax_engine', { length: 30 }),
+  taxEngineRef: varchar('tax_engine_ref', { length: 255 }),
+  taxCalculatedAt: timestamp('tax_calculated_at'),
+  /** When the finalized document was recorded with the provider engine. */
+  taxCommittedAt: timestamp('tax_committed_at'),
+  taxWarnings: jsonb('tax_warnings').$type<string[]>(),
+  /** Sold through a marketplace facilitator that collects the tax: counts toward nexus, no tax charged. */
+  marketplaceFacilitated: boolean('marketplace_facilitated').default(false),
 
   paymentLink: varchar('payment_link', { length: 500 }),
   journalEntryId: varchar('journal_entry_id', { length: 30 }),
@@ -118,6 +118,17 @@ export const invoiceItems = pgTable('invoice_items', {
   productId: varchar('product_id', { length: 30 }),
   period: jsonb('period').$type<{ from?: string; to?: string }>(),
   sortOrder: integer('sort_order').default(0),
+  /** WeldBooks product tax code (general, saas, shipping, ...); falls back to the product's tax class. */
+  taxCode: varchar('tax_code', { length: 30 }),
+  /** business | personal: some states tax a product for only one of them. Defaults to the customer's. */
+  taxUse: varchar('tax_use', { length: 10 }),
+  /** The price includes the tax; it is backed out of the line. */
+  taxIncluded: boolean('tax_included').default(false),
+  /** Tax the user set by hand; kept across recalculations of the draft. */
+  taxOverrideAmount: numeric('tax_override_amount', { precision: 18, scale: 2 }),
+  taxOverrideReason: varchar('tax_override_reason', { length: 255 }),
+  classId: varchar('class_id', { length: 30 }),
+  locationId: varchar('location_id', { length: 30 }),
 }, (table) => [
   index('acct_invoice_items_entity_idx').on(table.entityId),
   index('acct_invoice_items_invoice_idx').on(table.invoiceId),

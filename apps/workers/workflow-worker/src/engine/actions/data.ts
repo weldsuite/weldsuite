@@ -7,7 +7,7 @@
 
 import { eq, and, isNull } from 'drizzle-orm';
 import type { ActionContext, ActionHandler } from '../types';
-import { getEntityTable, getEntityIdPrefix } from '../entity-tables';
+import { getEntityTable, getEntityColumns, getEntityIdPrefix } from '../entity-tables';
 import { generateId } from '../../lib/id';
 import { asText } from '@weldsuite/text';
 
@@ -26,7 +26,7 @@ export const handleCreateRecord: ActionHandler = async (inputs, ctx) => {
   };
   if ('workspaceId' in table) insertData.workspaceId = ctx.tenant.workspaceId;
 
-  const [created] = (await ctx.db.insert(table).values(insertData).returning()) as any[];
+  const [created] = (await ctx.db.insert(table).values(insertData).returning(getEntityColumns(table))) as any[];
   return { created: true, record: created };
 };
 
@@ -45,7 +45,7 @@ export const handleUpdateRecord: ActionHandler = async (inputs, ctx) => {
     .update(table)
     .set({ ...data, updatedAt: new Date() })
     .where(and(...whereConditions))
-    .returning()) as any[];
+    .returning(getEntityColumns(table))) as any[];
   if (!updated) throw new Error(`Record ${recordId} not found`);
   return { updated: true, record: updated };
 };
@@ -82,7 +82,7 @@ export const handleQueryData: ActionHandler = async (inputs, ctx) => {
   const offset = Number(inputs.offset) || 0;
 
   const records = await ctx.db
-    .select()
+    .select(getEntityColumns(table))
     .from(table)
     .where(isNull(table.deletedAt))
     .limit(limit)

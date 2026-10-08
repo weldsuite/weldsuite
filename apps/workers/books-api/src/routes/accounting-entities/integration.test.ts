@@ -201,7 +201,7 @@ describe('/api/accounting-entities · pglite integration', () => {
     expect(row?.timezone).toBe('Asia/Kolkata');
   });
 
-  it('GET /jurisdictions includes IN and NL', async () => {
+  it('GET /jurisdictions includes IN, NL and US', async () => {
     const { request } = createTestApp('/api/accounting-entities', accountingEntitiesRoutes, {
       context: { permissions: permissions('entities:read'), tenantDb: db },
     });
@@ -209,7 +209,7 @@ describe('/api/accounting-entities · pglite integration', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ code: string }> };
     const codes = body.data.map((j) => j.code).sort();
-    expect(codes).toEqual(['IN', 'NL']);
+    expect(codes).toEqual(['IN', 'NL', 'US']);
   });
 
   it('POST / rejects empty name', async () => {

@@ -66,6 +66,7 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
       setEntities([]);
       setSelectedId(null);
       api.setAccountingEntityId(null);
+      api.setAccountingEntityCurrency(null);
       setIsLoading(false);
       return;
     }
@@ -81,6 +82,7 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
       setEntities(rows);
       setSelectedId(resolved?.id ?? null);
       api.setAccountingEntityId(resolved?.id ?? null);
+      api.setAccountingEntityCurrency(resolved?.baseCurrency ?? null);
       if (resolved && resolved.id !== stored) {
         AsyncStorage.setItem(entityStorageKey(organizationId), resolved.id).catch(() => {});
       }
@@ -111,6 +113,7 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
       }
       setSelectedId(id);
       api.setAccountingEntityId(id);
+      api.setAccountingEntityCurrency(entities.find((entity) => entity.id === id)?.baseCurrency ?? null);
       setSwitcherOpen(false);
       if (organizationId) {
         AsyncStorage.setItem(entityStorageKey(organizationId), id).catch((err) => {
@@ -118,7 +121,7 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
         });
       }
     },
-    [organizationId, selectedId],
+    [organizationId, selectedId, entities],
   );
 
   const openSwitcher = useCallback(() => {
@@ -150,6 +153,11 @@ export function AccountingEntityProvider({ children }: Readonly<{ children: Reac
   return (
     <AccountingEntityContext.Provider value={value}>{children}</AccountingEntityContext.Provider>
   );
+}
+
+/** The entity context, or null outside the provider (formatters, tests). */
+export function useOptionalAccountingEntity(): AccountingEntityContextValue | null {
+  return useContext(AccountingEntityContext) ?? null;
 }
 
 export function useAccountingEntity(): AccountingEntityContextValue {

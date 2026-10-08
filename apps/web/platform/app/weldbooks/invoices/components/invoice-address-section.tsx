@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { AddressFields } from '@/components/address/address-fields';
 import {
@@ -26,6 +26,8 @@ interface InvoiceAddressSectionProps {
   onShippingAddressChange: (next: PostalAddress) => void;
   onShipToDifferentChange: (next: boolean) => void;
   idPrefix?: string;
+  /** A notice above the addresses, e.g. that the sales tax needs a ship-to state and ZIP code. */
+  notice?: ReactNode;
 }
 
 function sameAddress(a: PostalAddress | null | undefined, b: PostalAddress | null | undefined): boolean {
@@ -47,6 +49,7 @@ export function InvoiceAddressSection({
   onShippingAddressChange,
   onShipToDifferentChange,
   idPrefix = 'invoice',
+  notice,
 }: Readonly<InvoiceAddressSectionProps>) {
   const { t } = useI18n();
   const ta = t.accounting.invoiceAddresses;
@@ -70,6 +73,7 @@ export function InvoiceAddressSection({
 
   return (
     <div className="space-y-4">
+      {notice}
       <div className="space-y-2">
         <p className="text-sm font-medium">{ta.billingAddress}</p>
         <p className="text-xs text-muted-foreground">{ta.billingAddressHelp}</p>

@@ -33,6 +33,13 @@ export const createProductSchema = z.object({
     )
     .max(20)
     .optional(),
+
+  // US sales tax (`products.taxable` / `products.tax_class`), set from the
+  // WeldCommerce product form. `taxClass` is a WeldBooks tax code or a Stripe /
+  // Avalara provider code; commerce-api checks which, so this schema only
+  // carries the values through. `null` clears the code.
+  taxable: z.boolean().optional(),
+  taxClass: z.string().max(50).nullable().optional(),
 });
 
 export const updateProductSchema = createProductSchema.partial();
@@ -163,6 +170,10 @@ export interface WeldstashProduct {
   vendor?: string | null;
   featuredImageUrl?: string | null;
   images?: Array<{ url: string; altText?: string; id?: string }> | null;
+  /** `false` = never taxed. Null on older rows reads as taxable. */
+  taxable?: boolean | null;
+  /** A WeldBooks tax code or a Stripe / Avalara code; older rows may hold a legacy word. */
+  taxClass?: string | null;
   createdAt: string;
   updatedAt: string;
 }

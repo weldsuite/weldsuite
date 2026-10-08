@@ -10,6 +10,7 @@
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
  */
 
+import { WorkerEntrypoint } from 'cloudflare:workers';
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { accountingContactsRoutes } from './routes/accounting-contacts';
 import { accountingDashboardRoutes } from './routes/accounting-dashboard';
@@ -32,10 +33,32 @@ import { reconciliationRulesRoutes } from './routes/reconciliation-rules';
 import { recurringInvoicesRoutes } from './routes/recurring-invoices';
 import { taxRatesRoutes } from './routes/tax-rates';
 import { vatReturnsRoutes } from './routes/vat-returns';
+import { accountingDimensionsRoutes } from './routes/accounting-dimensions';
+import { bankConnectionsRoutes } from './routes/bank-connections';
+import { bankDepositsRoutes } from './routes/bank-deposits';
+import { bankReconciliationsRoutes } from './routes/bank-reconciliations';
+import { exemptionCertificatesRoutes } from './routes/exemption-certificates';
+import { fixedAssetsRoutes } from './routes/fixed-assets';
+import { form1099Routes } from './routes/form-1099';
+import { paymentRunsRoutes } from './routes/payment-runs';
+import { payrollRoutes } from './routes/payroll';
+import { salesTaxRoutes } from './routes/sales-tax';
+import { salesTaxAgenciesRoutes } from './routes/sales-tax-agencies';
+import { salesTaxJurisdictionsRoutes } from './routes/sales-tax-jurisdictions';
+import { salesTaxRulesRoutes } from './routes/sales-tax-rules';
+import { salesTaxZonesRoutes } from './routes/sales-tax-zones';
+import { taxCalendarRoutes } from './routes/tax-calendar';
+import { taxReturnsRoutes } from './routes/tax-returns';
+import { w9RequestsRoutes } from './routes/w9-requests';
+import { bankConnectionsInternalRoutes } from './routes/bank-connections/internal';
+import { publicW9Routes } from './routes/public-w9';
 import type { Env, Variables } from './types';
 import { registerBooksWorkspace, runBooksDailySweep } from './cron/books-sweep';
 
 const app = createModuleApi<Env, Variables>({ service: 'books-api' });
+
+// Public W-9 form for vendors: no Clerk auth, the random token in the path is the credential.
+app.route('/public/w9', publicW9Routes);
 
 // Auth + tenant DB + feature flags for everything under /api/*
 app.use('/api/*', ...apiAuth());
@@ -69,6 +92,41 @@ app.route('/api/reconciliation-rules', reconciliationRulesRoutes);
 app.route('/api/recurring-invoices', recurringInvoicesRoutes);
 app.route('/api/tax-rates', taxRatesRoutes);
 app.route('/api/vat-returns', vatReturnsRoutes);
+
+// US accounting (docs/plans/weldbooks-us.md).
+app.route('/api/accounting-dimensions', accountingDimensionsRoutes);
+app.route('/api/bank-connections', bankConnectionsRoutes);
+app.route('/api/bank-deposits', bankDepositsRoutes);
+app.route('/api/bank-reconciliations', bankReconciliationsRoutes);
+app.route('/api/exemption-certificates', exemptionCertificatesRoutes);
+app.route('/api/fixed-assets', fixedAssetsRoutes);
+app.route('/api/form-1099', form1099Routes);
+app.route('/api/payment-runs', paymentRunsRoutes);
+app.route('/api/payroll', payrollRoutes);
+app.route('/api/sales-tax', salesTaxRoutes);
+app.route('/api/sales-tax-agencies', salesTaxAgenciesRoutes);
+app.route('/api/sales-tax-jurisdictions', salesTaxJurisdictionsRoutes);
+app.route('/api/sales-tax-rules', salesTaxRulesRoutes);
+app.route('/api/sales-tax-zones', salesTaxZonesRoutes);
+app.route('/api/tax-calendar', taxCalendarRoutes);
+app.route('/api/tax-returns', taxReturnsRoutes);
+app.route('/api/w9-requests', w9RequestsRoutes);
+
+// Internal entrypoint, bound as BOOKS_INTERNAL (entrypoint = "BooksInternal") by
+// integration-webhook-worker and integration-sync-worker. A named entrypoint is
+// only reachable over a service binding, so it is trusted by topology.
+const internalApp = createModuleApi<Env, Variables>({ service: 'books-api' });
+internalApp.use('*', async (c, next) => {
+  c.set('internalTrusted', true);
+  await next();
+});
+internalApp.route('/internal/bank-connections', bankConnectionsInternalRoutes);
+
+export class BooksInternal extends WorkerEntrypoint<Env> {
+  fetch(request: Request): Promise<Response> | Response {
+    return internalApp.fetch(request, this.env, this.ctx);
+  }
+}
 
 export default {
   fetch: app.fetch,

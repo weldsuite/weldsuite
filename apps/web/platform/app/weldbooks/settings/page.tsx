@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { Pencil } from 'lucide-react';
+import { Layers, Pencil } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
 import { Input } from '@weldsuite/ui/components/input';
-import { useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
+import { useAccountingJurisdictions, useAccountingSettings } from '@/hooks/queries/use-accounting-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
@@ -14,6 +14,7 @@ import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
+import { classificationsOf, isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { LedgerCatchUpCard } from './components/ledger-catch-up-card';
 
 interface AccountingEmailSettings {
@@ -36,6 +37,13 @@ export default function AccountingSettingsPage() {
   const { t, language } = useI18n();
   const ts = t.accounting.settings;
   const { entity, features, terminology, labels } = useJurisdictionLabels();
+  const { data: jurisdictions } = useAccountingJurisdictions();
+  const tu = t.weldbooksUs.setup;
+  const isUs = isUsJurisdictionCode(entity?.jurisdictionCode);
+  const usEntityTypes = jurisdictions?.find((j) => isUsJurisdictionCode(j.code))?.entityTypes;
+  const usClassification = classificationsOf(usEntityTypes, entity?.entityType).find(
+    (c) => c.value === entity?.taxClassification,
+  );
   const [inboxEmail, setInboxEmail] = useState('');
   const [xafYear, setXafYear] = useState(String(new Date().getFullYear() - 1));
   const [xafDownloading, setXafDownloading] = useState(false);
@@ -106,6 +114,31 @@ export default function AccountingSettingsPage() {
             <SummaryRow label={ts.legalNameLabel} value={entity.legalName || entity.name} empty={ts.notSet} />
             <SummaryRow label={labels.taxId} value={taxId} empty={ts.notSet} />
             <SummaryRow label={labels.registrationId} value={ids?.registrationNumber} empty={ts.notSet} />
+            {isUs ? (
+              <>
+                <SummaryRow
+                  label={tu.entity.entityType}
+                  value={entity?.entityType ? ((tu.entityTypes as Record<string, string>)[entity.entityType] ?? entity.entityType) : null}
+                  empty={ts.notSet}
+                />
+                <SummaryRow
+                  label={tu.entity.taxClassification}
+                  value={
+                    usClassification
+                      ? tu.entity.classificationOption
+                          .replace('{classification}', (tu.classifications as Record<string, string>)[usClassification.value] ?? usClassification.value)
+                          .replace('{form}', usClassification.formLabel)
+                      : null
+                  }
+                  empty={ts.notSet}
+                />
+                <SummaryRow
+                  label={tu.entity.accountingMethod}
+                  value={entity?.accountingMethod ? tu.entity[entity.accountingMethod === 'cash' ? 'cash' : 'accrual'] : null}
+                  empty={ts.notSet}
+                />
+              </>
+            ) : null}
             <SummaryRow
               label={ts.addressLabel}
               value={
@@ -119,6 +152,21 @@ export default function AccountingSettingsPage() {
             />
           </CardContent>
         ) : null}
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle>{tu.dimensions.settingsCardTitle}</CardTitle>
+            <CardDescription>{tu.dimensions.settingsCardDescription}</CardDescription>
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/weldbooks/settings/dimensions">
+              <Layers className="h-4 w-4 mr-1" aria-hidden />
+              {tu.dimensions.settingsCardAction}
+            </Link>
+          </Button>
+        </CardHeader>
       </Card>
 
       <LedgerCatchUpCard />

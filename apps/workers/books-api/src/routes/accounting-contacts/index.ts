@@ -28,6 +28,15 @@
  *   customer/supplier + other → both
  *   both + * → both (no-op)
  *
+ * US vendor tax data (docs/plans/weldbooks-us.md section 8) rides on the same
+ * payloads: 1099 flags and defaults, the W-9, a write-only TIN and ACH account
+ * number (encrypted into `parties.sensitive_encrypted`, see
+ * services/vendor-tax-data.ts), `taxUse` and backup withholding. Responses
+ * carry the last four digits only. Full values come back through
+ * POST /:id/reveal-tin and /:id/reveal-ach-account (`tax_ids:reveal`, logged
+ * in `tax_id_reveals`); POST /:id/verify-bank-details (`banking:manage`)
+ * lifts the payment hold that a bank-detail change puts on a vendor.
+ *
  * Permissions: invoices:read | invoices:create | invoices:update | invoices:delete.
  */
 
@@ -41,6 +50,20 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { omitSensitive } from '@weldsuite/db/lib/sensitive-columns';
+import { formatTin } from '@weldsuite/books-domain/us-compliance/form-1099-pdf-data';
+import { isTinType } from '@weldsuite/books-domain/jurisdictions/us/identifiers';
+import {
+  buildVendorTaxChange,
+  revealPartySecret,
+  SecretNotFoundError,
+  stripTaxFieldsForEvent,
+  vendorTaxDerived,
+  vendorTaxFields,
+  VendorTaxError,
+  VendorTaxKeyError,
+  type PartySecretField,
+} from '../../services/vendor-tax-data';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import {
@@ -109,6 +132,7 @@ const createContactSchema = z.object({
     type: z.enum(['one-off', 'recurring']).optional(),
   }).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
+  ...vendorTaxFields,
 });
 
 /**
@@ -127,6 +151,11 @@ const CLEARABLE_FIELDS = new Set([
   'notes',
   'defaultRevenueAccountId',
   'defaultExpenseAccountId',
+  'achRoutingNumber',
+  'default1099Box',
+  'default1099Form',
+  'taxUse',
+  'achAccountType',
 ]);
 
 /**
@@ -195,11 +224,12 @@ function parsePaymentTermsDays(value: string | null | undefined): number | null 
 
 /** The contact as clients read it. Empty identity values come back as null. */
 function toContactView(party: PartyRow, company?: CompanyRow | null, person?: PersonRow | null) {
-  const { billingAddress, shippingAddress, ...partyColumns } = party;
+  const { billingAddress, shippingAddress, ...partyColumns } = omitSensitive('parties', party);
   const vatNumber = company?.vatNumber || null;
   const registrationNumber = company?.registrationNumber || null;
   return {
     ...partyColumns,
+    ...vendorTaxDerived(party),
     name: party.displayName ?? company?.displayName ?? person?.displayName ?? '',
     companyName: company?.name ?? null,
     firstName: person?.firstName ?? null,
@@ -583,6 +613,18 @@ function identityErrorResponse(c: AppContext, err: ContactIdentityError) {
     : error.badRequest(c, err.message, err.details);
 }
 
+/** The scanned W-9 has to be an accounting document of this workspace. */
+async function assertW9Document(db: Database, data: ContactPayload): Promise<void> {
+  const documentId = data.w9?.documentId;
+  if (!documentId) return;
+  const [doc] = await db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(and(eq(schema.documents.id, documentId), isNull(schema.documents.deletedAt)))
+    .limit(1);
+  if (!doc) throw new VendorTaxError(`w9.documentId: document ${documentId} not found`);
+}
+
 /** Audit changes in client field names (`name`, `vatNumber`, ...). */
 function contactChanges(
   data: ContactPayload,
@@ -631,6 +673,8 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
     if (search) {
       conditions.push(ilike(t.displayName, `%${search}%`));
     }
+    // ?is1099Vendor=true lists the vendors flagged for 1099 reporting.
+    if (c.req.query('is1099Vendor') === 'true') conditions.push(eq(t.is1099Vendor, true));
 
     const where = and(...conditions);
     const [rows, countRes] = await Promise.all([
@@ -748,12 +792,16 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createCon
   const data = c.req.valid('json');
 
   try {
+    // Validate (and encrypt) the tax data first, so a bad TIN leaves no orphan identity behind.
+    await assertW9Document(db, data);
+    const taxChange = await buildVendorTaxChange(null, data, c.env);
     const identity = await createIdentity(c, db, data);
 
     const id = generateId('acn');
     const now = new Date();
     await db.insert(t).values({
       ...toPartyColumns(data),
+      ...taxChange.columns,
       id,
       kind: identity.kind,
       companyId: identity.companyId,
@@ -773,11 +821,13 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createCon
       entityId: id,
       action: 'created',
     });
-    publishEntityEvent({ c, entityType: 'accounting_contact', entityId: id, action: 'created', data: contact as unknown as Record<string, unknown> });
+    publishEntityEvent({ c, entityType: 'accounting_contact', entityId: id, action: 'created', data: stripTaxFieldsForEvent(contact) });
 
     return success(c, contact, 201);
   } catch (err) {
     if (err instanceof ContactIdentityError) return identityErrorResponse(c, err);
+    if (err instanceof VendorTaxError) return error.badRequest(c, err.message, err.details);
+    if (err instanceof VendorTaxKeyError) return error.unavailable(c, err.message);
     console.error('[books-api/accounting-contacts] create failed:', err);
     return error.internal(c, 'Failed to create contact');
   }
@@ -794,12 +844,15 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     if (!contact) return error.notFound(c, 'Contact', id);
     const before = await loadContactView(db, id);
 
+    await assertW9Document(db, data);
+    const taxChange = await buildVendorTaxChange(contact, data, c.env);
     const link = await syncIdentity(c, db, contact, data);
 
     await db
       .update(t)
       .set({
         ...toPartyColumns(data),
+        ...taxChange.columns,
         ...(link ?? {}),
         updatedAt: new Date(),
       })
@@ -812,13 +865,15 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
       entityType: 'accounting_contact',
       entityId: id,
       action: 'updated',
-      changes: contactChanges(data, before, updated),
+      changes: { ...contactChanges(data, before, updated), ...taxChange.changes },
     });
-    publishEntityEvent({ c, entityType: 'accounting_contact', entityId: id, action: 'updated', data: updated as unknown as Record<string, unknown> });
+    publishEntityEvent({ c, entityType: 'accounting_contact', entityId: id, action: 'updated', data: stripTaxFieldsForEvent(updated) });
 
     return success(c, updated);
   } catch (err) {
     if (err instanceof ContactIdentityError) return identityErrorResponse(c, err);
+    if (err instanceof VendorTaxError) return error.badRequest(c, err.message, err.details);
+    if (err instanceof VendorTaxKeyError) return error.unavailable(c, err.message);
     console.error('[books-api/accounting-contacts] update failed:', err);
     return error.internal(c, 'Failed to update contact');
   }
@@ -918,5 +973,147 @@ app.post(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// Sensitive vendor data: reveal (logged) and bank-detail verification
+// ---------------------------------------------------------------------------
+
+const revealBodySchema = z.object({ reason: z.string().trim().max(255).optional() });
+
+async function readOptionalJson(c: AppContext): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Decrypt one stored secret of a contact. The reveal is written to the
+ * append-only `tax_id_reveals` log first; a failed log write refuses it.
+ */
+async function revealContactSecret(c: AppContext, field: PartySecretField) {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id') ?? '';
+  const body = revealBodySchema.safeParse(await readOptionalJson(c));
+  if (!body.success) return error.badRequest(c, 'Invalid request body', body.error.flatten());
+
+  try {
+    const [party] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
+    if (!party) return error.notFound(c, 'Contact', id);
+
+    const value = await revealPartySecret(db, c.env, {
+      party,
+      field,
+      userId: c.get('userId') ?? 'unknown',
+      reason: body.data.reason,
+      entityId: c.req.header('x-accounting-entity-id') ?? null,
+    });
+
+    await writeAccountingAudit(c, db, {
+      entityType: 'accounting_contact',
+      entityId: id,
+      action: field === 'tin' ? 'tin_revealed' : 'ach_account_revealed',
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'accounting_contact',
+      entityId: id,
+      action: 'updated',
+      data: { id, taxIdRevealed: field },
+    });
+
+    c.header('Cache-Control', 'no-store');
+    if (field === 'tin') {
+      const tinType = isTinType(party.tinType) ? party.tinType : 'ssn';
+      return success(c, { tin: formatTin(tinType, value), tinType: party.tinType });
+    }
+    return success(c, {
+      achAccountNumber: value,
+      achRoutingNumber: party.achRoutingNumber,
+      achAccountType: party.achAccountType,
+    });
+  } catch (err) {
+    if (err instanceof SecretNotFoundError) return error.notFound(c, err.field === 'tin' ? 'TIN of contact' : 'ACH account number of contact', id);
+    if (err instanceof VendorTaxKeyError) return error.unavailable(c, err.message);
+    console.error('[books-api/accounting-contacts] reveal failed:', err instanceof Error ? err.message : 'unknown error');
+    return error.internal(c, 'Failed to reveal the value');
+  }
+}
+
+// POST /:id/reveal-tin: the stored TIN in clear text (tax_ids:reveal, logged).
+app.post('/:id/reveal-tin', requirePermission('tax_ids:reveal'), (c) => revealContactSecret(c, 'tin'));
+
+// POST /:id/reveal-ach-account: the stored ACH account number in clear text (tax_ids:reveal, logged).
+app.post('/:id/reveal-ach-account', requirePermission('tax_ids:reveal'), (c) => revealContactSecret(c, 'ach_account_number'));
+
+// GET /:id/tax-id-reveals: who looked at this vendor's TIN or account number, newest first.
+app.get('/:id/tax-id-reveals', requirePermission('tax_ids:reveal'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const lines = await db
+      .select({ id: schema.form1099FilingLines.id })
+      .from(schema.form1099FilingLines)
+      .where(eq(schema.form1099FilingLines.partyId, id));
+    const rows = await db
+      .select()
+      .from(schema.taxIdReveals)
+      .where(
+        or(
+          and(eq(schema.taxIdReveals.subjectType, 'party'), eq(schema.taxIdReveals.subjectId, id)),
+          lines.length > 0
+            ? and(eq(schema.taxIdReveals.subjectType, 'form_1099_line'), inArray(schema.taxIdReveals.subjectId, lines.map((l) => l.id)))
+            : undefined,
+        ),
+      )
+      .orderBy(desc(schema.taxIdReveals.createdAt))
+      .limit(200);
+    return list(c, rows, cursorPagination(rows.length, false, null));
+  } catch (err) {
+    console.error('[books-api/accounting-contacts] reveal log failed:', err);
+    return error.internal(c, 'Failed to fetch the reveal log');
+  }
+});
+
+// POST /:id/verify-bank-details: someone confirmed the vendor's bank details (for example by calling the vendor);
+// lifts the payment hold set when the routing or account number changed.
+app.post('/:id/verify-bank-details', requirePermission('banking:manage'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const [party] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
+    if (!party) return error.notFound(c, 'Contact', id);
+    if (!party.achRoutingNumber || !party.achAccountLast4) {
+      return error.badRequest(c, 'This contact has no bank details to verify');
+    }
+
+    const now = new Date();
+    const userId = c.get('userId') ?? 'unknown';
+    await db
+      .update(t)
+      .set({ bankDetailsVerifiedAt: now, bankDetailsVerifiedBy: userId, updatedAt: now })
+      .where(eq(t.id, id));
+
+    const updated = await loadContactView(db, id);
+    if (!updated) return error.notFound(c, 'Contact', id);
+    await writeAccountingAudit(c, db, {
+      entityType: 'accounting_contact',
+      entityId: id,
+      action: 'bank_verified',
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'accounting_contact',
+      entityId: id,
+      action: 'updated',
+      data: { id, bankDetailsVerified: true },
+    });
+    return success(c, updated);
+  } catch (err) {
+    console.error('[books-api/accounting-contacts] verify bank details failed:', err);
+    return error.internal(c, 'Failed to verify the bank details');
+  }
+});
 
 export const accountingContactsRoutes = app;

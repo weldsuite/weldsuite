@@ -50,18 +50,29 @@ import type {
   GlAccount,
   Invoice,
   Jurisdiction,
+  JurisdictionFeatures,
+  JurisdictionTerminology,
   MatchSuggestion,
   Paged,
   Payment,
+  PostalAddress,
   ProfitLossData,
   SearchResult,
   SearchResultType,
+  TaxBreakdownRow,
+  TaxPreview,
   TaxRate,
+  TinType,
   UnmatchedTransaction,
+  UsEntityTypeOption,
   UserPreferences,
   VatReturn,
   VatReturnDetail,
 } from '@/types/accounting';
+import { today } from '@/lib/date';
+import { BUILT_IN_JURISDICTIONS, DEFAULT_TERMINOLOGY, FALLBACK_CURRENCY, NO_FEATURES } from '@/lib/jurisdiction';
+import type { LineItemInput } from '@/lib/line-items';
+import type { DepositTarget } from '@/lib/payments';
 import { asText } from '@weldsuite/text';
 
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
@@ -140,27 +151,65 @@ function toBillPrefill(raw: Json): BillPrefill {
   };
 }
 
-interface LineItemInput {
-  description: string;
-  quantity?: number | string;
-  unitPrice: number | string;
-  taxRateId?: string;
-  taxRate?: number | string;
-  accountId?: string;
-  sortOrder?: number;
+/**
+ * Map the mobile form's numeric line items to app-api's string fields.
+ *
+ * A US line carries a product `taxCode` instead of a percentage, and books-api
+ * calculates its tax per jurisdiction from the ship-to address; sending a
+ * `taxRate` of "0" alongside would read as the user overriding the engine, so
+ * a line with a tax code and no explicit rate sends none. A VAT / GST line
+ * without a rate still sends "0" (untaxed).
+ */
+export function toApiItems(items: LineItemInput[]): ApiLineItem[] {
+  return items.map((item, index) => {
+    const line: ApiLineItem = {
+      description: item.description,
+      quantity: String(item.quantity ?? 1),
+      unitPrice: String(item.unitPrice ?? 0),
+      sortOrder: item.sortOrder ?? index,
+    };
+    if (item.taxRateId) line.taxRateId = item.taxRateId;
+    if (item.taxRate !== undefined) line.taxRate = String(item.taxRate);
+    else if (!item.taxCode) line.taxRate = '0';
+    if (item.taxCode) line.taxCode = item.taxCode;
+    if (item.accrueUseTax) line.accrueUseTax = true;
+    if (item.accountId) line.accountId = item.accountId;
+    return line;
+  });
 }
 
-/** Map the mobile form's numeric line items to app-api's string fields. */
-function toApiItems(items: LineItemInput[]) {
-  return items.map((item, index) => ({
-    description: item.description,
-    quantity: String(item.quantity ?? 1),
-    unitPrice: String(item.unitPrice ?? 0),
-    ...(item.taxRateId ? { taxRateId: item.taxRateId } : {}),
-    taxRate: String(item.taxRate ?? 0),
-    ...(item.accountId ? { accountId: item.accountId } : {}),
-    sortOrder: item.sortOrder ?? index,
-  }));
+/** A line as books-api takes it: every number a string. */
+export interface ApiLineItem {
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  taxRateId?: string;
+  taxRate?: string;
+  taxCode?: string;
+  accrueUseTax?: boolean;
+  accountId?: string;
+  sortOrder: number;
+}
+
+/** An address row in either stored shape (`line1`/`state` or the older `street`+`houseNumber`/`province`). */
+export function toPostalAddress(raw: unknown): PostalAddress | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Json;
+  const text = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  };
+  const street = [text(row.street), text(row.houseNumber)].filter(Boolean).join(' ');
+  const address: PostalAddress = {
+    line1: text(row.line1) ?? (street || undefined),
+    line2: text(row.line2),
+    city: text(row.city),
+    state: text(row.state) ?? text(row.province),
+    postalCode: text(row.postalCode),
+    country: text(row.country),
+  };
+  return Object.values(address).some((part) => part !== undefined) ? address : null;
 }
 
 function page<T>(res: ListEnvelope<T>): Paged<T> {
@@ -188,6 +237,12 @@ let organizationId: string | null = null;
 let tokenRefreshCallback: (() => Promise<string | null>) | null = null;
 /** Selected administration — sent as `X-Accounting-Entity-Id` on every request. */
 let accountingEntityId: string | null = null;
+/** Base currency of the selected administration: what a payload without a currency is denominated in. */
+let accountingEntityCurrency: string | null = null;
+
+function fallbackCurrency(): string {
+  return accountingEntityCurrency ?? FALLBACK_CURRENCY;
+}
 
 async function getToken(): Promise<string | null> {
   if (tokenRefreshCallback) {
@@ -242,6 +297,14 @@ class WeldBooksApi {
 
   getAccountingEntityId(): string | null {
     return accountingEntityId;
+  }
+
+  /**
+   * The selected entity's base currency. Rows that carry no currency of their
+   * own (reports, balances) are shown in it instead of a hard-coded euro.
+   */
+  setAccountingEntityCurrency(currency: string | null) {
+    accountingEntityCurrency = currency;
   }
 
   setTokenRefreshCallback(callback: (() => Promise<string | null>) | null) {
@@ -304,30 +367,27 @@ class WeldBooksApi {
 
   async getEntities(): Promise<AccountingEntity[]> {
     const res = await client.get<DataEnvelope<Json[]>>('/accounting-entities');
-    return (res.data ?? []).map((row) => ({
-      id: str(row.id),
-      name: str(row.name),
-      legalName: row.legalName ? str(row.legalName) : undefined,
-      jurisdictionCode: str(row.jurisdictionCode ?? row.jurisdiction, 'NL'),
-      baseCurrency: str(row.baseCurrency, 'EUR'),
-      isDefault: Boolean(row.isDefault),
-      isActive: row.isActive !== false,
-    }));
+    return (res.data ?? []).map((row) => toEntity(row));
   }
 
+  /**
+   * The jurisdictions books-api supports, with their features and terminology.
+   * A row missing either (an older API) takes the built-in values for its code,
+   * so the app never has to guess from the code itself.
+   */
   async getJurisdictions(): Promise<Jurisdiction[]> {
     const res = await client.get<DataEnvelope<Json[]>>('/accounting-entities/jurisdictions');
-    return (res.data ?? []).map((row) => ({
-      code: str(row.code),
-      name: str(row.name ?? row.code),
-      currency: row.currency ? str(row.currency) : undefined,
-    }));
+    return (res.data ?? []).map(toJurisdiction);
   }
 
   /**
    * Creates the workspace's first legal entity. `seedDefaults` lets the
    * jurisdiction adapter install the localized chart of accounts, tax rates and
    * number sequences — without it the entity exists but can't issue anything.
+   *
+   * Currency and locale are left to the jurisdiction's defaults unless given.
+   * A US entity sends its legal form, tax classification, address and EIN (the
+   * EIN goes in `taxIdentifiers.einOrSsn`; books-api keeps it in both slots).
    */
   async createEntity(data: {
     name: string;
@@ -335,26 +395,28 @@ class WeldBooksApi {
     jurisdictionCode: string;
     baseCurrency?: string;
     vatNumber?: string;
+    entityType?: string;
+    taxClassification?: string;
+    dba?: string;
+    ein?: string;
+    address?: PostalAddress | null;
     isDefault?: boolean;
   }): Promise<AccountingEntity> {
     const res = await client.post<DataEnvelope>('/accounting-entities', {
       name: data.name,
       ...(data.legalName ? { legalName: data.legalName } : {}),
       jurisdictionCode: data.jurisdictionCode,
-      baseCurrency: data.baseCurrency ?? 'EUR',
+      ...(data.baseCurrency ? { baseCurrency: data.baseCurrency } : {}),
       ...(data.vatNumber ? { vatNumber: data.vatNumber } : {}),
+      ...(data.entityType ? { entityType: data.entityType } : {}),
+      ...(data.taxClassification ? { taxClassification: data.taxClassification } : {}),
+      ...(data.dba ? { dba: data.dba } : {}),
+      ...(data.ein ? { taxIdentifiers: { einOrSsn: data.ein } } : {}),
+      ...(data.address ? { address: data.address } : {}),
       isDefault: data.isDefault ?? true,
       seedDefaults: true,
     });
-    const row = res.data ?? {};
-    return {
-      id: str(row.id),
-      name: str(row.name, data.name),
-      legalName: row.legalName ? str(row.legalName) : undefined,
-      jurisdictionCode: str(row.jurisdictionCode, data.jurisdictionCode),
-      baseCurrency: str(row.baseCurrency, data.baseCurrency ?? 'EUR'),
-      isDefault: Boolean(row.isDefault),
-    };
+    return toEntity(res.data ?? {}, data);
   }
 
   // ========== Dashboard ==========
@@ -393,7 +455,7 @@ class WeldBooksApi {
       pendingDocuments: num(d.pendingDocuments),
       bankAccounts: ((d.bankAccounts ?? []) as Json[]).map(toBankAccount),
       recentInvoices: recent.data ?? [],
-      currency: str(d.currency, 'EUR'),
+      currency: str(d.currency, fallbackCurrency()),
     };
   }
 
@@ -436,6 +498,9 @@ class WeldBooksApi {
     currency?: string;
     notes?: string;
     reference?: string;
+    /** US: where the goods or service go. Decides the sales tax; falls back to the billing address. */
+    shippingAddress?: PostalAddress | null;
+    billingAddress?: PostalAddress | null;
     items: LineItemInput[];
   }): Promise<Invoice> {
     const contactId =
@@ -450,9 +515,51 @@ class WeldBooksApi {
       ...(data.currency ? { currency: data.currency } : {}),
       ...(data.notes ? { notes: data.notes } : {}),
       ...(data.reference ? { reference: data.reference } : {}),
+      ...(data.billingAddress ? { billingAddress: data.billingAddress } : {}),
+      ...(data.shippingAddress ? { shippingAddress: data.shippingAddress } : {}),
       items: toApiItems(data.items),
     });
     return res.data;
+  }
+
+  /**
+   * The sales tax of a draft invoice or bill as books-api would calculate it
+   * (`POST /sales-tax/calculate`, nothing saved). Pass `contactId` when the
+   * customer already exists so its exemption certificates apply.
+   */
+  async previewSalesTax(data: {
+    kind: 'invoice' | 'bill';
+    contactId?: string;
+    issueDate: string;
+    currency?: string;
+    billingAddress?: PostalAddress | null;
+    shippingAddress?: PostalAddress | null;
+    /** Bills: where the goods were delivered (use tax). */
+    deliveryAddress?: PostalAddress | null;
+    items: LineItemInput[];
+  }): Promise<TaxPreview> {
+    const res = await client.post<DataEnvelope>('/sales-tax/calculate', {
+      kind: data.kind,
+      ...(data.contactId ? { contactId: data.contactId } : {}),
+      issueDate: data.issueDate,
+      ...(data.currency ? { currency: data.currency } : {}),
+      ...(data.billingAddress ? { billingAddress: data.billingAddress } : {}),
+      ...(data.shippingAddress ? { shippingAddress: data.shippingAddress } : {}),
+      ...(data.deliveryAddress ? { deliveryAddress: data.deliveryAddress } : {}),
+      items: toApiItems(data.items).map((item, index) => ({ ...item, id: `line_${index}` })),
+    });
+    const row = res.data ?? {};
+    return {
+      engine: row.engine ? str(row.engine) : null,
+      warnings: Array.isArray(row.warnings) ? row.warnings.map((w) => str(w)) : [],
+      shipToState: row.shipToState ? str(row.shipToState) : null,
+      shipToPostalCode: row.shipToPostalCode ? str(row.shipToPostalCode) : null,
+      addressIncomplete: row.addressIncomplete === true,
+      subtotal: num(row.subtotal),
+      taxTotal: num(row.taxTotal),
+      total: num(row.total),
+      taxBreakdown: Array.isArray(row.taxBreakdown) ? (row.taxBreakdown as TaxBreakdownRow[]) : [],
+    };
   }
 
   /** Locks the draft and assigns its definitive number from the entity sequence. */
@@ -475,7 +582,16 @@ class WeldBooksApi {
   /** Records a payment against an invoice. Omit `amount` to settle the full balance. */
   async recordInvoicePayment(
     id: string,
-    options?: { amount?: number | string; date?: string; paymentMethod?: string; reference?: string },
+    options?: {
+      amount?: number | string;
+      date?: string;
+      paymentMethod?: string;
+      reference?: string;
+      /** US: the number of the check received. */
+      checkNumber?: string;
+      /** US: park a received check or cash in Undeposited Funds, or debit the bank straight away. */
+      depositTo?: DepositTarget;
+    },
   ): Promise<Payment> {
     let amount = options?.amount;
     if (amount === undefined) {
@@ -484,9 +600,11 @@ class WeldBooksApi {
     }
     const res = await client.post<DataEnvelope<Payment>>(`/invoices/${id}/record-payment`, {
       amount: String(amount),
-      date: options?.date ?? new Date().toISOString(),
+      date: options?.date ?? today(),
       paymentMethod: options?.paymentMethod ?? 'manual',
       ...(options?.reference ? { reference: options.reference } : {}),
+      ...(options?.checkNumber ? { checkNumber: options.checkNumber } : {}),
+      ...(options?.depositTo ? { depositTo: options.depositTo } : {}),
     });
     return res.data;
   }
@@ -551,6 +669,8 @@ class WeldBooksApi {
     reference?: string;
     externalReference?: string;
     documentId?: string;
+    /** US: where the goods were delivered; sets the use tax rate. Defaults to the entity address. */
+    deliveryAddress?: PostalAddress | null;
     items: LineItemInput[];
   }): Promise<Bill> {
     const contactId = data.contactId ?? (await this.resolveContactId(data.contactName));
@@ -566,6 +686,7 @@ class WeldBooksApi {
       ...(data.reference ? { reference: data.reference } : {}),
       ...(data.externalReference ? { externalReference: data.externalReference } : {}),
       ...(data.documentId ? { sourceDocumentId: data.documentId } : {}),
+      ...(data.deliveryAddress ? { deliveryAddress: data.deliveryAddress } : {}),
       items: toApiItems(data.items),
     });
     return res.data;
@@ -586,7 +707,13 @@ class WeldBooksApi {
   /** Bills are settled by recording an outgoing payment; there is no status flip. */
   async recordBillPayment(
     id: string,
-    options?: { amount?: number | string; date?: string; paymentMethod?: string },
+    options?: {
+      amount?: number | string;
+      date?: string;
+      paymentMethod?: string;
+      /** US: the number of the check issued. */
+      checkNumber?: string;
+    },
   ): Promise<Payment> {
     const bill = await this.getBill(id);
     if (!bill.contactId) {
@@ -596,10 +723,11 @@ class WeldBooksApi {
     const res = await client.post<DataEnvelope<Payment>>('/payments', {
       type: 'sent',
       amount: String(amount),
-      date: options?.date ?? new Date().toISOString(),
+      date: options?.date ?? today(),
       billId: id,
       contactId: bill.contactId,
       paymentMethod: options?.paymentMethod ?? 'manual',
+      ...(options?.checkNumber ? { checkNumber: options.checkNumber } : {}),
     });
     return res.data;
   }
@@ -619,9 +747,14 @@ class WeldBooksApi {
     date?: string;
     documentId?: string;
     accountId?: string;
+    /** VAT / GST percentage. A US expense is booked at what was paid (tax is part of the cost). */
     taxRate?: number;
+    /** US: the vendor charged no sales tax, so accrue use tax. */
+    accrueUseTax?: boolean;
+    /** US: product tax code, used for the use tax rate. */
+    taxCode?: string;
   }): Promise<Bill> {
-    const expenseDate = data.date || new Date().toISOString().split('T')[0];
+    const expenseDate = data.date || today();
     return this.createBill({
       contactName: data.vendorName || 'Quick Expense',
       issueDate: expenseDate,
@@ -635,6 +768,7 @@ class WeldBooksApi {
           unitPrice: data.amount,
           taxRate: data.taxRate ?? 0,
           accountId: data.accountId,
+          ...(data.accrueUseTax ? { accrueUseTax: true, taxCode: data.taxCode } : {}),
         },
       ],
     });
@@ -792,7 +926,7 @@ class WeldBooksApi {
       totalUnmatched: unmatched.pagination?.totalCount ?? unmatched.data.length,
       totalMatched: matched.pagination?.totalCount ?? 0,
       pendingAmount,
-      currency: 'EUR',
+      currency: fallbackCurrency(),
     };
   }
 
@@ -895,13 +1029,13 @@ class WeldBooksApi {
       id: str(row.id),
       period:
         (row.periodLabel as string | null) ??
-        (start ? `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}` : ''),
-      year: start ? start.getFullYear() : 0,
+        (start ? `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}` : ''),
+      year: start ? start.getUTCFullYear() : 0,
       status: status as VatReturnDetail['status'],
       salesTax,
       purchaseTax,
       netAmount: rubrieken.r5c != null ? num(rubrieken.r5c) : salesTax - purchaseTax,
-      currency: 'EUR',
+      currency: fallbackCurrency(),
       periodStart: row.periodStart ? str(row.periodStart) : undefined,
       periodEnd: row.periodEnd ? str(row.periodEnd) : undefined,
       filedAt: row.filedAt ? str(row.filedAt) : null,
@@ -944,7 +1078,7 @@ class WeldBooksApi {
       expenses,
       netProfit,
       profitMargin: revenue > 0 ? (netProfit / revenue) * 100 : 0,
-      currency: 'EUR',
+      currency: fallbackCurrency(),
     };
   }
 
@@ -965,7 +1099,7 @@ class WeldBooksApi {
       equity: section('Equity', res.data.equity, res.data.totalEquity),
       totalAssets: num(res.data.totalAssets),
       totalLiabilitiesAndEquity: num(res.data.totalLiabilitiesAndEquity),
-      currency: 'EUR',
+      currency: fallbackCurrency(),
     };
   }
 
@@ -1004,7 +1138,7 @@ class WeldBooksApi {
     return {
       receivable: num(row.receivable ?? row.receivableBalance),
       payable: num(row.payable ?? row.payableBalance),
-      currency: str(row.currency, 'EUR'),
+      currency: str(row.currency, fallbackCurrency()),
     };
   }
 
@@ -1018,12 +1152,18 @@ class WeldBooksApi {
     return res.data ?? [];
   }
 
+  /**
+   * A US vendor's taxpayer ID, W-9 and 1099 settings are deliberately not part
+   * of this payload: a TIN is write-only on the server and is entered on the
+   * web, never on a phone.
+   */
   async createContact(data: {
     fullName: string;
     email?: string;
     phone?: string;
     vatNumber?: string;
     role?: string;
+    billingAddress?: PostalAddress | null;
   }): Promise<Contact> {
     const res = await client.post<DataEnvelope<Json>>('/accounting-contacts', {
       fullName: data.fullName,
@@ -1031,6 +1171,7 @@ class WeldBooksApi {
       ...(data.phone ? { phone: data.phone } : {}),
       ...(data.vatNumber ? { vatNumber: data.vatNumber } : {}),
       ...(data.role ? { role: data.role } : {}),
+      ...(data.billingAddress ? { billingAddress: data.billingAddress } : {}),
     });
     return toContact(res.data ?? {});
   }
@@ -1045,7 +1186,21 @@ class WeldBooksApi {
    * free-text name — this bridges the two.
    */
   private async resolveContactId(name: string, email?: string): Promise<string> {
+    const existingId = await this.findContactId(name);
+    if (existingId) return existingId;
+
+    const created = await this.createContact({ fullName: name.trim(), email });
+    return created.id;
+  }
+
+  /**
+   * The id of the contact whose display name is `name` (case-insensitive), or
+   * null. Never creates one: the US invoice form uses it to preview tax with
+   * the customer's exemption certificates before anything is saved.
+   */
+  async findContactId(name: string): Promise<string | null> {
     const wanted = name.trim();
+    if (!wanted) return null;
     try {
       const res = await client.get<ListEnvelope<Json>>(
         `/accounting-contacts?${qs({ search: wanted, page: 1, pageSize: 25 })}`,
@@ -1053,13 +1208,10 @@ class WeldBooksApi {
       const existing = (res.data ?? []).find(
         (row) => str(row.displayName).toLowerCase() === wanted.toLowerCase(),
       );
-      if (existing?.id) return str(existing.id);
+      return existing?.id ? str(existing.id) : null;
     } catch {
-      // fall through to create
+      return null;
     }
-
-    const created = await this.createContact({ fullName: wanted, email });
-    return created.id;
   }
 
   // ========== Chart of Accounts / tax rates ==========
@@ -1080,7 +1232,7 @@ class WeldBooksApi {
     const res = await client.get<DataEnvelope<Json>>('/accounting-settings');
     const row = res.data ?? {};
     return {
-      currency: str(row.baseCurrency ?? row.currency, 'EUR'),
+      currency: str(row.baseCurrency ?? row.currency, fallbackCurrency()),
       fiscalYearStart: str(row.fiscalYearStart, '1 January'),
       entityName: row.entityName ? str(row.entityName) : undefined,
       jurisdictionCode: row.jurisdictionCode ? str(row.jurisdictionCode) : undefined,
@@ -1184,6 +1336,8 @@ class WeldBooksApi {
         date: item.data.date as string | undefined,
         documentId: item.data.documentId as string | undefined,
         taxRate: num(item.data.taxRate),
+        accrueUseTax: item.data.accrueUseTax === true,
+        taxCode: item.data.taxCode ? str(item.data.taxCode) : undefined,
       });
       return { type: 'expense', id: bill.id };
     }
@@ -1195,6 +1349,100 @@ class WeldBooksApi {
 // Row mappers
 // ---------------------------------------------------------------------------
 
+/**
+ * An entity row. The EIN is read only when it looks like one: books-api masks
+ * an SSN typed into the EIN field, and a masked or partial value is no use.
+ */
+export function toEntity(
+  row: Json,
+  fallback: { name?: string; jurisdictionCode?: string; baseCurrency?: string } = {},
+): AccountingEntity {
+  const jurisdictionCode = str(row.jurisdictionCode ?? row.jurisdiction, fallback.jurisdictionCode ?? 'NL');
+  const identifiers = (row.taxIdentifiers ?? {}) as Json;
+  const einValue = typeof identifiers.einOrSsn === 'string' ? identifiers.einOrSsn.trim() : '';
+  const defaults = BUILT_IN_JURISDICTIONS.find((j) => j.code === jurisdictionCode.toUpperCase());
+
+  return {
+    id: str(row.id),
+    name: str(row.name, fallback.name ?? ''),
+    legalName: row.legalName ? str(row.legalName) : undefined,
+    jurisdictionCode,
+    baseCurrency: str(row.baseCurrency, fallback.baseCurrency ?? defaults?.defaultCurrency ?? FALLBACK_CURRENCY),
+    locale: row.locale ? str(row.locale) : defaults?.defaultLocale,
+    timezone: row.timezone ? str(row.timezone) : undefined,
+    address: toPostalAddress(row.address),
+    entityType: row.entityType ? str(row.entityType) : undefined,
+    taxClassification: row.taxClassification ? str(row.taxClassification) : undefined,
+    dba: row.dba ? str(row.dba) : undefined,
+    ein: /^\d{2}-\d{7}$/.test(einValue) ? einValue : undefined,
+    isDefault: Boolean(row.isDefault),
+    isActive: row.isActive !== false,
+  };
+}
+
+function toFeatures(raw: unknown, code: string): JurisdictionFeatures {
+  const builtIn = BUILT_IN_JURISDICTIONS.find((j) => j.code === code)?.features ?? NO_FEATURES;
+  if (!raw || typeof raw !== 'object') return builtIn;
+  const row = raw as Json;
+  const flag = (key: keyof JurisdictionFeatures) => (typeof row[key] === 'boolean' ? (row[key] as boolean) : builtIn[key]);
+  return {
+    vatReturn: flag('vatReturn'),
+    icp: flag('icp'),
+    xafExport: flag('xafExport'),
+    smallBusinessScheme: flag('smallBusinessScheme'),
+    gstReturn: flag('gstReturn'),
+    salesTax: flag('salesTax'),
+    form1099: flag('form1099'),
+  };
+}
+
+function toTerminology(raw: unknown, code: string): JurisdictionTerminology {
+  const builtIn = BUILT_IN_JURISDICTIONS.find((j) => j.code === code)?.terminology ?? DEFAULT_TERMINOLOGY;
+  if (!raw || typeof raw !== 'object') return builtIn;
+  const row = raw as Json;
+  const pick = <K extends keyof JurisdictionTerminology>(key: K, allowed: readonly JurisdictionTerminology[K][]) =>
+    allowed.includes(row[key] as JurisdictionTerminology[K]) ? (row[key] as JurisdictionTerminology[K]) : builtIn[key];
+  return {
+    tax: pick('tax', ['vat', 'gst', 'sales_tax']),
+    taxId: pick('taxId', ['vat_number', 'gstin', 'ein']),
+    registrationId: pick('registrationId', ['kvk', 'pan', 'company_number', 'state_id']),
+    supplier: pick('supplier', ['supplier', 'vendor']),
+    creditNote: pick('creditNote', ['credit_note', 'credit_memo']),
+  };
+}
+
+function toEntityTypes(raw: unknown): UsEntityTypeOption[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return (raw as Json[]).map((row) => ({
+    type: str(row.type),
+    label: str(row.label),
+    description: str(row.description),
+    minOwners: num(row.minOwners),
+    defaultClassification: str(row.defaultClassification),
+    classifications: ((row.classifications ?? []) as Json[]).map((c) => ({
+      value: str(c.value),
+      form: str(c.form),
+      formLabel: str(c.formLabel),
+    })),
+  }));
+}
+
+function toJurisdiction(row: Json): Jurisdiction {
+  const code = str(row.code).toUpperCase();
+  const builtIn = BUILT_IN_JURISDICTIONS.find((j) => j.code === code);
+  return {
+    code,
+    name: str(row.name ?? row.code),
+    defaultLocale: row.defaultLocale ? str(row.defaultLocale) : (builtIn?.defaultLocale ?? 'en-US'),
+    defaultCurrency: row.defaultCurrency
+      ? str(row.defaultCurrency)
+      : (builtIn?.defaultCurrency ?? FALLBACK_CURRENCY),
+    features: toFeatures(row.features, code),
+    terminology: toTerminology(row.terminology, code),
+    entityTypes: toEntityTypes(row.entityTypes),
+  };
+}
+
 function toBankAccount(row: Json): BankAccount {
   return {
     id: str(row.id),
@@ -1202,7 +1450,9 @@ function toBankAccount(row: Json): BankAccount {
     iban: row.iban ? str(row.iban) : undefined,
     bankName: row.bankName ? str(row.bankName) : undefined,
     accountType: str(row.accountType, 'checking'),
-    currency: str(row.currency, 'EUR'),
+    routingNumber: row.routingNumber ? str(row.routingNumber) : undefined,
+    accountNumberLast4: row.accountNumberLast4 ? str(row.accountNumberLast4) : undefined,
+    currency: str(row.currency, fallbackCurrency()),
     currentBalance: str(row.currentBalance, '0'),
     balance: num(row.currentBalance),
     isActive: row.isActive !== false,
@@ -1217,7 +1467,7 @@ function toBankTransaction(row: Json): BankTransaction {
     date: str(row.date ?? row.transactionDate),
     description: str(row.description),
     amount: num(row.amount),
-    currency: str(row.currency, 'EUR'),
+    currency: str(row.currency, fallbackCurrency()),
     status: str(row.status, 'unreconciled') as BankTransaction['status'],
     counterpartyName: row.counterpartyName ? str(row.counterpartyName) : undefined,
     reference: row.reference ? str(row.reference) : undefined,
@@ -1226,6 +1476,8 @@ function toBankTransaction(row: Json): BankTransaction {
 }
 
 function toContact(row: Json): Contact {
+  const billingAddress = toPostalAddress(row.billingAddress);
+  const tinType = ['ein', 'ssn', 'itin'].includes(str(row.tinType)) ? (str(row.tinType) as TinType) : undefined;
   return {
     id: str(row.id),
     name: str(row.displayName ?? row.name),
@@ -1233,8 +1485,13 @@ function toContact(row: Json): Contact {
     type: str(row.role, 'customer') as Contact['type'],
     phone: row.phone ? str(row.phone) : undefined,
     vatNumber: row.vatNumber ? str(row.vatNumber) : undefined,
-    city: row.city ? str(row.city) : undefined,
-    country: row.country ? str(row.country) : undefined,
+    city: row.city ? str(row.city) : billingAddress?.city,
+    country: row.country ? str(row.country) : billingAddress?.country,
+    billingAddress,
+    shippingAddress: toPostalAddress(row.shippingAddress),
+    is1099Vendor: row.is1099Vendor === true ? true : undefined,
+    tinType,
+    tinLast4: typeof row.tinLast4 === 'string' && /^\d{4}$/.test(row.tinLast4) ? row.tinLast4 : undefined,
   };
 }
 

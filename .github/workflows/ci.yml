@@ -117,7 +117,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      NODE_OPTIONS: --max-old-space-size=5120
+      # A cold platform check (no tsbuildinfo cache) peaks near 6 GB of heap;
+      # 5 GB ran out of memory. ubuntu-latest runners have 16 GB for this
+      # public repo.
+      NODE_OPTIONS: --max-old-space-size=8192
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-monorepo

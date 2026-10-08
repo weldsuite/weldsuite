@@ -16,7 +16,9 @@ import { Divider } from '@weldsuite/mobile-ui/components/Divider';
 
 import { toNumber } from '@/lib/currency';
 import { daysUntil } from '@/lib/date';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { describeApiError } from '@/lib/sales-tax';
 import { SectionCard, TotalsBlock } from '@/components/detail';
 
 type PluralForms = { one: string; other: string };
@@ -39,15 +41,15 @@ export interface DocumentLineItem {
   unitPrice: string;
   taxRate: string;
   lineTotal: string;
+  /** US: the product tax code the line was taxed under. */
+  taxCode?: string | null;
+  /** US bill: use tax was accrued on this line. */
+  accrueUseTax?: boolean;
 }
 
-export function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback;
-}
-
-/** The currency a document is denominated in (EUR when unset). */
-export function documentCurrency(doc: { currency?: string }): string {
-  return doc.currency || 'EUR';
+/** The currency a document is denominated in; `fallback` (the entity's) when it carries none. */
+export function documentCurrency(doc: { currency?: string }, fallback: string): string {
+  return doc.currency || fallback;
 }
 
 function DueHint({
@@ -88,7 +90,7 @@ export function DocumentSummaryCard({
   };
 }>) {
   const { colors } = useTheme();
-  const { formatCurrency } = useLocaleFormatters();
+  const { formatCurrency, currency: entityCurrency } = useLocaleFormatters();
   const balanceDue = toNumber(doc.balanceDue);
   const due = daysUntil(doc.dueDate);
   const hasBalance = balanceDue > 0;
@@ -101,7 +103,7 @@ export function DocumentSummaryCard({
             {hasBalance ? labels.balanceDue : labels.total}
           </Text>
           <Text style={[styles.summaryValue, { color: colors.text }]}>
-            {formatCurrency(hasBalance ? balanceDue : doc.total, documentCurrency(doc))}
+            {formatCurrency(hasBalance ? balanceDue : doc.total, documentCurrency(doc, entityCurrency))}
           </Text>
         </View>
         {badge}
@@ -111,22 +113,58 @@ export function DocumentSummaryCard({
   );
 }
 
+/**
+ * What follows "2 × $10.00" on a line: its VAT / GST rate, or for US sales tax
+ * its product tax code (a US invoice line is taxed per jurisdiction, so it has
+ * no single rate to show) and, on a bill, the vendor's tax and any use tax.
+ */
+function taxSuffix(
+  item: DocumentLineItem,
+  ctx: {
+    isUs: boolean;
+    kind: 'invoice' | 'bill';
+    rateTemplate: string;
+    format: (template: string, values?: Record<string, unknown>) => string;
+    codeLabels: Record<string, string>;
+    useTaxLabel: string;
+  },
+): string {
+  const parts: string[] = [];
+  const taxRate = toNumber(item.taxRate);
+
+  if (ctx.isUs && ctx.kind === 'invoice') {
+    const code = item.taxCode ? ctx.codeLabels[item.taxCode] : undefined;
+    if (code) parts.push(code);
+  } else {
+    if (taxRate > 0) parts.push(ctx.format(ctx.rateTemplate, { rate: taxRate }));
+    if (ctx.isUs && item.accrueUseTax) parts.push(ctx.useTaxLabel);
+  }
+  return parts.length > 0 ? `  ·  ${parts.join('  ·  ')}` : '';
+}
+
 function LineItemRow({
   item,
   index,
   currency,
-  vatRateLabel,
+  kind,
 }: Readonly<{
   item: DocumentLineItem;
   index: number;
   currency: string;
-  vatRateLabel: string;
+  kind: 'invoice' | 'bill';
 }>) {
   const { colors } = useTheme();
-  const { format } = useI18n();
+  const { t, format } = useI18n();
   const { formatCurrency } = useLocaleFormatters();
-  const taxRate = toNumber(item.taxRate);
-  const vatSuffix = taxRate > 0 ? `  ·  ${format(vatRateLabel, { rate: taxRate })}` : '';
+  const { isUs, labels } = useJurisdiction();
+  const vatSuffix = taxSuffix(item, {
+    isUs,
+    kind,
+    rateTemplate: labels.taxRateTemplate,
+    format,
+    codeLabels: t.salesTax.codes,
+    useTaxLabel: t.salesTax.useTaxAccrued,
+  });
 
   return (
     <View>
@@ -149,24 +187,18 @@ export function DocumentLineItems({
   items,
   currency,
   title,
-  vatRateLabel,
+  kind,
 }: Readonly<{
   items: DocumentLineItem[] | undefined;
   currency: string;
   title: string;
-  vatRateLabel: string;
+  kind: 'invoice' | 'bill';
 }>) {
   if (!items?.length) return null;
   return (
     <SectionCard title={title}>
       {items.map((item, index) => (
-        <LineItemRow
-          key={item.id ?? index}
-          item={item}
-          index={index}
-          currency={currency}
-          vatRateLabel={vatRateLabel}
-        />
+        <LineItemRow key={item.id ?? index} item={item} index={index} currency={currency} kind={kind} />
       ))}
     </SectionCard>
   );
@@ -175,12 +207,18 @@ export function DocumentLineItems({
 export function DocumentTotalsCard({
   doc,
   labels,
+  taxLabel,
+  extraRows = [],
 }: Readonly<{
   doc: DocumentAmounts;
-  labels: { totals: string; subtotal: string; vat: string; paid: string; balanceDue: string; total: string };
+  labels: { totals: string; subtotal: string; paid: string; balanceDue: string; total: string };
+  /** The tax row's label: "VAT", "Sales tax", or "Sales tax paid (part of the cost)" on a US bill. */
+  taxLabel: string;
+  /** Rows after the tax row, e.g. the use tax accrued on a US bill (not part of the total). */
+  extraRows?: { label: string; value: string }[];
 }>) {
-  const { formatCurrency } = useLocaleFormatters();
-  const currency = documentCurrency(doc);
+  const { formatCurrency, currency: entityCurrency } = useLocaleFormatters();
+  const currency = documentCurrency(doc, entityCurrency);
   const balanceDue = toNumber(doc.balanceDue);
   const amountPaid = toNumber(doc.amountPaid);
   const partiallyPaid = balanceDue > 0 && amountPaid > 0;
@@ -190,7 +228,8 @@ export function DocumentTotalsCard({
       <TotalsBlock
         rows={[
           { label: labels.subtotal, value: formatCurrency(doc.subtotal, currency) },
-          { label: labels.vat, value: formatCurrency(doc.taxTotal, currency) },
+          { label: taxLabel, value: formatCurrency(doc.taxTotal, currency) },
+          ...extraRows,
           ...(amountPaid > 0
             ? [{ label: labels.paid, value: `−${formatCurrency(amountPaid, currency)}` }]
             : []),
@@ -214,17 +253,28 @@ export function useDocumentMutations(load: () => Promise<void>) {
   const toast = useToast();
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Runs `action`, then reloads. A failure is a toast and also stays in
+   * `error` until the next attempt: a sales tax refusal (no ship-to address,
+   * tax engine down) needs more than a toast that disappears.
+   */
   const run = useCallback(
-    async (action: () => Promise<unknown>, successMessage: string) => {
+    async (action: () => Promise<unknown>, successMessage: string): Promise<boolean> => {
       setBusy(true);
+      setError(null);
       try {
         await action();
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         toast.success(successMessage);
         await load();
+        return true;
       } catch (err) {
-        toast.error(errorMessage(err, t.common.actionFailed));
+        const message = describeApiError(err, t, t.common.actionFailed);
+        setError(message);
+        toast.error(message);
+        return false;
       } finally {
         setBusy(false);
       }
@@ -240,15 +290,15 @@ export function useDocumentMutations(load: () => Promise<void>) {
         toast.success(successMessage);
         router.back();
       } catch (err) {
-        toast.error(errorMessage(err, failMessage));
+        toast.error(describeApiError(err, t, failMessage));
       } finally {
         setBusy(false);
       }
     },
-    [toast, router],
+    [toast, router, t],
   );
 
-  return { busy, run, remove };
+  return { busy, run, remove, error, clearError: () => setError(null) };
 }
 
 const styles = StyleSheet.create({
