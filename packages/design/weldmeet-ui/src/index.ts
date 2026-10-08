@@ -93,6 +93,7 @@ export {
   type VirtualBackgroundPreference,
 } from './hooks/use-virtual-background';
 export { useMicrophoneRecovery, type UseMicrophoneRecoveryOptions } from './hooks/use-microphone-recovery';
+export { useLeaveCallGuard, type UseLeaveCallGuardOptions } from './hooks/use-leave-call-guard';
 export {
   useSpeakerOutput,
   useSpeakerDevices,
