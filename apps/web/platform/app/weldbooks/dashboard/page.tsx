@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import { KpiCards } from './components/kpi-cards';
+import { UndepositedFundsCallout } from '@/app/weldbooks/banking/components/undeposited-funds-callout';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
@@ -34,6 +35,7 @@ export default function AccountingDashboardPage() {
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-semibold">{td.title}</h1>
 
+      <UndepositedFundsCallout />
       <KpiCards dashboard={dashboard} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
