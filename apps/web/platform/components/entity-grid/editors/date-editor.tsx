@@ -27,7 +27,7 @@ export function DateEditor({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="w-full h-full flex items-center cursor-pointer text-left">
+        <Button variant="ghost" className="w-full h-full flex items-center justify-start px-0 cursor-pointer text-left">
           <span
             className={cn(
               'text-[14px]',

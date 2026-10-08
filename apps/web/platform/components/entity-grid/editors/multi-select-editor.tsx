@@ -75,7 +75,7 @@ export function MultiSelectEditor({
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="text-left w-full flex items-center gap-1 flex-wrap">
+        <Button variant="ghost" className="text-left w-full flex items-center justify-start px-0 gap-1 flex-wrap">
           {renderValue()}
         </Button>
       </PopoverTrigger>
