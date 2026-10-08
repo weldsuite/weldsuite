@@ -20,7 +20,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import { useRecordInvoicePayment } from '@/hooks/queries/use-accounting-queries';
+import {
+  useBankAccounts,
+  useRecordInvoicePaymentWithTarget,
+} from '@/hooks/queries/use-weldbooks-banking-queries';
+import { depositBankAccounts } from '@/app/weldbooks/deposits/deposit-math';
+import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
+import { maskedAccountNumber } from '@/app/weldbooks/banking/components/routing-number';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
@@ -42,8 +48,13 @@ function createPaymentSchema(st: (key: string) => string) {
       .refine((value: string): boolean => isPaymentMethod(value), st('sweep.weldbooks.recordPayment.paymentMethodRequired')),
     checkNumber: z.string().max(30).optional(),
     reference: z.string().optional(),
+    /** US: `undeposited` (Undeposited Funds) or the id of the bank account the money goes into. */
+    depositTo: z.string().optional(),
   });
 }
+
+/** Select value of "Undeposited Funds" in the deposit-to choice. */
+const UNDEPOSITED = 'undeposited';
 
 type PaymentFormValues = z.infer<ReturnType<typeof createPaymentSchema>>;
 
@@ -60,14 +71,18 @@ export function RecordPaymentDialog({
   open,
   onOpenChange,
 }: Readonly<RecordPaymentDialogProps>) {
-  const recordPayment = useRecordInvoicePayment();
+  const recordPayment = useRecordInvoicePaymentWithTarget();
   const { t } = useI18n();
   const st = useTranslations();
   const tr = t.accounting.recordPayment;
+  const tu = t.weldbooksUs.banking.recordPayment;
   const methodLabels = t.accounting.paymentMethods;
   const paymentSchema = useMemo(() => createPaymentSchema(st), [st]);
   const { today } = useWeldbooksFormat();
   const { code: jurisdictionCode } = useCurrentJurisdiction();
+  const isUs = isUsJurisdictionCode(jurisdictionCode);
+  const { data: bankAccountsRes } = useBankAccounts(undefined, { enabled: isUs && open });
+  const depositAccounts = depositBankAccounts(bankAccountsRes?.data ?? []);
 
   const defaults = useMemo<PaymentFormValues>(
     () => ({
@@ -76,6 +91,7 @@ export function RecordPaymentDialog({
       paymentMethod: defaultPaymentMethod(jurisdictionCode),
       checkNumber: '',
       reference: '',
+      depositTo: UNDEPOSITED,
     }),
     [balanceDue, today, jurisdictionCode],
   );
@@ -100,6 +116,8 @@ export function RecordPaymentDialog({
   const paymentMethod = watch('paymentMethod');
   const methods = paymentMethodsFor(jurisdictionCode, paymentMethod);
   const isCheck = paymentMethod === 'check';
+  // A check or cash payment received on a US entity waits in Undeposited Funds, unless it goes straight to a bank account.
+  const showDepositTo = isUs && (paymentMethod === 'check' || paymentMethod === 'cash');
 
   const onSubmit = (data: PaymentFormValues) => {
     if (!isPaymentMethod(data.paymentMethod)) return;
@@ -112,6 +130,7 @@ export function RecordPaymentDialog({
           paymentMethod: data.paymentMethod,
           checkNumber: data.paymentMethod === 'check' && data.checkNumber?.trim() ? data.checkNumber.trim() : undefined,
           reference: data.reference?.trim() ? data.reference.trim() : undefined,
+          bankAccountId: showDepositTo && data.depositTo && data.depositTo !== UNDEPOSITED ? data.depositTo : undefined,
         },
       },
       {
@@ -191,6 +210,35 @@ export function RecordPaymentDialog({
                 maxLength={30}
                 {...register('checkNumber')}
               />
+            </div>
+          )}
+
+          {showDepositTo && (
+            <div className="space-y-2">
+              <Label htmlFor="depositTo">{tu.depositTo}</Label>
+              <Controller
+                control={control}
+                name="depositTo"
+                render={({ field }) => (
+                  <Select value={field.value ?? UNDEPOSITED} onValueChange={field.onChange}>
+                    <SelectTrigger id="depositTo" data-testid="deposit-to">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNDEPOSITED}>{tu.undepositedFunds}</SelectItem>
+                      {depositAccounts.map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.name}
+                          {account.accountNumberLast4 ? ` · ${maskedAccountNumber(account.accountNumberLast4)}` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-xs text-muted-foreground">
+                {watch('depositTo') === UNDEPOSITED || !watch('depositTo') ? tu.undepositedHint : tu.bankHint}
+              </p>
             </div>
           )}
 

@@ -12,13 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@weldsuite/ui/components/select';
-import {
-  useAccountingBankAccounts,
-  useAccountingBankTransactions,
-} from '@/hooks/queries/use-accounting-queries';
+import { useBankAccounts, useBankLines } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { BankTransactionsTable } from '@/components/accounting/bank-transactions-table';
 import { BankTransactionFormDialog } from '@/components/accounting/bank-transaction-form-dialog';
-import type { BankAccount, BankTransaction } from '@/lib/api/domains/weldbooks';
+import type { BankLineSource } from '@/lib/api/domains/weldbooks-banking';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 
@@ -27,6 +24,7 @@ const PAGE_SIZE = 50;
 export default function BankTransactionsPage() {
   const [accountFilter, setAccountFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<BankLineSource | 'all'>('all');
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -35,6 +33,7 @@ export default function BankTransactionsPage() {
   const { t } = useI18n();
   const { currency: entityCurrency } = useCurrentEntityCurrency();
   const tbp = t.accounting.bankingPages;
+  const tl = t.weldbooksUs.banking.lines;
 
   const STATUS_OPTIONS = [
     { value: 'all', label: tbp.allStatuses },
@@ -43,24 +42,25 @@ export default function BankTransactionsPage() {
     { value: 'excluded', label: tbp.excludedFilter },
   ];
 
-  const { data: accountsRes } = useAccountingBankAccounts();
-  const accounts = (accountsRes?.data ?? []) as BankAccount[];
+  const { data: accountsRes } = useBankAccounts();
+  const accounts = accountsRes?.data ?? [];
 
   const filters = useMemo(
     () => ({
       bankAccountId: accountFilter === 'all' ? undefined : accountFilter,
       status: statusFilter === 'all' ? undefined : statusFilter,
+      source: sourceFilter === 'all' ? undefined : sourceFilter,
       from: from || undefined,
       to: to || undefined,
       search: search || undefined,
       page,
       pageSize: PAGE_SIZE,
     }),
-    [accountFilter, statusFilter, from, to, search, page],
+    [accountFilter, statusFilter, sourceFilter, from, to, search, page],
   );
 
-  const { data: txnData, isLoading } = useAccountingBankTransactions(filters);
-  const transactions = (txnData?.data ?? []) as BankTransaction[];
+  const { data: txnData, isLoading } = useBankLines(filters);
+  const transactions = txnData?.data ?? [];
   const total = txnData?.pagination?.totalCount ?? transactions.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -213,6 +213,26 @@ export default function BankTransactionsPage() {
           </Select>
         </div>
         <div className="w-44">
+          <label className="text-xs text-muted-foreground">{tl.source}</label>
+          <Select
+            value={sourceFilter}
+            onValueChange={(v) => {
+              setSourceFilter(v as BankLineSource | 'all');
+              setPage(1);
+            }}
+          >
+            <SelectTrigger data-testid="source-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{tl.allSources}</SelectItem>
+              <SelectItem value="feed">{tl.sources.feed}</SelectItem>
+              <SelectItem value="import">{tl.sources.import}</SelectItem>
+              <SelectItem value="manual">{tl.sources.manual}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="w-44">
           <label className="text-xs text-muted-foreground">{tbp.fromLabel}</label>
           <Input
             type="date"
@@ -237,7 +257,7 @@ export default function BankTransactionsPage() {
         <div className="flex-1 min-w-[200px]">
           <label className="text-xs text-muted-foreground">{tbp.searchLabel}</label>
           <Input
-            placeholder={tbp.searchPlaceholder}
+            placeholder={tl.searchPlaceholder}
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
