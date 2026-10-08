@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv, createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
-import { listDueWorkspaces, markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
+import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { nextAutoScheduledReplanAt } from '@weldsuite/db/lib/calendar-sync';
 
@@ -124,20 +124,24 @@ describe('runCalendarReplanSweep', () => {
   });
 
   it('seeds once, re-plans a stale event and waits for its new start', async () => {
-    await seedTaskEvent({ start: new Date(Date.now() - 24 * HOUR) });
+    const staleStart = new Date(Date.now() - 24 * HOUR);
+    await seedTaskEvent({ start: staleStart });
     const env = makeEnv(false);
 
     const res = await runCalendarReplanSweep(env as never);
     expect(activeWorkspaces).toHaveBeenCalledTimes(1);
     expect(res).toMatchObject({ workspacesScanned: 1, totalScanned: 1, totalRescheduled: 1 });
 
-    // The row now sits at the re-planned event's start, in the future.
+    // The event moved forward, and the row now sits at its new start. (The
+    // scheduler may place it in the slot that is already under way, so the
+    // start can be a little in the past — the next nightly run then re-plans it.)
     const nextStart = await nextAutoScheduledReplanAt(db);
-    expect(nextStart!.getTime()).toBeGreaterThan(Date.now());
-    expect(await listDueWorkspaces(env.SCHEDULE_INDEX, 'calendar_replan', Date.now(), 10)).toEqual([]);
-    expect(
-      (await listDueWorkspaces(env.SCHEDULE_INDEX, 'calendar_replan', nextStart!.getTime(), 10))[0]?.nextDueAt,
-    ).toBe(nextStart!.getTime());
+    expect(nextStart!.getTime()).toBeGreaterThan(staleStart.getTime());
+    const row = await env.SCHEDULE_INDEX
+      .prepare("SELECT next_due_at FROM workspace_due_index WHERE kind = 'calendar_replan' AND workspace_id = ?")
+      .bind('org_tenant')
+      .first<number>('next_due_at');
+    expect(row).toBe(nextStart!.getTime());
   });
 
   it('drops a due workspace that has nothing left to re-plan', async () => {
