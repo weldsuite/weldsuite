@@ -11,6 +11,9 @@ import { Checkbox } from '../checkbox';
 import { Icons } from '../icons';
 import { Zap } from 'lucide-react';
 
+// PascalCase aliases so the icons read as components in JSX.
+const { spinner: SpinnerIcon, google: GoogleIcon, gitHub: GitHubIcon, facebook: FacebookIcon, twitter: TwitterIcon } = Icons;
+
 interface LoginPageProps {
   appName?: string;
   showSocialLogin?: boolean;
@@ -188,7 +191,7 @@ export function LoginPage({
                 >
                   {isSubmitting ? (
                     <>
-                      <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />
+                      <SpinnerIcon className="mr-2 h-4 w-4 animate-spin" />
                       Signing in...
                     </>
                   ) : (
@@ -217,7 +220,7 @@ export function LoginPage({
                       disabled={isSubmitting}
                       className="h-11"
                     >
-                      <Icons.google className="mr-2 h-4 w-4" />
+                      <GoogleIcon className="mr-2 h-4 w-4" />
                       Google
                     </Button>
                     <Button
@@ -226,7 +229,7 @@ export function LoginPage({
                       disabled={isSubmitting}
                       className="h-11"
                     >
-                      <Icons.gitHub className="mr-2 h-4 w-4" />
+                      <GitHubIcon className="mr-2 h-4 w-4" />
                       GitHub
                     </Button>
                   </div>
@@ -238,7 +241,7 @@ export function LoginPage({
                       disabled={isSubmitting}
                       className="h-11"
                     >
-                      <Icons.facebook className="mr-2 h-4 w-4" />
+                      <FacebookIcon className="mr-2 h-4 w-4" />
                       Facebook
                     </Button>
                     <Button
@@ -247,7 +250,7 @@ export function LoginPage({
                       disabled={isSubmitting}
                       className="h-11"
                     >
-                      <Icons.twitter className="mr-2 h-4 w-4" />
+                      <TwitterIcon className="mr-2 h-4 w-4" />
                       Twitter
                     </Button>
                   </div>

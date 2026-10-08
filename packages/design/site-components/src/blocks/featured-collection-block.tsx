@@ -122,7 +122,7 @@ export function FeaturedCollectionBlock({
               asChild
               className="hidden md:inline-flex gap-1"
             >
-              <a href={isEditing ? undefined : viewAllLink} onClick={(e) => isEditing && e.preventDefault()}>
+              <a href={viewAllLink} onClick={(e) => isEditing && e.preventDefault()}>
                 {viewAllText}
                 <ArrowRight className="h-4 w-4" />
               </a>
@@ -231,7 +231,7 @@ export function FeaturedCollectionBlock({
               asChild
               className="gap-1"
             >
-              <a href={isEditing ? undefined : viewAllLink} onClick={(e) => isEditing && e.preventDefault()}>
+              <a href={viewAllLink} onClick={(e) => isEditing && e.preventDefault()}>
                 {viewAllText}
                 <ArrowRight className="h-4 w-4" />
               </a>

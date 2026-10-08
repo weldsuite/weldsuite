@@ -168,7 +168,7 @@ function FooterColumnsGrid({ columns, isMobileView, isEditing, textColor }: Read
             {(column.links ?? []).map((link, index) => (
               <li key={index}>
                 <a
-                  href={isEditing ? undefined : link.url}
+                  href={link.url}
                   onClick={(e) => isEditing && e.preventDefault()}
                   className={`text-sm hover:opacity-70 transition-opacity ${isEditing ? 'pointer-events-none' : ''}`}
                   style={{ color: `${textColor}cc` }}
@@ -198,7 +198,7 @@ function SocialIconLinks({ links, isEditing }: Readonly<SocialIconLinksProps>) {
         return (
           <a
             key={index}
-            href={isEditing ? undefined : social.url}
+            href={social.url}
             onClick={(e) => isEditing && e.preventDefault()}
             className={`hover:opacity-70 transition-opacity ${isEditing ? 'pointer-events-none' : ''}`}
             target="_blank"

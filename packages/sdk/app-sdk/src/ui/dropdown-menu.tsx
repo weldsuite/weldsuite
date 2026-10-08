@@ -196,6 +196,7 @@ export function DropdownMenuContent({
       ref={contentRef}
       id={menuId}
       role="menu"
+      tabIndex={-1}
       data-state={open ? 'open' : 'closed'}
       className={cn('wui-dropdown-content', `wui-dropdown-content--align-${align}`, className)}
       style={{ position: 'absolute', top: position.top, left: position.left, zIndex: 50 }}

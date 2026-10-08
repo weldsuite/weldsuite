@@ -132,7 +132,7 @@ export function GalleryHorizontalAccordionBlock({
           </div>
 
           <a
-            href={isEditing ? undefined : buttonLink}
+            href={buttonLink}
             onClick={(e) => isEditing && e.preventDefault()}
             className={`group mt-10 flex w-fit items-center justify-center gap-2 rounded-full px-4 py-2 tracking-tight bg-primary text-primary-foreground hover:bg-primary/90 transition-colors ${
               isEditing ? 'pointer-events-none' : ''

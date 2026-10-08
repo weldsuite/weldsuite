@@ -1010,7 +1010,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       }}
     >
       {/* Undo / Redo */}
-      <TT label="Undo">
+      <ToolbarTooltip label="Undo">
         <Button
           variant="ghost"
           type="button"
@@ -1024,8 +1024,8 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         >
           <Undo className="h-4 w-4" />
         </Button>
-      </TT>
-      <TT label="Redo">
+      </ToolbarTooltip>
+      <ToolbarTooltip label="Redo">
         <Button
           variant="ghost"
           type="button"
@@ -1039,7 +1039,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         >
           <Redo className="h-4 w-4" />
         </Button>
-      </TT>
+      </ToolbarTooltip>
 
       <div className="w-px h-5 bg-border mx-1" />
 
@@ -1170,31 +1170,31 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       <div className="w-px h-5 bg-border mx-1" />
 
       {/* Inline styles */}
-      <TT label="Bold (⌘B)">
+      <ToolbarTooltip label="Bold (⌘B)">
         <Button variant="ghost" type="button" className={btn(!!activeStyles.bold)} onClick={() => toggleStyle('bold')}>
           <Bold className="h-4 w-4" />
         </Button>
-      </TT>
-      <TT label="Italic (⌘I)">
+      </ToolbarTooltip>
+      <ToolbarTooltip label="Italic (⌘I)">
         <Button variant="ghost" type="button" className={btn(!!activeStyles.italic)} onClick={() => toggleStyle('italic')}>
           <Italic className="h-4 w-4" />
         </Button>
-      </TT>
-      <TT label="Underline (⌘U)">
+      </ToolbarTooltip>
+      <ToolbarTooltip label="Underline (⌘U)">
         <Button variant="ghost" type="button" className={btn(!!activeStyles.underline)} onClick={() => toggleStyle('underline')}>
           <Underline className="h-4 w-4" />
         </Button>
-      </TT>
-      <TT label="Strikethrough">
+      </ToolbarTooltip>
+      <ToolbarTooltip label="Strikethrough">
         <Button variant="ghost" type="button" className={btn(!!activeStyles.strike)} onClick={() => toggleStyle('strike')}>
           <Strikethrough className="h-4 w-4" />
         </Button>
-      </TT>
-      <TT label="Inline code">
+      </ToolbarTooltip>
+      <ToolbarTooltip label="Inline code">
         <Button variant="ghost" type="button" className={btn(!!activeStyles.code)} onClick={() => toggleStyle('code')}>
           <Code className="h-4 w-4" />
         </Button>
-      </TT>
+      </ToolbarTooltip>
 
       {/* Text color */}
       <Popover>
@@ -1340,57 +1340,57 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       </Popover>
 
       {/* Lists */}
-      <TT label="Bullet list">
+      <ToolbarTooltip label="Bullet list">
         <Button variant="ghost" type="button" className={btn(activeBlockType === 'bulletListItem')} onClick={() => setBlockType('bulletListItem')}>
           <List className="h-4 w-4" />
         </Button>
-      </TT>
-      <TT label="Numbered list">
+      </ToolbarTooltip>
+      <ToolbarTooltip label="Numbered list">
         <Button variant="ghost" type="button" className={btn(activeBlockType === 'numberedListItem')} onClick={() => setBlockType('numberedListItem')}>
           <ListOrdered className="h-4 w-4" />
         </Button>
-      </TT>
-      <TT label="Check list">
+      </ToolbarTooltip>
+      <ToolbarTooltip label="Check list">
         <Button variant="ghost" type="button" className={btn(activeBlockType === 'checkListItem')} onClick={() => setBlockType('checkListItem')}>
           <ListChecks className="h-4 w-4" />
         </Button>
-      </TT>
+      </ToolbarTooltip>
 
       {/* Indent / Outdent */}
-      <TT label="Increase indent">
+      <ToolbarTooltip label="Increase indent">
         <Button variant="ghost" type="button" className={btn(false)} onClick={nestBlock}>
           <Indent className="h-4 w-4" />
         </Button>
-      </TT>
-      <TT label="Decrease indent">
+      </ToolbarTooltip>
+      <ToolbarTooltip label="Decrease indent">
         <Button variant="ghost" type="button" className={btn(false)} onClick={unnestBlock}>
           <Outdent className="h-4 w-4" />
         </Button>
-      </TT>
+      </ToolbarTooltip>
 
       <div className="w-px h-5 bg-border mx-1" />
 
       {/* Add comment (collaborative documents only) */}
       {hasComments && (
-        <TT label="Add comment">
+        <ToolbarTooltip label="Add comment">
           <Button variant="ghost" type="button" className={btn(false)} onClick={addComment}>
             <MessageSquarePlus className="h-4 w-4" />
           </Button>
-        </TT>
+        </ToolbarTooltip>
       )}
 
       {/* Clear formatting */}
-      <TT label="Clear formatting">
+      <ToolbarTooltip label="Clear formatting">
         <Button variant="ghost" type="button" className={btn(false)} onClick={clearFormatting}>
           <RemoveFormatting className="h-4 w-4" />
         </Button>
-      </TT>
+      </ToolbarTooltip>
     </div>
     </TooltipProvider>
   );
 }
 
-function TT({ label, children }: Readonly<{ label: string; children: React.ReactElement }>) {
+function ToolbarTooltip({ label, children }: Readonly<{ label: string; children: React.ReactElement }>) {
   // The shared shadcn Tooltip wrapper always nests its own TooltipProvider
   // with a default 300ms delay, which shadows whatever `delayDuration` the
   // outer TooltipProvider is set to. Passing `delayDuration` directly on

@@ -208,7 +208,9 @@ export function ProductDetailGalleryBlock({
           <div className="w-full hidden lg:flex flex-col gap-2">
             {displayImages.map((img: ProductImage, index: number) => (
               <div key={`scroll-image-${index}`} className="aspect-square overflow-hidden" style={{ borderRadius: `${imageRounding}px` }}>
-                <img src={img.src} alt={img.alt} className="block size-full object-cover object-center cursor-pointer hover:scale-[1.02] transition-transform" onClick={() => setCurrentImageIndex(index)} />
+                <button type="button" className="block size-full p-0" onClick={() => setCurrentImageIndex(index)}>
+                  <img src={img.src} alt={img.alt} className="block size-full object-cover object-center cursor-pointer hover:scale-[1.02] transition-transform" />
+                </button>
               </div>
             ))}
           </div>
@@ -242,7 +244,9 @@ export function ProductDetailGalleryBlock({
           {displayImages.map((img: ProductImage, index: number) => (
             <div key={`masonry-${index}`} className={`overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`} style={{ borderRadius: `${imageRounding}px` }}>
               <div className="aspect-[4/5]">
-                <img src={img.src} alt={img.alt} className="block size-full object-cover object-center hover:scale-[1.02] transition-transform" onClick={() => setCurrentImageIndex(index)} />
+                <button type="button" className="block size-full p-0 cursor-pointer" onClick={() => setCurrentImageIndex(index)}>
+                  <img src={img.src} alt={img.alt} className="block size-full object-cover object-center hover:scale-[1.02] transition-transform" />
+                </button>
               </div>
             </div>
           ))}

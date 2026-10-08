@@ -95,7 +95,7 @@ export function CountdownStatsBlock({
               </div>
             </div>
             <a
-              href={isEditing ? undefined : buttonLink}
+              href={buttonLink}
               onClick={isEditing ? (e) => e.preventDefault() : undefined}
               className="group mt-7 flex w-fit items-center justify-center gap-2 rounded-xl bg-secondary px-4 py-2 text-md tracking-tight shadow-none hover:bg-secondary/80 transition-colors"
             >

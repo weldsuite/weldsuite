@@ -132,7 +132,7 @@ export function GalleryAccordionVerticalBlock({
             </p>
             {buttonText && (
               <a
-                href={isEditing ? undefined : buttonLink}
+                href={buttonLink}
                 onClick={(e) => isEditing && e.preventDefault()}
                 className={cn(
                   "group mt-10 flex w-fit items-center justify-center gap-2 rounded-full px-6 py-3 tracking-tight bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",

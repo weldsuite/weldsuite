@@ -44,7 +44,8 @@ export function LinkBlock({
 
   return (
     <a
-      href={mode === 'live' ? url : '#'}
+      href={url}
+      onClick={mode === 'live' ? undefined : (e) => e.preventDefault()}
       className={`transition-all ${sizeClass} ${weightClass} ${variantClass}`}
       style={{ color }}
     >

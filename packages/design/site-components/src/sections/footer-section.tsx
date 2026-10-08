@@ -46,18 +46,18 @@ export default function FooterSection({
               {store?.description || "Your trusted online store"}
             </p>
             <div className="flex gap-4">
-              <a href="#" className="text-muted-foreground hover:text-primary">
+              <button type="button" aria-label="Facebook" className="cursor-pointer text-muted-foreground hover:text-primary">
                 <Facebook className="h-5 w-5" />
-              </a>
-              <a href="#" className="text-muted-foreground hover:text-primary">
+              </button>
+              <button type="button" aria-label="Twitter" className="cursor-pointer text-muted-foreground hover:text-primary">
                 <Twitter className="h-5 w-5" />
-              </a>
-              <a href="#" className="text-muted-foreground hover:text-primary">
+              </button>
+              <button type="button" aria-label="Instagram" className="cursor-pointer text-muted-foreground hover:text-primary">
                 <Instagram className="h-5 w-5" />
-              </a>
-              <a href="#" className="text-muted-foreground hover:text-primary">
+              </button>
+              <button type="button" aria-label="Email" className="cursor-pointer text-muted-foreground hover:text-primary">
                 <Mail className="h-5 w-5" />
-              </a>
+              </button>
             </div>
           </div>
           
@@ -67,9 +67,9 @@ export default function FooterSection({
               <ul className="space-y-2">
                 {section.items.map((item) => (
                   <li key={item}>
-                    <a href="#" className="text-sm text-muted-foreground hover:text-primary">
+                    <button type="button" className="cursor-pointer text-sm text-muted-foreground hover:text-primary">
                       {item}
-                    </a>
+                    </button>
                   </li>
                 ))}
               </ul>

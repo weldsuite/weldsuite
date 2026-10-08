@@ -27,7 +27,7 @@ export function SlideButtonBlock({
   return (
     <div className="transition-all duration-700">
       <a
-        href={isEditing ? undefined : link}
+        href={link}
         onClick={(e) => isEditing && e.preventDefault()}
         className="inline-flex items-center px-8 py-4 rounded-md font-semibold transition-all shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95"
         style={{

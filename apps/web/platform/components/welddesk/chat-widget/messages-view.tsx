@@ -261,7 +261,6 @@ export function MessagesView({
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setSearchFocused(false)}
-                autoFocus
                 className={cn(
                   "w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-secondary rounded-md text-sm text-gray-900 dark:text-foreground",
                   "placeholder:text-gray-400 dark:placeholder:text-gray-500 transition-all duration-200",

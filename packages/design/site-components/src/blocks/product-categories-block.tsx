@@ -161,7 +161,7 @@ export function ProductCategoriesBlock({
                 </div>
                 {category2.cta && (
                   <a
-                    href={mode === 'live' ? category2.cta.link : '#'}
+                    href={category2.cta.link}
                     onClick={(e) => mode !== 'live' && e.preventDefault()}
                     className="inline-flex items-center justify-center px-6 py-3 text-sm font-medium rounded-md transition-colors hover:opacity-90"
                     style={{ backgroundColor: buttonColor, color: buttonTextColor }}

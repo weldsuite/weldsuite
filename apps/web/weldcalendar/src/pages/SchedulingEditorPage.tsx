@@ -116,7 +116,7 @@ export function SchedulingEditorPage() {
         ) : null}
         <div className="mx-auto max-w-xl space-y-4">
           <label className="block text-xs font-medium text-muted-foreground">
-            Name
+            <span>Name</span>
             <input
               className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={name}
@@ -127,7 +127,7 @@ export function SchedulingEditorPage() {
             />
           </label>
           <label className="block text-xs font-medium text-muted-foreground">
-            Public slug
+            <span>Public slug</span>
             <input
               className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={slug}
@@ -151,7 +151,7 @@ export function SchedulingEditorPage() {
             </p>
           ) : null}
           <label className="block text-xs font-medium text-muted-foreground">
-            Duration (minutes)
+            <span>Duration (minutes)</span>
             <select
               className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={duration}
@@ -165,7 +165,7 @@ export function SchedulingEditorPage() {
             </select>
           </label>
           <label className="block text-xs font-medium text-muted-foreground">
-            Timezone
+            <span>Timezone</span>
             <input
               className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
               value={timezone}

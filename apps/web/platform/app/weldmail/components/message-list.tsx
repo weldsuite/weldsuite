@@ -1123,9 +1123,18 @@ export function MessageList({
                     {draftFilter.dateWithinDate && (
                       <span
                         role="button"
+                        tabIndex={0}
+                        aria-label={t.common.ui.form.clear}
                         onClick={(e) => {
                           e.stopPropagation();
                           updateDraft({ dateWithinDate: undefined });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            updateDraft({ dateWithinDate: undefined });
+                          }
                         }}
                         className="ml-auto p-0.5 rounded-sm hover:bg-accent"
                       >

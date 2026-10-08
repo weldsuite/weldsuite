@@ -93,7 +93,7 @@ export function StageHeader({
             <DropdownMenuSeparator />
             <div className="flex items-center justify-between px-2 py-2">
               <span className="text-sm">{t('sweep.weldcrm.stageHeader.trackTimeInStage')}</span>
-              <label className="relative inline-flex items-center cursor-pointer">
+              <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.stageHeader.trackTimeInStage')}>
                 <input
                   type="checkbox"
                   checked={trackTimeInStage}
@@ -106,7 +106,7 @@ export function StageHeader({
             </div>
             <div className="flex items-center justify-between px-2 py-2">
               <span className="text-sm">{t('sweep.weldcrm.stageHeader.confetti')}</span>
-              <label className="relative inline-flex items-center cursor-pointer">
+              <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.stageHeader.confetti')}>
                 <input
                   type="checkbox"
                   checked={confettiEnabled}

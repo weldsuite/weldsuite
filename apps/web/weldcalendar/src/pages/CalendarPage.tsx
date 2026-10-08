@@ -291,7 +291,7 @@ export function CalendarPage() {
             </h2>
             <div className="mt-3 space-y-3">
               <label className="block text-xs font-medium text-muted-foreground">
-                Title
+                <span>Title</span>
                 <input
                   className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                   value={title}
@@ -299,7 +299,7 @@ export function CalendarPage() {
                 />
               </label>
               <label className="block text-xs font-medium text-muted-foreground">
-                Calendar
+                <span>Calendar</span>
                 <select
                   className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                   value={calendarId}
@@ -319,10 +319,10 @@ export function CalendarPage() {
                   checked={allDay}
                   onChange={(e) => setAllDay(e.target.checked)}
                 />
-                All day
+                <span>All day</span>
               </label>
               <label className="block text-xs font-medium text-muted-foreground">
-                Starts
+                <span>Starts</span>
                 <input
                   type="datetime-local"
                   className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -331,7 +331,7 @@ export function CalendarPage() {
                 />
               </label>
               <label className="block text-xs font-medium text-muted-foreground">
-                Ends
+                <span>Ends</span>
                 <input
                   type="datetime-local"
                   className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
