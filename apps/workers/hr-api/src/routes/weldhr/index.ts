@@ -11,6 +11,7 @@
  *   leave:read|create|update|delete|approve
  *   coaching:read|create|update|delete
  *   evaluations:read|create|update|delete  evaluations, KPI values, milestones
+ *   employees:self                       My HR: the caller's own record (/me)
  *
  * Mutations of HR records publish `hr_*` entity events with ids and status
  * only (see helpers.emit). Configuration objects — departments, templates,
@@ -27,6 +28,7 @@ import { hrDashboard } from '../../services/weldhr/dashboard';
 import { assignmentsRoutes, clientsRoutes } from './assignments';
 import { departmentsRoutes, employeesRoutes, orgChartRoutes } from './employees';
 import { db, ensureHrDefaults, toHrErrorResponse } from './helpers';
+import { meRoutes } from './me';
 import { checklistTemplatesRoutes, checklistsRoutes } from './lifecycle';
 import {
   coachingRoutes,
@@ -87,5 +89,6 @@ app.route('/kpis', kpisRoutes);
 app.route('/kpi-values', kpiValuesRoutes);
 app.route('/milestones', milestonesRoutes);
 app.route('/portal', portalRoutes);
+app.route('/me', meRoutes);
 
 export { app as weldhrRoutes };

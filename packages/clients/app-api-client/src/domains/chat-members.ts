@@ -28,8 +28,8 @@ export interface ChatRosterMember {
 export interface ListChatMembersQuery {
   search?: string;
   status?: string;
-  /** 'INTERNAL' (default) | 'EXTERNAL_GUEST' | 'all'. */
-  memberType?: 'INTERNAL' | 'EXTERNAL_GUEST' | 'all';
+  /** 'INTERNAL' (default) | 'EXTERNAL_GUEST' | 'EMPLOYEE' | 'all'. */
+  memberType?: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE' | 'all';
   /** Legacy alias: 'guests' maps to memberType=all on the server. */
   include?: 'guests';
   cursor?: string;

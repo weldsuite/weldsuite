@@ -21,6 +21,9 @@ import { listAccessibleAccountIds } from '@weldsuite/mail-domain/access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+/** The apps an EMPLOYEE member can open, whatever their assignments say. */
+const EMPLOYEE_MEMBER_APPS = ['weldhr', 'weldchat'];
+
 // ============================================================================
 // GET /chart — orders + tickets + revenue over the last 30 days
 // ============================================================================
@@ -92,7 +95,7 @@ app.get('/installed-apps', async (c) => {
     const allAppCodes = apps.map((a) => a.appCode);
 
     const memberResult = await db
-      .select({ role: workspaceMembers.role, roleId: workspaceMembers.roleId })
+      .select({ role: workspaceMembers.role, roleId: workspaceMembers.roleId, memberType: workspaceMembers.memberType })
       .from(workspaceMembers)
       .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)))
       .limit(1);
@@ -101,6 +104,12 @@ app.get('/installed-apps', async (c) => {
 
     if (role === 'OWNER' || role === 'ADMIN') {
       return success(c, allAppCodes);
+    }
+
+    // EMPLOYEE members have a fixed set of apps, like their fixed permissions
+    // (EMPLOYEE_MEMBER_PERMISSIONS): My HR in WeldHR, and WeldChat.
+    if (memberResult[0]?.memberType === 'EMPLOYEE') {
+      return success(c, allAppCodes.filter((code) => EMPLOYEE_MEMBER_APPS.includes(code)));
     }
 
     if (allAppCodes.length === 0) {

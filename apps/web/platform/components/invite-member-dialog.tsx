@@ -20,9 +20,11 @@ import { Alert, AlertDescription, AlertTitle } from '@weldsuite/ui/components/al
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { toast } from 'sonner';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { useAppApiClient, useAppApi } from '@/lib/api/use-app-api';
 import type { Role } from '@/lib/api/types/rbac.types';
 import { useRouter } from '@/lib/router';
+import { useInstalledApps } from '@/hooks/use-installed-apps';
 
 interface PrepaidSeatsInfo {
   prepaidSeats: number;
@@ -51,6 +53,13 @@ interface MemberLimitsInfo {
 }
 
 const plural = (n: number) => (n !== 1 ? 's' : '');
+
+/**
+ * Pseudo role value for an EMPLOYEE member (WeldHR): no role, a fixed My HR +
+ * WeldChat permission set, and still a paid seat. Sent as memberType, never
+ * as a roleId.
+ */
+const EMPLOYEE_ROLE_VALUE = '__employee';
 
 const newBlankInvite = (roleId = ''): InviteEntry => ({
   id: crypto.randomUUID(),
@@ -146,13 +155,15 @@ function MemberLimitNotices({ memberLimits, prepaidSeats, isPaidPlan }: Readonly
 interface InviteRowProps {
   invite: InviteEntry;
   roles: Role[];
+  /** Label for the Employee option; omitted when WeldHR is not installed. */
+  employeeLabel?: string;
   isLoading: boolean;
   canRemove: boolean;
   onUpdate: (id: string, field: 'email' | 'name' | 'roleId', value: string) => void;
   onRemove: (id: string) => void;
 }
 
-function InviteRow({ invite, roles, isLoading, canRemove, onUpdate, onRemove }: Readonly<InviteRowProps>) {
+function InviteRow({ invite, roles, employeeLabel, isLoading, canRemove, onUpdate, onRemove }: Readonly<InviteRowProps>) {
   return (
     <div className="flex gap-2 items-start">
       <div className="flex-1 grid grid-cols-[1fr_1fr_120px] gap-2">
@@ -191,6 +202,9 @@ function InviteRow({ invite, roles, isLoading, canRemove, onUpdate, onRemove }: 
                 )}
               </SelectItem>
             ))}
+            {employeeLabel && (
+              <SelectItem value={EMPLOYEE_ROLE_VALUE}>{employeeLabel}</SelectItem>
+            )}
           </SelectContent>
         </Select>
       </div>
@@ -222,8 +236,12 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
   const [memberLimits, setMemberLimits] = useState<MemberLimitsInfo | null>(null);
   const [prepaidSeats, setPrepaidSeats] = useState<PrepaidSeatsInfo | null>(null);
   const router = useRouter();
+  const t = useTranslations();
   const { getClient } = useAppApiClient();
   const { teamMembers } = useAppApi();
+  const { data: installedApps } = useInstalledApps();
+  const hrInstalled = (installedApps ?? []).some((app) => app.appCode === 'weldhr');
+  const employeeLabel = hrInstalled ? t('sweep.settings.team.inviteAsEmployee') : undefined;
 
   // Check if this is a paid plan (no hard limit)
   const isPaidPlan = memberLimits !== null && memberLimits.limit === null;
@@ -341,11 +359,11 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
     try {
       const results = await Promise.allSettled(
         validInvites.map(invite =>
-          teamMembers.inviteMember({
-            email: invite.email.trim(),
-            name: invite.name.trim(),
-            roleId: invite.roleId || undefined,
-          })
+          teamMembers.inviteMember(
+            invite.roleId === EMPLOYEE_ROLE_VALUE
+              ? { email: invite.email.trim(), name: invite.name.trim(), memberType: 'EMPLOYEE' }
+              : { email: invite.email.trim(), name: invite.name.trim(), roleId: invite.roleId || undefined },
+          )
         )
       );
       reportInviteResults(results, validInvites);
@@ -432,6 +450,7 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
                 key={invite.id}
                 invite={invite}
                 roles={roles}
+                employeeLabel={employeeLabel}
                 isLoading={isLoading}
                 canRemove={invites.length > 1}
                 onUpdate={updateInvite}

@@ -961,3 +961,88 @@ describe('DELETE /api/tasks/:id · subtask tree + dependencies · pglite integra
     expect((await remove('task_del_twice')).status).toBe(404);
   });
 });
+
+describe('status changes move the pipeline stage · pglite integration', () => {
+  const now = new Date();
+  const json = { 'Content-Type': 'application/json' };
+  const row = async (id: string) => {
+    const [found] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1);
+    return found;
+  };
+  const app = () =>
+    createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:update', 'projects:scope:all'), tenantDb: db },
+    });
+
+  beforeAll(async () => {
+    await db
+      .insert(schema.projects)
+      .values({ id: 'proj_stage_sync', name: 'Stages', createdAt: now, updatedAt: now } as typeof schema.projects.$inferInsert);
+    await db.insert(schema.projectPipelineStages).values([
+      { id: 'stage_ss_todo', projectId: 'proj_stage_sync', name: 'To Do', position: 0, systemStatus: 'todo' },
+      { id: 'stage_ss_doing', projectId: 'proj_stage_sync', name: 'Doing', position: 1, systemStatus: 'in_progress' },
+      { id: 'stage_ss_done', projectId: 'proj_stage_sync', name: 'Done', position: 2, systemStatus: 'done' },
+      { id: 'stage_ss_shipped', projectId: 'proj_stage_sync', name: 'Shipped', position: 3, systemStatus: 'done' },
+    ] as (typeof schema.projectPipelineStages.$inferInsert)[]);
+  });
+
+  it('checking a task moves it to the Done stage, unchecking moves it back', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'task_ss_toggle',
+      title: 'Check me',
+      projectId: 'proj_stage_sync',
+      stageId: 'stage_ss_todo',
+      status: 'todo',
+    } as typeof schema.tasks.$inferInsert);
+    const { request } = app();
+    const toggle = (currentStatus: string) =>
+      request('/api/tasks/task_ss_toggle/toggle', { method: 'PATCH', headers: json, body: JSON.stringify({ currentStatus }) });
+
+    const res = await toggle('todo');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { status: string; stageId: string } };
+    expect(body.data).toMatchObject({ status: 'done', stageId: 'stage_ss_done' });
+    expect(await row('task_ss_toggle')).toMatchObject({ status: 'done', stageId: 'stage_ss_done' });
+
+    expect((await toggle('done')).status).toBe(200);
+    expect(await row('task_ss_toggle')).toMatchObject({ status: 'todo', stageId: 'stage_ss_todo' });
+  });
+
+  it('keeps a stage that already maps to the new status', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'task_ss_keep',
+      title: 'Already shipped',
+      projectId: 'proj_stage_sync',
+      stageId: 'stage_ss_shipped',
+      status: 'in_progress',
+    } as typeof schema.tasks.$inferInsert);
+    const { request } = app();
+
+    const res = await request('/api/tasks/task_ss_keep/status', {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ status: 'done' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await row('task_ss_keep')).toMatchObject({ status: 'done', stageId: 'stage_ss_shipped' });
+  });
+
+  it('a status-only PATCH moves the stage too', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'task_ss_patch',
+      title: 'Start me',
+      projectId: 'proj_stage_sync',
+      stageId: 'stage_ss_todo',
+      status: 'todo',
+    } as typeof schema.tasks.$inferInsert);
+    const { request } = app();
+
+    const res = await request('/api/tasks/task_ss_patch', {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ status: 'in_progress' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await row('task_ss_patch')).toMatchObject({ status: 'in_progress', stageId: 'stage_ss_doing' });
+  });
+});

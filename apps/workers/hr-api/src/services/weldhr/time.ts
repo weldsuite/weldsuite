@@ -422,8 +422,18 @@ export async function importAttendance(
   return result;
 }
 
-/** Portal clock in/out. One open record per day; clocking in twice is a conflict. */
-export async function clock(db: Database, employeeId: string, action: 'in' | 'out', now: Date = new Date()) {
+/**
+ * Self-service clock in/out (workforce portal and My HR). One open record per
+ * day; clocking in twice is a conflict. `createdBy` defaults to the portal
+ * principal; My HR passes the member's user id.
+ */
+export async function clock(
+  db: Database,
+  employeeId: string,
+  action: 'in' | 'out',
+  now: Date = new Date(),
+  createdBy: string = `portal:${employeeId}`,
+) {
   const today = todayIso(now);
   const [open] = await db
     .select()
@@ -437,7 +447,7 @@ export async function clock(db: Database, employeeId: string, action: 'in' | 'ou
     return createAttendance(
       db,
       { employeeId, date: today, clockIn: now.toISOString() },
-      { createdBy: `portal:${employeeId}`, source: 'portal' },
+      { createdBy, source: 'portal' },
     );
   }
   if (!open) throw new HrConflictError('You are not clocked in');

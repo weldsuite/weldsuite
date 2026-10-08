@@ -31,9 +31,10 @@ export interface ListMembersParams {
   /**
    * 'INTERNAL' (default) — only employees / paid seats.
    * 'EXTERNAL_GUEST'      — only external guests.
-   * 'all'                  — both. Used by the channel "available members" picker.
+   * 'EMPLOYEE'            — only My HR-only employee members.
+   * 'all'                  — every type. Used by the channel "available members" picker.
    */
-  memberType?: 'INTERNAL' | 'EXTERNAL_GUEST' | 'all';
+  memberType?: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE' | 'all';
 }
 
 export interface ListResult<T> {
