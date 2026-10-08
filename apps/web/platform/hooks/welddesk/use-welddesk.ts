@@ -196,15 +196,15 @@ export function useWeldDesk(options: UseWeldDeskOptions): UseWeldDeskReturn {
   // --------------------------------------------------------------------------
 
   const sendMessage = useCallback(
-    async (params: SendMessageParams) => {
+    (params: SendMessageParams) => {
       return sendMutation.mutateAsync(params);
     },
     [sendMutation],
   );
 
   const sendNote = useCallback(
-    async (params: SendMessageParams) => {
-      if (role !== 'agent') throw new Error('Only agents can send notes');
+    (params: SendMessageParams) => {
+      if (role !== 'agent') return Promise.reject(new Error('Only agents can send notes'));
       return sendMutation.mutateAsync({ ...params, isInternal: true });
     },
     [role, sendMutation],

@@ -669,7 +669,7 @@ const GanttPage = () => {
     }
   };
 
-  const handleSaveRename = async () => {
+  const handleSaveRename = () => {
     if (selectedFeature && newName.trim()) {
       // Update local state optimistically
       setFeatures((prev) =>
@@ -1289,7 +1289,7 @@ const GanttPage = () => {
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    void handleSaveRename();
+                    handleSaveRename();
                   }
                 }}
               />

@@ -270,8 +270,8 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     setShowDeleteDialog(true);
   };
 
-  const handleDelete = async (index: number) => {
-    if (tabs.length <= 1) return;
+  const handleDelete = (index: number): Promise<void> => {
+    if (tabs.length <= 1) return Promise.resolve();
     const deletedTab = tabs[index];
     const newTabs = tabs.filter((_, i) => i !== index);
     setTabs(newTabs);
@@ -298,6 +298,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
     // and fanning out N deletes from the browser is not a port of this behaviour.
     // Note this is a destructive, irreversible action that has never actually run
     // in production, so switching it on is a product decision, not a cleanup.
+    return Promise.resolve();
   };
 
   const handleAddTab = (tabId: string) => {

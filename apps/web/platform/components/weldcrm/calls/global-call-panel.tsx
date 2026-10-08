@@ -921,7 +921,7 @@ export function GlobalCallPanel() {
   }, [isDialerOpen, initialDialerNumber, setInitialDialerNumber]);
 
   // Function to reset and reinitialize
-  const handleResetTwilio = async () => {
+  const handleResetTwilio = () => {
     resetVoip();
     resetInitialization();
     // Will reinitialize on next render due to useEffect

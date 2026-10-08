@@ -677,15 +677,15 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
     setIsEditing(false);
   }, [activeSheetId]);
 
-  const handleUpdateRow = useCallback(async (rowId: string, data: Record<string, CellDataValue>) => {
+  const handleUpdateRow = useCallback((rowId: string, data: Record<string, CellDataValue>) => {
     return updateRow.mutateAsync({ rowId, data: { data } });
   }, [updateRow]);
 
-  const handleDeleteRow = useCallback(async (rowId: string) => {
+  const handleDeleteRow = useCallback((rowId: string) => {
     return deleteRow.mutateAsync(rowId);
   }, [deleteRow]);
 
-  const handleBulkDeleteRows = useCallback(async (ids: string[]) => {
+  const handleBulkDeleteRows = useCallback((ids: string[]) => {
     return bulkDeleteRows.mutateAsync(ids);
   }, [bulkDeleteRows]);
 

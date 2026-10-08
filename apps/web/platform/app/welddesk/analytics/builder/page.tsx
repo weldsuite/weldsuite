@@ -287,7 +287,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
     },
   } satisfies ChartConfig;
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!reportId) {
       router.push('/welddesk/analytics');
       return;

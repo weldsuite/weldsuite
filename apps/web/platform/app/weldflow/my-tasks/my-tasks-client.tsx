@@ -566,7 +566,7 @@ export function MyTasksClient({
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, onLoadMore]);
 
-  const handleSaveSubtask = useCallback(async (data: {
+  const handleSaveSubtask = useCallback((data: {
     title: string;
     description?: string;
     status: Task['status'];
@@ -677,7 +677,7 @@ export function MyTasksClient({
     });
   };
 
-  const toggleTaskStatus = useCallback(async (taskId: string) => {
+  const toggleTaskStatus = useCallback((taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     startTransition(async () => {
@@ -708,7 +708,7 @@ export function MyTasksClient({
     });
   }, [tasks, startTransition, queryClient, t]);
 
-  const deleteTask = useCallback(async (taskId: string) => {
+  const deleteTask = useCallback((taskId: string) => {
     startTransition(async () => {
       const result = await tasksApi.deleteById(taskId);
       if (result.success) {

@@ -422,7 +422,7 @@ export function MessageInput({
     void voiceRecorder.startPreview();
   }, [voiceRecorder]);
 
-  const startVoiceRecording = useCallback(async () => {
+  const startVoiceRecording = useCallback(() => {
     setIsVoiceRecording(true);
     // If the pre-warm finished before this click, the stream is already
     // open and `state === 'previewing'` — fire startRecording directly so we
@@ -1240,7 +1240,7 @@ export function MessageInput({
                       if (e.button !== 0 || isPending || isVoiceRecording) return;
                       prewarmVoiceRecording();
                     }}
-                    onClick={() => { if (!isVoiceRecording) void startVoiceRecording(); }}
+                    onClick={() => { if (!isVoiceRecording) startVoiceRecording(); }}
                     disabled={isPending || isVoiceRecording}
                     className={cn(
                       "p-1.5 rounded-lg transition-colors disabled:cursor-not-allowed",

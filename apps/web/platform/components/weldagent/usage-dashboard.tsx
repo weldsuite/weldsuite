@@ -117,7 +117,7 @@ export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardP
 
   // Load usage stats
   useEffect(() => {
-    async function loadStats() {
+    function loadStats() {
       setIsLoading(true);
       try {
         // For now, we'll use mock data since we don't have the API endpoint yet
@@ -158,7 +158,7 @@ export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardP
       }
     }
 
-    void loadStats();
+    loadStats();
   }, [period, workspaceId, userId]);
 
   const formatCost = (cents: number) => {

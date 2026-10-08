@@ -418,7 +418,7 @@ export function useMarkThreadAsSpam() {
   const { mailLabels } = useAppApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (vars: { accountId: string; threadId: string; isSpam?: boolean }) => {
+    mutationFn: (vars: { accountId: string; threadId: string; isSpam?: boolean }) => {
       return mailLabels.applyToThread({
         accountId: vars.accountId,
         threadId: vars.threadId,

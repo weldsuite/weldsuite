@@ -34,7 +34,7 @@ export default function NewNewsClient() {
   const [tags, setTags] = useState('');
   const [coverImage, setCoverImage] = useState('');
 
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     // Validate required fields
     if (!title || !content || !category) {
       toast.error(tn.validationError, {

@@ -579,17 +579,17 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     [removeAttachmentMutation, t],
   );
 
-  const handleAddComment = useCallback(async (content: string) => {
+  const handleAddComment = useCallback((content: string) => {
     addCommentMutation.mutate(content, {
       onError: (err) => toast.error(err?.message || t('sweep.entities.addCommentFailed')),
     });
   }, [addCommentMutation, t]);
 
-  const handleUpdateComment = useCallback(async (commentId: string, content: string) => {
+  const handleUpdateComment = useCallback((commentId: string, content: string) => {
     updateCommentMutation.mutate({ id: commentId, body: content });
   }, [updateCommentMutation]);
 
-  const handleDeleteComment = useCallback(async (commentId: string) => {
+  const handleDeleteComment = useCallback((commentId: string) => {
     deleteCommentMutation.mutate(commentId);
   }, [deleteCommentMutation]);
 
@@ -599,7 +599,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     });
   }, [createSubtaskMutation, t]);
 
-  const handleToggleSubtask = useCallback(async (subtaskId: string, currentStatus: string) => {
+  const handleToggleSubtask = useCallback((subtaskId: string, currentStatus: string) => {
     toggleSubtaskMutation.mutate({ id: subtaskId, currentStatus });
   }, [toggleSubtaskMutation]);
 
@@ -607,7 +607,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     openPanel({ type: 'task', id: targetTaskId, stack: true });
   }, [openPanel]);
 
-  const handleAddDependency = useCallback(async (targetTaskId: string, type: 'blocks' | 'blockedBy') => {
+  const handleAddDependency = useCallback((targetTaskId: string, type: 'blocks' | 'blockedBy') => {
     const currentDeps = apiTask?.dependsOn ?? [];
     const currentBlocks = apiTask?.blocks ?? [];
     const next = type === 'blockedBy'
@@ -618,7 +618,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     });
   }, [apiTask?.dependsOn, apiTask?.blocks, updateMutation, t]);
 
-  const handleRemoveDependency = useCallback(async (targetTaskId: string, type: 'blocks' | 'blockedBy') => {
+  const handleRemoveDependency = useCallback((targetTaskId: string, type: 'blocks' | 'blockedBy') => {
     const currentDeps = apiTask?.dependsOn ?? [];
     const currentBlocks = apiTask?.blocks ?? [];
     const next = type === 'blockedBy'

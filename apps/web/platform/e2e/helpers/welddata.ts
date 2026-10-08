@@ -323,7 +323,7 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
     return undefined;
   };
 
-  await page.route('**/welddata/**', async (route) => {
+  await page.route('**/welddata/**', (route) => {
     const req = route.request();
     // Only intercept API calls — never the SPA's own page navigations
     // (`/welddata`, `/welddata/lists/:id` are document requests that must load
