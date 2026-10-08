@@ -520,7 +520,7 @@ export const weldconnect = {
       cancel: 'Cancel',
     },
     toasts: {
-      retried: 'Execution retried successfully',
+      retried: 'Retry started',
       retryFailed: 'Failed to retry execution',
       workflowInactive: 'Activate the workflow first, then retry this execution.',
       cancelled: 'Execution cancelled',
@@ -547,6 +547,17 @@ export const weldconnect = {
     cancelExecution: 'Cancel',
     retryExecution: 'Retry',
     cancelConfirm: 'Are you sure you want to cancel this execution?',
+    cancelDialogTitle: 'Cancel this execution?',
+    cancelDialogDescription:
+      'The run stops right away and no further steps will run. Steps that already ran are not undone.',
+    cancelDialogConfirm: 'Cancel execution',
+    cancelDialogKeep: 'Keep running',
+    retryDialogTitle: 'Retry this execution?',
+    retryDialogDescription:
+      'The retry starts a new run from the first step. Steps that already ran will run again, including any emails, notifications or other actions they send.',
+    retryDialogRerunSteps: 'Already successful and will run again ({count}): {steps}',
+    retryDialogConfirm: 'Retry execution',
+    retryDialogCancel: 'Do not retry',
     workflowLabel: 'Workflow:',
     unknownWorkflow: 'Unknown Workflow',
     stepsCompleted: '{successful} / {total} completed',
@@ -639,7 +650,7 @@ export const weldconnect = {
     toasts: {
       cancelled: 'Execution cancelled successfully',
       cancelFailed: 'Failed to cancel execution',
-      retried: 'Execution retried successfully',
+      retried: 'Retry started',
       retryFailed: 'Failed to retry execution',
       workflowInactive: 'Activate the workflow first, then retry this execution.',
     },

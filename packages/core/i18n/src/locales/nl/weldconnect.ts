@@ -520,7 +520,7 @@ export const weldconnect = {
       cancel: 'Annuleren',
     },
     toasts: {
-      retried: 'Uitvoering opnieuw gestart',
+      retried: 'Opnieuw proberen gestart',
       retryFailed: 'Opnieuw starten van uitvoering mislukt',
       workflowInactive: 'Activeer eerst de workflow en probeer deze uitvoering dan opnieuw.',
       cancelled: 'Uitvoering geannuleerd',
@@ -547,6 +547,17 @@ export const weldconnect = {
     cancelExecution: 'Annuleren',
     retryExecution: 'Opnieuw proberen',
     cancelConfirm: 'Weet u zeker dat u deze uitvoering wilt annuleren?',
+    cancelDialogTitle: 'Deze uitvoering annuleren?',
+    cancelDialogDescription:
+      'De uitvoering stopt direct en er worden geen verdere stappen uitgevoerd. Stappen die al zijn uitgevoerd worden niet teruggedraaid.',
+    cancelDialogConfirm: 'Uitvoering annuleren',
+    cancelDialogKeep: 'Blijven uitvoeren',
+    retryDialogTitle: 'Deze uitvoering opnieuw proberen?',
+    retryDialogDescription:
+      'Opnieuw proberen start een nieuwe uitvoering vanaf de eerste stap. Stappen die al zijn uitgevoerd worden opnieuw uitgevoerd, inclusief e-mails, meldingen of andere acties die ze versturen.',
+    retryDialogRerunSteps: 'Al geslaagd en worden opnieuw uitgevoerd ({count}): {steps}',
+    retryDialogConfirm: 'Opnieuw proberen',
+    retryDialogCancel: 'Niet opnieuw proberen',
     workflowLabel: 'Workflow:',
     unknownWorkflow: 'Onbekende workflow',
     stepsCompleted: '{successful} / {total} voltooid',
@@ -639,7 +650,7 @@ export const weldconnect = {
     toasts: {
       cancelled: 'Uitvoering succesvol geannuleerd',
       cancelFailed: 'Annuleren van uitvoering mislukt',
-      retried: 'Uitvoering succesvol opnieuw gestart',
+      retried: 'Opnieuw proberen gestart',
       retryFailed: 'Opnieuw starten van uitvoering mislukt',
       workflowInactive: 'Activeer eerst de workflow en probeer deze uitvoering dan opnieuw.',
     },

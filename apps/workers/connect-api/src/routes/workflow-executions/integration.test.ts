@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
+import { publishEntityEvent } from '@weldsuite/entity-events';
 import { workflowExecutionsRoutes } from './index';
 import { workflowsRoutes } from '../workflows/index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -84,6 +85,81 @@ describe('POST /api/workflow-executions/:id/retry', () => {
     const body = (await res.json()) as { error: { details: { reason: string } } };
     expect(body.error.details.reason).toBe('workflow_inactive');
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe('PATCH /api/workflow-executions/:id/cancel', () => {
+  function cancelBinding() {
+    const terminate = vi.fn(async () => undefined);
+    const get = vi.fn(async (_id: string) => ({ terminate }));
+    return { binding: { get } as unknown as Workflow, get, terminate };
+  }
+  const patch: RequestInit = { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: '{}' };
+
+  it('cancels a running run, terminates its instance and publishes a cancelled event', async () => {
+    const wfId = await seedWorkflow('active');
+    await db.insert(schema.workflowExecutions).values({
+      id: 'wex_route_cancel',
+      workflowId: wfId,
+      status: 'running',
+      cfWorkflowInstanceId: 'cf_inst_cancel',
+    });
+    const { binding, get, terminate } = cancelBinding();
+    const { request } = createTestApp('/api/workflow-executions', workflowExecutionsRoutes, {
+      context: { permissions: permissions('workflow-executions:update'), tenantDb: db },
+      env: { EXECUTE_WORKFLOW: binding } as never,
+    });
+
+    const res = await request('/api/workflow-executions/wex_route_cancel/cancel', patch);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: { id: string; status: string } }).data).toEqual({
+      id: 'wex_route_cancel',
+      status: 'cancelled',
+    });
+    expect(get).toHaveBeenCalledWith('cf_inst_cancel');
+    expect(terminate).toHaveBeenCalledOnce();
+    const [row] = await db
+      .select()
+      .from(schema.workflowExecutions)
+      .where(eq(schema.workflowExecutions.id, 'wex_route_cancel'));
+    expect(row.status).toBe('cancelled');
+    expect(publishEntityEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: 'workflow_execution', entityId: 'wex_route_cancel', action: 'cancelled' }),
+    );
+  });
+
+  it('answers 400 not_cancellable for a finished run and 404 for an unknown one', async () => {
+    const wfId = await seedWorkflow('active');
+    await db.insert(schema.workflowExecutions).values({ id: 'wex_route_done', workflowId: wfId, status: 'completed' });
+    const { binding, terminate } = cancelBinding();
+    const { request } = createTestApp('/api/workflow-executions', workflowExecutionsRoutes, {
+      context: { permissions: permissions('workflow-executions:update'), tenantDb: db },
+      env: { EXECUTE_WORKFLOW: binding } as never,
+    });
+
+    const done = await request('/api/workflow-executions/wex_route_done/cancel', patch);
+    expect(done.status).toBe(400);
+    const body = (await done.json()) as { error: { details: { reason: string; status: string } } };
+    expect(body.error.details).toEqual({ reason: 'not_cancellable', status: 'completed' });
+    expect(terminate).not.toHaveBeenCalled();
+
+    expect((await request('/api/workflow-executions/wex_missing/cancel', patch)).status).toBe(404);
+  });
+
+  it('is refused without workflow-executions:update', async () => {
+    const wfId = await seedWorkflow('active');
+    await db.insert(schema.workflowExecutions).values({ id: 'wex_route_noperm', workflowId: wfId, status: 'running' });
+    const { request } = createTestApp('/api/workflow-executions', workflowExecutionsRoutes, {
+      context: { permissions: permissions('workflow-executions:read'), tenantDb: db },
+    });
+
+    expect((await request('/api/workflow-executions/wex_route_noperm/cancel', patch)).status).toBe(403);
+    const [row] = await db
+      .select()
+      .from(schema.workflowExecutions)
+      .where(eq(schema.workflowExecutions.id, 'wex_route_noperm'));
+    expect(row.status).toBe('running');
   });
 });
 
