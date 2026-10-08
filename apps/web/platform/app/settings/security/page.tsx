@@ -39,6 +39,7 @@ import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 import { DeleteAccountSection } from './delete-account-section';
+import { PasskeysSection } from './passkeys-section';
 
 // Get the appropriate icon based on device type
 function getDeviceIcon(deviceType?: string, isMobile?: boolean) {
@@ -319,6 +320,9 @@ export default function SecuritySettingsPage() {
       </div>
 
       <div className="space-y-8">
+        {/* Passkeys */}
+        <PasskeysSection />
+
         {/* Sessions */}
         <div>
           <h3 className="text-base font-medium mb-3">{ts.activeSessions}</h3>
