@@ -61,7 +61,7 @@ const weldmeetKeys = { all: ['weldmeet'] as const };
 const calendarKeys = { all: ['calendar'] as const };
 
 // WeldKnow — mirrors knowledgeKeys in hooks/queries/use-knowledge-queries.ts.
-// Tree/trash/favorites are invalidate-only (list-shaped); page detail gets
+// Tree/favorites are invalidate-only (list-shaped); page detail gets
 // the richer updateDetail/remove treatment since it's a hot single-record view.
 const knowledgeKeys = {
   all: ['knowledge'] as const,
@@ -69,7 +69,6 @@ const knowledgeKeys = {
   tree: () => [...knowledgeKeys.all, 'tree'] as const,
   pages: () => [...knowledgeKeys.all, 'pages'] as const,
   pageDetail: (id: string) => [...knowledgeKeys.pages(), 'detail', id] as const,
-  trash: () => [...knowledgeKeys.all, 'trash'] as const,
   favorites: () => [...knowledgeKeys.all, 'favorites'] as const,
 };
 
@@ -498,12 +497,11 @@ export const platformSyncMap: EntitySyncMap = {
   knowledge_space_member: inv(knowledgeKeys.spaces(), knowledgeKeys.tree(), knowledgeKeys.favorites()),
   knowledge_page: {
     // Structural changes (created/deleted/moved/restored) all reshuffle the
-    // sidebar tree and trash list; `updated` (title/icon/content) also needs
+    // sidebar tree; `updated` (title/icon/content) also needs
     // the tree invalidated since it carries title/icon for the sidebar rows.
     // `pages` prefix covers pageDetail + versions list queries.
     invalidate: [
       knowledgeKeys.tree(),
-      knowledgeKeys.trash(),
       knowledgeKeys.favorites(),
       knowledgeKeys.pages(),
     ],

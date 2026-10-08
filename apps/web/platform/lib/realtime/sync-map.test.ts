@@ -453,10 +453,9 @@ describe('platformSyncMap — WeldKnow', () => {
     ]);
   });
 
-  it('knowledge_page invalidates tree/trash/favorites/pages with detail helpers', () => {
+  it('knowledge_page invalidates tree/favorites/pages with detail helpers', () => {
     expect(platformSyncMap.knowledge_page?.invalidate).toEqual([
       ['knowledge', 'tree'],
-      ['knowledge', 'trash'],
       ['knowledge', 'favorites'],
       ['knowledge', 'pages'],
     ]);

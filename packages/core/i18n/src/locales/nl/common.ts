@@ -447,6 +447,8 @@ export const common = {
         emailPlaceholder: 'jan@bedrijf.nl',
         passwordLabel: 'Wachtwoord',
         passwordPlaceholder: 'Voer uw wachtwoord in',
+        showPassword: 'Wachtwoord tonen',
+        hidePassword: 'Wachtwoord verbergen',
         forgotPassword: 'Wachtwoord vergeten?',
         continueWithGoogle: 'Doorgaan met Google',
         signInWithPasskey: 'Aanmelden met een passkey',
