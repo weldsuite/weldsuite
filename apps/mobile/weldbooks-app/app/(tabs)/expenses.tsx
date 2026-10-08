@@ -31,6 +31,7 @@ import { BillStatusBadge } from '@/components/status-badge';
 import { usePagedList } from '@/hooks/usePagedList';
 import { useBooksRealtime } from '@/hooks/useBooksRealtime';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { Bill } from '@/types/accounting';
 
@@ -41,6 +42,7 @@ export default function ExpensesScreen() {
   const [filter, setFilter] = useState('all');
   const { t, format } = useI18n();
   const { formatCurrency, formatShortDate } = useLocaleFormatters();
+  const { terms } = useJurisdiction();
 
   /** `value: undefined` = no filter; `overdue` is derived client-side. */
   const FILTERS: { key: string; label: string; value?: string }[] = [
@@ -152,7 +154,7 @@ export default function ExpensesScreen() {
         renderItem={({ item }) => (
           <RecordRow
             leading={<IconTile icon={Receipt} color={BRAND} />}
-            title={item.contactName || t.expenses.unknownVendor}
+            title={item.contactName || format(t.expenses.unknownVendor, terms)}
             subtitle={item.billNumber || t.common.draft}
             meta={format(t.common.dueOn, { date: formatShortDate(item.dueDate) })}
             amount={formatCurrency(item.total, item.currency)}
