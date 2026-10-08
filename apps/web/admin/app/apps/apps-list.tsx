@@ -80,6 +80,18 @@ export function AppsList({
     });
   }
 
+  function toggleBeta(app: AppCatalogEntry) {
+    startMutation(async () => {
+      const result = await updateApp(app.id, { isBeta: !app.isBeta });
+      if (result.ok) {
+        toast.success(app.isBeta ? 'Beta label removed' : 'Beta label added');
+        router.refresh();
+      } else {
+        toast.error(result.error);
+      }
+    });
+  }
+
   function toggleActive(app: AppCatalogEntry) {
     startMutation(async () => {
       const result = await updateApp(app.id, { isActive: !app.isActive });
@@ -222,6 +234,7 @@ export function AppsList({
                   <TableHead className="w-16 text-right text-[13.5px]">Order</TableHead>
                   <TableHead className="w-24 text-[13.5px]">Active</TableHead>
                   <TableHead className="w-28 text-[13.5px]">Published</TableHead>
+                  <TableHead className="w-24 text-[13.5px]">Beta</TableHead>
                   <TableHead className="w-20 text-right text-[13.5px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -229,7 +242,7 @@ export function AppsList({
                 {apps.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
+                      colSpan={9}
                       className="py-16 text-center text-sm text-muted-foreground"
                     >
                       No apps found. Create one to get started.
@@ -268,6 +281,14 @@ export function AppsList({
                         onLabel="Published"
                         offLabel="Draft"
                         onClick={() => togglePublished(app)}
+                      />
+                    </TableCell>
+                    <TableCell className="py-2">
+                      <ToggleBadge
+                        on={app.isBeta}
+                        onLabel="Beta"
+                        offLabel="Stable"
+                        onClick={() => toggleBeta(app)}
                       />
                     </TableCell>
                     <TableCell className="py-2">
