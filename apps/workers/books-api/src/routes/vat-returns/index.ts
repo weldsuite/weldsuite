@@ -2,10 +2,13 @@
  * VAT return routes — flat /api/vat-returns/* surface backed by `vatReturns`.
  *
  * Lifecycle: calculated → reviewed → filed → accepted/rejected.
- * POST /calculate aggregates posted journal lines into the Dutch BTW-aangifte
- * rubrieken (1a–5f) via each tax rate's `jurisdictionMetadata.btwRubriek`;
- * POST /:id/file renders SBR/XBRL and submits via Digipoort. Filed returns
- * are immutable — corrections happen through a new (suppletie) return.
+ * POST /calculate aggregates the tax ledger (tax_lines, written with every
+ * posting) into the Dutch BTW-aangifte rubrieken (1a–5f) via each tax rate's
+ * `jurisdictionMetadata.btwRubriek`; POST /:id/file renders SBR/XBRL, submits
+ * via Digipoort, stamps the period's tax lines with the return and moves the
+ * entity's tax lock date to the period end. Filed returns are immutable —
+ * corrections happen through a new (suppletie) return. Only entities whose
+ * jurisdiction has the `vatReturn` feature (NL) can calculate or file.
  *
  * Permissions: reports:read | reports:create | reports:update | reports:delete.
  */
@@ -13,7 +16,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, isNull, lte } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { VatRubrieken } from '@weldsuite/db/schema';
@@ -21,6 +24,9 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { atomically } from '@weldsuite/worker-kit/atomically';
+import { getJurisdictionFeatures } from '@weldsuite/books-domain/jurisdictions/registry';
+import { fileTaxPeriodStatements, nlRubriekenForPeriod } from '../../services/accounting-tax-ledger';
 import { resolveEntityId } from '../../lib/entity-context';
 import { isKorActive, writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { generateVatXml } from '@weldsuite/books-domain/accounting-vat-xml';
@@ -80,81 +86,20 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
       .from(schema.entities)
       .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
       .limit(1);
-    if (entityRow && isKorActive(entityRow)) {
+    if (!entityRow) return error.notFound(c, 'Entity', entityId);
+    if (!getJurisdictionFeatures(entityRow.jurisdictionCode).vatReturn) {
+      return error.badRequest(c, 'This entity\'s jurisdiction has no Dutch VAT return. Use the tax return for its own jurisdiction.');
+    }
+    if (isKorActive(entityRow)) {
       return error.badRequest(
         c,
         'This entity uses the kleineondernemersregeling (KOR) — no BTW-aangifte is due while KOR is active. Disable KOR in the entity settings if the exemption no longer applies.',
       );
     }
 
-    const { journalLines, journalEntries, taxRates: taxRatesTable } = schema;
     const periodStart = new Date(data.periodStart);
     const periodEnd = new Date(data.periodEnd);
-
-    // Posted lines in the period, scoped to THIS entity. Reversal pairs must
-    // cancel out: originals are excluded by status='reversed', and the
-    // counter-entries are excluded here via reversalOfId — the abs()-based
-    // aggregation below would otherwise double-count a reversal instead of
-    // netting it to zero.
-    const lines = await db
-      .select({
-        debit: journalLines.debit,
-        credit: journalLines.credit,
-        taxRateId: journalLines.taxRateId,
-        taxAmount: journalLines.taxAmount,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .where(and(
-        isNull(journalLines.deletedAt),
-        eq(journalEntries.entityId, entityId),
-        eq(journalEntries.status, 'posted'),
-        isNull(journalEntries.reversalOfId),
-        gte(journalEntries.date, periodStart),
-        lte(journalEntries.date, periodEnd),
-      ));
-
-    const taxRates = await db.select().from(taxRatesTable).where(isNull(taxRatesTable.deletedAt));
-    const taxRateMap = new Map(taxRates.map((r) => [r.id, r]));
-
-    const rubrieken: VatRubrieken = {
-      r1a: 0, r1b: 0, r1c: 0, r1d: 0, r1e: 0, r1f: 0,
-      r2a: 0, r3a: 0, r3b: 0, r3c: 0, r4a: 0, r4b: 0,
-      r5a: 0, r5b: 0, r5c: 0, r5d: 0, r5e: 0, r5f: 0,
-    };
-
-    for (const line of lines) {
-      if (!line.taxRateId) continue;
-      const rate = taxRateMap.get(line.taxRateId);
-      const rubriek = (rate?.jurisdictionMetadata as { btwRubriek?: string } | null)?.btwRubriek;
-      if (!rubriek) continue;
-
-      const credit = Number.parseFloat(line.credit || '0');
-      const debit = Number.parseFloat(line.debit || '0');
-      const taxAmount = Number.parseFloat(line.taxAmount || '0');
-      const baseAmount = Math.abs(credit - debit) - Math.abs(taxAmount);
-
-      switch (rubriek) {
-        case '1a': rubrieken.r1a += baseAmount; rubrieken.r1b += taxAmount; break;
-        case '1c': rubrieken.r1c += baseAmount; rubrieken.r1d += taxAmount; break;
-        case '1e': rubrieken.r1e += baseAmount; rubrieken.r1f += taxAmount; break;
-        case '2a': rubrieken.r2a += baseAmount; break;
-        case '3a': rubrieken.r3a += baseAmount; break;
-        case '3b': rubrieken.r3b += baseAmount; break;
-        case '3c': rubrieken.r3c += baseAmount; break;
-        case '4a': rubrieken.r4a += baseAmount; break;
-        case '4b': rubrieken.r4b += baseAmount; break;
-        case '5b': rubrieken.r5b += Math.abs(taxAmount); break;
-      }
-    }
-
-    rubrieken.r5a = rubrieken.r1b + rubrieken.r1d + rubrieken.r1f;
-    rubrieken.r5c = rubrieken.r5a - rubrieken.r5b;
-    rubrieken.r5f = rubrieken.r5c - rubrieken.r5d - rubrieken.r5e;
-
-    for (const key of Object.keys(rubrieken) as Array<keyof VatRubrieken>) {
-      rubrieken[key] = Math.round(rubrieken[key] * 100) / 100;
-    }
+    const rubrieken = await nlRubriekenForPeriod(db, entityId, periodStart, periodEnd);
 
     const vatReturnId = generateId('vat');
     await db.insert(schema.vatReturns).values({
@@ -272,15 +217,27 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
       return error.badRequest(c, `Digipoort submission failed: ${submitResult.error}`);
     }
 
-    await db.update(schema.vatReturns).set({
-      status: 'filed',
-      xmlContent,
-      filingReference: submitResult.kenmerk || null,
-      digipoortResponse: submitResult as unknown as Record<string, unknown>,
-      filedAt: new Date(),
-      filedBy: userId,
-      updatedAt: new Date(),
-    }).where(eq(schema.vatReturns.id, id));
+    await atomically(db, (h) => [
+      h.update(schema.vatReturns).set({
+        status: 'filed',
+        xmlContent,
+        filingReference: submitResult.kenmerk || null,
+        digipoortResponse: submitResult as unknown as Record<string, unknown>,
+        filedAt: new Date(),
+        filedBy: userId,
+        updatedAt: new Date(),
+      }).where(eq(schema.vatReturns.id, id)),
+      // A suppletie corrects an already-stamped period; only regular returns stamp rows.
+      ...(ret.correctionOfId
+        ? []
+        : fileTaxPeriodStatements(h, {
+            entityId: ret.entityId,
+            periodStart: ret.periodStart,
+            periodEnd: ret.periodEnd,
+            taxReturnId: id,
+            currentTaxLockDate: entityRow.taxLockDate,
+          })),
+    ]);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: ret.entityId,
@@ -306,54 +263,6 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
   }
 });
 
-type LedgerTaxLine = {
-  debit: string | null;
-  credit: string | null;
-  taxRateId: string | null;
-  taxAmount: string | null;
-};
-
-/** Rebuild the rubrieken totals from posted ledger lines (amounts rounded to cents). */
-function recalculateRubrieken(
-  lines: LedgerTaxLine[],
-  taxRateMap: Map<string, { jurisdictionMetadata: unknown }>,
-): VatRubrieken {
-  const recalculated: VatRubrieken = {
-    r1a: 0, r1b: 0, r1c: 0, r1d: 0, r1e: 0, r1f: 0,
-    r2a: 0, r3a: 0, r3b: 0, r3c: 0, r4a: 0, r4b: 0,
-    r5a: 0, r5b: 0, r5c: 0, r5d: 0, r5e: 0, r5f: 0,
-  };
-  for (const line of lines) {
-    if (!line.taxRateId) continue;
-    const rate = taxRateMap.get(line.taxRateId);
-    const rubriek = (rate?.jurisdictionMetadata as { btwRubriek?: string } | null)?.btwRubriek;
-    if (!rubriek) continue;
-    const credit = parseFloat(line.credit || '0');
-    const debit = parseFloat(line.debit || '0');
-    const taxAmount = parseFloat(line.taxAmount || '0');
-    const baseAmount = Math.abs(credit - debit) - Math.abs(taxAmount);
-    switch (rubriek) {
-      case '1a': recalculated.r1a += baseAmount; recalculated.r1b += taxAmount; break;
-      case '1c': recalculated.r1c += baseAmount; recalculated.r1d += taxAmount; break;
-      case '1e': recalculated.r1e += baseAmount; recalculated.r1f += taxAmount; break;
-      case '2a': recalculated.r2a += baseAmount; break;
-      case '3a': recalculated.r3a += baseAmount; break;
-      case '3b': recalculated.r3b += baseAmount; break;
-      case '3c': recalculated.r3c += baseAmount; break;
-      case '4a': recalculated.r4a += baseAmount; break;
-      case '4b': recalculated.r4b += baseAmount; break;
-      case '5b': recalculated.r5b += Math.abs(taxAmount); break;
-    }
-  }
-  recalculated.r5a = recalculated.r1b + recalculated.r1d + recalculated.r1f;
-  recalculated.r5c = recalculated.r5a - recalculated.r5b;
-  recalculated.r5f = recalculated.r5c - recalculated.r5d - recalculated.r5e;
-  for (const key of Object.keys(recalculated) as Array<keyof VatRubrieken>) {
-    recalculated[key] = Math.round(recalculated[key] * 100) / 100;
-  }
-  return recalculated;
-}
-
 // POST /:id/suppletie — build a correction return against a FILED return.
 // Recalculates the period from the current ledger and diffs against the
 // filed rubrieken. Belastingdienst rules: net corrections ≤ €1,000 may be
@@ -372,31 +281,8 @@ app.post('/:id/suppletie', requirePermission('reports:create'), async (c) => {
     }
     if (!original.rubrieken) return error.badRequest(c, 'Original return has no rubrieken');
 
-    const { journalLines, journalEntries, taxRates: taxRatesTable } = schema;
-
-    // Recalculate the same period from the ledger as it stands NOW.
-    const lines = await db
-      .select({
-        debit: journalLines.debit,
-        credit: journalLines.credit,
-        taxRateId: journalLines.taxRateId,
-        taxAmount: journalLines.taxAmount,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .where(and(
-        isNull(journalLines.deletedAt),
-        eq(journalEntries.entityId, original.entityId),
-        eq(journalEntries.status, 'posted'),
-        isNull(journalEntries.reversalOfId),
-        gte(journalEntries.date, original.periodStart),
-        lte(journalEntries.date, original.periodEnd),
-      ));
-
-    const taxRates = await db.select().from(taxRatesTable).where(isNull(taxRatesTable.deletedAt));
-    const taxRateMap = new Map(taxRates.map((r) => [r.id, r]));
-
-    const recalculated = recalculateRubrieken(lines, taxRateMap);
+    // Recalculate the same period from the tax ledger as it stands NOW.
+    const recalculated = await nlRubriekenForPeriod(db, original.entityId, original.periodStart, original.periodEnd);
 
     const filed = original.rubrieken as VatRubrieken;
     const netDiff = Math.round(((recalculated.r5f ?? 0) - (filed.r5f ?? 0)) * 100) / 100;

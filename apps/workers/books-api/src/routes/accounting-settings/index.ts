@@ -14,6 +14,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
 import { eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -31,6 +32,8 @@ import {
   getSupportedCurrencies,
 } from '../../services/accounting-currency';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
+import { resolveEntityId } from '../../lib/entity-context';
+import { runPostingCatchUp } from '../../services/accounting-catch-up';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.settings;
@@ -654,5 +657,45 @@ app.post('/seed-workflows', requirePermission('accounts:create'), async (c) => {
     return error.internal(c, 'Failed to seed accounting workflow templates');
   }
 });
+
+// POST /posting-catch-up — book documents from before automatic posting.
+// `dryRun: true` only reports what would be booked and what would be skipped.
+app.post(
+  '/posting-catch-up',
+  requirePermission('accounts:update'),
+  zValidator('json', z.object({ dryRun: z.boolean().default(true) })),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const { dryRun } = c.req.valid('json');
+    try {
+      const entityId = await resolveEntityId(c, db);
+      if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+
+      const result = await runPostingCatchUp(db, entityId, { dryRun, userId: c.get('userId') ?? null });
+
+      if (!dryRun) {
+        await writeAccountingAudit(c, db, {
+          accountingEntityId: entityId,
+          entityType: 'accounting_settings',
+          entityId,
+          action: 'posting_catch_up',
+          changes: {
+            invoices: { old: null, new: result.invoices },
+            creditNotesCorrected: { old: null, new: result.creditNotesCorrected },
+            bills: { old: null, new: result.bills },
+            payments: { old: null, new: result.payments },
+            bankTransactions: { old: null, new: result.bankTransactions },
+            taxLines: { old: null, new: result.taxLines },
+            skipped: { old: null, new: result.skipped.length },
+          },
+        });
+      }
+      return success(c, result);
+    } catch (err) {
+      console.error('[books-api/accounting-settings] posting catch-up failed:', err);
+      return error.internal(c, 'Failed to bring the ledger up to date');
+    }
+  },
+);
 
 export const accountingSettingsRoutes = app;

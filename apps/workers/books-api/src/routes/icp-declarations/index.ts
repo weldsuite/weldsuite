@@ -4,9 +4,10 @@
  * The ICP declaration is legally required alongside the BTW-aangifte whenever
  * the entity had 0%-rated intracommunautaire B2B supplies (rubriek 3b) in the
  * period: a per-customer listing of buyer VAT number, country and net amount.
- * Calculation aggregates posted journal lines carrying the intracommunautaire
- * tax rate, grouped by the buyer's VIES VAT number; filing goes through the
- * same Digipoort channel as the VAT return.
+ * Calculation aggregates the tax ledger's sales lines on the intracommunautaire
+ * rate (rubriek 3b), grouped by the buyer's VIES VAT number — credit notes net
+ * against the supplies they correct; filing goes through the same Digipoort
+ * channel as the VAT return.
  *
  * Permissions: reports:read | reports:create | reports:update.
  */
@@ -14,7 +15,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -26,6 +27,8 @@ import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards'
 import { getContactVatNumber } from '@weldsuite/books-domain/accounting-compliance';
 import { normalizeVatNumber } from '@weldsuite/books-domain/vies';
 import { generateIcpXml, type IcpXmlLine } from '../../services/accounting-icp-xml';
+import { loadTaxLinesForPeriod } from '../../services/accounting-tax-ledger';
+import { getJurisdictionFeatures } from '@weldsuite/books-domain/jurisdictions/registry';
 import { submitFiling, createConfig } from '../../services/accounting-digipoort';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -66,22 +69,8 @@ app.get('/:id', requirePermission('reports:read'), async (c) => {
   }
 });
 
-/** Tax rates that represent intracommunautaire supplies (rubriek 3b). */
-async function loadIcpRateIds(db: Database): Promise<Set<string>> {
-  const { taxRates } = schema;
-  const icpRateIds = new Set<string>();
-  const allRates = await db.select().from(taxRates).where(isNull(taxRates.deletedAt));
-  for (const rate of allRates) {
-    const rubriek = (rate.jurisdictionMetadata as { btwRubriek?: string } | null)?.btwRubriek;
-    if (rubriek === '3b' && rate.type !== 'purchase') icpRateIds.add(rate.id);
-  }
-  return icpRateIds;
-}
-
 interface IcpSourceLine {
-  debit: string | null;
-  credit: string | null;
-  taxRateId: string | null;
+  amount: number;
   contactId: string | null;
 }
 
@@ -92,14 +81,12 @@ interface IcpSourceLine {
  * 'services' (matching the eu_b2b_service category). Splitting goods vs
  * services needs product-type capture on invoice lines (follow-up).
  */
-async function aggregateSuppliesPerVat(db: Database, lines: IcpSourceLine[], icpRateIds: Set<string>) {
+async function aggregateSuppliesPerVat(db: Database, lines: IcpSourceLine[]) {
   const perVat = new Map<string, { countryCode: string; contactId: string | null; amount: number }>();
   const missingVat: string[] = [];
 
   for (const line of lines) {
-    if (!line.taxRateId || !icpRateIds.has(line.taxRateId)) continue;
-    const amount = Math.abs(Number.parseFloat(line.credit || '0') - Number.parseFloat(line.debit || '0'));
-    if (amount === 0) continue;
+    if (line.amount === 0) continue;
 
     const rawVat = await getContactVatNumber(db, line.contactId);
     const normalized = rawVat ? normalizeVatNumber(rawVat) : null;
@@ -108,7 +95,12 @@ async function aggregateSuppliesPerVat(db: Database, lines: IcpSourceLine[], icp
       continue;
     }
 
-    addBuyerSupply(perVat, normalized, line.contactId, amount);
+    addBuyerSupply(perVat, normalized, line.contactId, line.amount);
+  }
+  // A buyer whose credit notes cancel the period's supplies has nothing to report.
+  for (const [vat, entry] of perVat) {
+    entry.amount = Math.round(entry.amount * 100) / 100;
+    if (entry.amount === 0) perVat.delete(vat);
   }
   return { perVat, missingVat };
 }
@@ -172,32 +164,22 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
 
-    const { journalLines, journalEntries } = schema;
+    const [entityRow] = await db.select({ jurisdictionCode: schema.entities.jurisdictionCode }).from(schema.entities)
+      .where(eq(schema.entities.id, entityId)).limit(1);
+    if (!getJurisdictionFeatures(entityRow?.jurisdictionCode).icp) {
+      return error.badRequest(c, 'ICP declarations only apply to EU (Dutch) entities');
+    }
+
     const periodStart = new Date(data.periodStart);
     const periodEnd = new Date(data.periodEnd);
 
-    const icpRateIds = await loadIcpRateIds(db);
+    // Sales on the intracommunautaire rate (rubriek 3b) in the period, from the tax ledger.
+    const ledgerLines = await loadTaxLinesForPeriod(db, entityId, periodStart, periodEnd);
+    const lines = ledgerLines
+      .filter((l) => l.direction === 'sales' && l.jurisdictionMetadata?.btwRubriek === '3b')
+      .map((l) => ({ amount: l.taxableAmount, contactId: l.contactId }));
 
-    // Posted, non-reversal journal lines in the period on ICP rates.
-    const lines = await db
-      .select({
-        debit: journalLines.debit,
-        credit: journalLines.credit,
-        taxRateId: journalLines.taxRateId,
-        contactId: journalLines.contactId,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .where(and(
-        isNull(journalLines.deletedAt),
-        eq(journalEntries.entityId, entityId),
-        eq(journalEntries.status, 'posted'),
-        isNull(journalEntries.reversalOfId),
-        gte(journalEntries.date, periodStart),
-        lte(journalEntries.date, periodEnd),
-      ));
-
-    const { perVat, missingVat } = await aggregateSuppliesPerVat(db, lines, icpRateIds);
+    const { perVat, missingVat } = await aggregateSuppliesPerVat(db, lines);
 
     const now = new Date();
     const declarationId = generateId('icp');

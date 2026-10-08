@@ -18,6 +18,16 @@ let db: Database;
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
+  // Postings read the entity (base currency, lock dates).
+  await db.insert(schema.entities).values(
+    ['ent_manual_bt', 'ent_cat_bt', 'ent_cat_out'].map((id) => ({
+      id,
+      name: id,
+      jurisdictionCode: 'NL',
+      baseCurrency: 'EUR',
+      locale: 'nl-NL',
+    })),
+  );
 }, 60_000);
 
 async function seedBankAccount(id: string, balance = '100.00') {

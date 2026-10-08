@@ -22,6 +22,7 @@
     "@weldsuite/books-domain": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",
+    "@weldsuite/crm-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/permissions": "workspace:*",

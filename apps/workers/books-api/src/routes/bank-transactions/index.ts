@@ -5,10 +5,12 @@
  * Transactions enter the ledger via POST / (manual cashbook entry) or
  * POST /import (MT940 / CAMT.053 / CSV statement files). POST / can also
  * take `categoryAccountId` to post immediately (fee refunds, settlements).
- * Reconciliation state changes go through /:id/reconcile (invoice, bill,
- * or manual + categoryAccountId → posted journal), /:id/exclude, and
- * /auto-reconcile. Every one of them is written to the accounting audit log
- * (administratieplicht).
+ * Reconciliation state changes go through /:id/reconcile (invoice or bill →
+ * a posted payment that settles the document; manual + categoryAccountId →
+ * a posted entry, with the tax split out when a rate is given),
+ * /:id/unreconcile (voids that payment or reverses that entry), /:id/exclude
+ * and /auto-reconcile. Every one of them is written to the accounting audit
+ * log (administratieplicht).
  *
  * Permissions: banking:read | banking:create | banking:update.
  */
@@ -29,12 +31,28 @@ import { parseBankFile } from '../../services/bank-parsers';
 import { autoReconcileBatch } from '../../services/accounting-reconciliation';
 import {
   ClosedPeriodError,
+  LockedPeriodError,
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
 import {
   BankCategorizeError,
   categorizeBankTransaction,
 } from '../../services/accounting-bank-categorize';
+import {
+  reconcileBankTransactionToDocument,
+  unreconcileBankTransaction,
+} from '../../services/accounting-bank-match';
+import { PostingError } from '../../services/accounting-posting';
+
+/** Errors the user can fix: answered with 400 and the message. */
+function isUserFixable(err: unknown): err is Error {
+  return (
+    err instanceof BankCategorizeError ||
+    err instanceof ClosedPeriodError ||
+    err instanceof LockedPeriodError ||
+    err instanceof PostingError
+  );
+}
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -262,7 +280,8 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
       const posted = await categorizeBankTransaction(db, {
         txn: inserted,
         categoryAccountId: data.categoryAccountId,
-        userId: c.get('userId'),
+        taxRateId: (data as { taxRateId?: string | null }).taxRateId ?? null,
+        userId: c.get('userId') ?? null,
       });
       journalEntryId = posted.journalEntryId;
     }
@@ -276,9 +295,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
       categoryAccountId: data.categoryAccountId ?? null,
     }, 201);
   } catch (err) {
-    if (err instanceof BankCategorizeError || err instanceof ClosedPeriodError) {
-      return error.badRequest(c, err.message);
-    }
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
     console.error('[app-api/bank-transactions] create failed:', err);
     return error.internal(c, 'Failed to create bank transaction');
   }
@@ -389,7 +406,7 @@ async function importTransactions(
 /** Best-effort auto-reconciliation; a failure never fails the import. */
 async function tryAutoReconcile(db: Database, bankAccountId: string): Promise<number> {
   try {
-    const reconcileResult = await autoReconcileBatch(db, schema, bankAccountId);
+    const reconcileResult = await autoReconcileBatch(db, schema, bankAccountId, null);
     return reconcileResult.reconciledCount;
   } catch {
     // Auto-reconciliation is best-effort
@@ -518,7 +535,7 @@ app.post('/auto-reconcile', requirePermission('banking:update'), zValidator('jso
       .where(and(eq(bankAccounts.id, bankAccountId), isNull(bankAccounts.deletedAt))).limit(1);
     if (!bankAccount) return error.notFound(c, 'Bank account', bankAccountId);
 
-    const result = await autoReconcileBatch(db, schema, bankAccountId);
+    const result = await autoReconcileBatch(db, schema, bankAccountId, c.get('userId') ?? null);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: bankAccount.entityId,
@@ -671,7 +688,8 @@ app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json
         txn,
         categoryAccountId: data.categoryAccountId,
         contactId: data.contactId,
-        userId: c.get('userId'),
+        taxRateId: data.taxRateId ?? null,
+        userId: c.get('userId') ?? null,
       });
       await writeAccountingAudit(c, db, {
         accountingEntityId: txn.entityId,
@@ -702,19 +720,13 @@ app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json
       return success(c, { id: txnId, status: 'reconciled', journalEntryId: posted.journalEntryId });
     }
 
-    const updateData: Record<string, unknown> = {
-      status: 'reconciled',
-      reconciliationType: data.type,
-      updatedAt: new Date(),
-    };
-
-    if (data.type === 'invoice') updateData.reconciledInvoiceId = data.entityId;
-    if (data.type === 'bill') updateData.reconciledBillId = data.entityId;
-    if (data.categoryAccountId) updateData.categoryAccountId = data.categoryAccountId;
-    if (data.taxRateId) updateData.taxRateId = data.taxRateId;
-    if (data.contactId) updateData.contactId = data.contactId;
-
-    await db.update(bankTransactions).set(updateData).where(eq(bankTransactions.id, txnId));
+    if (!data.entityId) return error.badRequest(c, 'entityId (the invoice or bill id) is required');
+    const matched = await reconcileBankTransactionToDocument(db, {
+      txn,
+      type: data.type,
+      documentId: data.entityId,
+      userId: c.get('userId') ?? null,
+    });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: txn.entityId,
@@ -723,9 +735,10 @@ app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json
       action: 'reconciled',
       changes: {
         status: { old: txn.status, new: 'reconciled' },
-        reconciliationType: { old: txn.reconciliationType, new: data.type },
-        ...(data.type === 'invoice' ? { reconciledInvoiceId: { old: txn.reconciledInvoiceId, new: data.entityId ?? null } } : {}),
-        ...(data.type === 'bill' ? { reconciledBillId: { old: txn.reconciledBillId, new: data.entityId ?? null } } : {}),
+        reconciliationType: { old: txn.reconciliationType, new: 'manual' },
+        reconciledPaymentId: { old: txn.reconciledPaymentId, new: matched.paymentId },
+        ...(data.type === 'invoice' ? { reconciledInvoiceId: { old: txn.reconciledInvoiceId, new: data.entityId } } : {}),
+        ...(data.type === 'bill' ? { reconciledBillId: { old: txn.reconciledBillId, new: data.entityId } } : {}),
       },
     });
     publishEntityEvent({
@@ -735,14 +748,62 @@ app.post('/:id/reconcile', requirePermission('banking:update'), zValidator('json
       action: 'updated',
       data: { id: txnId, bankAccountId: txn.bankAccountId, amount: txn.amount || '0', description: txn.description, status: 'reconciled' },
     });
+    publishEntityEvent({
+      c,
+      entityType: 'payment',
+      entityId: matched.paymentId,
+      action: 'created',
+      data: {
+        id: matched.paymentId,
+        amount: String(Math.abs(Number(txn.amount))),
+        invoiceId: data.type === 'invoice' ? data.entityId : undefined,
+        billId: data.type === 'bill' ? data.entityId : undefined,
+      },
+    });
 
-    return success(c, { id: txnId, status: 'reconciled' });
+    return success(c, { id: txnId, status: 'reconciled', paymentId: matched.paymentId, journalEntryId: matched.journalEntryId });
   } catch (err) {
-    if (err instanceof BankCategorizeError || err instanceof ClosedPeriodError) {
-      return error.badRequest(c, err.message);
-    }
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
     console.error('[app-api/bank-transactions] reconcile failed:', err);
     return error.internal(c, 'Failed to reconcile transaction');
+  }
+});
+
+// POST /:id/unreconcile — undo a match or categorization (voids the payment / reverses the entry)
+app.post('/:id/unreconcile', requirePermission('banking:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const txnId = c.req.param('id');
+  const { bankTransactions } = schema;
+  try {
+    const [txn] = await db.select().from(bankTransactions)
+      .where(and(eq(bankTransactions.id, txnId), isNull(bankTransactions.deletedAt))).limit(1);
+    if (!txn) return error.notFound(c, 'Transaction', txnId);
+
+    await unreconcileBankTransaction(db, { txn, userId: c.get('userId') ?? null });
+
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: txn.entityId,
+      entityType: 'bank_transaction',
+      entityId: txnId,
+      action: 'unreconciled',
+      changes: {
+        status: { old: txn.status, new: 'unreconciled' },
+        reconciledPaymentId: { old: txn.reconciledPaymentId, new: null },
+        journalEntryId: { old: txn.journalEntryId, new: null },
+      },
+    });
+    publishEntityEvent({
+      c,
+      entityType: 'bank_transaction',
+      entityId: txnId,
+      action: 'updated',
+      data: { id: txnId, bankAccountId: txn.bankAccountId, amount: txn.amount || '0', description: txn.description, status: 'unreconciled' },
+    });
+    return success(c, { id: txnId, status: 'unreconciled' });
+  } catch (err) {
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
+    console.error('[books-api/bank-transactions] unreconcile failed:', err);
+    return error.internal(c, 'Failed to unreconcile transaction');
   }
 });
 
