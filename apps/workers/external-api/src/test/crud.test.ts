@@ -56,11 +56,12 @@ describe('external-api · CRUD round-trip', () => {
   for (const entity of CRUD_ENTITIES.filter((e) => !e.readOnly)) {
     const { seg, scope, create, update } = entity;
     const dependent = !create || requiresParentFk(create) || seg in CONTRACT_ONLY;
-    const run = dependent ? it.skip : it;
 
-    run(
+    it(
       `${seg}: create → get → update → delete`,
-      async () => {
+      async ({ skip }) => {
+        // FK-dependent and contract-only entities are covered by contract.test.ts.
+        if (dependent) skip();
         const scopes = [`${scope}:read`, `${scope}:write`];
         const { request } = createExternalTestApp({ scopes, tenantDb: db });
 

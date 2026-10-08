@@ -200,11 +200,12 @@ const ASSIGNEE_AVATAR_PALETTE = [
 ];
 
 function assigneeFallbackColor(seed: string): string {
-  let hash = 0;
+  // An Int32Array slot wraps on every write, exactly like `| 0` did.
+  const hash = new Int32Array(1);
   for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.codePointAt(i)!) | 0;
+    hash[0] = Math.imul(hash[0]!, 31) + seed.codePointAt(i)!;
   }
-  const idx = Math.abs(hash) % ASSIGNEE_AVATAR_PALETTE.length;
+  const idx = Math.abs(hash[0]!) % ASSIGNEE_AVATAR_PALETTE.length;
   return ASSIGNEE_AVATAR_PALETTE[idx]!;
 }
 

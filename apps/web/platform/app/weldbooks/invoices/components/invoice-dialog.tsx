@@ -142,7 +142,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
   }, [st]);
 
   const contactOptions: AutocompleteOption[] = useMemo(
-    () => contacts.map(toContactOption),
+    () => contacts.map((c) => toContactOption(c)),
     [contacts, toContactOption],
   );
 

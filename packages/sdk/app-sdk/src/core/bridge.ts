@@ -100,6 +100,8 @@ export class WeldAppBridge {
   private memoryStore: LocalMemoryStore | null = null;
   private mountedNotified = false;
   private shortcutsAttached = false;
+  /** Where app → host messages go; narrowed once the host is known. */
+  private hostOrigin = embeddingOrigin();
 
   constructor(options: WeldAppBridgeOptions = {}) {
     this.options = options;
@@ -550,18 +552,15 @@ export class WeldAppBridge {
   /**
    * Post a message to the embedding WeldSuite host.
    *
-   * Why `targetOrigin: '*'`: the app runs inside a *sandboxed* iframe whose
-   * own origin is opaque, and the platform host is served from
-   * per-deployment hostnames the app bundle cannot know at build time, so a
-   * concrete target origin is unavailable. This is acceptable because
-   * app → host messages never carry secrets — `weldapp:ready` is an empty
-   * ping and `weldapp:request` payloads are the app's own UI intents. All
-   * sensitive data (tokens) flows host → app, where the host posts directly
-   * into this iframe's contentWindow. Inbound messages are additionally
-   * filtered to `event.source === window.parent`.
+   * The host is served from per-deployment hostnames the app bundle cannot
+   * know at build time, so the target origin is learned at runtime: from
+   * `location.ancestorOrigins` where the browser has it, and otherwise from
+   * the origin of the host's `weldapp:init` message. Only the very first
+   * `weldapp:ready` ping can go out before either is known, and that one
+   * carries nothing.
    */
   private postToHost(message: AppMessage): void {
-    window.parent.postMessage(message, '*');
+    window.parent.postMessage(message, this.hostOrigin);
   }
 
   private readonly handleMessage = (event: MessageEvent): void => {
@@ -576,6 +575,7 @@ export class WeldAppBridge {
 
     switch (message.type) {
       case 'weldapp:init':
+        if (event.origin && event.origin !== 'null') this.hostOrigin = event.origin;
         this.handleInitMessage(message);
         break;
       case 'weldapp:response':
@@ -669,6 +669,18 @@ export class WeldAppBridge {
 
 function isThemeName(value: string): value is 'light' | 'dark' {
   return value === 'light' || value === 'dark';
+}
+
+/**
+ * The embedding parent's origin when the browser exposes it
+ * (`location.ancestorOrigins`: Chromium, Safari). Elsewhere, and outside a
+ * browser, it is unknown until the host's init message arrives, so the
+ * wildcard stands in until then.
+ */
+function embeddingOrigin(): string {
+  if (typeof window === 'undefined') return '*';
+  const parentOrigin = window.location?.ancestorOrigins?.[0];
+  return parentOrigin && parentOrigin !== 'null' ? parentOrigin : '*';
 }
 
 /**

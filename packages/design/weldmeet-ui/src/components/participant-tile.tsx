@@ -26,12 +26,12 @@ const PERSON_THEMES = [
 ] as const;
 
 function hashString(input: string): number {
-  let h = 0;
+  // An Int32Array slot wraps on every write, exactly like `h |= 0` did.
+  const h = new Int32Array(1);
   for (const char of input) {
-    h = ((h << 5) - h) + char.codePointAt(0)!;
-    h |= 0;
+    h[0] = Math.imul(h[0]!, 31) + char.codePointAt(0)!;
   }
-  return Math.abs(h);
+  return Math.abs(h[0]!);
 }
 
 export function getPersonTheme(seed: string) {

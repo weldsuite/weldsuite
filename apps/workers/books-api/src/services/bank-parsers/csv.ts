@@ -619,7 +619,7 @@ function extractReferenceFromText(text: string): string | undefined {
   if (refMatch) return refMatch[1];
 
   // Shorter reference patterns
-  const kwMatch = /(?:kenmerk|ref(?:erentie)?|reference)[:\s]*([A-Za-z0-9-]+)/i.exec(text);
+  const kwMatch = /(?:kenmerk|ref(?:erentie)?|reference)[:\s]*([A-Z0-9-]+)/i.exec(text);
   if (kwMatch) return kwMatch[1];
 
   return undefined;
