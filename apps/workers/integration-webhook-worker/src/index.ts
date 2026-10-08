@@ -48,6 +48,8 @@ import {
 import { verifyTwilioSignature, parseTwilioSms } from './lib/workflow-events/twilio';
 import { verifyGithubSignature, parseGithubEvent } from './lib/workflow-events/github';
 import { githubAppWebhookRoutes } from './github/webhook';
+import { bankFeedWebhookRoutes } from './bank-feeds/webhook';
+import type { BankFeedEnv } from '@weldsuite/bank-feeds';
 import type { OAuthTokens } from '@weldsuite/db/schema';
 
 const WORKFLOW_POLL_INTERVAL_MS = TENANT_WORK_INTERVAL_MS;
@@ -55,7 +57,7 @@ const WEBHOOK_RETRY_INTERVAL_MS = TENANT_WORK_INTERVAL_MS;
 
 // ============ Env interface ============
 
-export interface Env {
+export interface Env extends BankFeedEnv {
   HYPERDRIVE_MASTER: Hyperdrive;
   DATABASE_URL_MASTER?: string;
   WORKSPACE_CACHE: KVNamespace;
@@ -93,6 +95,13 @@ export interface Env {
   GITHUB_APP_PRIVATE_KEY?: string;
   /** GitHub App-level webhook secret (X-Hub-Signature-256 verification). */
   GITHUB_WEBHOOK_SECRET?: string;
+  /** books-api `BooksInternal` entrypoint (weldsuite-books-api[-test]): verified bank feed
+   *  events (POST /webhooks/bank-feeds/:provider) are forwarded to /internal/bank-connections/events.
+   *  Trusted by topology (no secret). Provider keys for Plaid's webhook-key fetch are PLAID_CLIENT_ID /
+   *  PLAID_SECRET / PLAID_ENV (BankFeedEnv). */
+  BOOKS_INTERNAL?: Fetcher;
+  /** Stripe Financial Connections webhook signing secret (its own endpoint, not billing's). */
+  STRIPE_FC_WEBHOOK_SECRET?: string;
   /** Meta Marketing API — WeldAds webhook verification + signature checks. */
   FACEBOOK_APP_SECRET?: string;
   FACEBOOK_WEBHOOK_VERIFY_TOKEN?: string;
@@ -178,6 +187,9 @@ app.use('*', cors());
 
 // GitHub App webhook receiver (HMAC-verified) → POST /webhooks/github
 app.route('/webhooks', githubAppWebhookRoutes);
+
+// Bank feed provider webhooks (Plaid, Stripe Financial Connections) → POST /webhooks/bank-feeds/:provider
+app.route('/webhooks', bankFeedWebhookRoutes());
 
 /**
  * WooCommerce application authentication callback (compat). Canonical receiver

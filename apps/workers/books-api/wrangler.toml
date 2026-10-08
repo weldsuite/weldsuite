@@ -13,6 +13,20 @@
 #   @weldsuite/core-domain/ai-billing; CLOUDFLARE_API_TOKEN is the AI token
 #   fallback @weldsuite/ai uses, as on app-api)
 #
+# Bank feeds (@weldsuite/bank-feeds; docs/plans/weldbooks-us.md section 9), all in the
+# manifest and all optional: a provider is offered only when its credentials are set.
+#   PLAID_CLIENT_ID, PLAID_SECRET                  Plaid (PLAID_ENV var: sandbox | production)
+#   STRIPE_FC_SECRET_KEY                           Stripe Financial Connections (secret key of
+#                                                  the account FC is registered on)
+#   PONTO_CLIENT_ID, PONTO_CLIENT_SECRET           Isabel Ponto Connect (needs PONTO_CERT below)
+#   ENABLE_BANKING_APP_ID, ENABLE_BANKING_PRIVATE_KEY   Enable Banking (PKCS#8 PEM)
+# Vars: BANK_FEED_PROVIDERS routes providers per country ("US:plaid,stripe_fc;NL:ponto;*:enable_banking",
+# unset = every configured provider where its regions allow), BANK_FEED_WEBHOOK_URL is the base of
+# integration-webhook-worker's /webhooks/bank-feeds receiver (Plaid is told its URL when a link starts).
+# Access tokens are stored encrypted with DATABASE_ENCRYPTION_KEY. Webhooks arrive through
+# integration-webhook-worker, due syncs through integration-sync-worker; both call this worker's
+# BooksInternal entrypoint over a service binding.
+#
 # Secrets (not in the manifest yet):
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
 #   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): accounting
@@ -42,6 +56,9 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+PLAID_ENV = "sandbox"
+BANK_FEED_PROVIDERS = "US:plaid,stripe_fc;NL:ponto;BE:ponto;*:enable_banking"
+BANK_FEED_WEBHOOK_URL = "https://integration-webhooks-test.weldsuite.org/webhooks/bank-feeds"
 
 # WeldBooks → Belastingdienst SBR filing. 'simulated' builds the SOAP envelope
 # but transmits nothing. Flip to 'preprod' (then 'production') ONLY after the
@@ -54,6 +71,13 @@ DIGIPOORT_MODE = "simulated"
 # then paste the returned certificate_id here and uncomment:
 # [[mtls_certificates]]
 # binding = "DIGIPOORT_CERT"
+# certificate_id = "<uuid from wrangler mtls-certificate upload>"
+
+# Ponto Connect (Europe) talks to api.ibanity.com, which requires a client certificate
+# (mutual TLS). Upload it once, then uncomment here and in the env blocks:
+#   wrangler mtls-certificate upload --cert ponto.pem --key ponto.key --name ponto-connect
+# [[mtls_certificates]]
+# binding = "PONTO_CERT"
 # certificate_id = "<uuid from wrangler mtls-certificate upload>"
 
 [[kv_namespaces]]
@@ -91,6 +115,9 @@ routes = [
 ENVIRONMENT = "test"
 DIGIPOORT_MODE = "simulated"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+PLAID_ENV = "sandbox"
+BANK_FEED_PROVIDERS = "US:plaid,stripe_fc;NL:ponto;BE:ponto;*:enable_banking"
+BANK_FEED_WEBHOOK_URL = "https://integration-webhooks-test.weldsuite.org/webhooks/bank-feeds"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -131,6 +158,9 @@ routes = [
 ENVIRONMENT = "production"
 DIGIPOORT_MODE = "simulated"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+PLAID_ENV = "production"
+BANK_FEED_PROVIDERS = "US:plaid,stripe_fc;NL:ponto;BE:ponto;*:enable_banking"
+BANK_FEED_WEBHOOK_URL = "https://integration-webhooks.weldsuite.org/webhooks/bank-feeds"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

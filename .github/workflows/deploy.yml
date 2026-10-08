@@ -279,6 +279,7 @@ jobs:
               - 'packages/core/workflow-integrations/**'
               - 'packages/core/realtime/**'
               - 'packages/core/connectors/**'
+              - 'packages/core/bank-feeds/**'
             integration-sync-worker:
               - 'apps/workers/integration-sync-worker/**'
               - 'packages/core/connectors/**'
