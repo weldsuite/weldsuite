@@ -202,7 +202,7 @@ function ConditionBranchNodeComponent({ data, selected }: NodeProps) {
       )}
 
       {nodeData.isLastNode && (
-        <div className="lg:hidden flex flex-col items-center -mt-[14px]">
+        <div className="lg:hidden relative z-10 flex flex-col items-center -mt-[14px]">
           <button
             type="button"
             aria-label={addStepLabel}

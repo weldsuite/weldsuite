@@ -97,6 +97,7 @@ import { TestRunDialog, type TestRunRequest } from './components/test-run-dialog
 import { isValidCronExpression, nextCronRun } from './lib/cron';
 import { findUnknownVariables, getStepFormatIssues, isInsideLoop, isNestedWaitingStep } from './lib/step-issues';
 import { TriggerRecordFieldsProvider } from './lib/editor-field-context';
+import { getConfigSummary, summarizeTrigger, type NodeSummaryLabels } from './lib/node-summary';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
 import {
@@ -149,15 +150,21 @@ function asWorkflowStep(s: WorkflowStepBag): WorkflowStep {
 /** Stable default so `canvasVariableItems` isn't rebuilt on every render. */
 const NO_WORKFLOW_VARIABLES: Array<{ name: string; type?: string }> = [];
 
-/** Fill in `TriggerConfig`'s required fields for `<WorkflowCanvas trigger={...} />`. */
-function asTriggerConfig(t: WorkflowTriggerBag | undefined): TriggerConfig | null {
+/**
+ * Fill in `TriggerConfig`'s required fields for `<WorkflowCanvas trigger={...} />`.
+ * The editor stores a trigger's settings flat (`entityType`, `cronExpression`, ...),
+ * so the whole bag is carried over for the canvas to read.
+ */
+function asTriggerConfig(t: WorkflowTriggerBag | undefined, summary?: string): TriggerConfig | null {
   if (!t) return null;
   return {
+    ...t,
     id: (t.id as string | undefined) || 'trigger',
     type: (t.type as TriggerConfig['type']) || 'manual',
     name: (t.name as string | undefined) || '',
     isEnabled: (t.isEnabled as boolean | undefined) ?? true,
     config: (t.config as Record<string, unknown> | undefined) || {},
+    summary,
   };
 }
 
@@ -532,143 +539,6 @@ const TIMEZONE_OPTIONS = [
   { value: 'Asia/Tokyo', label: 'Asia/Tokyo' },
   { value: 'UTC', label: 'UTC' },
 ];
-
-type ConfigSummarizer = (config: Record<string, unknown>) => string;
-
-/** Step config values are untyped; render primitives as-is and anything else as JSON. */
-function cfgText(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return JSON.stringify(value);
-}
-
-function summarizeSendEmail(config: Record<string, unknown>): string {
-  if (!config.to) return '';
-  const to = cfgText(config.to);
-  return config.subject ? `To: ${to} • ${cfgText(config.subject)}` : `To: ${to}`;
-}
-
-function summarizeHttpRequest(config: Record<string, unknown>): string {
-  return config.method && config.url ? `${cfgText(config.method)} ${cfgText(config.url)}` : '';
-}
-
-function summarizeCondition(config: Record<string, unknown>): string {
-  return config.field && config.operator
-    ? `${cfgText(config.field)} ${cfgText(config.operator)} ${cfgText(config.value || '')}`
-    : '';
-}
-
-function summarizeDelay(config: Record<string, unknown>): string {
-  if (config.seconds) return `Wait ${cfgText(config.seconds)} seconds`;
-  if (config.minutes) return `Wait ${cfgText(config.minutes)} minutes`;
-  if (config.hours) return `Wait ${cfgText(config.hours)} hours`;
-  return '';
-}
-
-function summarizeLogMessage(config: Record<string, unknown>): string {
-  const message = config.message;
-  if (typeof message !== 'string') return '';
-  return message.substring(0, 60) + (message.length > 60 ? '...' : '');
-}
-
-function summarizeRecordAction(config: Record<string, unknown>): string {
-  const entity = config.entityType || config.entity;
-  return entity ? `Entity: ${cfgText(entity)}` : '';
-}
-
-function summarizeCreateCustomer(config: Record<string, unknown>): string {
-  return typeof config.name === 'string' ? config.name : '';
-}
-
-function summarizeContact(config: Record<string, unknown>): string {
-  const name = [config.firstName, config.lastName].filter((part) => typeof part === 'string' && part).join(' ');
-  return name || (typeof config.email === 'string' ? config.email : '');
-}
-
-function summarizeCreateDeal(config: Record<string, unknown>): string {
-  return typeof config.name === 'string' ? config.name : '';
-}
-
-function summarizeMoveDealStage(config: Record<string, unknown>): string {
-  return typeof config.dealId === 'string' ? config.dealId : '';
-}
-
-function summarizeLogActivity(config: Record<string, unknown>): string {
-  return typeof config.subject === 'string' ? config.subject : '';
-}
-
-function summarizePostChatMessage(config: Record<string, unknown>): string {
-  const message = typeof config.message === 'string' ? config.message : typeof config.content === 'string' ? config.content : '';
-  return message.substring(0, 60) + (message.length > 60 ? '...' : '');
-}
-
-function summarizeTask(config: Record<string, unknown>): string {
-  return typeof config.title === 'string' ? config.title : '';
-}
-
-function summarizeSlackPostMessage(config: Record<string, unknown>): string {
-  const text = typeof config.text === 'string' ? config.text : '';
-  return text.substring(0, 60) + (text.length > 60 ? '...' : '');
-}
-
-function summarizeGithubCreateIssue(config: Record<string, unknown>): string {
-  const repo = typeof config.repo === 'string' ? config.repo : '';
-  const title = typeof config.title === 'string' ? config.title : '';
-  return [repo, title].filter(Boolean).join(': ');
-}
-
-function summarizeGithubCreateComment(config: Record<string, unknown>): string {
-  const repo = typeof config.repo === 'string' ? config.repo : '';
-  const issueNumber = config.issueNumber != null ? `#${config.issueNumber}` : '';
-  return [repo, issueNumber].filter(Boolean).join(' ');
-}
-
-function summarizeGoogleSheetsRow(config: Record<string, unknown>): string {
-  const spreadsheet = typeof config.spreadsheetId === 'string' ? config.spreadsheetId : '';
-  const sheet = typeof config.sheetName === 'string' && config.sheetName ? `!${config.sheetName}` : '';
-  return spreadsheet ? `${spreadsheet}${sheet}` : '';
-}
-
-function summarizeGmailSendEmail(config: Record<string, unknown>): string {
-  const to = typeof config.to === 'string' ? config.to : '';
-  const subject = typeof config.subject === 'string' ? config.subject : '';
-  return [to, subject].filter(Boolean).join(': ');
-}
-
-function summarizeGoogleCalendarCreateEvent(config: Record<string, unknown>): string {
-  return typeof config.summary === 'string' ? config.summary : '';
-}
-
-const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
-  ['send_email', summarizeSendEmail],
-  ['http_request', summarizeHttpRequest],
-  ['condition', summarizeCondition],
-  ['delay', summarizeDelay],
-  ['log_message', summarizeLogMessage],
-  ['create_record', summarizeRecordAction],
-  ['update_record', summarizeRecordAction],
-  ['create_customer', summarizeCreateCustomer],
-  ['create_contact', summarizeContact],
-  ['update_contact', summarizeContact],
-  ['create_lead', summarizeContact],
-  ['create_deal', summarizeCreateDeal],
-  ['move_deal_stage', summarizeMoveDealStage],
-  ['log_activity', summarizeLogActivity],
-  ['post_chat_message', summarizePostChatMessage],
-  ['slack.post_message', summarizeSlackPostMessage],
-  ['github.create_issue', summarizeGithubCreateIssue],
-  ['github.create_comment', summarizeGithubCreateComment],
-  ['google_sheets.append_row', summarizeGoogleSheetsRow],
-  ['google_sheets.update_row', summarizeGoogleSheetsRow],
-  ['gmail.send_email', summarizeGmailSendEmail],
-  ['google_calendar.create_event', summarizeGoogleCalendarCreateEvent],
-  ['create_task', summarizeTask],
-]);
-
-function getConfigSummary(actionType: string, config: Record<string, unknown>): string {
-  return CONFIG_SUMMARIZERS.get(actionType)?.(config) ?? '';
-}
 
 // --- Reading an existing trigger back into the trigger panel's form state ---
 
@@ -2102,9 +1972,37 @@ interface BranchChildStepsProps {
   onAddStep: () => void;
 }
 
+/** Translated strings for the one-line node summaries (see lib/node-summary.ts). */
+function useNodeSummaryLabels(): NodeSummaryLabels {
+  const { t } = useI18n();
+  return useMemo(() => {
+    const trigger = t.weldconnect.triggerNode.descriptions;
+    const action = t.weldconnect.actionNode;
+    const summary = t.weldconnect.workflowEditorClient.nodeSummary;
+    return {
+      configured: summary.configured,
+      to: action.descTo,
+      delay: action.descDelay,
+      entity: action.descEntity,
+      trigger: {
+        manual: trigger.manuallyTriggered,
+        webhook: trigger.httpEndpoint,
+        api: trigger.apiTriggered,
+        integrationEvent: trigger.integrationEvent,
+        recurringSchedule: trigger.recurringSchedule,
+        scheduled: trigger.scheduled,
+        afterSucceeds: summary.afterSucceeds,
+        afterFails: summary.afterFails,
+        afterFinishes: summary.afterFinishes,
+      },
+    };
+  }, [t]);
+}
+
 function BranchChildSteps({ childSteps, allSteps, onSelectStep, onAddStep }: Readonly<BranchChildStepsProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
+  const summaryLabels = useNodeSummaryLabels();
 
   if (childSteps.length === 0) {
     return (
@@ -2121,7 +2019,7 @@ function BranchChildSteps({ childSteps, allSteps, onSelectStep, onAddStep }: Rea
         const meta = getActionMeta(childStep.type || '');
         const Icon = meta.icon;
         const stepIndex = allSteps.findIndex((s) => s.id === childStep.id);
-        const summary = getConfigSummary(childStep.type || '', childStep.config || {});
+        const summary = getConfigSummary(childStep.type || '', childStep.config || {}, summaryLabels);
         return (
           <Button
             key={childStep.id}
@@ -3177,7 +3075,7 @@ export function WorkflowEditorClient({
   flagUnknownVariables,
   testerEmail,
 }: Readonly<WorkflowEditorClientProps>) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
   const tcd = t.weldconnect.triggerConfigDialog;
   const tg = t.weldconnect.generateWithAi;
@@ -4077,13 +3975,29 @@ export function WorkflowEditorClient({
 
   // Memoised: WorkflowCanvas re-syncs its nodes whenever `steps`/`trigger` change,
   // so fresh objects on every render would loop (React #185).
+  const nodeSummaryLabels = useNodeSummaryLabels();
   const sortedSteps: WorkflowStep[] = useMemo(
     () => [...workflow.steps]
       .sort((a, b) => ((a.order as number | undefined) || 0) - ((b.order as number | undefined) || 0))
       .map(asWorkflowStep),
     [workflow.steps],
   );
-  const canvasTrigger = useMemo(() => asTriggerConfig(workflow.triggers[0]), [workflow.triggers]);
+  // A string, so the memoised trigger below only changes when the text does.
+  const triggerSummary = useMemo(
+    () => summarizeTrigger(workflow.triggers[0], {
+      labels: nodeSummaryLabels,
+      entityEvents,
+      cronPresets: CRON_PRESETS,
+      workflows: workflowsForChaining,
+      integrationTriggers,
+      locale: language,
+    }),
+    [workflow.triggers, nodeSummaryLabels, entityEvents, CRON_PRESETS, workflowsForChaining, integrationTriggers, language],
+  );
+  const canvasTrigger = useMemo(
+    () => asTriggerConfig(workflow.triggers[0], triggerSummary),
+    [workflow.triggers, triggerSummary],
+  );
 
   const applyTriggerData: ApplyTriggerData = (triggerData) => {
     if (workflow.triggers.length > 0) {
@@ -4324,7 +4238,7 @@ export function WorkflowEditorClient({
       )}
 
       {/* Main Content - Flow Editor + Sidebar */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="relative flex-1 flex overflow-hidden">
         {/* Flow Editor Canvas */}
         <div className="flex-1 relative overflow-hidden">
           {!triggerLocked && !workflow.triggers[0] && sortedSteps.length === 0 && !showTriggerPanel ? (
@@ -4372,10 +4286,11 @@ export function WorkflowEditorClient({
         {/* Right Sidebar - Actions Panel or Edit Panel */}
         <div className={cn(
           "bg-background flex flex-col z-50",
-          // Mobile: full screen below header
-          "fixed top-[105px] left-0 right-0 bottom-0 w-full transform transition-transform duration-200",
+          // Below lg: covers the editor area. Absolute (not viewport-fixed) so it
+          // stays inside the page content, which already sits right of the app rail.
+          "absolute inset-0 w-full transform transition-transform duration-200",
           // Desktop: side panel
-          "lg:relative lg:top-0 lg:w-[399px] lg:border-l",
+          "lg:relative lg:inset-auto lg:w-[399px] lg:border-l",
           showMobileSidebar ? "translate-y-0" : "translate-y-full lg:translate-y-0 lg:translate-x-0"
         )}>
           <TriggerRecordFieldsProvider value={triggerRecordFields}>

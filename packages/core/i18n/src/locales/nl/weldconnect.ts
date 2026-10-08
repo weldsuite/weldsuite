@@ -1617,6 +1617,13 @@ export const weldconnect = {
       missingSourceWorkflow: 'Kies de workflow waarop gewacht wordt',
       missingIntegrationEvent: 'Kies een integratie en een gebeurtenis',
     },
+    // Samenvattingen van knooppunten op het canvas (lib/node-summary.ts)
+    nodeSummary: {
+      configured: 'Geconfigureerd',
+      afterSucceeds: 'Nadat "{name}" is geslaagd',
+      afterFails: 'Nadat "{name}" is mislukt',
+      afterFinishes: 'Nadat "{name}" is afgerond',
+    },
     publishIssues: {
       no_trigger: 'Voeg een trigger toe voordat je publiceert.',
       unsupported_trigger: 'Deze trigger is nog niet beschikbaar. Kies een andere trigger.',

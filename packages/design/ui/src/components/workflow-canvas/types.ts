@@ -51,6 +51,12 @@ export interface TriggerConfig {
   name: string;
   isEnabled: boolean;
   config: Record<string, unknown>;
+  /**
+   * One-line, already-translated summary of the trigger's configuration
+   * (e.g. "Task created"), computed by the host. The node shows it instead of
+   * "Click to configure" once the trigger is set up.
+   */
+  summary?: string;
 }
 
 /** A single variable item for the variable picker. */

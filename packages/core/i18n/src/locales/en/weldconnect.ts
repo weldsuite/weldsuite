@@ -1617,6 +1617,13 @@ export const weldconnect = {
       missingSourceWorkflow: 'Choose the workflow to wait for',
       missingIntegrationEvent: 'Choose an integration and an event',
     },
+    // One-line node summaries on the canvas (lib/node-summary.ts)
+    nodeSummary: {
+      configured: 'Configured',
+      afterSucceeds: 'After "{name}" succeeds',
+      afterFails: 'After "{name}" fails',
+      afterFinishes: 'After "{name}" finishes',
+    },
     publishIssues: {
       no_trigger: 'Add a trigger before publishing.',
       unsupported_trigger: 'This trigger is not available yet. Choose a different trigger.',

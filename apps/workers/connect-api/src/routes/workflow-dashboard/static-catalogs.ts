@@ -137,20 +137,22 @@ export interface EntityEventCatalogEntry {
  * Curated short-list of the most-used WeldSuite objects offered as
  * `entity_event` triggers. `entityType` must exist in the events catalog
  * (its events are pulled from there). Order here is the display order.
- * NOTE: `contact` and `customer` are intentionally absent — they are no
- * longer first-class objects (CRM uses `person` / `company`).
+ * NOTE: `contact`, `customer` and `lead` are intentionally absent — they are
+ * no longer first-class objects (CRM uses people / companies / deals), and
+ * WeldCommerce objects are gone with the module. Deals are stored as
+ * `opportunity` records and emit the `opportunity` catalog events (see the
+ * `create_deal` action in routes/internal-workflow-actions). Workflows that
+ * already trigger on a removed type still validate (any catalog type does) but
+ * the editor no longer offers it for new triggers.
  */
 const BASIC_TRIGGER_OBJECTS: Array<{ entityType: EntityType; category: string; label: string }> = [
-  { entityType: 'lead', category: 'CRM', label: 'Lead' },
-  { entityType: 'opportunity', category: 'CRM', label: 'Opportunity' },
   { entityType: 'company', category: 'CRM', label: 'Company' },
   { entityType: 'person', category: 'CRM', label: 'Person' },
+  { entityType: 'opportunity', category: 'CRM', label: 'Deal' },
   { entityType: 'project', category: 'Projects', label: 'Project' },
   { entityType: 'project_task', category: 'Projects', label: 'Task' },
   { entityType: 'ticket', category: 'Helpdesk', label: 'Ticket' },
   { entityType: 'invoice', category: 'Accounting', label: 'Invoice' },
-  { entityType: 'commerce_order', category: 'Commerce', label: 'Order' },
-  { entityType: 'product', category: 'Commerce', label: 'Product' },
 ];
 
 function buildEntityEvents(): EntityEventCatalogEntry[] {
