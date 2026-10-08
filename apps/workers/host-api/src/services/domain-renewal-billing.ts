@@ -123,6 +123,94 @@ export function listDomainsDueForAutoRenew(
     );
 }
 
+// ── When to look at a workspace again (D1 due index, kind domain_renew) ──
+
+/**
+ * While a registration or transfer settles, look daily — for at most this
+ * long. Covers delayed Stripe payment methods (SEPA, Bacs) that clear days
+ * after checkout: billing-worker activates those rows without touching the
+ * index, so this daily look is what picks them up.
+ */
+export const DOMAIN_IN_FLIGHT_RECHECK_DAYS = 30;
+
+const IN_FLIGHT_REGISTRATION_STATUSES = new Set([
+  'pending_payment',
+  'pending_registration',
+  'pending_workflow',
+  'pending_transfer',
+]);
+
+type DomainRenewFields = Parameters<typeof isDueForStripeAutoRenew>[0] & { updatedAt: Date };
+
+function isInFlight(domain: DomainRenewFields, now: Date): boolean {
+  const pending =
+    domain.status === 'pending' ||
+    (domain.registrationStatus != null && IN_FLIGHT_REGISTRATION_STATUSES.has(domain.registrationStatus));
+  if (!pending) return false;
+  return now.getTime() - domain.updatedAt.getTime() <= DOMAIN_IN_FLIGHT_RECHECK_DAYS * 86_400_000;
+}
+
+/**
+ * When the daily auto-renew sweep next needs to open this workspace, from its
+ * Realtime Register domains (`null`: never, drop it from the index):
+ *
+ * - now, when a domain is due by `isDueForStripeAutoRenew` (a renewal still
+ *   awaiting payment stays due, so it is retried daily as before);
+ * - tomorrow, while a registration / transfer is settling, so a domain that
+ *   becomes active is picked up even if no other write marks the workspace;
+ * - otherwise when the first auto-renewing domain enters the renewal window.
+ *
+ * Domains past the grace period are ignored (redemption is manual), as are
+ * other registrars. Errs early: an extra visit costs one tenant wake, a late
+ * one a lapsed domain.
+ */
+export function nextDomainRenewCheckAt(
+  domains: DomainRenewFields[],
+  now: Date,
+  windowDays = DOMAIN_AUTO_RENEW_WINDOW_DAYS,
+  graceDays = DOMAIN_AUTO_RENEW_GRACE_DAYS,
+): Date | null {
+  const day = 86_400_000;
+  let next: number | null = null;
+  const consider = (at: number) => {
+    next = next == null ? at : Math.min(next, at);
+  };
+
+  for (const domain of domains) {
+    if (domain.deletedAt || domain.registrar !== 'realtimeregister') continue;
+    if (isDueForStripeAutoRenew(domain, now, windowDays, graceDays)) {
+      consider(now.getTime());
+    } else if (isInFlight(domain, now)) {
+      consider(now.getTime() + day);
+    } else if (
+      domain.autoRenew &&
+      domain.expiresAt &&
+      (domain.status === 'active' || domain.status === 'expired') &&
+      domain.expiresAt.getTime() >= now.getTime() - graceDays * day
+    ) {
+      consider(domain.expiresAt.getTime() - windowDays * day);
+    }
+  }
+  return next == null ? null : new Date(next);
+}
+
+/** `nextDomainRenewCheckAt` over the workspace's Realtime Register domains. */
+export async function loadNextDomainRenewCheckAt(db: Database, now: Date): Promise<Date | null> {
+  const domains = await db
+    .select({
+      autoRenew: hostDomains.autoRenew,
+      status: hostDomains.status,
+      registrar: hostDomains.registrar,
+      expiresAt: hostDomains.expiresAt,
+      deletedAt: hostDomains.deletedAt,
+      registrationStatus: hostDomains.registrationStatus,
+      updatedAt: hostDomains.updatedAt,
+    })
+    .from(hostDomains)
+    .where(and(isNull(hostDomains.deletedAt), eq(hostDomains.registrar, 'realtimeregister')));
+  return nextDomainRenewCheckAt(domains, now);
+}
+
 async function loadPricingMap(
   masterDb: MasterDatabase,
 ): Promise<Map<string, typeof masterSchema.hostDomainPricing.$inferSelect>> {

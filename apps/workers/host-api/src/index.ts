@@ -15,6 +15,7 @@ import { domainsRoutes } from './routes/domains';
 import { emailForwardsRoutes } from './routes/email-forwards';
 import { realtimeRegisterWebhookRoutes } from './routes/webhooks-realtime-register';
 import { runDomainAutoRenewSweep } from './cron/domain-auto-renew';
+import { markDomainRenewDue } from './lib/domain-renew-due';
 import type { Env, Variables } from './types';
 
 const app = createModuleApi<Env, Variables>({ service: 'host-api' });
@@ -25,6 +26,11 @@ const app = createModuleApi<Env, Variables>({ service: 'host-api' });
 app.route('/public/webhooks/realtime-register', realtimeRegisterWebhookRoutes);
 
 app.use('/api/*', ...apiAuth());
+
+// Domain writes mark the workspace due for the auto-renew sweep (D1 index).
+for (const path of ['/api/domains', '/api/domains/*', '/api/domain-transfers', '/api/domain-transfers/*']) {
+  app.use(path, markDomainRenewDue);
+}
 
 app.route('/api/dns-records', dnsRecordsRoutes);
 app.route('/api/dns-zones', dnsZonesRoutes);

@@ -56,6 +56,14 @@ EMAIL_TRANSPORT = "cloudflare"
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
+# Schedule-index D1 (shared with workflow-worker / agent-api): the nightly
+# re-plan sweep reads workspace_due_index (kind calendar_replan) and opens
+# only workspaces with an auto-scheduled event due. Migrations: workflow-worker.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
 [[queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
@@ -102,6 +110,11 @@ app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-test"
@@ -145,6 +158,11 @@ app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
 
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"

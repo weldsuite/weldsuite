@@ -28,6 +28,8 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
+import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
+import { nextAutoScheduledReplanAt } from '@weldsuite/db/lib/calendar-sync';
 import type { Env, Variables } from '../../types';
 import { InvalidMemberIdError } from '@weldsuite/crm-domain/people';
 import { UnknownPipelineStageError } from '@weldsuite/crm-domain/opportunities';
@@ -601,6 +603,11 @@ internalWorkflowActionsRoutes.post('/create-task', zValidator('json', createTask
     }
 
     const { row, assigneeIds } = await createTaskFromWorkflow(db, { ownerUserId, projectId, task });
+    // The task was auto-scheduled on the calendar: point calendar-api's nightly
+    // re-plan at it (D1 due index) so that sweep never opens idle tenants.
+    await syncWorkspaceDue(c.env.SCHEDULE_INDEX, 'calendar_replan', workspaceId, () =>
+      nextAutoScheduledReplanAt(db),
+    );
 
     await publishEntityEventRaw({
       env: c.env,
