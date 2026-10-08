@@ -39,9 +39,15 @@ interface DelimTok {
   open: boolean;
   close: boolean;
 }
+/** An already-rendered piece (mention chip, link, code span) plus its plain-text form. */
+interface Atom {
+  node: ReactNode;
+  text: string;
+}
+
 type Tok =
   | { t: 'text'; v: string }
-  | { t: 'atom'; node: ReactNode }
+  | ({ t: 'atom' } & Atom)
   | DelimTok
   | { t: 'wrap'; kind: WrapKind; children: Tok[] };
 
@@ -119,7 +125,7 @@ function isLinkable(url: string): boolean {
   return /^https?:\/\/[^\s/?#]+/i.test(url);
 }
 
-function lex(flat: string, atoms: ReactNode[], emphasis: boolean): Tok[] {
+function lex(flat: string, atoms: Atom[], emphasis: boolean): Tok[] {
   const toks: Tok[] = [];
   let buf = '';
   let atomIdx = 0;
@@ -136,7 +142,7 @@ function lex(flat: string, atoms: ReactNode[], emphasis: boolean): Tok[] {
 
     if (ch === ATOM) {
       flush();
-      toks.push({ t: 'atom', node: atoms[atomIdx++] });
+      toks.push({ t: 'atom', ...atoms[atomIdx++] });
       i++;
       continue;
     }
@@ -146,16 +152,23 @@ function lex(flat: string, atoms: ReactNode[], emphasis: boolean): Tok[] {
       if (end > i + 1 && !flat.slice(i + 1, end).includes('\n')) {
         flush();
         const kids: ReactNode[] = [];
+        let codeText = '';
         const parts = flat.slice(i + 1, end).split(ATOM);
         parts.forEach((part, k) => {
           if (part) kids.push(part);
-          if (k < parts.length - 1) kids.push(atoms[atomIdx++]);
+          codeText += part;
+          if (k < parts.length - 1) {
+            const atom = atoms[atomIdx++];
+            kids.push(atom.node);
+            codeText += atom.text;
+          }
         });
         toks.push({
           t: 'atom',
           node: (
             <code className="bg-gray-100 dark:bg-gray-800 text-[13px] px-1 py-0.5 rounded font-mono">{kids}</code>
           ),
+          text: codeText,
         });
         i = end + 1;
         continue;
@@ -182,6 +195,7 @@ function lex(flat: string, atoms: ReactNode[], emphasis: boolean): Tok[] {
                 {url}
               </a>
             ),
+            text: url,
           });
           i += url.length;
           continue;
@@ -296,19 +310,30 @@ function renderToks(toks: Tok[], keyPrefix: string): ReactNode[] {
   return out;
 }
 
+function plainToks(toks: Tok[]): string {
+  let out = '';
+  for (const tok of toks) {
+    if (tok.t === 'text') out += tok.v;
+    else if (tok.t === 'delim') out += tok.ch.repeat(tok.n);
+    else if (tok.t === 'atom') out += tok.text;
+    else out += plainToks(tok.children);
+  }
+  return out;
+}
+
 /**
- * Render message content with @mention badges, entity chips, links and inline formatting.
- * Mentions are stored inline in `text`:
+ * Tokenises a message body. Mentions are stored inline in `text`:
  *   <@userId>             → user
  *   <@userId:DisplayName> → user with name override
  *   <@type:id|Label>      → entity reference — clickable chip
  * The `members` map resolves userId → display name for the user variants.
+ * Returns null for an empty body.
  */
-export function renderMessageContent(text: string, members?: Map<string, string>): ReactNode {
+function tokenize(text: string, members?: Map<string, string>): Tok[] | null {
   const segments = parseChatTokens(text);
-  if (segments.length === 0) return text;
+  if (segments.length === 0) return null;
 
-  const atoms: ReactNode[] = [];
+  const atoms: Atom[] = [];
   let flat = '';
   const keyCounts = new Map<string, number>();
   const nextKey = (base: string) => {
@@ -324,32 +349,55 @@ export function renderMessageContent(text: string, members?: Map<string, string>
       const isEveryone = seg.userId === 'everyone';
       const name = isEveryone ? 'everyone' : (seg.displayName ?? members?.get(seg.userId) ?? seg.userId);
       flat += ATOM;
-      atoms.push(
-        <span
-          key={nextKey(`u-${seg.userId}`)}
-          className="inline-block bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded px-1.5 py-0.5 text-[12px] font-medium align-middle"
-        >
-          @{name}
-        </span>,
-      );
+      atoms.push({
+        node: (
+          <span
+            key={nextKey(`u-${seg.userId}`)}
+            className="inline-block bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 rounded px-1.5 py-0.5 text-[12px] font-medium align-middle"
+          >
+            @{name}
+          </span>
+        ),
+        text: `@${name}`,
+      });
     } else {
       flat += ATOM;
-      atoms.push(
-        <EntityMentionChip
-          key={nextKey(`e-${seg.entityType}-${seg.entityId}`)}
-          type={seg.entityType}
-          id={seg.entityId}
-          fallbackLabel={seg.label}
-        />,
-      );
+      atoms.push({
+        node: (
+          <EntityMentionChip
+            key={nextKey(`e-${seg.entityType}-${seg.entityId}`)}
+            type={seg.entityType}
+            id={seg.entityId}
+            fallbackLabel={seg.label}
+          />
+        ),
+        text: `@${seg.label ?? `${seg.entityType}:${seg.entityId}`}`,
+      });
     }
   }
 
   const emphasis = flat.length <= MAX_EMPHASIS_CHARS;
   const lexed = lex(flat, atoms, emphasis);
-  const toks = emphasis ? applyEmphasis(lexed) : lexed;
+  return emphasis ? applyEmphasis(lexed) : lexed;
+}
+
+/** Render message content with @mention badges, entity chips, links and inline formatting. */
+export function renderMessageContent(text: string, members?: Map<string, string>): ReactNode {
+  const toks = tokenize(text, members);
+  if (!toks) return text;
   const nodes = renderToks(toks, 'm');
   if (nodes.length === 0) return text;
   if (nodes.length === 1 && typeof nodes[0] === 'string') return nodes[0];
   return nodes;
+}
+
+/**
+ * One-line plain text of a message, for previews that cannot hold the rendered
+ * form (reply quotes, the pinned bar, search results, drafts): mentions read
+ * `@Name`, record chips `@Label`, formatting markers are dropped by the same
+ * rules the message body uses, and line breaks collapse to single spaces.
+ */
+export function messagePreviewText(text: string, members?: Map<string, string>): string {
+  const toks = tokenize(text, members);
+  return (toks ? plainToks(toks) : text).replace(/\s+/g, ' ').trim();
 }

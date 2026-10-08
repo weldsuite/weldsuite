@@ -10,7 +10,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { ActivityItem, ListActivityQuery } from '@weldsuite/core-api-client/schemas/weldchat-activity';
 import type { DraftItem, UpsertDraftInput } from '@weldsuite/core-api-client/schemas/weldchat-drafts';
 import type { DirectoryChannelItem } from '@weldsuite/core-api-client/schemas/weldchat-directories';
-import { hasDraftContent } from '@/app/weldchat/lib/draft-utils';
+import { dmDisplayName, hasDraftContent, type DmChannelLike } from '@/app/weldchat/lib/draft-utils';
 
 // ============================================================================
 // Response shapes (app-api envelopes)
@@ -117,25 +117,37 @@ export function useChatDrafts() {
       const client = await getClient();
       // app-api returns raw rows without the channelName join the old
       // core-api list had — enrich from the channel directory (public
-      // channels + every channel the caller is a member of).
-      const [draftsRes, channelsRes] = await Promise.all([
+      // channels + every channel the caller is a member of). The directory
+      // lists DMs as ordinary channels, so the DM list says which ones are
+      // DMs and who they are with; without it a DM draft still lists, as a
+      // channel.
+      const [draftsRes, channelsRes, dmsRes] = await Promise.all([
         client.get<ListEnvelope<ChatDraftRow>>('/chat-drafts?limit=100'),
         client.get<{ data: DirectoryChannelItem[] }>('/chat-directories/channels'),
+        client.get<{ data: DmChannelLike[] }>('/chat-dm').catch(() => ({ data: [] as DmChannelLike[] })),
       ]);
       const nameById = new Map((channelsRes.data ?? []).map((ch) => [ch.id, ch.name]));
+      const dmNameById = new Map((dmsRes.data ?? []).map((dm) => [dm.id, dmDisplayName(dm)]));
       // An emptied draft row is not left-behind work: keep it out of the Drafts
       // page and the sidebar badge.
       const data: DraftItem[] = (draftsRes.data ?? [])
         .filter(hasDraftContent)
-        .map((row) => ({
-          id: row.id,
-          channelId: row.channelId ?? null,
-          threadParentMessageId: row.threadParentMessageId ?? null,
-          content: row.content,
-          attachments: row.attachments ?? null,
-          channelName: (row.channelId ? nameById.get(row.channelId) : null) ?? null,
-          updatedAt: row.updatedAt,
-        }));
+        .map((row) => {
+          const isDirectMessage = !!row.channelId && dmNameById.has(row.channelId);
+          const channelName = isDirectMessage
+            ? dmNameById.get(row.channelId as string)
+            : row.channelId && nameById.get(row.channelId);
+          return {
+            id: row.id,
+            channelId: row.channelId ?? null,
+            threadParentMessageId: row.threadParentMessageId ?? null,
+            content: row.content,
+            attachments: row.attachments ?? null,
+            channelName: channelName || null,
+            isDirectMessage,
+            updatedAt: row.updatedAt,
+          };
+        });
       return { data };
     },
   });

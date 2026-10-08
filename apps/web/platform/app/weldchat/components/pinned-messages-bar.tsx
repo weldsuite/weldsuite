@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pin, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
-import { usePinnedMessages, useUnpinMessage } from '@/hooks/queries/use-weldchat-queries';
+import { usePinnedMessages, useUnpinMessage, useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
+import { messagePreviewText } from '../lib/render-message-content';
 
 interface PinnedMessagesBarProps {
   channelId: string;
@@ -15,6 +16,14 @@ export function PinnedMessagesBar({ channelId }: Readonly<PinnedMessagesBarProps
   const { data } = usePinnedMessages(channelId);
   const { mutate: unpinMessage } = useUnpinMessage();
   const [activeIndex, setActiveIndex] = useState(0);
+  const { data: membersData } = useWorkspaceMembers();
+  const memberNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of membersData?.data ?? []) {
+      if (m.userId && m.name) map.set(m.userId, m.name);
+    }
+    return map;
+  }, [membersData]);
 
   const pinnedMessages: ChatMessage[] = data?.data ?? [];
   if (pinnedMessages.length === 0) return null;
@@ -88,7 +97,9 @@ export function PinnedMessagesBar({ channelId }: Readonly<PinnedMessagesBarProps
 
         {/* Message content */}
         <span className="block flex-1 min-w-0">
-          <span className="text-sm text-foreground truncate">{currentMessage.content}</span>
+          <span className="block text-sm text-foreground truncate">
+            {messagePreviewText(currentMessage.content ?? '', memberNames)}
+          </span>
         </span>
       </button>
 

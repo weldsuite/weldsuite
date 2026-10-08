@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { describeGuestAddFailure } from './index';
+import { clerkCapWithRoomForOne, describeGuestAddFailure } from './index';
 
 describe('describeGuestAddFailure', () => {
   it('maps the membership quota to forbidden with a member-limit message', () => {
@@ -52,5 +52,24 @@ describe('describeGuestAddFailure', () => {
       kind: 'internal',
       message: 'Failed to add guest to Clerk organization',
     });
+  });
+});
+
+describe('clerkCapWithRoomForOne', () => {
+  it('leaves an organization without a cap alone', () => {
+    expect(clerkCapWithRoomForOne(null, 5)).toBeNull();
+    expect(clerkCapWithRoomForOne(0, 5)).toBeNull();
+  });
+
+  it('leaves the cap alone while there is room', () => {
+    expect(clerkCapWithRoomForOne(10, 9)).toBeNull();
+  });
+
+  it('raises a full cap by one, so a guest fits on a one-seat plan', () => {
+    expect(clerkCapWithRoomForOne(1, 1)).toBe(2);
+  });
+
+  it('raises a cap that is already exceeded to one above what is in use', () => {
+    expect(clerkCapWithRoomForOne(1, 3)).toBe(4);
   });
 });

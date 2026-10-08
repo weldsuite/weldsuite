@@ -40,6 +40,9 @@ export interface DraftItem {
   threadParentMessageId: string | null;
   content: string;
   attachments: ChatAttachmentInput[] | null;
+  /** Channel name, or for a DM the name(s) of the other people in it. */
   channelName: string | null;
+  /** True when the draft belongs to a direct message (1:1, group or with yourself). */
+  isDirectMessage?: boolean;
   updatedAt: string;
 }

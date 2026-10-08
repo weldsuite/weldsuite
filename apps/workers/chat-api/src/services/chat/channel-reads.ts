@@ -24,6 +24,11 @@ export interface MarkReadResult {
   channelId: string;
   lastReadAt: Date;
   lastReadMessageId: string | null;
+  /**
+   * Where the caller had read up to before this call (null when they never
+   * had). The client opening a channel uses it to mark where new messages start.
+   */
+  previousLastReadAt?: Date | null;
 }
 
 /**
@@ -55,6 +60,12 @@ export async function markChannelRead(
   const now = new Date();
   const latestMessageId = allMessages[0]?.id ?? null;
 
+  const [member] = await db
+    .select({ lastReadAt: chatChannelMembers.lastReadAt })
+    .from(chatChannelMembers)
+    .where(and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, userId)))
+    .limit(1);
+
   if (unread.length > 0) {
     const values = unread.map((msg) => ({
       id: generateId('cmr'),
@@ -73,7 +84,12 @@ export async function markChannelRead(
     .set({ lastReadAt: now, lastReadMessageId: latestMessageId, unreadMentionCount: 0 })
     .where(and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, userId)));
 
-  return { channelId, lastReadAt: now, lastReadMessageId: latestMessageId };
+  return {
+    channelId,
+    lastReadAt: now,
+    lastReadMessageId: latestMessageId,
+    previousLastReadAt: member?.lastReadAt ?? null,
+  };
 }
 
 /**

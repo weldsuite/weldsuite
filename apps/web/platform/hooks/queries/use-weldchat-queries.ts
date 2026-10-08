@@ -517,13 +517,22 @@ export function useReadReceipts(channelId: string) {
   });
 }
 
+/** `POST /channels/:id/read` answer. */
+export interface MarkChannelReadResult {
+  channelId: string;
+  lastReadAt: string;
+  lastReadMessageId: string | null;
+  /** Where the caller had read up to before this call; null if never. */
+  previousLastReadAt?: string | null;
+}
+
 export function useMarkChannelAsRead() {
   const queryClient = useQueryClient();
   const { getClient } = useAppApiClient();
   return useMutation({
     mutationFn: async (channelId: string) => {
       const client = await getClient();
-      return client.post<unknown>(`/channels/${channelId}/read`);
+      return client.post<{ data: MarkChannelReadResult }>(`/channels/${channelId}/read`);
     },
     onSuccess: (_data, channelId) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });

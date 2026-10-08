@@ -464,9 +464,7 @@ export const sweep = {
       "download": "Downloaden"
     },
     "forwardMessage": {
-      "couldNotOpenDm": "Kon geen direct bericht openen met {name}",
-      "scheduleOpenTabNote": "Geplande berichten worden alleen verstuurd zolang WeldSuite open blijft in dit tabblad. Je kunt maximaal {days} dagen vooruit plannen.",
-      "scheduleTooFar": "Kies een tijdstip binnen de komende {days} dagen"
+      "couldNotOpenDm": "Kon geen direct bericht openen met {name}"
     },
     "groupConversation": {
       "defaultName": "Groepschat"

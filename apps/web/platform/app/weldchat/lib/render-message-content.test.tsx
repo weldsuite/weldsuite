@@ -8,7 +8,7 @@ vi.mock('../components/entity-mention-chip', () => ({
   ),
 }));
 
-import { MAX_EMPHASIS_CHARS, renderMessageContent } from './render-message-content';
+import { MAX_EMPHASIS_CHARS, messagePreviewText, renderMessageContent } from './render-message-content';
 
 const html = (text: string, members?: Map<string, string>) =>
   renderToStaticMarkup(<>{renderMessageContent(text, members)}</>);
@@ -262,5 +262,32 @@ describe('renderMessageContent', () => {
     it('does not go quadratic on a long run of closing brackets in a URL', () => {
       expect(time('https://example.com/' + ')'.repeat(2000))).toBeLessThan(budgetMs);
     });
+  });
+});
+
+describe('messagePreviewText', () => {
+  const members = new Map([['user_1', 'Ann Lee']]);
+
+  it('names mentions and record chips instead of printing their tokens', () => {
+    expect(
+      messagePreviewText('hey <@user_1> see <@task:task_9|Design homepage mockup> and <@user_2:Bob>', members),
+    ).toBe('hey @Ann Lee see @Design homepage mockup and @Bob');
+  });
+
+  it('drops formatting markers by the message-body rules', () => {
+    expect(messagePreviewText('***both*** **bold** _it_ ~~gone~~ `code`')).toBe('both bold it gone code');
+    expect(messagePreviewText('plain 2 * 3 * 4 and __init__')).toBe('plain 2 * 3 * 4 and __init__');
+  });
+
+  it('keeps unmatched markers and URLs as typed', () => {
+    expect(messagePreviewText('a **b https://example.com/x_y')).toBe('a **b https://example.com/x_y');
+  });
+
+  it('collapses line breaks into one line', () => {
+    expect(messagePreviewText('first line\n\n  second <@user_1>', members)).toBe('first line second @Ann Lee');
+  });
+
+  it('returns an empty string for an empty body', () => {
+    expect(messagePreviewText('')).toBe('');
   });
 });
