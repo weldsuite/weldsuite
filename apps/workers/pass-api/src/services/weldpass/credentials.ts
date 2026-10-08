@@ -47,7 +47,7 @@ const summaryColumns = {
   updatedAt: t.updatedAt,
 };
 
-export async function listCredentials(
+export function listCredentials(
   db: Database,
   projectId: string,
 ): Promise<CredentialSummary[]> {

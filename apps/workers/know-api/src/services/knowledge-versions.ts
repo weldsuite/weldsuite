@@ -17,7 +17,7 @@ export type PageBlocks = Record<string, unknown>[];
 /** Minimum gap between automatic snapshots for the same page. */
 const AUTO_SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
-export async function listPageVersions(db: Database, pageId: string) {
+export function listPageVersions(db: Database, pageId: string) {
   return db
     .select({
       id: knowledgePageVersions.id,

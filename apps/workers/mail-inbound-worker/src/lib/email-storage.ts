@@ -190,7 +190,7 @@ export function collectRecipientEmails(email: ParsedEmail): string[] {
 type MasterDb = ReturnType<typeof getMasterDb>;
 
 /** Active mail-account registry rows for the given (lower-cased) addresses. */
-async function selectRegistryRows(masterDb: MasterDb, emails: string[]) {
+function selectRegistryRows(masterDb: MasterDb, emails: string[]) {
   return masterDb
     .select({
       email: masterSchema.mailAccountRegistry.email,

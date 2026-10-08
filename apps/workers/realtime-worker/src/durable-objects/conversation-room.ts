@@ -39,7 +39,7 @@ export class ConversationRoom extends DurableObject<Env> {
 
   // ---- WebSocket Hibernation API ----
 
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     const raw = typeof message === 'string' ? message : new TextDecoder().decode(message);
 
     let msg: { type: string; [key: string]: unknown };
@@ -135,7 +135,7 @@ export class ConversationRoom extends DurableObject<Env> {
     }
   }
 
-  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
     const tags = this.ctx.getTags(ws);
     const userId = this.getTag(tags, 'user:');
 
@@ -153,7 +153,7 @@ export class ConversationRoom extends DurableObject<Env> {
     ws.close(code, reason);
   }
 
-  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+  webSocketError(ws: WebSocket, error: unknown): void {
     console.error('[ConversationRoom] WebSocket error:', error);
     const tags = this.ctx.getTags(ws);
     const userId = this.getTag(tags, 'user:');

@@ -15,7 +15,7 @@ const { documentVersions } = schema;
 /** Minimum gap between automatic snapshots for the same document. */
 const AUTO_SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
-export async function listVersions(db: Database, fileId: string) {
+export function listVersions(db: Database, fileId: string) {
   return db
     .select({
       id: documentVersions.id,

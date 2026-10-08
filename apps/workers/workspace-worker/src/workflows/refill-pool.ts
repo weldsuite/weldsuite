@@ -590,7 +590,7 @@ export class RefillPoolWorkflow extends WorkflowEntrypoint<Env, RefillPoolParams
   ): Promise<{ caughtUp: number; staleFound: number }> {
     const stale = await step.do('find-stale-slots', {
       retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
-    }, async () => {
+    }, () => {
       const masterDb = getMasterDb(this.env);
       return masterDb
         .select({ id: databasePool.id, databaseUrl: databasePool.databaseUrl })

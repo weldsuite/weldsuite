@@ -80,7 +80,7 @@ function locationOf(secret: {
   };
 }
 
-export async function listSecrets(
+export function listSecrets(
   db: Database,
   environmentId: string,
 ): Promise<SecretSummary[]> {
@@ -358,7 +358,7 @@ export async function deleteSecret(
 // History
 // ---------------------------------------------------------------------------
 
-export async function listVersions(
+export function listVersions(
   db: Database,
   secretId: string,
   limit = 50,

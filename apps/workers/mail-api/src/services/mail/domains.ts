@@ -58,7 +58,7 @@ export interface ListDomainsFilters {
   isPrimary?: boolean;
 }
 
-export async function listDomains(db: Database, filters: ListDomainsFilters) {
+export function listDomains(db: Database, filters: ListDomainsFilters) {
   const conditions: SQL[] = [isNull(mailDomains.deletedAt)!];
   if (filters.isActive !== undefined) conditions.push(eq(mailDomains.isActive, filters.isActive));
   if (filters.isPrimary !== undefined) conditions.push(eq(mailDomains.isPrimary, filters.isPrimary));

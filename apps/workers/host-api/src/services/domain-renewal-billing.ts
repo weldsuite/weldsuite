@@ -98,7 +98,7 @@ export function isDueForStripeAutoRenew(
   return expires >= windowStart && expires <= windowEnd;
 }
 
-export async function listDomainsDueForAutoRenew(
+export function listDomainsDueForAutoRenew(
   db: Database,
   now: Date,
   windowDays = DOMAIN_AUTO_RENEW_WINDOW_DAYS,

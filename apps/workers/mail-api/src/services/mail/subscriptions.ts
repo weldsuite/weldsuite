@@ -33,7 +33,7 @@ export const SCAN_MESSAGE_LIMIT = 2000;
 /** Only the header block is needed — never pull whole raw bodies. */
 export const RAW_HEADER_BYTES = 32_000;
 
-export async function listSubscriptions(
+export function listSubscriptions(
   db: Database,
   input: { accountId: string; status?: 'active' | 'unsubscribed' },
 ): Promise<MailSubscriptionRow[]> {
