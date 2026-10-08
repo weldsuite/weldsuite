@@ -248,6 +248,11 @@ export interface HrShift {
   companyName: string | null;
   startsAt: string;
   endsAt: string;
+  /** What the employee is scheduled to do, e.g. "Cashier". */
+  workType: string | null;
+  /** Unpaid break inside the shift; both set or both null. */
+  breakStartsAt: string | null;
+  breakEndsAt: string | null;
   notes: string | null;
 }
 

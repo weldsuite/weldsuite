@@ -82,18 +82,52 @@ function assertShiftWindow(startsAt: Date, endsAt: Date) {
   }
 }
 
+/** A break is optional, but when set it has both ends and sits inside the shift. */
+function assertShiftBreak(startsAt: Date, endsAt: Date, breakStartsAt: Date | null, breakEndsAt: Date | null) {
+  if (!breakStartsAt && !breakEndsAt) return;
+  if (!breakStartsAt || !breakEndsAt) throw new HrValidationError('A break needs both a start and an end time');
+  if (breakEndsAt <= breakStartsAt) throw new HrValidationError('A break must end after it starts');
+  if (breakStartsAt < startsAt || breakEndsAt > endsAt) throw new HrValidationError('A break must fall inside the shift');
+}
+
+/** `undefined` keeps what is stored, `null` clears it. */
+function resolveInstant(input: string | null | undefined, existing: Date | null): Date | null {
+  if (input === undefined) return existing;
+  return input ? new Date(input) : null;
+}
+
+interface ShiftDetailsInput {
+  companyId?: string | null;
+  workType?: string | null;
+  breakStartsAt?: string | null;
+  breakEndsAt?: string | null;
+  notes?: string | null;
+}
+
 export async function createShift(
   db: Database,
-  input: { employeeId: string; companyId?: string | null; startsAt: string; endsAt: string; notes?: string | null },
+  input: ShiftDetailsInput & { employeeId: string; startsAt: string; endsAt: string },
   createdBy: string,
 ) {
   await requireEmployee(db, input.employeeId);
   const startsAt = new Date(input.startsAt);
   const endsAt = new Date(input.endsAt);
   assertShiftWindow(startsAt, endsAt);
+  const breakStartsAt = resolveInstant(input.breakStartsAt, null);
+  const breakEndsAt = resolveInstant(input.breakEndsAt, null);
+  assertShiftBreak(startsAt, endsAt, breakStartsAt, breakEndsAt);
   const [row] = await db
     .insert(sh)
-    .values({ id: generateId('hrshf'), ...input, startsAt, endsAt, createdBy })
+    .values({
+      id: generateId('hrshf'),
+      ...input,
+      workType: input.workType?.trim() || null,
+      startsAt,
+      endsAt,
+      breakStartsAt,
+      breakEndsAt,
+      createdBy,
+    })
     .returning();
   return row!;
 }
@@ -101,15 +135,27 @@ export async function createShift(
 export async function updateShift(
   db: Database,
   id: string,
-  input: { companyId?: string | null; startsAt?: string; endsAt?: string; notes?: string | null },
+  input: ShiftDetailsInput & { startsAt?: string; endsAt?: string },
 ) {
   const existing = await requireShift(db, id);
   const startsAt = input.startsAt ? new Date(input.startsAt) : existing.startsAt;
   const endsAt = input.endsAt ? new Date(input.endsAt) : existing.endsAt;
   assertShiftWindow(startsAt, endsAt);
+  const breakStartsAt = resolveInstant(input.breakStartsAt, existing.breakStartsAt);
+  const breakEndsAt = resolveInstant(input.breakEndsAt, existing.breakEndsAt);
+  assertShiftBreak(startsAt, endsAt, breakStartsAt, breakEndsAt);
   const [row] = await db
     .update(sh)
-    .set({ companyId: input.companyId, notes: input.notes, startsAt, endsAt, updatedAt: new Date() })
+    .set({
+      companyId: input.companyId,
+      workType: input.workType === undefined ? undefined : input.workType?.trim() || null,
+      notes: input.notes,
+      startsAt,
+      endsAt,
+      breakStartsAt,
+      breakEndsAt,
+      updatedAt: new Date(),
+    })
     .where(eq(sh.id, id))
     .returning();
   return row!;
