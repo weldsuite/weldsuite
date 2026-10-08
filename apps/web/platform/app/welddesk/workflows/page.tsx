@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { PageLoader } from '@/components/page-loader';
-import { useHelpdeskWorkflows, useHelpdeskWorkflowStats, useCreateWorkflow, type Workflow } from '@/hooks/queries/use-automation-queries';
+import { useHelpdeskWorkflows, useCreateWorkflow, type Workflow } from '@/hooks/queries/use-automation-queries';
 import { WorkflowsClient } from '@/app/weldconnect/workflows/components/workflows-client';
 import { WorkflowTemplatesDialog } from '@/app/welddesk/workflows/components/workflow-templates-dialog';
 import { HELPDESK_ROUTING_TRIGGERS, TRIGGER_CATEGORIES } from '@/app/welddesk/workflows/[id]/edit/helpdesk-workflow-constants';
@@ -70,7 +70,6 @@ export default function HelpdeskAutomationsPage() {
   const navigate = useNavigate();
   const { getClient } = useAppApiClient();
   const { data: workflowsResult, isLoading: isWorkflowsLoading, refetch: refetchWorkflows } = useHelpdeskWorkflows();
-  const { data: statsResult, isLoading: isStatsLoading } = useHelpdeskWorkflowStats();
   const createMutation = useCreateWorkflow('/helpdesk-workflows');
 
   const handleSeedDefaults = async () => {
@@ -109,7 +108,6 @@ export default function HelpdeskAutomationsPage() {
   };
 
   const workflows = useMemo(() => (workflowsResult?.data ?? []) as HelpdeskWorkflowRow[], [workflowsResult?.data]);
-  const stats = statsResult?.data;
 
   // Map workflows to client format, using the composite trigger key as triggerType
   // so the shared WorkflowsClient can display it and the group configs can filter on it.
@@ -197,17 +195,9 @@ export default function HelpdeskAutomationsPage() {
     })),
   []);
 
-  if (isWorkflowsLoading || isStatsLoading) {
+  if (isWorkflowsLoading) {
     return <PageLoader fullScreen={false} />;
   }
-
-  // Calculate stats
-  const initialStats = {
-    active: workflows.filter((w) => w.status === 'active').length,
-    paused: workflows.filter((w) => w.status === 'paused').length,
-    draft: workflows.filter((w) => w.status === 'draft').length,
-    totalExecutions: stats?.totalExecutions || 0,
-  };
 
   const handleCreateFromTemplate = (template: { name: string; description: string; triggers: WorkflowTrigger[]; steps: WorkflowStep[] }) => {
     setShowTemplates(false);
@@ -239,7 +229,6 @@ export default function HelpdeskAutomationsPage() {
     <>
       <WorkflowsClient
         initialWorkflows={mappedWorkflows}
-        initialStats={initialStats}
         category="workflow"
         basePath="/welddesk/workflows"
         apiBasePath="/helpdesk-workflows"

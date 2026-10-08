@@ -22,11 +22,6 @@ interface ChangelogClientProps {
   params: Record<string, string>;
   statusFilters: StatusFilter[];
   additionalFilters: FilterOption[];
-  counts: {
-    total: number;
-    published: number;
-    draft: number;
-  };
 }
 
 export function ChangelogClient({
@@ -35,8 +30,6 @@ export function ChangelogClient({
   params,
   statusFilters,
   additionalFilters,
-  // `counts` (total/published/draft) surfaces via statusFilters; it stays in
-  // the props for a future summary UI.
 }: Readonly<ChangelogClientProps>) {
   const { t } = useI18n();
   const tc = t.helpdesk.changelog;

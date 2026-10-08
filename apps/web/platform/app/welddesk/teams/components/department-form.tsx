@@ -241,7 +241,6 @@ export function DepartmentForm({ department, mode }: Readonly<DepartmentFormProp
                 {days.map((day) => (
                   <DayScheduleRow
                     key={day}
-                    day={day}
                     label={dayLabels[day]}
                     isOpen={businessHours[day]?.isOpen ?? false}
                     openTime={businessHours[day]?.openTime}

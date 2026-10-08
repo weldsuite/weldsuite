@@ -19,7 +19,6 @@ import { subtleScrollbarStyles, subtleScrollbarCSS } from './scrollbar-styles';
 
 interface ZapietHomeViewProps {
   onClose: () => void;
-  onBack?: () => void;
   onOpenChat?: () => void;
   onOpenMessages?: () => void;
   onOpenStatus?: () => void;

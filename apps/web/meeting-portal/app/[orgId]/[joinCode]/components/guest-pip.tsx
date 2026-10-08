@@ -25,7 +25,6 @@ export interface PiPFocused {
 
 interface GuestPiPOptions {
   focused: PiPFocused;
-  meetingTitle: string;
   isMuted: boolean;
   isVideoOff: boolean;
   onToggleMute: () => void;

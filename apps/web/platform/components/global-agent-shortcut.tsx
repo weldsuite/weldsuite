@@ -104,10 +104,8 @@ export function GlobalAgentShortcut() {
       <WeldAgentPanel
         isOpen={showWeldAgent}
         onClose={() => setShowWeldAgent(false)}
-        moduleKey="general"
         entityContext={weldAgentContext?.entityContext ?? undefined}
         width={weldAgentWidth}
-        onWidthChange={setWeldAgentWidth}
         disableAnimation={weldAgentSkipAnimation}
         forceNewConversation={forceNewConversation}
         onNewConversationCreated={handleNewConversationCreated}

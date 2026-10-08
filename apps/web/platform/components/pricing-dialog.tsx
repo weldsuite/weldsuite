@@ -100,7 +100,6 @@ interface PricingDialogProps {
   onPlanChanged?: () => void;
   excludePlans?: string[];
   highlightPlan?: string;
-  hideHeaderBar?: boolean;
   featureHighlight?: {
     feature: string;
     description: string;

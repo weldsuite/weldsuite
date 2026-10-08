@@ -28,7 +28,6 @@ import { useTranslations } from '@weldsuite/i18n/client';
 interface MeetingIntelligenceHeaderProps {
   call: MeetingIntelligenceCall;
   mediaType?: 'video' | 'audio' | 'none';
-  videoDuration?: number;
   isTranscribing: boolean;
   hasTranscription: boolean;
   isLoadingTranscription: boolean;

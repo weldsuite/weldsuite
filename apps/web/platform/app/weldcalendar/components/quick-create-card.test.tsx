@@ -61,7 +61,6 @@ function renderCard(props: Partial<React.ComponentProps<typeof QuickCreateCard>>
       calendars={calendars}
       defaultCalendarId="cal_1"
       onClose={onClose}
-      onMoreOptions={vi.fn()}
       {...props}
     />,
   );
@@ -435,7 +434,6 @@ describe('QuickCreateCard date picker', () => {
             calendars={calendars}
             defaultCalendarId="cal_1"
             onClose={vi.fn()}
-            onMoreOptions={vi.fn()}
           />
         </div>
       </div>

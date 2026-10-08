@@ -1,6 +1,6 @@
 
 import { PageLoader } from '@/components/page-loader';
-import { useWorkflows, useWorkflowStats, type Workflow } from '@/hooks/queries/use-automation-queries';
+import { useWorkflows, type Workflow } from '@/hooks/queries/use-automation-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { WorkflowsClient } from './components/workflows-client';
 import { SEQUENCE_WORKFLOW_TAG } from '../mvp';
@@ -18,14 +18,12 @@ export default function WorkflowsPage() {
     excludeTags: SEQUENCE_WORKFLOW_TAG,
     limit: 100,
   });
-  const { data: statsResult, isLoading: isStatsLoading } = useWorkflowStats();
 
-  if (isWorkflowsLoading || isStatsLoading) {
+  if (isWorkflowsLoading) {
     return <PageLoader fullScreen={false} />;
   }
 
   const workflows = workflowsResult?.data ?? [];
-  const stats = statsResult?.data;
 
   // Map workflows to client format
   const mappedWorkflows = workflows.map((w: Workflow) => ({
@@ -44,18 +42,9 @@ export default function WorkflowsPage() {
     updatedAt: w.updatedAt ? new Date(w.updatedAt) : null,
   }));
 
-  // Calculate stats
-  const initialStats = {
-    active: workflows.filter((w: Workflow) => w.status === 'active').length,
-    paused: workflows.filter((w: Workflow) => w.status === 'paused').length,
-    draft: workflows.filter((w: Workflow) => w.status === 'draft').length,
-    totalExecutions: stats?.totalExecutions || 0,
-  };
-
   return (
     <WorkflowsClient
       initialWorkflows={mappedWorkflows}
-      initialStats={initialStats}
       category="workflow"
       entityLabel={t.weldconnect.workflows.workflow}
       entityLabelPlural={t.weldconnect.workflows.title}

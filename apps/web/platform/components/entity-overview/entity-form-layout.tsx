@@ -64,8 +64,10 @@ export interface EntityFormLayoutProps {
 
 export function EntityFormLayout({
   title,
+  subtitle,
   sections,
   summaryTitle,
+  summaryIcon: SummaryIcon,
   summaryFields,
   summaryContent,
   onSubmit,
@@ -125,6 +127,9 @@ export function EntityFormLayout({
               {backButton}
             </div>
             <h2 className="text-2xl font-semibold">{title}</h2>
+            {subtitle && (
+              <p className="text-sm text-muted-foreground -mt-2">{subtitle}</p>
+            )}
             {sections.map((section) => (
               <div
                 key={section.title}
@@ -150,7 +155,8 @@ export function EntityFormLayout({
           {/* Right Column - Summary */}
           <div className="space-y-6 mt-[84px]">
             <div className="sticky top-20 bg-background p-6 rounded-lg border border-border">
-              <div className="mb-4">
+              <div className="mb-4 flex items-center gap-2">
+                <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
                 <h3 className="text-base font-semibold">
                   {summaryTitle}
                 </h3>

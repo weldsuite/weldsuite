@@ -110,7 +110,6 @@ export function DealsSection({ opportunities, totalCount, customer }: Readonly<D
       onOpenChange={setCreateDealOpen}
       stages={dealStages.map((s) => ({ id: s.id, name: s.name, color: s.color || undefined }))}
       selectedStageId={firstOpenStage.id}
-      customers={[]}
       onSubmit={handleCreateDeal}
       lockedCustomer={lockedCustomer}
     />

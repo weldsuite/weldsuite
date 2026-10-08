@@ -156,13 +156,11 @@ interface RawStage {
 interface PipelineKanbanProps {
   initialDeals?: Deal[];
   initialStages?: RawStage[];
-  workspaceId: string;
   customers?: PipelineCustomerLike[];
   contacts?: Person[];
   onDealMove?: (dealId: string, fromStage: string, toStage: string) => void;
   onDealCreate?: (data: Record<string, unknown>) => Promise<void>;
   pipelineId?: string;
-  pipelineName?: string;
   initialSettings?: PipelineViewSettings;
   lockedCustomer?: { id: string; name: string };
   hideHeader?: boolean;
@@ -1284,7 +1282,6 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
           onOpenChange={setShowDealDetails}
           stages={stages.map(s => ({ id: s.id, name: s.name, color: s.color }))}
           selectedStageId={selectedStageForNewDeal}
-          customers={customers}
           onSubmit={handleCreateDeal}
           lockedCustomer={lockedCustomer}
         />
