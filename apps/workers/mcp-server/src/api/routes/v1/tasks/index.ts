@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { and, eq, gte, isNull, like, lte, or, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { softDeleteTaskTree } from '@weldsuite/flow-domain/task-tree';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
@@ -144,22 +145,22 @@ app.patch('/:id', requireScope('tasks:write'), zValidator('json', updateTaskSche
   return success(c, row);
 });
 
+// Takes the subtask tree, calendar slots and dependency links with it, the
+// same as flow-api's DELETE /api/tasks/:id.
 app.delete('/:id', requireScope('tasks:write'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const [row] = await db
-    .update(table)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .returning();
-  if (!row) return error.notFound(c, 'Task', id);
-  publishEntityEvent({
-    c,
-    entityType: 'project_task',
-    entityId: id,
-    action: 'deleted',
-    data: { id, projectId: row.projectId, title: row.title },
-  });
+  const removed = await softDeleteTaskTree(db, id);
+  if (!removed) return error.notFound(c, 'Task', id);
+  for (const row of removed) {
+    publishEntityEvent({
+      c,
+      entityType: 'project_task',
+      entityId: row.id,
+      action: 'deleted',
+      data: { id: row.id, projectId: row.projectId, title: row.title },
+    });
+  }
   return noContent(c);
 });
 

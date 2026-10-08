@@ -37,7 +37,6 @@ import {
   rescheduleCalendarEvent,
   cancelCalendarEvent,
   confirmCalendarEvent,
-  deleteCalendarEvent,
   fetchTaskScheduledSlots,
 } from '@weldsuite/db/lib/calendar-sync';
 import { createTaskSchema, updateTaskSchema, moveTaskSchema } from '@weldsuite/app-api-client/schemas/tasks';
@@ -62,12 +61,7 @@ import {
 } from '../../lib/project-access';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
 import { createTask } from '@weldsuite/flow-domain/tasks';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const MAX_SUBTASK_DEPTH = 10;
+import { MAX_SUBTASK_DEPTH, softDeleteTaskTree } from '@weldsuite/flow-domain/task-tree';
 
 // ============================================================================
 // Filter helpers (ported from api-worker tasks.ts)
@@ -2479,7 +2473,7 @@ app.patch(
 
 // ============================================================================
 // DELETE /:id — Soft delete the task and its subtask tree, with calendar event
-// cleanup + dependency pruning
+// cleanup + dependency pruning (softDeleteTaskTree)
 // ============================================================================
 
 app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
@@ -2489,84 +2483,10 @@ app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
   if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
   if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
   try {
-    const [existing] = await db
-      .select()
-      .from(t)
-      .where(and(eq(t.id, id), isNull(t.deletedAt)))
-      .limit(1);
-    if (!existing) return error.notFound(c, 'Task', id);
-
-    // Gather the full descendant subtree (BFS over parentTaskId, bounded by
-    // MAX_SUBTASK_DEPTH). Project views only list a subtask under its parent,
-    // so a subtask left behind would vanish there yet stay live in My Tasks,
-    // digests and counts.
-    const removed = [
-      { id, projectId: existing.projectId, title: existing.title, calendarEventId: existing.calendarEventId },
-    ];
-    const removedIdSet = new Set([id]);
-    let frontier = [id];
-    for (let depth = 0; depth < MAX_SUBTASK_DEPTH && frontier.length > 0; depth++) {
-      const children = await db
-        .select({ id: t.id, projectId: t.projectId, title: t.title, calendarEventId: t.calendarEventId })
-        .from(t)
-        .where(and(inArray(t.parentTaskId, frontier), isNull(t.deletedAt)));
-      const fresh = children.filter((row) => !removedIdSet.has(row.id));
-      if (fresh.length === 0) break;
-      for (const row of fresh) removedIdSet.add(row.id);
-      removed.push(...fresh);
-      frontier = fresh.map((row) => row.id);
-    }
-    const removedIds = [...removedIdSet];
-
-    // Tasks outside the deleted tree that still point at it through dependsOn /
-    // blocks. Workspace-wide: a dependency can cross projects.
-    const removedIdArray = sql`array[${sql.join(
-      removedIds.map((rid) => sql`${rid}`),
-      sql`, `,
-    )}]::text[]`;
-    const dependentTasks = await db
-      .select({ id: t.id, dependsOn: t.dependsOn, blocks: t.blocks })
-      .from(t)
-      .where(
-        and(
-          isNull(t.deletedAt),
-          or(
-            sql`${t.dependsOn}::jsonb ?| ${removedIdArray}`,
-            sql`${t.blocks}::jsonb ?| ${removedIdArray}`,
-          ),
-        ),
-      );
-
-    const now = new Date();
-    await atomically(db, (handle) => [
-      handle
-        .update(t)
-        .set({ deletedAt: now, updatedAt: now })
-        .where(and(inArray(t.id, removedIds), isNull(t.deletedAt))),
-      ...dependentTasks
-        .filter((dep) => !removedIdSet.has(dep.id))
-        .map((dep) =>
-          handle
-            .update(t)
-            .set({
-              dependsOn: ((dep.dependsOn as string[]) || []).filter((did) => !removedIdSet.has(did)),
-              blocks: ((dep.blocks as string[]) || []).filter((bid) => !removedIdSet.has(bid)),
-              updatedAt: now,
-            })
-            .where(eq(t.id, dep.id)),
-        ),
-    ]);
+    const removed = await softDeleteTaskTree(db, id);
+    if (!removed) return error.notFound(c, 'Task', id);
 
     for (const row of removed) {
-      // Delete linked calendar event
-      if (row.calendarEventId) {
-        c.executionCtx.waitUntil(
-          deleteCalendarEvent(db, row.calendarEventId).catch((err) =>
-            console.error('[app-api/tasks] calendar event delete failed:', err),
-          ),
-        );
-      }
-
       publishEntityEvent({
         c,
         entityType: 'project_task',

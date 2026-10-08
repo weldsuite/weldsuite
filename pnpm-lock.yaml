@@ -4953,6 +4953,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/flow-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/flow
       '@weldsuite/know-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/know
@@ -5576,6 +5579,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/flow-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/flow
       '@weldsuite/know-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/know

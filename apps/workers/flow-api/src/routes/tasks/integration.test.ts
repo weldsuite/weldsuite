@@ -924,6 +924,38 @@ describe('DELETE /api/tasks/:id · subtask tree + dependencies · pglite integra
     expect(other?.blocks).toEqual([]);
   });
 
+  it('drops the calendar slot of every removed task, and no other', async () => {
+    const seedSlot = (id: string) =>
+      db.insert(schema.calendarEvents).values({
+        id,
+        title: id,
+        type: 'reminder',
+        startTime: now,
+        calendarId: 'cal_del_test',
+        organizerId: 'user_test_default',
+      } as typeof schema.calendarEvents.$inferInsert);
+    const slot = async (id: string) => {
+      const [found] = await db
+        .select()
+        .from(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.id, id))
+        .limit(1);
+      return found;
+    };
+    await seedSlot('cevt_del_parent');
+    await seedSlot('cevt_del_child');
+    await seedSlot('cevt_del_keep');
+    await seedTask({ id: 'task_cal_parent', calendarEventId: 'cevt_del_parent' });
+    await seedTask({ id: 'task_cal_child', parentTaskId: 'task_cal_parent', calendarEventId: 'cevt_del_child' });
+    await seedTask({ id: 'task_cal_keep', calendarEventId: 'cevt_del_keep' });
+
+    expect((await remove('task_cal_parent')).status).toBe(204);
+
+    expect((await slot('cevt_del_parent'))?.deletedAt).not.toBeNull();
+    expect((await slot('cevt_del_child'))?.deletedAt).not.toBeNull();
+    expect((await slot('cevt_del_keep'))?.deletedAt).toBeNull();
+  });
+
   it('returns 404 for a task that is already deleted', async () => {
     await seedTask({ id: 'task_del_twice', deletedAt: now });
     expect((await remove('task_del_twice')).status).toBe(404);
