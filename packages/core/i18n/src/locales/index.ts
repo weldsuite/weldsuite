@@ -47,6 +47,27 @@ export const stableLanguages = languages.filter(
 // ─────────────────────────────────────────────────────────────────────────
 
 const loadedTranslations: Partial<Record<Language, Translations>> = { en };
+
+type Tree = { [key: string]: unknown };
+
+function isTree(value: unknown): value is Tree {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * A locale bundle with every key it lacks taken from English. nl is complete;
+ * fr and es are partial, and a namespace missing from them would otherwise be
+ * undefined at runtime.
+ */
+export function withEnglishFallback(bundle: unknown, base: unknown = en): unknown {
+  if (!isTree(base)) return bundle === undefined ? base : bundle;
+  if (!isTree(bundle)) return base;
+  const merged: Tree = { ...base };
+  for (const [key, value] of Object.entries(bundle)) {
+    merged[key] = key in base ? withEnglishFallback(value, base[key]) : value;
+  }
+  return merged;
+}
 const inflightLoads: Partial<Record<Language, Promise<Translations>>> = {};
 
 /**
@@ -76,9 +97,10 @@ export function loadLocale(locale: Language): Promise<Translations> {
 
   const loader = localeLoaders[locale];
   const promise = loader().then((bundle) => {
-    loadedTranslations[locale] = bundle as Translations;
+    const complete = (locale === 'en' ? bundle : withEnglishFallback(bundle)) as Translations;
+    loadedTranslations[locale] = complete;
     delete inflightLoads[locale];
-    return bundle as Translations;
+    return complete;
   });
   inflightLoads[locale] = promise;
   return promise;
