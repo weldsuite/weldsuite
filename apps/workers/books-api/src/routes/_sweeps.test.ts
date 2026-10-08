@@ -25,8 +25,11 @@ import { bankAccountsRoutes } from './bank-accounts';
 import { bankDepositsRoutes } from './bank-deposits';
 import { bankReconciliationsRoutes } from './bank-reconciliations';
 import { billsRoutes } from './bills';
+import { form1099FilingsRoutes } from './form-1099/filings';
 import { invoicesRoutes } from './invoices';
+import { paymentRunsRoutes } from './payment-runs';
 import { paymentsRoutes } from './payments';
+import { w9RequestsRoutes } from './w9-requests';
 
 const ROUTES_DIR = __dirname;
 
@@ -46,6 +49,11 @@ const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/bank-deposits', router: bankDepositsRoutes, prefix: 'banking' },
   { mount: '/api/bank-reconciliations', router: bankReconciliationsRoutes, prefix: 'banking' },
   { mount: '/api/payments', router: paymentsRoutes, prefix: 'banking', skipPatch: true },
+  // Runs are planned and edited with banking:create and approved with banking:manage; reads need bills:read.
+  { mount: '/api/payment-runs', router: paymentRunsRoutes, prefix: 'banking' },
+  { mount: '/api/form-1099/filings', router: form1099FilingsRoutes, prefix: 'taxes' },
+  // POST is gated by suppliers:update or taxes:create; a request is cancelled, not patched or deleted.
+  { mount: '/api/w9-requests', router: w9RequestsRoutes, prefix: 'taxes', skipPatch: true, skipDelete: true },
 ];
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
@@ -55,6 +63,9 @@ const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/bank-deposits', router: bankDepositsRoutes, permission: 'banking:read' },
   { mount: '/api/bank-reconciliations', router: bankReconciliationsRoutes, permission: 'banking:read' },
   { mount: '/api/payments', router: paymentsRoutes, permission: 'banking:read' },
+  { mount: '/api/payment-runs', router: paymentRunsRoutes, permission: 'bills:read' },
+  { mount: '/api/form-1099/filings', router: form1099FilingsRoutes, permission: 'taxes:read' },
+  { mount: '/api/w9-requests', router: w9RequestsRoutes, permission: 'taxes:read' },
 ];
 
 describe('entity-event coverage', () => {
