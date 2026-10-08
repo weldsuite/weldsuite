@@ -13,6 +13,20 @@ export interface ChartOfAccountsTemplateRow {
   isSystemAccount?: boolean;
   /** Semantic role so services can look up accounts by purpose rather than hardcoded code. */
   systemRole?: SystemAccountRole;
+  /** Code of the parent row (sub-accounts), e.g. a per-agency Sales Tax Payable child. */
+  parentCode?: string;
+  /** US: default income-tax line (see us/tax-lines.ts), stored on accounts.tax_line. */
+  taxLine?: string;
+  /** US: default 1099 box for payments booked here (nec_1, misc_1, ... or omit). */
+  form1099Box?: string;
+}
+
+/** What the chart template may vary on (US: the equity section differs per entity type). */
+export interface ChartOfAccountsTemplateOptions {
+  /** entities.entity_type */
+  entityType?: string | null;
+  /** entities.tax_classification */
+  taxClassification?: string | null;
 }
 
 export type SystemAccountRole =
@@ -187,6 +201,27 @@ export interface TaxReturnLine {
   /** Purchase tax the buyer accounts for itself (reverse charge, imports). */
   selfAssessed?: boolean;
   jurisdictionMetadata?: Record<string, unknown>;
+
+  // US sales tax detail, from the tax_lines columns of the same name.
+  /** sales tax charged, or use tax accrued on purchases. */
+  kind?: 'sales' | 'use';
+  agencyId?: string | null;
+  stateCode?: string | null;
+  jurisdictionCode?: string | null;
+  jurisdictionName?: string | null;
+  jurisdictionLevel?: string | null;
+  reportingCode?: string | null;
+  rate?: number;
+  grossAmount?: number;
+  exemptAmount?: number;
+  nonTaxableAmount?: number;
+  exemptReason?: string | null;
+  taxCode?: string | null;
+  shipToState?: string | null;
+  marketplaceFacilitated?: boolean;
+  sourceType?: string;
+  sourceId?: string | null;
+  taxDate?: string;
 }
 
 export interface TaxReturnArtifact {
@@ -246,7 +281,7 @@ export interface JurisdictionAdapter {
   readonly features: JurisdictionFeatures;
   readonly terminology: JurisdictionTerminology;
 
-  getChartOfAccountsTemplate(): ChartOfAccountsTemplateRow[];
+  getChartOfAccountsTemplate(opts?: ChartOfAccountsTemplateOptions): ChartOfAccountsTemplateRow[];
 
   getStandardTaxCategories(): TaxCategoryTemplate[];
 
