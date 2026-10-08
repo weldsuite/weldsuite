@@ -16,7 +16,7 @@ export function GlobalFloatingCall() {
   const router = useRouter();
   const pathname = usePathname();
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const activeSegmentRef = useRef<HTMLDivElement>(null);
+  const activeSegmentRef = useRef<HTMLButtonElement>(null);
 
   // Auto-scroll to active segment
   const activeSegmentId = (() => {
@@ -136,8 +136,10 @@ export function GlobalFloatingCall() {
         />
 
         {/* Center play/pause */}
-        <div
-          className="absolute inset-0 z-30 flex items-center justify-center cursor-pointer opacity-0 group-hover/minivid:opacity-100 transition-opacity duration-150"
+        <button
+          type="button"
+          aria-label={t('sweep.weldcrm.videoPlayer.playPause')}
+          className="absolute inset-0 z-30 flex h-full w-full items-center justify-center cursor-pointer opacity-0 group-hover/minivid:opacity-100 focus-visible:opacity-100 transition-opacity duration-150"
           onClick={togglePlayPause}
         >
           <div className="w-10 h-10 rounded-full bg-black/60 flex items-center justify-center border border-white/20">
@@ -147,7 +149,7 @@ export function GlobalFloatingCall() {
               <Play className="h-4 w-4 text-white fill-white ml-0.5" />
             )}
           </div>
-        </div>
+        </button>
 
         {/* Timeline */}
         <div className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/80 to-transparent pt-4 px-2.5 pb-1.5">
@@ -195,7 +197,8 @@ export function GlobalFloatingCall() {
                 const isActive = segment.id === activeSegmentId;
 
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={segment.id}
                     ref={isActive ? activeSegmentRef : undefined}
                     onClick={() => {
@@ -204,7 +207,7 @@ export function GlobalFloatingCall() {
                       }
                     }}
                     className={cn(
-                      "px-2 py-1.5 rounded-md cursor-pointer transition-colors",
+                      "block w-full text-left px-2 py-1.5 rounded-md cursor-pointer transition-colors",
                       isActive
                         ? "bg-blue-50 dark:bg-blue-950/30"
                         : "hover:bg-gray-50 dark:hover:bg-background/50"
@@ -218,7 +221,7 @@ export function GlobalFloatingCall() {
                       <span className="text-[11px] font-mono text-gray-400 ml-auto">{formatTimestamp(segment.start)}</span>
                     </div>
                     <p className="text-[13px] text-gray-600 dark:text-muted-foreground leading-relaxed">{segment.text}</p>
-                  </div>
+                  </button>
                 );
               })
             ) : (
