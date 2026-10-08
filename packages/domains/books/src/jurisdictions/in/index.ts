@@ -184,15 +184,13 @@ export const inAdapter: JurisdictionAdapter = {
 
     if (!meta || slab === '0' || slab === 'exempt' || slab === 'export' || slab === 'rcm') {
       const code = resolved?.taxCategoryCode ?? 'zero';
+      let reasoning = 'GST zero-rated supply';
+      if (code === 'exempt') reasoning = 'GST exempt supply';
+      else if (code === 'reverse_charge') reasoning = 'GST reverse charge — tax not charged on invoice';
       return {
         taxCategoryCode: code,
         rate: resolved?.rate ?? '0.00',
-        reasoning:
-          code === 'exempt'
-            ? 'GST exempt supply'
-            : code === 'reverse_charge'
-              ? 'GST reverse charge — tax not charged on invoice'
-              : 'GST zero-rated supply',
+        reasoning,
       };
     }
 
@@ -306,12 +304,10 @@ export function expandGstTaxBreakdown(opts: {
   return list.map((c) => {
     const rate = Number.parseFloat(c.rate);
     const taxAmount = opts.taxableAmount * (rate / 100);
-    const label =
-      c.code === 'cgst'
-        ? `CGST ${rate}%`
-        : c.code === 'sgst'
-          ? `SGST ${rate}%`
-          : `IGST ${rate}%`;
+    let labelPrefix = 'IGST';
+    if (c.code === 'cgst') labelPrefix = 'CGST';
+    else if (c.code === 'sgst') labelPrefix = 'SGST';
+    const label = `${labelPrefix} ${rate}%`;
     const outputRole = c.accountRole;
     const accountRole =
       direction === 'purchase'

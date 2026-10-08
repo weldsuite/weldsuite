@@ -214,8 +214,8 @@ export class HubSpotProvider implements IntegrationProvider {
   // HubSpot uses the generic interface (resolveEntityType + fetchEntityGeneric)
   // These are stubs to satisfy the IntegrationProvider interface.
 
-  async resolveObjectSlug(_accessToken: string, objectId: string): Promise<string> {
-    return OBJECT_TYPE_SLUGS[objectId] || objectId;
+  resolveObjectSlug(_accessToken: string, objectId: string): Promise<string> {
+    return Promise.resolve(OBJECT_TYPE_SLUGS[objectId] || objectId);
   }
 
   async fetchRecord(accessToken: string, objectType: string, recordId: string): Promise<ExternalRecord> {
@@ -229,28 +229,31 @@ export class HubSpotProvider implements IntegrationProvider {
     if (!response.ok) throw new Error(`HubSpot fetch error ${response.status}`);
 
     const record = await response.json() as HubSpotRecord;
+    let recordType = 'person';
+    if (objectType === 'companies') recordType = 'company';
+    else if (objectType === 'deals') recordType = 'deal';
     return {
       id: record.id,
-      type: objectType === 'companies' ? 'company' : objectType === 'deals' ? 'deal' : 'person',
+      type: recordType,
       data: record.properties as Record<string, unknown>,
       raw: record,
     };
   }
 
-  async fetchNote(): Promise<ExternalNote> {
-    throw new Error('HubSpot notes are not synced via webhooks');
+  fetchNote(): Promise<ExternalNote> {
+    return Promise.reject(new Error('HubSpot notes are not synced via webhooks'));
   }
 
-  async fetchTask(): Promise<ExternalTask> {
-    throw new Error('HubSpot tasks are not synced via webhooks');
+  fetchTask(): Promise<ExternalTask> {
+    return Promise.reject(new Error('HubSpot tasks are not synced via webhooks'));
   }
 
-  async fetchLists(): Promise<ExternalList[]> {
-    return [];
+  fetchLists(): Promise<ExternalList[]> {
+    return Promise.resolve([]);
   }
 
-  async fetchListEntry(): Promise<ExternalListEntry> {
-    throw new Error('HubSpot list entries are not synced via webhooks');
+  fetchListEntry(): Promise<ExternalListEntry> {
+    return Promise.reject(new Error('HubSpot list entries are not synced via webhooks'));
   }
 
   mapCompany(record: ExternalRecord): MappedCompany {

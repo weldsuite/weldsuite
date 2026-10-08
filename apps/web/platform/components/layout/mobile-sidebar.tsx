@@ -69,19 +69,27 @@ interface RailIconProps {
   appType?: 'system' | 'user' | 'object';
 }
 
+function BoxRailFallback() {
+  return <Box className="h-6 w-6" />;
+}
+
+function PuzzleRailFallback() {
+  return <Puzzle className="h-6 w-6" />;
+}
+
 function RailAppIcon({ appCode, name, icon, appType }: Readonly<RailIconProps>) {
   if (appType === 'object') {
     return (
       <LucideDynamicIcon
         name={icon ?? 'Box'}
         className="h-6 w-6"
-        fallback={() => <Box className="h-6 w-6" />}
+        fallback={BoxRailFallback}
       />
     );
   }
   if (appType === 'user') {
     if (icon) {
-      return <LucideDynamicIcon name={icon} className="h-6 w-6" fallback={() => <Puzzle className="h-6 w-6" />} />;
+      return <LucideDynamicIcon name={icon} className="h-6 w-6" fallback={PuzzleRailFallback} />;
     }
     return <Puzzle className="h-6 w-6" />;
   }

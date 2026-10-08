@@ -107,6 +107,7 @@ export const navigation = {
         projects: 'Projecten',
       },
       weldhr: {
+        myHr: 'Mijn HR',
         dashboard: 'Dashboard',
         employees: 'Medewerkers',
         clients: 'Klantaccounts',

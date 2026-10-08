@@ -114,7 +114,7 @@ function headerValue(headers: Record<string, string> | undefined, name: string):
 /** Extract email address from a raw Reply-To header value. */
 function parseReplyToEmail(raw: string | undefined): string | null {
   if (!raw) return null;
-  const angle = /<([^>]+)>/.exec(raw);
+  const angle = /<([^<>]+)>/.exec(raw);
   const candidate = (angle?.[1] ?? raw).trim().toLowerCase();
   return candidate.includes('@') ? candidate : null;
 }
@@ -188,7 +188,7 @@ function isDisplayNameSpoof(
   }
 
   // Name embeds an email address that differs from the actual From.
-  const embedded = /([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i.exec(name);
+  const embedded = /(?<![a-z0-9._%+-])([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i.exec(name);
   if (embedded) {
     const embeddedEmail = embedded[1]!.toLowerCase();
     if (embeddedEmail !== fromEmail && domainOf(embeddedEmail) !== fromDomain) {

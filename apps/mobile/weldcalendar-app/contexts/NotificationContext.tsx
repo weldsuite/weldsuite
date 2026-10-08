@@ -92,7 +92,7 @@ if (!isExpoGo) {
     notifUtils = require('@weldsuite/mobile-ui/services/notifications');
     // Show banners while foregrounded — shared handler suppresses them by default.
     Notifications?.setNotificationHandler({
-      handleNotification: async () => ({
+      handleNotification: () => Promise.resolve({
         shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,

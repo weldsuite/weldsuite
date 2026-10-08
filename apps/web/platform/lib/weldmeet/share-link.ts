@@ -12,7 +12,7 @@ export const DEFAULT_MEETING_PORTAL_URL = 'https://meet.weldsuite.org';
 
 export function getMeetingPortalUrl(): string {
   const configured = (import.meta.env.VITE_MEETING_PORTAL_URL as string | undefined)?.trim();
-  return (configured || DEFAULT_MEETING_PORTAL_URL).replace(/\/+$/, '');
+  return (configured || DEFAULT_MEETING_PORTAL_URL).replace(/(?<!\/)\/+$/, '');
 }
 
 /**

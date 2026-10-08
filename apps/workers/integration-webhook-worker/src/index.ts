@@ -264,7 +264,7 @@ app.post('/webhooks/connectors/:connectionId', async (c) => {
  * Meta Marketing API webhooks for WeldAds. KV resolves the tenant; app-api opens
  * the tenant DB only for incremental ingest of the changed campaign/account.
  */
-app.get('/webhooks/meta/ads', async (c) => {
+app.get('/webhooks/meta/ads', (c) => {
   const mode = c.req.query('hub.mode');
   const token = c.req.query('hub.verify_token');
   const challenge = c.req.query('hub.challenge');
@@ -463,13 +463,13 @@ async function loadWorkflowConnection(env: Env, connectionId: string): Promise<L
   return { workspaceId: mapping.workspaceId, db, integration };
 }
 
-async function decryptConnectionCred(
+function decryptConnectionCred(
   env: Env,
   integration: { credentials: Record<string, unknown> | null },
   field: string,
 ): Promise<string | undefined> {
   const raw = (integration.credentials as Record<string, string> | null)?.[field];
-  if (!raw) return undefined;
+  if (!raw) return Promise.resolve(undefined);
   return maybeDecryptField(raw, keyringFromEnv(env));
 }
 
@@ -1365,7 +1365,7 @@ const INTEGRATION_POLL_CRON = '*/10 * * * *';
 
 const TOKEN_REFRESH_WINDOW_MS = 5 * 60_000;
 
-async function maybeDecryptToken(value: string, keyring: EncryptionKeyring): Promise<string> {
+function maybeDecryptToken(value: string, keyring: EncryptionKeyring): Promise<string> {
   // Handles v1 + v2 formats; plaintext passes through.
   return maybeDecryptField(value, keyring);
 }
@@ -1934,7 +1934,7 @@ export default {
     }
     console.warn(`[integration-webhook-worker] no consumer registered for queue "${batch.queue}"`);
   },
-  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
     // Due-index sweeps only (D1). CRM auto-sync lives on integration-sync-worker.
     // Inbound webhooks (fetch) are unaffected.
     if (controller.cron === INTEGRATION_POLL_CRON) {

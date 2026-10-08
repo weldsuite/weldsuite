@@ -333,7 +333,7 @@ function pkcs1ToPkcs8(pkcs1: Uint8Array): Uint8Array {
   return new Uint8Array(seq);
 }
 
-async function importHmacKey(secret: string): Promise<CryptoKey> {
+function importHmacKey(secret: string): Promise<CryptoKey> {
   const keyBytes = new TextEncoder().encode(secret);
   return crypto.subtle.importKey(
     'raw',
@@ -355,7 +355,7 @@ function base64urlFromBuffer(buffer: ArrayBuffer): string {
   for (const byte of bytes) {
     binary += String.fromCodePoint(byte);
   }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/(?<!=)=+$/, '');
 }
 
 function base64urlDecode(input: string): string {

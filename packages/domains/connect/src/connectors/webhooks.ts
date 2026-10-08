@@ -77,7 +77,7 @@ function moneybirdAttachmentContext(
 
 export function connectorWebhookBaseUrl(env: ConnectorWebhooksEnv): string {
   const explicit = (env as { CONNECTOR_WEBHOOK_BASE_URL?: string }).CONNECTOR_WEBHOOK_BASE_URL;
-  if (explicit) return explicit.replace(/\/+$/, '');
+  if (explicit) return explicit.replace(/(?<!\/)\/+$/, '');
   if (env.ENVIRONMENT === 'production') return 'https://integration-webhooks.weldsuite.org';
   if (env.ENVIRONMENT === 'test') return 'https://integration-webhooks-test.weldsuite.org';
   return 'http://localhost:8787';
@@ -140,14 +140,13 @@ export async function registerConnectionWebhooks(args: {
     webhookSecret: await encryptWebhookSecret(providerSecret ?? args.webhookSecret, keyring),
   });
 
-  return {
-    registrations,
-    warning: failures.length
-      ? `Connected, but ${failures.length} webhook(s) failed to register. Use Sync now until the store can reach WeldSuite.`
-      : registrations.length === 0
-        ? 'Connected without webhooks. Use Sync now to import, then reconnect to enable push updates.'
-        : null,
-  };
+  let warning: string | null = null;
+  if (failures.length) {
+    warning = `Connected, but ${failures.length} webhook(s) failed to register. Use Sync now until the store can reach WeldSuite.`;
+  } else if (registrations.length === 0) {
+    warning = 'Connected without webhooks. Use Sync now to import, then reconnect to enable push updates.';
+  }
+  return { registrations, warning };
 }
 
 export async function unregisterConnectionWebhooks(args: {
@@ -343,7 +342,7 @@ export async function processConnectorWebhook(args: {
     });
     return { ok: true, status: 200, message: 'ingested' };
   } catch (err) {
-    const message = err instanceof ConnectorApiError ? err.message : err instanceof Error ? err.message : 'ingest failed';
+    const message = err instanceof ConnectorApiError || err instanceof Error ? err.message : 'ingest failed';
     await finishSyncRun({
       db: args.db,
       runId,

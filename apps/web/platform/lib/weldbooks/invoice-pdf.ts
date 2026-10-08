@@ -428,12 +428,21 @@ function drawLineItems(
   pdf: PDFDocument,
   ctx: DrawContext,
   invoice: InvoiceDetail,
-  labels: InvoicePdfLabels,
-  currency: string | null,
-  locale: string | undefined,
-  tableX: number,
-  tableWidth: number,
-  startY: number,
+  {
+    labels,
+    currency,
+    locale,
+    tableX,
+    tableWidth,
+    startY,
+  }: {
+    labels: InvoicePdfLabels;
+    currency: string | null;
+    locale: string | undefined;
+    tableX: number;
+    tableWidth: number;
+    startY: number;
+  },
 ): number {
   const col = columns(tableWidth);
   let y = startY;
@@ -618,7 +627,7 @@ export async function generateInvoicePdf(
   drawTableHeader(ctx, options.labels, tableX, tableWidth, y);
   y -= TABLE_HEADER_HEIGHT;
 
-  y = drawLineItems(pdf, ctx, invoice, options.labels, currency, locale, tableX, tableWidth, y);
+  y = drawLineItems(pdf, ctx, invoice, { labels: options.labels, currency, locale, tableX, tableWidth, startY: y });
 
   drawTotals(ctx, invoice, options.labels, currency, locale, y);
 
@@ -637,6 +646,6 @@ export function downloadPdf(bytes: Uint8Array, filename: string) {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  a.remove();
   URL.revokeObjectURL(url);
 }

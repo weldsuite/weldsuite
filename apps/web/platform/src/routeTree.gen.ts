@@ -110,6 +110,7 @@ import { Route as WeldhrSettingsIndexRouteImport } from './routes/weldhr/setting
 import { Route as WeldhrPortalIndexRouteImport } from './routes/weldhr/portal/index'
 import { Route as WeldhrPerformanceIndexRouteImport } from './routes/weldhr/performance/index'
 import { Route as WeldhrOrgChartIndexRouteImport } from './routes/weldhr/org-chart/index'
+import { Route as WeldhrMeIndexRouteImport } from './routes/weldhr/me/index'
 import { Route as WeldhrLifecycleIndexRouteImport } from './routes/weldhr/lifecycle/index'
 import { Route as WeldhrLeaveIndexRouteImport } from './routes/weldhr/leave/index'
 import { Route as WeldhrEvaluationsIndexRouteImport } from './routes/weldhr/evaluations/index'
@@ -925,6 +926,11 @@ const WeldhrPerformanceIndexRoute = WeldhrPerformanceIndexRouteImport.update({
 const WeldhrOrgChartIndexRoute = WeldhrOrgChartIndexRouteImport.update({
   id: '/org-chart/',
   path: '/org-chart/',
+  getParentRoute: () => WeldhrRouteRoute,
+} as any)
+const WeldhrMeIndexRoute = WeldhrMeIndexRouteImport.update({
+  id: '/me/',
+  path: '/me/',
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
 const WeldhrLifecycleIndexRoute = WeldhrLifecycleIndexRouteImport.update({
@@ -2871,6 +2877,7 @@ export interface FileRoutesByFullPath {
   '/weldhr/evaluations/': typeof WeldhrEvaluationsIndexRoute
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/lifecycle/': typeof WeldhrLifecycleIndexRoute
+  '/weldhr/me/': typeof WeldhrMeIndexRoute
   '/weldhr/org-chart/': typeof WeldhrOrgChartIndexRoute
   '/weldhr/performance/': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal/': typeof WeldhrPortalIndexRoute
@@ -3246,6 +3253,7 @@ export interface FileRoutesByTo {
   '/weldhr/evaluations': typeof WeldhrEvaluationsIndexRoute
   '/weldhr/leave': typeof WeldhrLeaveIndexRoute
   '/weldhr/lifecycle': typeof WeldhrLifecycleIndexRoute
+  '/weldhr/me': typeof WeldhrMeIndexRoute
   '/weldhr/org-chart': typeof WeldhrOrgChartIndexRoute
   '/weldhr/performance': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal': typeof WeldhrPortalIndexRoute
@@ -3657,6 +3665,7 @@ export interface FileRoutesById {
   '/weldhr/evaluations/': typeof WeldhrEvaluationsIndexRoute
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/lifecycle/': typeof WeldhrLifecycleIndexRoute
+  '/weldhr/me/': typeof WeldhrMeIndexRoute
   '/weldhr/org-chart/': typeof WeldhrOrgChartIndexRoute
   '/weldhr/performance/': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal/': typeof WeldhrPortalIndexRoute
@@ -4070,6 +4079,7 @@ export interface FileRouteTypes {
     | '/weldhr/evaluations/'
     | '/weldhr/leave/'
     | '/weldhr/lifecycle/'
+    | '/weldhr/me/'
     | '/weldhr/org-chart/'
     | '/weldhr/performance/'
     | '/weldhr/portal/'
@@ -4445,6 +4455,7 @@ export interface FileRouteTypes {
     | '/weldhr/evaluations'
     | '/weldhr/leave'
     | '/weldhr/lifecycle'
+    | '/weldhr/me'
     | '/weldhr/org-chart'
     | '/weldhr/performance'
     | '/weldhr/portal'
@@ -4855,6 +4866,7 @@ export interface FileRouteTypes {
     | '/weldhr/evaluations/'
     | '/weldhr/leave/'
     | '/weldhr/lifecycle/'
+    | '/weldhr/me/'
     | '/weldhr/org-chart/'
     | '/weldhr/performance/'
     | '/weldhr/portal/'
@@ -5808,6 +5820,13 @@ declare module '@tanstack/react-router' {
       path: '/org-chart'
       fullPath: '/weldhr/org-chart/'
       preLoaderRoute: typeof WeldhrOrgChartIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
+    '/weldhr/me/': {
+      id: '/weldhr/me/'
+      path: '/me'
+      fullPath: '/weldhr/me/'
+      preLoaderRoute: typeof WeldhrMeIndexRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
     '/weldhr/lifecycle/': {
@@ -8785,6 +8804,7 @@ interface WeldhrRouteRouteChildren {
   WeldhrEvaluationsIndexRoute: typeof WeldhrEvaluationsIndexRoute
   WeldhrLeaveIndexRoute: typeof WeldhrLeaveIndexRoute
   WeldhrLifecycleIndexRoute: typeof WeldhrLifecycleIndexRoute
+  WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
   WeldhrOrgChartIndexRoute: typeof WeldhrOrgChartIndexRoute
   WeldhrPerformanceIndexRoute: typeof WeldhrPerformanceIndexRoute
   WeldhrPortalIndexRoute: typeof WeldhrPortalIndexRoute
@@ -8803,6 +8823,7 @@ const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
   WeldhrEvaluationsIndexRoute: WeldhrEvaluationsIndexRoute,
   WeldhrLeaveIndexRoute: WeldhrLeaveIndexRoute,
   WeldhrLifecycleIndexRoute: WeldhrLifecycleIndexRoute,
+  WeldhrMeIndexRoute: WeldhrMeIndexRoute,
   WeldhrOrgChartIndexRoute: WeldhrOrgChartIndexRoute,
   WeldhrPerformanceIndexRoute: WeldhrPerformanceIndexRoute,
   WeldhrPortalIndexRoute: WeldhrPortalIndexRoute,

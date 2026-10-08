@@ -157,13 +157,16 @@ export class CloudflareDomainProvider implements IMailDomainProvider {
 
 function cfDnsToMailDns(rec: CfDnsRecord): MailDnsRecord {
   const type = rec.type.toUpperCase();
+  let purpose: MailDnsRecord['purpose'] = 'other';
+  if (type === 'MX') purpose = 'mx';
+  else if (rec.content.startsWith('v=spf1')) purpose = 'spf';
   return {
     type: (['MX', 'TXT', 'CNAME', 'A', 'AAAA'].includes(type) ? type : 'TXT') as MailDnsRecord['type'],
     name: rec.name,
     value: rec.content,
     priority: rec.priority,
     ttl: rec.ttl,
-    purpose: type === 'MX' ? 'mx' : rec.content.startsWith('v=spf1') ? 'spf' : 'other',
+    purpose,
     status: 'verified',
   };
 }

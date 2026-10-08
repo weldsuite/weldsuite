@@ -317,7 +317,7 @@ app.post('/agents/:id/browser/live-view', requirePermission('weldagent:read'), a
       action: 'live_view',
     });
     return success(c, result);
-  } catch (err) {
+  } catch {
     // No session yet — open a blank page first then request live view.
     try {
       await browserOpen(c.env, {

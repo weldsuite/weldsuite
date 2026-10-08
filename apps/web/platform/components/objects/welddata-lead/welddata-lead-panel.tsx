@@ -15,7 +15,7 @@ import { welddataLeadCacheAtom, type WelddataLeadPanelData } from './welddata-le
 function leadAvatarUrl(lead: WelddataLeadPanelData): string | undefined {
   if (lead.avatarUrl) return lead.avatarUrl;
   if (lead.domain) {
-    const clean = lead.domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const clean = lead.domain.replace(/^https?:\/\//, '').replace(/\/[\s\S]*/, '');
     if (clean) {
       return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(clean)}&sz=64`;
     }

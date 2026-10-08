@@ -55,7 +55,7 @@ export async function postInternalApi<T>(
 
   if (!response) {
     const appApiUrl = env.APP_API_URL
-      ? String(env.APP_API_URL).replace(/\/+$/, '')
+      ? String(env.APP_API_URL).replace(/(?<!\/)\/+$/, '')
       : 'https://app-api.weldsuite.org';
     const internalSecret = env.INTERNAL_API_SECRET;
     if (!internalSecret) throw new Error(`INTERNAL_API_SECRET not configured for ${label}`);
@@ -74,7 +74,7 @@ export async function postInternalApi<T>(
 }
 
 /** Loose address check: one `@`, no whitespace or list separators, a dot in the domain. */
-export const EMAIL_ADDRESS = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:"]{2,}$/;
+export const EMAIL_ADDRESS = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"][^\s@<>(),;:".]*\.[^\s@<>(),;:"]{2,}$/;
 
 /** A rejection that repeating the same request cannot fix: a client error or a validation failure. */
 function isPermanentRejection(status: number, body: string): boolean {

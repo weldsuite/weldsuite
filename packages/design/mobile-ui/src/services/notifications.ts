@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 
 // Configure how notifications are displayed when app is in foreground
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
+  handleNotification: () => Promise.resolve({
     shouldShowAlert: false,
     shouldPlaySound: false,
     shouldSetBadge: true,

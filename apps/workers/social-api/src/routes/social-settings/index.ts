@@ -148,7 +148,7 @@ app.put(
 /**
  * GET /timezones — Return supported timezone list.
  */
-app.get('/timezones', requirePermission('accounts:read'), async (c) => {
+app.get('/timezones', requirePermission('accounts:read'), (c) => {
   return success(c, TIMEZONES);
 });
 

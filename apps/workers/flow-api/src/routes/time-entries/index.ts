@@ -772,6 +772,10 @@ app.patch(
 
       await db.update(t).set(update).where(and(eq(t.id, id), isNull(t.deletedAt)));
 
+      let eventCost: number | undefined;
+      if (update.cost != null) eventCost = Number(update.cost);
+      else if (existing.cost != null) eventCost = Number(existing.cost);
+
       publishEntityEvent({
         c,
         entityType: 'project_time_entry',
@@ -786,7 +790,7 @@ app.patch(
             durationMinutes: Number(data.duration ?? existing.duration),
             billable: (data.billable ?? existing.billable) as boolean,
           }),
-          cost: update.cost != null ? Number(update.cost) : existing.cost != null ? Number(existing.cost) : undefined,
+          cost: eventCost,
         },
       });
 

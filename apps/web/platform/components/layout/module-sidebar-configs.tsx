@@ -72,6 +72,7 @@ import {
   ClipboardCheck,
   Target,
   AppWindow,
+  UserRound,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import type { TranslationsType } from '@/lib/i18n/types';
@@ -202,6 +203,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       {
         group: t.navigation.moduleSidebar.weldhr.groups.people,
         items: [
+          { title: t.navigation.moduleSidebar.weldhr.myHr, href: '/weldhr/me', icon: UserRound, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.dashboard, href: '/weldhr', icon: LayoutDashboard },
           { title: t.navigation.moduleSidebar.weldhr.employees, href: '/weldhr/employees', icon: User, permission: 'employees:read' },
           { title: t.navigation.moduleSidebar.weldhr.clients, href: '/weldhr/clients', icon: Building, permission: 'employees:read' },

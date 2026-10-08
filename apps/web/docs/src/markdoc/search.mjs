@@ -67,7 +67,7 @@ export default function withSearch(nextConfig = {}) {
               } else {
                 let ast = Markdoc.parse(md)
                 let title = ast.attributes?.frontmatter
-                  ?.match(/^title:[ \t]*(.*)$/m)?.[1]
+                  ?.match(/^title:(.*)$/m)?.[1]
                   ?.trim()
                 sections = [[title, null, []]]
                 extractSections(ast, sections)

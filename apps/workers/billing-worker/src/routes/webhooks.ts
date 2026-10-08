@@ -252,7 +252,7 @@ webhookRoutes.post('/', async (c) => {
         // any agent-package line items whose workspace flagged them for
         // cancellation — delete them with proration_behavior=none so the new
         // invoice won't include them.
-        await handleInvoiceUpcoming(c.env, masterDb, event.data.object as StripeInvoice);
+        handleInvoiceUpcoming(c.env, masterDb, event.data.object as StripeInvoice);
         break;
 
       case 'invoice.payment_failed':
@@ -1183,7 +1183,7 @@ async function handleInvoicePaid(
   }
 
   // Sync seat limit to Clerk after purchasedSeats update
-  const currentSeats = paidQuantity > 0 ? paidQuantity : 0;
+  const currentSeats = Math.max(paidQuantity, 0);
   await trySyncClerkSeatLimit(env, masterDb, workspace.clerkOrgId, workspace.id, plan, currentSeats, 'invoice.paid');
 }
 
@@ -1841,7 +1841,7 @@ async function handlePriceDeleted(
 // agents subscriptions until they're wound down out-of-band — no-op instead
 // of touching the deleted tables.
 
-async function handleInvoiceUpcoming(
+function handleInvoiceUpcoming(
   _env: Env,
   _masterDb: ReturnType<typeof getMasterDb>,
   invoice: StripeInvoice,

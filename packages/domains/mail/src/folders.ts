@@ -25,7 +25,7 @@ export class MailFolderError extends Error {
 type FolderType = 'inbox' | 'sent' | 'drafts' | 'spam' | 'trash' | 'archive' | 'custom';
 
 /** `accessibleAccountIds` restricts the list to the caller's reachable mailboxes. */
-export async function listFolders(db: Database, accountId?: string, accessibleAccountIds?: string[]) {
+export function listFolders(db: Database, accountId?: string, accessibleAccountIds?: string[]) {
   const conditions: SQL[] = [isNull(mailFolders.deletedAt)!];
   if (accountId) conditions.push(eq(mailFolders.accountId, accountId));
   if (accessibleAccountIds) {

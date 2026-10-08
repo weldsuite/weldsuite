@@ -26,7 +26,7 @@ export interface MoneybirdAdministration {
 }
 
 export function moneybirdRedirectUri(publicAppUrl: string): string {
-  return `${publicAppUrl.replace(/\/+$/, '')}${MONEYBIRD_CALLBACK_PATH}`;
+  return `${publicAppUrl.replace(/(?<!\/)\/+$/, '')}${MONEYBIRD_CALLBACK_PATH}`;
 }
 
 export function buildMoneybirdAuthorizeUrl(args: {

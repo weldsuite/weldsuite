@@ -8,7 +8,7 @@
 import type { Env } from '../index';
 
 export function appApiUrl(env: Pick<Env, 'ENVIRONMENT' | 'APP_API_URL'>): string {
-  if (env.APP_API_URL) return env.APP_API_URL.replace(/\/+$/, '');
+  if (env.APP_API_URL) return env.APP_API_URL.replace(/(?<!\/)\/+$/, '');
   if (env.ENVIRONMENT === 'test') return 'https://app-api-test.weldsuite.org';
   if (env.ENVIRONMENT === 'development') return 'http://localhost:8789';
   return 'https://app-api.weldsuite.org';

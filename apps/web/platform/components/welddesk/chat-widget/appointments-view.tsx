@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   X,
@@ -47,6 +47,7 @@ export function AppointmentsView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
 }: Readonly<AppointmentsViewProps>) {
+  const fieldId = useId();
   const [activeTab] = useState('appointments');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState('');
@@ -152,9 +153,9 @@ export function AppointmentsView({
           <div className="space-y-5">
             {/* Appointment Type */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
+              <p className="block text-sm font-medium text-gray-700 mb-3">
                 Appointment Type
-              </label>
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   variant="ghost"
@@ -187,9 +188,9 @@ export function AppointmentsView({
 
             {/* Calendar */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
+              <p className="block text-sm font-medium text-gray-700 mb-3">
                 Select Date
-              </label>
+              </p>
               <div className="border border-gray-200 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-3">
                   <Button
@@ -239,9 +240,9 @@ export function AppointmentsView({
 
             {/* Time Selection */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
+              <p className="block text-sm font-medium text-gray-700 mb-3">
                 Select Time
-              </label>
+              </p>
               <div className="grid grid-cols-3 gap-2">
                 {availableTimes.map((time) => (
                   <Button
@@ -264,10 +265,11 @@ export function AppointmentsView({
             {/* Contact Info */}
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor={`${fieldId}-name`} className="block text-sm font-medium text-gray-700 mb-1">
                   Name
                 </label>
                 <input
+                  id={`${fieldId}-name`}
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -276,10 +278,11 @@ export function AppointmentsView({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor={`${fieldId}-email`} className="block text-sm font-medium text-gray-700 mb-1">
                   Email
                 </label>
                 <input
+                  id={`${fieldId}-email`}
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -288,10 +291,11 @@ export function AppointmentsView({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor={`${fieldId}-notes`} className="block text-sm font-medium text-gray-700 mb-1">
                   Notes (optional)
                 </label>
                 <textarea
+                  id={`${fieldId}-notes`}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-1 focus:ring-gray-300"

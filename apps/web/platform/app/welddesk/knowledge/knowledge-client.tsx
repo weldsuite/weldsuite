@@ -274,7 +274,7 @@ export function KnowledgeClient({
     setShowCreateFolderDialog(true);
   };
 
-  const handleCreateFolder = async () => {
+  const handleCreateFolder = () => {
     if (!newFolderName.trim()) return;
 
     setIsCreatingFolder(true);
@@ -788,7 +788,7 @@ export function KnowledgeClient({
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    void handleCreateFolder();
+                    handleCreateFolder();
                   }
                 }}
               />

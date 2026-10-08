@@ -112,7 +112,7 @@ function getAvatarColor(name: string): string {
 
 // Extract email from "Name <email>" format or return the string if it's just an email
 function extractEmail(sender: string): string {
-  const match = /<([^>]+)>/.exec(sender);
+  const match = /<([^<>]+)>/.exec(sender);
   if (match) return match[1];
   // Check if the string itself is an email
   if (sender.includes('@')) return sender;
@@ -1703,7 +1703,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           toast.error(t.mail.messageDetail.failedToMoveToTrash);
         },
       });
-      return;
     } else {
       // Gmail-style: Add "trash" label, remove "inbox" label
       try {

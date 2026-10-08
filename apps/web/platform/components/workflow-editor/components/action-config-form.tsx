@@ -1,5 +1,5 @@
 
-import { useState, useRef, useCallback, useId, type ReactNode } from 'react';
+import { useState, useRef, useCallback, useId, type ComponentType, type ReactNode } from 'react';
 import { useCustomFields } from '@/hooks/use-custom-fields';
 import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
 import { useProjects } from '@/hooks/queries/use-projects-queries';
@@ -4319,6 +4319,31 @@ function ManualStepForm({
   );
 }
 
+type ConfigOnlyForm = ComponentType<{
+  config: Record<string, unknown>;
+  onChange: (config: Record<string, unknown>) => void;
+}>;
+
+/** Action types whose form needs nothing but the step config and its change handler. */
+const CONFIG_ONLY_FORMS = new Map<string, ConfigOnlyForm>([
+  ['delay', DelayForm],
+  ['wait', DelayForm],
+  // Helpdesk actions
+  ['tag_conversation', TagConversationForm],
+  ['change_conversation_status', ChangeConversationStatusForm],
+  ['change_priority', ChangePriorityForm],
+  ['send_reply', SendReplyForm],
+  ['add_internal_note', AddInternalNoteForm],
+  ['create_ticket_from_conversation', CreateTicketFromConversationForm],
+  ['apply_sla', ApplySlaForm],
+  ['trigger_csat', TriggerCsatForm],
+  // Bot actions
+  ['send_message', SendBotMessageForm],
+  ['send_choices', SendChoicesForm],
+  ['collect_input', CollectInputForm],
+  ['collect_customer_info', CollectCustomerInfoForm],
+]);
+
 export function ActionConfigForm({
   actionType,
   config,
@@ -4338,6 +4363,9 @@ export function ActionConfigForm({
   const previousSteps = workflowSteps.slice(0, currentStepIndex);
 
   const renderForm = () => {
+    const ConfigForm = CONFIG_ONLY_FORMS.get(actionType);
+    if (ConfigForm) return <ConfigForm config={config} onChange={onChange} />;
+
     switch (actionType) {
       case 'send_email':
       case 'email':
@@ -4381,10 +4409,6 @@ export function ActionConfigForm({
             workflowVariables={workflowVariables}
           />
         );
-
-      case 'delay':
-      case 'wait':
-        return <DelayForm config={config} onChange={onChange} />;
 
       case 'log_message':
       case 'log':
@@ -4696,22 +4720,6 @@ export function ActionConfigForm({
       // Helpdesk actions
       case 'assign_conversation':
         return <AssignConversationForm config={config} onChange={onChange} workspaceMembers={workspaceMembers} />;
-      case 'tag_conversation':
-        return <TagConversationForm config={config} onChange={onChange} />;
-      case 'change_conversation_status':
-        return <ChangeConversationStatusForm config={config} onChange={onChange} />;
-      case 'change_priority':
-        return <ChangePriorityForm config={config} onChange={onChange} />;
-      case 'send_reply':
-        return <SendReplyForm config={config} onChange={onChange} />;
-      case 'add_internal_note':
-        return <AddInternalNoteForm config={config} onChange={onChange} />;
-      case 'create_ticket_from_conversation':
-        return <CreateTicketFromConversationForm config={config} onChange={onChange} />;
-      case 'apply_sla':
-        return <ApplySlaForm config={config} onChange={onChange} />;
-      case 'trigger_csat':
-        return <TriggerCsatForm config={config} onChange={onChange} />;
       case 'ai_auto_reply':
         // AI has been removed platform-wide — this step type can no longer
         // be configured. <AiAutoReplyForm> is left defined but unreachable.
@@ -4743,16 +4751,6 @@ export function ActionConfigForm({
             excludeGroups={excludeGroups}
           />
         );
-
-      // Chat widget interactive steps
-      case 'send_message':
-        return <SendBotMessageForm config={config} onChange={onChange} />;
-      case 'send_choices':
-        return <SendChoicesForm config={config} onChange={onChange} />;
-      case 'collect_input':
-        return <CollectInputForm config={config} onChange={onChange} />;
-      case 'collect_customer_info':
-        return <CollectCustomerInfoForm config={config} onChange={onChange} />;
 
       // AI Agent — AI has been removed platform-wide, this step type can no
       // longer be configured. <AiAgentForm> is left defined but unreachable.

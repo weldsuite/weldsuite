@@ -1654,7 +1654,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.autoAdvanceDealsDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.autoAdvanceDeals')}>
                   <input
                     type="checkbox"
                     id="autoAdvance"
@@ -1748,7 +1748,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.showDealProbabilityDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.showDealProbability')}>
                   <input
                     type="checkbox"
                     id="showProbability"
@@ -1770,7 +1770,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.showExpectedCloseDateDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.showExpectedCloseDate')}>
                   <input
                     type="checkbox"
                     id="showExpectedCloseDate"
@@ -1801,7 +1801,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.activityRemindersDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.activityReminders')}>
                   <input
                     type="checkbox"
                     id="activityReminders"
@@ -1823,7 +1823,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.emailNotificationsDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.emailNotifications')}>
                   <input
                     type="checkbox"
                     id="emailNotifications"
@@ -1854,7 +1854,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.slackNotificationsDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.slackNotifications')}>
                   <input
                     type="checkbox"
                     id="slackIntegration"
@@ -2071,7 +2071,7 @@ function PipelineSettingsModal({
                 <Label htmlFor="fieldRequired" className="text-sm font-normal">
                   {t('sweep.weldcrm.pipelineSettingsModal.makeFieldRequired')}
                 </Label>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.makeFieldRequired')}>
                   <input
                     type="checkbox"
                     id="fieldRequired"

@@ -26,7 +26,7 @@ export interface CurrentMember {
   roleId: string | null;
   permissions: string[] | null;
   status: string;
-  memberType: 'INTERNAL' | 'EXTERNAL_GUEST';
+  memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE';
 }
 
 export function useCurrentMember() {
@@ -52,4 +52,14 @@ export function useCurrentMember() {
 export function useIsGuest(): boolean {
   const { data } = useCurrentMember();
   return data?.memberType === 'EXTERNAL_GUEST';
+}
+
+/**
+ * True for an EMPLOYEE member: someone who only uses My HR and WeldChat.
+ * False while loading, for the same reason as `useIsGuest`; the server's
+ * fixed permission set for these members is the real ceiling.
+ */
+export function useIsEmployeeMember(): boolean {
+  const { data } = useCurrentMember();
+  return data?.memberType === 'EMPLOYEE';
 }

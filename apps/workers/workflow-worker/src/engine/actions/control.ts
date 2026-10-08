@@ -9,14 +9,14 @@ import type { ActionContext, ActionHandler } from '../types';
 import { NonRetryableStepError } from '../errors';
 import { asText } from '@weldsuite/text';
 
-export const handleSetVariable: ActionHandler = async (inputs, ctx) => {
+export const handleSetVariable: ActionHandler = (inputs, ctx) => {
   const varName = asText(inputs.name || inputs.variableName || '');
-  if (!varName) throw new Error('Variable name is required');
+  if (!varName) return Promise.reject(new Error('Variable name is required'));
   ctx.variables[varName] = inputs.value;
-  return { set: true, name: varName, value: inputs.value };
+  return Promise.resolve({ set: true, name: varName, value: inputs.value });
 };
 
-export const handleLog: ActionHandler = async (inputs) => {
+export const handleLog: ActionHandler = (inputs) => {
   const message = asText(inputs.message || inputs.text || '');
   const level = asText(inputs.level || 'info').toLowerCase();
   switch (level) {
@@ -30,7 +30,7 @@ export const handleLog: ActionHandler = async (inputs) => {
     default:
       console.log(`[LOG] ${message}`);
   }
-  return { logged: true, message };
+  return Promise.resolve({ logged: true, message });
 };
 
 /** Walk a dotted property path (already split) through a value, tolerating gaps. */
@@ -172,17 +172,21 @@ function matchBranch(branches: unknown[], fieldValue: unknown): string | null {
  * `branches`, it returns the `matchedBranch` whose value equals the field (no
  * match and no `default` branch runs no branch).
  */
-export const handleCondition: ActionHandler = async (inputs, ctx) => {
-  if (inputs.field === undefined) throw new NonRetryableStepError('Choose the value this condition checks');
-  const fieldValue = resolveConditionField(inputs.field, ctx);
+export const handleCondition: ActionHandler = (inputs, ctx) => {
+  try {
+    if (inputs.field === undefined) throw new NonRetryableStepError('Choose the value this condition checks');
+    const fieldValue = resolveConditionField(inputs.field, ctx);
 
-  if (Array.isArray(inputs.branches)) {
-    return { matchedBranch: matchBranch(inputs.branches, fieldValue), value: fieldValue };
+    if (Array.isArray(inputs.branches)) {
+      return Promise.resolve({ matchedBranch: matchBranch(inputs.branches, fieldValue), value: fieldValue });
+    }
+
+    const operator = asText(inputs.operator || 'eq');
+    const passed = compareValues(operator, fieldValue, inputs.value);
+    return Promise.resolve({ passed, value: fieldValue, result: fieldValue });
+  } catch (err) {
+    return Promise.reject(err);
   }
-
-  const operator = asText(inputs.operator || 'eq');
-  const passed = compareValues(operator, fieldValue, inputs.value);
-  return { passed, value: fieldValue, result: fieldValue };
 };
 
 /** Most items one loop may run over (the engine also caps iterations per run). */
@@ -225,7 +229,7 @@ const DELAY_UNITS: Array<{ key: string; ms: number; label: string }> = [
   { key: 'seconds', ms: 1000, label: 'second(s)' },
 ];
 
-export const handleDelay: ActionHandler = async (inputs) => {
+export const handleDelay: ActionHandler = (inputs) => {
   // The actual wait is performed by the orchestrator (runtime.sleep) using the
   // returned __delayMs sentinel.
   let durationMs = 1000;
@@ -241,9 +245,9 @@ export const handleDelay: ActionHandler = async (inputs) => {
   }
 
   if (!Number.isFinite(durationMs) || durationMs < 0) {
-    throw new NonRetryableStepError('The wait time must be a positive number');
+    return Promise.reject(new NonRetryableStepError('The wait time must be a positive number'));
   }
-  if (durationMs > MAX_DELAY_MS) throw new NonRetryableStepError('A delay can wait at most 365 days');
+  if (durationMs > MAX_DELAY_MS) return Promise.reject(new NonRetryableStepError('A delay can wait at most 365 days'));
 
-  return { delayed: true, duration: durationDescription, durationMs, __delayMs: durationMs };
+  return Promise.resolve({ delayed: true, duration: durationDescription, durationMs, __delayMs: durationMs });
 };

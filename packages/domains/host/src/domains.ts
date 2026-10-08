@@ -257,6 +257,13 @@ export interface ListDomainsParams {
   sortOrder?: 'asc' | 'desc';
 }
 
+function domainSortColumn(sortBy: ListDomainsParams['sortBy']) {
+  if (sortBy === 'fullDomain') return hostDomains.fullDomain;
+  if (sortBy === 'status') return hostDomains.status;
+  if (sortBy === 'expiresAt') return hostDomains.expiresAt;
+  return hostDomains.createdAt;
+}
+
 export async function listDomains(db: Database, params: ListDomainsParams) {
   const page = params.page ?? 1;
   const pageSize = Math.min(params.pageSize ?? 20, 100);
@@ -270,11 +277,7 @@ export async function listDomains(db: Database, params: ListDomainsParams) {
     conditions.push(eq(hostDomains.status, params.status));
   }
 
-  const sortColumn =
-    params.sortBy === 'fullDomain' ? hostDomains.fullDomain :
-    params.sortBy === 'status' ? hostDomains.status :
-    params.sortBy === 'expiresAt' ? hostDomains.expiresAt :
-    hostDomains.createdAt;
+  const sortColumn = domainSortColumn(params.sortBy);
   const orderBy = params.sortOrder === 'asc' ? asc(sortColumn) : desc(sortColumn);
 
   const [{ count }] = await db
@@ -724,12 +727,9 @@ export async function refreshZoneStatus(
   }
 
   const cfStatus = cfZone.status;
-  const nextZoneStatus: 'active' | 'pending' | 'error' =
-    cfStatus === 'active'
-      ? 'active'
-      : cfStatus === 'pending' || cfStatus === 'initializing'
-        ? 'pending'
-        : 'error';
+  let nextZoneStatus: 'active' | 'pending' | 'error' = 'error';
+  if (cfStatus === 'active') nextZoneStatus = 'active';
+  else if (cfStatus === 'pending' || cfStatus === 'initializing') nextZoneStatus = 'pending';
 
   if (nextZoneStatus !== zone.status) {
     await db

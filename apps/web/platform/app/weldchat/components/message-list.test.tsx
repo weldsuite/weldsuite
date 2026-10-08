@@ -48,6 +48,7 @@ vi.mock('@/lib/api/use-app-api', () => ({ useAppApiClient: () => ({ getClient: v
 vi.mock('@/lib/i18n', () => ({
   getTranslations: () => ({
     messageList: { loadOlderMessages: 'Load older', messageNotFound: 'Message not found' },
+    unreadSeparator: 'New messages',
   }),
 }));
 vi.mock('sonner', () => ({ toast: { info: mocks.toastInfo } }));
@@ -144,6 +145,33 @@ describe('MessageList grouping', () => {
     expect(item('b').dataset.compact).toBe('false'); // follows a system notice
     expect(item('fake').dataset.compact).toBe('true'); // a normal message from the same author
     expect(item('c').dataset.compact).toBe('true');
+  });
+});
+
+describe('MessageList "New messages" line', () => {
+  const line = () => document.querySelector('[data-chat-divider="unread"]');
+
+  it('sits above the first message from someone else since the last read, which keeps its header', () => {
+    mocks.messages = [
+      msg({ id: 'read', createdAt: at(0) }),
+      msg({ id: 'mine', authorId: 'user_me', createdAt: at(2) }),
+      msg({ id: 'new1', createdAt: at(3) }),
+      msg({ id: 'new2', createdAt: at(4) }),
+    ];
+    render(<MessageList channelId="ch_1" unreadMarker={{ channelId: 'ch_1', since: at(1), until: at(5) }} />);
+    expect(line()?.textContent).toBe('New messages');
+    expect(line()?.nextElementSibling).toBe(item('new1'));
+    expect(item('new1').dataset.compact).toBe('false');
+    expect(item('new2').dataset.compact).toBe('true');
+  });
+
+  it('is not drawn without a marker or when nothing was unread', () => {
+    mocks.messages = [msg({ id: 'a', createdAt: at(0) })];
+    const { unmount } = render(<MessageList channelId="ch_1" />);
+    expect(line()).toBeNull();
+    unmount();
+    render(<MessageList channelId="ch_1" unreadMarker={{ channelId: 'ch_1', since: at(1), until: at(5) }} />);
+    expect(line()).toBeNull();
   });
 });
 

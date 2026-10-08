@@ -21,6 +21,7 @@
  */
 
 import type { ActionContext, ActionResult, EnrichmentAction } from './types';
+import { tagsToSpaces } from '@weldsuite/text';
 
 interface PhoneFinderConfig {
   source?: 'website';
@@ -50,7 +51,7 @@ const PHONE_TEXT_RES = [
 function cleanDomain(domain: string | null | undefined): string {
   return (domain ?? '')
     .replace(/^https?:\/\//, '')
-    .replace(/\/.*$/, '')
+    .replace(/\/[\s\S]*/, '')
     .trim()
     .toLowerCase();
 }
@@ -81,7 +82,7 @@ function extractPhone(html: string): string | null {
     if (isPlausiblePhone(candidate)) return candidate;
   }
   // 2. Conservative text scan on the de-tagged page.
-  const text = html.replace(/<[^>]+>/g, ' ');
+  const text = tagsToSpaces(html);
   for (const re of PHONE_TEXT_RES) {
     for (const m of text.matchAll(re)) {
       const candidate = normalizePhone(m[0]);
@@ -138,11 +139,11 @@ async function findFromWebsite(domain: string): Promise<ActionResult> {
  * returns "not found" after logging a warning, same shape as any other
  * exhausted phone-finder attempt.
  */
-async function findViaWebSearch(
+function findViaWebSearch(
   _ctx: ActionContext,
   company: string,
   _domain: string,
-): Promise<ActionResult> {
+): ActionResult {
   console.warn(
     `[ai] AI is currently unavailable — skipping phone-finder web-search fallback for "${company}"`,
   );

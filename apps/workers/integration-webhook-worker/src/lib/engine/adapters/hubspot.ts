@@ -452,7 +452,7 @@ export class HubSpotSyncAdapter implements CrmSyncAdapter {
     };
   }
 
-  async registerWebhooks(
+  registerWebhooks(
     _accessToken: string,
     _targetUrl: string,
     _entityTypes: SyncEntityType[],
@@ -463,10 +463,10 @@ export class HubSpotSyncAdapter implements CrmSyncAdapter {
     //
     // Return a placeholder — the actual webhook registration happens in the
     // HubSpot app settings UI.
-    return {
+    return Promise.resolve({
       webhookId: 'hubspot-app-webhook',
       secret: '', // HubSpot uses the client secret for signature verification
-    };
+    });
   }
 
   async deleteWebhooks(): Promise<void> {

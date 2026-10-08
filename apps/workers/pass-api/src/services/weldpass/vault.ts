@@ -89,7 +89,7 @@ export function slugify(input: string): string {
   return input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/^-+|(?<!-)-+$/g, '')
     .slice(0, 40);
 }
 
@@ -97,7 +97,7 @@ export function slugify(input: string): string {
 // Projects
 // ---------------------------------------------------------------------------
 
-export async function listProjects(db: Database, workspaceId: string): Promise<VaultProject[]> {
+export function listProjects(db: Database, workspaceId: string): Promise<VaultProject[]> {
   return db
     .select(projectColumns)
     .from(projects)
@@ -257,7 +257,7 @@ export async function openVault(
 // Environments
 // ---------------------------------------------------------------------------
 
-export async function listEnvironments(
+export function listEnvironments(
   db: Database,
   projectId: string,
 ): Promise<EnvironmentRow[]> {

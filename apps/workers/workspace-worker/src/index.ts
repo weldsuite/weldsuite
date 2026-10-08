@@ -136,7 +136,7 @@ export default {
   //    is confirmed from KV and the tick opens no database at all.
   //  - "0 3 * * *"   — sweep workspaces whose 30-day "add payment or be
   //    deleted" grace period elapsed (see services/deletion-sweep.ts).
-  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
+  scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     if (event.cron === DELETION_SWEEP_CRON) {
       ctx.waitUntil(sweepScheduledDeletions(env));
     } else {

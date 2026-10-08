@@ -121,6 +121,10 @@ export function buildResultUrl(type: SearchEntityType, id: string): string {
 // Score Helpers (rule-based; switch to similarity() when pg_trgm lands)
 // ============================================================================
 
+function withSuffix(head: string, tail: string | null | undefined): string {
+  return tail ? `${head} · ${tail}` : head;
+}
+
 /**
  * Build a CASE expression scoring a column against the query term.
  *  1.0 — exact match (case-insensitive)
@@ -444,7 +448,7 @@ export async function searchTickets(
     type: 'ticket',
     title: r.subject || `Ticket ${r.ticketNumber}`,
     subtitle: r.ticketNumber
-      ? `#${r.ticketNumber}${r.customerName ? ' · ' + r.customerName : ''}`
+      ? withSuffix(`#${r.ticketNumber}`, r.customerName)
       : r.customerName || r.status || null,
     url: buildResultUrl('ticket', r.id),
     score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
@@ -800,7 +804,7 @@ export async function searchProjects(
     id: r.id,
     type: 'project',
     title: r.name || 'Project',
-    subtitle: r.code ? `${r.code}${r.status ? ' · ' + r.status : ''}` : (r.status || null),
+    subtitle: r.code ? withSuffix(r.code, r.status) : (r.status || null),
     url: buildResultUrl('project', r.id),
     score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
   }));
@@ -854,7 +858,7 @@ export async function searchTasks(
     // external key, then the status.
     const ref = r.number != null ? String(r.number) : r.key || null;
     const subtitle = ref
-      ? `${ref}${r.status ? ' · ' + r.status : ''}`
+      ? withSuffix(ref, r.status)
       : r.status || null;
     return {
       id: r.id,
@@ -916,7 +920,7 @@ export async function searchDomains(
     type: 'domain',
     title: r.fullDomain || `${r.name}.${r.tld}`,
     subtitle: r.registrar
-      ? `${publicDomainRegistrar(r.registrar)}${r.status ? ' · ' + r.status : ''}`
+      ? withSuffix(publicDomainRegistrar(r.registrar), r.status)
       : (r.status || null),
     url: buildResultUrl('domain', r.id),
     score: typeof r.score === 'number' ? r.score : Number(r.score) || null,

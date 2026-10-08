@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { tasksRoutes } from './index';
+import { myTasksRoutes } from '../my-tasks';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -841,5 +842,207 @@ describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integrat
     mockedPublish.mockClear();
     expect((await put({ dependsOn: ['task_ev_1'] })).status).toBe(400);
     expect(mockedPublish).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/tasks/:id · subtask tree + dependencies · pglite integration', () => {
+  const now = new Date();
+  const seedProject = (id: string) =>
+    db
+      .insert(schema.projects)
+      .values({ id, name: id, createdAt: now, updatedAt: now } as typeof schema.projects.$inferInsert);
+  const seedTask = (values: Record<string, unknown>) =>
+    db.insert(schema.tasks).values({ title: 'Task', ...values } as typeof schema.tasks.$inferInsert);
+  const row = async (id: string) => {
+    const [found] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1);
+    return found;
+  };
+  const remove = (id: string) => {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:delete', 'projects:scope:all'), tenantDb: db },
+    });
+    return request(`/api/tasks/${id}`, { method: 'DELETE' });
+  };
+
+  it('soft-deletes every subtask level with the parent, so none stay in My Tasks', async () => {
+    await seedProject('proj_del_tree');
+    await seedTask({ id: 'task_del_parent', projectId: 'proj_del_tree' });
+    await seedTask({
+      id: 'task_del_child',
+      projectId: 'proj_del_tree',
+      parentTaskId: 'task_del_parent',
+      assigneeId: 'user_test_default',
+    });
+    await seedTask({
+      id: 'task_del_grandchild',
+      projectId: 'proj_del_tree',
+      parentTaskId: 'task_del_child',
+      assigneeIds: ['user_test_default'],
+    });
+    await seedTask({ id: 'task_del_sibling', projectId: 'proj_del_tree', assigneeId: 'user_test_default' });
+
+    mockedPublish.mockClear();
+    expect((await remove('task_del_parent')).status).toBe(204);
+
+    expect((await row('task_del_parent'))?.deletedAt).not.toBeNull();
+    expect((await row('task_del_child'))?.deletedAt).not.toBeNull();
+    expect((await row('task_del_grandchild'))?.deletedAt).not.toBeNull();
+    expect((await row('task_del_sibling'))?.deletedAt).toBeNull();
+
+    const deletedIds = mockedPublish.mock.calls
+      .map((call) => call[0] as { action: string; entityId: string })
+      .filter((call) => call.action === 'deleted')
+      .map((call) => call.entityId)
+      .sort();
+    expect(deletedIds).toEqual(['task_del_child', 'task_del_grandchild', 'task_del_parent']);
+
+    const { request } = createTestApp('/api/my-tasks', myTasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: db },
+    });
+    const res = await request('/api/my-tasks?projectId=proj_del_tree');
+    const body = (await res.json()) as { data: { id: string }[] };
+    expect(body.data.map((task) => task.id)).toEqual(['task_del_sibling']);
+  });
+
+  it('prunes links to any deleted task from other projects too', async () => {
+    await seedProject('proj_del_a');
+    await seedProject('proj_del_b');
+    await seedTask({ id: 'task_dep_parent', projectId: 'proj_del_a', blocks: ['task_dep_other'] });
+    await seedTask({ id: 'task_dep_child', projectId: 'proj_del_a', parentTaskId: 'task_dep_parent' });
+    await seedTask({
+      id: 'task_dep_other',
+      projectId: 'proj_del_b',
+      dependsOn: ['task_dep_parent', 'task_dep_keep'],
+      blocks: ['task_dep_child'],
+    });
+    await seedTask({ id: 'task_dep_keep', projectId: 'proj_del_b' });
+
+    expect((await remove('task_dep_parent')).status).toBe(204);
+
+    const other = await row('task_dep_other');
+    expect(other?.dependsOn).toEqual(['task_dep_keep']);
+    expect(other?.blocks).toEqual([]);
+  });
+
+  it('drops the calendar slot of every removed task, and no other', async () => {
+    const seedSlot = (id: string) =>
+      db.insert(schema.calendarEvents).values({
+        id,
+        title: id,
+        type: 'reminder',
+        startTime: now,
+        calendarId: 'cal_del_test',
+        organizerId: 'user_test_default',
+      } as typeof schema.calendarEvents.$inferInsert);
+    const slot = async (id: string) => {
+      const [found] = await db
+        .select()
+        .from(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.id, id))
+        .limit(1);
+      return found;
+    };
+    await seedSlot('cevt_del_parent');
+    await seedSlot('cevt_del_child');
+    await seedSlot('cevt_del_keep');
+    await seedTask({ id: 'task_cal_parent', calendarEventId: 'cevt_del_parent' });
+    await seedTask({ id: 'task_cal_child', parentTaskId: 'task_cal_parent', calendarEventId: 'cevt_del_child' });
+    await seedTask({ id: 'task_cal_keep', calendarEventId: 'cevt_del_keep' });
+
+    expect((await remove('task_cal_parent')).status).toBe(204);
+
+    expect((await slot('cevt_del_parent'))?.deletedAt).not.toBeNull();
+    expect((await slot('cevt_del_child'))?.deletedAt).not.toBeNull();
+    expect((await slot('cevt_del_keep'))?.deletedAt).toBeNull();
+  });
+
+  it('returns 404 for a task that is already deleted', async () => {
+    await seedTask({ id: 'task_del_twice', deletedAt: now });
+    expect((await remove('task_del_twice')).status).toBe(404);
+  });
+});
+
+describe('status changes move the pipeline stage · pglite integration', () => {
+  const now = new Date();
+  const json = { 'Content-Type': 'application/json' };
+  const row = async (id: string) => {
+    const [found] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1);
+    return found;
+  };
+  const app = () =>
+    createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:update', 'projects:scope:all'), tenantDb: db },
+    });
+
+  beforeAll(async () => {
+    await db
+      .insert(schema.projects)
+      .values({ id: 'proj_stage_sync', name: 'Stages', createdAt: now, updatedAt: now } as typeof schema.projects.$inferInsert);
+    await db.insert(schema.projectPipelineStages).values([
+      { id: 'stage_ss_todo', projectId: 'proj_stage_sync', name: 'To Do', position: 0, systemStatus: 'todo' },
+      { id: 'stage_ss_doing', projectId: 'proj_stage_sync', name: 'Doing', position: 1, systemStatus: 'in_progress' },
+      { id: 'stage_ss_done', projectId: 'proj_stage_sync', name: 'Done', position: 2, systemStatus: 'done' },
+      { id: 'stage_ss_shipped', projectId: 'proj_stage_sync', name: 'Shipped', position: 3, systemStatus: 'done' },
+    ] as (typeof schema.projectPipelineStages.$inferInsert)[]);
+  });
+
+  it('checking a task moves it to the Done stage, unchecking moves it back', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'task_ss_toggle',
+      title: 'Check me',
+      projectId: 'proj_stage_sync',
+      stageId: 'stage_ss_todo',
+      status: 'todo',
+    } as typeof schema.tasks.$inferInsert);
+    const { request } = app();
+    const toggle = (currentStatus: string) =>
+      request('/api/tasks/task_ss_toggle/toggle', { method: 'PATCH', headers: json, body: JSON.stringify({ currentStatus }) });
+
+    const res = await toggle('todo');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { status: string; stageId: string } };
+    expect(body.data).toMatchObject({ status: 'done', stageId: 'stage_ss_done' });
+    expect(await row('task_ss_toggle')).toMatchObject({ status: 'done', stageId: 'stage_ss_done' });
+
+    expect((await toggle('done')).status).toBe(200);
+    expect(await row('task_ss_toggle')).toMatchObject({ status: 'todo', stageId: 'stage_ss_todo' });
+  });
+
+  it('keeps a stage that already maps to the new status', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'task_ss_keep',
+      title: 'Already shipped',
+      projectId: 'proj_stage_sync',
+      stageId: 'stage_ss_shipped',
+      status: 'in_progress',
+    } as typeof schema.tasks.$inferInsert);
+    const { request } = app();
+
+    const res = await request('/api/tasks/task_ss_keep/status', {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ status: 'done' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await row('task_ss_keep')).toMatchObject({ status: 'done', stageId: 'stage_ss_shipped' });
+  });
+
+  it('a status-only PATCH moves the stage too', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'task_ss_patch',
+      title: 'Start me',
+      projectId: 'proj_stage_sync',
+      stageId: 'stage_ss_todo',
+      status: 'todo',
+    } as typeof schema.tasks.$inferInsert);
+    const { request } = app();
+
+    const res = await request('/api/tasks/task_ss_patch', {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ status: 'in_progress' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await row('task_ss_patch')).toMatchObject({ status: 'in_progress', stageId: 'stage_ss_doing' });
   });
 });

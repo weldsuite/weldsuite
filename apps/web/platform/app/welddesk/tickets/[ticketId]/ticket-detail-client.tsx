@@ -1314,7 +1314,7 @@ export default function TicketDetailClient({
     if (isEditingSubject) subjectInputRef.current?.focus();
   }, [isEditingSubject]);
 
-  const handleWeldAgentSend = async () => {
+  const handleWeldAgentSend = () => {
     if (!weldAgentPrompt.trim()) return;
 
     const messageContent = weldAgentPrompt;

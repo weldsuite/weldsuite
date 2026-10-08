@@ -18,18 +18,16 @@ let loaded = false;
 
 /** Loads (or returns the in-flight/cached load of) the WeldAgent panel chunk. */
 export function loadWeldAgentPanel(): Promise<WeldAgentModule> {
-  if (!cached) {
-    cached = import('./index')
-      .then((m) => {
-        loaded = true;
-        return m;
-      })
-      .catch((err) => {
-        // Allow a later attempt to retry after a transient network failure.
-        cached = null;
-        throw err;
-      });
-  }
+  cached ??= import('./index')
+    .then((m) => {
+      loaded = true;
+      return m;
+    })
+    .catch((err) => {
+      // Allow a later attempt to retry after a transient network failure.
+      cached = null;
+      throw err;
+    });
   return cached;
 }
 

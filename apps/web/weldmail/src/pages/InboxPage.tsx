@@ -155,13 +155,15 @@ export function InboxPage() {
         </div>
       )}
 
-      {loading ? (
+      {loading && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
           <div className="h-7 w-7 animate-spin rounded-full border-2 border-border border-t-primary" />
         </div>
-      ) : messages.length === 0 ? (
+      )}
+      {!loading && messages.length === 0 && (
         <p className="px-4 py-8 text-sm text-muted-foreground">{emptyLabel}</p>
-      ) : (
+      )}
+      {!loading && messages.length > 0 && (
         <ul className="min-h-0 flex-1 overflow-y-auto">
           {messages.map((msg) => {
             const unread = !msg.isRead;

@@ -137,9 +137,9 @@ export async function customObjectScope(c: AppContext): Promise<string | undefin
  * An unknown target type denies — a type with no known permission is one we
  * can't reason about, and defaulting to "allow" there is how gaps get shipped.
  */
-export async function canReadTarget(c: AppContext, targetEntityKey: string): Promise<boolean> {
+export function canReadTarget(c: AppContext, targetEntityKey: string): Promise<boolean> {
   const permission = targetReadPermission(targetEntityKey);
-  if (!permission) return false;
+  if (!permission) return Promise.resolve(false);
 
   return hasContextPermission(c, permission);
 }

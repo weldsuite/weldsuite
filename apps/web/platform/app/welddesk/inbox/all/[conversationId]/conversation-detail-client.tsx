@@ -1978,7 +1978,7 @@ export default function ConversationDetailClient({
     {previewImage && (
       <div
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-        onClick={() => setPreviewImage(null)}
+        onClick={(e) => { if (!(e.target instanceof HTMLImageElement)) setPreviewImage(null); }}
         onKeyDown={(e) => { if (e.key === 'Escape') setPreviewImage(null); }}
         tabIndex={0}
         ref={(el) => el?.focus()}
@@ -2006,7 +2006,6 @@ export default function ConversationDetailClient({
           src={previewImage.url}
           alt={previewImage.name}
           className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg relative"
-          onClick={(e) => e.stopPropagation()}
         />
       </div>
     )}

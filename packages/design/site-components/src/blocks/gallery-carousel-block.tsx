@@ -167,7 +167,7 @@ export function GalleryCarouselBlock({
           </h3>
           {buttonText && (
             <a
-              href={isEditing ? undefined : buttonLink}
+              href={buttonLink}
               onClick={(e) => isEditing && e.preventDefault()}
               className={`group mt-10 flex items-center justify-center gap-2 rounded-full px-4 py-2 tracking-tight bg-secondary hover:bg-secondary/80 transition-colors ${
                 isEditing ? 'pointer-events-none' : ''

@@ -217,21 +217,23 @@ export async function applyRoleChangeToChannels(
 }
 
 /** Live (non-deleted) channels linked to a role. */
-async function listChannelsLinkedToRole(
+function listChannelsLinkedToRole(
   db: Database,
   roleId: string,
 ): Promise<{ id: string; name: string }[]> {
   const { chatChannels, chatChannelRoleLinks } = schema;
-  return db
-    .select({ id: chatChannels.id, name: chatChannels.name })
-    .from(chatChannelRoleLinks)
-    .innerJoin(chatChannels, eq(chatChannels.id, chatChannelRoleLinks.channelId))
-    .where(
-      and(
-        eq(chatChannelRoleLinks.roleId, roleId),
-        isNull(chatChannels.deletedAt),
-      ),
-    );
+  return Promise.resolve(
+    db
+      .select({ id: chatChannels.id, name: chatChannels.name })
+      .from(chatChannelRoleLinks)
+      .innerJoin(chatChannels, eq(chatChannels.id, chatChannelRoleLinks.channelId))
+      .where(
+        and(
+          eq(chatChannelRoleLinks.roleId, roleId),
+          isNull(chatChannels.deletedAt),
+        ),
+      )
+  );
 }
 
 /** Drop the user's role-driven memberships in channels linked to `oldRoleId`. */

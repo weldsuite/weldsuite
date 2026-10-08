@@ -22,6 +22,7 @@ const baselinesExist = existsSync(snapshotDir);
 
 test.describe('Visual regression', () => {
   test.beforeAll(() => {
+    // Skipped: Screenshot comparison needs committed baseline snapshots to compare against.
     test.skip(
       !baselinesExist,
       'No baselines committed yet — run with --update-snapshots once and commit them.',

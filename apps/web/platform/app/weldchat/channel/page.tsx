@@ -15,6 +15,7 @@ import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
 import { useWeldChatMessagesRealtime, type WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { useWeldChatRealtime } from '@/hooks/weldchat/use-weldchat-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
+import { useMarkReadOnOpen } from '@/hooks/weldchat/use-mark-read-on-open';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { ChannelHeader } from '../components/channel-header';
 import { PinnedMessagesBar } from '../components/pinned-messages-bar';
@@ -58,10 +59,8 @@ export default function ChannelPage() {
     return () => setActiveChannelId(null);
   }, [channelId, setActiveChannelId]);
 
-  // Auto mark channel as read on open
-  useEffect(() => {
-    if (channelId) markAsRead(channelId);
-  }, [channelId, markAsRead]);
+  // Mark the channel read on open; the answer says where the new messages start.
+  const unreadMarker = useMarkReadOnOpen(channelId);
 
   // Shared Chat SDK room for messages, typing, and presence
   const { client } = useWeldChatRoom(channelId);
@@ -161,7 +160,7 @@ export default function ChannelPage() {
           <PinnedMessagesBar channelId={channelId} />
           {/* Keyed by channel: the list's scroll/jump state and the composer's
               text and draft belong to one channel, never carried to the next. */}
-          <MessageList key={channelId} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} />
+          <MessageList key={channelId} channelId={channelId} client={client} targetMessageId={targetMessageId} onTargetHandled={clearTarget} unreadMarker={unreadMarker} />
           <MessageInput key={channelId} channelId={channelId} client={client} />
         </ChatDropZone>
       )}

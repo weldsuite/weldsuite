@@ -42,7 +42,7 @@ export function parseListUnsubscribe(headers: Record<string, string> | undefined
 
   let url: string | null = null;
   let mailto: string | null = null;
-  const entries = [...raw.matchAll(/<([^>]+)>/g)].map((m) => m[1]!.trim());
+  const entries = [...raw.matchAll(/<([^<>]+)>/g)].map((m) => m[1]!.trim());
   // Some senders omit the angle brackets around a single URI.
   if (entries.length === 0) entries.push(...raw.split(',').map((s) => s.trim()));
 
@@ -56,7 +56,7 @@ export function parseListUnsubscribe(headers: Record<string, string> | undefined
   const post = headerValue(headers, 'list-unsubscribe-post') ?? '';
   const oneClick = Boolean(url) && /list-unsubscribe\s*=\s*one-click/i.test(post);
   const listIdRaw = headerValue(headers, 'list-id');
-  const listId = listIdRaw ? (/<([^>]+)>/.exec(listIdRaw)?.[1] ?? listIdRaw).trim().slice(0, 500) : null;
+  const listId = listIdRaw ? (/<([^<>]+)>/.exec(listIdRaw)?.[1] ?? listIdRaw).trim().slice(0, 500) : null;
 
   return { url, mailto, oneClick, listId };
 }
@@ -92,7 +92,7 @@ export function parseMailto(value: string): MailtoTarget | null {
   } catch {
     return null;
   }
-  if (!/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(to)) return null;
+  if (!/^[^\s@,]+@[^\s@,][^\s@,.]*\.[^\s@,]+$/.test(to)) return null;
 
   const params = new URLSearchParams(query);
   return {

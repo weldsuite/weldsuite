@@ -49,27 +49,31 @@ const TO_ONE: ReadonlySet<string> = new Set(['one_to_one', 'many_to_one']);
 // Link definitions
 // ---------------------------------------------------------------------------
 
-export async function listLinksForObject(
+export function listLinksForObject(
   db: Database,
   entityKey: string,
 ): Promise<CustomObjectLinkRow[]> {
-  return db
-    .select()
-    .from(links)
-    .where(and(eq(links.sourceEntityKey, entityKey), isNull(links.deletedAt)))
-    .orderBy(asc(links.sortOrder), asc(links.targetLabel));
+  return Promise.resolve(
+    db
+      .select()
+      .from(links)
+      .where(and(eq(links.sourceEntityKey, entityKey), isNull(links.deletedAt)))
+      .orderBy(asc(links.sortOrder), asc(links.targetLabel)),
+  );
 }
 
 /** Links pointing AT this entity key — drives reverse related panels. */
-export async function listLinksTargeting(
+export function listLinksTargeting(
   db: Database,
   entityKey: string,
 ): Promise<CustomObjectLinkRow[]> {
-  return db
-    .select()
-    .from(links)
-    .where(and(eq(links.targetEntityKey, entityKey), isNull(links.deletedAt)))
-    .orderBy(asc(links.sortOrder), asc(links.sourceLabel));
+  return Promise.resolve(
+    db
+      .select()
+      .from(links)
+      .where(and(eq(links.targetEntityKey, entityKey), isNull(links.deletedAt)))
+      .orderBy(asc(links.sortOrder), asc(links.sourceLabel)),
+  );
 }
 
 export async function getLinkBySlug(

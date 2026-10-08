@@ -14,6 +14,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { stripTags } from '@weldsuite/text';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.helpdeskArticles;
@@ -139,7 +140,7 @@ app.post('/', requirePermission('articles:create'), zValidator('json', createArt
     title,
     slug: `${slug}-${id.slice(4, 10)}`,
     content,
-    excerpt: typeof data.excerpt === 'string' ? data.excerpt : content.replace(/<[^>]*>/g, '').slice(0, 200),
+    excerpt: typeof data.excerpt === 'string' ? data.excerpt : stripTags(content).slice(0, 200),
     status,
     visibility: (data.visibility as string | undefined) ?? 'public',
     tags: data.tags,

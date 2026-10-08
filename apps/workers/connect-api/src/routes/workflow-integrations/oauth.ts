@@ -46,9 +46,9 @@ function redirectUri(env: Env): string {
   return `${base.replace(/\/$/, '')}/weldconnect/integrations/callback`;
 }
 
-async function enc(value: string | undefined, keyring: EncryptionKeyring): Promise<string | undefined> {
-  if (!value) return undefined;
-  return keyring.v1 || keyring.v2 ? encryptField(value, keyring) : value;
+function enc(value: string | undefined, keyring: EncryptionKeyring): Promise<string | undefined> {
+  if (!value) return Promise.resolve(undefined);
+  return keyring.v1 || keyring.v2 ? encryptField(value, keyring) : Promise.resolve(value);
 }
 
 /** Begin an OAuth flow — returns the provider authorize URL the client opens. */

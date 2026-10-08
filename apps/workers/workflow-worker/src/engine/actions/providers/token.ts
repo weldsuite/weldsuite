@@ -53,7 +53,7 @@ async function assertOwnerStillMember(ctx: ActionContext): Promise<void> {
   }
 }
 
-async function maybeDecrypt(value: string, keyring: EncryptionKeyring): Promise<string> {
+function maybeDecrypt(value: string, keyring: EncryptionKeyring): Promise<string> {
   // Handles v1 + v2 formats; pre-encryption (plaintext) values pass through.
   return maybeDecryptField(value, keyring);
 }

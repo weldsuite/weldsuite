@@ -316,7 +316,7 @@ export function VariableInput({
 }
 
 export function VariableText({ value, className }: Readonly<{ value: string; className?: string }>) {
-  const parts = value.split(/(\{\{[^}]+\}\})/g);
+  const parts = value.split(/(\{\{[^{}]+\}\})/g);
   return (
     <span className={className}>
       {parts.map((part, index) => {

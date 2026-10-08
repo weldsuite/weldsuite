@@ -134,3 +134,4 @@ describe('getStatusColor', () => {
     expect(getStatusColor('SOMETHING_NEW')).toContain('gray');
   });
 });
+

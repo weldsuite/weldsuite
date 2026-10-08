@@ -21,6 +21,7 @@ import {
 } from '@/hooks/queries/use-notes-queries';
 import { NoteEditorDialog, type Note as DialogNote } from '@/components/weldcrm/notes/note-editor-dialog';
 import { Button } from '@weldsuite/ui/components/button';
+import { stripTags } from '@/lib/utils';
 
 type EntityKind = 'company' | 'person';
 
@@ -31,7 +32,7 @@ interface NotesTabProps {
 }
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  return stripTags(html).trim();
 }
 
 function getNoteTitle(content: string, untitledLabel: string): string {

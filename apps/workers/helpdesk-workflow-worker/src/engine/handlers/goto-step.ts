@@ -4,16 +4,16 @@ import { asText } from '@weldsuite/text';
 export const gotoStepHandler: StepHandler = {
   type: 'goto',
 
-  async execute(ctx: StepContext): Promise<StepResult> {
+  execute(ctx: StepContext): Promise<StepResult> {
     const targetStepId = asText(ctx.inputs.targetStepId || '');
 
     if (!targetStepId) {
-      return { success: false, error: 'goto step missing targetStepId' };
+      return Promise.resolve({ success: false, error: 'goto step missing targetStepId' });
     }
 
-    return {
+    return Promise.resolve({
       success: true,
       gotoStepId: targetStepId,
-    };
+    });
   },
 };

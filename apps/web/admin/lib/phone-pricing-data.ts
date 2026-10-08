@@ -62,7 +62,7 @@ export async function listPhonePricing(): Promise<{
   };
 }
 
-export async function listExistingPhonePricingKeys(): Promise<
+export function listExistingPhonePricingKeys(): Promise<
   Array<{
     id: string;
     countryCode: string;
@@ -72,13 +72,15 @@ export async function listExistingPhonePricingKeys(): Promise<
   }>
 > {
   const db = getMasterDb();
-  return db
-    .select({
-      id: telephonyNumberPricing.id,
-      countryCode: telephonyNumberPricing.countryCode,
-      numberType: telephonyNumberPricing.numberType,
-      markupAmount: telephonyNumberPricing.markupAmount,
-      markupPercent: telephonyNumberPricing.markupPercent,
-    })
-    .from(telephonyNumberPricing);
+  return Promise.resolve(
+    db
+      .select({
+        id: telephonyNumberPricing.id,
+        countryCode: telephonyNumberPricing.countryCode,
+        numberType: telephonyNumberPricing.numberType,
+        markupAmount: telephonyNumberPricing.markupAmount,
+        markupPercent: telephonyNumberPricing.markupPercent,
+      })
+      .from(telephonyNumberPricing),
+  );
 }

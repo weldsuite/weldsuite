@@ -7,7 +7,7 @@ import { Star } from 'lucide-react';
 function toKebab(name: string): string {
   return name
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .replace(/(?<![A-Z])([A-Z]+)([A-Z][a-z])/g, '$1-$2')
     .toLowerCase();
 }
 
@@ -71,6 +71,10 @@ function getJustifyItemsClass(alignment: TrustStripBlockProps['alignment']): str
   return 'justify-items-center';
 }
 
+function StarIconFallback() {
+  return <Star className="size-5" />;
+}
+
 export function TrustStripBlock({
   items = DEFAULT_ITEMS,
   backgroundColor = '#fafafa',
@@ -92,7 +96,7 @@ export function TrustStripBlock({
       <DynamicIcon
         name={kebab as never}
         className="size-5"
-        fallback={() => <Star className="size-5" />}
+        fallback={StarIconFallback}
       />
     );
   };

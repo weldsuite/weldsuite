@@ -66,6 +66,7 @@ test.describe('WeldDrive · toolbar create buttons', () => {
     // The button is hidden on mobile (md:flex). Skip gracefully when not rendered.
     const visible = await btn.isVisible().catch(() => false);
     if (!visible) {
+      // Skipped: The New Document button is hidden on narrow (mobile) layouts (md:flex).
       test.skip(true, 'New Document button not visible in this layout (mobile)');
     }
     await expect(btn).toBeVisible();
@@ -75,6 +76,7 @@ test.describe('WeldDrive · toolbar create buttons', () => {
     const btn = page.getByTestId('welddrive-new-doc-btn');
     const visible = await btn.isVisible().catch(() => false);
     if (!visible) {
+      // Skipped: The New Document button is hidden on narrow (mobile) layouts (md:flex).
       test.skip(true, 'New Document button not visible in this layout (mobile)');
     }
 
@@ -104,6 +106,7 @@ test.describe('WeldDrive · trash actions', () => {
     // The button is hidden on mobile (md:flex). Skip gracefully.
     const visible = await emptyTrashBtn.isVisible().catch(() => false);
     if (!visible) {
+      // Skipped: The Empty Trash button is hidden on narrow (mobile) layouts (md:flex).
       test.skip(true, 'Empty Trash button not visible in this layout (mobile)');
     }
     await expect(emptyTrashBtn).toBeVisible({ timeout: 10_000 });
@@ -116,6 +119,7 @@ test.describe('WeldDrive · trash actions', () => {
     const emptyTrashBtn = page.getByRole('button', { name: /empty trash/i });
     const visible = await emptyTrashBtn.isVisible().catch(() => false);
     if (!visible) {
+      // Skipped: The Empty Trash button is hidden on narrow (mobile) layouts (md:flex).
       test.skip(true, 'Empty Trash button not visible in this layout (mobile)');
     }
 

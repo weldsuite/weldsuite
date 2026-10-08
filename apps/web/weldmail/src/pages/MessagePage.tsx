@@ -149,6 +149,10 @@ export function MessagePage() {
   const actionClass =
     'inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground';
 
+  let composeTitle = `Reply to ${message.from?.name || message.from?.email}`;
+  if (mode === 'forward') composeTitle = 'Forward';
+  else if (mode === 'replyAll') composeTitle = 'Reply all';
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-[53px] shrink-0 items-center gap-2 border-b border-border px-4">
@@ -247,13 +251,7 @@ export function MessagePage() {
               void onSend();
             }}
           >
-            <p className="mb-3 text-sm font-medium text-foreground">
-              {mode === 'forward'
-                ? 'Forward'
-                : mode === 'replyAll'
-                  ? 'Reply all'
-                  : `Reply to ${message.from?.name || message.from?.email}`}
-            </p>
+            <p className="mb-3 text-sm font-medium text-foreground">{composeTitle}</p>
 
             {sendError && (
               <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

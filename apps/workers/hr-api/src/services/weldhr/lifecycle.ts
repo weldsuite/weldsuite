@@ -26,7 +26,7 @@ const tsk = schema.hrChecklistTasks;
 // Templates
 // ---------------------------------------------------------------------------
 
-export async function listTemplates(db: Database, kind?: string) {
+export function listTemplates(db: Database, kind?: string) {
   const conditions = [isNull(tpl.deletedAt)];
   if (kind) conditions.push(eq(tpl.kind, kind));
   return db.select().from(tpl).where(and(...conditions)).orderBy(asc(tpl.kind), asc(tpl.name));
@@ -122,11 +122,8 @@ export async function listChecklists(db: Database, filters: { employeeId?: strin
     list.push({
       ...task,
       assigneeName: task.assigneeUserId ? names.get(task.assigneeUserId) ?? null : null,
-      completedByName: task.completedBy
-        ? task.completedBy.startsWith('portal:')
-          ? null
-          : names.get(task.completedBy) ?? null
-        : null,
+      completedByName:
+        task.completedBy && !task.completedBy.startsWith('portal:') ? names.get(task.completedBy) ?? null : null,
     });
     byChecklist.set(task.checklistId, list);
   }
@@ -190,6 +187,11 @@ export async function startChecklist(
   }
 
   const items = template.items ?? [];
+  const assigneeForRole = (role: string) => {
+    if (role === 'manager') return managerUserId;
+    if (role === 'employee') return employee.userId;
+    return null;
+  };
   if (items.length) {
     await db.insert(tsk).values(
       items.map((item, index) => ({
@@ -199,12 +201,7 @@ export async function startChecklist(
         title: item.title,
         description: item.description ?? null,
         assigneeRole: item.assigneeRole,
-        assigneeUserId:
-          item.assigneeRole === 'manager'
-            ? managerUserId
-            : item.assigneeRole === 'employee'
-              ? employee.userId
-              : null,
+        assigneeUserId: assigneeForRole(item.assigneeRole),
         dueDate: addDays(anchor, item.dueOffsetDays),
         visibleToEmployee: item.visibleToEmployee,
         sortOrder: index,
@@ -212,10 +209,8 @@ export async function startChecklist(
     );
   }
 
-  const statusPatch =
-    template.kind === 'onboarding'
-      ? employee.status === 'active' ? null : 'onboarding'
-      : 'offboarding';
+  let statusPatch: 'onboarding' | 'offboarding' | null = 'offboarding';
+  if (template.kind === 'onboarding') statusPatch = employee.status === 'active' ? null : 'onboarding';
   if (statusPatch && statusPatch !== employee.status) {
     await db.update(schema.hrEmployees).set({ status: statusPatch, updatedAt: new Date() }).where(eq(schema.hrEmployees.id, employeeId));
   }

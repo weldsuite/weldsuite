@@ -60,6 +60,7 @@ test.describe('Settings · API keys', () => {
     await expect(generateKeyBtn.or(upgradeBtn).first()).toBeVisible({ timeout: 20_000 });
 
     if (!(await generateKeyBtn.isVisible().catch(() => false))) {
+      // Skipped: API keys are a paid-plan feature; a free-plan test workspace only shows the upgrade prompt.
       test.skip(true, 'Workspace is on free plan — API keys require an upgrade');
     }
 

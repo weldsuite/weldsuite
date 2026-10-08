@@ -33,33 +33,12 @@ import {
   placeCaretAtEnd,
   replaceMentionQuery,
 } from '../lib/composer-content';
+import { fitAttachments, isChatUploadTooLarge, MAX_CHAT_UPLOAD_BYTES, MAX_MESSAGE_ATTACHMENTS, uploadChatFile } from '../lib/chat-upload';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 /** A composer attachment — an uploaded file, or a recorded audio/video/screen clip. */
 type MessageAttachment = ChatAttachment | ChatClipAttachment;
-
-/** Flat (non-`{ data }`-wrapped) response from `/storage/generate-upload-url`. */
-interface GenerateUploadUrlResponse {
-  success?: boolean;
-  uploadUrl: string;
-  uploadToken: string;
-  fileKey: string;
-}
-
-/** Flat (non-`{ data }`-wrapped) response from `/storage/confirm-upload`. */
-interface ConfirmUploadResponse {
-  success?: boolean;
-  file?: {
-    id: string;
-    fileName: string;
-    fileKey: string;
-    fileSize: number;
-    mimeType: string;
-    url: string;
-    isPublic?: boolean;
-  };
-}
 
 interface MessageInputProps {
   channelId: string;
@@ -422,7 +401,7 @@ export function MessageInput({
     void voiceRecorder.startPreview();
   }, [voiceRecorder]);
 
-  const startVoiceRecording = useCallback(async () => {
+  const startVoiceRecording = useCallback(() => {
     setIsVoiceRecording(true);
     // If the pre-warm finished before this click, the stream is already
     // open and `state === 'previewing'` — fire startRecording directly so we
@@ -502,38 +481,19 @@ export function MessageInput({
     if (!voiceRecorder.blob) return;
     setVoiceUploading(true);
 
+    const ext = voiceRecorder.blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const fileName = `voice-${Date.now()}.${ext}`;
     try {
       const client = await getClient();
-      const ext = voiceRecorder.blob.type.includes('mp4') ? 'mp4' : 'webm';
-      const fileName = `voice-${Date.now()}.${ext}`;
-
-      const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
-        fileName,
-        fileSize: voiceRecorder.blob.size,
-        contentType: voiceRecorder.blob.type,
-      });
-
-      const { uploadUrl, uploadToken, fileKey } = urlRes;
-
-      await fetch(uploadUrl, {
-        method: 'PUT',
-        body: voiceRecorder.blob,
-        headers: { 'Content-Type': voiceRecorder.blob.type },
-      });
-
-      const confirmRes = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
-        uploadToken,
-        fileKey,
-      });
-
-      const fileData = confirmRes?.file;
+      const file = new File([voiceRecorder.blob], fileName, { type: voiceRecorder.blob.type });
+      const uploaded = await uploadChatFile(client, file, channelId);
 
       const clipAttachment: ChatClipAttachment = {
-        id: fileData?.id ?? fileKey,
+        id: uploaded.id,
         fileName,
         fileSize: voiceRecorder.blob.size,
         mimeType: voiceRecorder.blob.type,
-        url: fileData?.url ?? '',
+        url: uploaded.url,
         clipType: 'audio',
         durationSeconds: voiceRecorder.duration,
       };
@@ -541,6 +501,7 @@ export function MessageInput({
       handleClipReady(clipAttachment);
     } catch (err) {
       console.error('Voice clip upload failed:', err);
+      toast.error(t.weldchat.messageInput.uploadFailed.replace('{fileName}', fileName));
     } finally {
       voiceRecorder.reset();
       setIsVoiceRecording(false);
@@ -548,7 +509,7 @@ export function MessageInput({
       setVoiceHasFinished(false);
       voicePrewarmedRef.current = false;
     }
-  }, [voiceRecorder, getClient, handleClipReady]);
+  }, [voiceRecorder, getClient, handleClipReady, channelId, t]);
 
   const handleInput = useCallback(() => {
     if (!editorRef.current) return;
@@ -731,43 +692,39 @@ export function MessageInput({
     updateActiveFormats();
   }, [updateActiveFormats, handleInput]);
 
-  // Upload one or more File objects through the same presign → PUT →
-  // confirm flow the paperclip button uses, then push them onto the
-  // composer's attachment list. Shared so the drag-and-drop overlay
-  // can feed files in identically.
+  // Upload one or more File objects (paperclip, paste and the drag-and-drop
+  // overlay all land here), then push them onto the composer's attachment
+  // list. Files over the size limit, or past the per-message count, are
+  // refused before anything is uploaded.
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
-    const list = Array.from(files);
-    if (list.length === 0 || !attachmentsEnabled) return;
+    const picked = Array.from(files);
+    if (picked.length === 0 || !attachmentsEnabled) return;
+    const maxMb = MAX_CHAT_UPLOAD_BYTES / (1024 * 1024);
+    for (const file of picked.filter(isChatUploadTooLarge)) {
+      toast.error(
+        t.weldchat.messageInput.fileTooLarge.replace('{fileName}', file.name).replace('{size}', String(maxMb)),
+      );
+    }
+    const { accepted: list, rejected } = fitAttachments(
+      picked.filter((file) => !isChatUploadTooLarge(file)),
+      attachments.length + uploadingCount,
+    );
+    if (rejected.length > 0) {
+      toast.error(t.weldchat.messageInput.tooManyAttachments.replace('{count}', String(MAX_MESSAGE_ATTACHMENTS)));
+    }
+    if (list.length === 0) return;
     setUploadingCount((n) => n + list.length);
     try {
       const client = await getClient();
       for (const file of list) {
-        // The storage API requires a non-empty content type.
-        const contentType = file.type || 'application/octet-stream';
         try {
-          const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
-            fileName: file.name,
-            fileSize: file.size,
-            contentType,
-          });
-          const { uploadUrl, uploadToken, fileKey } = urlRes;
-          const putRes = await fetch(uploadUrl, {
-            method: 'PUT',
-            body: file,
-            headers: { 'Content-Type': contentType },
-          });
-          if (!putRes.ok) throw new Error(`Upload failed with status ${putRes.status}`);
-          const confirmRes = await client.post<ConfirmUploadResponse>('/storage/confirm-upload', {
-            uploadToken,
-            fileKey,
-          });
-          const fileData = confirmRes?.file;
+          const uploaded = await uploadChatFile(client, file, channelId);
           setAttachments((prev) => [...prev, {
-            id: fileData?.id ?? fileKey,
+            id: uploaded.id,
             fileName: file.name,
             fileSize: file.size,
-            mimeType: contentType,
-            url: fileData?.url ?? '',
+            mimeType: uploaded.mimeType,
+            url: uploaded.url,
           }]);
         } catch (err) {
           console.error('File upload failed:', err);
@@ -781,7 +738,7 @@ export function MessageInput({
       console.error('File upload failed:', err);
       setUploadingCount((n) => n - list.length);
     }
-  }, [getClient, t, attachmentsEnabled]);
+  }, [getClient, t, attachmentsEnabled, attachments.length, uploadingCount, channelId]);
 
   // Pasting a screenshot (or an image copied from another app) into the
   // contentEditable would otherwise inline an <img> that htmlToContent
@@ -1240,7 +1197,7 @@ export function MessageInput({
                       if (e.button !== 0 || isPending || isVoiceRecording) return;
                       prewarmVoiceRecording();
                     }}
-                    onClick={() => { if (!isVoiceRecording) void startVoiceRecording(); }}
+                    onClick={() => { if (!isVoiceRecording) startVoiceRecording(); }}
                     disabled={isPending || isVoiceRecording}
                     className={cn(
                       "p-1.5 rounded-lg transition-colors disabled:cursor-not-allowed",

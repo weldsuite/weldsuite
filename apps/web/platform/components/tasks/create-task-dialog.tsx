@@ -105,7 +105,7 @@ export function CreateTaskDialog({
     setTags(tags.filter(tag => tag !== tagToRemove));
   };
 
-  const handleCreateTask = async () => {
+  const handleCreateTask = () => {
     if (!title.trim()) return;
 
     const durationMinutes = durationUnit === 'hr' ? durationValue * 60 : durationValue;

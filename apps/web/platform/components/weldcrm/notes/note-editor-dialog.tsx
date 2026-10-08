@@ -22,7 +22,7 @@ import {
   Pin as PinIcon,
   Maximize2,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, stripTags } from '@/lib/utils';
 import { usePinnedNote } from '@/contexts/pinned-note-context';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -48,7 +48,7 @@ function getCompanyIcon(name?: string) {
 
 // Helper to strip HTML tags
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  return stripTags(html).trim();
 }
 
 // Helper to get note title from content

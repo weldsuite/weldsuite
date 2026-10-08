@@ -63,7 +63,7 @@ export const appApi = {
   agents: createWorkspaceAgentsApi(client),
   ai: createAiApi(client),
   credits: {
-    async balance(): Promise<{ data: CreditsBalance }> {
+    balance(): Promise<{ data: CreditsBalance }> {
       return client.get<{ data: CreditsBalance }>('/credits/balance');
     },
   },

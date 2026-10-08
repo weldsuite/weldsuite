@@ -1606,7 +1606,7 @@ export function useDeleteWidget() {
 export function useAiActiveConversations(_filters?: Record<string, unknown>) {
   return useQuery({
     queryKey: helpdeskExtraKeys.weldagentAiActive(_filters),
-    queryFn: async () => ({
+    queryFn: () => Promise.resolve({
       success: true,
       data: { conversations: [] as Helpdesk.Conversation[], pagination: null },
     }),
@@ -1617,7 +1617,7 @@ export function useAiActiveConversations(_filters?: Record<string, unknown>) {
 export function useAiResolvedConversations(_filters?: Record<string, unknown>) {
   return useQuery({
     queryKey: helpdeskExtraKeys.weldagentAiResolved(_filters),
-    queryFn: async () => ({
+    queryFn: () => Promise.resolve({
       success: true,
       data: { conversations: [] as Helpdesk.Conversation[], pagination: null },
     }),

@@ -13,7 +13,7 @@ export interface ListFoldersParams {
   all?: boolean;
 }
 
-export async function listFolders(db: Database, params: ListFoldersParams) {
+export function listFolders(db: Database, params: ListFoldersParams) {
   const conditions = [isNull(folders.deletedAt)];
   if (!params.all) {
     if (params.parentId) {
@@ -22,11 +22,13 @@ export async function listFolders(db: Database, params: ListFoldersParams) {
       conditions.push(isNull(folders.parentId));
     }
   }
-  return db
-    .select()
-    .from(folders)
-    .where(and(...conditions))
-    .orderBy(asc(folders.name));
+  return Promise.resolve(
+    db
+      .select()
+      .from(folders)
+      .where(and(...conditions))
+      .orderBy(asc(folders.name)),
+  );
 }
 
 export async function getFolder(db: Database, id: string) {
@@ -103,12 +105,14 @@ export async function softDeleteFolder(db: Database, id: string) {
 // Trash
 // ============================================================================
 
-export async function listTrashedFolders(db: Database) {
-  return db
-    .select()
-    .from(folders)
-    .where(isNotNull(folders.deletedAt))
-    .orderBy(folders.deletedAt);
+export function listTrashedFolders(db: Database) {
+  return Promise.resolve(
+    db
+      .select()
+      .from(folders)
+      .where(isNotNull(folders.deletedAt))
+      .orderBy(folders.deletedAt),
+  );
 }
 
 export async function restoreFolder(db: Database, id: string) {

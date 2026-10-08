@@ -261,7 +261,11 @@ function buildCallUpdateFields(data: UpdateCallData): Record<string, any> {
   const update: Record<string, any> = { updatedAt: new Date() };
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined) continue;
-    update[k] = CALL_DATE_FIELDS.has(k) ? (v ? new Date(v as string) : null) : v;
+    if (CALL_DATE_FIELDS.has(k)) {
+      update[k] = v ? new Date(v as string) : null;
+    } else {
+      update[k] = v;
+    }
   }
   return update;
 }

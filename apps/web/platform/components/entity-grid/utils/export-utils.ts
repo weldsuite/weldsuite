@@ -34,7 +34,7 @@ function formatExportValue<TEntity>(
 }
 
 // Export entities to CSV
-export async function exportToCSV<TEntity>(
+export function exportToCSV<TEntity>(
   entities: TEntity[],
   columns: GridColumnDef<TEntity>[],
   filename: string,
@@ -60,10 +60,11 @@ export async function exportToCSV<TEntity>(
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   downloadBlob(blob, filename);
+  return Promise.resolve();
 }
 
 // Export entities to Excel
-export async function exportToExcel<TEntity>(
+export function exportToExcel<TEntity>(
   entities: TEntity[],
   columns: GridColumnDef<TEntity>[],
   filename: string,
@@ -93,6 +94,7 @@ export async function exportToExcel<TEntity>(
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   XLSX.writeFile(workbook, filename);
+  return Promise.resolve();
 }
 
 // Helper to download a blob
@@ -102,6 +104,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   link.download = filename;
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
+  link.remove();
   URL.revokeObjectURL(link.href);
 }

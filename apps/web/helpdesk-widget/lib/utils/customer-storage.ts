@@ -38,7 +38,7 @@ export function getOrCreateVisitorId(): string {
       localStorage.setItem(VISITOR_ID_KEY, visitorId);
     }
     return visitorId;
-  } catch (error) {
+  } catch {
     // If localStorage is not available, generate a temporary ID
     return generateVisitorId();
   }

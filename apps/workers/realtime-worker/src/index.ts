@@ -44,18 +44,18 @@ const app = new Hono<{ Bindings: Env }>();
  * `cf-connecting-ip` header that Cloudflare sets on edge requests — must
  * supply the matching `x-internal-secret` header.
  */
-app.use('/publish/*', async (c, next) => {
+app.use('/publish/*', (c, next) => {
   const isPublic = c.req.header('cf-connecting-ip') !== undefined;
   if (!isPublic) {
     return next();
   }
   const expected = c.env.REALTIME_INTERNAL_SECRET;
   if (!expected) {
-    return c.text('Forbidden: REALTIME_INTERNAL_SECRET not configured', 403);
+    return Promise.resolve(c.text('Forbidden: REALTIME_INTERNAL_SECRET not configured', 403));
   }
   const provided = c.req.header('x-internal-secret');
   if (provided !== expected) {
-    return c.text('Forbidden', 403);
+    return Promise.resolve(c.text('Forbidden', 403));
   }
   return next();
 });

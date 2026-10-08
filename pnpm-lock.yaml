@@ -4956,6 +4956,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/flow-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/flow
       '@weldsuite/know-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/know
@@ -5579,6 +5582,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/flow-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/flow
       '@weldsuite/know-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/know
@@ -5777,6 +5783,9 @@ importers:
       '@weldsuite/email':
         specifier: workspace:*
         version: link:../../../packages/core/email
+      '@weldsuite/text':
+        specifier: workspace:*
+        version: link:../../../packages/core/text
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260113.0)(@electric-sql/pglite@0.4.5)(@neondatabase/serverless@1.0.2)(@opentelemetry/api@1.9.0)(@types/pg@8.16.0)(bun-types@1.3.6)(gel@2.2.0)(pg@8.20.0)(postgres@3.4.7)(sqlite3@5.1.7)

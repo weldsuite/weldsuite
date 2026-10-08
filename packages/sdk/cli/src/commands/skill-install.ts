@@ -66,7 +66,7 @@ export async function run(args: ParsedArgs): Promise<void> {
     await writeFile(claudeDest, snippetContent, 'utf8');
     success(`Created ${cyan('CLAUDE.md')} with WeldSuite app guidance.`);
   } else {
-    await writeFile(claudeDest, `${existingClaude.replace(/\n*$/, '\n\n')}${snippetContent}`, 'utf8');
+    await writeFile(claudeDest, `${existingClaude.replace(/(?<!\n)\n*$/, '\n\n')}${snippetContent}`, 'utf8');
     success(`Appended WeldSuite app guidance to ${cyan('CLAUDE.md')}.`);
   }
 }

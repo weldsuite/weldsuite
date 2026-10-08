@@ -24,7 +24,7 @@ export const WOOCOMMERCE_AUTH_CALLBACK_PATH = '/webhooks/woocommerce/auth';
 export const WOOCOMMERCE_AUTH_STATE_TTL_SECONDS = 15 * 60;
 
 export function woocommerceAuthCallbackUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}${WOOCOMMERCE_AUTH_CALLBACK_PATH}`;
+  return `${baseUrl.replace(/(?<!\/)\/+$/, '')}${WOOCOMMERCE_AUTH_CALLBACK_PATH}`;
 }
 
 /**
@@ -48,12 +48,9 @@ export function resolveWooCommerceAuthCallbackUrl(args: {
     }
   };
 
-  const fromEnv =
-    args.environment === 'production'
-      ? 'https://app-api.weldsuite.org'
-      : args.environment === 'test'
-        ? 'https://app-api-test.weldsuite.org'
-        : null;
+  let fromEnv: string | null = null;
+  if (args.environment === 'production') fromEnv = 'https://app-api.weldsuite.org';
+  else if (args.environment === 'test') fromEnv = 'https://app-api-test.weldsuite.org';
 
   const origin =
     httpsOrigin(args.requestOrigin) ?? httpsOrigin(args.appApiPublicUrl) ?? httpsOrigin(fromEnv ?? undefined);
@@ -122,7 +119,7 @@ export interface WooCommerceAuthState {
 function toBase64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCodePoint(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/(?<!=)=+$/, '');
 }
 
 function fromBase64Url(value: string): Uint8Array {

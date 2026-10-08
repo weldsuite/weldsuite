@@ -78,22 +78,24 @@ export async function getGlobalVariables(db: Database) {
  * Variables available inside a workflow — own scope plus all globals.
  * Returns the editor-friendly shape (name/type only — no values exposed).
  */
-export async function getWorkflowVariables(db: Database, workflowId: string) {
-  return db
-    .select({
-      name: workflowVariables.name,
-      type: workflowVariables.type,
-      isSecret: workflowVariables.isSecret,
-      scope: workflowVariables.scope,
-    })
-    .from(workflowVariables)
-    .where(
-      and(
-        or(eq(workflowVariables.workflowId, workflowId), eq(workflowVariables.scope, 'global')),
-        isNull(workflowVariables.deletedAt),
-      ),
-    )
-    .orderBy(workflowVariables.name);
+export function getWorkflowVariables(db: Database, workflowId: string) {
+  return Promise.resolve(
+    db
+      .select({
+        name: workflowVariables.name,
+        type: workflowVariables.type,
+        isSecret: workflowVariables.isSecret,
+        scope: workflowVariables.scope,
+      })
+      .from(workflowVariables)
+      .where(
+        and(
+          or(eq(workflowVariables.workflowId, workflowId), eq(workflowVariables.scope, 'global')),
+          isNull(workflowVariables.deletedAt),
+        ),
+      )
+      .orderBy(workflowVariables.name),
+  );
 }
 
 /**

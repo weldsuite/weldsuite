@@ -289,6 +289,9 @@ export function ClipRecorder({ open, onClose, onClipReady, initialMode }: Readon
       const ext = recorder.blob.type.includes('mp4') ? 'mp4' : 'webm';
       const fileName = `clip-${Date.now()}.${ext}`;
 
+      // Clips stay on the storage broker rather than chat-api's attachment
+      // upload (lib/chat-upload.ts): a five-minute screen recording can pass
+      // that route's 50 MB cap, and the recorder only ever produces webm/mp4.
       const urlRes = await client.post<GenerateUploadUrlResponse>('/storage/generate-upload-url', {
         fileName,
         fileSize: recorder.blob.size,

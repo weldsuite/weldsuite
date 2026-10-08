@@ -88,9 +88,7 @@ async function failListSync(
 ): Promise<SyncResult> {
   const { hostDnsRecords, hostDnsZones } = schema;
   const message =
-    err instanceof CloudflareZoneError ? err.message :
-    err instanceof Error ? err.message :
-    'Cloudflare list records failed';
+    err instanceof CloudflareZoneError || err instanceof Error ? err.message : 'Cloudflare list records failed';
   console.error('[host-dns-sync] listDnsRecordsInZone failed:', err);
   await db
     .update(hostDnsZones)

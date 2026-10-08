@@ -63,7 +63,7 @@ export function useConversation(options: UseConversationOptions) {
    * still renders a conversation instead of erroring against a dead route.
    */
   const sendMessage = useCallback(
-    async (content: string): Promise<AiResponse | null> => {
+    (content: string): Promise<AiResponse | null> => {
       setError(null);
       setIsLoading(true);
 
@@ -88,12 +88,12 @@ export function useConversation(options: UseConversationOptions) {
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsLoading(false);
 
-      return {
+      return Promise.resolve({
         messageId: assistantId,
         content: unavailableText,
         shouldEscalate: false,
         shouldCreateTicket: false,
-      };
+      });
     },
     [t]
   );

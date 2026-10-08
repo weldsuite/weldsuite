@@ -1137,6 +1137,7 @@ export default function ComposePage(props: ComposePageProps = {}) {
               contentEditable
               suppressContentEditableWarning
               role="textbox"
+              tabIndex={0}
               aria-multiline="true"
               aria-label={t.mail.composePage.writePlaceholder}
               data-testid="compose-body"

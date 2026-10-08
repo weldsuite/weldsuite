@@ -124,7 +124,8 @@ function mockRoutes(page, env) {
           authorId: ME.id,
           createdAt: new Date().toISOString(),
         }
-        ;(posted[id] ??= []).unshift(sent)
+        posted[id] ??= []
+        posted[id].unshift(sent)
         return { data: sent }
       },
     ],

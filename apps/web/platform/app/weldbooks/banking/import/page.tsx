@@ -17,6 +17,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { readTextFile } from '@/lib/read-text-file';
 
 type Step = 'select' | 'upload' | 'result';
 
@@ -60,11 +61,9 @@ export default function BankImportPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      setFileContent(evt.target?.result as string);
-    };
-    reader.readAsText(file);
+    readTextFile(file).then(setFileContent).catch(() => {
+      // An unreadable file leaves the previous content, as FileReader did.
+    });
   }, []);
 
   const handleImport = () => {

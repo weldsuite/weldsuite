@@ -232,7 +232,7 @@ app.get('/', requirePermission('entities:read'), async (c) => {
 });
 
 // GET /jurisdictions — supported jurisdiction adapters
-app.get('/jurisdictions', requirePermission('entities:read'), async (c) => {
+app.get('/jurisdictions', requirePermission('entities:read'), (c) => {
   return success(c, listJurisdictions());
 });
 
@@ -451,12 +451,13 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       return error.badRequest(c, unsupportedJurisdictionMessage(nextJurisdiction));
     }
 
+    const mergedWithoutAlias = data.taxIdentifiers
+      ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
+      : existing.taxIdentifiers;
     const mergedTaxIdentifiers =
       vatAlias !== undefined
         ? { ...existing.taxIdentifiers, ...data.taxIdentifiers, vatNumber: vatAlias }
-        : data.taxIdentifiers
-          ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
-          : existing.taxIdentifiers;
+        : mergedWithoutAlias;
 
     const india = applyIndiaTaxIdentifiers({
       jurisdictionCode: nextJurisdiction,

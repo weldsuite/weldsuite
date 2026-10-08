@@ -912,11 +912,9 @@ export async function installTemplate(
     createdBy?: string;
   },
 ) {
-  const template = input.templateId
-    ? await getTemplate(db, input.templateId)
-    : input.shareToken
-      ? await getTemplateByShareToken(db, input.shareToken)
-      : null;
+  let template: Awaited<ReturnType<typeof getTemplate>> = null;
+  if (input.templateId) template = await getTemplate(db, input.templateId);
+  else if (input.shareToken) template = await getTemplateByShareToken(db, input.shareToken);
   if (!template) return null;
   const payload = template.payload as {
     systemPrompt?: string;
@@ -940,7 +938,7 @@ export async function installTemplate(
   const agent = await createAgent(db, {
       name:
         input.name ??
-        (template.name.replace(/\s*template$/i, '').trim() || 'Imported agent'),
+        (template.name.replace(/template$/i, '').trim() || 'Imported agent'),
       description: template.description,
     systemPrompt: payload.systemPrompt ?? '',
     permissions: payload.permissions ?? ['computer:use', 'browser:use'],

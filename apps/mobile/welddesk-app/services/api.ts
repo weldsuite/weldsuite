@@ -69,8 +69,8 @@ class WeldDeskApi {
     // No-op: app-api derives the workspace from the Clerk JWT's active org.
   }
 
-  async getCurrentWorkspace(): Promise<ApiResponse<Workspace>> {
-    return { success: false };
+  getCurrentWorkspace(): Promise<ApiResponse<Workspace>> {
+    return Promise.resolve({ success: false });
   }
 
   async getUserWorkspaces(): Promise<ApiResponse<WorkspaceWithMembership[]>> {

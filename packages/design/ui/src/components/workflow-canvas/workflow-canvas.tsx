@@ -224,7 +224,7 @@ function computeAlignmentGuides(
       const lineX = getX(node);
       if (Math.abs(getX(draggedNode) - lineX) < ALIGNMENT_THRESHOLD) {
         guides.push({ x: lineX, type, yStart, yEnd });
-        if (snapX === null) snapX = lineX + snapOffset(draggedNodeWidth);
+        snapX ??= lineX + snapOffset(draggedNodeWidth);
       }
     }
   }

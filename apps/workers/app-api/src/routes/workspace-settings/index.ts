@@ -237,12 +237,12 @@ async function updateWorkspaceSlug({
         errors?: Array<{ code?: string; meta?: { param_name?: string } }>;
       };
       const code = details?.errors?.[0]?.code ?? '';
-      const reasonCode: 'taken' | 'format' | 'unknown' =
-        code.includes('exists') || code.includes('unique') || code.includes('taken')
-          ? 'taken'
-          : code.includes('format') || code.includes('invalid')
-            ? 'format'
-            : 'unknown';
+      let reasonCode: 'taken' | 'format' | 'unknown' = 'unknown';
+      if (code.includes('exists') || code.includes('unique') || code.includes('taken')) {
+        reasonCode = 'taken';
+      } else if (code.includes('format') || code.includes('invalid')) {
+        reasonCode = 'format';
+      }
       throw new ClerkSyncError(resp.status, details, reasonCode);
     }
   } catch (err) {

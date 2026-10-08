@@ -140,7 +140,7 @@ export function HeroVideoTextButtonBlock({
 
   return (
     <a
-      href={isEditing ? undefined : buttonLink}
+      href={buttonLink}
       onClick={(e) => isEditing && e.preventDefault()}
       className={cn(
         "group flex w-fit items-center justify-center gap-2 rounded-full px-6 py-3 text-md tracking-tight transition-colors",

@@ -805,7 +805,7 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
     return plan.monthlyPrice > currentPlan.monthlyPrice;
   };
 
-  const handleSelectPlan = async (plan: Billing.BillingPlan) => {
+  const handleSelectPlan = (plan: Billing.BillingPlan) => {
     if (processingPlanId) return;
     if (isPlanCurrent(plan)) return;
 

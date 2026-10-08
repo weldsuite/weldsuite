@@ -34,7 +34,7 @@ app.route('/api/email-forwards', emailForwardsRoutes);
 
 export default {
   fetch: app.fetch,
-  scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+  scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     // Daily at 04:00 UTC: invoice+renew WeldHost domains that are inside the
     // auto-renew window.
     if (event.cron === '0 4 * * *') {

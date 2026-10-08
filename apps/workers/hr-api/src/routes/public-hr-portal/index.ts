@@ -135,7 +135,7 @@ app.get('/resolve-host', async (c) => {
 });
 
 const slugMiddleware = commercePortalSlugMiddleware();
-app.use('*', async (c, next) => {
+app.use('*', (c, next) => {
   if (c.req.path.endsWith('/resolve-host')) return next();
   return slugMiddleware(c, async () => {
     // The slug middleware sets the master workspace id, but the back office
@@ -182,8 +182,8 @@ function publicConfig(settings: HrPortalSettings) {
 }
 
 /** Portal settings for a signed-in request — loaded once by requireSession. */
-async function sessionSettings(c: PortalContext): Promise<HrPortalSettings> {
-  return c.get('hrPortalSettings') ?? loadPortalSettings(c.get('tenantDb'));
+function sessionSettings(c: PortalContext): Promise<HrPortalSettings> {
+  return Promise.resolve(c.get('hrPortalSettings') ?? loadPortalSettings(c.get('tenantDb')));
 }
 
 async function enabledSettings(c: { get: (k: 'tenantDb') => Variables['tenantDb'] }) {

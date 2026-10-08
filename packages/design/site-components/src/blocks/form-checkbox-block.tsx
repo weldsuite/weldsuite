@@ -21,11 +21,13 @@ export function FormCheckboxBlock({
   checkboxColor = '#3b82f6'
 }: Readonly<FormCheckboxBlockProps>) {
   const [isChecked, setIsChecked] = React.useState(checked);
+  const inputId = React.useId();
 
   return (
     <div className="flex items-start gap-3">
       <div className="flex items-center h-5">
         <input
+          id={inputId}
           type="checkbox"
           name={name || 'checkbox'}
           checked={isChecked}
@@ -38,9 +40,9 @@ export function FormCheckboxBlock({
         />
       </div>
       <label
+        htmlFor={inputId}
         className="text-sm font-medium cursor-pointer select-none"
         style={{ color: labelColor }}
-        onClick={() => setIsChecked(!isChecked)}
       >
         {label}
         {required && <span className="text-red-500 ml-1">*</span>}

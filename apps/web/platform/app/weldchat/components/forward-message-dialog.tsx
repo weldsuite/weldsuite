@@ -1,7 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { Hash, Lock, X, Clock, User, Users, type LucideIcon } from 'lucide-react';
+import { Hash, Lock, X, User, Users, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
 import {
   Dialog,
   DialogContent,
@@ -9,22 +8,18 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import {
   Popover,
   PopoverContent,
-  PopoverTrigger,
   PopoverAnchor,
 } from '@weldsuite/ui/components/popover';
-import { Calendar } from '@weldsuite/ui/components/calendar';
 import { useChannels, useCreateDm, useForwardMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import { toast } from 'sonner';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { MAX_SCHEDULE_DAYS, checkScheduleTime, latestScheduleDate } from '../lib/schedule-limit';
 import { renderMessageContent } from '../lib/render-message-content';
 
 /** A channel, group, DM, or user picked as a forward target. */
@@ -90,9 +85,6 @@ export function ForwardMessageDialog({
   const [selectedList, setSelectedList] = useState<ForwardTarget[]>([]);
   const [extraMessage, setExtraMessage] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleDate, setScheduleDate] = useState<Date | undefined>(undefined);
-  const [scheduleTime, setScheduleTime] = useState('09:00');
   const { data: channelsData } = useChannels();
   const { data: membersData } = useWorkspaceMembers();
   const { mutateAsync: forwardMessage, isPending } = useForwardMessage();
@@ -153,9 +145,6 @@ export function ForwardMessageDialog({
       setSelectedList([]);
       setExtraMessage('');
       setShowDropdown(false);
-      setScheduleOpen(false);
-      setScheduleDate(undefined);
-      setScheduleTime('09:00');
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   }, [open]);
@@ -219,42 +208,6 @@ export function ForwardMessageDialog({
       const message = e instanceof Error ? e.message : undefined;
       toast.error(message || t.weldchat.forwardMessage.failedToForward);
     }
-  };
-
-  const handleSchedule = async () => {
-    if (selectedList.length === 0 || !scheduleDate || !messageId || !sourceChannelId) return;
-    const [hh, mm] = scheduleTime.split(':').map((v) => Number.parseInt(v, 10) || 0);
-    const when = new Date(scheduleDate);
-    when.setHours(hh, mm, 0, 0);
-    const check = checkScheduleTime(when);
-    if (check === 'past') {
-      toast.error(t.weldchat.forwardMessage.pickFutureTime);
-      return;
-    }
-    if (check === 'too-far') {
-      // A longer in-memory timer would overflow and send the message right away.
-      toast.error(st('sweep.weldchat.forwardMessage.scheduleTooFar', { days: MAX_SCHEDULE_DAYS }));
-      return;
-    }
-    const delay = when.getTime() - Date.now();
-    // Resolve DMs now so they exist when the scheduled send fires.
-    // Note: scheduling is in-memory and lost on reload — the popover says so.
-    const targetChannelIds = await resolveChannelIds();
-    setTimeout(() => {
-      forwardMessage({
-        sourceChannelId,
-        sourceMessageId: messageId,
-        targetChannelIds,
-        comment: extraMessage.trim() || undefined,
-      }).catch((e) => toast.error(e?.message || t.weldchat.forwardMessage.failedToForward));
-    }, delay);
-    toast.success(
-      selectedList.length === 1
-        ? t.weldchat.forwardMessage.scheduledFor.replace('{time}', format(when, 'MMM d, HH:mm')).replace('{name}', selectedList[0].name)
-        : t.weldchat.forwardMessage.scheduledForMultiple.replace('{time}', format(when, 'MMM d, HH:mm')).replace('{count}', String(selectedList.length)),
-    );
-    setScheduleOpen(false);
-    onOpenChange(false);
   };
 
   const handleCopyLink = () => {
@@ -413,51 +366,11 @@ export function ForwardMessageDialog({
           <Button variant="outline" onClick={handleCopyLink} disabled={!messageId}>
             {t.weldchat.forwardMessage.copyLink}
           </Button>
-          <div className="flex items-center gap-2">
-            <Popover open={scheduleOpen} onOpenChange={setScheduleOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" disabled={!canForward}>
-                  {t.weldchat.forwardMessage.schedule}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end">
-                <Calendar
-                  mode="single"
-                  selected={scheduleDate}
-                  onSelect={setScheduleDate}
-                  disabled={(date) => {
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    return date < today || date > latestScheduleDate();
-                  }}
-                  autoFocus
-                />
-                <div className="flex items-center gap-2 p-3 border-t">
-                  <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                  <Input
-                    type="time"
-                    value={scheduleTime}
-                    onChange={(e) => setScheduleTime(e.target.value)}
-                    className="h-8"
-                  />
-                </div>
-                <p className="max-w-[17rem] px-3 pb-3 text-xs text-muted-foreground">
-                  {st('sweep.weldchat.forwardMessage.scheduleOpenTabNote', { days: MAX_SCHEDULE_DAYS })}
-                </p>
-                <div className="flex items-center justify-end gap-2 p-3 pt-0">
-                  <Button variant="outline" size="sm" onClick={() => setScheduleOpen(false)}>
-                    {t.weldchat.forwardMessage.cancel}
-                  </Button>
-                  <Button size="sm" disabled={!scheduleDate} onClick={handleSchedule}>
-                    {t.weldchat.forwardMessage.schedule}
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-            <Button disabled={!canForward} onClick={handleForward}>
-              {t.weldchat.forwardMessage.forward}
-            </Button>
-          </div>
+          {/* No "Schedule" here: nothing persists a scheduled forward server-side,
+              and a browser timer silently drops it on reload. */}
+          <Button disabled={!canForward} onClick={handleForward}>
+            {t.weldchat.forwardMessage.forward}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

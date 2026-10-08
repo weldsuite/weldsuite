@@ -91,13 +91,13 @@ function resolveReference(path: string, scope: ResolveScope): unknown {
 function resolveStringInput(value: string, scope: ResolveScope): unknown {
   if (!(value.includes('{{') && value.includes('}}'))) return value;
 
-  const interpolated = value.replace(/\{\{([^}]+)\}\}/g, (_match, path) => {
+  const interpolated = value.replace(/\{\{([^{}]+)\}\}/g, (_match, path) => {
     const r = resolveReference((path as string).trim(), scope);
     return r !== undefined ? asText(r) : '';
   });
 
   // A value that is exactly one template keeps the referenced value's original type
-  if (/^\{\{[^}]+\}\}$/.test(value)) {
+  if (/^\{\{[^{}]+\}\}$/.test(value)) {
     const result = resolveReference(value.slice(2, -2).trim(), scope);
     if (result !== undefined) return result;
   }

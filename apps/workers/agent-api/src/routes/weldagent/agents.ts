@@ -69,12 +69,12 @@ app.get('/', requirePermission('weldagent:read'), async (c) => {
 });
 
 /** GET /agents/tools — tool catalog for the builder UI. */
-app.get('/tools', requirePermission('weldagent:read'), async (c) => {
+app.get('/tools', requirePermission('weldagent:read'), (c) => {
   return success(c, listToolCatalog());
 });
 
 /** GET /agents/grantable-permissions — platform permissions assignable to an agent. */
-app.get('/grantable-permissions', requirePermission('weldagent:read'), async (c) => {
+app.get('/grantable-permissions', requirePermission('weldagent:read'), (c) => {
   // Exclude weldagent:* self-management and settings noise — agents act on data objects.
   // Keep computer:* / browser:* so builders can unlock the cloud computer.
   const keys = getAllPermissionKeys().filter(

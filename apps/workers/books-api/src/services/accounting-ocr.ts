@@ -382,11 +382,24 @@ export function looksLikeImage(bytes: Uint8Array): boolean {
   return false;
 }
 
+/**
+ * The body of the first ``` fence that is closed again, minus an optional
+ * `json` tag: what /```(?:json)?\s*([\s\S]*?)```/i captures (up to leading
+ * whitespace), found with indexOf so an unclosed fence costs one scan.
+ */
+function fencedBody(text: string): string | null {
+  const open = text.indexOf('```');
+  if (open === -1) return null;
+  const close = text.indexOf('```', open + 3);
+  if (close === -1) return null;
+  const body = text.slice(open + 3, close);
+  return body.slice(0, 4).toLowerCase() === 'json' ? body.slice(4) : body;
+}
+
 /** Pull a JSON object out of a model reply that may wrap it in markdown fences. */
 export function parseOcrJson(text: string): Record<string, unknown> {
   const trimmed = text.trim();
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
-  const raw = (fenced ? fenced[1] : trimmed).trim();
+  const raw = (fencedBody(trimmed) ?? trimmed).trim();
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
   if (start === -1 || end <= start) {

@@ -160,5 +160,5 @@ export async function run(args: ParsedArgs): Promise<void> {
 
 function trim(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  return value.replace(/\/+$/, '');
+  return value.replace(/(?<!\/)\/+$/, '');
 }

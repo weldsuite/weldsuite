@@ -255,8 +255,8 @@ class WeldBooksApi {
    * lets WorkspaceProvider fall back to the active Clerk org (the source of
    * truth for which workspace is current). Same approach as weldmail-app.
    */
-  async getCurrentWorkspace(): Promise<ApiResponse<Workspace>> {
-    return { success: false };
+  getCurrentWorkspace(): Promise<ApiResponse<Workspace>> {
+    return Promise.resolve({ success: false });
   }
 
   async getUserWorkspaces(): Promise<ApiResponse<WorkspaceWithMembership[]>> {

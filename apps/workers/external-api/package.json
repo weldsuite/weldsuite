@@ -23,6 +23,7 @@
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/flow-domain": "workspace:*",
     "@weldsuite/know-domain": "workspace:*",
     "@weldsuite/mail-domain": "workspace:*",
     "@weldsuite/social-publishing": "workspace:*",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asText, logSafe } from './index';
+import { asText, logSafe, stripTags, tagsToSpaces } from './index';
 
 describe('asText', () => {
   it('matches String() for primitives, dates and nullish values', () => {
@@ -42,5 +42,52 @@ describe('logSafe', () => {
   it('stringifies non-string values first', () => {
     expect(logSafe({ id: 'x\ny' })).toBe('{"id":"x\\ny"}');
     expect(logSafe(42)).toBe('42');
+  });
+});
+
+describe('stripTags', () => {
+  it('removes from a `<` to the next `>`, as the /<[^>]*>/g regex it replaced did', () => {
+    const cases: Array<[string, string]> = [
+      ['<p>Hello <b>world</b></p>', 'Hello world'],
+      ['a<b<c>d', 'ad'],
+      ['<<b>img src=x>', 'img src=x>'],
+      ['x > y', 'x > y'],
+      ['a<>b', 'ab'],
+      ['<a>b<c', 'b<c'],
+      ['plain', 'plain'],
+      ['', ''],
+      ['<', '<'],
+    ];
+    for (const [input, expected] of cases) {
+      expect(stripTags(input)).toBe(expected);
+    }
+  });
+
+  it('leaves an unclosed `<` and everything after it alone, in linear time', () => {
+    const input = `ok ${'<'.repeat(50_000)}`;
+    expect(stripTags(input)).toBe(input);
+  });
+});
+
+describe('tagsToSpaces', () => {
+  it('replaces the spans the /<[^>]+>/g regex it replaced did, leaving a bare `<>` alone', () => {
+    const cases: Array<[string, string]> = [
+      ['<p>Hi <b>there</b></p>', ' Hi  there  '],
+      ['a<>b', 'a<>b'],
+      ['a<<>b', 'a b'],
+      ['<><b>', '<> '],
+      ['a<b<c>d', 'a d'],
+      ['<a>b<c', ' b<c'],
+      ['x > y', 'x > y'],
+      ['', ''],
+    ];
+    for (const [input, expected] of cases) {
+      expect(tagsToSpaces(input)).toBe(expected);
+    }
+  });
+
+  it('keeps an unclosed `<` and the rest of the text', () => {
+    const input = `hi ${'<'.repeat(50_000)}`;
+    expect(tagsToSpaces(input)).toBe(input);
   });
 });

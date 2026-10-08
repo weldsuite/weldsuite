@@ -566,7 +566,7 @@ export function MyTasksClient({
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, onLoadMore]);
 
-  const handleSaveSubtask = useCallback(async (data: {
+  const handleSaveSubtask = useCallback((data: {
     title: string;
     description?: string;
     status: Task['status'];
@@ -677,7 +677,7 @@ export function MyTasksClient({
     });
   };
 
-  const toggleTaskStatus = useCallback(async (taskId: string) => {
+  const toggleTaskStatus = useCallback((taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     startTransition(async () => {
@@ -708,18 +708,33 @@ export function MyTasksClient({
     });
   }, [tasks, startTransition, queryClient, t]);
 
-  const deleteTask = useCallback(async (taskId: string) => {
+  const deleteTask = useCallback((taskId: string) => {
     startTransition(async () => {
       const result = await tasksApi.deleteById(taskId);
       if (result.success) {
-        setTasks(tasks.filter((task) => task.id !== taskId));
+        // The API deletes the task's subtasks with it. The refetch below keeps
+        // rows the server no longer returns, so drop the subtree here.
+        setTasks(prev => {
+          const removedIds = new Set([taskId]);
+          let grew = true;
+          while (grew) {
+            grew = false;
+            for (const row of prev) {
+              if (row.parentTaskId && removedIds.has(row.parentTaskId) && !removedIds.has(row.id)) {
+                removedIds.add(row.id);
+                grew = true;
+              }
+            }
+          }
+          return prev.filter((row) => !removedIds.has(row.id));
+        });
         toast.success(t.projects.myTasks.taskDeleted);
         void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
       } else {
         toast.error(result.error || t.projects.myTasks.taskDeleteFailed);
       }
     });
-  }, [tasks, startTransition, queryClient, t]);
+  }, [startTransition, queryClient, t]);
 
   const handleStatusChange = useCallback(async (taskId: string, newStatus: Task['status']) => {
     const task = tasks.find(t => t.id === taskId);

@@ -165,6 +165,96 @@ function FilterSection({
   );
 }
 
+interface FilterContentProps {
+  allCategories: string[];
+  allColors: string[];
+  allSizes: string[];
+  selectedCategories: string[];
+  selectedColors: string[];
+  selectedSizes: string[];
+  onToggleCategory: (category: string) => void;
+  onToggleColor: (color: string) => void;
+  onToggleSize: (size: string) => void;
+}
+
+// Filter Sidebar Content
+function FilterContent({
+  allCategories,
+  allColors,
+  allSizes,
+  selectedCategories,
+  selectedColors,
+  selectedSizes,
+  onToggleCategory,
+  onToggleColor,
+  onToggleSize,
+}: Readonly<FilterContentProps>) {
+  return (
+    <div className="space-y-0">
+      {/* Categories */}
+      {allCategories.length > 0 && (
+        <FilterSection title="Category">
+          <div className="space-y-2">
+            {allCategories.map(category => (
+              <label key={category} className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectedCategories.includes(category)}
+                  onChange={() => onToggleCategory(category)}
+                  className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                />
+                <span className="text-sm text-gray-600">{category}</span>
+              </label>
+            ))}
+          </div>
+        </FilterSection>
+      )}
+
+      {/* Colors */}
+      {allColors.length > 0 && (
+        <FilterSection title="Color">
+          <div className="flex flex-wrap gap-2">
+            {allColors.map(color => (
+              <button
+                key={color}
+                onClick={() => onToggleColor(color)}
+                className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                  selectedColors.includes(color)
+                    ? 'border-gray-900 bg-gray-900 text-white'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                {color}
+              </button>
+            ))}
+          </div>
+        </FilterSection>
+      )}
+
+      {/* Sizes */}
+      {allSizes.length > 0 && (
+        <FilterSection title="Size">
+          <div className="flex flex-wrap gap-2">
+            {allSizes.map(size => (
+              <button
+                key={size}
+                onClick={() => onToggleSize(size)}
+                className={`min-w-[40px] px-3 py-1.5 text-xs rounded border transition-colors ${
+                  selectedSizes.includes(size)
+                    ? 'border-gray-900 bg-gray-900 text-white'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        </FilterSection>
+      )}
+    </div>
+  );
+}
+
 export function ProductCollectionBlock({
   title = 'All Products',
   showFilters = true,
@@ -259,6 +349,18 @@ export function ProductCollectionBlock({
     }
   };
 
+  const filterContentProps: FilterContentProps = {
+    allCategories,
+    allColors,
+    allSizes,
+    selectedCategories,
+    selectedColors,
+    selectedSizes,
+    onToggleCategory: (category) => toggleFilter(category, selectedCategories, setSelectedCategories),
+    onToggleColor: (color) => toggleFilter(color, selectedColors, setSelectedColors),
+    onToggleSize: (size) => toggleFilter(size, selectedSizes, setSelectedSizes),
+  };
+
   const clearAllFilters = () => {
     setSelectedColors([]);
     setSelectedSizes([]);
@@ -282,72 +384,6 @@ export function ProductCollectionBlock({
     3: 'grid-cols-2 lg:grid-cols-3',
     4: 'grid-cols-2 lg:grid-cols-4',
   };
-
-  // Filter Sidebar Content
-  const FilterContent = () => (
-    <div className="space-y-0">
-      {/* Categories */}
-      {allCategories.length > 0 && (
-        <FilterSection title="Category">
-          <div className="space-y-2">
-            {allCategories.map(category => (
-              <label key={category} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedCategories.includes(category)}
-                  onChange={() => toggleFilter(category, selectedCategories, setSelectedCategories)}
-                  className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                />
-                <span className="text-sm text-gray-600">{category}</span>
-              </label>
-            ))}
-          </div>
-        </FilterSection>
-      )}
-
-      {/* Colors */}
-      {allColors.length > 0 && (
-        <FilterSection title="Color">
-          <div className="flex flex-wrap gap-2">
-            {allColors.map(color => (
-              <button
-                key={color}
-                onClick={() => toggleFilter(color, selectedColors, setSelectedColors)}
-                className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
-                  selectedColors.includes(color)
-                    ? 'border-gray-900 bg-gray-900 text-white'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                {color}
-              </button>
-            ))}
-          </div>
-        </FilterSection>
-      )}
-
-      {/* Sizes */}
-      {allSizes.length > 0 && (
-        <FilterSection title="Size">
-          <div className="flex flex-wrap gap-2">
-            {allSizes.map(size => (
-              <button
-                key={size}
-                onClick={() => toggleFilter(size, selectedSizes, setSelectedSizes)}
-                className={`min-w-[40px] px-3 py-1.5 text-xs rounded border transition-colors ${
-                  selectedSizes.includes(size)
-                    ? 'border-gray-900 bg-gray-900 text-white'
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
-        </FilterSection>
-      )}
-    </div>
-  );
 
   return (
     <section
@@ -389,7 +425,7 @@ export function ProductCollectionBlock({
                     </button>
                   )}
                 </div>
-                <FilterContent />
+                <FilterContent {...filterContentProps} />
               </div>
             </aside>
           )}
@@ -566,7 +602,7 @@ export function ProductCollectionBlock({
               </button>
             </div>
             <div className="p-4">
-              <FilterContent />
+              <FilterContent {...filterContentProps} />
             </div>
             <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 flex gap-3">
               <button

@@ -41,7 +41,7 @@ function lookupReference(path: string, sources: ResolveSources): unknown {
 function resolveString(value: string, sources: ResolveSources): unknown {
   if (!(value.includes('{{') && value.includes('}}'))) return value;
 
-  let resolved: unknown = value.replace(/\{\{([^}]+)\}\}/g, (match, path: string) => {
+  let resolved: unknown = value.replace(/\{\{([^{}]+)\}\}/g, (match, path: string) => {
     const result = lookupReference(path.trim(), sources);
     if (result !== undefined) return asText(result);
     console.warn(`Unresolved template: ${match}`);
@@ -49,7 +49,7 @@ function resolveString(value: string, sources: ResolveSources): unknown {
   });
 
   // If the entire value was a single expression, preserve original type
-  if (/^\{\{[^}]+\}\}$/.test(value)) {
+  if (/^\{\{[^{}]+\}\}$/.test(value)) {
     const result = lookupReference(value.slice(2, -2).trim(), sources);
     if (result !== undefined) resolved = result;
   }

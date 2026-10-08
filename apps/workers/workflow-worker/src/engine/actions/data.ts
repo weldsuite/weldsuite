@@ -6,7 +6,7 @@
  */
 
 import { eq, and, isNull } from 'drizzle-orm';
-import type { ActionHandler } from '../types';
+import type { ActionContext, ActionHandler } from '../types';
 import { getEntityTable, getEntityIdPrefix } from '../entity-tables';
 import { generateId } from '../../lib/id';
 import { asText } from '@weldsuite/text';
@@ -117,7 +117,15 @@ export const handleQueryData: ActionHandler = async (inputs, ctx) => {
   return { records: filteredRecords, count: filteredRecords.length };
 };
 
-export const handleTransform: ActionHandler = async (inputs, ctx) => {
+export const handleTransform: ActionHandler = (inputs, ctx) => {
+  try {
+    return Promise.resolve(applyTransform(inputs, ctx));
+  } catch (err) {
+    return Promise.reject(err);
+  }
+};
+
+function applyTransform(inputs: Record<string, unknown>, ctx: ActionContext): unknown {
   const transform = asText(inputs.transform || inputs.operation || 'pick');
   const data = inputs.data || ctx.previousResults;
 
@@ -153,4 +161,4 @@ export const handleTransform: ActionHandler = async (inputs, ctx) => {
     default:
       return data;
   }
-};
+}

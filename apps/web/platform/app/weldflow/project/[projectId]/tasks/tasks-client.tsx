@@ -341,6 +341,30 @@ function findTaskWithParent(
   return { task: undefined, subtaskParentId: null };
 }
 
+// Ids of a task and every subtask below it, from both the main list and the
+// inlineSubtasks cache — deleting a task removes its whole subtree.
+function collectSubtreeIds(
+  tasks: Task[],
+  inlineSubtasks: Record<string, Task[]>,
+  rootId: string,
+): Set<string> {
+  const ids = new Set([rootId]);
+  let frontier = [rootId];
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      const children = [...(inlineSubtasks[id] ?? []), ...tasks.filter((t) => t.parentTaskId === id)];
+      for (const child of children) {
+        if (ids.has(child.id)) continue;
+        ids.add(child.id);
+        next.push(child.id);
+      }
+    }
+    frontier = next;
+  }
+  return ids;
+}
+
 // Assignee ids for a task: the multi-assignee list when present, otherwise the
 // single legacy assignee.
 function getTaskAssigneeIds(task: Task): string[] {
@@ -958,6 +982,14 @@ export function TasksClient({
     }
   }, [projectId, t.projects.tasks.nextRecurringCreated]);
 
+  // The list groups by stageId first, so a status change has to move the stage
+  // too. Mirrors the API: keep the stage when it already maps to the status,
+  // else take the first stage for it.
+  const stageIdForStatus = useCallback((task: Task, status: Task['status']) => {
+    if (projectStages.find(s => s.id === task.stageId)?.systemStatus === status) return task.stageId;
+    return projectStages.find(s => s.systemStatus === status)?.id ?? task.stageId;
+  }, [projectStages]);
+
   const handleCheckboxToggle = useCallback(async (taskId: string, currentStatus: Task['status']) => {
     if (!canWrite) return;
 
@@ -978,15 +1010,16 @@ export function TasksClient({
     if (!task) return;
 
     // Helper to patch both `tasks` and any matching entry in `inlineSubtasks`.
-    const patchTaskStatus = (newStatus: Task['status']) => {
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    // The stage follows the status unless one is given (rollback).
+    const patchTaskStatus = (newStatus: Task['status'], stageId = stageIdForStatus(task, newStatus)) => {
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus, stageId } : t));
       if (subtaskParentId) {
         setInlineSubtasks(prev => {
           const subs = prev[subtaskParentId!];
           if (!subs) return prev;
           return {
             ...prev,
-            [subtaskParentId!]: subs.map(s => s.id === taskId ? { ...s, status: newStatus } : s),
+            [subtaskParentId!]: subs.map(s => s.id === taskId ? { ...s, status: newStatus, stageId } : s),
           };
         });
       }
@@ -997,7 +1030,7 @@ export function TasksClient({
       patchTaskStatus('todo');
       void tasksApi.toggle(projectId, taskId, 'done').then((result) => {
         if (!result.success) {
-          patchTaskStatus('done');
+          patchTaskStatus('done', task.stageId);
           toast.error(t.projects.tasks.failedToUpdateTask);
         }
       });
@@ -1028,7 +1061,7 @@ export function TasksClient({
       patchTaskStatus('done');
       void tasksApi.toggle(projectId, taskId, task.status).then((result) => {
         if (!result.success) {
-          patchTaskStatus(task!.status);
+          patchTaskStatus(task!.status, task!.stageId);
           toast.error(t.projects.tasks.failedToUpdateTask);
         }
       });
@@ -1056,7 +1089,7 @@ export function TasksClient({
     const commit = () => {
       if (result.success) {
         setTasks(prev => prev.map(t => t.id === taskId
-          ? { ...t, status: 'done' as Task['status'] }
+          ? { ...t, status: 'done' as Task['status'], stageId: stageIdForStatus(t, 'done') }
           : t
         ));
       } else {
@@ -1077,7 +1110,7 @@ export function TasksClient({
     if (result.success && result.data?.nextTaskId) {
       await prependNextRecurringTask(result.data.nextTaskId);
     }
-  }, [canWrite, tasks, projectId, pendingParentCompletionIds, inlineSubtasks, prependNextRecurringTask, t.projects.tasks.failedToUpdateTask]);
+  }, [canWrite, tasks, projectId, pendingParentCompletionIds, inlineSubtasks, prependNextRecurringTask, stageIdForStatus, t.projects.tasks.failedToUpdateTask]);
 
   // When a pending-complete parent has all its subtasks finished, promote it
   // to a real 'done' status via the API. This moves it into the Done group.
@@ -1100,26 +1133,54 @@ export function TasksClient({
       });
       void tasksApi.toggle(projectId, parentId, parent.status).then((result) => {
         if (result.success) {
-          setTasks(prev => prev.map(t => t.id === parentId ? { ...t, status: 'done' as Task['status'] } : t));
+          setTasks(prev => prev.map(t => t.id === parentId
+            ? { ...t, status: 'done' as Task['status'], stageId: stageIdForStatus(t, 'done') }
+            : t
+          ));
         } else {
           toast.error(t.projects.tasks.failedToCompleteTask);
         }
       });
     }
-  }, [pendingParentCompletionIds, inlineSubtasks, tasks, projectId, t.projects.tasks.failedToCompleteTask]);
+  }, [pendingParentCompletionIds, inlineSubtasks, tasks, projectId, stageIdForStatus, t.projects.tasks.failedToCompleteTask]);
 
-  const deleteTask = useCallback(async (taskId: string) => {
+  const deleteTask = useCallback((taskId: string) => {
+    // The task may be a subtask that only lives in inlineSubtasks; resolve it
+    // there too so its parent's counts can follow the delete.
+    const { task, subtaskParentId } = findTaskWithParent(tasks, inlineSubtasks, taskId);
+    const parentId = subtaskParentId ?? task?.parentTaskId ?? null;
+    const wasDone = task?.status === 'done';
+    const removedIds = collectSubtreeIds(tasks, inlineSubtasks, taskId);
+
     startTransition(async () => {
       const result = await tasksApi.delete(projectId, taskId);
 
       if (result.success) {
-        setTasks(prev => prev.filter((task) => task.id !== taskId));
+        // The API deletes the whole subtree. Drop it from both lists and take
+        // the task off its parent's counts — the parent may be a top-level row
+        // or itself an inline subtask.
+        const shrinkParent = (row: Task): Task => row.id === parentId
+          ? {
+              ...row,
+              subtaskCount: Math.max(0, (row.subtaskCount ?? 0) - 1),
+              completedSubtaskCount: Math.max(0, (row.completedSubtaskCount ?? 0) - (wasDone ? 1 : 0)),
+            }
+          : row;
+        setTasks(prev => prev.filter((row) => !removedIds.has(row.id)).map(shrinkParent));
+        setInlineSubtasks(prev => {
+          const next: Record<string, Task[]> = {};
+          for (const [pid, subs] of Object.entries(prev)) {
+            if (removedIds.has(pid)) continue;
+            next[pid] = subs.filter((row) => !removedIds.has(row.id)).map(shrinkParent);
+          }
+          return next;
+        });
         toast.success(t.projects.tasks.taskDeleted);
       } else {
         toast.error(result.error || t.projects.tasks.failedToDeleteTask);
       }
     });
-  }, [projectId, startTransition, t.projects.tasks.failedToDeleteTask, t.projects.tasks.taskDeleted]);
+  }, [tasks, inlineSubtasks, projectId, startTransition, t.projects.tasks.failedToDeleteTask, t.projects.tasks.taskDeleted]);
 
   const formatDateShort = useCallback((date: Date | string) => {
     const d = date instanceof Date ? date : new Date(date);

@@ -99,6 +99,8 @@ export interface TeamMemberDetail {
   allocationPercentage?: number;
   hoursPerWeek?: string | null;
   isActive?: boolean;
+  /** INTERNAL, EXTERNAL_GUEST or EMPLOYEE (fixed My HR + WeldChat access, no role). */
+  memberType?: string;
 }
 
 // ─── Adapter Functions ───────────────────────────────────────────────
@@ -124,6 +126,7 @@ export function fromTeamMember(member: TeamMember): TeamMemberDetail {
     userId: member.userId,
     workspaces: member.workspaces,
     hoursPerWeek: member.hoursPerWeek,
+    memberType: member.memberType,
   };
 }
 
@@ -1407,6 +1410,19 @@ function PermissionsContent({
     toast.error(t('sweep.settings.appPermissions.saveFailed'));
     return false;
   };
+
+  // An EMPLOYEE member has no role, app assignments or overrides to edit:
+  // their access is the fixed My HR + WeldChat set (server-enforced).
+  if (context === 'settings' && member.memberType === 'EMPLOYEE') {
+    return (
+      <div className="px-4 py-10">
+        <div className="w-[848px] max-w-full mx-auto rounded-lg border border-border p-4">
+          <h3 className="text-sm font-medium text-foreground">{t('sweep.settings.team.employeeAccess.title')}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{t('sweep.settings.team.employeeAccess.description')}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 py-10 space-y-10">

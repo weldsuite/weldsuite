@@ -33,3 +33,33 @@ export function logSafe(value: unknown): string {
   // split/join rather than replaceAll: some consumers still compile against ES2020 libs.
   return asText(value).split(/[\r\n\u2028\u2029]+/).join(' ');
 }
+
+/**
+ * Removes or replaces every `<…>` tag, scanning with indexOf in one linear
+ * pass. A `<` with no closing `>` after it, and everything that follows, is
+ * kept as is.
+ */
+function replaceTags(html: string, replacement: string, keepEmpty: boolean): string {
+  let out = '';
+  let pos = 0;
+  let from = 0;
+  for (let lt = html.indexOf('<'); lt !== -1; lt = html.indexOf('<', from)) {
+    const gt = html.indexOf('>', lt + 1);
+    if (gt === -1) break;
+    from = gt + 1;
+    if (keepEmpty && gt === lt + 1) continue;
+    out += html.slice(pos, lt) + replacement;
+    pos = gt + 1;
+  }
+  return out + html.slice(pos);
+}
+
+/** Drops every `<…>` tag: the spans `/<[^>]*>/g` removed, without its backtracking. */
+export function stripTags(html: string): string {
+  return replaceTags(html, '', false);
+}
+
+/** Replaces every `<…>` tag with a space: the spans `/<[^>]+>/g` matched, so a bare `<>` stays. */
+export function tagsToSpaces(html: string): string {
+  return replaceTags(html, ' ', true);
+}

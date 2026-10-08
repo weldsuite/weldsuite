@@ -12,12 +12,12 @@ Usage:
   ${cyan('weld logout')}
 `;
 
-export async function run(_args: ParsedArgs): Promise<void> {
+export function run(_args: ParsedArgs): Promise<void> {
   const existing = readCredentials();
   const removed = clearCredentials();
   if (!removed && !existing) {
     info('No local credentials to remove.');
-    return;
+    return Promise.resolve();
   }
   success(`Logged out. Removed ${cyan(credentialsPath())}`);
   if (existing?.keyPrefix) {
@@ -25,4 +25,5 @@ export async function run(_args: ParsedArgs): Promise<void> {
       `Optional: revoke key ${existing.keyPrefix}… named “Weld CLI” in Settings → API keys.`,
     );
   }
+  return Promise.resolve();
 }

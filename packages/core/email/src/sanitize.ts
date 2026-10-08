@@ -23,6 +23,7 @@
 import { parseDocument } from 'htmlparser2';
 import render from 'dom-serializer';
 import type { ChildNode, Element } from 'domhandler';
+import { stripTags } from '@weldsuite/text';
 
 /** Formatting/structural tags kept as-is (attributes still filtered). */
 const ALLOWED_TAGS = new Set([
@@ -149,6 +150,6 @@ export function sanitizeEmailHtml(html: string | null | undefined): string {
   } catch {
     // Parsing/serialization should never throw on real input, but if it does,
     // fail closed: strip every tag rather than store unknown markup.
-    return html.replace(/<[^>]*>/g, '');
+    return stripTags(html);
   }
 }

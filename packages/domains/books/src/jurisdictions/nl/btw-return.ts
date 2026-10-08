@@ -67,7 +67,7 @@ export function computeNlRubrieken(lines: TaxReturnLine[]): VatRubrieken {
  * Map generic tax return lines into the 18-rubriek structure the Belastingdienst expects,
  * then render as XBRL via the existing generateVatXml() service.
  */
-export async function buildNlBtwReturn(
+export function buildNlBtwReturn(
   entity: Entity,
   periodStart: string,
   periodEnd: string,
@@ -87,10 +87,10 @@ export async function buildNlBtwReturn(
 
   const xml = generateVatXml(xmlInput);
 
-  return {
+  return Promise.resolve({
     filename: `btw-aangifte-${periodStart}-${periodEnd}.xml`,
     mimeType: 'application/xml',
     content: xml,
     summary: rubrieken as unknown as Record<string, number>,
-  };
+  });
 }

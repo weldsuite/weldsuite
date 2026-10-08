@@ -38,18 +38,13 @@ describe('external-api · special routes', () => {
     expect(body.data.status).toBe('connected');
   });
 
-  it('GET /v1/drive/all → 200 list', async () => {
-    const res = await app()('/v1/drive/all');
-    expect(res.status).toBe(200);
-  });
-
-  it('GET /v1/drive/stats → 200', async () => {
-    const res = await app()('/v1/drive/stats');
-    expect(res.status).toBe(200);
-  });
-
-  it('GET /v1/settings/workspace → 200', async () => {
-    const res = await app()('/v1/settings/workspace');
+  it.each([
+    ['GET /v1/drive/all → 200 list', '/v1/drive/all'],
+    ['GET /v1/drive/stats → 200', '/v1/drive/stats'],
+    ['GET /v1/settings/workspace → 200', '/v1/settings/workspace'],
+    ['GET /v1/webhooks/events → 200 catalog', '/v1/webhooks/events'],
+  ])('%s', async (_name, path) => {
+    const res = await app()(path);
     expect(res.status).toBe(200);
   });
 
@@ -65,11 +60,6 @@ describe('external-api · special routes', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown[] };
     expect(Array.isArray(body.data)).toBe(true);
-  });
-
-  it('GET /v1/webhooks/events → 200 catalog', async () => {
-    const res = await app()('/v1/webhooks/events');
-    expect(res.status).toBe(200);
   });
 
   it('GET /v1/tickets/:ticketId/messages → 200 or 404', async () => {

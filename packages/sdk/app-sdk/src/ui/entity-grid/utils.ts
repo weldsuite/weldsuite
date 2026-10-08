@@ -69,7 +69,7 @@ export function exportEntitiesCsv<TEntity>(
   anchor.download = filename.endsWith('.csv') ? filename : `${filename}.csv`;
   document.body.appendChild(anchor);
   anchor.click();
-  document.body.removeChild(anchor);
+  anchor.remove();
   URL.revokeObjectURL(url);
 }
 

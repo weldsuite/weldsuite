@@ -334,7 +334,7 @@ export function AllProjectsClient({
   }, [t.allProjects.projectUpdateFailed]);
 
   // Delete project
-  const deleteProject = useCallback(async (projectId: string) => {
+  const deleteProject = useCallback((projectId: string) => {
     startTransition(async () => {
       const result = await projectsApi.delete(projectId);
       if (result.success) {

@@ -594,6 +594,11 @@ function resetSourcePicker() {
   for (const resolve of pending) resolve(null);
 }
 
+// Fire-and-forget: a failed update check must never block or crash startup.
+function checkForUpdatesInBackground(): void {
+  autoUpdater.checkForUpdatesAndNotify().catch(() => undefined);
+}
+
 app.whenReady().then(async () => {
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
@@ -620,7 +625,7 @@ app.whenReady().then(async () => {
   createTray();
 
   if (process.env.NODE_ENV !== 'development') {
-    autoUpdater.checkForUpdatesAndNotify().catch(() => undefined);
+    checkForUpdatesInBackground();
   }
 
   app.on('activate', () => {

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Check, Hash, MessageSquare, Pencil, Trash2 } from 'lucide-react';
+import { Check, Hash, MessageSquare, Paperclip, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
@@ -22,6 +22,8 @@ import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { getDraftDestination } from '../lib/draft-utils';
+import { messagePreviewText } from '../lib/render-message-content';
+import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import type { DraftItem } from '@weldsuite/core-api-client/schemas/weldchat-drafts';
 import {
   EmptyStateIllustration,
@@ -36,16 +38,44 @@ type DraftCategory = 'channel' | 'thread' | 'dm' | 'other';
 
 function categorize(draft: DraftItem): DraftCategory {
   if (draft.threadParentMessageId) return 'thread';
+  if (draft.isDirectMessage) return 'dm';
   if (draft.channelName) return 'channel';
   if (draft.channelId) return 'dm';
   return 'other';
 }
 
+/** A channel is `#name`; a DM goes by the people in it, without a `#`. */
 function draftLabel(draft: DraftItem, labels: { threadReply: string; directMessage: string; draft: string }): string {
+  if (draft.isDirectMessage) return draft.channelName ?? labels.directMessage;
   if (draft.channelName) return `#${draft.channelName}`;
   if (draft.threadParentMessageId) return labels.threadReply;
   if (draft.channelId) return labels.directMessage;
   return labels.draft;
+}
+
+/**
+ * The draft's text as one plain line; a draft with only attachments shows
+ * their file names, so it never reads as empty.
+ */
+function DraftPreview({
+  draft,
+  memberNames,
+  noContentLabel,
+}: Readonly<{ draft: DraftItem; memberNames: Map<string, string>; noContentLabel: string }>) {
+  const text = draft.content ? messagePreviewText(draft.content, memberNames) : '';
+  if (text) {
+    return <span className="text-sm text-gray-600 dark:text-muted-foreground truncate block">{text}</span>;
+  }
+  const fileNames = (draft.attachments ?? []).map((a) => a.fileName).filter(Boolean);
+  if (fileNames.length > 0) {
+    return (
+      <span className="flex items-center gap-1.5 min-w-0 text-sm text-gray-600 dark:text-muted-foreground">
+        <Paperclip className="h-3.5 w-3.5 flex-shrink-0" />
+        <span className="truncate">{fileNames.join(', ')}</span>
+      </span>
+    );
+  }
+  return <span className="text-sm text-gray-400 italic">{noContentLabel}</span>;
 }
 
 function formatRelative(
@@ -81,6 +111,14 @@ export default function DraftsPage() {
 
   const { data, isLoading } = useChatDrafts();
   const { mutate: deleteDraft, isPending: isDeleting } = useDeleteDraft();
+  const { data: membersData } = useWorkspaceMembers();
+  const memberNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of membersData?.data ?? []) {
+      if (m.userId && m.name) map.set(m.userId, m.name);
+    }
+    return map;
+  }, [membersData]);
 
   const drafts: DraftItem[] = useMemo(() => data?.data ?? [], [data]);
 
@@ -216,13 +254,7 @@ export default function DraftsPage() {
           </span>
 
           <span className="flex-1 min-w-0">
-            {draft.content ? (
-              <span className="text-sm text-gray-600 dark:text-muted-foreground truncate block">
-                {draft.content}
-              </span>
-            ) : (
-              <span className="text-sm text-gray-400 italic">{t.draftsPage?.noContent ?? 'No content'}</span>
-            )}
+            <DraftPreview draft={draft} memberNames={memberNames} noContentLabel={t.draftsPage?.noContent ?? 'No content'} />
           </span>
 
           <span className="w-[120px] flex-shrink-0">
@@ -245,7 +277,7 @@ export default function DraftsPage() {
         </div>
       </div>
     );
-  }, [handleContinueWriting, t, st]);
+  }, [handleContinueWriting, t, st, memberNames]);
 
   return (
     <>

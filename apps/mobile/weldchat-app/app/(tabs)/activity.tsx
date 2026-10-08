@@ -155,7 +155,7 @@ export default function ActivityTab() {
   useChatUserEvents(loadNotifications);
 
   const handleTap = useCallback(
-    async (item: ActivityNotification) => {
+    (item: ActivityNotification) => {
       if (!item.isRead) {
         setNotifications((prev) =>
           prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n)),
@@ -176,7 +176,7 @@ export default function ActivityTab() {
     [router],
   );
 
-  const handleMarkAllRead = useCallback(async () => {
+  const handleMarkAllRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     appApi.notifications.markAllRead().catch(() => {});
   }, []);

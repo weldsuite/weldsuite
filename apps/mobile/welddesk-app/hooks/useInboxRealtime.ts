@@ -93,8 +93,9 @@ export function useInboxRealtime(options: UseInboxRealtimeOptions): UseInboxReal
     };
   }, [client, autoConnect]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(() => {
     setError(null);
+    return Promise.resolve();
   }, []);
 
   const disconnect = useCallback(async () => {}, []);

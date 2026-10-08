@@ -84,8 +84,7 @@ export function MeetingHeader({
             className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
             title={recordingLabels?.startingHint ?? 'Recording is starting'}
           >
-            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-            {recordingLabels?.starting ?? 'Starting…'}
+            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />{recordingLabels?.starting ?? 'Starting…'}
             {typeof recordingStartElapsedSeconds === 'number' && (
               <span className="tabular-nums">{recordingStartElapsedSeconds}s</span>
             )}

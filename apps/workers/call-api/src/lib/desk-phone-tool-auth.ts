@@ -21,7 +21,7 @@ const TOKEN_TTL_SECONDS = 24 * 60 * 60;
 function base64UrlEncode(bytes: Uint8Array): string {
   let bin = '';
   for (const byte of bytes) bin += String.fromCodePoint(byte);
-  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll(/=+$/g, '');
+  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replaceAll(/(?<!=)=+$/g, '');
 }
 
 function base64UrlDecode(input: string): Uint8Array {

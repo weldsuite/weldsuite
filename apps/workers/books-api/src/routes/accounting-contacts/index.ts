@@ -738,7 +738,7 @@ app.get('/:id/balance', requirePermission('invoices:read'), async (c) => {
 });
 
 // POST /import-from-crm — no longer needed as contacts and customers are now the same table
-app.post('/import-from-crm', requirePermission('invoices:create'), async (c) => {
+app.post('/import-from-crm', requirePermission('invoices:create'), (c) => {
   return success(c, { imported: 0, message: 'Contacts and customers now use the same table. No import needed.' });
 });
 

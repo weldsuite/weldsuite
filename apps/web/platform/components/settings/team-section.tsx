@@ -53,7 +53,7 @@ export interface TeamMember {
   workspaceRole?: string
   workspaceRoleId?: string | null
   status?: "ACTIVE" | "PENDING" | "INACTIVE" | "SUSPENDED" | "DELETED"
-  memberType?: "INTERNAL" | "EXTERNAL_GUEST"
+  memberType?: "INTERNAL" | "EXTERNAL_GUEST" | "EMPLOYEE"
   hoursPerWeek?: string | null
   createdAt: Date
   workspaces?: Array<{
@@ -159,6 +159,11 @@ function MemberRoleBadge({
   customRoleNameById: Record<string, string>
 }>) {
   const t = useTranslations()
+  // Employee members have a fixed access set and no role; the stored VIEWER
+  // tier would read as "can view everything", which they can't.
+  if (user.memberType === "EMPLOYEE") {
+    return <span className="text-sm text-muted-foreground">—</span>
+  }
   // Custom role wins if assigned (workspaceRoleId is the
   // source of truth — `workspaceRole` is just the system
   // tier we keep around for Clerk sync + fallback).
@@ -453,6 +458,14 @@ export function TeamSection({
                           title={t('sweep.settings.team.guestTooltip')}
                         >
                           {t('sweep.settings.team.guest')}
+                        </span>
+                      )}
+                      {user.memberType === "EMPLOYEE" && (
+                        <span
+                          className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+                          title={t('sweep.settings.team.employeeTooltip')}
+                        >
+                          {t('sweep.settings.team.employee')}
                         </span>
                       )}
                     </div>
