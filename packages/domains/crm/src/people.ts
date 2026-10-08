@@ -95,7 +95,15 @@ async function ensureWrappingParty(db: Database, person: PersonRow): Promise<voi
 /** Shared filter fields for list + export. */
 type PeopleFilter = Pick<
   ListPeopleQuery,
-  'search' | 'status' | 'ownerId' | 'isSupplier' | 'isLead' | 'companyId' | 'listId' | 'inCrm'
+  | 'search'
+  | 'status'
+  | 'ownerId'
+  | 'isSupplier'
+  | 'isLead'
+  | 'companyId'
+  | 'listId'
+  | 'inCrm'
+  | 'hasPhone'
 >;
 
 /**
@@ -133,6 +141,12 @@ async function buildPeopleConditions(
   if (params.isSupplier !== undefined) conditions.push(eq(people.isSupplier, params.isSupplier));
   if (params.isLead !== undefined) conditions.push(eq(people.isLead, params.isLead));
   if (params.inCrm !== undefined) conditions.push(eq(people.inCrm, params.inCrm));
+  if (params.hasPhone !== undefined) {
+    // Blank strings count as "no phone" — imports and the grid's inline
+    // editor can leave '' behind instead of NULL.
+    const phone = sql`coalesce(nullif(trim(${people.directPhone}), ''), nullif(trim(${people.mobilePhone}), ''))`;
+    conditions.push(params.hasPhone ? sql`${phone} is not null` : sql`${phone} is null`);
+  }
 
   if (params.companyId) {
     const linked = await db
