@@ -39,7 +39,7 @@ describe('ensureCustomFieldDefinition (Pile B auto-create)', () => {
       .select()
       .from(cfd)
       .where(and(eq(cfd.entityType, 'person'), eq(cfd.slug, 'lead_source'), isNull(cfd.deletedAt)));
-    expect(rows.length).toBe(1);
+    expect(rows).toHaveLength(1);
   });
 
   it('returns the existing definition without duplicating or retyping it', async () => {
@@ -55,7 +55,7 @@ describe('ensureCustomFieldDefinition (Pile B auto-create)', () => {
       .select()
       .from(cfd)
       .where(and(eq(cfd.entityType, 'conversation'), eq(cfd.slug, 'csat'), isNull(cfd.deletedAt)));
-    expect(rows.length).toBe(1); // no duplicate
+    expect(rows).toHaveLength(1); // no duplicate
   });
 
   it('round-trips a workflow attribute value through the typed store', async () => {

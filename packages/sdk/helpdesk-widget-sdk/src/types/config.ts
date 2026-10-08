@@ -20,7 +20,7 @@ export interface WidgetEvent {
 /**
  * Event handler function type
  */
-export type WidgetEventHandler = (event?: WidgetEvent | any) => void;
+export type WidgetEventHandler = (event?: any) => void;
 
 /**
  * Position configuration

@@ -102,7 +102,7 @@ describe('companies service · pglite integration', () => {
       .select()
       .from(schema.parties)
       .where(eq(schema.parties.companyId, c.id));
-    expect(parties.length).toBe(1);
+    expect(parties).toHaveLength(1);
     expect(parties[0]?.role).toBe('supplier');
     expect(parties[0]?.displayName).toBe('Wrapper Test Supplier');
   });

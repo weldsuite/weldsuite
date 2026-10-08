@@ -128,7 +128,7 @@ export class Logger {
   /**
    * Log error message
    */
-  public error(message: string, error?: Error | any): void {
+  public error(message: string, error?: any): void {
     if (!this.shouldLog(LogLevel.ERROR)) return;
 
     const formatted = this.format('error', message);

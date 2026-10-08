@@ -99,8 +99,8 @@ describe('customer price is independent of the serving gateway', () => {
   });
 
   it('takes exactly two arguments — a gateway cannot be threaded in', () => {
-    expect(creditsForUsage.length).toBe(2);
-    expect(providerCostUsd.length).toBe(2);
+    expect(creditsForUsage).toHaveLength(2);
+    expect(providerCostUsd).toHaveLength(2);
   });
 
   // Uses Haiku, not Sonnet: DEFAULT_PRICE *is* the Sonnet rate ({3,15}) by

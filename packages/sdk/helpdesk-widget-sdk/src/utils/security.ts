@@ -276,7 +276,7 @@ export class TokenValidator {
   /**
    * Decode JWT payload (without verification)
    */
-  public static decodeJWT(token: string): any | null {
+  public static decodeJWT(token: string): any {
     try {
       const parts = token.split('.');
       if (parts.length !== 3) {

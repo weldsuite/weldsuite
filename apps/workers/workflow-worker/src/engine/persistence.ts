@@ -28,7 +28,7 @@ export interface RealtimeLike {
     executionId: string,
     event: string,
     payload: Record<string, unknown>,
-  ): Promise<unknown> | unknown;
+  ): unknown;
 }
 
 export interface BuildHooksArgs {

@@ -71,7 +71,7 @@ describe('/api/chat-bookmarks · owner boundary', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { userId: string }[] };
     expect(body.data.every((b) => b.userId === ALICE)).toBe(true);
-    expect(body.data.length).toBe(0);
+    expect(body.data).toHaveLength(0);
   });
 
   it('POST / stamps the caller as owner, ignoring a body userId', async () => {

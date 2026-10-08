@@ -19,7 +19,7 @@ describe('workflowInstanceIdForEvent', () => {
     const eventId = `evt_${'a'.repeat(30)}`;
     const workflowId = `wf_${'b'.repeat(40)}`;
     const id = workflowInstanceIdForEvent(eventId, workflowId);
-    expect(id.length).toBe(64);
+    expect(id).toHaveLength(64);
     expect(id.startsWith('evt_')).toBe(true);
   });
 });

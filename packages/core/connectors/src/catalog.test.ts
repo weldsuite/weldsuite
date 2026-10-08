@@ -60,7 +60,7 @@ describe('connector catalog', () => {
     const woo = getConnector('woocommerce')!;
     expect(enabledConnectorSyncs(woo, ['orders']).map((s) => s.syncName)).toEqual(['woocommerce-orders']);
     expect(enabledConnectorSyncs(woo, ['woocommerce-products']).map((s) => s.settingKey)).toEqual(['products']);
-    expect(enabledConnectorSyncs(woo, null).length).toBe(3);
+    expect(enabledConnectorSyncs(woo, null)).toHaveLength(3);
   });
 
   it('lists every sync name for a manual sync-now', () => {

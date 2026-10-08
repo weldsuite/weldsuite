@@ -9,7 +9,7 @@ import { asText } from '@weldsuite/text';
 interface HelpcenterSettingsData {
   id?: string;
   isEnabled?: number;
-  [key: string]: unknown | undefined;
+  [key: string]: unknown;
 }
 
 interface HelpcenterDomain {

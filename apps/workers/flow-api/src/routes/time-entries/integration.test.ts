@@ -343,7 +343,7 @@ describe('/api/time-entries · pglite integration', () => {
 
     // Sorted by hours desc — the PM logged the most.
     expect(body.data.members[0]?.userId).toBe('user_pm');
-    expect(body.data.entries.length).toBe(3);
+    expect(body.data.entries).toHaveLength(3);
   });
 
   it('GET /team-summary includes roster members who logged nothing', async () => {
@@ -445,7 +445,7 @@ describe('/api/time-entries · pglite integration', () => {
         entriesTruncated: boolean;
       };
     };
-    expect(cappedBody.data.entries.length).toBe(2);
+    expect(cappedBody.data.entries).toHaveLength(2);
     expect(cappedBody.data.totals.entryCount).toBe(3);
     expect(cappedBody.data.totals.totalMinutes).toBe(90);
     expect(cappedBody.data.entriesTruncated).toBe(true);
@@ -455,7 +455,7 @@ describe('/api/time-entries · pglite integration', () => {
     const fullBody = (await full.json()) as {
       data: { entries: unknown[]; entriesTruncated: boolean };
     };
-    expect(fullBody.data.entries.length).toBe(3);
+    expect(fullBody.data.entries).toHaveLength(3);
     expect(fullBody.data.entriesTruncated).toBe(false);
   });
 
