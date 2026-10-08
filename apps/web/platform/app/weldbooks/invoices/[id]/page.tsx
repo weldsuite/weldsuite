@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams } from '@/lib/router';
+import { useMemo, useState } from 'react';
+import { useParams, useRouter } from '@/lib/router';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { MoreHorizontal } from 'lucide-react';
@@ -29,21 +29,42 @@ import {
   useFinalizeInvoice,
   useUpdateInvoiceStatus,
 } from '@/hooks/queries/use-accounting-queries';
+import {
+  useCommitInvoiceTax,
+  useCreateCreditMemo,
+  useExemptionCertificates,
+} from '@/hooks/queries/use-weldbooks-tax-preview';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
+import {
+  salesTaxErrorCode,
+  salesTaxPreviewApi,
+  type InvoiceWithTax,
+  type TaxSyncResult,
+} from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import {
   generateInvoicePdf,
   downloadPdf,
   type InvoicePdfLabels,
 } from '@/lib/weldbooks/invoice-pdf';
-import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
 import { RecordPaymentDialog } from '../components/record-payment-dialog';
 import { SendInvoiceDialog } from '../components/send-invoice-dialog';
+import { SalesTaxErrorNotice, useDescribeError } from '../components/sales-tax-error-notice';
+import { ExemptNotice, TaxBreakdownList, TaxWarnings } from '../components/tax-breakdown';
+import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
+import {
+  exemptCertificateIdsOf,
+  exemptReasonsOf,
+  groupTaxBreakdown,
+  hasExemptRows,
+  hasProviderSyncWarning,
+} from '@/lib/weldbooks/document-tax';
+import { isWeldTaxCode } from '@/lib/weldbooks/tax-codes';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
 
@@ -80,18 +101,24 @@ const OPEN_BALANCE_STATUSES = new Set(['sent', 'partial', 'overdue', 'finalized'
 
 export default function InvoiceDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
   const { t, language } = useI18n();
   const st = useTranslations();
   const ti = t.accounting.invoiceDetail;
+  const td = useDocumentTexts();
   const tsl = t.accounting.statusLabels.invoice;
-  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const { formatMoney, formatDate, formatDateTime } = useWeldbooksFormat();
   const { labels } = useJurisdictionLabels();
   const canUpdate = useCan('invoices:update');
+  const canCreate = useCan('invoices:create');
+  const describeError = useDescribeError();
 
   const { data, isLoading } = useAccountingInvoice(id);
   const finalizeMutation = useFinalizeInvoice();
   const statusMutation = useUpdateInvoiceStatus();
+  const commitTaxMutation = useCommitInvoiceTax();
+  const creditMemoMutation = useCreateCreditMemo();
 
   const { entityId } = useCurrentAccountingEntity();
   const { data: entity } = useAccountingEntity(entityId);
@@ -101,8 +128,19 @@ export default function InvoiceDetailPage() {
   const [statusDialog, setStatusDialog] = useState<'cancelled' | 'uncollectible' | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
+  /** The last finalize / send that a sales tax rule refused, shown until the next attempt. */
+  const [taxError, setTaxError] = useState<unknown>(null);
 
   const country = (code: string) => countryName(code, language || 'en');
+
+  const invoice = data?.data as unknown as InvoiceWithTax | undefined;
+
+  const taxGroups = useMemo(() => groupTaxBreakdown(invoice?.taxBreakdown), [invoice?.taxBreakdown]);
+  const certificateIds = useMemo(() => exemptCertificateIdsOf(invoice?.taxBreakdown), [invoice?.taxBreakdown]);
+  const certificates = useExemptionCertificates(certificateIds);
+  const certificateNumbers = certificateIds
+    .map((certificateId) => certificates.get(certificateId)?.certificateNumber ?? '')
+    .filter((number) => number !== '');
 
   const pdfLabels = (): InvoicePdfLabels => {
     const tp = t.accounting.invoicePdf;
@@ -111,19 +149,40 @@ export default function InvoiceDetailPage() {
       tax: labels.tax,
       taxId: labels.taxId,
       registrationId: labels.registrationId,
+      creditNote: labels.creditNote.toUpperCase(),
+      jurisdictionTax: td.pdf.jurisdictionTax,
+      exempt: td.exempt,
     };
   };
 
   const handleDownload = async () => {
-    if (!data?.data) return;
+    if (!invoice) return;
     setDownloading(true);
     try {
+      // The notice names the certificates; read the ones not loaded yet (a user without tax access just gets no number).
+      const numbers = (
+        await Promise.all(
+          certificateIds.map(
+            async (certificateId) =>
+              certificates.get(certificateId)?.certificateNumber ??
+              (await salesTaxPreviewApi
+                .getExemptionCertificate(certificateId)
+                .then((res) => res.data.certificateNumber)
+                .catch(() => null)),
+          ),
+        )
+      ).filter((number): number is string => Boolean(number));
       const bytes = await generateInvoicePdf(
-        data.data as InvoiceDetail,
+        invoice,
         entity ?? { name: st('sweep.weldbooks.invoiceDetail.yourCompanyFallback') },
-        { labels: pdfLabels(), formatDate: (v) => formatDate(v, '-'), countryName: country },
+        {
+          labels: pdfLabels(),
+          formatDate: (v) => formatDate(v, '-'),
+          countryName: country,
+          certificateNumbers: numbers,
+        },
       );
-      const filename = ((data.data as InvoiceDetail).invoiceNumber || 'invoice') + '.pdf';
+      const filename = (invoice.invoiceNumber || 'invoice') + '.pdf';
       downloadPdf(bytes, filename);
     } catch {
       toast.error(ti.failedToPdf);
@@ -153,8 +212,6 @@ export default function InvoiceDetailPage() {
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  const invoice = data?.data as InvoiceDetail | undefined;
-
   if (!invoice) {
     return (
       <div className="flex items-center justify-center p-8">{ti.invoiceNotFound}</div>
@@ -162,6 +219,7 @@ export default function InvoiceDetailPage() {
   }
 
   const isDraft = invoice.status === 'draft';
+  const isCreditMemo = invoice.type === 'credit_note';
   const canSend = isDraft || invoice.status === 'finalized';
   const canRecordPayment =
     invoice.status === 'sent' ||
@@ -170,11 +228,68 @@ export default function InvoiceDetailPage() {
   const canCancel = canUpdate && !CLOSED_STATUSES.has(invoice.status);
   const canWriteOff =
     canUpdate && OPEN_BALANCE_STATUSES.has(invoice.status) && Number(invoice.balanceDue ?? 0) > 0;
+  const canCreateCreditMemo = canCreate && !isDraft && !isCreditMemo && invoice.status !== 'cancelled';
+
+  const hasSalesTaxInfo = Boolean(invoice.taxEngine) || (invoice.taxWarnings?.length ?? 0) > 0;
+  const taxState =
+    normalizeAccountingAddress(invoice.shippingAddress)?.state ?? normalizeAccountingAddress(invoice.billingAddress)?.state ?? null;
+  const providerEngine = invoice.taxEngine === 'stripe_tax' || invoice.taxEngine === 'avalara';
+  const engineLabel = invoice.taxEngine
+    ? ((td.engines as Record<string, string>)[invoice.taxEngine] ?? invoice.taxEngine)
+    : null;
+  const canRetryCommit = canUpdate && !isDraft && providerEngine && hasProviderSyncWarning(invoice.taxWarnings);
+
+  /** A sales tax refusal stays on the page as a notice with links; anything else is a toast. */
+  const showFailure = (title: string, err: unknown) => {
+    if (salesTaxErrorCode(err)) {
+      setTaxError(err);
+      return;
+    }
+    toast.error(title, { description: describeError(err) });
+  };
 
   const handleFinalize = () => {
+    setTaxError(null);
     finalizeMutation.mutate(invoice.id, {
-      onSuccess: () => toast.success(ti.finalized),
-      onError: (err) => toast.error(ti.finalizeFailed, { description: err instanceof Error ? err.message : undefined }),
+      onSuccess: (res) => {
+        toast.success(ti.finalized);
+        const sync = (res as unknown as { data?: { taxSync?: TaxSyncResult | null } })?.data?.taxSync;
+        if (sync?.status === 'failed') {
+          toast.warning(td.detail.commitFailed, { description: sync.warning });
+        }
+      },
+      onError: (err) => showFailure(ti.finalizeFailed, err),
+    });
+  };
+
+  const handleRetryCommit = () => {
+    commitTaxMutation.mutate(invoice.id, {
+      onSuccess: (res) => {
+        const sync = res.data;
+        if (sync.status === 'failed') {
+          toast.error(td.detail.commitFailed, { description: sync.warning });
+        } else if (sync.status === 'reversed') {
+          toast.success(td.detail.commitReversed);
+        } else if (sync.status === 'already_synced') {
+          toast.success(td.detail.commitAlready);
+        } else if (sync.status === 'not_applicable') {
+          toast.info(td.detail.commitNotApplicable);
+        } else {
+          toast.success(td.detail.commitCommitted);
+        }
+      },
+      onError: (err) => toast.error(td.detail.commitFailed, { description: describeError(err) }),
+    });
+  };
+
+  const handleCreateCreditMemo = () => {
+    creditMemoMutation.mutate(invoice.id, {
+      onSuccess: (res) => {
+        toast.success(td.detail.creditMemoCreated.replace('{number}', res.data.invoiceNumber));
+        // The draft mirrors the invoice: open it to credit part of it, or finalize it as it is.
+        router.push(`/weldbooks/invoices/${res.data.id}/edit`);
+      },
+      onError: (err) => toast.error(td.detail.creditMemoFailed, { description: describeError(err) }),
     });
   };
 
@@ -198,6 +313,10 @@ export default function InvoiceDetailPage() {
   });
 
   const renderTaxLines = () => {
+    // US: one row per jurisdiction, with the exempt amounts a certificate covers.
+    if (taxGroups.some((group) => group.isJurisdiction)) {
+      return <TaxBreakdownList groups={taxGroups} currency={invoice.currency} taxLabel={labels.tax} />;
+    }
     if (invoice.taxBreakdown && invoice.taxBreakdown.length > 0) {
       return invoice.taxBreakdown.map((row, idx) => (
         <div key={`${row.taxRateName}-${idx}`} className="flex justify-between text-sm">
@@ -215,6 +334,22 @@ export default function InvoiceDetailPage() {
       );
     }
     return null;
+  };
+
+  /** The line's sales tax settings, when they are not the defaults. */
+  const lineFlags = (item: InvoiceWithTax['items'][number]): string[] => {
+    if (!hasSalesTaxInfo) return [];
+    const flags: string[] = [];
+    if (item.taxCode) {
+      flags.push(isWeldTaxCode(item.taxCode) ? td.taxCodes[item.taxCode] : item.taxCode);
+    }
+    if (item.taxUse === 'business') flags.push(td.detail.lineFlags.business);
+    if (item.taxUse === 'personal') flags.push(td.detail.lineFlags.personal);
+    if (item.taxIncluded) flags.push(td.detail.lineFlags.taxIncluded);
+    if (item.taxOverrideAmount !== null && item.taxOverrideAmount !== undefined) {
+      flags.push(td.detail.lineFlags.overridden.replace('{reason}', item.taxOverrideReason ?? ''));
+    }
+    return flags;
   };
 
   return (
@@ -251,7 +386,7 @@ export default function InvoiceDetailPage() {
           {canRecordPayment && (
             <Button onClick={() => setPaymentDialogOpen(true)}>{ti.recordPayment}</Button>
           )}
-          {(canCancel || canWriteOff) && (
+          {(canCancel || canWriteOff || canCreateCreditMemo) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" aria-label={ti.moreActions}>
@@ -259,6 +394,11 @@ export default function InvoiceDetailPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {canCreateCreditMemo && (
+                  <DropdownMenuItem onClick={handleCreateCreditMemo} disabled={creditMemoMutation.isPending}>
+                    {td.detail.createCreditMemo.replace('{name}', labels.creditNote.toLowerCase())}
+                  </DropdownMenuItem>
+                )}
                 {canWriteOff && (
                   <DropdownMenuItem onClick={() => setStatusDialog('uncollectible')}>
                     {ti.markUncollectible}
@@ -277,6 +417,25 @@ export default function InvoiceDetailPage() {
           )}
         </div>
       </div>
+
+      {taxError !== null && <SalesTaxErrorNotice error={taxError} invoiceId={invoice.id} />}
+
+      {isCreditMemo && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-2 pt-6 text-sm">
+            <span className="text-muted-foreground">{td.detail.creditMemoNote}</span>
+            {invoice.creditNoteForInvoiceId && (
+              <Link
+                to="/weldbooks/invoices/$id"
+                params={{ id: invoice.creditNoteForInvoiceId }}
+                className="font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {td.detail.viewOriginal}
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -333,6 +492,64 @@ export default function InvoiceDetailPage() {
         </Card>
       </div>
 
+      {hasSalesTaxInfo && (
+        <Card data-testid="sales-tax-card">
+          <CardHeader>
+            <CardTitle>{td.detail.taxTitle}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <TaxWarnings warnings={invoice.taxWarnings} state={taxState} title={td.detail.warningsTitle} />
+
+            <div className="space-y-1 text-sm">
+              {engineLabel && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{td.detail.engine}</span>
+                  <span>{engineLabel}</span>
+                </div>
+              )}
+              {invoice.taxCalculatedAt && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{td.detail.calculatedAt}</span>
+                  <span>{formatDateTime(invoice.taxCalculatedAt)}</span>
+                </div>
+              )}
+              {providerEngine && !isDraft && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">{td.detail.providerRecord}</span>
+                  <span data-testid="provider-status">
+                    {invoice.taxCommittedAt
+                      ? td.detail.committedAt.replace('{date}', formatDateTime(invoice.taxCommittedAt))
+                      : td.detail.notCommitted}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {invoice.marketplaceFacilitated && (
+              <p className="text-sm text-muted-foreground">{td.detail.marketplaceNote}</p>
+            )}
+
+            {hasExemptRows(invoice.taxBreakdown) && (
+              <ExemptNotice
+                reasons={exemptReasonsOf(invoice.taxBreakdown)}
+                certificateNumbers={certificateNumbers}
+              />
+            )}
+
+            {canRetryCommit && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRetryCommit}
+                disabled={commitTaxMutation.isPending}
+              >
+                {commitTaxMutation.isPending ? td.detail.retrying : td.detail.retryCommit}
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {invoice.attachmentKeys && invoice.attachmentKeys.length > 0 && (
         <Card>
           <CardHeader>
@@ -375,27 +592,35 @@ export default function InvoiceDetailPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {invoice.items?.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell>{item.description}</TableCell>
-                  <TableCell className="text-right">
-                    {item.quantity ?? '-'}
-                    {item.unit ? ` ${item.unit}` : ''}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatMoney(item.unitPrice, invoice.currency)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {item.discountPercent ? `${Number(item.discountPercent)}%` : '-'}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {item.taxRate ? `${Number(item.taxRate)}%` : '-'}
-                  </TableCell>
-                  <TableCell className="text-right font-medium">
-                    {formatMoney(item.lineTotalWithTax ?? item.lineTotal, invoice.currency)}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {invoice.items?.map((item) => {
+                const flags = lineFlags(item);
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      {item.description}
+                      {flags.length > 0 && (
+                        <span className="block text-xs text-muted-foreground">{flags.join(' · ')}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {item.quantity ?? '-'}
+                      {item.unit ? ` ${item.unit}` : ''}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatMoney(item.unitPrice, invoice.currency)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {item.discountPercent ? `${Number(item.discountPercent)}%` : '-'}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {item.taxRate ? `${Number(item.taxRate)}%` : '-'}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatMoney(item.lineTotalWithTax ?? item.lineTotal, invoice.currency)}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
               {(!invoice.items || invoice.items.length === 0) && (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-muted-foreground">
@@ -446,6 +671,7 @@ export default function InvoiceDetailPage() {
         isDraft={isDraft}
         open={sendDialogOpen}
         onOpenChange={setSendDialogOpen}
+        onTaxError={setTaxError}
       />
       <RecordPaymentDialog
         invoiceId={invoice.id}

@@ -14,8 +14,10 @@ import {
 import { ArrowLeft } from 'lucide-react';
 import {
   useAccountingJournalEntry,
+  useDimensionValues,
   usePostJournalEntry,
 } from '@/hooks/queries/use-accounting-queries';
+import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
@@ -33,7 +35,9 @@ export default function JournalEntryDetailPage() {
   const { t } = useI18n();
   const tj = t.accounting.journalEntry;
   const tsl = t.accounting.statusLabels.journalEntry;
+  const td = useDocumentTexts().journal;
   const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
+  const { data: dimensionValues } = useDimensionValues();
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -45,6 +49,8 @@ export default function JournalEntryDetailPage() {
   }
 
   const lines = entry.lines ?? [];
+  const dimensionName = (valueId: string | null | undefined) =>
+    valueId ? (dimensionValues ?? []).find((value) => value.id === valueId)?.name : undefined;
 
   return (
     <div className="p-6 space-y-6">
@@ -143,10 +149,23 @@ export default function JournalEntryDetailPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                lines.map((line) => (
+                lines.map((line) => {
+                  const dims = line as typeof line & { classId?: string | null; locationId?: string | null };
+                  const className = dimensionName(dims.classId);
+                  const locationName = dimensionName(dims.locationId);
+                  return (
                   <TableRow key={line.id}>
                     <TableCell className="font-mono text-sm">{line.accountId}</TableCell>
-                    <TableCell className="text-sm">{line.description || '-'}</TableCell>
+                    <TableCell className="text-sm">
+                      {line.description || '-'}
+                      {(className || locationName) && (
+                        <span className="block text-xs text-muted-foreground">
+                          {[className && `${td.class}: ${className}`, locationName && `${td.location}: ${locationName}`]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right text-sm">
                       {Number(line.debit) > 0 ? fmt(line.debit, line.currency) : '-'}
                     </TableCell>
@@ -154,7 +173,8 @@ export default function JournalEntryDetailPage() {
                       {Number(line.credit) > 0 ? fmt(line.credit, line.currency) : '-'}
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               )}
               <TableRow>
                 <TableCell colSpan={2} className="text-right font-medium">
