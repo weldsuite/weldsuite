@@ -641,10 +641,11 @@ async function appendCrmLookupNote(
   query: string,
   hits: CrmLookupHits,
 ): Promise<void> {
+  const hitList = hits.map((h) => `${h.name} (${h.type})`).join(', ');
   const summary =
     hits.length === 0
       ? `CRM lookup for “${query || 'unknown'}” returned no records`
-      : `CRM lookup for “${query}”: ${hits.map((h) => `${h.name} (${h.type})`).join(', ')}`;
+      : `CRM lookup for “${query}”: ${hitList}`;
   try {
     const note = await appendDeskMessage(db, {
       generateId,
@@ -809,7 +810,7 @@ async function handleCallHangupEvent(ctx: CallEventContext): Promise<void> {
     env,
     ctx.workspaceId,
     ctx.deskConversationId,
-    `Call ended (${finalStatus}${duration ? `, ${duration}s` : ''})`,
+    duration ? `Call ended (${finalStatus}, ${duration}s)` : `Call ended (${finalStatus})`,
     { event: 'call_ended', callId, hangupCause, duration },
   );
 

@@ -643,7 +643,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         ok: true,
         mentionToken: `<@${args.agentId}>`,
         agentName: target.name,
-        hint: `Include ${`<@${args.agentId}>`} in your reply text to ping ${target.name}. Message draft: ${args.message}`,
+        hint: `Include <@${args.agentId}> in your reply text to ping ${target.name}. Message draft: ${args.message}`,
         draft: args.message,
       };
     },

@@ -160,7 +160,7 @@ export function DealDetailsModal({
         // and there's no `success` flag — a failure throws instead.
         const search = recordSearchQuery?.trim();
         const result = await client.get<{ data: Customer[] }>(
-          `/companies?limit=50${search ? `&search=${encodeURIComponent(search)}` : ''}`,
+          search ? `/companies?limit=50&search=${encodeURIComponent(search)}` : '/companies?limit=50',
         );
         setSearchedCustomers(result.data || []);
       } catch (error) {

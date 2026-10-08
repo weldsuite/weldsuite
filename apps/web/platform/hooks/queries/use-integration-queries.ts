@@ -7,6 +7,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { withQuery } from '@/lib/with-query';
 
 type SyncDirection = 'inbound' | 'outbound' | 'bidirectional';
 
@@ -379,7 +380,7 @@ export function useSyncConflicts(
       if (filters?.entityType) params.set('entityType', filters.entityType);
       const qs = params.toString();
       return client.get<{ data: SyncConflict[] }>(
-        `/integrations/connections/${connectionId}/conflicts${qs ? `?${qs}` : ''}`
+        withQuery(`/integrations/connections/${connectionId}/conflicts`, qs)
       );
     },
     enabled: !!connectionId,

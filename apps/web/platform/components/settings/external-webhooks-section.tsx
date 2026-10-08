@@ -271,7 +271,7 @@ export function ExternalWebhooksSection() {
       if (result.data.delivered) {
         toast.success(ts.messages.testSent)
       } else {
-        toast.error(`${ts.messages.testFailed}${result.data.errorMessage ? `: ${result.data.errorMessage}` : ""}`)
+        toast.error(result.data.errorMessage ? `${ts.messages.testFailed}: ${result.data.errorMessage}` : ts.messages.testFailed)
       }
     } catch {
       toast.error(ts.messages.testFailed)

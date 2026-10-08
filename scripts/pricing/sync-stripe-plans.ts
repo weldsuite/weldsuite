@@ -62,10 +62,11 @@ function requireEnv(name: string): string {
 }
 
 async function stripe(method: string, path: string, body?: Record<string, string>): Promise<any> {
+  const credentials = `${STRIPE_KEY}:`;
   const res = await fetch(`https://api.stripe.com${path}`, {
     method,
     headers: {
-      Authorization: `Basic ${Buffer.from(`${STRIPE_KEY}:`).toString('base64')}`,
+      Authorization: `Basic ${Buffer.from(credentials).toString('base64')}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: body ? new URLSearchParams(body).toString() : undefined,

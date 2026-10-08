@@ -127,7 +127,7 @@ export function CommonTab({ userId, isSelf }: Readonly<CommonTabProps>) {
             tone="amber"
             to={task.projectId ? `/projects/${task.projectId}/tasks/${task.id}` : `/task/${task.id}`}
             label={task.title}
-            hint={`${task.status}${task.role === 'delegated' ? ` · ${t('sweep.shared.delegated')}` : ''}`}
+            hint={task.role === 'delegated' ? `${task.status} · ${t('sweep.shared.delegated')}` : task.status}
             leading={<CategoryIcon tone="amber" icon={<CheckSquare className="h-3 w-3" />} />}
           />
         ))}

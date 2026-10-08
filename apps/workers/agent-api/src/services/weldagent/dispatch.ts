@@ -183,9 +183,10 @@ export async function dispatchWeldAgentsForEvent(
   if (agents.length === 0 && routines.length === 0) return;
 
   const payload = JSON.stringify(message.data, null, 2);
+  const shownPayload = payload.length > 8000 ? `${payload.slice(0, 8000)}…` : payload;
   const eventPrompt =
     `A platform event occurred: ${eventKey} on entity ${message.entityId}.\n` +
-    `Payload:\n${payload.length > 8000 ? `${payload.slice(0, 8000)}…` : payload}\n\n`;
+    `Payload:\n${shownPayload}\n\n`;
   const baseTrigger = {
     eventKey,
     entityType: message.entityType,

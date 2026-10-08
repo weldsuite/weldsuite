@@ -115,7 +115,8 @@ export class PicqerClient implements ConnectorProviderClient {
   }
 
   private authHeader(): string {
-    return `Basic ${btoa(`${this.apiKey}:`)}`;
+    const credentials = `${this.apiKey}:`;
+    return `Basic ${btoa(credentials)}`;
   }
 
   async request<T>(

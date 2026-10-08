@@ -18,6 +18,7 @@ import { useEffect, useRef } from 'react';
 import { useRouter, useSearchParams, usePathname } from '@/lib/router';
 import { useObjectPanel } from './use-object-panel';
 import { serializeStack, parseStack, stacksEqual } from './stack-url';
+import { withQuery } from '@/lib/with-query';
 
 export function useObjectPanelUrlSync(basePath: string) {
   const router = useRouter();
@@ -60,7 +61,7 @@ export function useObjectPanelUrlSync(basePath: string) {
     if (serialized) params.set('stack', serialized);
     else params.delete('stack');
     const query = params.toString();
-    router.replace(`${basePath}${query ? `?${query}` : ''}`);
+    router.replace(withQuery(`${basePath}`, query));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stack, pathname]);
 }

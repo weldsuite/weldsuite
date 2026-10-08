@@ -1,5 +1,6 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { withQuery } from '@/lib/with-query';
 
 export interface AuditLogRecord {
   id: string;
@@ -71,7 +72,7 @@ export function useAuditLogs(filters?: AuditLogFilters) {
           hasMore: boolean;
           cursor: string | null;
         };
-      }>(`/audit-logs${query ? `?${query}` : ''}`);
+      }>(withQuery('/audit-logs', query));
     },
     placeholderData: keepPreviousData,
   });

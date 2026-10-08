@@ -82,9 +82,10 @@ async function buildFailureError(
     body = null;
   }
   const telnyxDetail = body?.errors?.[0]?.detail || body?.errors?.[0]?.title;
+  const bodyNote = rawText ? ` — body: ${rawText.slice(0, 300)}` : '';
   const errorMsg = telnyxDetail
     ? `Telnyx ${response.status}: ${telnyxDetail}`
-    : `Telnyx ${response.status} on ${endpoint} — ${response.statusText || 'no body'}${rawText ? ` — body: ${rawText.slice(0, 300)}` : ''}`;
+    : `Telnyx ${response.status} on ${endpoint} — ${response.statusText || 'no body'}${bodyNote}`;
 
   console.error('[TelnyxPorting] Request failed', {
     url,

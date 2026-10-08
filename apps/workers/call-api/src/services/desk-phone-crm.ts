@@ -56,7 +56,8 @@ export function phonesMatch(a: string | null | undefined, b: string | null | und
 }
 
 function phoneDigitsLike(column: unknown, suffix: string) {
-  return sql`regexp_replace(coalesce(${column}, ''), '[^0-9]', '', 'g') like ${`%${suffix}`}`;
+  const pattern = `%${suffix}`;
+  return sql`regexp_replace(coalesce(${column}, ''), '[^0-9]', '', 'g') like ${pattern}`;
 }
 
 function hitName(parts: Array<string | null | undefined>, fallback: string): string {

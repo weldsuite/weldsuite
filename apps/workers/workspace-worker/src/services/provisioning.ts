@@ -200,7 +200,8 @@ export async function setupWorkspaceBilling(
   const stripeKey = env.STRIPE_SECRET_KEY;
   if (!stripeKey) return { warning: 'STRIPE_SECRET_KEY not configured' };
 
-  const stripeAuth = `Basic ${btoa(`${stripeKey}:`)}`;
+  const credentials = `${stripeKey}:`;
+  const stripeAuth = `Basic ${btoa(credentials)}`;
 
   // Check if already set up
   const [workspace] = await masterDb

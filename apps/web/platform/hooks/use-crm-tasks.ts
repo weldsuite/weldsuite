@@ -5,6 +5,7 @@ import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { calendarKeys } from '@/hooks/queries/use-calendar-queries';
 import { toast } from 'sonner';
+import { withQuery } from '@/lib/with-query';
 
 export interface Task {
   id: string;
@@ -122,7 +123,7 @@ export function useCrmTasks(assignedToId?: string) {
       // CRM page only shows tasks linked to a company/person — never project tasks.
       params.set('crmLinked', 'true');
       const query = params.toString();
-      const res = await client.get<{ data: RawTask[] }>(`/tasks${query ? `?${query}` : ''}`);
+      const res = await client.get<{ data: RawTask[] }>(withQuery('/tasks', query));
       return (res.data ?? []).map(hydrate);
     },
   });

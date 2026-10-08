@@ -51,7 +51,8 @@ export class LemlistNotConfiguredError extends Error {
 
 function authHeader(apiKey: string): string {
   // Basic auth with a blank username and the API key as the password.
-  return `Basic ${btoa(`:${apiKey}`)}`;
+  const credentials = `:${apiKey}`;
+  return `Basic ${btoa(credentials)}`;
 }
 
 // ---------------------------------------------------------------------------

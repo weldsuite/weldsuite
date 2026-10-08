@@ -115,7 +115,8 @@ export async function run(args: ParsedArgs): Promise<void> {
 
   if (!flagBool(args.flags, 'skip-build')) {
     const runner = detectRunner(cwd);
-    info(`Building with ${cyan(`${runner} run build`)} …`);
+    const buildCommand = `${runner} run build`;
+    info(`Building with ${cyan(buildCommand)} …`);
     await runBuild(runner, cwd);
   }
 
