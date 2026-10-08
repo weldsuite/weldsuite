@@ -2391,6 +2391,31 @@ function notifyAddedAssigneesOnUpdate(
   });
 }
 
+/**
+ * Derive the status from a stage change, or the stage from a status-only
+ * change, and stamp `completedDate` when the task moves to done. Mutates
+ * `update`; returns the status the task ends up with.
+ */
+async function applyStatusChange(
+  db: TaskDb,
+  existing: { projectId: string | null; stageId: string | null; status: string | null },
+  data: Record<string, any>,
+  update: Record<string, any>,
+): Promise<string | null> {
+  const stageStatus = await statusFromStage(db, data.stageId);
+  if (stageStatus) update.status = stageStatus;
+  if (data.stageId === undefined && typeof update.status === 'string') {
+    const stageId = await stageForStatus(db, existing, update.status);
+    if (stageId) update.stageId = stageId;
+  }
+
+  const resolvedStatus: string | null = update.status ?? existing.status;
+  if (resolvedStatus === 'done' && existing.status !== 'done') {
+    update.completedDate = new Date();
+  }
+  return resolvedStatus;
+}
+
 // ============================================================================
 // PATCH /:id — Full update with calendar sync, recurrence, notifications
 // ============================================================================
@@ -2431,19 +2456,7 @@ app.patch(
       const dependencyEcho = dependencyEchoFor(dependencyPlan, { dependsOn, blocks });
 
       const update = buildTaskUpdate(data);
-
-      // Derive status from stage, or the stage from a status-only change
-      const stageStatus = await statusFromStage(db, data.stageId);
-      if (stageStatus) update.status = stageStatus;
-      if (data.stageId === undefined && typeof update.status === 'string') {
-        const stageId = await stageForStatus(db, existing, update.status);
-        if (stageId) update.stageId = stageId;
-      }
-
-      const resolvedStatus = update.status ?? (existing as any).status;
-      if (resolvedStatus === 'done' && (existing as any).status !== 'done') {
-        update.completedDate = new Date();
-      }
+      const resolvedStatus = await applyStatusChange(db, existing, data, update);
 
       if (dependencyPlan) {
         await commitDependencyUpdate(db, id, dependencyPlan, update);
