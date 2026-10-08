@@ -81,6 +81,7 @@ export function IntegrationDetailLayout({
   const resolvedConnectLabel = connectLabel ?? t('sweep.settings.integrationConnectionCard.connect');
   const resolvedDisconnectLabel = disconnectLabel ?? t('sweep.settings.integrationConnectionCard.disconnect');
   const resolvedBackLabel = backLabel ?? t('sweep.settings.integrationDetailLayout.back');
+  const connectionActionLabel = connected ? resolvedDisconnectLabel : resolvedConnectLabel;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -110,7 +111,7 @@ export function IntegrationDetailLayout({
             </div>
           </div>
 
-          {canManage ? (
+          {canManage && (
             <Button
               variant={connected ? 'outline' : 'default'}
               disabled={isLoading || isWorking}
@@ -122,18 +123,17 @@ export function IntegrationDetailLayout({
             >
               {isWorking || isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
-              ) : connected ? (
-                resolvedDisconnectLabel
               ) : (
-                resolvedConnectLabel
+                connectionActionLabel
               )}
             </Button>
-          ) : connected ? (
+          )}
+          {!canManage && connected && (
             <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600 dark:text-emerald-400">
               <CheckCircle className="h-4 w-4" />
               {t('sweep.settings.integrationConnectionCard.connected')}
             </span>
-          ) : null}
+          )}
         </div>
 
         <hr className="border-border/70 mb-8" />

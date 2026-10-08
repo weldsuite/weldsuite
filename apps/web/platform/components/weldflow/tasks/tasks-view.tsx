@@ -82,6 +82,12 @@ interface TasksViewProps {
   initialTasks?: RawApiTask[];
 }
 
+function formatDueLabel(dueDate: Date): string {
+  if (isToday(dueDate)) return 'Today';
+  if (isTomorrow(dueDate)) return 'Tomorrow';
+  return format(dueDate, 'MMM d');
+}
+
 export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewProps>) {
   const st = useTranslations();
   const { getClient } = useAppApiClient();
@@ -354,9 +360,7 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
                 isOverdue ? "text-red-600" : "text-gray-500"
               )}>
                 <Calendar className="h-3 w-3" />
-                {isToday(task.dueDate) ? 'Today' :
-                 isTomorrow(task.dueDate) ? 'Tomorrow' :
-                 format(task.dueDate, 'MMM d')}
+                {formatDueLabel(task.dueDate)}
               </div>
             )}
           </div>

@@ -156,18 +156,20 @@ export function HelpdeskSettingsSection() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {addressesLoading ? (
+            {addressesLoading && (
               <div className="flex items-center justify-center gap-2 py-8">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">{t('sweep.settings.helpdeskEmail.loading')}</span>
               </div>
-            ) : activeAddresses.length === 0 ? (
+            )}
+            {!addressesLoading && activeAddresses.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <Mail className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p>{t('sweep.settings.helpdeskEmail.noAddressesYet')}</p>
                 <p className="text-sm">{t('sweep.settings.helpdeskEmail.addOneHint')}</p>
               </div>
-            ) : (
+            )}
+            {!addressesLoading && activeAddresses.length > 0 && (
               <div className="space-y-3">
                 {activeAddresses.map((addr) => (
                   <div
@@ -217,12 +219,13 @@ export function HelpdeskSettingsSection() {
 
               {/* Existing mail accounts tab */}
               <TabsContent value="existing" className="space-y-4">
-                {mailAccountsLoading ? (
+                {mailAccountsLoading && (
                   <div className="flex items-center justify-center gap-2 py-4">
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">{t('sweep.settings.helpdeskEmail.loading')}</span>
                   </div>
-                ) : availableMailAccounts.length === 0 ? (
+                )}
+                {!mailAccountsLoading && availableMailAccounts.length === 0 && (
                   <div className="text-center py-4 text-muted-foreground">
                     <Inbox className="h-8 w-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">{t('sweep.settings.helpdeskEmail.noAvailableAccounts')}</p>
@@ -230,7 +233,8 @@ export function HelpdeskSettingsSection() {
                       {t('sweep.settings.helpdeskEmail.noAvailableAccountsHint')}
                     </p>
                   </div>
-                ) : (
+                )}
+                {!mailAccountsLoading && availableMailAccounts.length > 0 && (
                   <div className="space-y-2">
                     {availableMailAccounts.map((account) => (
                       <div
@@ -266,12 +270,13 @@ export function HelpdeskSettingsSection() {
 
               {/* New address tab */}
               <TabsContent value="new" className="space-y-4">
-                {domainsLoading ? (
+                {domainsLoading && (
                   <div className="flex items-center justify-center gap-2 py-4">
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     <span className="text-sm text-muted-foreground">{t('sweep.settings.helpdeskEmail.loading')}</span>
                   </div>
-                ) : (domains || []).length === 0 ? (
+                )}
+                {!domainsLoading && (domains || []).length === 0 && (
                   <div className="text-center py-4 text-muted-foreground">
                     <Globe className="h-8 w-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">{t('sweep.settings.helpdeskEmail.noVerifiedDomains')}</p>
@@ -279,7 +284,8 @@ export function HelpdeskSettingsSection() {
                       {t('sweep.settings.helpdeskEmail.verifyDomainHintPrefix')} <strong>{t('sweep.settings.helpdeskEmail.verifyDomainHintPath')}</strong> {t('sweep.settings.helpdeskEmail.verifyDomainHintSuffix')}
                     </p>
                   </div>
-                ) : (
+                )}
+                {!domainsLoading && (domains || []).length > 0 && (
                   <>
                     <div className="flex gap-2 items-end">
                       <div className="flex-1 space-y-2">

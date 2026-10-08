@@ -94,11 +94,12 @@ function toCrmTask(
     const m = memberLookup.get(id);
     return { id, name: m?.name ?? '', avatar: m?.avatar };
   };
-  const assigneesList = api.assigneeIds && api.assigneeIds.length > 0
-    ? api.assigneeIds.map(hydrate)
-    : api.assigneeId
-      ? [hydrate(api.assigneeId)]
-      : [];
+  let assigneesList: ReturnType<typeof hydrate>[] = [];
+  if (api.assigneeIds && api.assigneeIds.length > 0) {
+    assigneesList = api.assigneeIds.map(hydrate);
+  } else if (api.assigneeId) {
+    assigneesList = [hydrate(api.assigneeId)];
+  }
   const primary = assigneesList[0];
   return {
     id: api.id,

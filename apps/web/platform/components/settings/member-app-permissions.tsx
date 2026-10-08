@@ -134,7 +134,8 @@ export function MemberAppPermissions({
   const renderToggle = (perm: MatrixPermission, label: string) => {
     const state = stateOf(perm.key);
     const on = effective(perm.key);
-    const Icon = state === 'deny' ? X : on ? Check : Minus;
+    let Icon = on ? Check : Minus;
+    if (state === 'deny') Icon = X;
     return (
       <button
         type="button"

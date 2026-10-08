@@ -39,11 +39,17 @@ interface Envelope<T> {
  */
 type ApiListKind = 'company' | 'person';
 
-const toApiKind = (kind?: string): ApiListKind | undefined =>
-  kind === 'contact' ? 'person' : kind === 'customer' ? 'company' : undefined;
+const toApiKind = (kind?: string): ApiListKind | undefined => {
+  if (kind === 'contact') return 'person';
+  if (kind === 'customer') return 'company';
+  return undefined;
+};
 
-const fromApiKind = (kind?: string): string =>
-  kind === 'person' ? 'contact' : kind === 'company' ? 'customer' : (kind ?? '');
+const fromApiKind = (kind?: string): string => {
+  if (kind === 'person') return 'contact';
+  if (kind === 'company') return 'customer';
+  return kind ?? '';
+};
 
 function mapList(row: CustomerList): CustomerList {
   const kind = (row as { kind?: string }).kind;

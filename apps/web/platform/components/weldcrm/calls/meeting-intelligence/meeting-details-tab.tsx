@@ -1,4 +1,5 @@
 
+import type { ReactNode } from 'react';
 import { format } from 'date-fns';
 import { Link } from '@tanstack/react-router';
 import { LogIn, LogOut, Phone, Timer, Video, UserCircle2, ExternalLink } from 'lucide-react';
@@ -59,6 +60,7 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
   const fallbackParticipants: MeetingAttendeeDetail[] = call.attendeeDetails?.length
     ? call.attendeeDetails
     : (call.attendees?.map((name) => ({ name })) ?? []);
+  const MediaIcon = mediaType === 'audio' ? Phone : Video;
 
   return (
     <div className="py-3 space-y-4">
@@ -68,10 +70,8 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
           <div className="h-[34px] w-11 rounded-lg bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border flex items-center justify-center flex-shrink-0">
             {platformInfo ? (
               <img src={platformInfo.icon} alt={platformInfo.name} className="h-5 w-5" />
-            ) : mediaType === 'audio' ? (
-              <Phone className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
             ) : (
-              <Video className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
+              <MediaIcon className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
             )}
           </div>
           <div className="flex-1">
@@ -282,6 +282,23 @@ function ParticipantRow({ participant, index }: Readonly<{ participant: MeetingA
   const initials = (participant.name?.[0] ?? participant.email?.[0] ?? '?').toUpperCase();
   const color = PARTICIPANT_COLORS[index % PARTICIPANT_COLORS.length];
 
+  let linkBadge: ReactNode = null;
+  if (participant.workspaceMemberId) {
+    linkBadge = (
+      <span className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-muted-foreground border border-gray-200 dark:border-border rounded-md px-1.5 py-0.5 shrink-0">
+        <UserCircle2 className="h-3 w-3" />
+        {t('sweep.weldcrm.meetingDetailsTab.teamMember')}
+      </span>
+    );
+  } else if (participant.contactId) {
+    linkBadge = (
+      <span className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-muted-foreground border border-gray-200 dark:border-border rounded-md px-1.5 py-0.5 shrink-0">
+        <ExternalLink className="h-3 w-3" />
+        {t('sweep.weldcrm.meetingDetailsTab.contact')}
+      </span>
+    );
+  }
+
   const inner = (
     <>
       {participant.avatar ? (
@@ -308,17 +325,7 @@ function ParticipantRow({ participant, index }: Readonly<{ participant: MeetingA
           <p className="text-xs text-gray-500 dark:text-muted-foreground truncate">{participant.email}</p>
         )}
       </div>
-      {participant.workspaceMemberId ? (
-        <span className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-muted-foreground border border-gray-200 dark:border-border rounded-md px-1.5 py-0.5 shrink-0">
-          <UserCircle2 className="h-3 w-3" />
-          {t('sweep.weldcrm.meetingDetailsTab.teamMember')}
-        </span>
-      ) : participant.contactId ? (
-        <span className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-muted-foreground border border-gray-200 dark:border-border rounded-md px-1.5 py-0.5 shrink-0">
-          <ExternalLink className="h-3 w-3" />
-          {t('sweep.weldcrm.meetingDetailsTab.contact')}
-        </span>
-      ) : null}
+      {linkBadge}
     </>
   );
 

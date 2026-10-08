@@ -3159,11 +3159,9 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                 key={color}
                 className={cn(
                   "h-6 w-6 rounded border-2 transition-all duration-150",
-                  selectedColor === color
-                    ? "border-gray-500 dark:border-gray-300"
-                    : hoveredColor === color && selectedColor !== color
-                    ? "border-gray-300 dark:border-gray-500"
-                    : "border-transparent"
+                  selectedColor === color && "border-gray-500 dark:border-gray-300",
+                  selectedColor !== color && hoveredColor === color && "border-gray-300 dark:border-gray-500",
+                  selectedColor !== color && hoveredColor !== color && "border-transparent"
                 )}
                 style={{
                   backgroundColor: color

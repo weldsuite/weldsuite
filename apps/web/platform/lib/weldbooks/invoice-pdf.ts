@@ -395,9 +395,10 @@ function drawTotals(
 /** Footer (payment instructions + bank details + terms + footer text). */
 function drawFooter(ctx: DrawContext, entity: InvoicePdfEntity) {
   const bank = entity.bankDetails;
+  const bicSuffix = bank?.bic ? ' · BIC: ' + bank.bic : '';
   const footerBlocks = [
     entity.branding?.paymentInstructions,
-    bank?.iban ? 'Bank: ' + (bank.bankName ?? '') + ' · IBAN: ' + bank.iban + (bank.bic ? ' · BIC: ' + bank.bic : '') : null,
+    bank?.iban ? 'Bank: ' + (bank.bankName ?? '') + ' · IBAN: ' + bank.iban + bicSuffix : null,
     entity.branding?.termsAndConditions,
     entity.branding?.footerText,
   ].filter((b): b is string => !!b && b.trim().length > 0);

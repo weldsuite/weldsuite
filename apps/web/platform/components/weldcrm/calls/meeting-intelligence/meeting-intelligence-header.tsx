@@ -70,6 +70,7 @@ export function MeetingIntelligenceHeader({
   const _callDate = new Date(call.date);
   const _callDuration = call.duration || 0;
   const platformInfo = detectPlatform(call.platform, call.meetingUrl);
+  const MediaIcon = mediaType === 'audio' ? Phone : Video;
 
   return (
     <div className="h-[53px] flex-shrink-0 border-b border-gray-200 dark:border-border bg-white dark:bg-background flex items-center justify-between pl-6 pr-4">
@@ -85,10 +86,8 @@ export function MeetingIntelligenceHeader({
         <div className="h-8 w-11 rounded-lg bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border flex items-center justify-center flex-shrink-0">
           {platformInfo ? (
             <img src={platformInfo.icon} alt={platformInfo.name} className="h-5 w-5" />
-          ) : mediaType === 'audio' ? (
-            <Phone className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
           ) : (
-            <Video className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
+            <MediaIcon className="h-4 w-4 text-gray-500 dark:text-muted-foreground" />
           )}
         </div>
         <span className="text-base font-semibold text-gray-900 dark:text-foreground truncate min-w-0">{call.subject || t('sweep.weldcrm.meetingIntelligenceHeader.untitledCall')}</span>

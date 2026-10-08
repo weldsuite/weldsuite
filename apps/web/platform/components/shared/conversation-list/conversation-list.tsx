@@ -66,6 +66,63 @@ export function ConversationList({
   const grouped = groupByDate(sortedItems);
   const isEmpty = sortedItems.length === 0;
 
+  let listContent: React.ReactNode;
+  if (error) {
+    listContent = (
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-3">
+          <AlertTriangle className="h-5 w-5 text-red-500" />
+        </div>
+        <p className="text-sm font-medium text-red-600 mb-1">{t('sweep.shared.failedToLoadMessages')}</p>
+        <p className="text-xs text-gray-500 dark:text-muted-foreground max-w-xs text-center">{error}</p>
+      </div>
+    );
+  } else if (isLoading && isEmpty) {
+    listContent = (
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
+      </div>
+    );
+  } else if (isEmpty) {
+    listContent = (
+      <div className="flex flex-col items-center justify-center py-20">
+        <p className="text-sm text-gray-500 dark:text-muted-foreground">{resolvedEmptyMessage}</p>
+      </div>
+    );
+  } else {
+    listContent = (
+      <div>
+        {Object.entries(grouped).map(([dateLabel, group]) => (
+          <div key={dateLabel}>
+            {dateLabel !== 'Today' && (
+              <div className="relative -mt-px flex items-center gap-2 px-3 md:px-4 h-8 bg-background border-t border-b border-border/70">
+                <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
+                <span className="relative text-xs font-medium text-muted-foreground">{dateLabel}</span>
+                <span className="relative text-[10px] font-mono text-muted-foreground bg-muted border border-border min-w-[16px] px-[3px] h-[16px] flex items-center justify-center rounded-[5px] -translate-y-px">
+                  <span className="translate-y-[1px]">{group.length}</span>
+                </span>
+              </div>
+            )}
+            {group.map((item) => (
+              <ConversationListItem
+                key={item.id}
+                item={item}
+                href={getItemUrl(item)}
+                isSelected={selectedId === item.id}
+                isPinned={isPinned?.(item.id)}
+                onClick={onItemClick ? () => onItemClick(item) : undefined}
+                onToggleStar={onToggleStar ? () => onToggleStar(item.id) : undefined}
+                contextMenuContent={contextMenuItems?.(item)}
+                onLabelDrop={onLabelDrop ? (labelData) => onLabelDrop(item, labelData) : undefined}
+              />
+            ))}
+          </div>
+        ))}
+        {footer}
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white dark:bg-background flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -125,53 +182,7 @@ export function ConversationList({
       <div
         className="flex-1 overflow-y-auto px-1 md:px-0"
       >
-        {error ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-3">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-            </div>
-            <p className="text-sm font-medium text-red-600 mb-1">{t('sweep.shared.failedToLoadMessages')}</p>
-            <p className="text-xs text-gray-500 dark:text-muted-foreground max-w-xs text-center">{error}</p>
-          </div>
-        ) : isLoading && isEmpty ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
-          </div>
-        ) : isEmpty ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <p className="text-sm text-gray-500 dark:text-muted-foreground">{resolvedEmptyMessage}</p>
-          </div>
-        ) : (
-          <div>
-            {Object.entries(grouped).map(([dateLabel, group]) => (
-              <div key={dateLabel}>
-                {dateLabel !== 'Today' && (
-                  <div className="relative -mt-px flex items-center gap-2 px-3 md:px-4 h-8 bg-background border-t border-b border-border/70">
-                    <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
-                    <span className="relative text-xs font-medium text-muted-foreground">{dateLabel}</span>
-                    <span className="relative text-[10px] font-mono text-muted-foreground bg-muted border border-border min-w-[16px] px-[3px] h-[16px] flex items-center justify-center rounded-[5px] -translate-y-px">
-                      <span className="translate-y-[1px]">{group.length}</span>
-                    </span>
-                  </div>
-                )}
-                {group.map((item) => (
-                  <ConversationListItem
-                    key={item.id}
-                    item={item}
-                    href={getItemUrl(item)}
-                    isSelected={selectedId === item.id}
-                    isPinned={isPinned?.(item.id)}
-                    onClick={onItemClick ? () => onItemClick(item) : undefined}
-                    onToggleStar={onToggleStar ? () => onToggleStar(item.id) : undefined}
-                    contextMenuContent={contextMenuItems?.(item)}
-                    onLabelDrop={onLabelDrop ? (labelData) => onLabelDrop(item, labelData) : undefined}
-                  />
-                ))}
-              </div>
-            ))}
-            {footer}
-          </div>
-        )}
+        {listContent}
       </div>
 
       {/* Pagination Controls */}
