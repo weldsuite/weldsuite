@@ -3463,7 +3463,8 @@ export const sweep = {
     },
     "videoPlayer": {
       "recordingNotAvailable": "Audio-/video-opname niet beschikbaar",
-      "browserNotSupported": "Uw browser ondersteunt de video-tag niet."
+      "browserNotSupported": "Uw browser ondersteunt de video-tag niet.",
+      "playPause": "Afspelen of pauzeren"
     },
     "globalPinnedNote": {
       "untitled": "Naamloos",

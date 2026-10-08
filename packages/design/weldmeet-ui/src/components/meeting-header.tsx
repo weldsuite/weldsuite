@@ -76,6 +76,24 @@ export function MeetingHeader({
     titleBorderClass = "border-transparent hover:border-border cursor-text";
   }
 
+  const startEditingTitle = () => {
+    if (!titleEditable) return;
+    if (!editingTitle) {
+      setEditingTitle(true);
+      setTimeout(() => {
+        const el = titleInputRef.current;
+        if (el) {
+          el.focus();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+      }, 0);
+    }
+  };
+
   return (
     <div className="flex items-center justify-between px-4 border-b flex-shrink-0 h-[53px]">
       <div className={cn('flex items-center gap-2', isMobile && 'min-w-0 flex-1')}>
@@ -114,25 +132,11 @@ export function MeetingHeader({
             // buttons off-screen — desktop layout is unchanged.
             !editingTitle && isMobile && "truncate min-w-0",
           )}
-          onClick={() => {
-            if (!titleEditable) return;
-            if (!editingTitle) {
-              setEditingTitle(true);
-              setTimeout(() => {
-                const el = titleInputRef.current;
-                if (el) {
-                  el.focus();
-                  const range = document.createRange();
-                  range.selectNodeContents(el);
-                  const sel = window.getSelection();
-                  sel?.removeAllRanges();
-                  sel?.addRange(range);
-                }
-              }, 0);
-            }
-          }}
+          role={titleEditable && !editingTitle ? 'button' : undefined}
+          tabIndex={titleEditable && !editingTitle ? 0 : undefined}
+          onClick={startEditingTitle}
           onBlur={() => {
-            if (!titleEditable) return;
+            if (!titleEditable || !editingTitle) return;
             const el = titleInputRef.current;
             const trimmed = (el?.innerText ?? '').trim();
             if (trimmed && trimmed !== displayTitle) {
@@ -156,6 +160,13 @@ export function MeetingHeader({
             }
           }}
           onKeyDown={(e) => {
+            if (titleEditable && !editingTitle) {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                startEditingTitle();
+              }
+              return;
+            }
             if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLElement).blur(); }
             if (e.key === 'Escape') {
               const el = titleInputRef.current;

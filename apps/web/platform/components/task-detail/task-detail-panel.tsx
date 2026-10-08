@@ -154,9 +154,17 @@ function EditableTitle({
       ref={editorRef}
       contentEditable={isEditing}
       suppressContentEditableWarning
+      role={isEditing ? undefined : 'button'}
+      tabIndex={isEditing ? undefined : 0}
       onClick={() => { if (!isEditing) setIsEditing(true); }}
       onBlur={handleSave}
-      onKeyDown={isEditing ? handleKeyDown : undefined}
+      onKeyDown={isEditing ? handleKeyDown : (e) => {
+        // Keyboard entry into title edit mode.
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setIsEditing(true);
+        }
+      }}
       className={cn(
         'translate-y-[0.5px] text-[15px] font-medium leading-normal text-foreground break-words min-w-0 rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 border outline-none whitespace-pre-wrap',
         isEditing

@@ -151,6 +151,7 @@ export function MeetingChatNotification({
             setNotes([]);
           }}
           onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               onOpenChat?.();
@@ -178,18 +179,17 @@ export function MeetingChatNotification({
             </div>
           </div>
 
-          <span
-            role="button"
-            tabIndex={-1}
+          <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               dismiss(note.id);
             }}
-            className="flex-shrink-0 rounded-md p-1 text-muted-foreground/60 opacity-0 transition-all hover:bg-muted hover:text-foreground group-hover:opacity-100"
+            className="flex-shrink-0 rounded-md p-1 text-muted-foreground/60 opacity-0 transition-all hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
             aria-label="Dismiss notification"
           >
             <X className="h-3.5 w-3.5" />
-          </span>
+          </button>
         </div>
       ))}
     </>

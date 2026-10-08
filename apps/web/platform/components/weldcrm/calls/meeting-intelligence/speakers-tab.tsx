@@ -52,8 +52,9 @@ export function SpeakersTabContent({
             return (
               <div key={speaker.label}>
                 {/* Speaker info row */}
-                <div
-                  className="flex items-center gap-2 mb-2 cursor-pointer group/speaker"
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 mb-2 cursor-pointer group/speaker text-left"
                   onClick={() => onSeekToSegment(speaker.firstSegmentStart)}
                 >
                   <Play className="h-3.5 w-3.5 text-gray-300 group-hover/speaker:text-gray-500 dark:text-gray-600 dark:group-hover/speaker:text-gray-400 transition-colors flex-shrink-0" />
@@ -74,7 +75,7 @@ export function SpeakersTabContent({
                       {formatDurationMin(speaker.totalDuration)}
                     </span>
                   </div>
-                </div>
+                </button>
                 {/* Timeline bar */}
                 <div className="h-6 flex items-center relative">
                   <div className="w-full h-1.5 bg-gray-100 dark:bg-secondary rounded-full pointer-events-none" />
