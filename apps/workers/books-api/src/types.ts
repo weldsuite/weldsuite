@@ -29,6 +29,9 @@ export interface Env extends KitEnv, BankFeedEnv {
   /** Workers mTLS binding presenting Ponto's client certificate (wrangler.toml `mtls_certificates`). */
   PONTO_CERT?: Fetcher;
 
+  /** Platform origin for links books-api hands out (online W-9 requests). */
+  PLATFORM_URL?: string;
+
   // --- AI (@weldsuite/ai) — Cloudflare AI Gateway, accounting OCR ----------
   // Credits are metered through @weldsuite/core-domain/ai-billing (master DB).
   // See packages/core/ai/src/config.ts for the full list of recognised keys.

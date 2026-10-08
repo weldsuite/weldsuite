@@ -59,6 +59,8 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 PLAID_ENV = "sandbox"
 BANK_FEED_PROVIDERS = "US:plaid,stripe_fc;NL:ponto;BE:ponto;*:enable_banking"
 BANK_FEED_WEBHOOK_URL = "https://integration-webhooks-test.weldsuite.org/webhooks/bank-feeds"
+# Base of links books-api hands out (online W-9 requests).
+PLATFORM_URL = "http://localhost:3000"
 
 # WeldBooks → Belastingdienst SBR filing. 'simulated' builds the SOAP envelope
 # but transmits nothing. Flip to 'preprod' (then 'production') ONLY after the
@@ -118,6 +120,7 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 PLAID_ENV = "sandbox"
 BANK_FEED_PROVIDERS = "US:plaid,stripe_fc;NL:ponto;BE:ponto;*:enable_banking"
 BANK_FEED_WEBHOOK_URL = "https://integration-webhooks-test.weldsuite.org/webhooks/bank-feeds"
+PLATFORM_URL = "https://app-test.weldsuite.org"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -161,6 +164,7 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 PLAID_ENV = "production"
 BANK_FEED_PROVIDERS = "US:plaid,stripe_fc;NL:ponto;BE:ponto;*:enable_banking"
 BANK_FEED_WEBHOOK_URL = "https://integration-webhooks.weldsuite.org/webhooks/bank-feeds"
+PLATFORM_URL = "https://app.weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
