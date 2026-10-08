@@ -17,6 +17,7 @@ import { CRUD_ENTITIES, READ_ONLY_SEGMENTS } from './entities';
 import { buildCreateBody } from './factory';
 import type { Database } from '../db';
 import { schema } from '../db';
+import { listWithCursor } from '../lib/list-helpers';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -306,5 +307,167 @@ describe('external-api · accounting contacts stay writable, as a name and a rol
     expect(row?.currency).toBeNull();
     expect(row?.partyCode).toBeNull();
     expect(row?.billingAddress).toBeNull();
+  });
+});
+
+describe('external-api · ciphertext columns never leave the worker', () => {
+  const now = new Date();
+  const entityId = 'ent_ct_001';
+  const bankAccountId = 'bka_ct_001';
+  const partyId = 'pty_ct_001';
+
+  // Distinct, greppable markers: if any of these shows up in a response or an
+  // event, a ciphertext column was selected and serialised.
+  const SSN_BLOB = 'ct-ssn-blob-3f9a';
+  const CREDS_BLOB = 'ct-sales-tax-creds-blob-71bc';
+  const ACCOUNT_BLOB = 'ct-account-number-blob-b02e';
+  const PARTY_BLOB = 'ct-party-tin-blob-9d44';
+  const MARKERS = [SSN_BLOB, CREDS_BLOB, ACCOUNT_BLOB, PARTY_BLOB];
+  const COLUMN_NAMES = ['ssnEncrypted', 'salesTaxCredentialsEncrypted', 'accountNumberEncrypted', 'sensitiveEncrypted'];
+
+  beforeAll(async () => {
+    await db.insert(schema.entities).values({
+      id: entityId,
+      name: 'Ciphertext LLC',
+      jurisdictionCode: 'US',
+      baseCurrency: 'USD',
+      locale: 'en-US',
+      isActive: true,
+      ssnEncrypted: SSN_BLOB,
+      ssnLast4: '1234',
+      salesTaxCredentialsEncrypted: CREDS_BLOB,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.bankAccounts).values({
+      id: bankAccountId,
+      entityId,
+      name: 'Operating',
+      accountNumberEncrypted: ACCOUNT_BLOB,
+      accountNumberLast4: '6789',
+      routingNumber: '021000021',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.parties).values({
+      id: partyId,
+      displayName: 'Vendor With A TIN',
+      role: 'supplier',
+      tinType: 'ein',
+      tinLast4: '4321',
+      sensitiveEncrypted: PARTY_BLOB,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }, 30_000);
+
+  const request = (scopes: string[]) => createExternalTestApp({ scopes, tenantDb: db }).request;
+
+  function expectNoCiphertext(text: string, context: string) {
+    for (const marker of MARKERS) expect(text, `${context}: ${marker}`).not.toContain(marker);
+    for (const column of COLUMN_NAMES) expect(text, `${context}: ${column}`).not.toContain(column);
+  }
+
+  it('GET /v1/accounting-entities leaves out the SSN and the sales tax credentials', async () => {
+    const list = await request(['accounting_entities:read'])('/v1/accounting-entities');
+    expect(list.status).toBe(200);
+    const listText = await list.text();
+    expectNoCiphertext(listText, 'list');
+    const row = (JSON.parse(listText) as { data: Array<Record<string, unknown>> }).data.find((e) => e.id === entityId);
+    expect(row, 'the seeded entity is listed').toBeDefined();
+    expect(row!.ssnLast4).toBe('1234');
+
+    const one = await request(['accounting_entities:read'])(`/v1/accounting-entities/${entityId}`);
+    expect(one.status).toBe(200);
+    const oneText = await one.text();
+    expectNoCiphertext(oneText, 'get');
+    expect((JSON.parse(oneText) as { data: Record<string, unknown> }).data.ssnLast4).toBe('1234');
+  });
+
+  it('GET /v1/bank-accounts leaves out the account number blob and keeps the last four', async () => {
+    const list = await request(['bank_accounts:read'])(`/v1/bank-accounts?entityId=${entityId}`);
+    expect(list.status).toBe(200);
+    const listText = await list.text();
+    expectNoCiphertext(listText, 'list');
+    const [row] = (JSON.parse(listText) as { data: Array<Record<string, unknown>> }).data;
+    expect(row!.id).toBe(bankAccountId);
+    expect(row!.accountNumberLast4).toBe('6789');
+
+    const one = await request(['bank_accounts:read'])(`/v1/bank-accounts/${bankAccountId}`);
+    expect(one.status).toBe(200);
+    const oneText = await one.text();
+    expectNoCiphertext(oneText, 'get');
+    expect((JSON.parse(oneText) as { data: Record<string, unknown> }).data.accountNumberLast4).toBe('6789');
+  });
+
+  it('accounting contacts never return the party ciphertext, on read or write, and a write leaves it stored', async () => {
+    const scopes = ['accounting_contacts:read', 'accounting_contacts:write'];
+
+    const list = await request(scopes)('/v1/accounting-contacts');
+    expect(list.status).toBe(200);
+    const listText = await list.text();
+    expectNoCiphertext(listText, 'list');
+    const row = (JSON.parse(listText) as { data: Array<Record<string, unknown>> }).data.find((p) => p.id === partyId);
+    expect(row, 'the seeded party is listed').toBeDefined();
+    expect(row!.tinLast4).toBe('4321');
+
+    const one = await request(scopes)(`/v1/accounting-contacts/${partyId}`);
+    expect(one.status).toBe(200);
+    expectNoCiphertext(await one.text(), 'get');
+
+    const patched = await request(scopes)(`/v1/accounting-contacts/${partyId}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ name: 'Vendor With A TIN, Renamed' }),
+    });
+    expect(patched.status).toBe(200);
+    expectNoCiphertext(await patched.text(), 'patch');
+
+    const created = await request(scopes)('/v1/accounting-contacts', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ name: 'Brand New Vendor', type: 'supplier' }),
+    });
+    expect(created.status).toBe(201);
+    expectNoCiphertext(await created.text(), 'create');
+
+    // Never reading the column must not mean clearing it.
+    const [stored] = await db.select().from(schema.parties).where(eq(schema.parties.id, partyId));
+    expect(stored?.sensitiveEncrypted).toBe(PARTY_BLOB);
+    expect(stored?.displayName).toBe('Vendor With A TIN, Renamed');
+  });
+
+  it('accounting contact events do not carry the party ciphertext either', async () => {
+    const sent: unknown[] = [];
+    const { app, env } = createExternalTestApp({
+      scopes: ['accounting_contacts:write'],
+      tenantDb: db,
+      env: { ENTITY_EVENTS: { send: async (message: unknown) => void sent.push(message) } as never },
+    });
+    const pending: Promise<unknown>[] = [];
+    const executionCtx = {
+      waitUntil: (p: Promise<unknown>) => void pending.push(p),
+      passThroughOnException: () => undefined,
+    };
+
+    const res = await app.request(
+      `/v1/accounting-contacts/${partyId}`,
+      { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ name: 'Renamed Again' }) },
+      env as never,
+      executionCtx as never,
+    );
+    expect(res.status).toBe(200);
+    await Promise.all(pending);
+
+    expect(sent).toHaveLength(1);
+    expectNoCiphertext(JSON.stringify(sent), 'entity event');
+  });
+
+  it('the generic list helper drops ciphertext columns even when a route does not ask', async () => {
+    const result = await listWithCursor({ db, table: schema.parties });
+    const rows = result.data as Array<Record<string, unknown>>;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect('sensitiveEncrypted' in row).toBe(false);
+    expect(rows.some((r) => r.id === partyId)).toBe(true);
   });
 });

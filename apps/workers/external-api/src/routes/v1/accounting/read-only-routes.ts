@@ -19,12 +19,17 @@
  *   books-api (OCR, vendor match, link, reject) and the public API has no
  *   upload path for the file a row points at.
  *
+ * Accounting entities and bank accounts hold ciphertext (an owner's SSN, the
+ * customer's sales tax engine credentials, the full account number). Those
+ * columns are left out of the SELECT, so only the last four digits go out.
+ *
  * Accounting settings are read-only too (`../accounting-settings`). Accounting
  * contacts are the only WeldBooks resource that stays writable
  * (`../accounting-contacts`): they live on `parties`, the counterparty table
  * shared with the CRM, and the public API only writes their name and role.
  */
 
+import { sensitiveColumnsOf } from '@weldsuite/db/lib/sensitive-columns';
 import { createReadOnlyRoute } from './read-only-route';
 import { schema } from '../../../db';
 
@@ -33,6 +38,7 @@ export const accountingEntities = createReadOnlyRoute({
   scope: 'accounting_entities',
   label: 'Accounting entity',
   noun: 'accounting entities',
+  omit: sensitiveColumnsOf('entities'),
 });
 
 export const glAccounts = createReadOnlyRoute({
@@ -75,6 +81,7 @@ export const bankAccounts = createReadOnlyRoute({
   scope: 'bank_accounts',
   label: 'Bank account',
   noun: 'bank accounts',
+  omit: sensitiveColumnsOf('bank_accounts'),
 });
 
 export const bankTransactions = createReadOnlyRoute({

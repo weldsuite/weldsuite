@@ -41,6 +41,7 @@ import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { decryptField, encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
+import { ALL_SENSITIVE_KEYS } from '@weldsuite/db/lib/sensitive-columns';
 import { getAdapter, hasAdapter, listJurisdictions } from '@weldsuite/books-domain/jurisdictions/registry';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
@@ -314,7 +315,7 @@ function serializeEntity<T extends { ssnEncrypted?: string | null; salesTaxCrede
   };
 }
 
-/** Audit-log view of a changed column: tax IDs masked, the encrypted SSN left out. */
+/** Audit-log view of a changed column: tax IDs masked, ciphertext columns left out (see `auditChanges`). */
 function auditValue(column: string, value: unknown): unknown {
   if (column === 'taxIdentifiers' && value && typeof value === 'object') {
     const ids = value as TaxIdentifiers;
@@ -326,7 +327,7 @@ function auditValue(column: string, value: unknown): unknown {
 function auditChanges(patch: Record<string, unknown>, before: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(patch)
-      .filter(([k, v]) => k !== 'updatedAt' && k !== 'ssnEncrypted' && v !== undefined)
+      .filter(([k, v]) => k !== 'updatedAt' && !ALL_SENSITIVE_KEYS.has(k) && v !== undefined)
       .map(([k, v]) => [k, { old: auditValue(k, before[k]), new: auditValue(k, v) }]),
   );
 }
