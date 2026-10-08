@@ -343,6 +343,93 @@ describe('http_request with integration auth (pglite)', () => {
     expect(mock).not.toHaveBeenCalled();
   });
 
+  describe('redirects while carrying the integration token', () => {
+    const redirect = (status: number, location: string) =>
+      new Response(null, { status, headers: { location } });
+    const authOf = (call: { init?: RequestInit }) => new Headers(call.init?.headers).get('authorization');
+
+    it('follows a same-host redirect by hand and keeps the token', async () => {
+      const { calls } = stubFetch((url) =>
+        url.endsWith('/old')
+          ? redirect(302, '/new')
+          : new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+      );
+      const res = (await handleHttpRequest(
+        { url: 'https://api.github.com/old', integrationType: 'github' },
+        makeActionContext({ db }),
+      )) as { status: number };
+      expect(res.status).toBe(200);
+      expect(calls.map((c) => c.url)).toEqual(['https://api.github.com/old', 'https://api.github.com/new']);
+      expect(calls.every((c) => (c.init as RequestInit).redirect === 'manual')).toBe(true);
+      expect(calls.map(authOf)).toEqual(['Bearer tok123', 'Bearer tok123']);
+    });
+
+    it('fails a cross-host redirect without calling the second host', async () => {
+      const { calls } = stubFetch(() => redirect(302, 'https://evil.example.com/collect'));
+      const err = (await handleHttpRequest(
+        { url: 'https://api.github.com/old', integrationType: 'github' },
+        makeActionContext({ db }),
+      ).catch((e) => e)) as Error;
+      expect(err).toBeInstanceOf(NonRetryableStepError);
+      expect(err.message).toBe(
+        'api.github.com redirected to evil.example.com, which is not the github API host; the integration token was not sent',
+      );
+      expect(calls).toHaveLength(1);
+    });
+
+    it('refuses a redirect to an internal target', async () => {
+      const { calls } = stubFetch(() => redirect(307, 'http://169.254.169.254/latest/meta-data'));
+      await expect(
+        handleHttpRequest({ url: 'https://api.github.com/old', integrationType: 'github' }, makeActionContext({ db })),
+      ).rejects.toThrow(NonRetryableStepError);
+      expect(calls).toHaveLength(1);
+    });
+
+    it('gives up after 5 redirects', async () => {
+      const { calls } = stubFetch((url) => redirect(302, `${url}x`));
+      const err = (await handleHttpRequest(
+        { url: 'https://api.github.com/r', integrationType: 'github' },
+        makeActionContext({ db }),
+      ).catch((e) => e)) as Error;
+      expect(err).toBeInstanceOf(NonRetryableStepError);
+      expect(err.message).toMatch(/Too many redirects/);
+      expect(calls).toHaveLength(6);
+    });
+
+    it('turns a POST into a body-less GET on 303 and keeps method and body on 307', async () => {
+      const seen = stubFetch((url) =>
+        url.endsWith('/a') ? redirect(303, '/b') : new Response('{}', { status: 200 }),
+      );
+      await handleHttpRequest(
+        { url: 'https://api.github.com/a', method: 'POST', body: { x: 1 }, integrationType: 'github' },
+        makeActionContext({ db }),
+      );
+      expect(seen.calls[1].init?.method).toBe('GET');
+      expect(seen.calls[1].init?.body).toBeUndefined();
+      expect(authOf(seen.calls[1])).toBe('Bearer tok123');
+
+      const kept = stubFetch((url) =>
+        url.endsWith('/a') ? redirect(307, '/b') : new Response('{}', { status: 200 }),
+      );
+      await handleHttpRequest(
+        { url: 'https://api.github.com/a', method: 'POST', body: { x: 1 }, integrationType: 'github' },
+        makeActionContext({ db }),
+      );
+      expect(kept.calls[1].init?.method).toBe('POST');
+      expect(kept.calls[1].init?.body).toBe(JSON.stringify({ x: 1 }));
+    });
+
+    it('leaves redirects to fetch when no integration token is attached', async () => {
+      const { calls } = stubFetch(() => new Response('{}', { status: 200 }));
+      await handleHttpRequest({ url: 'https://api.test/x' }, makeActionContext());
+      await handleHttpRequest(
+        { url: 'https://api.test/x', integrationType: 'github', headers: { Authorization: 'Bearer mine' } },
+        makeActionContext({ db }),
+      );
+      expect(calls.every((c) => (c.init as RequestInit).redirect === undefined)).toBe(true);
+    });
+  });
+
   it('lets an explicit Authorization header win over the integration', async () => {
     const { calls } = stubFetch(() => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }));
     await handleHttpRequest(

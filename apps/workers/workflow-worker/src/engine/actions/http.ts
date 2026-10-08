@@ -69,24 +69,25 @@ function isIntegrationApiHost(integrationType: string, host: string): boolean {
  * Merge integration-derived auth into the caller's headers (explicit wins).
  * The integration's token is only attached when the target host is the
  * provider's own API host; anywhere else the step fails rather than silently
- * dropping the credential (or leaking it).
+ * dropping the credential (or leaking it). `integrationType` is set only when
+ * a token was attached, so the caller knows redirects must be guarded.
  */
 async function withIntegrationAuth(
   inputs: Record<string, unknown>,
   ctx: ActionContext,
   headers: Record<string, string>,
   url: URL,
-): Promise<Record<string, string>> {
+): Promise<{ headers: Record<string, string>; integrationType?: string }> {
   const integrationId = inputs.integrationId ? asText(inputs.integrationId) : undefined;
   const integrationType = inputs.integrationType ? asText(inputs.integrationType) : undefined;
-  if (!integrationId && !integrationType) return headers;
+  if (!integrationId && !integrationType) return { headers };
 
   const hasExplicitAuth = Object.keys(headers).some((k) => k.toLowerCase() === 'authorization');
-  if (hasExplicitAuth) return headers;
+  if (hasExplicitAuth) return { headers };
 
   const integ = await resolveIntegration(ctx.db, { integrationId, type: integrationType });
   const token = integrationBearerToken(integ);
-  if (!token) return headers;
+  if (!token) return { headers };
 
   const host = normalizeHost(url.hostname);
   if (!isIntegrationApiHost(integ.type, host)) {
@@ -95,7 +96,7 @@ async function withIntegrationAuth(
         'Remove the integration from this step to call another server, or set the Authorization header yourself.',
     );
   }
-  return { ...headers, Authorization: `Bearer ${token}` };
+  return { headers: { ...headers, Authorization: `Bearer ${token}` }, integrationType: integ.type };
 }
 
 /** IPv4 ranges that never leave the host's own network (RFC 1918 + loopback + link-local + CGNAT). */
@@ -271,28 +272,91 @@ function assertHostReachable(response: Response, responseText: string, host: str
   });
 }
 
+/** Most redirects followed by hand for a request that carries an integration token. */
+const MAX_INTEGRATION_REDIRECTS = 5;
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * The request for the next hop of a redirect, matching fetch semantics: a 303
+ * (and a 301/302 after a POST) becomes a body-less GET; 307/308 repeat the
+ * request as it was.
+ */
+function nextRedirectInit(init: RequestInit, status: number): RequestInit {
+  const method = (init.method ?? 'GET').toUpperCase();
+  const toGet =
+    status === 303 ? method !== 'GET' && method !== 'HEAD' : (status === 301 || status === 302) && method === 'POST';
+  if (!toGet) return init;
+  const headers = Object.fromEntries(
+    Object.entries((init.headers ?? {}) as Record<string, string>).filter(
+      ([key]) => key.toLowerCase() !== 'content-type',
+    ),
+  );
+  return { ...init, method: 'GET', body: undefined, headers };
+}
+
 /**
  * `fetch` + capped body read under one timeout. A timeout stays retryable (a
  * slow upstream may answer on a later attempt); a thrown network error (DNS
  * failure, connection refused, TLS) will not fix itself and is not.
+ *
+ * With `integrationType` set the request carries that integration's token, so
+ * redirects are followed here rather than by `fetch`: every hop goes through
+ * the same target checks and keeps the token only while it stays on the
+ * provider's own API host (otherwise the step fails before the second host is
+ * called). Without it, `fetch` follows redirects as usual.
  */
 async function fetchWithTimeout(
   url: URL,
   init: RequestInit,
   timeoutMs: number,
-): Promise<{ response: Response; text: string }> {
+  integrationType?: string,
+): Promise<{ response: Response; text: string; url: URL }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let current = url;
   try {
-    const response = await fetch(url.toString(), { ...init, signal: controller.signal });
-    const { text } = await readCappedBody(response);
-    return { response, text };
+    let requestInit = init;
+    for (let hops = 0; ; hops++) {
+      const response = await fetch(current.toString(), {
+        ...requestInit,
+        signal: controller.signal,
+        ...(integrationType ? { redirect: 'manual' as const } : {}),
+      });
+      const location = response.headers.get('location');
+      if (!integrationType || !REDIRECT_STATUSES.has(response.status) || !location) {
+        const { text } = await readCappedBody(response);
+        return { response, text, url: current };
+      }
+
+      await response.body?.cancel().catch(() => undefined);
+      if (hops >= MAX_INTEGRATION_REDIRECTS) {
+        throw new NonRetryableStepError(
+          `Too many redirects (more than ${MAX_INTEGRATION_REDIRECTS}) calling ${url.hostname}`,
+        );
+      }
+      let target: string;
+      try {
+        target = new URL(location, current).toString();
+      } catch {
+        throw new NonRetryableStepError(`${current.hostname} redirected to an invalid URL`);
+      }
+      const next = parseRequestUrl(target);
+      if (!isIntegrationApiHost(integrationType, normalizeHost(next.hostname))) {
+        throw new NonRetryableStepError(
+          `${current.hostname} redirected to ${next.hostname}, which is not the ${integrationType} API host; the integration token was not sent`,
+        );
+      }
+      requestInit = nextRedirectInit(requestInit, response.status);
+      current = next;
+    }
   } catch (err) {
+    if (err instanceof NonRetryableStepError) throw err;
     if (err instanceof Error && err.name === 'AbortError') {
       throw new Error(`Request timed out after ${timeoutMs}ms`);
     }
     const reason = err instanceof Error && err.message ? err.message : String(err);
-    throw new NonRetryableStepError(`Could not connect to ${url.hostname}: ${reason}`);
+    throw new NonRetryableStepError(`Could not connect to ${current.hostname}: ${reason}`);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -312,9 +376,9 @@ export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
   const body = inputs.body;
   const timeout = resolveTimeout(inputs);
 
-  const headers = await withIntegrationAuth(inputs, ctx, baseHeaders, url);
+  const { headers, integrationType } = await withIntegrationAuth(inputs, ctx, baseHeaders, url);
 
-  const { response, text: responseText } = await fetchWithTimeout(
+  const { response, text: responseText, url: finalUrl } = await fetchWithTimeout(
     url,
     {
       method,
@@ -322,9 +386,10 @@ export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     },
     timeout,
+    integrationType,
   );
 
-  assertHostReachable(response, responseText, url.hostname);
+  assertHostReachable(response, responseText, finalUrl.hostname);
 
   const parsedBody = parseResponseBody(responseText, response.headers.get('content-type'));
   const responseHeaders = safeResponseHeaders(response);
@@ -361,9 +426,9 @@ export const handleWebhook: ActionHandler = async (inputs, ctx) => {
   const body = inputs.body || inputs.payload || inputs.data;
   const timeout = resolveTimeout(inputs);
 
-  const headers = await withIntegrationAuth(inputs, ctx, baseHeaders, url);
+  const { headers, integrationType } = await withIntegrationAuth(inputs, ctx, baseHeaders, url);
 
-  const { response, text: responseText } = await fetchWithTimeout(
+  const { response, text: responseText, url: finalUrl } = await fetchWithTimeout(
     url,
     {
       method,
@@ -371,9 +436,10 @@ export const handleWebhook: ActionHandler = async (inputs, ctx) => {
       body: body ? JSON.stringify(body) : undefined,
     },
     timeout,
+    integrationType,
   );
 
-  assertHostReachable(response, responseText, url.hostname);
+  assertHostReachable(response, responseText, finalUrl.hostname);
 
   let responseData: unknown;
   try {
