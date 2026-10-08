@@ -163,19 +163,21 @@ export async function createChannel(
     db,
     (input.memberIds ?? []).filter((m) => m !== creatorUserId),
   );
-  for (const memberId of explicitMemberIds) {
+  if (explicitMemberIds.length > 0) {
     await db
       .insert(chatChannelMembers)
-      .values({
-        id: generateId('cmb'),
-        channelId: id,
-        userId: memberId,
-        role: 'member',
-        joinedAt: now,
-        createdAt: now,
-      })
+      .values(
+        explicitMemberIds.map((memberId) => ({
+          id: generateId('cmb'),
+          channelId: id,
+          userId: memberId,
+          role: 'member',
+          joinedAt: now,
+          createdAt: now,
+        })),
+      )
       .onConflictDoNothing();
-    addedMemberIds.add(memberId);
+    for (const memberId of explicitMemberIds) addedMemberIds.add(memberId);
   }
 
   // 3. Public channels are workspace-wide.
