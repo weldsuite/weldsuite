@@ -717,23 +717,30 @@ export function MessageInput({
     setUploadingCount((n) => n + list.length);
     try {
       const client = await getClient();
-      for (const file of list) {
+      // `list` is capped at MAX_MESSAGE_ATTACHMENTS, so upload in parallel and
+      // append the results in the order the files were picked.
+      const uploadedAttachments = await Promise.all(list.map(async (file) => {
         try {
           const uploaded = await uploadChatFile(client, file, channelId);
-          setAttachments((prev) => [...prev, {
+          return {
             id: uploaded.id,
             fileName: file.name,
             fileSize: file.size,
             mimeType: uploaded.mimeType,
             url: uploaded.url,
-          }]);
+          };
         } catch (err) {
           console.error('File upload failed:', err);
           toast.error(t.weldchat.messageInput.uploadFailed.replace('{fileName}', file.name));
+          return null;
         } finally {
           setUploadingCount((n) => n - 1);
         }
-      }
+      }));
+      setAttachments((prev) => [
+        ...prev,
+        ...uploadedAttachments.filter((a): a is NonNullable<typeof a> => a !== null),
+      ]);
     } catch (err) {
       // getClient() failed before any file started — release them all.
       console.error('File upload failed:', err);

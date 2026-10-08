@@ -69,9 +69,9 @@ export function ProductPanel(props: Readonly<ObjectPanelComponentProps>) {
   /** One call per category — the junction is written from the category side. */
   const handleAttach = async (categoryIds: string[]) => {
     try {
-      for (const categoryId of categoryIds) {
-        await attach.mutateAsync({ categoryId, productIds: [id] });
-      }
+      await Promise.all(
+        categoryIds.map((categoryId) => attach.mutateAsync({ categoryId, productIds: [id] })),
+      );
       toast.success(t.linking.categoriesAdded.replace('{count}', String(categoryIds.length)));
     } catch (err) {
       toast.error((err as Error).message || t.common.saveFailed);

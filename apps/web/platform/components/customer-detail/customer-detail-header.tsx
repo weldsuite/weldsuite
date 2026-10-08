@@ -1456,23 +1456,23 @@ function ShareDialog({
   // directly. Workspace people without an existing DM get one created on the
   // fly via `useCreateDm`.
   const resolveChannelIds = async (): Promise<string[]> => {
-    const ids: string[] = [];
-    for (const target of selectedList) {
-      if (target.kind === 'user' && target.id.startsWith('user:')) {
+    const resolved = await Promise.all(
+      selectedList.map(async (target): Promise<string | undefined> => {
+        if (target.kind !== 'user' || !target.id.startsWith('user:')) {
+          // channel / private / group / existing 1:1 DM channel
+          return target.rawId;
+        }
         try {
           const dm = await createDm({ userIds: [target.rawId] });
           const dmResult = dm as { data?: { id?: string }; id?: string } | undefined;
-          const dmId = dmResult?.data?.id || dmResult?.id;
-          if (dmId) ids.push(dmId);
+          return dmResult?.data?.id || dmResult?.id;
         } catch {
           toast.error(st('sweep.weldcrm.customerDetailHeader.couldNotOpenDm', { name: target.name }));
+          return undefined;
         }
-      } else {
-        // channel / private / group / existing 1:1 DM channel
-        ids.push(target.rawId);
-      }
-    }
-    return ids;
+      }),
+    );
+    return resolved.filter((id): id is string => !!id);
   };
 
   const handleShare = async () => {
