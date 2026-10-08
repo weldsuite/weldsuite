@@ -234,7 +234,10 @@ describe('ACH details', () => {
     expect(res.text).not.toContain('sensitiveEncrypted');
 
     const [row] = await db.select().from(schema.parties).where(eq(schema.parties.id, id));
-    expect(row!.sensitiveEncrypted).not.toContain('6789');
+    expect(row!.sensitiveEncrypted).toBeTruthy();
+    // Assert on the full number, not the last 4: the ciphertext is random hex,
+    // so it contains any given 4 digits (e.g. '6789') now and then by chance.
+    expect(row!.sensitiveEncrypted).not.toContain('000123456789');
     for (const event of events) expect(JSON.stringify(event)).not.toContain('000123456789');
     for (const event of events.filter((e) => e.entityId === id)) expect(event.data).not.toHaveProperty('achRoutingNumber');
   });
