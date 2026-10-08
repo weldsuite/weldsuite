@@ -82,6 +82,18 @@ export default function NewMeetingPage() {
     setScheduleSeed(null);
   };
 
+  // Keyboard users dismiss the schedule card (and its click-away backdrop) with Escape.
+  useEffect(() => {
+    if (!scheduleOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      setScheduleOpen(false);
+      setScheduleSeed(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [scheduleOpen]);
+
   // Guests of the copied meeting: its invitees, without the organizer and without you.
   const scheduleDefaultGuests = scheduleSeed
     ? (scheduleSeed.attendees ?? [])
@@ -403,7 +415,7 @@ export default function NewMeetingPage() {
         <>
           <div
             className="fixed inset-0 z-[60]"
-            role="presentation"
+            aria-hidden="true"
             onClick={closeSchedule}
           />
           <SchedulePopover anchorRef={newMeetingRef}>

@@ -117,6 +117,14 @@ export function MemberSelect({
             role="button"
             tabIndex={0}
             aria-disabled={disabled || isError || undefined}
+            onKeyDown={(e) => {
+              // A div trigger does not turn Enter/Space into a click on its own.
+              if (e.target !== e.currentTarget) return;
+              if (e.key !== 'Enter' && e.key !== ' ') return;
+              e.preventDefault();
+              if (disabled || isError) return;
+              e.currentTarget.click();
+            }}
             className={cn(
               'text-sm cursor-pointer flex items-center justify-between gap-2 h-8 outline-none focus-visible:ring-2 focus-visible:ring-ring w-full group/field px-2',
               (disabled || isError) && 'pointer-events-none opacity-60',
