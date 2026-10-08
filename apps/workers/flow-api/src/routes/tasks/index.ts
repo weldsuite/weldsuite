@@ -38,7 +38,9 @@ import {
   cancelCalendarEvent,
   confirmCalendarEvent,
   fetchTaskScheduledSlots,
+  nextAutoScheduledReplanAt,
 } from '@weldsuite/db/lib/calendar-sync';
+import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { createTaskSchema, updateTaskSchema, moveTaskSchema } from '@weldsuite/app-api-client/schemas/tasks';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
@@ -669,9 +671,20 @@ function cancelCalendarInBackground(c: TaskCtx, db: TaskDb, calendarEventId: str
 
 function confirmCalendarInBackground(c: TaskCtx, db: TaskDb, calendarEventId: string): void {
   c.executionCtx.waitUntil(
-    confirmCalendarEvent(db, calendarEventId).catch((err) =>
-      console.error('[app-api/tasks] calendar confirm failed:', err),
-    ),
+    confirmCalendarEvent(db, calendarEventId)
+      .then(() => syncReplanDue(c, db))
+      .catch((err) => console.error('[app-api/tasks] calendar confirm failed:', err)),
+  );
+}
+
+/**
+ * Point calendar-api's nightly re-plan at this workspace's next auto-scheduled
+ * event (D1 due index), so the sweep never opens idle tenants to look.
+ * Call after any write that places or re-places an auto-scheduled event.
+ */
+function syncReplanDue(c: TaskCtx, db: TaskDb): Promise<void> {
+  return syncWorkspaceDue(c.env.SCHEDULE_INDEX, 'calendar_replan', c.get('workspaceId'), () =>
+    nextAutoScheduledReplanAt(db),
   );
 }
 
@@ -1057,6 +1070,7 @@ function syncCalendarAfterUpdate(
         priority: (data.priority as string | null) ?? existing.priority,
       })
         .then((eventId) => db.update(t).set({ calendarEventId: eventId }).where(eq(t.id, id)))
+        .then(() => syncReplanDue(c, db))
         .catch((err) => console.error('[app-api/tasks] calendar event creation failed:', err)),
     );
     return;
@@ -1068,6 +1082,7 @@ function syncCalendarAfterUpdate(
         .then((newEventId) =>
           db.update(t).set({ calendarEventId: newEventId }).where(eq(t.id, id)),
         )
+        .then(() => syncReplanDue(c, db))
         .catch((err) => console.error(`[app-api/tasks] ${failureLabel} failed:`, err)),
     );
 
@@ -1587,6 +1602,7 @@ app.post(
         });
         if (eventId) {
           await db.update(t).set({ calendarEventId: eventId }).where(eq(t.id, row.id));
+          await syncReplanDue(c, db);
         }
       } catch (calErr) {
         console.error('[app-api/tasks] calendar auto-schedule failed:', calErr);
@@ -1900,6 +1916,7 @@ app.post('/', requirePermission('tasks:create'), zValidator('json', createTaskSc
       });
       if (eventId) {
         await db.update(t).set({ calendarEventId: eventId }).where(eq(t.id, row.id));
+        await syncReplanDue(c, db);
       }
     } catch (calErr) {
       console.error('[app-api/tasks] calendar auto-schedule failed:', calErr);

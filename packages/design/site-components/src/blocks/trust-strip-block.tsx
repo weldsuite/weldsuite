@@ -28,7 +28,6 @@ export interface TrustStripBlockProps {
   alignment?: 'left' | 'center' | 'right';
   itemGap?: number;
   showDescriptions?: boolean;
-  mode?: 'live' | 'preview' | 'edit';
 }
 
 const DEFAULT_ITEMS: TrustItem[] = [

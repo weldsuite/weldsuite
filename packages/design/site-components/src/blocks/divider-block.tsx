@@ -8,7 +8,6 @@ interface DividerBlockProps {
   color?: string;
   width?: number;
   alignment?: 'left' | 'center' | 'right';
-  mode?: string;
 }
 
 export function DividerBlock({

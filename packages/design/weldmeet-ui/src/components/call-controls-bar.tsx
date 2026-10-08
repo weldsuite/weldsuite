@@ -20,7 +20,6 @@ import {
   type PermissionHelpLabels,
   type PermissionKind,
 } from './permission-help';
-import type { VirtualBackgroundType } from '../hooks/use-virtual-background';
 import { refreshSpeakerDevices, useSpeakerDevices } from '../hooks/use-speaker-output';
 
 // ─── Tooltip ─────────────────────────────────────────────────────────────────
@@ -127,7 +126,6 @@ export interface CallControlsBarProps {
   // Background effects (optional)
   onToggleEffects?: () => void;
   effectsOpen?: boolean;
-  backgroundType?: VirtualBackgroundType;
 
   // Recording (optional — weldmeet organizer only)
   isRecording?: boolean;

@@ -7,13 +7,6 @@ export type EntitySheetView = 'default' | 'full';
 export interface EntitySheetShellProps {
   title: string;
   subtitle?: string;
-  /**
-   * Page route for this entity. Kept on the props so callers can surface it
-   * elsewhere (e.g. inline "View on full page" links in the body). The shell
-   * itself does not render a navigation button — the in-place expand toggle
-   * covers the "go big" UX.
-   */
-  openHref?: string;
   view: EntitySheetView;
   onClose: () => void;
   onToggleView: () => void;

@@ -487,7 +487,6 @@ export function GuestMeetingRoom({
 
   const { openPiP, pipNode } = useGuestPiP({
     focused: pipFocused,
-    meetingTitle,
     isMuted,
     isVideoOff,
     onToggleMute: handleToggleMute,

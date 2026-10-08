@@ -15,6 +15,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { createSchedule } from '../../services/workflow-schedules';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.workflowTriggers;
@@ -40,7 +41,7 @@ const updateTriggerSchema = z.object({
 app.get('/', requirePermission('workflows:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = parseLimit(q.limit, 25, 100);
 
   const filterConditions: any[] = [isNull(t.deletedAt)];
   if (q.workflowId) filterConditions.push(eq(t.workflowId, q.workflowId));

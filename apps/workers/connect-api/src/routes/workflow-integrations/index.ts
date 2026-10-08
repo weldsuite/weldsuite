@@ -27,6 +27,7 @@ import {
   getGoogleSpreadsheet,
   listGoogleCalendars,
 } from '../../services/workflow-integrations/google';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const wi = schema.workflowIntegrations;
@@ -68,7 +69,7 @@ function stripCredentials(row: Integration) {
 app.get('/', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = parseLimit(q.limit, 25, 100);
 
   const filterConditions: any[] = [isNull(wi.deletedAt)];
   if (q.search) filterConditions.push(like(wi.name, `%${q.search}%`));

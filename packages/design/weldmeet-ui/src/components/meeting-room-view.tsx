@@ -96,7 +96,6 @@ function ScreenTile({
     <ScreenShareTile
       participant={p}
       isSelf={isSelf}
-      meeting={ctx.meeting}
       focused={focused}
       onClick={interactive ? () => ctx.onTogglePin(`${p.id}-screen`) : undefined}
     />
@@ -620,7 +619,6 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
     recordingLabels,
     onToggleEffects,
     effectsOpen,
-    backgroundType,
     backgroundEffectsSlot,
     chatPanelSlot,
     showChatButton: showChatButtonProp,
@@ -835,7 +833,6 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
           showInfoButton={showInfoButton}
           showPeopleButton={showPeopleButton}
           showChatButton={showChatButton}
-          showHostControlsButton={showHostControlsButton}
           showToolsButton={showToolsButton}
         />
 
@@ -889,7 +886,6 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
           leaveLabels={leaveLabels}
           onToggleEffects={onToggleEffects}
           effectsOpen={effectsOpen}
-          backgroundType={backgroundType}
           isRecording={isRecording}
           recordingState={recordingState}
           {...controlBarRecording}
@@ -915,7 +911,6 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
         scheduledStart={scheduledStart}
         participants={participants}
         meeting={meeting}
-        skipTransition={skipTransition}
         peoplePanelSlot={peoplePanelSlot}
         hostControlsSlot={hostControlsSlot}
         onClickParticipantDetails={onClickParticipantDetails}

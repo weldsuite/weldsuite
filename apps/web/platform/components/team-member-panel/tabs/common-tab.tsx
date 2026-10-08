@@ -88,11 +88,10 @@ export function CommonTab({ userId, isSelf }: Readonly<CommonTabProps>) {
 
   return (
     <div className="p-4 space-y-6">
-      <Section title={t('sweep.shared.channelsAndDms')} tone="blue" count={data.channels.length}>
+      <Section title={t('sweep.shared.channelsAndDms')} count={data.channels.length}>
         {data.channels.map((c) => (
           <Row
             key={c.id}
-            tone="blue"
             to={`/weldchat/c/${c.id}`}
             label={c.type === 'dm' ? c.name : `# ${c.name}`}
             hint={t(c.memberCount === 1 ? 'sweep.shared.memberCountOne' : 'sweep.shared.memberCountOther', { count: c.memberCount })}
@@ -101,11 +100,10 @@ export function CommonTab({ userId, isSelf }: Readonly<CommonTabProps>) {
         ))}
       </Section>
 
-      <Section title={t('sweep.shared.projects')} tone="indigo" count={data.projects.length}>
+      <Section title={t('sweep.shared.projects')} count={data.projects.length}>
         {data.projects.map((p) => (
           <Row
             key={p.id}
-            tone="indigo"
             to={`/projects/${p.id}`}
             label={p.name}
             hint={p.status ?? undefined}
@@ -114,11 +112,10 @@ export function CommonTab({ userId, isSelf }: Readonly<CommonTabProps>) {
         ))}
       </Section>
 
-      <Section title={t('sweep.shared.tasks')} tone="amber" count={data.tasks.length}>
+      <Section title={t('sweep.shared.tasks')} count={data.tasks.length}>
         {data.tasks.map((task) => (
           <Row
             key={task.id}
-            tone="amber"
             to={task.projectId ? `/projects/${task.projectId}/tasks/${task.id}` : `/task/${task.id}`}
             label={task.title}
             hint={task.role === 'delegated' ? `${task.status} · ${t('sweep.shared.delegated')}` : task.status}
@@ -127,11 +124,10 @@ export function CommonTab({ userId, isSelf }: Readonly<CommonTabProps>) {
         ))}
       </Section>
 
-      <Section title={t('sweep.shared.crm')} tone="emerald" count={crmRecords.length}>
+      <Section title={t('sweep.shared.crm')} count={crmRecords.length}>
         {crmRecords.map((r) => (
           <Row
             key={r.id}
-            tone="emerald"
             onSelect={() => openEntitySheet('opportunity', r.id)}
             label={r.name}
             hint={r.status ?? r.kind}
@@ -140,11 +136,10 @@ export function CommonTab({ userId, isSelf }: Readonly<CommonTabProps>) {
         ))}
       </Section>
 
-      <Section title={t('sweep.shared.helpdesk')} tone="rose" count={data.helpdesk.length}>
+      <Section title={t('sweep.shared.helpdesk')} count={data.helpdesk.length}>
         {data.helpdesk.map((h) => (
           <Row
             key={h.id}
-            tone="rose"
             to={`/welddesk/conversations/${h.id}`}
             label={h.subject}
             hint={h.status}
@@ -166,7 +161,6 @@ function Section({
 }: Readonly<{
   title: string;
   count: number;
-  tone: Tone;
   children: React.ReactNode;
 }>) {
   if (count === 0) return null;
@@ -202,7 +196,6 @@ function Row({
   onSelect?: () => void;
   label: string;
   hint?: string;
-  tone?: Tone;
   /** Optional leading visual (avatar, icon). */
   leading?: React.ReactNode;
 }>) {

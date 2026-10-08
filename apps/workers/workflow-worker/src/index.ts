@@ -145,7 +145,7 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
     const executionId = await step.do('create-execution', async () => {
       const db = await getTenantDbForWorkspace(this.env, params.workspaceId);
       const execId = params.executionId ?? generateId('wex');
-      await startExecutionRow(db, {
+      const mayRun = await startExecutionRow(db, {
         id: execId,
         workflowId: params.workflowId,
         workflowVersion: version,
@@ -158,6 +158,8 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
         cfWorkflowInstanceId: event.instanceId,
         isTest: params.isTest,
       });
+      // Cancelled (or otherwise finished) before pickup: do not announce a start.
+      if (!mayRun) return null;
       await rt?.workflowExecutionEvent(params.workspaceId, execId, 'started', {
         executionId: execId,
         workflowId: params.workflowId,
@@ -166,6 +168,9 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
       });
       return execId;
     });
+    if (executionId === null) {
+      return { skipped: true, reason: 'Execution was cancelled before it started' };
+    }
 
     const enrichedTriggerData = buildTriggerData(params.triggerType || 'manual', params.triggerData, {
       userId: params.userId,

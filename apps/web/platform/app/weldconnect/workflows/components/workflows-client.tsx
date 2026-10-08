@@ -69,12 +69,6 @@ interface CreateTriggerCategory {
 
 interface WorkflowsClientProps {
   initialWorkflows: Workflow[];
-  initialStats?: {
-    active: number;
-    paused: number;
-    draft: number;
-    totalExecutions: number;
-  };
   basePath?: string;
   apiBasePath?: string;
   entityLabel?: string;
@@ -284,8 +278,6 @@ function CreateTriggerPicker({
 
 export function WorkflowsClient({
   initialWorkflows,
-  // initialStats is accepted for API-compatibility with callers that compute
-  // it, but this view doesn't currently render a stats summary.
   basePath = '/weldconnect/workflows',
   apiBasePath = '/workflows',
   entityLabel = 'Workflow',

@@ -151,8 +151,9 @@ app.post('/:webhookId', async (c) => {
   const rejection =
     (await checkWebhookSignature(webhook, headers, rawBody)) ??
     checkWebhookMethodAndIp(webhook, sourceIp);
+  // Rejected requests (bad signature / method / IP, inactive workflow) are not
+  // counted: the stats only cover calls the webhook accepted.
   if (rejection) {
-    await updateWebhookStats(db, webhookId, false, sourceIp);
     return c.json({ error: rejection.error }, rejection.status);
   }
 
@@ -170,7 +171,6 @@ app.post('/:webhookId', async (c) => {
     .limit(1);
 
   if (!workflow) {
-    await updateWebhookStats(db, webhookId, false, sourceIp);
     return c.json({ error: 'Workflow not found or not active' }, 404);
   }
 

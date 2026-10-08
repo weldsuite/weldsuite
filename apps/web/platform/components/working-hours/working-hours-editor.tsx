@@ -17,6 +17,21 @@ export const DEFAULT_HOURS: WorkingHours = {
   sunday: { isOpen: false },
 };
 
+// Breaks have no id; give each break object a stable render key (carried over
+// when a break is replaced immutably) so removing one doesn't shift the inputs.
+const breakKeys = new WeakMap<object, string>();
+let breakKeySeq = 0;
+
+function getBreakKey(brk: object): string {
+  let key = breakKeys.get(brk);
+  if (!key) {
+    breakKeySeq += 1;
+    key = `break-${breakKeySeq}`;
+    breakKeys.set(brk, key);
+  }
+  return key;
+}
+
 function DayRow({
   day,
   hours,
@@ -45,7 +60,10 @@ function DayRow({
 
   const updateBreak = (index: number, field: 'start' | 'end', value: string) => {
     const breaks = [...(hours.breaks || [])];
-    breaks[index] = { ...breaks[index], [field]: value };
+    const previous = breaks[index];
+    const next = { ...previous, [field]: value };
+    if (previous) breakKeys.set(next, getBreakKey(previous));
+    breaks[index] = next;
     onChange({ ...hours, breaks });
   };
 
@@ -92,7 +110,7 @@ function DayRow({
           </div>
 
           {hours.breaks?.map((brk, i) => (
-            <div key={i} className="flex items-center gap-2 relative">
+            <div key={getBreakKey(brk)} className="flex items-center gap-2 relative">
               <span className="text-xs text-muted-foreground absolute right-full mr-2 whitespace-nowrap">{t('sweep.shared.breakLabel')}</span>
               <Input
                 type="time"

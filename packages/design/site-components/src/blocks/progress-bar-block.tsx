@@ -11,7 +11,6 @@ export interface ProgressBarBlockProps {
   height?: 'sm' | 'md' | 'lg';
   animated?: boolean;
   striped?: boolean;
-  mode?: 'live' | 'preview';
 }
 
 export function ProgressBarBlock({

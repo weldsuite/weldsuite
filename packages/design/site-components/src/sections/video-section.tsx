@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData, SectionSettings } from '../types';
 import React, { useState, useRef } from 'react';
 import { buildEmbedUrl } from '../lib/video-embed';
 import { VideoMedia } from '../components/video-media';
@@ -41,8 +40,6 @@ interface VideoSectionProps {
   fullWidth?: boolean;
 
   // Legacy props
-  store?: StoreData;
-  settings?: SectionSettings;
 }
 
 // Alignment classes

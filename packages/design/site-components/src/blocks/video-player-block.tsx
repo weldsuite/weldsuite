@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React, { useState, useRef } from 'react';
 import { buildEmbedUrl } from '../lib/video-embed';
 import { VideoMedia } from '../components/video-media';
@@ -34,12 +33,9 @@ interface VideoPlayerBlockProps {
   overlayOpacity?: number;
   textColor?: string;
   contentAlignment?: 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
-  fullWidth?: boolean;
 
   // Legacy props
   controls?: boolean;
-  mode?: string;
-  store?: StoreData;
 }
 
 // Alignment classes

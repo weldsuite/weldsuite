@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from 'react';
 import VideoSection from '../sections/video-section';
 
@@ -41,10 +40,6 @@ interface VideoBlockProps {
 
   // Legacy props for backward compatibility
   controls?: boolean;
-  aspectRatio?: '16/9' | '4/3' | '1/1' | '21/9';
-  borderRadius?: number;
-  mode?: string;
-  store?: StoreData;
 }
 
 export function VideoBlock({
@@ -70,7 +65,6 @@ export function VideoBlock({
   fullWidth = false,
   // Legacy props
   controls = true,
-  store
 }: Readonly<VideoBlockProps>) {
   return (
     <VideoSection
@@ -94,7 +88,6 @@ export function VideoBlock({
       textColor={textColor}
       contentAlignment={contentAlignment}
       fullWidth={fullWidth}
-      store={store}
     />
   );
 }

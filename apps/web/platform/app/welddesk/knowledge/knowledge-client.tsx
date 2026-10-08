@@ -44,18 +44,12 @@ import {
 } from "@weldsuite/ui/components/select";
 import { Label } from "@weldsuite/ui/components/label";
 import { cn } from "@/lib/utils";
-import type { StatusFilter, FilterOption, PaginationData } from "@/components/entity-overview";
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from "@/components/entity-list";
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface KnowledgeClientProps {
   items: Article[];
-  pagination: PaginationData;
-  params: Record<string, string>;
-  statusFilters: StatusFilter[];
-  additionalFilters: FilterOption[];
-  counts: Record<string, number>;
   isLoading?: boolean;
 }
 
@@ -189,9 +183,7 @@ function flattenTree(
 }
 
 // This view renders a client-built folder/article tree via EntityList rather
-// than the server-paginated/filtered list, so `pagination`, `params`,
-// `statusFilters`, `additionalFilters` and `counts` are accepted for interface
-// parity with other list pages but aren't consumed here.
+// than a server-paginated/filtered list.
 export function KnowledgeClient({
   items,
   isLoading = false,

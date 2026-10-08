@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
-import type { VirtualBackgroundType } from './hooks/use-virtual-background';
 import type { PermissionHelpLabels } from './components/permission-help';
 import type { MeetingToolsLabels } from './tools/labels';
 
@@ -175,7 +174,6 @@ export interface MeetingRoomViewProps {
   // ── Background effects (omit to hide) ─────────────────────────────────────
   onToggleEffects?: () => void;
   effectsOpen?: boolean;
-  backgroundType?: VirtualBackgroundType;
   /** Slot — host app renders its BackgroundEffectsPanel here (always portaled). */
   backgroundEffectsSlot?: ReactNode;
 

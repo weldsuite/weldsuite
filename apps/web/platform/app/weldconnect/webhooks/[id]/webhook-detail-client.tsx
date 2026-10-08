@@ -5,6 +5,7 @@ import { useRouter, Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
+import { useState } from 'react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Label } from '@weldsuite/ui/components/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
@@ -24,9 +25,11 @@ import {
   Workflow as WorkflowIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useDeleteWebhook } from '@/hooks/queries/use-automation-queries';
 import type { WebhookView } from '../webhooks-client';
-import { buildWebhookCurl, eventStatusTone, type EventTone } from '../webhook-utils';
+import { buildWebhookCurl, deriveWebhookStatus, eventStatusTone, webhookDisplayName, type EventTone } from '../webhook-utils';
+import { WebhookStatusBadge } from '../webhook-status-badge';
 import { copyText } from '@/lib/clipboard';
 
 export type WebhookDetail = WebhookView;
@@ -71,10 +74,12 @@ const formatDate = (date: string | Date) => new Date(date).toLocaleString();
 export function WebhookDetailClient({ webhook, initialEvents }: Readonly<WebhookDetailClientProps>) {
   const { t } = useI18n();
   const wd = t.weldconnect.webhookDetail;
+  const displayName = webhookDisplayName(webhook);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   useBreadcrumbs([
     { label: t.weldconnect.breadcrumbs.connect, href: '/weldconnect' },
     { label: t.weldconnect.breadcrumbs.webhooks, href: '/weldconnect/webhooks' },
-    { label: webhook.name },
+    { label: displayName },
   ]);
 
   const router = useRouter();
@@ -83,18 +88,16 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
   const editorHref = `/weldconnect/workflows/${webhook.workflowId}/edit`;
   const curl = buildWebhookCurl(webhook.externalUrl, webhook);
 
-  const handleDelete = () => {
-    if (!confirm(wd.confirms.delete)) return;
-
-    deleteWebhookMutation.mutate(webhook.id, {
-      onSuccess: () => {
-        toast.success(wd.toasts.deleted);
-        router.push('/weldconnect/webhooks');
-      },
-      onError: () => {
-        toast.error(wd.toasts.deleteFailed);
-      },
-    });
+  const handleDelete = async () => {
+    try {
+      await deleteWebhookMutation.mutateAsync(webhook.id);
+      toast.success(wd.toasts.deleted);
+      router.push('/weldconnect/webhooks');
+    } catch {
+      toast.error(wd.toasts.deleteFailed);
+    } finally {
+      setConfirmingDelete(false);
+    }
   };
 
   const handleCopyUrl = () => {
@@ -124,18 +127,8 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
             <div>
               <div className="flex items-center gap-3">
                 <Globe className="h-8 w-8 text-primary" />
-                <h1 className="text-3xl font-bold tracking-tight">{webhook.name}</h1>
-                {webhook.isEnabled ? (
-                  <Badge className="bg-green-500">
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    {t.weldconnect.webhooks.statuses.active}
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary">
-                    <XCircle className="h-3 w-3 mr-1" />
-                    {t.weldconnect.webhooks.statuses.disabled}
-                  </Badge>
-                )}
+                <h1 className="text-3xl font-bold tracking-tight">{displayName}</h1>
+                <WebhookStatusBadge status={deriveWebhookStatus(webhook)} />
               </div>
               <p className="text-muted-foreground mt-2">
                 {webhook.workflowName ? (
@@ -157,7 +150,7 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
             {!webhook.isManaged && (
               <Button
                 variant="destructive"
-                onClick={handleDelete}
+                onClick={() => setConfirmingDelete(true)}
                 disabled={deleteWebhookMutation.isPending}
               >
                 <Trash2 className="h-4 w-4 mr-0.5" />
@@ -390,6 +383,17 @@ export function WebhookDetailClient({ webhook, initialEvents }: Readonly<Webhook
           </TabsContent>
         </Tabs>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        title={wd.confirms.deleteTitle}
+        description={wd.confirms.delete}
+        confirmLabel={wd.deleteButton}
+        cancelLabel={t.common.actions.cancel}
+        variant="destructive"
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

@@ -9,7 +9,6 @@ export interface AccordionBlockProps {
   items?: AccordionItem[];
   allowMultiple?: boolean;
   defaultOpen?: number[];
-  mode?: 'live' | 'preview';
 }
 
 export function AccordionBlock({

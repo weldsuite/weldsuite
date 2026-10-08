@@ -1,12 +1,9 @@
 "use client";
 
-import type { StoreData, SectionSettings } from '../types';
 interface TextSectionProps {
   title?: string;
   content?: string;
   align?: 'left' | 'center' | 'right';
-  store?: StoreData;
-  settings?: SectionSettings;
 }
 
 export default function TextSection({

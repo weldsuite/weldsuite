@@ -143,6 +143,7 @@ import {
   MOBILE_MONTHS_FORWARD,
   type CalendarView as View,
 } from '../lib/date-range';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -820,11 +821,6 @@ export function CalendarView() {
     }
   }, [quickCreateOpen, isPreviewDragging, quickCreatePos.y, quickCreatePos.cardBottomY]);
 
-  const handleOpenFullDialog = useCallback(() => {
-    setQuickCreateOpen(false);
-    setDialogOpen(true);
-  }, []);
-
   // Drag / resize of an event with guests: asked once ("send update?") before
   // anything is saved, instead of one "rescheduled" email per adjustment.
   const [guestDrop, setGuestDrop] = useState<{ event: CalendarEvent; newStart: Date; newEnd: Date } | null>(null);
@@ -1126,7 +1122,6 @@ export function CalendarView() {
               calendars={allCalendars}
               defaultCalendarId={defaultCalendar?.id}
               onClose={() => setQuickCreateOpen(false)}
-              onMoreOptions={handleOpenFullDialog}
             />
           </div>
       )}
@@ -1328,7 +1323,6 @@ function CalendarBody({
         selectedEventId={selectedEventId}
         onSelectSlot={timeGrid.onSelectSlot}
         selectedDate={timeGrid.selectedDate}
-        selectedEndDate={timeGrid.selectedEndDate}
         selectedType={timeGrid.selectedType}
         selectedColor={timeGrid.selectedColor}
         onEventDrop={timeGrid.onEventDrop}
@@ -1366,20 +1360,6 @@ function getQuickCreateInitialValues(
     description: editEvent?.description || defaults.description || '',
     meetingUrl: editEvent?.meetingUrl || '',
     calendarId: editEvent?.calendarId || defaults.calendarId,
-  };
-}
-
-/**
- * Keyboard handler that makes a clickable row behave like a button: Enter / Space
- * activate it. Ignores key events bubbling up from inputs nested inside the row.
- */
-function activateOnKey(activate: () => void) {
-  return (e: React.KeyboardEvent<HTMLElement>) => {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      activate();
-    }
   };
 }
 
@@ -1485,16 +1465,14 @@ function PeopleRow({
   const t = getTranslations('weldcalendar');
   if (people.length === 0 && !isActive) {
     return (
-      <div
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 px-4 py-[10px] text-left cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={onActivate}
-        onKeyDown={activateOnKey(onActivate)}
       >
         <Users className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="text-sm text-foreground h-7 flex items-center">{emptyLabel}</span>
-      </div>
+      </button>
     );
   }
   const activateIfIdle = () => {
@@ -1739,33 +1717,41 @@ function MeetingRow({
 }>) {
   const t = getTranslations('weldcalendar');
   const hasMeeting = pending || !!meetingUrl;
-  // The row is only a button while it still offers "add WeldMeet".
-  const buttonProps = hasMeeting
-    ? {}
-    : { role: 'button', tabIndex: 0, onClick: onAdd, onKeyDown: activateOnKey(onAdd) };
-  return (
-    <div
-      className={cn(
-        'group flex items-center gap-3 px-4 py-[10px]',
-        !hasMeeting && 'cursor-pointer hover:bg-accent/50 transition-colors',
-      )}
-      {...buttonProps}
+  const icon = (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      className="h-[18px] w-[18px] -mx-px text-muted-foreground shrink-0"
+      aria-hidden="true"
     >
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth={1.5}
-        stroke="currentColor"
-        className="h-[18px] w-[18px] -mx-px text-muted-foreground shrink-0"
-        aria-hidden="true"
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
+      />
+    </svg>
+  );
+  // The row is only a button while it still offers "add WeldMeet".
+  if (!hasMeeting) {
+    return (
+      <button
+        type="button"
+        className="group flex w-full items-center gap-3 px-4 py-[10px] text-left cursor-pointer hover:bg-accent/50 transition-colors"
+        onClick={onAdd}
       >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"
-        />
-      </svg>
+        {icon}
+        <span className="text-sm text-foreground h-7 flex items-center">
+          {t.quickCreate.addWeldMeet}
+        </span>
+      </button>
+    );
+  }
+  return (
+    <div className="group flex items-center gap-3 px-4 py-[10px]">
+      {icon}
       {hasMeeting && (
         <div className="flex items-center justify-between flex-1 h-7 min-w-0 gap-2">
           {meetingUrl ? (
@@ -1875,11 +1861,6 @@ function MeetingRow({
             </Button>
           </div>
         </div>
-      )}
-      {!hasMeeting && (
-        <span className="text-sm text-foreground h-7 flex items-center">
-          {t.quickCreate.addWeldMeet}
-        </span>
       )}
     </div>
   );
@@ -1997,9 +1978,6 @@ export function QuickCreateCard({
   calendars,
   defaultCalendarId,
   onClose,
-  // onMoreOptions stays in the props contract for callers (new-event-dialog.tsx,
-  // weldmeet's schedule-meeting flow) that still pass it; this simplified inline
-  // card has no "more options" trigger of its own.
   showTypeTabs = true,
   editEvent,
   defaultGuests,
@@ -2018,7 +1996,6 @@ export function QuickCreateCard({
   defaultCalendarId?: string;
   onClose: () => void;
   showTypeTabs?: boolean;
-  onMoreOptions: () => void;
   editEvent?: CalendarEvent | null;
   /** Pre-fill the guest list when creating a new event (e.g. "Schedule again"). */
   defaultGuests?: Array<{ email: string; name?: string }>;
@@ -2604,10 +2581,6 @@ function MonthView({
   /** Opens the given day's own view; used by the "+N more" affordance. */
   onShowDay: (day: Date) => void;
   selectedDate?: Date;
-  // Accepted for parity with the timed views (week/day), which render a
-  // start–end preview block. Month-view slot selection is always same-day
-  // (see the day-cell onClick below), so there is no range to highlight here.
-  selectedEndDate?: Date;
   selectedType?: string;
   selectedColor?: string;
   selectedEventId?: string;
@@ -2800,8 +2773,8 @@ function MonthView({
         className="grid flex-1 min-h-0 overflow-hidden"
         style={{ gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))` }}
       >
-        {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-7 grid-rows-1 min-h-0 border-b last:border-b-0 overflow-hidden">
+        {weeks.map((week) => (
+          <div key={format(week[0], 'yyyy-MM-dd')} className="grid grid-cols-7 grid-rows-1 min-h-0 border-b last:border-b-0 overflow-hidden">
             {week.map((day) => {
               const key = format(day, 'yyyy-MM-dd');
               const dayEvents = eventsByDay.get(key) ?? NO_MONTH_ENTRIES;
@@ -4502,23 +4475,13 @@ export function EventDetailPanel({
               className="block w-full resize-none overflow-hidden text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap min-h-[32px] text-muted-foreground"
             />
           ) : (
-            <div
-              role="textbox"
-              aria-readonly="true"
-              aria-multiline="true"
+            <button
+              type="button"
               aria-label={t.eventPreview.addDescription}
-              tabIndex={0}
-              onKeyDown={(e) => {
-                // Keyboard users enter edit mode with Enter (mouse users click).
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  startEditingDescription();
-                }
-              }}
-              className="w-full text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap min-h-[32px] text-muted-foreground"
+              className="block w-full text-left text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap min-h-[32px] text-muted-foreground"
             >
               {descriptionDraft || t.eventPreview.addDescription}
-            </div>
+            </button>
           )}
         </div>
       </div>
@@ -5044,6 +5007,14 @@ function EventAttendeesField({
             <div
               role="button"
               tabIndex={0}
+              onKeyDown={(e) => {
+                // Radix only wires click on a non-button trigger: Enter / Space open it.
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.currentTarget.click();
+                }
+              }}
               className={cn(
                 'text-sm cursor-pointer flex justify-between gap-2 self-start outline-none focus-visible:ring-2 focus-visible:ring-ring w-full group/field',
                 // Single-line empty state: center vertically inside h-8 so it
@@ -5264,7 +5235,7 @@ function DatePickerField({
  */
 function useRowDropdown() {
   const [open, setOpen] = useState(false);
-  const rowRef = React.useRef<HTMLDivElement>(null);
+  const rowRef = React.useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
   const toggle = () => {
@@ -5274,6 +5245,20 @@ function useRowDropdown() {
     }
     setOpen(!open);
   };
+
+  // The backdrop is pointer-only: Escape is the keyboard way to dismiss. Captured
+  // on window so it closes just the dropdown, not the card it sits in.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [open]);
 
   return { open, setOpen, rowRef, pos, toggle };
 }
@@ -5295,20 +5280,18 @@ function InlineSelectRow({
 
   return (
     <>
-      <div
+      <button
         ref={rowRef}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+        type="button"
+        className="flex w-full items-center gap-3 px-4 py-[10px] text-left cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
-        onKeyDown={activateOnKey(handleClick)}
       >
         {icon}
         <span className="text-sm text-foreground h-7 flex items-center">{displayValue}</span>
-      </div>
+      </button>
       {open && (
         <>
-          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div aria-hidden="true" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] w-[160px] p-1 bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150"
             style={{ top: pos.top, left: pos.left }}
@@ -5366,12 +5349,25 @@ function InlineDateTimeRow({
   const timeFormat = useTimeFormat();
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState<Date | undefined>(date || new Date());
-  const rowRef = React.useRef<HTMLDivElement>(null);
+  const rowRef = React.useRef<HTMLButtonElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
     if (date) setMonth(date);
   }, [date]);
+
+  // The backdrop is pointer-only: Escape is the keyboard way to dismiss.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [open]);
 
   const handleClick = () => {
     if (rowRef.current) {
@@ -5388,23 +5384,21 @@ function InlineDateTimeRow({
 
   return (
     <>
-      <div
+      <button
         ref={rowRef}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+        type="button"
+        className="flex w-full items-center gap-3 px-4 py-[10px] text-left cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
-        onKeyDown={activateOnKey(handleClick)}
       >
         {icon}
         <span className="text-sm text-foreground h-7 flex items-center">
           {date ? format(date, 'EEEE, MMM d') : placeholder}
           {time && <span className="text-muted-foreground ml-1">· {formatDueTime(time, timeFormat)}</span>}
         </span>
-      </div>
+      </button>
       {open && (
         <>
-          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div aria-hidden="true" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150 overflow-hidden"
             style={{ top: pos.top, left: pos.left }}
@@ -5459,22 +5453,20 @@ function CalendarSelectRow({
     // extra `divide-y` siblings in the parent card (which would draw a stray
     // divider line under this row while the menu is open).
     <div>
-      <div
+      <button
         ref={rowRef}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
+        type="button"
+        className="flex w-full items-center gap-3 px-4 py-[10px] text-left cursor-pointer hover:bg-accent/50 transition-colors"
         onClick={handleClick}
-        onKeyDown={activateOnKey(handleClick)}
       >
         <div className="h-3 w-3 rounded-[4px] shrink-0" style={{ backgroundColor: selected?.color || '#3b82f6' }} />
         <div className="h-7 flex items-center gap-2">
           <span className="text-sm">{selected?.name || t.misc.defaultCalendar}</span>
         </div>
-      </div>
+      </button>
       {open && (
         <>
-          <div role="presentation" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
+          <div aria-hidden="true" className="fixed inset-0 z-[79]" onClick={() => setOpen(false)} />
           <div
             className="fixed z-[80] w-[200px] p-1 bg-popover border rounded-md shadow-md animate-in fade-in-0 zoom-in-95 slide-in-from-top-2 duration-150"
             style={{ top: pos.top, left: pos.left }}
@@ -5889,17 +5881,15 @@ function ScheduleView({
           : null;
 
     return (
-      <div
+      <button
         key={item.id}
-        role="button"
-        tabIndex={0}
+        type="button"
         data-status={statusLabel ? statusKind : undefined}
         className={cn(
-          "flex items-center gap-2 md:gap-4 px-2 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          "flex w-full text-left items-center gap-2 md:gap-4 px-2 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
           statusRowClass(statusKind),
         )}
         onClick={(e) => onSelectEvent(item.event, e)}
-        onKeyDown={activateOnKey(() => onSelectEvent(item.event))}
       >
         {/* Color dot (hollow for a tentative event) */}
         <div className="w-[16px] md:w-[24px] shrink-0 flex justify-center">
@@ -5946,7 +5936,7 @@ function ScheduleView({
             <span className="text-sm text-gray-400">—</span>
           )}
         </div>
-      </div>
+      </button>
     );
   }, [onSelectEvent, t.calendarView.filterStatusCancelled, t.calendarView.filterStatusTentative]);
 

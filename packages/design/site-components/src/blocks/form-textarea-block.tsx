@@ -13,7 +13,6 @@ export interface FormTextareaBlockProps {
   labelColor?: string;
   inputBorderColor?: string;
   inputBackgroundColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function FormTextareaBlock({

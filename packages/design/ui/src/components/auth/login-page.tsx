@@ -17,7 +17,6 @@ const { spinner: SpinnerIcon, google: GoogleIcon, gitHub: GitHubIcon, facebook: 
 interface LoginPageProps {
   appName?: string;
   showSocialLogin?: boolean;
-  redirectTo?: string;
 }
 
 export function LoginPage({

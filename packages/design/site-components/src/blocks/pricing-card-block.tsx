@@ -14,7 +14,6 @@ export interface PricingCardBlockProps {
   backgroundColor?: string;
   textColor?: string;
   accentColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function PricingCardBlock({

@@ -19,6 +19,6 @@ export default function DynamicPipelinePage() {
   }
 
   return (
-    <ServerPipelineKanban pipelineId={id} pipelineName={data.data.name} />
+    <ServerPipelineKanban pipelineId={id} />
   );
 }

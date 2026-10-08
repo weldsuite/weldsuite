@@ -4,7 +4,6 @@ import { Label } from '@weldsuite/ui/components/label';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface DayScheduleRowProps {
-  day: string;
   label: string;
   isOpen: boolean;
   openTime?: string;
@@ -14,8 +13,6 @@ interface DayScheduleRowProps {
   onCloseTimeChange: (time: string) => void;
 }
 
-// `day` is part of the props because the caller keys businessHours/setValue by
-// it; the row itself doesn't read it.
 export function DayScheduleRow({
   label,
   isOpen,

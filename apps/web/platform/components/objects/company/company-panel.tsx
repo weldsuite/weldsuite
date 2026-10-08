@@ -90,7 +90,6 @@ import {
   useArchiveCompany,
   useUnarchiveCompany,
   useDeleteCompany,
-  useCompanyChannel,
 } from './use-company-data';
 import { useUnlinkPersonFromCompany } from '@/hooks/queries/use-person-companies-queries';
 import {
@@ -788,15 +787,6 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
     <CompanyChat companyId={id} companyName={company?.displayName} />
   );
 
-  // The chat channel is created lazily on the first sent message, so
-  // "channel exists" === "there is at least one message". Reads from the same
-  // cached query CompanyChat runs, so it adds no extra request. Drives the
-  // chat region's top border — hidden until a conversation exists. The drag
-  // handle itself is always visible so the Details list can be resized either
-  // way.
-  const companyChannel = useCompanyChannel(id);
-  const hasMessages = !!companyChannel.data?.data;
-
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
@@ -822,7 +812,6 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
-      sidebarShowResizeHandle={hasMessages}
       sidebarDefaultSize={mode === 'panel' ? 320 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}
@@ -862,7 +851,6 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
         <CallsTab
           entityId={company.id}
           entityKind="company"
-          defaultDialNumber={company.phone ?? undefined}
         />
       )}
       {company && activeTab === 'meetings' && (

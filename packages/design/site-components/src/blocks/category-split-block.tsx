@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from 'react';
 
 export interface CategorySplitBlockProps {
@@ -16,8 +15,6 @@ export interface CategorySplitBlockProps {
   textColor?: string;
   borderRadius?: number;
   imagePosition?: 'left' | 'right';
-  mode?: 'live' | 'preview' | 'edit';
-  store?: StoreData;
 }
 
 export function CategorySplitBlock({
