@@ -78,30 +78,30 @@ export function ensureAiProviderRegistered(_env: Env): void {
   // Intentionally empty.
 }
 
-export async function generate(_env: Env, _options: GenerateOptions): Promise<GenerateResult> {
+export function generate(_env: Env, _options: GenerateOptions): Promise<GenerateResult> {
   console.warn('[ai] AI is currently unavailable — generate() no-op');
-  throw new AiProviderError();
+  return Promise.reject(new AiProviderError());
 }
 
-export async function stream(
+export function stream(
   _env: Env,
   _options: StreamOptions,
 ): Promise<{ response: Response; trackAfterStream: () => Promise<void> }> {
   console.warn('[ai] AI is currently unavailable — stream() no-op');
-  throw new AiProviderError();
+  return Promise.reject(new AiProviderError());
 }
 
-export async function generateWithTools(
+export function generateWithTools(
   _env: Env,
   _options: GenerateWithToolsOptions,
 ): Promise<GenerateWithToolsResult> {
   console.warn('[ai] AI is currently unavailable — generateWithTools() no-op');
-  throw new AiProviderError();
+  return Promise.reject(new AiProviderError());
 }
 
-export async function getActiveModels(_env: Env): Promise<ActiveModel[]> {
+export function getActiveModels(_env: Env): Promise<ActiveModel[]> {
   console.warn('[ai] AI is currently unavailable — getActiveModels() no-op');
-  return [];
+  return Promise.resolve([]);
 }
 
 /**
@@ -110,18 +110,19 @@ export async function getActiveModels(_env: Env): Promise<ActiveModel[]> {
  * but this is kept resolvable rather than throwing to avoid surprising any
  * future caller with a hard failure on a pure pre-flight check.
  */
-export async function checkCreditsAvailable(_env: Env, _workspaceId: string): Promise<void> {
+export function checkCreditsAvailable(_env: Env, _workspaceId: string): Promise<void> {
   console.warn('[ai] AI is currently unavailable — checkCreditsAvailable() no-op');
+  return Promise.resolve();
 }
 
 /**
  * Raw usage write — previously used by `services/accounting-ocr.ts` after
  * hitting the gateway directly. No usage to track anymore.
  */
-export async function trackUsageAndConsume(
+export function trackUsageAndConsume(
   _env: Env,
   _input: TrackUsageInput,
 ): Promise<TrackUsageResult> {
   console.warn('[ai] AI is currently unavailable — trackUsageAndConsume() no-op');
-  return {};
+  return Promise.resolve({});
 }

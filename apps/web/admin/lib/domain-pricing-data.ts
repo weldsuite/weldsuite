@@ -52,7 +52,9 @@ export async function listDomainPricing(): Promise<DomainPricingRow[]> {
   return rows.map(serialize);
 }
 
-export async function listExistingDomainPricingKeys(): Promise<Array<{ id: string; tld: string }>> {
+export function listExistingDomainPricingKeys(): Promise<Array<{ id: string; tld: string }>> {
   const db = getMasterDb();
-  return db.select({ id: hostDomainPricing.id, tld: hostDomainPricing.tld }).from(hostDomainPricing);
+  return Promise.resolve(
+    db.select({ id: hostDomainPricing.id, tld: hostDomainPricing.tld }).from(hostDomainPricing),
+  );
 }

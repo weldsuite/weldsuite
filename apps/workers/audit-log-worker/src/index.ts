@@ -37,8 +37,8 @@ app.onError((err, c) => {
 });
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return app.fetch(request, env, ctx);
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return Promise.resolve(app.fetch(request, env, ctx));
   },
 
   async queue(batch: MessageBatch<EntityEventMessage>, env: Env): Promise<void> {

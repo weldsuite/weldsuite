@@ -89,12 +89,14 @@ export async function getExecution(db: Database, id: string) {
   return row ?? null;
 }
 
-export async function getExecutionSteps(db: Database, executionId: string) {
-  return db
-    .select()
-    .from(workflowExecutionSteps)
-    .where(eq(workflowExecutionSteps.executionId, executionId))
-    .orderBy(workflowExecutionSteps.stepIndex);
+export function getExecutionSteps(db: Database, executionId: string) {
+  return Promise.resolve(
+    db
+      .select()
+      .from(workflowExecutionSteps)
+      .where(eq(workflowExecutionSteps.executionId, executionId))
+      .orderBy(workflowExecutionSteps.stepIndex),
+  );
 }
 
 export async function getExecutionLogs(db: Database, executionId: string) {
@@ -115,13 +117,15 @@ export async function getExecutionLogs(db: Database, executionId: string) {
   return logs;
 }
 
-export async function getRecentExecutions(db: Database, limit = 10) {
-  return db
-    .select()
-    .from(workflowExecutions)
-    .where(notSequenceRun)
-    .orderBy(desc(workflowExecutions.startedAt))
-    .limit(Math.min(limit, 100));
+export function getRecentExecutions(db: Database, limit = 10) {
+  return Promise.resolve(
+    db
+      .select()
+      .from(workflowExecutions)
+      .where(notSequenceRun)
+      .orderBy(desc(workflowExecutions.startedAt))
+      .limit(Math.min(limit, 100)),
+  );
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -162,20 +166,22 @@ export async function getExecutionTrends(db: Database, period = 'week') {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export async function getSlowExecutions(db: Database, limit = 10) {
-  return db
-    .select()
-    .from(workflowExecutions)
-    .where(
-      and(
-        eq(workflowExecutions.status, 'completed'),
-        sql`${workflowExecutions.duration} IS NOT NULL`,
-        notSequenceRun,
-        notTestRun,
-      ),
-    )
-    .orderBy(desc(workflowExecutions.duration))
-    .limit(Math.min(limit, 50));
+export function getSlowExecutions(db: Database, limit = 10) {
+  return Promise.resolve(
+    db
+      .select()
+      .from(workflowExecutions)
+      .where(
+        and(
+          eq(workflowExecutions.status, 'completed'),
+          sql`${workflowExecutions.duration} IS NOT NULL`,
+          notSequenceRun,
+          notTestRun,
+        ),
+      )
+      .orderBy(desc(workflowExecutions.duration))
+      .limit(Math.min(limit, 50)),
+  );
 }
 
 /** Statuses a run can still be cancelled from. */

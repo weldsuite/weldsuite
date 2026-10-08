@@ -236,15 +236,17 @@ export async function isActiveWorkspaceMember(db: Database, userId: string): Pro
 }
 
 /** List the (non-deleted) share rows for a calendar. */
-export async function listCalendarShares(
+export function listCalendarShares(
   db: Database,
   calendarId: string,
 ): Promise<CalendarShareRow[]> {
   const { calendarShares } = schema;
-  return db
-    .select()
-    .from(calendarShares)
-    .where(and(eq(calendarShares.calendarId, calendarId), isNull(calendarShares.deletedAt)));
+  return Promise.resolve(
+    db
+      .select()
+      .from(calendarShares)
+      .where(and(eq(calendarShares.calendarId, calendarId), isNull(calendarShares.deletedAt))),
+  );
 }
 
 /**

@@ -193,11 +193,11 @@ export async function updateConnectionStatus(
 /**
  * Decrypt and return the webhook secret for a connection.
  */
-export async function getDecryptedWebhookSecret(
+export function getDecryptedWebhookSecret(
   connection: typeof githubConnections.$inferSelect,
   encryptionKey: EncryptionKeyring,
 ): Promise<string | null> {
-  if (!connection.webhookSecret) return null;
+  if (!connection.webhookSecret) return Promise.resolve(null);
   return decryptField(connection.webhookSecret, encryptionKey);
 }
 

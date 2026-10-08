@@ -338,7 +338,7 @@ app.get(
   '/action-types',
   requirePermission('workflows:read'),
   zValidator('query', z.object({ category: z.string().optional(), search: z.string().optional() })),
-  async (c) => {
+  (c) => {
     const { category, search } = c.req.valid('query');
     let filtered = ACTION_TYPES;
     if (category) filtered = filtered.filter((a) => a.category === category);
@@ -354,7 +354,7 @@ app.get(
   '/trigger-types',
   requirePermission('workflows:read'),
   zValidator('query', z.object({ category: z.string().optional(), search: z.string().optional() })),
-  async (c) => {
+  (c) => {
     const { category, search } = c.req.valid('query');
     let filtered = TRIGGER_TYPES;
     if (category) filtered = filtered.filter((t) => t.category === category);

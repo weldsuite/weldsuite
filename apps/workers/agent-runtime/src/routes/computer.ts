@@ -35,7 +35,7 @@ const statusSchema = z.object({
 
 export const computerRoutes = new Hono<AppEnv>();
 
-computerRoutes.get('/status', async (c) => {
+computerRoutes.get('/status', (c) => {
   if (!computerEnabled(c.env)) {
     return c.json({ enabled: false, reason: 'AGENT_COMPUTER_ENABLED=false' });
   }

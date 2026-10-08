@@ -130,7 +130,7 @@ if (!isExpoGo) {
     // Override the shared mobile-ui silent foreground handler so chat banners
     // remain visible when the app is open but the user is in another channel.
     expoNotifications.setNotificationHandler({
-      handleNotification: async () => ({
+      handleNotification: () => Promise.resolve({
         shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,

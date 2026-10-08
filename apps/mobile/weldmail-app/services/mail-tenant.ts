@@ -380,7 +380,7 @@ export async function listLabelsForAccount(account: TenantMailAccount) {
   return data;
 }
 
-export async function sendFromAccount(account: TenantMailAccount, payload: SendMailMessageInput) {
+export function sendFromAccount(account: TenantMailAccount, payload: SendMailMessageInput) {
   if (isPersonalAccount(account) || isPersonalAccountId(account.id)) {
     return personalApi.mailMessages.send({
       accountId: account.id,
@@ -397,7 +397,7 @@ export async function sendFromAccount(account: TenantMailAccount, payload: SendM
   return appApi.mailAccounts.send(account.id, payload);
 }
 
-export async function createDraft(opts: {
+export function createDraft(opts: {
   accountId: string;
   tenantKind?: TenantKind;
   to?: string[];

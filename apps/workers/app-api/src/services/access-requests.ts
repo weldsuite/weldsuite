@@ -137,22 +137,24 @@ export async function createAccessRequest(
   };
 }
 
-export async function listMyPendingAccessRequests(
+export function listMyPendingAccessRequests(
   db: Database,
   requesterId: string,
 ): Promise<(typeof schema.accessRequests.$inferSelect)[]> {
   const { accessRequests } = schema;
 
-  return db
-    .select()
-    .from(accessRequests)
-    .where(
-      and(
-        eq(accessRequests.requesterId, requesterId),
-        eq(accessRequests.status, 'pending'),
-      ),
-    )
-    .orderBy(desc(accessRequests.createdAt));
+  return Promise.resolve(
+    db
+      .select()
+      .from(accessRequests)
+      .where(
+        and(
+          eq(accessRequests.requesterId, requesterId),
+          eq(accessRequests.status, 'pending'),
+        ),
+      )
+      .orderBy(desc(accessRequests.createdAt)),
+  );
 }
 
 export type ResolveStatus = 'approved' | 'denied';

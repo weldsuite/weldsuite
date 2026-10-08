@@ -128,7 +128,7 @@ export function resolveSections(doc: DocLike): DocSection[] {
 }
 
 /** Build a .docx Buffer from pre-resolved HTML sections (one per page). */
-export async function buildDocxBuffer(sections: DocSection[]): Promise<Buffer> {
+export function buildDocxBuffer(sections: DocSection[]): Promise<Buffer> {
   const ctx: Ctx = { orderedInstance: { v: 0 } };
   const children: BlockRun[] = [];
 
