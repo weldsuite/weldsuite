@@ -9,7 +9,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@weldsuite/ui/components/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import { ArrowLeft, Pencil } from 'lucide-react';
+import { CustomerExemptionsTab } from '@/app/weldbooks/sales-tax/certificates/customer-exemptions-tab';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
@@ -44,7 +46,8 @@ export default function ContactDetailPage() {
   const { t, language } = useI18n();
   const tc = t.accounting.contacts;
   const { formatMoney } = useCurrentEntityCurrency();
-  const { labels } = useJurisdictionLabels();
+  const { labels, features } = useJurisdictionLabels();
+  const tx = t.weldbooksUs.salesTax.setup.exemptions;
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -63,6 +66,8 @@ export default function ContactDetailPage() {
     });
   const billingLines = addressLines(contact.billingAddress);
   const shippingLines = addressLines(contact.shippingAddress);
+  // US entities: a customer can hold sales tax exemption certificates (a supplier buys from us, never from them).
+  const showExemptions = features.salesTax && contact.role !== 'supplier';
   const roleLabel: Record<string, string> = {
     customer: tc.roles.customer,
     supplier: labels.supplier,
@@ -70,7 +75,7 @@ export default function ContactDetailPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 max-w-3xl space-y-6">
+    <div className={`p-4 sm:p-6 ${showExemptions ? 'max-w-5xl' : 'max-w-3xl'} space-y-6`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <Link to="/weldbooks/customers">
@@ -95,84 +100,99 @@ export default function ContactDetailPage() {
         </Link>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{tc.general}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DetailRow label={tc.nameOnInvoice} value={contact.name} />
-          <DetailRow label={tc.companyName} value={contact.companyName} />
-          <DetailRow label={tc.firstName} value={contact.firstName} />
-          <DetailRow label={tc.lastName} value={contact.lastName} />
-          <DetailRow label={tc.email} value={contact.email} />
-          <DetailRow label={tc.phone} value={contact.phone} />
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="details" className="gap-6">
+        {showExemptions ? (
+          <TabsList>
+            <TabsTrigger value="details">{tx.tabDetails}</TabsTrigger>
+            <TabsTrigger value="exemptions">{tx.tabExemptions}</TabsTrigger>
+          </TabsList>
+        ) : null}
+        <TabsContent value="details" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>{tc.general}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DetailRow label={tc.nameOnInvoice} value={contact.name} />
+              <DetailRow label={tc.companyName} value={contact.companyName} />
+              <DetailRow label={tc.firstName} value={contact.firstName} />
+              <DetailRow label={tc.lastName} value={contact.lastName} />
+              <DetailRow label={tc.email} value={contact.email} />
+              <DetailRow label={tc.phone} value={contact.phone} />
+            </CardContent>
+          </Card>
 
-      {(billingLines.length > 0 || shippingLines.length > 0) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{tc.addresses}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DetailRow label={tc.billingAddress} value={<AddressBlock lines={billingLines} />} />
-            <DetailRow
-              label={tc.shippingAddress}
-              value={
-                shippingLines.length > 0 && shippingLines.join('|') !== billingLines.join('|') ? (
-                  <AddressBlock lines={shippingLines} />
-                ) : null
-              }
-            />
-          </CardContent>
-        </Card>
-      )}
+          {(billingLines.length > 0 || shippingLines.length > 0) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{tc.addresses}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DetailRow label={tc.billingAddress} value={<AddressBlock lines={billingLines} />} />
+                <DetailRow
+                  label={tc.shippingAddress}
+                  value={
+                    shippingLines.length > 0 && shippingLines.join('|') !== billingLines.join('|') ? (
+                      <AddressBlock lines={shippingLines} />
+                    ) : null
+                  }
+                />
+              </CardContent>
+            </Card>
+          )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{tc.taxAndRegistration}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DetailRow label={labels.taxId} value={contact.vatNumber} />
-          <DetailRow label={labels.registrationId} value={contact.registrationNumber} />
-          {!contact.vatNumber && !contact.registrationNumber ? (
-            <p className="text-sm text-muted-foreground">—</p>
+          <Card>
+            <CardHeader>
+              <CardTitle>{tc.taxAndRegistration}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DetailRow label={labels.taxId} value={contact.vatNumber} />
+              <DetailRow label={labels.registrationId} value={contact.registrationNumber} />
+              {!contact.vatNumber && !contact.registrationNumber ? (
+                <p className="text-sm text-muted-foreground">—</p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {(contact.iban || contact.bic) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{tc.bankingSection}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DetailRow label={tc.iban} value={contact.iban} />
+                <DetailRow label={tc.bic} value={contact.bic} />
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{tc.financial}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DetailRow label={tc.paymentTermsDays} value={contact.paymentTermsDays} />
+              <DetailRow label={tc.outstandingBalance} value={formatMoney(contact.outstandingBalance)} />
+            </CardContent>
+          </Card>
+
+          {contact.notes ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>{tc.notes}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm whitespace-pre-wrap">{contact.notes}</p>
+              </CardContent>
+            </Card>
           ) : null}
-        </CardContent>
-      </Card>
-
-      {(contact.iban || contact.bic) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{tc.bankingSection}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DetailRow label={tc.iban} value={contact.iban} />
-            <DetailRow label={tc.bic} value={contact.bic} />
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{tc.financial}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DetailRow label={tc.paymentTermsDays} value={contact.paymentTermsDays} />
-          <DetailRow label={tc.outstandingBalance} value={formatMoney(contact.outstandingBalance)} />
-        </CardContent>
-      </Card>
-
-      {contact.notes ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{tc.notes}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm whitespace-pre-wrap">{contact.notes}</p>
-          </CardContent>
-        </Card>
-      ) : null}
+        </TabsContent>
+        {showExemptions ? (
+          <TabsContent value="exemptions">
+            <CustomerExemptionsTab partyId={contact.id} taxUse={(contact as { taxUse?: string | null }).taxUse} />
+          </TabsContent>
+        ) : null}
+      </Tabs>
     </div>
   );
 }
