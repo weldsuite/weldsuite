@@ -273,10 +273,11 @@ export function presentList(
   });
 
   const total = pagination?.totalCount;
+  const plural = rows.length === 1 ? '' : 's';
   const header =
     typeof total === 'number' && total !== rows.length
       ? `Showing ${rows.length} of ${total}:`
-      : `${rows.length} result${rows.length === 1 ? '' : 's'}:`;
+      : `${rows.length} result${plural}:`;
 
   const footer = pagination?.hasMore
     ? '\nMore results are available — ask for the next page to continue.'

@@ -138,7 +138,9 @@ function parseWooJson<T>(body: string): T {
 }
 
 function unreachableError(err: unknown): ConnectorApiError {
-  const cause = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  let cause = '';
+  if (err instanceof Error) cause = err.message;
+  else if (typeof err === 'string') cause = err;
   const name = err instanceof Error ? err.name : '';
   const aborted = name === 'AbortError' || name === 'TimeoutError' || /aborted|abort/i.test(cause);
   if (aborted) {
@@ -640,12 +642,9 @@ function toWooProductBody(product: OutboundCatalogProduct): Record<string, unkno
 
 function wooProductRef(data: Record<string, unknown>, storeUrl: string): ExternalProductRef {
   const id = data.id !== undefined && data.id !== null ? asText(data.id) : '';
-  const url =
-    typeof data.permalink === 'string'
-      ? data.permalink
-      : id
-        ? `${storeUrl}/?p=${id}`
-        : null;
+  let url: string | null = null;
+  if (typeof data.permalink === 'string') url = data.permalink;
+  else if (id) url = `${storeUrl}/?p=${id}`;
   return { id, url };
 }
 

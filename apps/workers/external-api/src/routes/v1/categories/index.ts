@@ -63,7 +63,7 @@ export default createCrudRoute({
     const name = asText(body.name ?? '');
     const slug = typeof body.slug === 'string' && body.slug ? body.slug : slugify(name) || `cat-${Date.now()}`;
     const isActive =
-      typeof body.isActive === 'boolean' ? (body.isActive ? 1 : 0) : (body.isActive as number | undefined);
+      typeof body.isActive === 'boolean' ? Number(body.isActive) : (body.isActive as number | undefined);
     return {
       ...body,
       slug,

@@ -249,9 +249,10 @@ async function parseVersionUpload(
   const changelog = typeof changelogRaw === 'string' ? changelogRaw : undefined;
 
   const rawFiles = form['files'];
-  const fileEntries = (Array.isArray(rawFiles) ? rawFiles : rawFiles ? [rawFiles] : []).filter(
-    (f): f is File => f instanceof File,
-  );
+  let rawFileList: unknown[] = [];
+  if (Array.isArray(rawFiles)) rawFileList = rawFiles;
+  else if (rawFiles) rawFileList = [rawFiles];
+  const fileEntries = rawFileList.filter((f): f is File => f instanceof File);
   if (fileEntries.length === 0) {
     return { response: error.badRequest(c, "At least one 'files' entry is required") };
   }

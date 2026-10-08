@@ -472,7 +472,9 @@ export async function confirmPickItem(
   const qty = Math.min(params.quantity, required);
   const isShort = params.short || qty < required;
   const now = new Date();
-  const nextStatus = qty <= 0 ? 'short' : isShort ? 'partial' : 'picked';
+  let nextStatus: 'short' | 'partial' | 'picked' = 'picked';
+  if (qty <= 0) nextStatus = 'short';
+  else if (isShort) nextStatus = 'partial';
   const quantityShort = Math.max(required - qty, 0);
 
   await db

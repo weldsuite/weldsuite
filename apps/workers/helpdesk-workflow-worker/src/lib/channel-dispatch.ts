@@ -50,6 +50,11 @@ export async function dispatchStepToChannel(ctx: DispatchContext): Promise<void>
 // Discord Dispatch
 // ============================================================================
 
+function csatButtonStyle(rating: number): number {
+  if (rating <= 2) return 4;
+  return rating === 3 ? 2 : 3;
+}
+
 async function dispatchToDiscord(ctx: DispatchContext): Promise<void> {
   const botToken = ctx.env.DISCORD_BOT_TOKEN;
   if (!botToken) {
@@ -108,7 +113,7 @@ async function dispatchToDiscord(ctx: DispatchContext): Promise<void> {
         type: 1, // ACTION_ROW
         components: [1, 2, 3, 4, 5].map((rating) => ({
           type: 2, // BUTTON
-          style: rating <= 2 ? 4 : rating === 3 ? 2 : 3, // DANGER / SECONDARY / SUCCESS
+          style: csatButtonStyle(rating), // DANGER / SECONDARY / SUCCESS
           label: `${rating}`,
           custom_id: `wf_csat:${ctx.conversationId}:${stepId}:${rating}`,
         })),

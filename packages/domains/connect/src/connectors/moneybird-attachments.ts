@@ -47,12 +47,9 @@ function listAttachmentMeta(record: Record<string, unknown>): Array<{ id: string
     const row = item as Record<string, unknown>;
     const id = row.id !== undefined && row.id !== null ? asText(row.id) : '';
     if (!id) continue;
-    const filename =
-      typeof row.filename === 'string'
-        ? row.filename
-        : typeof row.name === 'string'
-          ? row.name
-          : null;
+    let filename: string | null = null;
+    if (typeof row.filename === 'string') filename = row.filename;
+    else if (typeof row.name === 'string') filename = row.name;
     out.push({ id, filename });
   }
   return out;

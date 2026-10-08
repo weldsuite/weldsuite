@@ -201,11 +201,23 @@ const ORDER_STATUS: Record<string, string> = {
 
 const PAID_STATUSES = new Set(['completed', 'processing']);
 
+function imageUrl(img: Record<string, unknown>): string {
+  if (typeof img.src === 'string') return img.src;
+  return typeof img.url === 'string' ? img.url : '';
+}
+
+function firstRecordArray(...candidates: unknown[]): Array<Record<string, unknown>> {
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate as Array<Record<string, unknown>>;
+  }
+  return [];
+}
+
 function shopifyImages(record: Record<string, unknown>): Array<{ url: string; altText?: string; id?: string }> {
   const raw = Array.isArray(record.images) ? record.images : [];
   return (raw as Array<Record<string, unknown>>)
     .map((img) => ({
-      url: typeof img.src === 'string' ? img.src : typeof img.url === 'string' ? img.url : '',
+      url: imageUrl(img),
       altText: typeof img.alt === 'string' ? img.alt : undefined,
       id: img.id !== undefined ? asText(img.id) : undefined,
     }))
@@ -298,8 +310,9 @@ function mapProduct(record: Record<string, unknown>, externalId: string): Mapped
   const slug = pickString(record, ['slug', 'handle'], 255) ?? slugify(name);
   const images = shopifyImages(record);
   const picqerActive = record.active;
-  const statusFromActive =
-    picqerActive === true ? 'active' : picqerActive === false ? 'inactive' : null;
+  let statusFromActive: 'active' | 'inactive' | null = null;
+  if (picqerActive === true) statusFromActive = 'active';
+  else if (picqerActive === false) statusFromActive = 'inactive';
   const status =
     statusFromActive
     ?? PRODUCT_STATUS[pickString(record, ['status']) ?? '']
@@ -405,11 +418,7 @@ function mapOrder(record: Record<string, unknown>, externalId: string, provider:
     [pickString(billing ?? {}, ['first_name']), pickString(billing ?? {}, ['last_name'])].filter(Boolean).join(' ') ||
     [pickString(customer ?? {}, ['first_name']), pickString(customer ?? {}, ['last_name'])].filter(Boolean).join(' ') ||
     pickString(record, ['customer_name', 'deliveryname', 'name']);
-  const lineItemsRaw = Array.isArray(record.line_items)
-    ? (record.line_items as Array<Record<string, unknown>>)
-    : Array.isArray(record.products)
-      ? (record.products as Array<Record<string, unknown>>)
-      : [];
+  const lineItemsRaw = firstRecordArray(record.line_items, record.products);
   const paidAt = pickString(record, ['date_paid_gmt', 'date_paid', 'processed_at']);
   const financial = pickString(record, ['financial_status']);
   const paid = Boolean(paidAt) || PAID_STATUSES.has(wcStatus) || financial === 'paid';
@@ -590,11 +599,7 @@ function quantityString(value: string | null): string {
 }
 
 function mapDocumentLines(record: Record<string, unknown>): MappedDocumentLine[] {
-  const raw = Array.isArray(record.details)
-    ? (record.details as Array<Record<string, unknown>>)
-    : Array.isArray(record.line_items)
-      ? (record.line_items as Array<Record<string, unknown>>)
-      : [];
+  const raw = firstRecordArray(record.details, record.line_items);
   return raw.map((item, index) => {
     const quantity = quantityString(pickString(item, ['amount', 'quantity']));
     const unitPrice = decimalString(pickString(item, ['price', 'unit_price']));

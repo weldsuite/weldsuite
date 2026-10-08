@@ -428,9 +428,10 @@ function extractBundleFiles(
   form: FormBody,
 ): { ok: true; fileEntries: File[]; totalBytes: number } | UploadFailure {
   const rawFiles = form['files'];
-  const fileEntries = (Array.isArray(rawFiles) ? rawFiles : rawFiles ? [rawFiles] : []).filter(
-    (f): f is File => f instanceof File,
-  );
+  let rawFileList: unknown[] = [];
+  if (Array.isArray(rawFiles)) rawFileList = rawFiles;
+  else if (rawFiles) rawFileList = [rawFiles];
+  const fileEntries = rawFileList.filter((f): f is File => f instanceof File);
   if (fileEntries.length === 0) {
     return { ok: false, message: "At least one 'files' entry is required" };
   }
@@ -692,6 +693,7 @@ app.post('/:id/submit', zValidator('json', submitUserAppSchema), async (c) => {
 
   const now = new Date();
   const official = appRow.publisherType === 'weldsuite';
+  const notesPatch = body.notes ? { reviewNotes: body.notes } : {};
   const [row] = await masterDb
     .update(masterSchema.userApps)
     .set({
@@ -703,9 +705,7 @@ app.post('/:id/submit', zValidator('json', submitUserAppSchema), async (c) => {
             reviewedAt: now,
             reviewNotes: body.notes ?? appRow.reviewNotes,
           }
-        : body.notes
-          ? { reviewNotes: body.notes }
-          : {}),
+        : notesPatch),
       updatedAt: now,
     })
     .where(eq(masterSchema.userApps.id, appRow.id))

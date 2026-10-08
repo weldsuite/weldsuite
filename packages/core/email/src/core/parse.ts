@@ -16,18 +16,21 @@ export interface ParseRawOptions {
   metadata?: Record<string, unknown>;
 }
 
+function toBufferOrString(raw: ArrayBuffer | Uint8Array | string): ArrayBuffer | string {
+  if (typeof raw === 'string') return raw;
+  if (raw instanceof Uint8Array) {
+    return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+  }
+  return raw;
+}
+
 export async function parseRawEmail(
   raw: ArrayBuffer | Uint8Array | string,
   options: ParseRawOptions = {},
 ): Promise<ParsedInboundEmail> {
   const parser = new PostalMime();
   // postal-mime accepts ArrayBuffer/Uint8Array/string directly.
-  const input: ArrayBuffer | string =
-    typeof raw === 'string'
-      ? raw
-      : raw instanceof Uint8Array
-      ? raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer
-      : raw;
+  const input: ArrayBuffer | string = toBufferOrString(raw);
   const parsed = (await parser.parse(input)) as PostalEmail;
 
   const headers: Record<string, string> = {};
@@ -36,15 +39,17 @@ export async function parseRawEmail(
   }
 
   const attachments: ParsedAttachment[] = (parsed.attachments ?? []).map((att) => {
-    const content =
-      att.content instanceof ArrayBuffer
-        ? att.content
-        : typeof att.content === 'string'
-        ? new TextEncoder().encode(att.content).buffer
-        : (att.content as Uint8Array).buffer.slice(
-            (att.content as Uint8Array).byteOffset,
-            (att.content as Uint8Array).byteOffset + (att.content as Uint8Array).byteLength,
-          );
+    let content: ArrayBufferLike;
+    if (att.content instanceof ArrayBuffer) {
+      content = att.content;
+    } else if (typeof att.content === 'string') {
+      content = new TextEncoder().encode(att.content).buffer;
+    } else {
+      content = (att.content as Uint8Array).buffer.slice(
+        (att.content as Uint8Array).byteOffset,
+        (att.content as Uint8Array).byteOffset + (att.content as Uint8Array).byteLength,
+      );
+    }
     return {
       filename: att.filename ?? 'attachment',
       contentType: att.mimeType ?? 'application/octet-stream',
@@ -54,21 +59,14 @@ export async function parseRawEmail(
     };
   });
 
-  const size =
-    typeof raw === 'string'
-      ? new TextEncoder().encode(raw).byteLength
-      : raw instanceof Uint8Array
-      ? raw.byteLength
-      : (raw as ArrayBuffer).byteLength;
+  let size: number;
+  if (typeof raw === 'string') size = new TextEncoder().encode(raw).byteLength;
+  else if (raw instanceof Uint8Array) size = raw.byteLength;
+  else size = (raw as ArrayBuffer).byteLength;
 
   // ParsedInboundEmail.rawEmail is `ArrayBuffer | string | undefined` —
   // narrow Uint8Array inputs by extracting their backing buffer.
-  const rawEmail: ArrayBuffer | string =
-    typeof raw === 'string'
-      ? raw
-      : raw instanceof Uint8Array
-      ? raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer
-      : raw;
+  const rawEmail: ArrayBuffer | string = toBufferOrString(raw);
 
   return {
     messageId: parsed.messageId ?? cryptoRandomMessageId(),

@@ -77,12 +77,14 @@ function addAttachment(
   msg: ReturnType<typeof createMimeMessage>,
   att: EmailAttachment,
 ): void {
-  const data =
-    typeof att.content === 'string'
-      ? att.content
-      : att.content instanceof Uint8Array
-      ? bytesToBase64(att.content)
-      : bytesToBase64(new Uint8Array(att.content));
+  let data: string;
+  if (typeof att.content === 'string') {
+    data = att.content;
+  } else if (att.content instanceof Uint8Array) {
+    data = bytesToBase64(att.content);
+  } else {
+    data = bytesToBase64(new Uint8Array(att.content));
+  }
   const encoding = typeof att.content === 'string' ? undefined : 'base64';
   msg.addAttachment({
     filename: att.filename,

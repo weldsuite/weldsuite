@@ -223,21 +223,18 @@ function mapCheck(name: string, data: {
   renewPrice?: number;
   renewprice?: number;
 }): DomainCheckResult {
+  let renewalPriceCents: number | undefined;
+  if (typeof data.renewPrice === 'number') renewalPriceCents = data.renewPrice;
+  else if (typeof data.renewprice === 'number') renewalPriceCents = data.renewprice;
+  const fallbackReason = data.premium ? 'domain_premium' : 'domain_unavailable';
   return {
     name,
     available: Boolean(data.available),
     premium: Boolean(data.premium),
     priceCents: typeof data.price === 'number' ? data.price : undefined,
-    renewalPriceCents:
-      typeof data.renewPrice === 'number'
-        ? data.renewPrice
-        : typeof data.renewprice === 'number'
-          ? data.renewprice
-          : undefined,
+    renewalPriceCents,
     currency: data.currency,
-    reason: data.available
-      ? undefined
-      : (data.reason ?? (data.premium ? 'domain_premium' : 'domain_unavailable')),
+    reason: data.available ? undefined : (data.reason ?? fallbackReason),
   };
 }
 

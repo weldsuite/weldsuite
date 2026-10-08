@@ -75,14 +75,10 @@ function toDeployError(err: unknown, what: string): CloudflareDeployError {
       .filter(Boolean)
       .join('; ') || err.message;
 
-  const kind: CloudflareDeployError['kind'] =
-    err.status === 401 || err.status === 403
-      ? 'AUTH_FAILED'
-      : err.status === 404
-        ? 'NOT_FOUND'
-        : err.status === 429
-          ? 'RATE_LIMITED'
-          : 'UNKNOWN';
+  let kind: CloudflareDeployError['kind'] = 'UNKNOWN';
+  if (err.status === 401 || err.status === 403) kind = 'AUTH_FAILED';
+  else if (err.status === 404) kind = 'NOT_FOUND';
+  else if (err.status === 429) kind = 'RATE_LIMITED';
 
   return new CloudflareDeployError(kind, `${what}: ${detail}`, err.status);
 }

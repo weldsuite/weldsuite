@@ -100,6 +100,12 @@ function isDomainData(data: AdacEvent['data']): data is AdacDomainData {
   );
 }
 
+function unavailableReason(status: number): 'domain_unavailable' | 'check_failed' | 'unknown' {
+  if (status === ADAC_STATUS.TAKEN) return 'domain_unavailable';
+  if (status === ADAC_STATUS.ERROR) return 'check_failed';
+  return 'unknown';
+}
+
 /**
  * Map one ADAC event. Waiting (0) is skipped so a later status for the same
  * name can win. Error events are handled by the caller before mapping.
@@ -111,13 +117,7 @@ export function mapAdacEvent(event: AdacEvent): AdacMappedResult | null {
 
   const available = event.data.status === ADAC_STATUS.AVAILABLE;
   const premium = event.data.type === 'premium';
-  const reason = available
-    ? undefined
-    : event.data.status === ADAC_STATUS.TAKEN
-      ? 'domain_unavailable'
-      : event.data.status === ADAC_STATUS.ERROR
-        ? 'check_failed'
-        : 'unknown';
+  const reason = available ? undefined : unavailableReason(event.data.status);
 
   return {
     name: event.data.domain_name.toLowerCase(),

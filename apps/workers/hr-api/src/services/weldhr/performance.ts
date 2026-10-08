@@ -477,6 +477,10 @@ export async function ensureDefaultKpis(db: Database) {
   ]);
 }
 
+function isOnTarget(direction: string, value: number, target: number): boolean {
+  return direction === 'lower_better' ? value <= target : value >= target;
+}
+
 export async function listKpiValues(
   db: Database,
   filters: {
@@ -522,7 +526,7 @@ export async function listKpiValues(
     unit: r.unit,
     direction: r.direction,
     target: r.target,
-    onTarget: r.target === null ? null : r.direction === 'lower_better' ? r.value.value <= r.target : r.value.value >= r.target,
+    onTarget: r.target === null ? null : isOnTarget(r.direction, r.value.value, r.target),
   }));
 }
 

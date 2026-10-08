@@ -225,8 +225,10 @@ export async function listSnoozedMessages(
   return rows.map((m) => {
     // Column first; fall back to the legacy blob for the migration window.
     const cf = (m.customFields as SnoozeCustomFields | null) ?? {};
-    const toIso = (v: Date | string | null | undefined) =>
-      v == null ? null : v instanceof Date ? v.toISOString() : v;
+    const toIso = (v: Date | string | null | undefined) => {
+      if (v == null) return null;
+      return v instanceof Date ? v.toISOString() : v;
+    };
     return {
       id: m.id,
       accountId: m.accountId,

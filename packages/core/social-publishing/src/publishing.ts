@@ -471,13 +471,9 @@ function buildPlatformContent(
     // No result for this target means PostPeer accepted the post without
     // reporting on the channel — unknown, not delivered. Leave it pending for
     // the webhook rather than asserting an outcome we were never told.
-    const status: SocialPlatformContent['status'] = match
-      ? !match.success
-        ? 'failed'
-        : now
-          ? 'published'
-          : 'pending'
-      : 'pending';
+    let status: SocialPlatformContent['status'] = 'pending';
+    if (match && !match.success) status = 'failed';
+    else if (match && now) status = 'published';
 
     return {
       platform: target.platform,

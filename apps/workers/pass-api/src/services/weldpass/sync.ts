@@ -268,8 +268,7 @@ export async function pushToTarget(
 
     return { run, target: updatedTarget };
   } catch (err) {
-    const message =
-      err instanceof ProviderError ? err.message : err instanceof Error ? err.message : String(err);
+    const message = err instanceof ProviderError || err instanceof Error ? err.message : String(err);
 
     const run = await finishRun(db, runId, {
       status: 'failed',

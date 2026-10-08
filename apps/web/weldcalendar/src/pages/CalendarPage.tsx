@@ -25,6 +25,12 @@ function eventStart(event: CalendarEvent): Date {
   return new Date(event.startTime);
 }
 
+function eventTimeLabel(event: CalendarEvent): string {
+  if (event.allDay) return 'All day';
+  const end = event.endTime ? ` – ${format(new Date(event.endTime), 'HH:mm')}` : '';
+  return `${format(eventStart(event), 'HH:mm')}${end}`;
+}
+
 export function CalendarPage() {
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selected, setSelected] = useState(() => new Date());
@@ -269,13 +275,7 @@ export function CalendarPage() {
                   className="w-full rounded-md border border-border px-3 py-2 text-left hover:bg-muted"
                 >
                   <div className="text-sm font-medium">{event.title}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {event.allDay
-                      ? 'All day'
-                      : `${format(eventStart(event), 'HH:mm')}${
-                          event.endTime ? ` – ${format(new Date(event.endTime), 'HH:mm')}` : ''
-                        }`}
-                  </div>
+                  <div className="text-xs text-muted-foreground">{eventTimeLabel(event)}</div>
                 </button>
               ))
             )}

@@ -265,8 +265,9 @@ app.post('/ad-connections/:id/sync', async (c, next: Next) => {
   const { db, clerkOrgId } = resolved.ctx;
   const id = c.req.param('id');
   const scopeParam = c.req.query('scope');
-  const scope =
-    scopeParam === 'push' ? 'push' : scopeParam === 'pull' || scopeParam === 'metrics' ? 'pull' : 'full';
+  let scope: 'push' | 'pull' | 'full' = 'full';
+  if (scopeParam === 'push') scope = 'push';
+  else if (scopeParam === 'pull' || scopeParam === 'metrics') scope = 'pull';
 
   const [connection] = await db
     .select()

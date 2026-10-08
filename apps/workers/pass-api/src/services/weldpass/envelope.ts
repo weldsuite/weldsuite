@@ -83,7 +83,9 @@ function importAesKey(raw: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
 }
 
 function requireRootKey(keyring: RootKeyring, version: string): Uint8Array<ArrayBuffer> {
-  const hex = version === 'v2' ? keyring.v2 : version === 'v1' ? keyring.v1 : undefined;
+  let hex: string | undefined;
+  if (version === 'v2') hex = keyring.v2;
+  else if (version === 'v1') hex = keyring.v1;
   if (!hex) throw new EnvelopeError(`Root key "${version}" is not available to this worker`);
   if (hex.length !== 64) {
     throw new EnvelopeError(`Root key "${version}" must be 64 hex characters (32 bytes)`);

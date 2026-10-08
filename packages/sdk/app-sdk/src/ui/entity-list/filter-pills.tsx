@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Plus, X, Check, Search } from 'lucide-react';
 import { cn } from '../cn';
 import { Button } from '../button';
@@ -296,6 +296,21 @@ export function FilterPills({
 
   if (filterConfigs.length === 0) return null;
 
+  let addFilterTrigger: ReactNode = null;
+  if (filters.length > 0 && filters.length < maxFilters) {
+    addFilterTrigger = (
+      <button type="button" className="wui-elist-filter-add-icon" aria-label="Add filter">
+        <Plus className="wui-elist-icon wui-elist-icon--sm" />
+      </button>
+    );
+  } else if (filters.length === 0) {
+    addFilterTrigger = (
+      <Button variant="outline" className="wui-elist-filter-add-btn">
+        Filter
+      </Button>
+    );
+  }
+
   return (
     <div className="wui-elist-filters">
       {filters.map((filter, index) => {
@@ -405,17 +420,7 @@ export function FilterPills({
       })}
 
       <Popover open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
-        <PopoverTrigger asChild>
-          {filters.length > 0 && filters.length < maxFilters ? (
-            <button type="button" className="wui-elist-filter-add-icon" aria-label="Add filter">
-              <Plus className="wui-elist-icon wui-elist-icon--sm" />
-            </button>
-          ) : filters.length === 0 ? (
-            <Button variant="outline" className="wui-elist-filter-add-btn">
-              Filter
-            </Button>
-          ) : null}
-        </PopoverTrigger>
+        <PopoverTrigger asChild>{addFilterTrigger}</PopoverTrigger>
         <PopoverContent
           align="start"
           className="wui-elist-filter-popover wui-elist-filter-popover--wizard"

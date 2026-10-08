@@ -393,6 +393,9 @@ export async function retryFailedWebhookDeliveries(
     const exhausted = nextAttemptNumber >= maxRetries;
     const backoffMs = RETRY_BASE_DELAY_MS * 2 ** (nextAttemptNumber - 1);
     const retryNow = new Date();
+    let deliveryStatus: 'delivered' | 'failed' | 'retrying' = 'retrying';
+    if (attempt.ok) deliveryStatus = 'delivered';
+    else if (exhausted) deliveryStatus = 'failed';
 
     await db.insert(webhookDeliveries).values({
       id: generateDeliveryId(),
@@ -400,7 +403,7 @@ export async function retryFailedWebhookDeliveries(
       eventType: delivery.eventType,
       eventId: delivery.eventId,
       payload: delivery.payload,
-      status: attempt.ok ? 'delivered' : exhausted ? 'failed' : 'retrying',
+      status: deliveryStatus,
       responseStatus: attempt.status,
       responseBody: attempt.body,
       responseTimeMs: attempt.durationMs,

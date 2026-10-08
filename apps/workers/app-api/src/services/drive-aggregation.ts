@@ -148,12 +148,18 @@ function normalizeProjectFiles(rows: (typeof schema.projectFiles.$inferSelect)[]
   }));
 }
 
+function projectDocumentMimeType(contentType: string): string {
+  if (contentType === 'html') return 'text/html';
+  if (contentType === 'markdown') return 'text/markdown';
+  return 'application/json';
+}
+
 function normalizeProjectDocuments(rows: (typeof schema.projectDocuments.$inferSelect)[]): UnifiedFile[] {
   return rows.map((r) => ({
     id: r.id,
     name: r.title || 'Untitled Document',
     fileType: 'rich-document',
-    mimeType: r.contentType === 'html' ? 'text/html' : r.contentType === 'markdown' ? 'text/markdown' : 'application/json',
+    mimeType: projectDocumentMimeType(r.contentType),
     fileSize: null,
     url: null,
     thumbnailUrl: r.coverImage || null,

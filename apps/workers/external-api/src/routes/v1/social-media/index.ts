@@ -93,12 +93,9 @@ app.post('/', requireScope('social_posts:write'), zValidator('json', createSocia
     (typeof body.mimeType === 'string' && body.mimeType) ||
     (typeof body.contentType === 'string' && body.contentType) ||
     guessMime(fileName, mediaType);
-  const fileSize =
-    typeof body.fileSize === 'number'
-      ? body.fileSize
-      : typeof body.size === 'number'
-        ? body.size
-        : 0;
+  let fileSize = 0;
+  if (typeof body.fileSize === 'number') fileSize = body.fileSize;
+  else if (typeof body.size === 'number') fileSize = body.size;
   const storagePath =
     (typeof body.storagePath === 'string' && body.storagePath) ||
     (url ? `url:${url}` : `social-media/${id}/${fileName}`);
