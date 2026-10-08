@@ -200,7 +200,7 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('bills',         'Bills'),
   objectPermissions('journal',       'Journal Entries',      ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('accounts',      'Accounts',             ['read', 'create', 'update', 'delete', 'manage']),
-  objectPermissions('banking',       'Banking',              ['read', 'create', 'update', 'manage']),
+  objectPermissions('banking',       'Banking',              ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('reports',       'Reports',              ['read', 'manage']),
   // Sales tax agencies, rates, returns, exemption certificates and 1099s.
   {
