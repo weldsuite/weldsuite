@@ -446,6 +446,26 @@ describe('cancelExecution', () => {
     expect(row.completedAt).toBeInstanceOf(Date);
   });
 
+  it('settles in-flight steps to cancelled and leaves finished steps alone', async () => {
+    const wf = await seedWorkflow();
+    const id = await seedRun(wf, { status: 'running' });
+    const stepBase = { executionId: id, stepType: 'send_email' };
+    await db.insert(schema.workflowExecutionSteps).values([
+      { ...stepBase, id: `${id}_s1`, stepId: 's1', stepIndex: 1, status: 'completed' },
+      { ...stepBase, id: `${id}_s2`, stepId: 's2', stepIndex: 2, status: 'running' },
+      { ...stepBase, id: `${id}_s3`, stepId: 's3', stepIndex: 3, status: 'pending' },
+    ]);
+
+    expect((await cancelExecution(db, id)).kind).toBe('cancelled');
+
+    const steps = await db
+      .select()
+      .from(schema.workflowExecutionSteps)
+      .where(eq(schema.workflowExecutionSteps.executionId, id));
+    const byId = Object.fromEntries(steps.map((s) => [s.stepId, s.status]));
+    expect(byId).toEqual({ s1: 'completed', s2: 'cancelled', s3: 'cancelled' });
+  });
+
   it('cancels a run waiting for input', async () => {
     const wf = await seedWorkflow();
     const id = await seedRun(wf, { status: 'waiting_for_input' });

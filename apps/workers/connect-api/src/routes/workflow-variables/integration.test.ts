@@ -117,3 +117,34 @@ describe('PUT /api/workflow-variables/:id', () => {
     expect(ok.status).toBe(200);
   });
 });
+
+describe('case-insensitive names', () => {
+  it('refuses a create whose name differs only in case', async () => {
+    expect((await create({ name: 'e2e_base_url', value: 'x', isGlobal: true })).status).toBe(201);
+    const res = await create({ name: 'E2E_BASE_URL', value: 'y', isGlobal: true });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toBe('A variable named "E2E_BASE_URL" already exists');
+  });
+
+  it('applies the case-insensitive check across global and workflow scope', async () => {
+    expect((await create({ name: 'Region', value: 'us', isGlobal: true })).status).toBe(409);
+    expect((await create({ name: 'E2E_Base_Url', value: 'x', scope: 'workflow', workflowId: 'wf_vars' })).status).toBe(409);
+  });
+
+  it('refuses a rename that only differs in case from another variable', async () => {
+    const res = await create({ name: 'case_rename', value: 'x', isGlobal: true });
+    const { data } = (await res.json()) as { data: { id: string } };
+    const clash = await app()(`/api/workflow-variables/${data.id}`, send('PUT', { name: 'E2E_BASE_URL' }));
+    expect(clash.status).toBe(409);
+  });
+
+  it('lets a variable change only the case of its own name', async () => {
+    const res = await create({ name: 'own_case', value: 'x', isGlobal: true });
+    const { data } = (await res.json()) as { data: { id: string } };
+    const ok = await app()(`/api/workflow-variables/${data.id}`, send('PUT', { name: 'OWN_CASE' }));
+    expect(ok.status).toBe(200);
+    const [row] = await db.select().from(schema.workflowVariables).where(eq(schema.workflowVariables.id, data.id));
+    expect(row.name).toBe('OWN_CASE');
+  });
+});

@@ -26,7 +26,14 @@ import { isApiError } from '@weldsuite/api-client';
 import { useCreateVariable, useUpdateVariable } from '@/hooks/queries/use-automation-queries';
 import { RefreshCw, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import type { Variable } from './variables-client';
-import { buildVariableCreateBody, buildVariableUpdateBody, getVariableFormError } from '../variable-form';
+import {
+  buildVariableCreateBody,
+  buildVariableUpdateBody,
+  getVariableFormErrors,
+  variableValueToFormText,
+  type VariableFormErrors,
+  type VariableFormInitial,
+} from '../variable-form';
 import { useVariableWorkflows } from '../use-variable-workflows';
 
 interface VariableDialogProps {
@@ -41,6 +48,17 @@ type VariablesTranslations = ReturnType<typeof useI18n>['t']['weldconnect']['var
 /** 409 from the API: a run of these workflows would already see that name. */
 function isNameTakenError(err: unknown): boolean {
   return isApiError(err) && err.status === 409;
+}
+
+/** Inline error under a form field; `id` is what the field's aria-describedby points at. */
+function FieldError({ id, message }: Readonly<{ id: string; message?: string }>) {
+  if (!message) return null;
+  return (
+    <p id={id} role="alert" className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+      <AlertCircle className="h-3 w-3 shrink-0" />
+      {message}
+    </p>
+  );
 }
 
 function VisibilityIcon({ shown }: Readonly<{ shown: boolean }>) {
@@ -87,12 +105,31 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
   const [scope, setScope] = useState('global');
   const [workflowId, setWorkflowId] = useState('');
   const [isSecret, setIsSecret] = useState(false);
+  const [errors, setErrors] = useState<VariableFormErrors>({});
+  // Editing a secret: its stored value is never shown, so a blank field keeps it.
+  const keepsStoredValue = mode === 'edit' && !!variable?.isSecret;
+
+  // What the edit dialog opened with: the update sends only the differences.
+  const initial: VariableFormInitial | undefined =
+    variable && mode === 'edit'
+      ? {
+          name: variable.name,
+          value: variableValueToFormText(variable.value, variable.isSecret),
+          description: variable.description ?? '',
+          isSecret: variable.isSecret,
+        }
+      : undefined;
+
+  const clearError = (field: keyof VariableFormErrors) =>
+    setErrors((prev) => (prev[field] || prev.form ? { ...prev, [field]: undefined, form: undefined } : prev));
 
   // Initialize form when variable changes (edit mode)
   useEffect(() => {
+    setErrors({});
     if (variable && mode === 'edit') {
       setName(variable.name || '');
-      setValue(''); // Don't pre-fill value for security
+      // A secret's value is write-only; everything else is shown for editing.
+      setValue(variableValueToFormText(variable.value, variable.isSecret));
       setDescription(variable.description || '');
       setScope(variable.scope || 'global');
       setWorkflowId(variable.workflowId || '');
@@ -123,21 +160,23 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
     e.preventDefault();
 
     const form = { name, value, confirmValue, description, isSecret, scope, workflowId };
-    const validationError = getVariableFormError(mode, form, t.weldconnect.variables.toastsDialog);
-    if (validationError !== null) {
-      toast.error(validationError);
-      return;
-    }
+    const formErrors = getVariableFormErrors(mode, form, t.weldconnect.variables.toastsDialog, initial);
+    setErrors(formErrors);
+    if (Object.values(formErrors).some(Boolean)) return;
 
-    if (mode === 'edit' && variable) {
+    if (mode === 'edit' && variable && initial) {
       // Update existing variable
-      updateVariableMutation.mutate({ id: variable.id, data: buildVariableUpdateBody(value, description) }, {
+      updateVariableMutation.mutate({ id: variable.id, data: buildVariableUpdateBody(form, initial) }, {
         onSuccess: () => {
           toast.success(t.weldconnect.variables.toastsDialog.updated);
           onOpenChange(false);
         },
-        onError: () => {
-          toast.error(t.weldconnect.variables.toastsDialog.updateFailed);
+        onError: (err) => {
+          if (isNameTakenError(err)) {
+            setErrors({ name: t.weldconnect.variables.toastsDialog.nameTaken });
+          } else {
+            toast.error(t.weldconnect.variables.toastsDialog.updateFailed);
+          }
         },
       });
     } else {
@@ -154,11 +193,11 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
           resetForm();
         },
         onError: (err) => {
-          toast.error(
-            isNameTakenError(err)
-              ? t.weldconnect.variables.toastsDialog.nameTaken
-              : t.weldconnect.variables.toastsDialog.createFailed.replace('{type}', entityType),
-          );
+          if (isNameTakenError(err)) {
+            setErrors({ name: t.weldconnect.variables.toastsDialog.nameTaken });
+          } else {
+            toast.error(t.weldconnect.variables.toastsDialog.createFailed.replace('{type}', entityType));
+          }
         },
       });
     }
@@ -181,25 +220,34 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-4">
-          {/* Name (Create mode only) */}
-          {mode === 'create' && (
-            <div className="space-y-2">
-              <Label htmlFor="name">
-                {t.weldconnect.variables.dialog.nameLabel} <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="name"
-                placeholder={t.weldconnect.variables.dialog.namePlaceholder}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                disabled={isPending}
-                className="font-mono"
-              />
+          {/* Name */}
+          <div className="space-y-2">
+            <Label htmlFor="name">
+              {t.weldconnect.variables.dialog.nameLabel} <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="name"
+              placeholder={t.weldconnect.variables.dialog.namePlaceholder}
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearError('name');
+              }}
+              disabled={isPending}
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? 'name-error' : undefined}
+              className="font-mono"
+            />
+            <FieldError id="name-error" message={errors.name} />
+            <p className="text-xs text-muted-foreground">
+              {t.weldconnect.variables.dialog.nameHint}
+            </p>
+            {mode === 'edit' && (
               <p className="text-xs text-muted-foreground">
-                {t.weldconnect.variables.dialog.nameHint}
+                {t.weldconnect.variables.dialog.renameHint}
               </p>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Scope (Create mode only) */}
           {mode === 'create' && (
@@ -239,8 +287,19 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
               <Label htmlFor="workflowId">
                 {t.weldconnect.variables.dialog.workflowIdLabel} <span className="text-red-500">*</span>
               </Label>
-              <Select value={workflowId} onValueChange={setWorkflowId} disabled={isPending}>
-                <SelectTrigger id="workflowId">
+              <Select
+                value={workflowId}
+                onValueChange={(next) => {
+                  setWorkflowId(next);
+                  clearError('workflowId');
+                }}
+                disabled={isPending}
+              >
+                <SelectTrigger
+                  id="workflowId"
+                  aria-invalid={!!errors.workflowId}
+                  aria-describedby={errors.workflowId ? 'workflowId-error' : undefined}
+                >
                   <SelectValue placeholder={t.weldconnect.variables.dialog.workflowIdPlaceholder} />
                 </SelectTrigger>
                 <SelectContent>
@@ -251,6 +310,7 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
                   ))}
                 </SelectContent>
               </Select>
+              <FieldError id="workflowId-error" message={errors.workflowId} />
               <p className="text-xs text-muted-foreground">
                 {t.weldconnect.variables.dialog.workflowIdHint}
               </p>
@@ -278,17 +338,22 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
           {/* Value */}
           <div className="space-y-2">
             <Label htmlFor="value">
-              {mode === 'edit' ? t.weldconnect.variables.dialog.newValueLabel : t.weldconnect.variables.dialog.valueLabel}{' '}
-              {mode === 'create' && <span className="text-red-500">*</span>}
+              {keepsStoredValue ? t.weldconnect.variables.dialog.newValueLabel : t.weldconnect.variables.dialog.valueLabel}{' '}
+              {!keepsStoredValue && <span className="text-red-500">*</span>}
             </Label>
             <div className="relative">
               <Input
                 id="value"
                 type={isSecret && !showValue ? 'password' : 'text'}
-                placeholder={mode === 'edit' ? t.weldconnect.variables.dialog.valueEditPlaceholder : t.weldconnect.variables.dialog.valuePlaceholder}
+                placeholder={keepsStoredValue ? t.weldconnect.variables.dialog.valueEditPlaceholder : t.weldconnect.variables.dialog.valuePlaceholder}
                 value={value}
-                onChange={(e) => setValue(e.target.value)}
+                onChange={(e) => {
+                  setValue(e.target.value);
+                  clearError('value');
+                }}
                 disabled={isPending}
+                aria-invalid={!!errors.value}
+                aria-describedby={errors.value ? 'value-error' : undefined}
                 className="font-mono pr-10"
               />
               {isSecret && (
@@ -304,7 +369,8 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
                 </Button>
               )}
             </div>
-            {mode === 'edit' && (
+            <FieldError id="value-error" message={errors.value} />
+            {keepsStoredValue && (
               <p className="text-xs text-muted-foreground">
                 {t.weldconnect.variables.dialog.valueHint}
               </p>
@@ -323,8 +389,13 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
                   type={showConfirmValue ? 'text' : 'password'}
                   placeholder={t.weldconnect.variables.dialog.confirmValuePlaceholder}
                   value={confirmValue}
-                  onChange={(e) => setConfirmValue(e.target.value)}
+                  onChange={(e) => {
+                    setConfirmValue(e.target.value);
+                    clearError('confirmValue');
+                  }}
                   disabled={isPending}
+                  aria-invalid={!!errors.confirmValue}
+                  aria-describedby={errors.confirmValue ? 'confirmValue-error' : undefined}
                   className="font-mono pr-10"
                 />
                 <Button
@@ -338,12 +409,13 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
                   <VisibilityIcon shown={showConfirmValue} />
                 </Button>
               </div>
-              {value && confirmValue && value !== confirmValue && (
-                <div className="flex items-center gap-2 text-xs text-red-600">
-                  <AlertCircle className="h-3 w-3" />
-                  {t.weldconnect.variables.dialog.valuesMismatch}
-                </div>
-              )}
+              <FieldError
+                id="confirmValue-error"
+                message={
+                  errors.confirmValue ??
+                  (value && confirmValue && value !== confirmValue ? t.weldconnect.variables.dialog.valuesMismatch : undefined)
+                }
+              />
             </div>
           )}
 
@@ -359,6 +431,8 @@ export function VariableDialog({ open, onOpenChange, variable, mode = 'create' }
               rows={3}
             />
           </div>
+
+          <FieldError id="form-error" message={errors.form} />
 
           {/* Info box for edit mode */}
           {mode === 'edit' && variable?.isSecret && (

@@ -27,6 +27,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import * as templates from '../../services/workflow-templates';
 import { scheduleSyncFor, webhookSyncFor } from '../workflows/index';
 import { syncWorkflowPollIndex } from '../../lib/tenant-work-index';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -42,7 +43,7 @@ app.get('/', requirePermission('workflow-templates:read'), async (c) => {
       source: q.source,
       locale: q.locale,
       cursor: q.cursor,
-      limit: q.limit ? parseInt(q.limit, 10) : 25,
+      limit: parseLimit(q.limit, 25, 100),
     });
     return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
   } catch (err) {

@@ -59,6 +59,7 @@ import {
   setConnectorIndexEnabled,
   upsertConnectorIndexFromRow,
 } from '@weldsuite/connect-domain/connector-sync-index';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -504,7 +505,7 @@ app.get('/connections/:id/runs', requirePermission('integrations:read'), async (
   const db = c.get('tenantDb');
   const row = await getConnectionById(db, c.req.param('id'));
   if (!row) return error.notFound(c, 'Connection', c.req.param('id'));
-  const limit = Math.min(Number(c.req.query('limit') ?? 25) || 25, 100);
+  const limit = parseLimit(c.req.query('limit'), 25, 100);
   const runs = await listSyncRuns(db, row.id, limit);
   return success(c, runs);
 });
@@ -513,7 +514,7 @@ app.get('/connections/:id/records', requirePermission('integrations:read'), asyn
   const db = c.get('tenantDb');
   const row = await getConnectionById(db, c.req.param('id'));
   if (!row) return error.notFound(c, 'Connection', c.req.param('id'));
-  const limit = Math.min(Number(c.req.query('limit') ?? 50) || 50, 100);
+  const limit = parseLimit(c.req.query('limit'), 50, 100);
   const records = await listConnectionRecords(db, row.id, limit);
   return success(c, records);
 });

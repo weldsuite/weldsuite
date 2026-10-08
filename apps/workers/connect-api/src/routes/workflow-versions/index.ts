@@ -21,6 +21,7 @@ import * as versions from '../../services/workflow-versions';
 import * as workflowsService from '../../services/workflows';
 import { rejectUnsupportedActivation, scheduleSyncFor, webhookSyncFor } from '../workflows';
 import { syncWorkflowPollIndex } from '../../lib/tenant-work-index';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -31,7 +32,7 @@ app.get('/', requirePermission('workflows:read'), async (c) => {
     const result = await versions.listWorkflowVersions(db, {
       workflowId: q.workflowId,
       cursor: q.cursor,
-      limit: q.limit ? parseInt(q.limit, 10) : 25,
+      limit: parseLimit(q.limit, 25, 100),
     });
     return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
   } catch (err) {

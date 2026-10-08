@@ -20,6 +20,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import * as schedules from '../../services/workflow-schedules';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -31,7 +32,7 @@ app.get('/', requirePermission('workflows:read'), async (c) => {
       workflowId: q.workflowId,
       isEnabled: q.isEnabled !== undefined ? q.isEnabled === 'true' : undefined,
       cursor: q.cursor,
-      limit: q.limit ? parseInt(q.limit, 10) : 25,
+      limit: parseLimit(q.limit, 25, 100),
     });
     return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
   } catch (err) {
