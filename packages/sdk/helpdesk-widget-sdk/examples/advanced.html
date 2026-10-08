@@ -161,7 +161,8 @@
     }
 
     .note {
-      background: #f59e0b20;
+      /* #f59e0b at 12% over the #1e293b card, as a solid colour. */
+      background: #3a3835;
       border-left: 4px solid #f59e0b;
       padding: 16px;
       margin-bottom: 20px;
@@ -232,8 +233,7 @@
   <!-- Load the Helpdesk Widget SDK from local build -->
   <script src="../dist/index.umd.js"></script>
 
-  <!-- OR use this for production from unpkg -->
-  <!-- <script src="https://unpkg.com/helpdesk-widget@latest/dist/index.umd.js"></script> -->
+  <!-- In production, point the script src at dist/index.umd.js on unpkg instead. -->
 
   <script>
     let widget = null;

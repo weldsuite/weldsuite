@@ -132,8 +132,6 @@ test.describe('WeldDrive · trash actions', () => {
     });
 
     await emptyTrashBtn.click();
-    // Give the event loop a tick to process the dialog event.
-    await page.waitForTimeout(500);
-    expect(dialogFired).toBe(true);
+    await expect.poll(() => dialogFired).toBe(true);
   });
 });

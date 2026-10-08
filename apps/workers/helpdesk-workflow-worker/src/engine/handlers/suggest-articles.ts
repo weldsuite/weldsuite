@@ -1,4 +1,5 @@
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, ilike, or } from 'drizzle-orm';
+import { escapeLikeTerm } from '@weldsuite/db/lib/custom-objects';
 import { schema } from '../../db';
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { asText } from '@weldsuite/text';
@@ -7,8 +8,13 @@ export const suggestArticlesHandler: StepHandler = {
   type: 'suggest_articles',
 
   async execute(ctx: StepContext): Promise<StepResult> {
-    const query = asText(ctx.inputs.query || ctx.inputs.searchTerm || '');
+    const query = asText(ctx.inputs.query || ctx.inputs.searchTerm || '').trim();
     const limit = Number(ctx.inputs.limit || 3);
+    // With a search term, only articles whose title or excerpt mention it.
+    const pattern = `%${escapeLikeTerm(query)}%`;
+    const matchesQuery = query
+      ? or(ilike(schema.helpdeskArticles.title, pattern), ilike(schema.helpdeskArticles.excerpt, pattern))
+      : undefined;
 
     try {
       const articles = await ctx.options.db
@@ -23,6 +29,7 @@ export const suggestArticlesHandler: StepHandler = {
           and(
             eq(schema.helpdeskArticles.status, 'published'),
             isNull(schema.helpdeskArticles.deletedAt),
+            matchesQuery,
           ),
         )
         .limit(limit);
