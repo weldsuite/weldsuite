@@ -25,7 +25,9 @@ import { SectionCard, DetailRow, IconTile } from '@/components/detail';
 import { RecordRow } from '@/components/record-row';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge, BillStatusBadge } from '@/components/status-badge';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { addressLines } from '@/lib/us';
 import type { Bill, Contact, ContactBalance, Invoice } from '@/types/accounting';
 
 function BalanceCard({
@@ -56,19 +58,63 @@ function BalanceCard({
 
 function ContactInfoCard({ contact }: Readonly<{ contact: Contact }>) {
   const { t } = useI18n();
+  const { isUs, labels } = useJurisdiction();
+  const billing = addressLines(contact.billingAddress);
+  const shipping = addressLines(contact.shippingAddress);
+
   // The card only appears when a primary field is present (a city alone doesn't qualify).
-  if (!contact.email && !contact.phone && !contact.vatNumber) return null;
+  if (!contact.email && !contact.phone && !contact.vatNumber && billing.length === 0) return null;
+
   const fields: { label: string; value: string | undefined }[] = [
     { label: t.contactDetail.email, value: contact.email },
     { label: t.contactDetail.phone, value: contact.phone },
-    { label: t.contactDetail.vatNumber, value: contact.vatNumber },
-    { label: t.contactDetail.city, value: contact.city },
+    { label: labels.taxId, value: contact.vatNumber },
+    // US contacts show the whole address; elsewhere the city is all the list needs.
+    ...(isUs
+      ? [
+          { label: t.contactDetail.billingAddress, value: billing.join('\n') || undefined },
+          {
+            label: t.contactDetail.shippingAddress,
+            value: shipping.length > 0 && shipping.join() !== billing.join() ? shipping.join('\n') : undefined,
+          },
+        ]
+      : [{ label: t.contactDetail.city, value: contact.city }]),
   ];
   return (
     <SectionCard title={t.contactDetail.details}>
       {fields.map((field) =>
         field.value ? <DetailRow key={field.label} label={field.label} value={field.value} /> : null,
       )}
+    </SectionCard>
+  );
+}
+
+/**
+ * US: whether the contact gets a 1099 and which taxpayer ID is on file (last
+ * four digits only). Read-only — a TIN is entered and changed on the web, never
+ * on a phone.
+ */
+function TaxReportingCard({ contact }: Readonly<{ contact: Contact }>) {
+  const { colors } = useTheme();
+  const { t, format } = useI18n();
+  const { isUs } = useJurisdiction();
+  if (!isUs || (!contact.is1099Vendor && !contact.tinLast4)) return null;
+
+  return (
+    <SectionCard title={t.contactDetail.taxReporting}>
+      {contact.is1099Vendor ? (
+        <DetailRow label={t.contactDetail.vendor1099} value={t.contactDetail.yes} />
+      ) : null}
+      {contact.tinLast4 ? (
+        <DetailRow
+          label={t.contactDetail.taxpayerId}
+          value={format(t.contactDetail.tinOnFile, {
+            type: contact.tinType ? t.contactDetail.tinTypes[contact.tinType] : '',
+            last4: contact.tinLast4,
+          }).trim()}
+        />
+      ) : null}
+      <Text style={[styles.taxHint, { color: colors.mutedForeground }]}>{t.contactDetail.taxIdsOnWeb}</Text>
     </SectionCard>
   );
 }
@@ -169,12 +215,14 @@ export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, format } = useI18n();
+  const { labels, terms } = useJurisdiction();
+  const { currency: entityCurrency } = useLocaleFormatters();
 
   const ROLE_LABELS: Record<string, string> = {
     customer: t.contacts.customer,
-    supplier: t.contacts.supplier,
-    both: t.contacts.both,
+    supplier: labels.supplier,
+    both: format(t.contacts.both, terms),
   };
 
   const [contact, setContact] = useState<Contact | null>(null);
@@ -263,7 +311,7 @@ export default function ContactDetailScreen() {
     );
   }
 
-  const currency = balance?.currency ?? 'EUR';
+  const currency = balance?.currency ?? entityCurrency;
 
   return (
     <Screen header={header}>
@@ -299,6 +347,7 @@ export default function ContactDetailScreen() {
 
         <BalanceCard balance={balance} currency={currency} />
         <ContactInfoCard contact={contact} />
+        <TaxReportingCard contact={contact} />
         <RelatedInvoices invoices={invoices} currency={currency} onOpen={open} />
         <RelatedBills bills={bills} currency={currency} onOpen={open} />
       </ScrollView>
@@ -326,5 +375,6 @@ const styles = StyleSheet.create({
   profileText: { flex: 1 },
   profileName: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
   profileBadge: { alignSelf: 'flex-start', marginTop: 6 },
+  taxHint: { fontSize: 12, lineHeight: 17, marginTop: 8 },
   related: { padding: 12, paddingTop: 4, gap: 8 },
 });

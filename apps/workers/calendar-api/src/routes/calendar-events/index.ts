@@ -38,6 +38,8 @@ import { z } from 'zod';
 import { and, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { nextAutoScheduledReplanAt } from '@weldsuite/db/lib/calendar-sync';
+import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -1006,6 +1008,10 @@ app.post('/:id/unpin', requirePermission('events:update'), async (c) => {
     if (!accessible.includes(existing.calendarId)) return error.notFound(c, 'Calendar event', id);
 
     await unpinEvent(db, existing);
+    // Back under the auto-scheduler: point the nightly re-plan at it (D1 due index).
+    await syncWorkspaceDue(c.env.SCHEDULE_INDEX, 'calendar_replan', c.get('workspaceId'), () =>
+      nextAutoScheduledReplanAt(db),
+    );
 
     return success(c, { id, autoScheduled: true });
   } catch (err) {

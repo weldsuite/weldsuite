@@ -1,7 +1,8 @@
 # Integration Sync Scheduler Worker
 #
-# Every 15 minutes: D1 connector catch-up + D1 CRM due-index + master WeldAds
-# due rows. Quiet ticks never open tenant Neon for due-ness checks.
+# Every 15 minutes: D1 connector catch-up + D1 CRM due-index + master WeldBooks
+# bank feed due rows + master WeldAds due rows. Quiet ticks never open tenant
+# Neon for due-ness checks.
 # Manual sync via app-api is unaffected.
 
 name = "integration-sync-scheduler"
@@ -30,6 +31,16 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 binding = "CONNECT_INTERNAL"
 service = "weldsuite-connect-api-test"
 entrypoint = "ConnectInternal"
+remote = true
+
+# books-api's BooksInternal entrypoint: the bank feed due sweep (master
+# bank_feed_connection_index) calls /internal/bank-connections/:id/sync over it. Named
+# entrypoint = reachable only over the binding, so no secret. Deploy order: books-api
+# must have the entrypoint first.
+[[services]]
+binding = "BOOKS_INTERNAL"
+service = "weldsuite-books-api-test"
+entrypoint = "BooksInternal"
 remote = true
 
 # app-api service binding — FALLBACK to the same routes through app-api's forwarder,
@@ -66,6 +77,11 @@ service = "weldsuite-connect-api-test"
 entrypoint = "ConnectInternal"
 
 [[env.test.services]]
+binding = "BOOKS_INTERNAL"
+service = "weldsuite-books-api-test"
+entrypoint = "BooksInternal"
+
+[[env.test.services]]
 binding = "APP_API"
 service = "weldsuite-app-api-test"
 
@@ -99,6 +115,12 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 binding = "CONNECT_INTERNAL"
 service = "weldsuite-connect-api"
 entrypoint = "ConnectInternal"
+
+# books-api's [env.production] name is "weldsuite-books-api" (no "-production" suffix).
+[[env.production.services]]
+binding = "BOOKS_INTERNAL"
+service = "weldsuite-books-api"
+entrypoint = "BooksInternal"
 
 # app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
 [[env.production.services]]

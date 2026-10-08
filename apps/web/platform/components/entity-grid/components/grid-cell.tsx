@@ -52,8 +52,21 @@ const CellWrapper: React.FC<{
   isEditing?: boolean;
 }> = ({ children, onClick, isFirstColumn, compact, isEditing }) => (
   <div
+    role={onClick ? 'button' : undefined}
+    tabIndex={onClick ? 0 : undefined}
     onClick={onClick}
-    className="group/cell"
+    onKeyDown={
+      onClick
+        ? (e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onClick();
+            }
+          }
+        : undefined
+    }
+    className="group/cell focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
     style={{
       height: compact ? '21px' : '40px',
       width: '100%',

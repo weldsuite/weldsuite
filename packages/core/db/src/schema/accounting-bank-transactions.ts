@@ -6,7 +6,9 @@ import {
   text,
   jsonb,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const bankTransactions = pgTable('bank_transactions', {
   id: varchar('id', { length: 30 }).primaryKey(),
@@ -42,7 +44,25 @@ export const bankTransactions = pgTable('bank_transactions', {
   contactId: varchar('contact_id', { length: 30 }),
   notes: text('notes'),
   rawData: jsonb('raw_data').$type<Record<string, unknown>>(),
+
+  /** import | feed | manual */
+  source: varchar('source', { length: 10 }),
+  feedProvider: varchar('feed_provider', { length: 30 }),
+  /** The aggregator's transaction id; unique per bank account and provider. */
+  providerTransactionId: varchar('provider_transaction_id', { length: 255 }),
+  checkNumber: varchar('check_number', { length: 30 }),
+  merchantName: varchar('merchant_name', { length: 255 }),
+  feedCategory: jsonb('feed_category').$type<Record<string, unknown>>(),
+  /** Date + amount + normalized description, to flag likely duplicates after a relink or provider switch. */
+  fingerprint: varchar('fingerprint', { length: 64 }),
+  possibleDuplicateOfId: varchar('possible_duplicate_of_id', { length: 30 }),
+  /** Matched to a bank deposit (several received payments in one line). */
+  depositId: varchar('deposit_id', { length: 30 }),
 }, (table) => [
+  uniqueIndex('acct_bank_txn_provider_uidx')
+    .on(table.bankAccountId, table.feedProvider, table.providerTransactionId)
+    .where(sql`${table.providerTransactionId} is not null`),
+  index('acct_bank_txn_fingerprint_idx').on(table.fingerprint),
   index('acct_bank_txn_entity_idx').on(table.entityId),
   index('acct_bank_txn_bank_account_idx').on(table.bankAccountId),
   index('acct_bank_txn_date_idx').on(table.date),

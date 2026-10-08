@@ -47,8 +47,6 @@ import {
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
-import { useQuery } from '@tanstack/react-query';
-import { weldchatEntityApi } from '@/lib/api/domains/weldchat-entity';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
@@ -196,12 +194,21 @@ function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: 
   return (
     <div
       ref={editorRef}
+      role={isEditing ? 'textbox' : 'button'}
+      tabIndex={isEditing ? undefined : 0}
       contentEditable={isEditing}
       suppressContentEditableWarning
       onClick={() => { if (!isEditing) setIsEditing(true); }}
       onBlur={commit}
       onKeyDown={(e) => {
-        if (!isEditing) return;
+        if (!isEditing) {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsEditing(true);
+          }
+          return;
+        }
         if (e.key === 'Enter') {
           e.preventDefault();
           (e.target as HTMLDivElement).blur();
@@ -643,19 +650,6 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   // persisted-collapsed state can leave the chat invisible on first open.
   const chatSidebar = <TaskChat taskId={id} taskTitle={task?.title} />;
 
-  // The chat channel is created lazily on the first sent message, so
-  // "channel exists" === "there is at least one message". Reads from the same
-  // cached query EntityChat runs internally (same key), so it adds no extra
-  // request. Used to hide the resize-handle line above the composer until a
-  // conversation actually exists.
-  const taskChannel = useQuery({
-    queryKey: ['entity-channel', 'task', id],
-    queryFn: () => weldchatEntityApi.getEntityChannel('task', id),
-    enabled: !!id,
-    retry: false,
-  });
-  const hasMessages = !!taskChannel.data;
-
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
@@ -677,7 +671,6 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
-      sidebarShowResizeHandle={hasMessages}
       sidebarDefaultSize={mode === 'panel' ? 320 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}

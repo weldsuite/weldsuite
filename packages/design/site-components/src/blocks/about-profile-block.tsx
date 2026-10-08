@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
 
@@ -17,8 +16,6 @@ interface AboutProfileBlockProps {
   cardBackgroundColor?: string;
   cardTextColor?: string;
   className?: string;
-  mode?: 'live' | 'edit';
-  store?: StoreData;
 }
 
 export function AboutProfileBlock({

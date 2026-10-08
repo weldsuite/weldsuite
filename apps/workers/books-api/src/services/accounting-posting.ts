@@ -19,6 +19,7 @@
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import type { NewTaxLine } from '@weldsuite/db/schema';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import { assertPostingAllowed, type PostingLockKind } from '@weldsuite/books-domain/accounting-guards';
@@ -49,11 +50,20 @@ export interface PostingLine {
   /** Source document currency and rate (foreign units per base unit). */
   currency?: string | null;
   exchangeRate?: string | null;
+  /** Reporting dimensions: ids from accounting_dimension_values (class / location). */
+  classId?: string | null;
+  locationId?: string | null;
 }
+
+/** The tax_lines columns a caller fills beyond the common ones (US sales tax detail). */
+export type TaxLineExtra = Partial<
+  Omit<NewTaxLine, 'id' | 'createdAt' | 'entityId' | 'sourceType' | 'sourceId' | 'journalEntryId' | 'taxDate' | 'taxReturnId'>
+>;
 
 export interface PostingTaxLine {
   sourceLineId?: string | null;
-  direction: 'sales' | 'purchase';
+  /** use = US use tax accrued on a purchase. */
+  direction: 'sales' | 'purchase' | 'use';
   taxRateId?: string | null;
   taxRateName?: string | null;
   taxCategoryCode?: string | null;
@@ -70,6 +80,12 @@ export interface PostingTaxLine {
   baseTaxableAmount: number;
   baseTaxAmount: number;
   contactId?: string | null;
+  /**
+   * US sales tax detail (agency, jurisdiction names, gross / exempt / non-taxable
+   * amounts, certificate, ship-to, engine), as `breakdownToTaxLineFields` returns it.
+   * Applied over the common columns above.
+   */
+  extra?: TaxLineExtra;
 }
 
 export interface PostJournalEntryInput {
@@ -160,6 +176,40 @@ async function assertAccountsBelongToEntity(db: Database, entityId: string, acco
   }
 }
 
+/**
+ * Class and location ids on lines must be values of that dimension in this
+ * entity. A dimension value that was deactivated still counts (history).
+ */
+export async function assertDimensionsBelongToEntity(
+  db: Database,
+  entityId: string,
+  lines: Array<{ classId?: string | null; locationId?: string | null }>,
+): Promise<void> {
+  const wanted: Array<{ dimension: 'class' | 'location'; ids: string[] }> = [
+    { dimension: 'class', ids: [...new Set(lines.map((l) => l.classId).filter((id): id is string => Boolean(id)))] },
+    { dimension: 'location', ids: [...new Set(lines.map((l) => l.locationId).filter((id): id is string => Boolean(id)))] },
+  ];
+  for (const { dimension, ids } of wanted) {
+    if (ids.length === 0) continue;
+    const rows = await db
+      .select({ id: schema.accountingDimensionValues.id })
+      .from(schema.accountingDimensionValues)
+      .where(
+        and(
+          eq(schema.accountingDimensionValues.entityId, entityId),
+          eq(schema.accountingDimensionValues.dimension, dimension),
+          inArray(schema.accountingDimensionValues.id, ids),
+          isNull(schema.accountingDimensionValues.deletedAt),
+        ),
+      );
+    const found = new Set(rows.map((r) => r.id));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length > 0) {
+      throw new PostingError(`${dimension === 'class' ? 'Class' : 'Location'} ${missing.join(', ')} does not exist in this accounting entity`);
+    }
+  }
+}
+
 export async function postJournalEntry(db: Database, input: PostJournalEntryInput): Promise<PostedEntry> {
   if (input.postingKey) {
     const existing = await findByPostingKey(db, input.postingKey);
@@ -174,7 +224,15 @@ export async function postJournalEntry(db: Database, input: PostJournalEntryInpu
       `Journal entry is not balanced. Total debit: ${totalDebit.toFixed(2)}, total credit: ${totalCredit.toFixed(2)}`,
     );
   }
-  const taxLines = (input.taxLines ?? []).filter((t) => t.taxableAmount !== 0 || t.taxAmount !== 0);
+  // A zero-tax sale (unregistered state, exempt, marketplace) still counts: gross and exempt sales, nexus.
+  const taxLines = (input.taxLines ?? []).filter(
+    (t) =>
+      t.taxableAmount !== 0 ||
+      t.taxAmount !== 0 ||
+      Number(t.extra?.grossAmount ?? 0) !== 0 ||
+      Number(t.extra?.exemptAmount ?? 0) !== 0 ||
+      Number(t.extra?.nonTaxableAmount ?? 0) !== 0,
+  );
   if (lines.length === 0 && taxLines.length === 0) {
     return { journalEntryId: null, entryNumber: null, alreadyPosted: false };
   }
@@ -187,6 +245,7 @@ export async function postJournalEntry(db: Database, input: PostJournalEntryInpu
     userId: input.createdBy ?? null,
   });
   await assertAccountsBelongToEntity(db, input.entityId, lines.map((l) => l.accountId));
+  await assertDimensionsBelongToEntity(db, input.entityId, lines);
 
   const { formatted: entryNumber } = await nextEntityNumber(db, input.entityId, 'journal');
   const journalEntryId = generateId('je');
@@ -226,6 +285,8 @@ export async function postJournalEntry(db: Database, input: PostJournalEntryInpu
     contactId: line.contactId ?? null,
     currency: line.currency ?? null,
     exchangeRate: line.exchangeRate ?? '1',
+    classId: line.classId ?? null,
+    locationId: line.locationId ?? null,
     baseCurrencyDebit: line.debit.toFixed(2),
     baseCurrencyCredit: line.credit.toFixed(2),
     sortOrder: idx,
@@ -258,6 +319,7 @@ export async function postJournalEntry(db: Database, input: PostJournalEntryInpu
     baseTaxableAmount: roundMoney(tax.baseTaxableAmount).toFixed(2),
     baseTaxAmount: roundMoney(tax.baseTaxAmount).toFixed(2),
     contactId: tax.contactId ?? null,
+    ...(tax.extra ?? {}),
   }));
 
   // One balance update per account, net of all its lines.
@@ -296,6 +358,33 @@ export async function postJournalEntry(db: Database, input: PostJournalEntryInpu
   }
 
   return { journalEntryId, entryNumber, alreadyPosted: false };
+}
+
+function negated(value: string | null): string | null {
+  if (value === null) return null;
+  const n = -Number(value);
+  return String(n === 0 ? 0 : n);
+}
+
+/** The US columns of a tax-ledger row, with the amounts negated, for the row that reverses it. */
+function negatedTaxLineExtra(tax: typeof schema.taxLines.$inferSelect): TaxLineExtra {
+  return {
+    agencyId: tax.agencyId,
+    jurisdictionName: tax.jurisdictionName,
+    reportingCode: tax.reportingCode,
+    grossAmount: negated(tax.grossAmount),
+    exemptAmount: negated(tax.exemptAmount),
+    nonTaxableAmount: negated(tax.nonTaxableAmount),
+    exemptReason: tax.exemptReason,
+    certificateId: tax.certificateId,
+    shipToState: tax.shipToState,
+    shipToPostalCode: tax.shipToPostalCode,
+    taxCode: tax.taxCode,
+    marketplaceFacilitated: tax.marketplaceFacilitated,
+    unroundedTaxAmount: negated(tax.unroundedTaxAmount),
+    engine: tax.engine,
+    engineRef: tax.engineRef,
+  };
 }
 
 /**
@@ -357,10 +446,12 @@ export async function reverseJournalEntry(
       taxAmount: line.taxAmount == null ? null : -Number(line.taxAmount),
       currency: line.currency,
       exchangeRate: line.exchangeRate,
+      classId: line.classId,
+      locationId: line.locationId,
     })),
     taxLines: taxRows.map((tax) => ({
       sourceLineId: tax.sourceLineId,
-      direction: tax.direction as 'sales' | 'purchase',
+      direction: tax.direction as 'sales' | 'purchase' | 'use',
       taxRateId: tax.taxRateId,
       taxRateName: tax.taxRateName,
       taxCategoryCode: tax.taxCategoryCode,
@@ -376,6 +467,7 @@ export async function reverseJournalEntry(
       baseTaxableAmount: -Number(tax.baseTaxableAmount),
       baseTaxAmount: -Number(tax.baseTaxAmount),
       contactId: tax.contactId,
+      extra: negatedTaxLineExtra(tax),
     })),
     alsoWrite: (h, posted) => [
       h

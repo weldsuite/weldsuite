@@ -914,7 +914,6 @@ export function ApiKeysSection() {
           onOpenChange={setShowPricingDialog}
           excludePlans={['business']}
           highlightPlan="scale"
-          hideHeaderBar
           featureHighlight={{
             feature: t('sweep.settings.apiKeys.upgradePromo.featureName'),
             description: t('sweep.settings.apiKeys.upgradePromo.featureDescription'),

@@ -22,6 +22,8 @@ export const booksKeys = {
   vatReturns: () => [...booksKeys.all, 'vat-returns'] as const,
   accounts: () => [...booksKeys.all, 'accounts'] as const,
   entities: () => [...booksKeys.all, 'entities'] as const,
+  /** Supported jurisdictions with their features and terminology; static per release. */
+  jurisdictions: () => [...booksKeys.all, 'jurisdictions'] as const,
   journalEntries: () => [...booksKeys.all, 'journal-entries'] as const,
 };
 

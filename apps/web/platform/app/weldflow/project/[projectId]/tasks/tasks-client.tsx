@@ -69,6 +69,7 @@ import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { ProjectPermissionContext } from '@/app/weldflow/contexts/project-permission-context';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface Task {
   id: string;
@@ -1541,7 +1542,10 @@ export function TasksClient({
     return (
       <div
         key={task.id}
+        role="button"
+        tabIndex={0}
         onClick={() => setSelectedTask(task)}
+        onKeyDown={activateOnKey(() => setSelectedTask(task))}
         className={cn(
           "flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group",
           !isSubtask && "border-b border-gray-200/70 dark:border-border",

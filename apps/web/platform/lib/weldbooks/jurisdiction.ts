@@ -5,6 +5,8 @@
  * the domain package).
  */
 
+import type { UsEntityTypeSummary } from './us-entity';
+
 export interface JurisdictionFeatures {
   /** Dutch BTW return (rubrieken), filed through Digipoort. */
   vatReturn: boolean;
@@ -37,6 +39,8 @@ export interface JurisdictionSummary {
   defaultCurrency: string;
   features: JurisdictionFeatures;
   terminology: JurisdictionTerminology;
+  /** US only: the legal forms with their allowed tax classifications and the return each files. */
+  entityTypes?: UsEntityTypeSummary[];
 }
 
 /** Every jurisdiction-specific module off — used until the jurisdiction is known. */

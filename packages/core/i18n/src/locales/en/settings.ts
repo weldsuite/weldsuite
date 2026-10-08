@@ -75,7 +75,7 @@ export const settings = {
       mailAccounts: 'Mail Accounts',
       manageMailAccounts: 'Manage email accounts',
       weldhrSettings: 'WeldHR',
-      configureWeldhr: 'Departments, checklist templates, leave types, evaluation forms and KPIs',
+      configureWeldhr: 'Departments and leave types',
     },
 
     companyInfo: {
@@ -309,6 +309,38 @@ export const settings = {
         signOutPartial: 'Signed out of {count} device(s). {failedCount} failed.',
         signOutSuccess: 'Successfully signed out of {count} other device(s).',
         noOtherSessions: 'There are no other active sessions.',
+      },
+      passkeys: {
+        title: 'Passkeys',
+        description: 'Sign in with your fingerprint, face or device screen lock instead of a password. Passkeys are phishing-resistant and stay on your device.',
+        add: 'Add passkey',
+        adding: 'Adding…',
+        name: 'Name',
+        created: 'Created',
+        lastUsed: 'Last used',
+        never: 'Never',
+        empty: 'You have no passkeys yet.',
+        unsupported: 'This browser does not support passkeys. Open WeldSuite in an up-to-date browser to add one.',
+        rename: 'Rename',
+        remove: 'Remove',
+        renameTitle: 'Rename passkey',
+        renameDescription: 'Give this passkey a name you will recognise, such as the device it lives on.',
+        save: 'Save',
+        cancel: 'Cancel',
+        removeTitle: 'Remove this passkey?',
+        removeDescription: 'You will no longer be able to sign in with "{name}". Remove it from your device or password manager as well.',
+        removeConfirm: 'Remove passkey',
+        unnamed: 'Passkey',
+        messages: {
+          added: 'Passkey added. You can now use it to sign in.',
+          addFailed: 'Failed to add passkey: {error}',
+          cancelled: 'Passkey setup was cancelled.',
+          alreadyExists: 'This device already has a passkey for your account.',
+          renamed: 'Passkey renamed.',
+          renameFailed: 'Failed to rename passkey: {error}',
+          removed: 'Passkey removed.',
+          removeFailed: 'Failed to remove passkey: {error}',
+        },
       },
       deleteAccount: {
         sectionTitle: 'Danger zone',
@@ -1038,7 +1070,7 @@ export const settings = {
 
     weldhr: {
       title: 'WeldHR',
-      description: 'Departments, onboarding checklists, leave types, evaluation forms and KPI definitions.',
+      description: 'Departments and leave types.',
     },
 
     weldcrm: {

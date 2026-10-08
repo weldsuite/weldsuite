@@ -766,7 +766,6 @@ function MeetingRoomAdapter() {
       onRenameMeeting={handleRename}
       onToggleEffects={() => setShowEffects(v => !v)}
       effectsOpen={showEffects}
-      backgroundType={backgroundType}
       backgroundEffectsSlot={backgroundEffectsSlot}
       chatPanelSlot={chatPanelSlot}
       invitePopoverSlot={invitePopoverSlot}
@@ -827,7 +826,6 @@ function PreviewAdapter() {
     confirmJoinFromPreview,
     cancelPreview,
     meetingTitle,
-    meetingType,
     previewAudioInputs,
     previewVideoInputs,
     previewAudioDeviceId,
@@ -842,7 +840,6 @@ function PreviewAdapter() {
   return (
     <PreviewView
       meetingTitle={meetingTitle}
-      meetingType={meetingType as 'video' | 'audio'}
       previewStream={previewStream}
       previewAudioEnabled={previewAudioEnabled}
       previewVideoEnabled={previewVideoEnabled}

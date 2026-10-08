@@ -26,6 +26,15 @@ export function SlidingPanel({
   position = "right",
   width = "w-[400px]"
 }: Readonly<SlidingPanelProps>) {
+  React.useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) onClose()
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    return () => document.removeEventListener("keydown", handleKeyDown)
+  }, [isOpen, onClose])
+
   let translateClass = "translate-x-0"
   if (!isOpen) {
     translateClass = position === "right" ? "translate-x-full" : "-translate-x-full"
@@ -39,6 +48,7 @@ export function SlidingPanel({
           "fixed inset-0 bg-black/20 transition-opacity z-50",
           isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         )}
+        aria-hidden="true"
         onClick={onClose}
       />
       

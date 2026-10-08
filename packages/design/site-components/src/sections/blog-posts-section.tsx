@@ -17,7 +17,6 @@ interface BlogPost {
 
 interface BlogPostsSectionProps {
   heading?: string;
-  subheading?: string;
   postsToShow?: number;
   columns?: number;
   showExcerpt?: boolean;
@@ -27,7 +26,6 @@ interface BlogPostsSectionProps {
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  sectionId?: string;
   store?: StoreData;
   posts?: BlogPost[];
 }

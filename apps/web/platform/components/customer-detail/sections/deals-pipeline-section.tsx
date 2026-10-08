@@ -232,12 +232,10 @@ export function DealsPipelineSection({ customer, opportunities }: Readonly<Deals
       <PipelineKanban
         initialDeals={deals}
         initialStages={group?.stages || []}
-        workspaceId={currentWorkspace?.id || ''}
         customers={customers}
         onDealMove={handleDealMove}
         onDealCreate={handleDealCreate}
         pipelineId={group?.id}
-        pipelineName={group?.name}
         lockedCustomer={lockedCustomer}
       />
     );
@@ -249,7 +247,6 @@ export function DealsPipelineSection({ customer, opportunities }: Readonly<Deals
       pipelineGroups={pipelineGroups}
       customer={customer}
       customers={customers}
-      workspaceId={currentWorkspace?.id || ''}
       lockedCustomer={lockedCustomer}
       onDealMove={handleDealMove}
       onDealCreate={handleDealCreate}
@@ -262,7 +259,6 @@ function MultiPipelineList({
   pipelineGroups,
   customer,
   customers,
-  workspaceId,
   lockedCustomer,
   onDealMove,
   onDealCreate,
@@ -270,7 +266,6 @@ function MultiPipelineList({
   pipelineGroups: PipelineRow[];
   customer: Customer;
   customers: PipelineCustomer[];
-  workspaceId: string;
   lockedCustomer: { id: string; name: string };
   onDealMove: (dealId: string, fromStage: string, toStage: string) => Promise<void>;
   onDealCreate: (data: Record<string, unknown>) => Promise<void>;
@@ -302,10 +297,12 @@ function MultiPipelineList({
 
     return (
       <div key={pipeline.id}>
-        <div
+        <button
+          type="button"
           onClick={() => togglePipeline(pipeline.id)}
+          aria-expanded={isExpanded}
           className={cn(
-            "flex items-center gap-4 px-4 py-3 hover:bg-muted/50 cursor-pointer border-b border-border/70 group",
+            "flex w-full text-left items-center gap-4 px-4 py-3 hover:bg-muted/50 cursor-pointer border-b border-border/70 group",
           )}
         >
           {/* Pipeline name */}
@@ -341,7 +338,7 @@ function MultiPipelineList({
 
           {/* Spacer for actions column */}
           <div className="w-[40px]" />
-        </div>
+        </button>
 
         {/* Expanded kanban */}
         {isExpanded && (
@@ -349,12 +346,10 @@ function MultiPipelineList({
             <PipelineKanban
               initialDeals={deals}
               initialStages={pipeline.stages}
-              workspaceId={workspaceId}
               customers={customers}
               onDealMove={onDealMove}
               onDealCreate={onDealCreate}
               pipelineId={pipeline.id}
-              pipelineName={pipeline.name}
               lockedCustomer={lockedCustomer}
               hideHeader
             />
@@ -362,7 +357,7 @@ function MultiPipelineList({
         )}
       </div>
     );
-  }, [expandedPipelines, togglePipeline, customer, customers, workspaceId, lockedCustomer, onDealMove, onDealCreate]);
+  }, [expandedPipelines, togglePipeline, customer, customers, lockedCustomer, onDealMove, onDealCreate]);
 
   return (
     <EntityList<PipelineRow>

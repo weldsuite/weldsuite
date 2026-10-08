@@ -22,13 +22,21 @@ import { RecordRow } from '@/components/record-row';
 import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { VatStatusBadge } from '@/components/status-badge';
+import { FeatureUnavailable } from '@/components/feature-unavailable';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { VatReturn } from '@/types/accounting';
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2];
 
-export default function VatReturnsScreen() {
+/** The Dutch BTW return only exists where the entity's jurisdiction files one. */
+export default function VatReturnsRoute() {
+  const { features } = useJurisdiction();
+  return features.vatReturn ? <VatReturnsScreen /> : <FeatureUnavailable />;
+}
+
+function VatReturnsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { t, format } = useI18n();

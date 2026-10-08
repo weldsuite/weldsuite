@@ -71,7 +71,7 @@ export function SelectEditor({
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="text-left w-full flex items-center hover:opacity-80 transition-opacity">
+        <Button variant="ghost" className="text-left w-full flex items-center justify-start px-0 hover:opacity-80 transition-opacity">
           {renderValue()}
         </Button>
       </PopoverTrigger>

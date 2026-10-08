@@ -8,7 +8,6 @@ import { cn } from '@weldsuite/ui/lib/utils';
 
 export interface FeaturedCollectionBlockProps {
   heading?: string;
-  subheading?: string;
   collectionId?: string;
   collectionHandle?: string;
   productsPerRow?: 2 | 3 | 4;
@@ -18,8 +17,6 @@ export interface FeaturedCollectionBlockProps {
   viewAllLink?: string;
   backgroundColor?: string;
   textColor?: string;
-  cardBackgroundColor?: string;
-  buttonVariant?: 'primary' | 'secondary' | 'outline';
   imageAspectRatio?: 'square' | 'portrait' | 'landscape';
   showQuickAdd?: boolean;
   mode?: 'live' | 'edit' | 'preview';
@@ -65,14 +62,6 @@ export function FeaturedCollectionBlock({
   }
 
   const displayProducts = products.slice(0, productsPerRow * rows);
-
-  console.log('FeaturedCollectionBlock:', {
-    collectionId,
-    collectionHandle,
-    allProductsCount: store?.products?.length,
-    filteredProductsCount: products.length,
-    displayProductsCount: displayProducts.length,
-  });
 
   // Placeholder products for empty state
   const placeholderProducts = Array.from({ length: productsPerRow * rows }, (_, i) => ({

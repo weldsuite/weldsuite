@@ -77,8 +77,13 @@ export const journalLines = pgTable('journal_lines', {
   baseCurrencyDebit: numeric('base_currency_debit', { precision: 18, scale: 2 }),
   baseCurrencyCredit: numeric('base_currency_credit', { precision: 18, scale: 2 }),
   reconciled: boolean('reconciled').default(false),
+  /** The statement reconciliation that cleared this line (bank and card accounts). */
+  reconciliationId: varchar('reconciliation_id', { length: 30 }),
+  classId: varchar('class_id', { length: 30 }),
+  locationId: varchar('location_id', { length: 30 }),
   sortOrder: integer('sort_order'),
 }, (table) => [
+  index('acct_journal_lines_reconciliation_idx').on(table.reconciliationId),
   index('acct_journal_lines_entity_idx').on(table.entityId),
   index('acct_journal_lines_entry_idx').on(table.journalEntryId),
   index('acct_journal_lines_account_idx').on(table.accountId),

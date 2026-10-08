@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { useAccountingAccounts } from '@/hooks/queries/use-accounting-queries';
-import { Landmark } from 'lucide-react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { useAccountingAccounts, useTaxLineCatalog } from '@/hooks/queries/use-accounting-queries';
+import { Landmark, ListTree } from 'lucide-react';
+import { Badge } from '@weldsuite/ui/components/badge';
+import { Button } from '@weldsuite/ui/components/button';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import {
   EmptyStateIllustration,
@@ -12,6 +14,8 @@ import {
 } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import { taxLineLabel } from '@/lib/weldbooks/tax-lines';
 
 interface AccountRow {
   id: string;
@@ -20,6 +24,7 @@ interface AccountRow {
   type: string;
   currentBalance?: string | number | null;
   currency?: string | null;
+  taxLine?: string | null;
 }
 
 export default function ChartOfAccountsPage() {
@@ -28,6 +33,10 @@ export default function ChartOfAccountsPage() {
   const { t } = useI18n();
   const tap = t.accounting.accountsPage;
   const { formatMoney } = useCurrentEntityCurrency();
+  const { code: jurisdictionCode } = useCurrentJurisdiction();
+  const isUs = jurisdictionCode === 'US';
+  const tus = t.weldbooksUs.setup.accounts;
+  const taxLineCatalog = useTaxLineCatalog(undefined, { enabled: isUs });
 
   const filterConfigs: FilterConfig[] = [
     {
@@ -41,6 +50,10 @@ export default function ChartOfAccountsPage() {
         { value: 'expense', label: tap.filterExpense },
       ],
     },
+    // US: the income and expense accounts that still need a line of the tax return.
+    ...(isUs
+      ? [{ field: 'taxLine', label: tus.filterTaxLine, options: [{ value: 'none', label: tus.filterUnmapped }] }]
+      : []),
   ];
 
   const typeFilter = useMemo(
@@ -48,8 +61,14 @@ export default function ChartOfAccountsPage() {
     [filters],
   );
 
+  const taxLineFilter = useMemo(
+    () => (isUs ? filters.find((f) => f.field === 'taxLine' && f.value)?.value : undefined),
+    [filters, isUs],
+  );
+
   const { data, isLoading } = useAccountingAccounts({
     type: typeFilter,
+    taxLine: taxLineFilter,
   });
 
   const accounts = (data?.data ?? []) as AccountRow[];
@@ -85,6 +104,28 @@ export default function ChartOfAccountsPage() {
       width: 'w-[140px]',
       render: (acc) => <span className="capitalize">{acc.type}</span>,
     },
+    ...(isUs
+      ? [
+          {
+            id: 'taxLine',
+            header: tus.colTaxLine,
+            width: 'w-[240px]',
+            render: (acc: AccountRow) => {
+              if (acc.taxLine) {
+                return <span className="truncate">{taxLineLabel(taxLineCatalog.data, acc.taxLine)}</span>;
+              }
+              // Only income and expense accounts report on a line by default.
+              return acc.type === 'revenue' || acc.type === 'expense' ? (
+                <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">
+                  {tus.unmappedBadge}
+                </Badge>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              );
+            },
+          },
+        ]
+      : []),
     {
       id: 'balance',
       header: tap.colBalance,
@@ -107,6 +148,16 @@ export default function ChartOfAccountsPage() {
       filters={filterConfigs}
       activeFilters={filters}
       onFiltersChange={setFilters}
+      actionButtons={
+        isUs ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/weldbooks/accounts/tax-lines">
+              <ListTree className="mr-1 h-4 w-4" aria-hidden />
+              {tus.mappingLink}
+            </Link>
+          </Button>
+        ) : undefined
+      }
       createButton={{
         label: tap.newAccount,
         onClick: () => navigate({ to: '/weldbooks/accounts/add' }),

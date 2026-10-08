@@ -23,6 +23,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useObjectPanel, useObjectPanelStack, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface DomainsClientProps {
   domains: HostDomain[];
@@ -144,7 +145,10 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
     return (
       <div
         key={domain.id}
+        role="button"
+        tabIndex={0}
         onClick={() => openPanel({ type: 'domain', id: domain.id, initialTab: 'dns' })}
+        onKeyDown={activateOnKey(() => openPanel({ type: 'domain', id: domain.id, initialTab: 'dns' }))}
         className={cn(
           'flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
           selectedDomainId === domain.id && 'bg-accent',
@@ -259,7 +263,6 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
       }}
       actionButtons={
         <Button variant="outline" onClick={() => router.push('/weldhost/domains/external')}>
-          <ExternalLink className="h-4 w-4 mr-2" />
           {t.host.externalDomain.addButton}
         </Button>
       }

@@ -54,7 +54,45 @@ export function normalizePaymentMethod(method: string | null | undefined): Payme
   return LEGACY_METHODS[value] ?? 'other';
 }
 
+/**
+ * What a payment moved through the bank: its amount less any backup
+ * withholding kept back (the bank is credited the net, the withheld part goes
+ * to Backup Withholding Payable). This is what a bank line, a printed check, a
+ * NACHA entry or a Positive Pay record carries, and what bank matching compares.
+ */
+export function paymentNetAmount(payment: { amount: string | null; backupWithholdingAmount?: string | null }): number {
+  return roundMoney(Number.parseFloat(payment.amount ?? '0') - Number.parseFloat(payment.backupWithholdingAmount ?? '0'));
+}
+
+export type DepositTarget = 'undeposited_funds' | 'bank';
+
+/**
+ * Where a received payment lands. An entity with an Undeposited Funds account
+ * (the US chart) parks checks and cash there until a bank deposit groups them
+ * into the single line the bank shows; every other payment, and every entity
+ * without that account (NL, IN), debits the bank straight away. A payment that
+ * names its bank account or comes from a bank line already is in the bank.
+ */
+export function resolveDepositTarget(
+  input: Pick<RecordPaymentInput, 'type' | 'depositTo' | 'bankAccountId' | 'bankTransactionId'>,
+  method: PaymentMethod | null,
+  hasUndepositedFunds: boolean,
+): DepositTarget {
+  if (input.type !== 'received' || input.depositTo === 'bank') return 'bank';
+  if (!hasUndepositedFunds) {
+    if (input.depositTo === 'undeposited_funds') {
+      throw new PostingError('This accounting entity has no Undeposited Funds account');
+    }
+    return 'bank';
+  }
+  if (input.depositTo === 'undeposited_funds') return 'undeposited_funds';
+  if (input.bankTransactionId || input.bankAccountId) return 'bank';
+  return method === 'check' || method === 'cash' ? 'undeposited_funds' : 'bank';
+}
+
 export interface RecordPaymentInput {
+  /** A caller-chosen payment id, for idempotency: recording the same id again returns the payment it made. */
+  id?: string;
   entityId: string;
   type: 'received' | 'sent';
   amount: number;
@@ -63,6 +101,10 @@ export interface RecordPaymentInput {
   date: Date;
   paymentMethod?: string | null;
   checkNumber?: string | null;
+  /** Checks: to_print | printed | voided | cleared. A check we issue defaults to `printed` (payment runs pass `to_print`). */
+  checkStatus?: string | null;
+  /** Received payments: park the money in Undeposited Funds or debit the bank. Defaults per `resolveDepositTarget`. */
+  depositTo?: DepositTarget | null;
   reference?: string | null;
   notes?: string | null;
   contactId?: string | null;
@@ -70,6 +112,14 @@ export interface RecordPaymentInput {
   bankTransactionId?: string | null;
   /** How a bank line came to be matched (when the payment comes from one). */
   reconciliationType?: 'manual' | 'auto' | null;
+  /** The check or ACH run that made the payment. */
+  paymentRunId?: string | null;
+  /**
+   * Backup withholding on a payment to a vendor. `amount` is the gross (what the
+   * bills settle for), the bank is credited the net and the withheld part is
+   * credited to Backup Withholding Payable; the payment stores it for Form 945 and box 4.
+   */
+  backupWithholdingAmount?: number | null;
   allocations: Array<{ invoiceId?: string | null; billId?: string | null; amount: number }>;
   userId: string | null;
 }
@@ -80,6 +130,8 @@ export interface RecordPaymentResult {
   contactId: string;
   currency: string;
   documents: Array<{ type: 'invoice' | 'bill'; id: string }>;
+  /** True when the money went to Undeposited Funds and still has to be put into a bank deposit. */
+  undeposited: boolean;
 }
 
 type DocumentRow = {
@@ -121,9 +173,39 @@ function assertPayable(kind: 'invoice' | 'bill', doc: DocumentRow) {
   }
 }
 
+/** The payment a caller-chosen id already made, as `recordPayment` returns it. */
+async function existingPayment(db: Database, input: RecordPaymentInput): Promise<RecordPaymentResult | null> {
+  if (!input.id) return null;
+  const [existing] = await db.select().from(schema.payments).where(eq(schema.payments.id, input.id)).limit(1);
+  if (!existing) return null;
+  if (existing.entityId !== input.entityId || existing.deletedAt) {
+    throw new PostingError(`Payment id ${input.id} is already used`);
+  }
+  const allocated = await db
+    .select({ invoiceId: schema.paymentAllocations.invoiceId, billId: schema.paymentAllocations.billId })
+    .from(schema.paymentAllocations)
+    .where(and(eq(schema.paymentAllocations.paymentId, existing.id), isNull(schema.paymentAllocations.deletedAt)));
+  return {
+    paymentId: existing.id,
+    journalEntryId: existing.journalEntryId,
+    contactId: existing.contactId,
+    currency: existing.currency ?? (await resolveEntityBaseCurrency(db, input.entityId)),
+    documents: allocated.map((a) =>
+      a.invoiceId ? { type: 'invoice' as const, id: a.invoiceId } : { type: 'bill' as const, id: a.billId! },
+    ),
+    undeposited: false,
+  };
+}
+
 export async function recordPayment(db: Database, input: RecordPaymentInput): Promise<RecordPaymentResult> {
+  const already = await existingPayment(db, input);
+  if (already) return already;
   if (!(input.amount > 0)) throw new PostingError('Payment amount must be greater than zero');
   const kind: 'invoice' | 'bill' = input.type === 'received' ? 'invoice' : 'bill';
+  const withheld = roundMoney(input.backupWithholdingAmount ?? 0);
+  if (withheld !== 0 && (input.type !== 'sent' || withheld < 0 || withheld > roundMoney(input.amount))) {
+    throw new PostingError('Backup withholding applies to payments to vendors and can not be more than the payment');
+  }
 
   for (const a of input.allocations) {
     if (!(a.amount > 0)) throw new PostingError('Allocation amounts must be greater than zero');
@@ -177,6 +259,9 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
   const exchangeRate = input.exchangeRate ?? '1';
   const paymentMethod = normalizePaymentMethod(input.paymentMethod);
 
+  // Checks and cash on a US entity wait in Undeposited Funds instead of the bank.
+  const undepositedFunds = accountForRole(await loadEntityAccounts(db, input.entityId), 'undeposited_funds');
+  const toUndeposited = resolveDepositTarget(input, paymentMethod, Boolean(undepositedFunds)) === 'undeposited_funds';
   const lines = await buildPaymentPosting(
     db,
     {
@@ -189,11 +274,14 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
       bankAccountId: input.bankAccountId,
       paymentMethod,
       reference: input.reference,
+      moneyAccountId: toUndeposited && undepositedFunds ? undepositedFunds.id : null,
+      backupWithholdingAmount: withheld > 0 ? withheld : null,
     },
     allocations,
   );
+  const checkStatus = input.checkStatus ?? (paymentMethod === 'check' && input.type === 'sent' ? 'printed' : null);
 
-  const paymentId = generateId('pay');
+  const paymentId = input.id ?? generateId('pay');
   const now = new Date();
   const single = allocations.length === 1 ? allocations[0] : undefined;
   const fullyAllocated = allocations.length > 0 && Math.abs(allocatedTotal - input.amount) < 0.005;
@@ -221,6 +309,8 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
           date: input.date,
           paymentMethod,
           checkNumber: input.checkNumber ?? null,
+          checkStatus,
+          checkPrintedAt: checkStatus === 'printed' ? now : null,
           reference: input.reference ?? null,
           invoiceId: single?.invoiceId ?? null,
           billId: single?.billId ?? null,
@@ -228,6 +318,8 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
           counterpartyId: contactId,
           bankAccountId: input.bankAccountId ?? null,
           bankTransactionId: input.bankTransactionId ?? null,
+          paymentRunId: input.paymentRunId ?? null,
+          backupWithholdingAmount: withheld > 0 ? withheld.toFixed(2) : null,
           journalEntryId: entry.journalEntryId,
           notes: input.notes ?? null,
           isPartial: !fullyAllocated,
@@ -310,6 +402,7 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
     documents: allocations.map((a) =>
       a.invoiceId ? { type: 'invoice' as const, id: a.invoiceId } : { type: 'bill' as const, id: a.billId! },
     ),
+    undeposited: toUndeposited && Boolean(undepositedFunds),
   };
 }
 
@@ -384,6 +477,9 @@ export async function voidPayment(
     .where(and(eq(schema.payments.id, paymentId), isNull(schema.payments.deletedAt)))
     .limit(1);
   if (!payment) throw new PostingError('Payment not found');
+  if (payment.depositId) {
+    throw new PostingError('This payment is part of a bank deposit. Void the deposit first, then void the payment.');
+  }
 
   const allocationRows = await db
     .select()

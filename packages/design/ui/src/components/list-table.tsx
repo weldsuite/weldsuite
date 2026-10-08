@@ -326,6 +326,19 @@ export function ListTable<T>({
     <div
       key={resolveKey(row, idx)}
       onClick={onRowClick ? () => onRowClick(row) : undefined}
+      role={onRowClick ? 'button' : undefined}
+      tabIndex={onRowClick ? 0 : undefined}
+      onKeyDown={
+        onRowClick
+          ? (e) => {
+              if (e.target !== e.currentTarget) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onRowClick(row);
+              }
+            }
+          : undefined
+      }
       className={cn(
         'group flex items-center px-4 border-b border-border/70 transition-colors',
         dense ? 'py-2' : 'py-3',

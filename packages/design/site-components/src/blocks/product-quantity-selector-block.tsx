@@ -9,7 +9,6 @@ export interface ProductQuantitySelectorBlockProps {
   minQuantity?: number;
   maxQuantity?: number;
   borderRadius?: number;
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData;
 }
 

@@ -15,13 +15,19 @@
  *     documents' paid amounts are restored. Nothing is removed from the ledger.
  *   - Every mutation is written to the accounting audit log.
  *
+ * US: a received check or cash payment goes to Undeposited Funds (`depositTo`
+ * defaults to it when the entity has that account and no bank account is
+ * named) until a bank deposit groups it (/api/bank-deposits). A check we
+ * issue is created as `printed`. List filters: ?checkNumber= ?paymentMethod=
+ * ?checkStatus= ?bankAccountId= ?deposited=true|false ?search=.
+ *
  * Permissions: banking:read | banking:create | banking:delete.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -52,6 +58,8 @@ const createPaymentSchema = z.object({
   /** check | ach | wire | credit_card | debit_card | cash | third_party_network | bank_transfer | direct_debit | ideal | other */
   paymentMethod: z.string().max(30).optional(),
   checkNumber: z.string().max(30).optional(),
+  /** Received payments: park the money in Undeposited Funds, or debit the bank straight away. */
+  depositTo: z.enum(['undeposited_funds', 'bank']).optional(),
   reference: z.string().max(255).optional(),
   invoiceId: z.string().optional(),
   billId: z.string().optional(),
@@ -73,11 +81,22 @@ app.get('/', requirePermission('banking:read'), async (c) => {
 
   try {
     const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+    // An empty tenant simply has nothing to list.
+    if (!entityId) return list(c, [], cursorPagination(0, false, null));
 
     const conditions = [isNull(payments.deletedAt), eq(payments.entityId, entityId)];
     if (q.type) conditions.push(eq(payments.type, q.type));
     if (q.contactId) conditions.push(eq(payments.contactId, q.contactId));
+    if (q.checkNumber) conditions.push(eq(payments.checkNumber, q.checkNumber.trim()));
+    if (q.paymentMethod) conditions.push(eq(payments.paymentMethod, q.paymentMethod));
+    if (q.checkStatus) conditions.push(eq(payments.checkStatus, q.checkStatus));
+    if (q.bankAccountId) conditions.push(eq(payments.bankAccountId, q.bankAccountId));
+    if (q.deposited === 'true') conditions.push(isNotNull(payments.depositId));
+    if (q.deposited === 'false') conditions.push(isNull(payments.depositId));
+    if (q.search) {
+      const term = `%${q.search.trim()}%`;
+      conditions.push(or(like(payments.reference, term), like(payments.checkNumber, term), like(payments.notes, term))!);
+    }
     if (q.from) conditions.push(gte(payments.date, new Date(q.from)));
     if (q.to) conditions.push(lte(payments.date, new Date(q.to)));
 
@@ -138,6 +157,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
       date: new Date(data.date),
       paymentMethod: data.paymentMethod ?? null,
       checkNumber: data.checkNumber ?? null,
+      depositTo: data.depositTo ?? null,
       reference: data.reference ?? null,
       notes: data.notes ?? null,
       contactId: data.contactId ?? null,
@@ -169,7 +189,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
       },
     });
 
-    return success(c, { id: result.paymentId, journalEntryId: result.journalEntryId }, 201);
+    return success(c, { id: result.paymentId, journalEntryId: result.journalEntryId, undeposited: result.undeposited }, 201);
   } catch (err) {
     if (err instanceof ClosedPeriodError || err instanceof LockedPeriodError || err instanceof PostingError) {
       return error.badRequest(c, err.message);

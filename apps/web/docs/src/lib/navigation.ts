@@ -79,6 +79,22 @@ export const navigation = [
     links: [{ title: 'Overview', href: '/weldbooks' }],
   },
   {
+    title: 'WeldBooks US',
+    links: [
+      { title: 'US businesses overview', href: '/weldbooks/us' },
+      { title: 'Set up a US company', href: '/weldbooks/us/setup' },
+      { title: 'Sales tax', href: '/weldbooks/us/sales-tax' },
+      { title: 'Exemption certificates', href: '/weldbooks/us/exemption-certificates' },
+      { title: 'Sales tax returns', href: '/weldbooks/us/sales-tax-returns' },
+      { title: '1099s', href: '/weldbooks/us/1099' },
+      { title: 'Bank feeds and reconciliation', href: '/weldbooks/us/bank-feeds' },
+      { title: 'Checks and ACH payments', href: '/weldbooks/us/checks-and-ach' },
+      { title: 'Fixed assets', href: '/weldbooks/us/fixed-assets' },
+      { title: 'Payroll import', href: '/weldbooks/us/payroll-import' },
+      { title: 'Reports and tax calendar', href: '/weldbooks/us/reports' },
+    ],
+  },
+  {
     title: 'WeldData',
     links: [
       { title: 'Overview', href: '/welddata' },

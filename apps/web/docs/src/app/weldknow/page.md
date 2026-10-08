@@ -16,7 +16,6 @@ WeldKnow is your team's wiki — spaces, nested pages, rich editing, and permiss
 - **Pages** — nested documents with rich text and embeds
 - **Favorites** — pin pages you open often
 - **Version history** — see and restore prior edits
-- **Trash** — recover deleted pages
 
 The in-app sidebar shows spaces and the page tree for the active space.
 

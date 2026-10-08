@@ -16,7 +16,6 @@ export interface FlexBlockProps {
   borderWidth?: number;
   borderRadius?: number;
   children?: React.ReactNode;
-  mode?: 'live' | 'preview';
 }
 
 export function FlexBlock({

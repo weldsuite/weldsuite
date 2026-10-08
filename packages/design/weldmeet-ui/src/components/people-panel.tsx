@@ -233,23 +233,8 @@ function ParticipantRow({
   onClickDetails?: (participant: MeetingPeer) => void;
 }>) {
   const initials = (p.name ?? '?').charAt(0).toUpperCase();
-  const clickable = !!onClickDetails;
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-3 py-2.5 px-1 -mx-1 rounded-md',
-        clickable && 'cursor-pointer hover:bg-muted/50 transition-colors',
-      )}
-      onClick={clickable ? () => onClickDetails(p) : undefined}
-      role={clickable ? 'button' : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      onKeyDown={clickable ? (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClickDetails(p);
-        }
-      } : undefined}
-    >
+  const content = (
+    <>
       <div className="relative">
         <Avatar className="h-7 w-7 !rounded-[8px]">
           {p.picture && <AvatarImage src={p.picture} className="!rounded-[8px]" />}
@@ -280,6 +265,22 @@ function ParticipantRow({
           offIcon={<VideoOff className="h-3.5 w-3.5" />}
         />
       </div>
+    </>
+  );
+  if (onClickDetails) {
+    return (
+      <button
+        type="button"
+        className="flex w-[calc(100%+0.5rem)] items-center gap-3 py-2.5 px-1 -mx-1 rounded-md text-left cursor-pointer hover:bg-muted/50 transition-colors"
+        onClick={() => onClickDetails(p)}
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center gap-3 py-2.5 px-1 -mx-1 rounded-md">
+      {content}
     </div>
   );
 }

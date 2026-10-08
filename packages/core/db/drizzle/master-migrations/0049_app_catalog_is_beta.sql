@@ -1,0 +1,1 @@
+ALTER TABLE "app_catalog" ADD COLUMN "is_beta" boolean DEFAULT false NOT NULL;

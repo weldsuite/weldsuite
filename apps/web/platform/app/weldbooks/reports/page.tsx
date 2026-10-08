@@ -1,11 +1,14 @@
 import { Link } from '@tanstack/react-router';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { BarChart3, FileText, Scale, Clock, ArrowDownUp, BookOpen } from 'lucide-react';
+import { BarChart3, FileText, Scale, Clock, ArrowDownUp, BookOpen, FileSpreadsheet } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
 
 export default function ReportsIndexPage() {
   const { t } = useI18n();
   const tr = t.accounting.reports;
+  const tw = t.weldbooksUs.reports.worksheet;
+  const { code } = useCurrentJurisdiction();
 
   const reports = [
     {
@@ -50,6 +53,17 @@ export default function ReportsIndexPage() {
       href: '/weldbooks/reports/general-ledger',
       icon: BookOpen,
     },
+    // The worksheet maps the books to the lines of a US income-tax return.
+    ...(code === 'US'
+      ? [
+          {
+            title: tw.title,
+            description: tw.cardDescription,
+            href: '/weldbooks/reports/tax-worksheet',
+            icon: FileSpreadsheet,
+          },
+        ]
+      : []),
   ] as const;
 
   return (

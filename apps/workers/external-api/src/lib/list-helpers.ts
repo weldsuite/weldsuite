@@ -9,6 +9,7 @@
 import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import type { Database } from '../db';
 import { clampLimit } from './pagination';
+import { columnsFor } from './select-columns';
 
 export interface ListResult<T> {
   data: T[];
@@ -37,6 +38,11 @@ export interface CursorListOptions<TTable extends ListableTable, TRow> {
   softDelete?: boolean;
   /** Map raw rows to the API response shape. Identity by default. */
   mapRow?: (row: TRow) => unknown;
+  /**
+   * Column property names to leave out of the SELECT, on top of the ciphertext
+   * columns the table is already known to hold (`columnsFor`).
+   */
+  omit?: readonly string[];
 }
 
 export async function listWithCursor<TTable extends ListableTable, TRow>(
@@ -77,7 +83,7 @@ export async function listWithCursor<TTable extends ListableTable, TRow>(
   const pageWhere = cursorConditions.length > 0 ? and(...cursorConditions) : undefined;
 
   const [rows, countResult] = await Promise.all([
-    (db.select().from(table as any) as any)
+    (db.select(columnsFor(table, opts.omit) as any).from(table as any) as any)
       .where(pageWhere)
       .orderBy(desc(t.createdAt), desc(t.id))
       .limit(limit + 1) as unknown as Promise<TRow[]>,

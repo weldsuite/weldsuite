@@ -17,6 +17,7 @@ import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, list, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
+import { columnsFor } from '../../../lib/select-columns';
 
 /** HTTP methods that would change a resource. */
 export const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -74,6 +75,12 @@ export interface ReadOnlyRouteOptions<TTable extends ReadableTable> {
   label: string;
   /** Plural noun for the 405 message, e.g. `invoices`. */
   noun: string;
+  /**
+   * Column property names to leave out of every response, on top of the
+   * ciphertext columns the table is already known to hold. Never selected, so
+   * never read from the database either.
+   */
+  omit?: readonly string[];
 }
 
 /**
@@ -89,6 +96,7 @@ export function createReadOnlyRoute<TTable extends ReadableTable>(
   // Drizzle table typing is erased here, same approach as lib/crud-route.ts.
   const tbl = table as any;
   const readScope = `${opts.scope}:read`;
+  const columns = columnsFor(table, opts.omit) as any;
 
   app.get('/', requireScope(readScope), zValidator('query', listQuery), async (c) => {
     const db = c.get('tenantDb');
@@ -103,6 +111,7 @@ export function createReadOnlyRoute<TTable extends ReadableTable>(
       where,
       cursor: q.cursor,
       limit: q.limit,
+      omit: opts.omit,
     });
     return list(
       c,
@@ -118,7 +127,7 @@ export function createReadOnlyRoute<TTable extends ReadableTable>(
     if (table.deletedAt) {
       conditions.push(isNull(tbl.deletedAt));
     }
-    const [row] = await db.select().from(tbl).where(and(...conditions)).limit(1);
+    const [row] = await db.select(columns).from(tbl).where(and(...conditions)).limit(1);
     if (!row) return error.notFound(c, opts.label, id);
     return success(c, row);
   });

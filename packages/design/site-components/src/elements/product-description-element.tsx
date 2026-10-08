@@ -7,7 +7,6 @@ export interface ProductDescriptionElementProps {
   heading?: string;
   storeName?: string;
   showStoreLink?: boolean;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductDescriptionElement({

@@ -8,7 +8,6 @@ export interface ProductSizeSelectorElementProps {
   onSizeChange: (size: string) => void;
   buttonColor?: string;
   label?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductSizeSelectorElement({

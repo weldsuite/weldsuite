@@ -5,6 +5,7 @@ import {
   integer,
   boolean,
   numeric,
+  text,
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
@@ -123,6 +124,49 @@ export const parties = pgTable('parties', {
    * bill (customer → both).
    */
   role: varchar('role', { length: 20 }).notNull().default('customer'),
+
+  // US tax reporting (WeldBooks). The full TIN and the vendor's bank account
+  // number live only in `sensitiveEncrypted`, revealed with `tax_ids:reveal`
+  // and logged in `tax_id_reveals`; never in events, logs or list responses.
+  /** business | personal: the customer's default use, for states that tax by use. */
+  taxUse: varchar('tax_use', { length: 10 }),
+  is1099Vendor: boolean('is_1099_vendor').default(false),
+  /** nec | misc */
+  default1099Form: varchar('default_1099_form', { length: 10 }),
+  default1099Box: varchar('default_1099_box', { length: 20 }),
+  /** ein | ssn | itin */
+  tinType: varchar('tin_type', { length: 5 }),
+  tinLast4: varchar('tin_last4', { length: 4 }),
+  /** AES-GCM blob of `{ tin?, achAccountNumber? }`. */
+  sensitiveEncrypted: text('sensitive_encrypted'),
+  /** W-9 as received: names, federal tax classification, exemption codes, date and scan. */
+  w9: jsonb('w9').$type<{
+    legalName?: string;
+    businessName?: string;
+    federalTaxClassification?: string;
+    llcTaxClassification?: string;
+    exemptPayeeCode?: string;
+    fatcaCode?: string;
+    receivedAt?: string;
+    documentId?: string;
+    signedName?: string;
+    source?: 'upload' | 'online';
+  }>(),
+  backupWithholding: boolean('backup_withholding').default(false),
+  /** IRS TIN Matching result: match | mismatch | not_issued | invalid | pending. */
+  tinMatchStatus: varchar('tin_match_status', { length: 20 }),
+  tinMatchedAt: timestamp('tin_matched_at'),
+  /** The recipient's affirmative consent to receive 1099s electronically. */
+  form1099EDeliveryConsentAt: timestamp('form_1099_e_delivery_consent_at'),
+  /** Vendor bank details for ACH payments; the account number is in sensitiveEncrypted. */
+  achRoutingNumber: varchar('ach_routing_number', { length: 9 }),
+  achAccountLast4: varchar('ach_account_last4', { length: 4 }),
+  /** checking | savings */
+  achAccountType: varchar('ach_account_type', { length: 10 }),
+  /** Payments to a vendor whose bank details changed are held until someone verifies the change. */
+  bankDetailsChangedAt: timestamp('bank_details_changed_at'),
+  bankDetailsVerifiedAt: timestamp('bank_details_verified_at'),
+  bankDetailsVerifiedBy: varchar('bank_details_verified_by', { length: 255 }),
 }, (table) => [
   index('parties_party_code_idx').on(table.partyCode),
   index('parties_kind_idx').on(table.kind),

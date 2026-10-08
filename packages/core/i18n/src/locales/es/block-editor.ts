@@ -1,0 +1,56 @@
+export const blockEditor = {
+  slashMenu: {
+    groups: {
+      basic: 'Bloques básicos',
+      media: 'Multimedia',
+      embeds: 'Insertados',
+      advanced: 'Avanzado',
+      inline: 'En línea',
+    },
+    items: {
+      page: { title: 'Página', subtext: 'Crea una subpágina dentro de esta página' },
+      linkToPage: { title: 'Enlace a página', subtext: 'Enlaza a una página existente' },
+      callout: { title: 'Destacado', subtext: 'Haz que el texto destaque' },
+      bookmark: { title: 'Marcador web', subtext: 'Guarda un enlace como tarjeta visual' },
+      embed: { title: 'Insertar', subtext: 'Inserta un sitio web mediante su enlace' },
+      youtube: { title: 'YouTube', subtext: 'Inserta un vídeo de YouTube' },
+      vimeo: { title: 'Vimeo', subtext: 'Inserta un vídeo de Vimeo' },
+      loom: { title: 'Loom', subtext: 'Inserta una grabación de Loom' },
+      figma: { title: 'Figma', subtext: 'Inserta un archivo o prototipo de Figma' },
+      googleDrive: { title: 'Google Drive', subtext: 'Inserta un documento, hoja de cálculo, presentación o archivo de Drive' },
+      googleMaps: { title: 'Google Maps', subtext: 'Inserta un mapa de Google' },
+      codepen: { title: 'CodePen', subtext: 'Inserta un CodePen' },
+      miro: { title: 'Miro', subtext: 'Inserta un tablero de Miro' },
+      tableOfContents: { title: 'Tabla de contenidos', subtext: 'Muestra un esquema de esta página' },
+      date: { title: 'Fecha', subtext: 'Inserta la fecha de hoy' },
+    },
+  },
+  pageLinks: {
+    untitled: 'Sin título',
+    createError: 'No se pudo crear la página',
+  },
+  callout: {
+    changeIcon: 'Cambiar icono',
+  },
+  urlPrompt: {
+    submit: 'Añadir',
+    invalid: 'Introduce un enlace https:// válido',
+    openLink: 'Abrir enlace',
+    placeholders: {
+      generic: 'Pega un enlace para insertar…',
+      bookmark: 'Pega un enlace para guardar…',
+      youtube: 'Pega un enlace de YouTube…',
+      vimeo: 'Pega un enlace de Vimeo…',
+      loom: 'Pega un enlace de Loom…',
+      figma: 'Pega un enlace de Figma…',
+      googleDrive: 'Pega un enlace de Google Drive, Documentos, Hojas de cálculo o Presentaciones…',
+      googleMaps: 'Pega un enlace de Google Maps…',
+      codepen: 'Pega un enlace de CodePen…',
+      miro: 'Pega un enlace de un tablero de Miro…',
+    },
+  },
+  tableOfContents: {
+    empty: 'Añade encabezados para crear una tabla de contenidos.',
+    untitled: 'Sin título',
+  },
+};

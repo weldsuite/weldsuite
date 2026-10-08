@@ -22,7 +22,6 @@ interface IconBlockProps {
   size?: number;
   color?: string;
   alignment?: 'left' | 'center' | 'right';
-  mode?: string;
 }
 
 const iconMap: Record<string, LucideIcon> = {

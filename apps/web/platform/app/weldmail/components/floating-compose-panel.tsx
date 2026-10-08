@@ -69,6 +69,7 @@ import {
 import { buildComposeBodies, type ComposeBodies } from '@/app/weldmail/lib/compose-body';
 import type { DraftFields } from '@/app/weldmail/lib/draft-autosave';
 import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#06b6d4', '#3b82f6', '#10b981',
@@ -326,9 +327,9 @@ export function FloatingComposePanel() {
   // Check formatting state
   const checkFormatting = () => {
     saveSelection();
-    setIsBold(document.queryCommandState('bold'));
-    setIsItalic(document.queryCommandState('italic'));
-    setIsUnderline(document.queryCommandState('underline'));
+    setIsBold(isEditorCommandActive('bold'));
+    setIsItalic(isEditorCommandActive('italic'));
+    setIsUnderline(isEditorCommandActive('underline'));
   };
 
   const focusEditor = () => {
@@ -347,7 +348,7 @@ export function FloatingComposePanel() {
     if (textareaRef.current) {
       textareaRef.current.focus();
       restoreSelection();
-      document.execCommand(command, false, value);
+      runEditorCommand(command, value);
       saveSelection();
     }
   };

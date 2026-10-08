@@ -127,6 +127,19 @@ export async function listCatalogApps(
   return catalogApps.map((app) => toCatalogItem(app, installedCodes));
 }
 
+/**
+ * Codes of the active catalog apps flagged as Beta, for the sidebar badge.
+ * Published or not: built-in surfaces such as WeldAgent have an unpublished
+ * row that exists only to carry flags like this one.
+ */
+export async function listBetaAppCodes(masterDb: MasterDatabase): Promise<string[]> {
+  const rows = await masterDb
+    .select({ code: appCatalog.code })
+    .from(appCatalog)
+    .where(and(eq(appCatalog.isActive, true), eq(appCatalog.isBeta, true)));
+  return rows.map((r) => r.code);
+}
+
 /** Distinct categories across published catalog apps, sorted. */
 export async function listCatalogCategories(masterDb: MasterDatabase): Promise<string[]> {
   const apps = await masterDb

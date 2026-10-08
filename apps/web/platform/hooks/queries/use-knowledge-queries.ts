@@ -95,15 +95,6 @@ export interface KnowledgePage {
   deletedAt: string | null;
 }
 
-export interface KnowledgeTrashedPage {
-  id: string;
-  spaceId: string;
-  parentId: string | null;
-  title: string;
-  icon: string | null;
-  deletedAt: string;
-}
-
 export interface KnowledgePageVersionSummary {
   id: string;
   pageId: string;
@@ -141,7 +132,6 @@ const knowledgeKeys = {
   pages: () => [...knowledgeKeys.all, 'pages'] as const,
   pageDetail: (id: string) => [...knowledgeKeys.pages(), 'detail', id] as const,
 
-  trash: () => [...knowledgeKeys.all, 'trash'] as const,
 
   favorites: () => [...knowledgeKeys.all, 'favorites'] as const,
 
@@ -216,17 +206,6 @@ export function useKnowledgePage(id: string, enabled = true) {
       return client.get<{ data: KnowledgePage }>(`/knowledge/pages/${id}`);
     },
     enabled: !!id && enabled,
-  });
-}
-
-export function useKnowledgeTrash() {
-  const { getClient } = useAppApiClient();
-  return useQuery({
-    queryKey: knowledgeKeys.trash(),
-    queryFn: async () => {
-      const client = await getClient();
-      return client.get<{ data: KnowledgeTrashedPage[] }>('/knowledge/trash');
-    },
   });
 }
 
@@ -504,23 +483,7 @@ export function useDeleteKnowledgePage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: knowledgeKeys.tree() });
-      qc.invalidateQueries({ queryKey: knowledgeKeys.trash() });
       qc.invalidateQueries({ queryKey: knowledgeKeys.favorites() });
-    },
-  });
-}
-
-export function useRestoreKnowledgePage() {
-  const { getClient } = useAppApiClient();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const client = await getClient();
-      return client.post<{ data: KnowledgePage }>(`/knowledge/pages/${id}/restore`, {});
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: knowledgeKeys.tree() });
-      qc.invalidateQueries({ queryKey: knowledgeKeys.trash() });
     },
   });
 }

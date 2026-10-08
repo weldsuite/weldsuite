@@ -12,6 +12,7 @@
     "./cors": "./src/cors.ts",
     "./db": "./src/db.ts",
     "./dns-lookup": "./src/dns-lookup.ts",
+    "./due-index": "./src/due-index.ts",
     "./env": "./src/env.ts",
     "./forward": "./src/forward.ts",
     "./id": "./src/id.ts",
@@ -25,6 +26,7 @@
     "./response": "./src/response.ts",
     "./testing": "./src/testing/harness.ts",
     "./testing/pglite": "./src/testing/pglite.ts",
+    "./testing/d1": "./src/testing/d1.ts",
     "./testing/sweeps": "./src/testing/sweeps.ts",
     "./webhook-token": "./src/webhook-token.ts"
   },

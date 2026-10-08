@@ -1,6 +1,6 @@
 /**
- * WeldHR — people screens: dashboard, employee directory + profile, org
- * chart, client accounts. Composed into `weldhr` by ./weldhr.ts.
+ * WeldHR — people screens: dashboard, employee directory + profile.
+ * Composed into `weldhr` by ./weldhr.ts.
  */
 export const weldhrPeople = {
   dashboard: {
@@ -9,10 +9,6 @@ export const weldhrPeople = {
     clockedInToday: 'Clocked in today',
     onLeaveToday: 'On leave today',
     pendingLeaveRequests: 'Pending leave requests',
-    openOnboardingTasks: 'Open onboarding tasks',
-    overdueOnboardingTasks: '{count} overdue',
-    coachingFollowUpsDue: 'Coaching follow-ups due',
-    avgEvaluationScore: 'Avg. evaluation score (90d)',
     loadFailed: 'Could not load the dashboard.',
     upcomingStarts: {
       title: 'Upcoming starts',
@@ -23,22 +19,9 @@ export const weldhrPeople = {
       empty: 'Nobody is on leave today.',
       until: 'until {date}',
     },
-    recentEvaluations: {
-      title: 'Recent evaluations',
-      empty: 'No evaluations yet.',
-    },
-    clients: {
-      title: 'Client accounts',
-      empty: 'No client accounts yet.',
-      viewAll: 'View all',
-      headcount: '{count} people',
-      fte: '{fte} FTE',
-    },
     links: {
       leave: 'Leave',
-      lifecycle: 'Lifecycle',
       coaching: 'Coaching',
-      evaluations: 'Evaluations',
     },
   },
 
@@ -57,7 +40,6 @@ export const weldhrPeople = {
       jobTitle: 'Job title',
       department: 'Department',
       manager: 'Manager',
-      clients: 'Client accounts',
       status: 'Status',
       startDate: 'Start date',
       notLinked: 'Not in workspace',
@@ -89,10 +71,6 @@ export const weldhrPeople = {
       startDate: 'Start date',
       department: 'Department',
       manager: 'Manager',
-      onboarding: 'Start onboarding checklist',
-      onboardingNone: "Don't start a checklist",
-      firstClient: 'First client assignment (optional)',
-      role: 'Role',
       submit: 'Create employee',
       failed: 'Could not create this employee.',
     },
@@ -127,8 +105,6 @@ export const weldhrPeople = {
       actions: {
         edit: 'Edit',
         delete: 'Delete',
-        startOnboarding: 'Start onboarding',
-        startOffboarding: 'Start offboarding',
       },
       deleteConfirm: {
         title: 'Delete employee',
@@ -136,14 +112,9 @@ export const weldhrPeople = {
       },
       tabs: {
         overview: 'Overview',
-        clients: 'Clients',
         personal: 'Personal',
-        lifecycle: 'Lifecycle',
         attendance: 'Attendance',
         leave: 'Leave',
-        coaching: 'Coaching',
-        evaluations: 'Evaluations',
-        performance: 'Performance',
       },
       overview: {
         profile: 'Profile',
@@ -160,37 +131,10 @@ export const weldhrPeople = {
           title: 'Direct reports',
           empty: 'No direct reports.',
         },
-        clients: {
-          title: 'Client accounts',
-          empty: 'Not assigned to a client account yet.',
-        },
       },
       edit: {
         title: 'Edit employee',
         failed: 'Could not save this employee.',
-      },
-      clientsTab: {
-        title: 'Client assignments',
-        addAssignment: 'Add assignment',
-        empty: 'No client assignments yet.',
-        endAssignment: 'End assignment',
-        table: {
-          company: 'Client account',
-          role: 'Role',
-          allocation: 'Allocation',
-          dates: 'Dates',
-          status: 'Active',
-          primary: 'Primary',
-        },
-        assignmentForm: {
-          title: 'Add client assignment',
-          editTitle: 'Edit client assignment',
-          client: 'Client account',
-          role: 'Role',
-          allocation: 'Allocation %',
-          primary: 'Primary assignment',
-          failed: 'Could not save this assignment.',
-        },
       },
       personalTab: {
         title: 'Personal data',
@@ -219,108 +163,6 @@ export const weldhrPeople = {
           hour: 'hour',
           month: 'month',
           year: 'year',
-        },
-      },
-      lifecycleDialog: {
-        onboardingTitle: 'Start onboarding',
-        offboardingTitle: 'Start offboarding',
-        template: 'Checklist template',
-        lastWorkingDay: 'Last working day',
-        noTemplates: 'No checklist templates yet. Create one in WeldHR settings first.',
-        failed: 'Could not start this checklist.',
-      },
-    },
-  },
-
-  orgChart: {
-    title: 'Org chart',
-    subtitle: 'Reporting lines, derived from each employee’s manager.',
-    search: 'Search employees…',
-    empty: 'No employees yet.',
-    reports: '{count} direct reports',
-    loadFailed: 'Could not load the org chart.',
-  },
-
-  clients: {
-    title: 'Client accounts',
-    subtitle: 'Headcount and FTE assigned to each client account.',
-    assignEmployee: 'Assign employee',
-    searchPlaceholder: 'Search client accounts…',
-    loadFailed: 'Could not load client accounts.',
-    table: {
-      company: 'Company',
-      active: 'Active',
-      fte: 'FTE',
-      total: 'Total ever assigned',
-    },
-    empty: {
-      title: 'No client accounts yet',
-      description: 'Assign an employee to a CRM company to start a client account.',
-    },
-    assign: {
-      title: 'Assign employee',
-      employee: 'Employee',
-      client: 'Client account',
-      role: 'Role',
-      startDate: 'Start date',
-      submit: 'Assign',
-      failed: 'Could not create this assignment.',
-    },
-    detail: {
-      loadFailed: 'Could not load this client account.',
-      viewInCrm: 'View in CRM',
-      tabs: {
-        team: 'Team',
-        clientView: 'What the client sees',
-        contacts: 'Contacts',
-      },
-      team: {
-        active: 'Active',
-        past: 'Past',
-        empty: 'No assignments yet.',
-        endAssignment: 'End assignment',
-        assignmentForm: {
-          title: 'Add assignment',
-          editTitle: 'Edit assignment',
-          role: 'Role',
-          allocation: 'Allocation %',
-          primary: 'Primary assignment',
-          failed: 'Could not save this assignment.',
-        },
-      },
-      clientView: {
-        infoBanner: 'Only records marked "shared with client" appear in the portal.',
-        individualScoresOn: 'Individual scores are visible to this client.',
-        individualScoresOff: 'Only team averages are visible to this client.',
-        summary: {
-          headcount: 'Headcount',
-          fte: 'FTE',
-          avgScore: 'Avg. evaluation score',
-          attendanceRate: 'Attendance rate (30d)',
-          milestonesAchieved: 'Milestones achieved',
-          milestonesOpen: 'Milestones open',
-        },
-        kpis: {
-          title: 'KPIs',
-          target: 'Target',
-          onTarget: 'On target',
-          offTarget: 'Off target',
-        },
-        team: {
-          title: 'Team',
-          empty: 'No team members yet.',
-        },
-        evaluations: {
-          title: 'Shared evaluations',
-          empty: 'No evaluations shared with this client.',
-        },
-        milestones: {
-          title: 'Milestones',
-          empty: 'No milestones shared with this client.',
-        },
-        coaching: {
-          title: 'Coaching',
-          empty: 'No coaching sessions shared with this client.',
         },
       },
     },

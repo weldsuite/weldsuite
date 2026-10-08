@@ -51,6 +51,7 @@ import { projectsApi, membersApi, type ApiProject } from "@/app/weldflow/lib/api
 import { projectKeys } from "@/hooks/queries/use-projects-queries";
 import { useTopic } from "@weldsuite/realtime/react";
 import { TeamMemberDetailsPanel, type TeamMemberDetail } from "@/components/team-member-details-panel";
+import { activateOnKey } from "@/lib/activate-on-key";
 
 type TableStatus = "on-track" | "at-risk" | "off-track" | "on-hold" | "completed";
 
@@ -479,8 +480,11 @@ export function AllProjectsClient({
     return (
       <div
         key={project.id}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
         onClick={() => router.push(`/weldflow/project/${project.id}/tasks`)}
+        onKeyDown={activateOnKey(() => router.push(`/weldflow/project/${project.id}/tasks`))}
       >
         {/* Project Name */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2.5">

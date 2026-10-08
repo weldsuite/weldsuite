@@ -4,7 +4,8 @@
  * Cron every 15 minutes:
  * 1. D1 connector catch-up — probe stores, open tenant Neon only on hits
  * 2. D1 CRM due-index — trigger connect-api sync for due CRM connections only
- * 3. Master ad_sync_index — WeldAds metrics (due rows only)
+ * 3. Master bank_feed_connection_index — WeldBooks bank feeds (due rows only)
+ * 4. Master ad_sync_index — WeldAds metrics (due rows only)
  *
  * Quiet ticks never open tenant Neon for connectors or CRM.
  */
@@ -16,6 +17,7 @@ import * as masterSchema from '@weldsuite/db/schema/master';
 import { runConnectorCatchupSweep } from './connector-catchup';
 import { fetchConnectInternal } from './connect-internal';
 import { runCrmDueSweep } from './crm-due';
+import { runBankFeedDueSweep } from './bank-feed-due';
 
 export interface Env {
   HYPERDRIVE_MASTER: Hyperdrive;
@@ -30,6 +32,11 @@ export interface Env {
    * bound or connect-api has not deployed the entrypoint yet.
    */
   APP_API: Fetcher;
+  /**
+   * books-api `BooksInternal` entrypoint (weldsuite-books-api[-test]): the bank feed
+   * due sweep calls its internal sync route. Trusted by topology (no secret).
+   */
+  BOOKS_INTERNAL?: Fetcher;
   ENVIRONMENT: string;
   /**
    * Fallback path only: must match the target env's INTERNAL_API_SECRET. The
@@ -77,8 +84,19 @@ export default {
       console.warn('[IntegrationScheduler] CONNECTOR_SYNC_INDEX D1 binding not configured, skipping connector + CRM sweeps');
     }
 
-    // WeldAds: poll master ad_sync_index — only touch tenants with due connections.
     const masterDb = getMasterDb(env);
+
+    // WeldBooks bank feeds: master bank_feed_connection_index, due rows only.
+    try {
+      const bank = await runBankFeedDueSweep(masterDb, env, new Date());
+      console.log(
+        `[IntegrationScheduler] Bank feeds. Due: ${bank.due}, Synced: ${bank.synced}, Skipped: ${bank.skipped}, Failed: ${bank.failed}, Deactivated: ${bank.deactivated}`,
+      );
+    } catch (err) {
+      console.error('[IntegrationScheduler] Bank feed sweep failed:', err);
+    }
+
+    // WeldAds: poll master ad_sync_index — only touch tenants with due connections.
     await runAdSyncSweep(env, masterDb, new Date());
   },
 };

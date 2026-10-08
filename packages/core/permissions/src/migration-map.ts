@@ -63,7 +63,7 @@ const RAW_MIGRATION: ReadonlyArray<readonly [string, string, string, readonly st
   ['weldbooks', 'bills',     'bills',     ['read', 'create', 'update', 'delete']],
   ['weldbooks', 'journal',   'journal',   ['read', 'create', 'update', 'delete', 'manage']],
   ['weldbooks', 'accounts',  'accounts',  ['read', 'create', 'update', 'delete', 'manage']],
-  ['weldbooks', 'banking',   'banking',   ['read', 'create', 'update', 'manage']],
+  ['weldbooks', 'banking',   'banking',   ['read', 'create', 'update', 'delete', 'manage']],
   ['weldbooks', 'suppliers', 'suppliers', ['read', 'create', 'update', 'delete']],
   ['weldbooks', 'customers', 'customers', ['read', 'create', 'update', 'delete']],
   ['weldbooks', 'reports',   'reports',   ['read', 'manage']],

@@ -46,6 +46,7 @@ import {
 import { Badge } from "@weldsuite/ui/components/badge";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "@weldsuite/i18n/client";
+import { activateOnKey } from "@/lib/activate-on-key";
 
 interface Task {
   id: string;
@@ -208,16 +209,6 @@ const PRIORITY_BADGE_VARIANT: Record<NonNullable<Task["priority"]>, BadgeVariant
   high: "destructive",
   medium: "secondary",
   low: "outline",
-};
-
-// Activates a role="button" element on Enter / Space, ignoring key events that
-// bubble up from nested controls.
-const activateOnKey = (activate: () => void) => (e: React.KeyboardEvent<HTMLElement>) => {
-  if (e.target !== e.currentTarget) return;
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    activate();
-  }
 };
 
 export default function TimelinePage() {
@@ -642,7 +633,8 @@ export default function TimelinePage() {
                 
                 return (
                   <div key={task.id} className="timeline-row">
-                    <div
+                    <button
+                      type="button"
                       className={cn(
                         "timeline-task",
                         task.type === "milestone" && "milestone",
@@ -653,10 +645,7 @@ export default function TimelinePage() {
                         width: task.type === "milestone" ? "32px" : position.width,
                         background: getTaskColor(),
                       }}
-                      role="button"
-                      tabIndex={0}
                       onClick={() => setSelectedTask(task)}
-                      onKeyDown={activateOnKey(() => setSelectedTask(task))}
                     >
                       {task.type === "milestone" ? (
                         <span>{st('sweep.weldflow.timeline.milestoneAbbreviation')}</span>
@@ -671,7 +660,7 @@ export default function TimelinePage() {
                           )}
                         </>
                       )}
-                    </div>
+                    </button>
                   </div>
                 );
               })}

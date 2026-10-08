@@ -788,8 +788,8 @@ function PlanPricingCard({
 
       {/* Features */}
       <div className="space-y-3 flex-1">
-        {features.map((feature, featureIndex) => (
-          <div key={featureIndex} className="flex items-start gap-2">
+        {features.map((feature) => (
+          <div key={feature} className="flex items-start gap-2">
             <div className="w-5 h-5 rounded-sm bg-muted flex items-center justify-center flex-shrink-0">
               <Check className="h-3 w-3 text-muted-foreground" />
             </div>
@@ -1117,29 +1117,30 @@ function InvoicesListView({
           ) : (
             <div className="divide-y">
               {invoices.map((invoice) => (
-                <div
+                <button
+                  type="button"
                   key={invoice.id}
-                  className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                  className="flex w-full text-left items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer"
                   onClick={() => onViewInvoice(invoice)}
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="rounded-full bg-primary/10 p-2">
+                  <span className="flex items-center gap-4">
+                    <span className="block rounded-full bg-primary/10 p-2">
                       <FileText className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">{invoice.id}</p>
-                      <p className="text-xs text-muted-foreground">
+                    </span>
+                    <span className="block">
+                      <span className="block text-sm font-medium">{invoice.id}</span>
+                      <span className="block text-xs text-muted-foreground">
                         {formatDate(invoice.periodStart)} - {formatDate(invoice.periodEnd)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-sm font-semibold">{formatCurrency(invoice.amount)}</p>
-                      <div className="mt-1"><InvoiceStatusBadge status={invoice.status} /></div>
-                    </div>
-                  </div>
-                </div>
+                      </span>
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-4">
+                    <span className="block text-right">
+                      <span className="block text-sm font-semibold">{formatCurrency(invoice.amount)}</span>
+                      <span className="block mt-1"><InvoiceStatusBadge status={invoice.status} /></span>
+                    </span>
+                  </span>
+                </button>
               ))}
             </div>
           )}
@@ -1516,25 +1517,26 @@ function RecentInvoicesSection({
       </div>
       <div className="rounded-lg border divide-y">
         {invoices.slice(0, 5).map((invoice) => (
-          <div
+          <button
+            type="button"
             key={invoice.id}
-            className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer"
+            className="flex w-full text-left items-center justify-between p-4 hover:bg-muted/50 transition-colors cursor-pointer"
             onClick={() => onViewInvoice(invoice)}
           >
-            <div className="flex items-center gap-3">
+            <span className="flex items-center gap-3">
               <FileText className="h-4 w-4 text-muted-foreground" />
-              <div>
-                <p className="text-sm font-medium">{invoice.id}</p>
-                <p className="text-xs text-muted-foreground">
+              <span className="block">
+                <span className="block text-sm font-medium">{invoice.id}</span>
+                <span className="block text-xs text-muted-foreground">
                   {formatDate(invoice.periodStart)}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
+                </span>
+              </span>
+            </span>
+            <span className="flex items-center gap-4">
               <span className="text-sm font-medium">{formatCurrency(invoice.amount)}</span>
               <InvoiceStatusBadge status={invoice.status} />
-            </div>
-          </div>
+            </span>
+          </button>
         ))}
       </div>
     </div>

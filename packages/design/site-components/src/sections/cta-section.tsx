@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData, SectionSettings } from '../types';
 import { Button } from "@weldsuite/ui/components/button";
 
 interface CTASectionProps {
@@ -11,8 +10,6 @@ interface CTASectionProps {
   secondaryButtonText?: string;
   secondaryButtonLink?: string;
   backgroundColor?: string;
-  store?: StoreData;
-  settings?: SectionSettings;
 }
 
 export default function CTASection({

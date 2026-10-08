@@ -1,6 +1,6 @@
 "use client";
 
-import type { StoreData, SectionSettings, Product } from '../types';
+import type { StoreData, Product } from '../types';
 import { toPriceNumber } from '../lib/price';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@weldsuite/ui/components/card";
 import { Button } from "@weldsuite/ui/components/button";
@@ -11,7 +11,6 @@ interface ProductGridSectionProps {
   title?: string;
   limit?: number;
   store?: StoreData;
-  settings?: SectionSettings;
 }
 
 export default function ProductGridSection({ 

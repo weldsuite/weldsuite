@@ -1,6 +1,5 @@
 "use client";
 
-import type { SectionSettings } from '../types';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { slideTransitionClasses } from '../lib/slide-transition';
@@ -15,7 +14,6 @@ export interface SlideshowContainerBlockProps {
   transitionStyle?: 'fade' | 'slide' | 'zoom';
   mode?: 'live' | 'edit' | 'preview';
   children?: React.ReactNode;
-  settings?: SectionSettings;
 }
 
 export function SlideshowContainerBlock({
@@ -109,7 +107,7 @@ export function SlideshowContainerBlock({
       <div className="absolute inset-0 w-full h-full">
         {slides.map((slide, index) => (
           <div
-            key={index}
+            key={React.isValidElement(slide) ? (slide.key ?? index) : index}
             className={`absolute inset-0 w-full h-full ${getTransitionClasses(index)}`}
           >
             {slide}

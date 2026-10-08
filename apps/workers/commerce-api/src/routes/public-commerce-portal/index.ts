@@ -45,7 +45,12 @@ import {
   type PortalSession,
 } from '@weldsuite/commerce-domain/portal-tokens';
 import { sendPortalMagicLinkEmail } from '../../services/commerce-portal-mail';
-import { findCompanyParty, isPortalEnabled, loadPortalSettings } from '../../services/commerce-portal';
+import {
+  findCompanyParty,
+  isPortalEnabled,
+  loadPortalSettings,
+  portalPartyColumns,
+} from '../../services/commerce-portal';
 import { placePortalOrder, PortalOrderError } from '../../services/commerce-portal-orders';
 import { loadPortalInvoice, renderPortalInvoiceHtml } from '../../services/commerce-portal-invoices';
 import type { Database } from '@weldsuite/worker-kit/db';
@@ -397,7 +402,7 @@ authed.get('/me', async (c) => {
     const [[person], [company], [party]] = await Promise.all([
       db.select().from(schema.people).where(eq(schema.people.id, personId)).limit(1),
       db.select().from(schema.companies).where(eq(schema.companies.id, companyId)).limit(1),
-      db.select().from(schema.parties).where(eq(schema.parties.id, partyId)).limit(1),
+      db.select(portalPartyColumns).from(schema.parties).where(eq(schema.parties.id, partyId)).limit(1),
     ]);
 
     return success(c, {

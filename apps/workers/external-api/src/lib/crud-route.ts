@@ -15,6 +15,7 @@ import { requireScope } from './scopes';
 import { generateId } from './id';
 import { error, list, noContent, success, cursorPagination } from './response';
 import { listWithCursor } from './list-helpers';
+import { columnsFor } from './select-columns';
 
 const defaultListQuery = z.object({
   cursor: z.string().optional(),
@@ -66,6 +67,8 @@ export function createCrudRoute<TTable extends ListableTable>(
   const listQuerySchema = opts.listQuery ?? defaultListQuery;
   const softDelete = opts.softDelete ?? true;
   const publishEvents = opts.publishEvents ?? true;
+  // Ciphertext columns of the table (if any) are never selected or returned.
+  const columns = columnsFor(table) as any;
   const readScope = `${opts.scope}:read`;
   const writeScope = `${opts.scope}:write`;
 
@@ -98,7 +101,7 @@ export function createCrudRoute<TTable extends ListableTable>(
     if (softDelete && table.deletedAt) {
       conditions.push(isNull(tbl.deletedAt));
     }
-    const [row] = await db.select().from(tbl).where(and(...conditions)).limit(1);
+    const [row] = await db.select(columns).from(tbl).where(and(...conditions)).limit(1);
     if (!row) return error.notFound(c, opts.label, id);
     return success(c, row);
   });
@@ -114,7 +117,7 @@ export function createCrudRoute<TTable extends ListableTable>(
       updatedAt: now,
       ...(opts.prepareCreate?.(body) ?? body),
     };
-    const inserted = (await db.insert(tbl).values(values).returning()) as Record<string, unknown>[];
+    const inserted = (await db.insert(tbl).values(values).returning(columns)) as Record<string, unknown>[];
     const row = inserted[0];
     if (!row) return error.internal(c, `Failed to create ${opts.label.toLowerCase()}`);
     if (publishEvents) {
@@ -138,13 +141,13 @@ export function createCrudRoute<TTable extends ListableTable>(
     if (softDelete && table.deletedAt) {
       conditions.push(isNull(tbl.deletedAt));
     }
-    const [existing] = await db.select().from(tbl).where(and(...conditions)).limit(1);
+    const [existing] = await db.select(columns).from(tbl).where(and(...conditions)).limit(1);
     if (!existing) return error.notFound(c, opts.label, id);
     const update = {
       ...(opts.prepareUpdate?.(body, existing as Record<string, unknown>) ?? body),
       updatedAt: new Date(),
     };
-    const updated = (await db.update(tbl).set(update).where(and(...conditions)).returning()) as Record<
+    const updated = (await db.update(tbl).set(update).where(and(...conditions)).returning(columns)) as Record<
       string,
       unknown
     >[];
@@ -176,8 +179,8 @@ export function createCrudRoute<TTable extends ListableTable>(
             .update(tbl)
             .set({ deletedAt: new Date(), updatedAt: new Date() })
             .where(and(...conditions))
-            .returning()
-        : await db.delete(tbl).where(and(...conditions)).returning()
+            .returning(columns)
+        : await db.delete(tbl).where(and(...conditions)).returning(columns)
     ) as Record<string, unknown>[];
     const row = deleted[0];
     if (!row) return error.notFound(c, opts.label, id);

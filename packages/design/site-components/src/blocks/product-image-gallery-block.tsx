@@ -16,7 +16,6 @@ export interface ProductImageGalleryBlockProps {
   borderRadius?: number;
   buttonBorderRadius?: number;
   layout?: 'horizontal' | 'vertical' | 'grid';
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData;
 }
 

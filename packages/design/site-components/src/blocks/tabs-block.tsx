@@ -9,7 +9,6 @@ export interface TabsBlockProps {
   items?: TabItem[];
   defaultTab?: number;
   variant?: 'underline' | 'pills' | 'boxed';
-  mode?: 'live' | 'preview';
 }
 
 export function TabsBlock({

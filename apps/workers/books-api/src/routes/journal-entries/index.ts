@@ -31,7 +31,12 @@ import {
   LockedPeriodError,
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
-import { postDraftJournalEntry, PostingError, reverseJournalEntry } from '../../services/accounting-posting';
+import {
+  assertDimensionsBelongToEntity,
+  postDraftJournalEntry,
+  PostingError,
+  reverseJournalEntry,
+} from '../../services/accounting-posting';
 
 function isUserFixable(err: unknown): err is Error {
   return err instanceof ClosedPeriodError || err instanceof LockedPeriodError || err instanceof PostingError;
@@ -48,6 +53,9 @@ const journalLineSchema = z.object({
   taxAmount: z.string().optional(),
   contactId: z.string().optional(),
   sortOrder: z.number().optional(),
+  /** Reporting dimensions: ids of accounting_dimension_values of the entity (dimension class / location). */
+  classId: z.string().max(30).nullable().optional(),
+  locationId: z.string().max(30).nullable().optional(),
 });
 
 const createJournalEntrySchema = z.object({
@@ -151,6 +159,8 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       userId,
     });
 
+    await assertDimensionsBelongToEntity(db, entityId, data.lines);
+
     const { formatted: entryNumber } = await nextEntityNumber(db, entityId, 'journal');
     const entryId = generateId('je');
     const now = new Date();
@@ -185,6 +195,8 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       taxAmount: line.taxAmount || null,
       contactId: line.contactId || null,
       currency,
+      classId: line.classId || null,
+      locationId: line.locationId || null,
       sortOrder: line.sortOrder ?? idx,
       createdAt: now,
       updatedAt: now,

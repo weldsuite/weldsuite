@@ -10,7 +10,6 @@ export interface TestimonialCardBlockProps {
   rating?: number;
   backgroundColor?: string;
   textColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function TestimonialCardBlock({

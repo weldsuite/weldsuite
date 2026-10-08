@@ -20,6 +20,7 @@ import { cn, stripTags } from '@/lib/utils';
 import { usePinnedNote } from '@/contexts/pinned-note-context';
 import { NoteEditorDialog } from './note-editor-dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // Helper to strip HTML tags
 function stripHtml(html: string): string {
@@ -182,11 +183,11 @@ export function GlobalPinnedNote() {
   useEffect(() => {
     const checkFormats = () => {
       setActiveFormats({
-        bold: document.queryCommandState('bold'),
-        italic: document.queryCommandState('italic'),
-        underline: document.queryCommandState('underline'),
-        unorderedList: document.queryCommandState('insertUnorderedList'),
-        orderedList: document.queryCommandState('insertOrderedList'),
+        bold: isEditorCommandActive('bold'),
+        italic: isEditorCommandActive('italic'),
+        underline: isEditorCommandActive('underline'),
+        unorderedList: isEditorCommandActive('insertUnorderedList'),
+        orderedList: isEditorCommandActive('insertOrderedList'),
       });
     };
 
@@ -257,13 +258,13 @@ export function GlobalPinnedNote() {
 
   // Toolbar formatting functions
   const execFormat = useCallback((command: string, value?: string) => {
-    document.execCommand(command, false, value);
+    runEditorCommand(command, value);
     setActiveFormats({
-      bold: document.queryCommandState('bold'),
-      italic: document.queryCommandState('italic'),
-      underline: document.queryCommandState('underline'),
-      unorderedList: document.queryCommandState('insertUnorderedList'),
-      orderedList: document.queryCommandState('insertOrderedList'),
+      bold: isEditorCommandActive('bold'),
+      italic: isEditorCommandActive('italic'),
+      underline: isEditorCommandActive('underline'),
+      unorderedList: isEditorCommandActive('insertUnorderedList'),
+      orderedList: isEditorCommandActive('insertOrderedList'),
     });
     triggerAutoSave();
   }, [triggerAutoSave]);
@@ -295,7 +296,7 @@ export function GlobalPinnedNote() {
     const url = prompt(t('sweep.weldcrm.globalPinnedNote.enterUrl'));
     if (url) {
       if (!hasSelection) {
-        document.execCommand('insertHTML', false, `<a href="${url}">${url}</a>`);
+        runEditorCommand('insertHTML', `<a href="${url}">${url}</a>`);
       } else {
         execFormat('createLink', url);
       }

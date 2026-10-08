@@ -16,9 +16,10 @@ import api from '@/services/api';
 import { ACCENTS } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
-import { IconTile } from '@/components/detail';
+import { IconTile, DetailRow } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { bankAccountSubtitle, isBankAccountType, maskedAccountNumber } from '@/lib/payments';
 import type { BankAccountDetail } from '@/types/accounting';
 
 export default function BankAccountDetailScreen() {
@@ -51,7 +52,11 @@ export default function BankAccountDetailScreen() {
   }, [load]);
 
   const header = (
-    <ScreenHeader title={account?.name || t.bankDetail.title} subtitle={account?.iban} showBack />
+    <ScreenHeader
+      title={account?.name || t.bankDetail.title}
+      subtitle={account ? bankAccountSubtitle(account, t.bank.accountTypes) : undefined}
+      showBack
+    />
   );
 
   if (loading) {
@@ -115,6 +120,25 @@ export default function BankAccountDetailScreen() {
                 {account.bankName}
               </Text>
             ) : null}
+            {account.routingNumber || account.accountNumberLast4 ? (
+              <View style={styles.details}>
+                {isBankAccountType(account.accountType) ? (
+                  <DetailRow
+                    label={t.bankDetail.accountType}
+                    value={t.bank.accountTypes[account.accountType]}
+                  />
+                ) : null}
+                {account.routingNumber ? (
+                  <DetailRow label={t.bankDetail.routingNumber} value={account.routingNumber} />
+                ) : null}
+                {maskedAccountNumber(account.accountNumberLast4) ? (
+                  <DetailRow
+                    label={t.bankDetail.accountNumber}
+                    value={maskedAccountNumber(account.accountNumberLast4) ?? ''}
+                  />
+                ) : null}
+              </View>
+            ) : null}
           </Card>
         }
         renderItem={({ item }) => {
@@ -164,5 +188,6 @@ const styles = StyleSheet.create({
   balanceLabel: { fontSize: 12, fontWeight: '500' },
   balanceValue: { fontSize: 26, fontWeight: '700', marginTop: 2, letterSpacing: -0.6 },
   bankName: { fontSize: 13, marginTop: 12 },
+  details: { marginTop: 8 },
   empty: { marginTop: 24 },
 });

@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, ShoppingCart } from "lucide-react";
 import React, { useState } from "react";
@@ -24,7 +23,6 @@ interface GalleryAccordionHorizontalBlockProps {
   textColor?: string;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: StoreData;
 }
 
 const defaultImages: GalleryImage[] = [

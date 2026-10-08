@@ -18,6 +18,7 @@ import type {
 import type { EntityType } from './events';
 import type { DataFor } from './events/data';
 import type { TenantDb } from './internal-types';
+import { scrubSensitiveKeys } from '@weldsuite/db/lib/sensitive-columns';
 
 // ---------------------------------------------------------------------------
 // Env shape required by the publisher (structural — workers' own Env types
@@ -115,8 +116,13 @@ interface HubEnqueueParams {
  * Never throws — swallows send errors after logging.
  */
 function enqueueHubEntityEvent(params: HubEnqueueParams, source: EventSource): Promise<unknown>[] {
-  const { env, workspaceId, userId, entityType, action, entityId, data, changes, accessUserIds, workflowDepth } =
-    params;
+  const { env, workspaceId, userId, entityType, action, entityId, accessUserIds, workflowDepth } = params;
+  // Ciphertext columns (TIN, SSN, account numbers, provider credentials) never
+  // ride the bus: audit, search, webhooks, workflows, agents and realtime all
+  // fan out from this one message. Stripped here so no producer has to
+  // remember to, and a whole-row payload stays safe.
+  const data = scrubSensitiveKeys(params.data);
+  const changes = params.changes ? scrubSensitiveKeys(params.changes) : params.changes;
 
   const message: EntityEventMessage = {
     id: generateEventId(),

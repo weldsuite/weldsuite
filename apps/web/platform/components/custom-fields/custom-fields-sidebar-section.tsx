@@ -561,7 +561,16 @@ function RowCell({ ctx, placeholder }: Readonly<{ ctx: FieldContext; placeholder
       ) : (
         <div
           className="cursor-text rounded-[9px] px-2 -mx-2 hover:bg-muted/50 transition-colors flex items-center min-h-[32px]"
+          role="button"
+          tabIndex={0}
           onClick={onStartEdit}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onStartEdit();
+            }
+          }}
         >
           <RowDisplayContent ctx={ctx} placeholder={placeholder} />
         </div>
@@ -674,7 +683,16 @@ function StackedField({ ctx }: Readonly<{ ctx: FieldContext }>) {
       return (
         <div
           className="rounded -mx-1 px-1 cursor-text hover:bg-gray-50 dark:hover:bg-secondary/50 transition-colors"
+          role="button"
+          tabIndex={0}
           onClick={onStartEdit}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onStartEdit();
+            }
+          }}
         >
           <span className="text-xs text-muted-foreground">{def.name}</span>
           <div className="mt-0.5">

@@ -163,3 +163,89 @@ describe('generateInvoiceHtml · escaping (TASK-634)', () => {
     expect(us).toContain('Routing: 021000021');
   });
 });
+
+describe('generateInvoiceHtml · US sales tax', () => {
+  const usEntity = () =>
+    entity({
+      name: 'Acme Studio LLC',
+      legalName: 'Acme Studio, LLC',
+      jurisdictionCode: 'US',
+      baseCurrency: 'USD',
+      locale: 'en-US',
+      address: { line1: '1 Congress Ave', city: 'Austin', state: 'TX', postalCode: '78701', country: 'US' },
+      taxIdentifiers: { vatNumber: '12-3456789', einOrSsn: '12-3456789' },
+      bankDetails: { accountNumber: '000123456789', routingNumber: '021000021' },
+    });
+
+  const row = (overrides: Record<string, unknown>) => ({
+    taxRateId: '',
+    taxRateName: 'Texas',
+    taxRate: 6.25,
+    taxableAmount: 1000,
+    taxAmount: 62.5,
+    lineId: 'ili_1',
+    jurisdictionCode: '48',
+    jurisdictionName: 'Texas',
+    jurisdictionLevel: 'state',
+    stateCode: 'TX',
+    ...overrides,
+  });
+
+  it('prints one sales tax line per jurisdiction, state first, with its rate and taxable amount', () => {
+    const html = generateInvoiceHtml(
+      invoice({
+        currency: 'USD',
+        taxTotal: '82.5',
+        total: '1082.50',
+        subtotal: '1000',
+        taxBreakdown: [
+          row({ lineId: 'ili_1', jurisdictionCode: 'AUS', jurisdictionName: 'Austin', jurisdictionLevel: 'city', taxRate: 2, taxAmount: 20 }),
+          row({ lineId: 'ili_1' }),
+          row({ lineId: 'ili_2', taxableAmount: 0, taxAmount: 0, jurisdictionName: 'Texas' }),
+        ],
+      }),
+      usEntity(),
+    );
+    expect(html).toContain('Sales tax - Texas 6.25% on $1,000.00');
+    expect(html).toContain('Sales tax - Austin 2% on $1,000.00');
+    expect(html.indexOf('Sales tax - Texas')).toBeLessThan(html.indexOf('Sales tax - Austin'));
+    // The zero-tax row is not a line of its own, and the EIN prints.
+    expect(html.match(/Sales tax - Texas/g)).toHaveLength(1);
+    expect(html).toContain('EIN: 12-3456789');
+  });
+
+  it('prints the exemption reason and certificate number once per certificate', () => {
+    const html = generateInvoiceHtml(
+      invoice({
+        currency: 'USD',
+        taxTotal: '0',
+        total: '500',
+        subtotal: '500',
+        certificateNumbers: { exc_1: 'FL-85-8012345678-1' },
+        taxBreakdown: [
+          row({ lineId: 'ili_1', taxableAmount: 0, taxAmount: 0, exemptAmount: 500, exemptReason: 'resale', certificateId: 'exc_1', stateCode: 'FL' }),
+          // The same line's local agency row repeats the exempt part: counted once.
+          row({ lineId: 'ili_1', taxableAmount: 0, taxAmount: 0, exemptAmount: 500, exemptReason: 'resale', certificateId: 'exc_1', stateCode: 'FL', jurisdictionName: 'Orange County', jurisdictionLevel: 'county' }),
+        ],
+      }),
+      usEntity(),
+    );
+    expect(html).toContain('Exempt sale: Resale. Certificate no. FL-85-8012345678-1. ($500.00 not taxed)');
+    expect(html.match(/Exempt sale/g)).toHaveLength(1);
+  });
+
+  it('keeps the Dutch and legacy output unchanged', () => {
+    const html = generateInvoiceHtml(
+      invoice({ taxBreakdown: [{ taxRateName: 'BTW 21%', taxRate: 21, taxableAmount: 200, taxAmount: 42 }] }),
+      entity(),
+    );
+    expect(html).toContain('BTW 21');
+    expect(html).not.toContain('Exempt sale');
+    // A US document without jurisdiction detail (legacy rows) renders like a plain rate.
+    const legacy = generateInvoiceHtml(
+      invoice({ currency: 'USD', taxBreakdown: [{ taxRateName: 'Sales tax 8%', taxRate: 8, taxableAmount: 100, taxAmount: 8 }] }),
+      usEntity(),
+    );
+    expect(legacy).toContain('Sales tax 8% $100.00');
+  });
+});

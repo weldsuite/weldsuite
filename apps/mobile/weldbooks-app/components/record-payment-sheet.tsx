@@ -5,6 +5,10 @@
  * full open balance but allows a smaller amount so partial payments land as
  * `partially_paid` instead of forcing an all-or-nothing settle — which is what
  * the old "Mark as paid" shortcut did.
+ *
+ * A US entity picks from check, ACH, wire, cards and cash. A check has a number,
+ * and a check or cash payment we receive can wait in Undeposited Funds until it
+ * is deposited (the default) or go straight to the bank.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -14,9 +18,28 @@ import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { Input } from '@weldsuite/mobile-ui/components/Input';
 import { Select } from '@weldsuite/mobile-ui/components/Select';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { parseAmount } from '@/lib/currency';
 import { today } from '@/lib/date';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import {
+  defaultPaymentMethod,
+  offersDepositChoice,
+  paymentExtras,
+  paymentMethodsFor,
+  takesCheckNumber,
+  type DepositTarget,
+  type PaymentDirection,
+  type PaymentMethodValue,
+} from '@/lib/payments';
+
+export interface RecordedPayment {
+  amount: number;
+  /** `YYYY-MM-DD` */
+  date: string;
+  paymentMethod: string;
+  checkNumber?: string;
+  depositTo?: DepositTarget;
+}
 
 export interface RecordPaymentSheetProps {
   visible: boolean;
@@ -24,8 +47,10 @@ export interface RecordPaymentSheetProps {
   /** Open balance, used as the default amount and the upper bound. */
   balanceDue: number;
   currency: string;
+  /** Money coming in (an invoice) or going out (a bill). */
+  direction: PaymentDirection;
   submitting?: boolean;
-  onSubmit: (payment: { amount: number; date: string; paymentMethod: string }) => Promise<void>;
+  onSubmit: (payment: RecordedPayment) => Promise<void>;
 }
 
 export function RecordPaymentSheet({
@@ -33,33 +58,56 @@ export function RecordPaymentSheet({
   onClose,
   balanceDue,
   currency,
+  direction,
   submitting = false,
   onSubmit,
 }: Readonly<RecordPaymentSheetProps>) {
   const { colors } = useTheme();
   const { t, format } = useI18n();
-  const { formatCurrency: money } = useLocaleFormatters();
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(today());
-  const [method, setMethod] = useState('bank_transfer');
-  const [error, setError] = useState<string | undefined>();
+  const { isUs } = useJurisdiction();
+  const {
+    formatCurrency: money,
+    parseAmount,
+    parseDateInput,
+    formatDateInput,
+    datePlaceholder,
+  } = useLocaleFormatters();
 
-  const methods = [
-    { label: t.payments.bankTransfer, value: 'bank_transfer' },
-    { label: t.payments.card, value: 'card' },
-    { label: t.payments.cash, value: 'cash' },
-    { label: t.payments.directDebit, value: 'direct_debit' },
-    { label: t.payments.other, value: 'manual' },
-  ];
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState('');
+  const [method, setMethod] = useState<string>(defaultPaymentMethod(isUs));
+  const [checkNumber, setCheckNumber] = useState('');
+  const [depositTo, setDepositTo] = useState<DepositTarget>('undeposited_funds');
+  const [error, setError] = useState<string | undefined>();
+  const [dateError, setDateError] = useState<string | undefined>();
+
+  const methodLabels: Record<PaymentMethodValue, string> = {
+    check: t.payments.check,
+    ach: t.payments.ach,
+    wire: t.payments.wire,
+    credit_card: t.payments.creditCard,
+    debit_card: t.payments.debitCard,
+    cash: t.payments.cash,
+    other: t.payments.other,
+    bank_transfer: t.payments.bankTransfer,
+    card: t.payments.card,
+    direct_debit: t.payments.directDebit,
+    manual: t.payments.other,
+  };
+  const methods = paymentMethodsFor(isUs).map((value) => ({ label: methodLabels[value], value }));
 
   // Reset to the full balance each time the sheet opens.
   useEffect(() => {
     if (visible) {
       setAmount(balanceDue > 0 ? balanceDue.toFixed(2) : '');
-      setDate(today());
+      setDate(formatDateInput(today()));
+      setMethod(defaultPaymentMethod(isUs));
+      setCheckNumber('');
+      setDepositTo('undeposited_funds');
       setError(undefined);
+      setDateError(undefined);
     }
-  }, [visible, balanceDue]);
+  }, [visible, balanceDue, isUs, formatDateInput]);
 
   const handleSubmit = async () => {
     const value = parseAmount(amount);
@@ -71,14 +119,26 @@ export function RecordPaymentSheet({
       setError(format(t.payments.exceedBalance, { amount: money(balanceDue, currency) }));
       return;
     }
+    const isoDate = parseDateInput(date);
+    if (!isoDate) {
+      setDateError(format(t.payments.dateError, { example: datePlaceholder }));
+      return;
+    }
     setError(undefined);
-    await onSubmit({ amount: value, date, paymentMethod: method });
+    setDateError(undefined);
+    await onSubmit({
+      amount: value,
+      date: isoDate,
+      paymentMethod: method,
+      ...paymentExtras({ isUs, direction, method, checkNumber, depositTo }),
+    });
   };
 
   const remaining = balanceDue - parseAmount(amount || '0');
+  const showDepositChoice = offersDepositChoice(isUs, direction, method);
 
   return (
-    <Sheet visible={visible} onClose={onClose} title={t.payments.title} heightRatio={0.7}>
+    <Sheet visible={visible} onClose={onClose} title={t.payments.title} heightRatio={0.85}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.body}
@@ -113,13 +173,45 @@ export function RecordPaymentSheet({
           <Input
             label={t.payments.paymentDate}
             value={date}
-            onChangeText={setDate}
-            placeholder={t.payments.datePlaceholder}
+            onChangeText={(text) => {
+              setDate(text);
+              if (dateError) setDateError(undefined);
+            }}
+            placeholder={isUs ? datePlaceholder : t.payments.datePlaceholder}
+            error={dateError}
             autoCapitalize="none"
             autoCorrect={false}
           />
 
           <Select label={t.payments.method} value={method} onValueChange={setMethod} options={methods} />
+
+          {takesCheckNumber(isUs, method) ? (
+            <Input
+              label={t.payments.checkNumber}
+              value={checkNumber}
+              onChangeText={setCheckNumber}
+              placeholder={t.payments.checkNumberPlaceholder}
+              keyboardType="number-pad"
+              autoCorrect={false}
+            />
+          ) : null}
+
+          {showDepositChoice ? (
+            <View style={styles.deposit}>
+              <Select
+                label={t.payments.depositTo}
+                value={depositTo}
+                onValueChange={(next) => setDepositTo(next === 'bank' ? 'bank' : 'undeposited_funds')}
+                options={[
+                  { label: t.payments.undepositedFunds, value: 'undeposited_funds' },
+                  { label: t.payments.bankAccount, value: 'bank' },
+                ]}
+              />
+              <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+                {depositTo === 'bank' ? t.payments.bankHint : t.payments.undepositedHint}
+              </Text>
+            </View>
+          ) : null}
 
           <Button
             title={t.payments.title}
@@ -140,5 +232,7 @@ const styles = StyleSheet.create({
   balance: { borderRadius: 12, padding: 14 },
   balanceLabel: { fontSize: 12, fontWeight: '500' },
   balanceValue: { fontSize: 24, fontWeight: '700', marginTop: 2, letterSpacing: -0.5 },
+  deposit: { gap: 6 },
+  hint: { fontSize: 12, lineHeight: 17 },
   submit: { marginTop: 4 },
 });

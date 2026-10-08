@@ -47,7 +47,14 @@ You can also post a **journal entry** (debit bank, credit the income or expense 
 
 ---
 
+## US businesses
+
+For an entity in the United States, WeldBooks adds sales tax, exemption certificates, 1099s, bank feeds, check and ACH payment runs, fixed assets with tax depreciation, payroll imports and a tax return worksheet. Start with [WeldBooks for US businesses](/weldbooks/us).
+
+---
+
 ## Next steps
 
+- [WeldBooks for US businesses](/weldbooks/us)
 - [WeldCommerce overview](/weldcommerce)
 - [Settings overview](/settings)

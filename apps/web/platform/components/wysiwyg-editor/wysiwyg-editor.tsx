@@ -49,6 +49,7 @@ import {
   Outdent,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 interface SlashCommand {
   id: string;
@@ -169,7 +170,7 @@ const ACTIVE_FORMAT_COMMANDS: ReadonlyArray<readonly [command: string, format: s
 function collectActiveFormats(): Set<string> {
   const formats = new Set<string>();
   for (const [command, format] of ACTIVE_FORMAT_COMMANDS) {
-    if (document.queryCommandState(command)) formats.add(format);
+    if (isEditorCommandActive(command)) formats.add(format);
   }
   return formats;
 }
@@ -674,7 +675,7 @@ export function WysiwygEditor({
     const isListCommand = command === 'insertUnorderedList' || command === 'insertOrderedList';
     const currentAlign = isListCommand ? readCurrentTextAlign(contentRef.current) : '';
 
-    document.execCommand(command, false, value);
+    runEditorCommand(command, value);
 
     if (isListCommand && currentAlign && currentAlign !== 'left') {
       restoreListAlignment(contentRef.current, currentAlign);
@@ -706,7 +707,7 @@ export function WysiwygEditor({
         selection.removeAllRanges();
         selection.addRange(newRange);
       } else {
-        document.execCommand('fontName', false, font);
+        runEditorCommand('fontName', font);
         if (contentRef.current) {
           const fontElements = contentRef.current.querySelectorAll(`font[face="${font}"]`);
           fontElements.forEach((fontEl) => {
@@ -739,7 +740,7 @@ export function WysiwygEditor({
         selection.removeAllRanges();
         selection.addRange(newRange);
       } else {
-        document.execCommand('fontSize', false, '7');
+        runEditorCommand('fontSize', '7');
         if (contentRef.current) {
           const fontElements = contentRef.current.querySelectorAll('font[size="7"]');
           fontElements.forEach((fontEl) => {
@@ -756,19 +757,19 @@ export function WysiwygEditor({
 
   const changeTextColor = useCallback((color: string) => {
     restoreSelection();
-    document.execCommand('foreColor', false, color);
+    runEditorCommand('foreColor', color);
     contentRef.current?.focus();
   }, [contentRef, restoreSelection]);
 
   const changeBackgroundColor = useCallback((color: string) => {
     restoreSelection();
-    document.execCommand('hiliteColor', false, color);
+    runEditorCommand('hiliteColor', color);
     contentRef.current?.focus();
   }, [contentRef, restoreSelection]);
 
   const clearFormatting = useCallback(() => {
-    document.execCommand('removeFormat', false);
-    document.execCommand('unlink', false);
+    runEditorCommand('removeFormat');
+    runEditorCommand('unlink');
     contentRef.current?.focus();
     checkActiveFormats();
   }, [contentRef, checkActiveFormats]);
@@ -1686,7 +1687,7 @@ export function DefaultToolbar({
         size="sm"
         className="p-0"
         style={{ height: '28px', width: '28px', minHeight: '28px' }}
-        onClick={() => document.execCommand('undo')}
+        onClick={() => runEditorCommand('undo')}
         title={t('sweep.shared.undoShortcut')}
       >
         <Undo2 className="h-3.5 w-3.5" />
@@ -1696,7 +1697,7 @@ export function DefaultToolbar({
         size="sm"
         className="p-0"
         style={{ height: '28px', width: '28px', minHeight: '28px' }}
-        onClick={() => document.execCommand('redo')}
+        onClick={() => runEditorCommand('redo')}
         title={t('sweep.shared.redoShortcut')}
       >
         <Redo2 className="h-3.5 w-3.5" />

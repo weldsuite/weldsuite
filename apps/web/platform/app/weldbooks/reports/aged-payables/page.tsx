@@ -1,112 +1,45 @@
-import { PageLoader } from '@/components/page-loader';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import { useAgedPayablesReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
-
-interface AgedPayablesBillRow {
-  id: string;
-  billNumber: string | null;
-  contactName: string | null;
-  dueDate: string;
-  daysOverdue: number;
-  balanceDue: string | null;
-}
-
-interface AgedPayablesReport {
-  buckets?: Record<string, unknown>;
-  total?: string;
-  bills?: AgedPayablesBillRow[];
-}
+import { AgedReportView } from '../components/aged-report-view';
+import { ReportShell } from '../components/report-shell';
+import { ReportToolbar } from '../components/report-toolbar';
+import { useReportExport } from '../components/use-report-export';
+import { useReportParams } from '../components/use-report-params';
 
 export default function AgedPayablesReportPage() {
   const { t } = useI18n();
-  const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
-  const tr = t.accounting.reports;
+  const tr = t.weldbooksUs.reports;
+  const { formatDate } = useWeldbooksFormat();
+  const { params, update, query } = useReportParams();
+  const reportQuery = useAgedPayablesReport(query);
+  const report = reportQuery.data;
+  const periodLabel = report ? tr.asOfDate.replace('{date}', formatDate(report.asOf)) : undefined;
 
-  const { data, isLoading } = useAgedPayablesReport();
-
-  if (isLoading) return <PageLoader fullScreen={false} />;
-
-  const report = data?.data as AgedPayablesReport | undefined;
-
-  const buckets: Array<{ key: string; label: string }> = [
-    { key: 'current', label: tr.bucketCurrent },
-    { key: '1_30', label: tr.bucket1_30 },
-    { key: '31_60', label: tr.bucket31_60 },
-    { key: '61_90', label: tr.bucket61_90 },
-    { key: 'over_90', label: tr.bucketOver90 },
-  ];
+  const { busy, exportCsv, exportPdf } = useReportExport('aged-payables', query, { periodLabel });
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">{tr.agedPayables}</h1>
-
-      {report ? (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            {buckets.map(({ key, label }) => (
-              <Card key={key}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-xs text-muted-foreground">{label}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-lg font-semibold">{fmt(report.buckets?.[key] as string | number | undefined)}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <Card>
-            <CardContent className="pt-6">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{tr.colBill}</TableHead>
-                    <TableHead>{tr.colSupplier}</TableHead>
-                    <TableHead>{tr.colDueDate}</TableHead>
-                    <TableHead>{tr.colDaysOverdue}</TableHead>
-                    <TableHead className="text-right">{tr.colBalanceDue}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(report.bills ?? []).length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">
-                        {tr.noOutstandingPayables}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    (report.bills ?? []).map((bill) => (
-                      <TableRow key={bill.id}>
-                        <TableCell>{bill.billNumber}</TableCell>
-                        <TableCell>{bill.contactName}</TableCell>
-                        <TableCell>{formatDate(bill.dueDate)}</TableCell>
-                        <TableCell>{bill.daysOverdue}</TableCell>
-                        <TableCell className="text-right">{fmt(bill.balanceDue)}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                  <TableRow>
-                    <TableCell colSpan={4} className="font-semibold">{tr.total}</TableCell>
-                    <TableCell className="text-right font-semibold">{fmt(report.total)}</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </>
-      ) : (
-        <p className="text-muted-foreground">{tr.noData}</p>
-      )}
-    </div>
+    <ReportShell
+      title={t.accounting.reports.agedPayables}
+      subtitle={periodLabel}
+      isLoading={reportQuery.isLoading}
+      isError={reportQuery.isError && !report}
+      onRetry={() => void reportQuery.refetch()}
+      toolbar={
+        <ReportToolbar
+          dates="asOf"
+          params={params}
+          onChange={update}
+          defaults={{ asOf: report?.asOf }}
+          showBasis={false}
+          showCompare={false}
+          showDimensions={false}
+          isFetching={reportQuery.isFetching && !reportQuery.isLoading}
+          exportControls={{ onCsv: () => void exportCsv(), onPdf: () => void exportPdf(), busy, disabled: !report }}
+        />
+      }
+    >
+      {report ? <AgedReportView report={report} kind="payables" /> : null}
+    </ReportShell>
   );
 }

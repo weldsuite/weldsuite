@@ -52,6 +52,7 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
     title: string;
     description: string;
     action?: { label: string; onClick: () => void };
+    secondaryAction?: { label: string; onClick: () => void };
   };
 }
 

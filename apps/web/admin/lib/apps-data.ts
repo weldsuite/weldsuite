@@ -18,6 +18,7 @@ export interface AppCatalogEntry {
   howItWorks: { title: string; description: string }[] | null;
   isActive: boolean;
   isPublished: boolean;
+  isBeta: boolean;
   sortOrder: number;
   version: string | null;
   provider: string | null;

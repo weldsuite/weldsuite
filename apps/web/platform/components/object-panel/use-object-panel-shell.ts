@@ -4,8 +4,8 @@
  * Every panel registered with the object-panel host renders an
  * `EntityDetailView` shell with the same wiring: it tracks a panel↔fullscreen
  * mode (controlled by the host when the panel is on the stack, internal
- * otherwise), measures the platform content area to position the fullscreen
- * overlay, and forwards the stack-driven `rightOffset` so panels cascade.
+ * otherwise), and measures the platform content area to position the
+ * fullscreen overlay.
  *
  * Doing that by hand in every panel (≈40 lines of state + props) is fine
  * for the first three, but it locks the boilerplate in once you have ten
@@ -36,7 +36,7 @@ type EntityDetailViewProps = ComponentProps<typeof EntityDetailView>;
 export interface UseObjectPanelShellOptions
   extends Pick<
     ObjectPanelComponentProps,
-    'isOpen' | 'onClose' | 'onBack' | 'mode' | 'onModeChange' | 'rightOffset'
+    'isOpen' | 'onClose' | 'onBack' | 'mode' | 'onModeChange'
   > {
   /** Panel-mode width in pixels. Defaults to 479 (matches `ObjectPanelHost`). */
   width?: number;
@@ -71,7 +71,6 @@ export interface ObjectPanelShellResult {
     | 'onBack'
     | 'topOffset'
     | 'leftOffset'
-    | 'rightOffset'
     | 'width'
     | 'loading'
   >;
@@ -86,7 +85,6 @@ export function useObjectPanelShell({
   onBack,
   mode: controlledMode,
   onModeChange,
-  rightOffset = 0,
   width = DEFAULT_PANEL_WIDTH,
   loading,
   zIndex = DEFAULT_Z_INDEX,
@@ -128,7 +126,6 @@ export function useObjectPanelShell({
       onBack,
       topOffset: contentBounds.top,
       leftOffset: contentBounds.left,
-      rightOffset,
       width,
       loading,
     }),
@@ -142,7 +139,6 @@ export function useObjectPanelShell({
       onBack,
       contentBounds.top,
       contentBounds.left,
-      rightOffset,
       width,
       loading,
     ],

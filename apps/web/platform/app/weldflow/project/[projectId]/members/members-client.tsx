@@ -458,7 +458,6 @@ export function MembersClient({
             }
           }
         }}
-        projectsConfig={{ projectId }}
       />
 
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>

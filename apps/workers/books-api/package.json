@@ -19,6 +19,7 @@
     "@weldsuite/ai": "workspace:*",
     "@weldsuite/api-modules": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/bank-feeds": "workspace:*",
     "@weldsuite/books-domain": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",

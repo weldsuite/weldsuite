@@ -243,19 +243,12 @@ export default function ActivityPage() {
     const actorAvatar = item.actorAvatarUrl ?? actor?.picture ?? null;
 
     return (
-      <div
+      <button
         key={item.id}
-        role="link"
-        tabIndex={0}
+        type="button"
         onClick={() => handleItemClick(item)}
-        onKeyDown={(e) => {
-          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            handleItemClick(item);
-          }
-        }}
         className={cn(
-          'flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group relative',
+          'flex w-full text-left items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group relative',
           isUnread && 'bg-blue-50/40 dark:bg-blue-950/20',
         )}
       >
@@ -313,7 +306,7 @@ export default function ActivityPage() {
         </div>
 
         <div className="w-[40px] flex-shrink-0" />
-      </div>
+      </button>
     );
   }, [membersMap, actorsMap, handleItemClick, st]);
 

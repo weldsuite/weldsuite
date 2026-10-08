@@ -11,9 +11,10 @@
  * terminology), so nothing here is hard-coded English.
  */
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from 'pdf-lib';
-import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
+import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { formatPostalAddressLines, type PostalAddress } from '@/components/address/postal-address';
 import { normalizeAccountingAddress, type StoredAccountingAddress } from './address';
+import { exemptNoticeText, exemptReasonsOf, groupTaxBreakdown, hasExemptRows, type ExemptNoticeLabels } from './document-tax';
 
 export interface InvoicePdfEntity {
   name: string;
@@ -71,6 +72,15 @@ export interface InvoicePdfLabels {
   taxId: string;
   /** Label of the entity's registration number: "KvK number", "PAN", … */
   registrationId: string;
+  /** Title of a credit note / credit memo ("CREDIT MEMO"); the invoice title when absent. */
+  creditNote?: string;
+  /**
+   * US sales tax rows of the totals, one per jurisdiction: "{tax} – {jurisdiction} {rate}%".
+   * `{tax}` is the tax label, `{rate}` the percentage without its percent sign.
+   */
+  jurisdictionTax?: string;
+  /** The notice printed under the totals of a sale a certificate exempts from tax. */
+  exempt?: ExemptNoticeLabels;
 }
 
 export interface InvoicePdfOptions {
@@ -81,6 +91,8 @@ export interface InvoicePdfOptions {
   countryName?: (code: string) => string;
   /** Overrides the paper size picked from the entity's jurisdiction. */
   paperSize?: 'a4' | 'letter';
+  /** Numbers of the exemption certificates the invoice's exempt rows rest on, for the exempt notice. */
+  certificateNumbers?: string[];
 }
 
 type InvoiceCustomer = {
@@ -281,7 +293,7 @@ function printableEin(value: string | undefined): string | null {
 /** Logo (or entity name) on the left, "INVOICE" + number on the right. */
 function drawHeader(
   ctx: DrawContext,
-  invoice: InvoiceDetail,
+  invoice: InvoiceWithTax,
   entity: InvoicePdfEntity,
   logo: PDFImage | null,
   labels: InvoicePdfLabels,
@@ -298,7 +310,7 @@ function drawHeader(
     drawText(ctx, entity.name, MARGIN_X, y - 14, { size: 16, bold: true });
   }
 
-  drawText(ctx, labels.invoice, MARGIN_X, y - 12, {
+  drawText(ctx, invoice.type === 'credit_note' && labels.creditNote ? labels.creditNote : labels.invoice, MARGIN_X, y - 12, {
     size: 22,
     bold: true,
     color: ctx.accent,
@@ -328,7 +340,7 @@ function addressLines(address: PostalAddress | null, helpers: RenderHelpers): st
 /** Company address block (left) + issue/due/reference dates (right). Returns the next y. */
 function drawFromAndMeta(
   ctx: DrawContext,
-  invoice: InvoiceDetail,
+  invoice: InvoiceWithTax,
   entity: InvoicePdfEntity,
   helpers: RenderHelpers,
   y: number,
@@ -371,7 +383,7 @@ function drawFromAndMeta(
 /** "BILL TO" (and "SHIP TO" when the invoice ships elsewhere) blocks. Returns the next y. */
 function drawBillTo(
   ctx: DrawContext,
-  invoice: InvoiceDetail,
+  invoice: InvoiceWithTax,
   customer: InvoiceCustomer | undefined,
   helpers: RenderHelpers,
   startY: number,
@@ -427,7 +439,7 @@ function drawTableHeader(ctx: DrawContext, labels: InvoicePdfLabels, tableX: num
 function drawLineItems(
   pdf: PDFDocument,
   ctx: DrawContext,
-  invoice: InvoiceDetail,
+  invoice: InvoiceWithTax,
   {
     labels,
     currency,
@@ -497,15 +509,45 @@ function drawLineItems(
   return y;
 }
 
-/** Right-aligned subtotal / tax / total (+ paid / balance) block. */
+/**
+ * The tax rows of the totals. A US invoice prints one row per jurisdiction
+ * ("Sales tax – Travis County 0.5%"), as the states that allow inclusive
+ * pricing want the tax amount shown; a VAT / GST invoice keeps one row per
+ * rate. A US invoice with no tax in any jurisdiction still prints the tax
+ * line, so the amount is always there.
+ */
+export function taxRowsOf(
+  invoice: InvoiceWithTax,
+  labels: Pick<InvoicePdfLabels, 'tax' | 'jurisdictionTax'>,
+): Array<{ label: string; amount: string | number }> {
+  const groups = groupTaxBreakdown(invoice.taxBreakdown).filter((group) => group.kind === 'tax');
+
+  if (groups.some((group) => group.isJurisdiction)) {
+    const template = labels.jurisdictionTax ?? '{tax} – {jurisdiction} {rate}%';
+    const rows = groups
+      .filter((group) => group.taxAmount !== 0 || group.rate > 0)
+      .map((group) => ({
+        label: fill(template, { tax: labels.tax, jurisdiction: group.name, rate: String(Number(group.rate.toFixed(4))) }),
+        amount: group.taxAmount,
+      }));
+    return rows.length > 0 ? rows : [{ label: labels.tax, amount: invoice.taxTotal ?? 0 }];
+  }
+
+  if (invoice.taxBreakdown && invoice.taxBreakdown.length > 0) {
+    return invoice.taxBreakdown.map((row) => ({ label: row.taxRateName || labels.tax, amount: row.taxAmount }));
+  }
+  return [{ label: labels.tax, amount: invoice.taxTotal ?? 0 }];
+}
+
+/** Right-aligned subtotal / tax / total (+ paid / balance) block. Returns the y below it. */
 function drawTotals(
   ctx: DrawContext,
-  invoice: InvoiceDetail,
+  invoice: InvoiceWithTax,
   labels: InvoicePdfLabels,
   currency: string | null,
   locale: string | undefined,
   startY: number,
-) {
+): number {
   let y = startY - 20;
   const totalsW = 200;
   const totalsX = ctx.size.width - MARGIN_X - totalsW;
@@ -517,12 +559,8 @@ function drawTotals(
   };
 
   totalsRow(labels.subtotal, formatCurrency(invoice.subtotal, currency, locale));
-  if (invoice.taxBreakdown && invoice.taxBreakdown.length > 0) {
-    for (const row of invoice.taxBreakdown) {
-      totalsRow(row.taxRateName || labels.tax, formatCurrency(row.taxAmount, currency, locale));
-    }
-  } else {
-    totalsRow(labels.tax, formatCurrency(invoice.taxTotal, currency, locale));
+  for (const row of taxRowsOf(invoice, labels)) {
+    totalsRow(row.label, formatCurrency(row.amount, currency, locale));
   }
   y -= 4;
   ctx.page.drawRectangle({ x: totalsX, y: y + 4, width: totalsW, height: 1, color: ctx.accent });
@@ -532,6 +570,28 @@ function drawTotals(
     totalsRow(labels.paid, '-' + formatCurrency(invoice.amountPaid, currency, locale));
     totalsRow(labels.balanceDue, formatCurrency(invoice.balanceDue, currency, locale), true, ctx.accent);
   }
+  return y;
+}
+
+/**
+ * "Exempt sale: resale. Certificate no. A-123." under the totals of a sale a
+ * customer's certificate exempts from sales tax. Returns the y below it.
+ */
+function drawExemptNotice(
+  ctx: DrawContext,
+  invoice: InvoiceWithTax,
+  labels: InvoicePdfLabels,
+  certificateNumbers: string[],
+  startY: number,
+): number {
+  if (!labels.exempt || !hasExemptRows(invoice.taxBreakdown)) return startY;
+  const text = exemptNoticeText(labels.exempt, exemptReasonsOf(invoice.taxBreakdown), certificateNumbers);
+  let y = startY - 8;
+  for (const line of wrapText(text, ctx.font, 9, ctx.size.width - 2 * MARGIN_X)) {
+    drawText(ctx, line, MARGIN_X, y, { size: 9, bold: true });
+    y -= 12;
+  }
+  return y;
 }
 
 function bankLine(entity: InvoicePdfEntity, labels: InvoicePdfLabels): string | null {
@@ -588,7 +648,7 @@ function drawPageNumbers(pdf: PDFDocument, ctx: DrawContext, labels: InvoicePdfL
 }
 
 export async function generateInvoicePdf(
-  invoice: InvoiceDetail,
+  invoice: InvoiceWithTax,
   entity: InvoicePdfEntity,
   options: InvoicePdfOptions,
   customer?: InvoiceCustomer,
@@ -629,7 +689,8 @@ export async function generateInvoicePdf(
 
   y = drawLineItems(pdf, ctx, invoice, { labels: options.labels, currency, locale, tableX, tableWidth, startY: y });
 
-  drawTotals(ctx, invoice, options.labels, currency, locale, y);
+  y = drawTotals(ctx, invoice, options.labels, currency, locale, y);
+  drawExemptNotice(ctx, invoice, options.labels, options.certificateNumbers ?? [], y);
 
   drawFooter(ctx, entity, options.labels);
 

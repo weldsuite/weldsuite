@@ -19,6 +19,7 @@ import { RecordRow } from '@/components/record-row';
 import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { bankAccountSubtitle } from '@/lib/payments';
 import type { BankAccount } from '@/types/accounting';
 
 export default function BankAccountsScreen() {
@@ -107,7 +108,7 @@ export default function BankAccountsScreen() {
           <RecordRow
             leading={<IconTile icon={Landmark} color={ACCENTS.banking} />}
             title={item.name}
-            subtitle={item.iban || item.bankName || undefined}
+            subtitle={bankAccountSubtitle(item, t.bank.accountTypes)}
             meta={
               item.lastImportDate
                 ? format(t.bank.lastImport, { date: formatDate(item.lastImportDate) })

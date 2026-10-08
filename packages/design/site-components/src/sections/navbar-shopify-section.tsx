@@ -27,7 +27,6 @@ interface NavbarShopifySectionProps {
   menuItems?: NavMenuItem[];
   backgroundColor?: string;
   textColor?: string;
-  hoverColor?: string;
   showSearch?: boolean;
   searchStyle?: 'icon' | 'bar';
   showCart?: boolean;
@@ -154,6 +153,16 @@ export function NavbarShopifySection({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Keyboard users close the mobile menu with Escape (mouse users click the backdrop).
+  React.useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileMenuOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [mobileMenuOpen]);
 
   const isSticky = stickyMode === 'always' ||
                    stickyMode === 'alwaysReduce' ||
@@ -341,6 +350,7 @@ export function NavbarShopifySection({
         <div className="fixed inset-0 z-50">
           {/* Backdrop */}
           <div
+            aria-hidden="true"
             className="absolute inset-0 bg-black/50"
             onClick={() => setMobileMenuOpen(false)}
           />

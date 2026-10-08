@@ -12,6 +12,7 @@ import type { Context } from 'hono';
 import { and, eq, gt, gte, isNull, lte } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { scrubSensitiveKeys } from '@weldsuite/db/lib/sensitive-columns';
 
 export class ClosedPeriodError extends Error {
   readonly periodName: string;
@@ -205,6 +206,17 @@ export interface AccountingAuditInput {
   changes?: Record<string, { old: unknown; new: unknown }>;
 }
 
+/** Plain-text identifiers that may be in a request body but never belong in the audit trail. */
+const PLAIN_SECRET_KEYS = new Set(['tin', 'ssn', 'accountNumber', 'achAccountNumber']);
+
+function auditSafeChanges(
+  changes: AccountingAuditInput['changes'],
+): AccountingAuditInput['changes'] {
+  if (!changes) return changes;
+  const scrubbed = scrubSensitiveKeys(changes);
+  return Object.fromEntries(Object.entries(scrubbed).filter(([key]) => !PLAIN_SECRET_KEYS.has(key)));
+}
+
 /**
  * Append a row to the accounting audit log. Fire-and-forget from the
  * caller's perspective (failures are logged, never block the mutation) —
@@ -223,13 +235,14 @@ export async function writeAccountingAudit(
       entityType: input.entityType,
       entityId: input.entityId,
       action: input.action,
-      changes: input.changes,
+      changes: auditSafeChanges(input.changes),
       userId: c.get('userId') ?? null,
       userEmail: null,
       ipAddress:
         c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? null,
     });
   } catch (err) {
-    console.error('[accounting-audit] failed to write audit row:', err);
+    // Message only: a driver error can echo the bound parameters.
+    console.error('[accounting-audit] failed to write audit row:', err instanceof Error ? err.message : err);
   }
 }

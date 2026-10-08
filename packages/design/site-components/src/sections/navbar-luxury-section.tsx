@@ -55,7 +55,6 @@ interface NavbarLuxurySectionProps {
   navBorderColor?: string;
 
   store?: StoreData;
-  mode?: string;
 }
 
 export function NavbarLuxurySection({

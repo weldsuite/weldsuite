@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Users } from 'lucide-react';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrEmployeeListItem } from '@weldsuite/app-api-client/domains/weldhr';
@@ -114,23 +113,6 @@ export default function WeldHrEmployeesPage() {
       header: t('weldhr.employees.table.manager'),
       width: 'w-[150px]',
       render: (emp) => <span className="text-muted-foreground">{emp.managerName ?? '—'}</span>,
-    },
-    {
-      id: 'clients',
-      header: t('weldhr.employees.table.clients'),
-      width: 'w-[200px]',
-      render: (emp) =>
-        emp.clients.length === 0 ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <div className="flex flex-wrap gap-1">
-            {emp.clients.map((c) => (
-              <Badge key={c.companyId} variant="secondary">
-                {c.companyName ?? c.companyId}
-              </Badge>
-            ))}
-          </div>
-        ),
     },
     {
       id: 'status',

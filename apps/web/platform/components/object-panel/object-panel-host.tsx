@@ -57,7 +57,6 @@ export function ObjectPanelHost() {
             initialTab={handle.initialTab}
             mode={handle.mode}
             onModeChange={(next) => setMode(depth, next)}
-            rightOffset={0}
           />
         );
       })}

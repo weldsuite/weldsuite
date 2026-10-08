@@ -54,7 +54,11 @@ app.get('/xaf', requirePermission('reports:read'), async (c) => {
       db.select().from(schema.accounts)
         .where(and(eq(schema.accounts.entityId, entityId), isNull(schema.accounts.deletedAt)))
         .orderBy(asc(schema.accounts.code)),
-      db.select().from(schema.parties).where(isNull(schema.parties.deletedAt)),
+      // Only what the auditfile prints: the party row also holds ciphertext (TIN, ACH account number).
+      db
+        .select({ id: schema.parties.id, displayName: schema.parties.displayName, role: schema.parties.role })
+        .from(schema.parties)
+        .where(isNull(schema.parties.deletedAt)),
       db.select().from(schema.taxRates)
         .where(and(eq(schema.taxRates.entityId, entityId), isNull(schema.taxRates.deletedAt))),
       db.select().from(schema.journalEntries)

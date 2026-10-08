@@ -186,6 +186,29 @@ export async function wakeDueSnoozedMessages(
 }
 
 /**
+ * When the next snoozed message of this workspace comes due (`null`: nothing
+ * snoozed). Same conditions as `wakeDueSnoozedMessages`, so the snooze sweep
+ * can store this in the D1 due index and leave the tenant alone until then.
+ */
+export async function nextSnoozeDueAt(db: Database): Promise<Date | null> {
+  const [row] = await db
+    .select({
+      // mapWith: decode like the column (timestamp without time zone = UTC),
+      // not as a bare string in the runtime's local zone.
+      next: sql<Date | null>`min(${mailMessages.snoozedUntil})`.mapWith(mailMessages.snoozedUntil),
+    })
+    .from(mailMessages)
+    .where(
+      and(
+        isNull(mailMessages.deletedAt),
+        sql`${mailMessages.snoozedUntil} IS NOT NULL`,
+        sql`${mailMessages.labels} @> '["SNOOZED"]'::jsonb`,
+      ),
+    );
+  return row?.next ?? null;
+}
+
+/**
  * Return every message tagged `SNOOZED`, optionally restricted to a
  * single account. Projects the snooze-relevant `customFields` up to
  * the top level so callers don't have to dig into the JSONB blob.

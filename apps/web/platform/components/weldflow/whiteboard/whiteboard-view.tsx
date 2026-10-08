@@ -147,7 +147,6 @@ interface WhiteboardViewProps {
   projectId: string;
   whiteboardId?: string;
   initialElements?: WhiteboardElement[];
-  onBack?: () => void;
 }
 
 export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }: Readonly<WhiteboardViewProps>) {
@@ -3374,7 +3373,6 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
           {/* Real-time collaboration presence indicator */}
           <PresenceIndicator
             presence={remotePresence}
-            isConnected={isConnected}
           />
 
           <div className="w-px h-5 bg-border mx-1" />

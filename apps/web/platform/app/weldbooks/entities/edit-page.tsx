@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -19,7 +19,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { PageLoader } from '@/components/page-loader';
 import { AddressFields } from '@/components/address/address-fields';
-import { cleanPostalAddress, toPostalAddressFormValue } from '@/components/address/postal-address';
+import { cleanPostalAddress, toPostalAddressFormValue, type PostalAddress } from '@/components/address/postal-address';
 import {
   useAccountingEntity,
   useAccountingJurisdictions,
@@ -30,9 +30,21 @@ import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { DEFAULT_TERMINOLOGY, usesIban } from '@/lib/weldbooks/jurisdiction';
 import { useTerminologyLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { entityTypesFor } from '@/lib/weldbooks/entity-types';
+import { classificationsOf, isUsJurisdictionCode, type UsEntityTypeSummary } from '@/lib/weldbooks/us-entity';
 import { useI18n } from '@/lib/i18n/provider';
 import { LockDatesCard } from './components/lock-dates-card';
 import { LockExceptionsCard } from './components/lock-exceptions-card';
+import { RemapTaxLinesDialog } from './components/remap-tax-lines-dialog';
+import { UsEntityCards, usFieldErrors } from './components/us-entity-cards';
+import {
+  DEFAULT_US_VALUES,
+  createUsEntitySchema,
+  einPayload,
+  ssnPayload,
+  usPayload,
+  usValuesFromEntity,
+  type UsEntityValues,
+} from './components/us-entity-form';
 
 const NO_ENTITY_TYPE = '__none__';
 
@@ -45,7 +57,21 @@ const addressSchema = z.object({
   country: z.string().optional(),
 });
 
-function createEntitySchema(messages: { nameRequired: string; invalidEmail: string }) {
+interface EntitySchemaMessages {
+  nameRequired: string;
+  invalidEmail: string;
+  entityTypeRequired: string;
+  classificationRequired: string;
+  einInvalidFormat: string;
+  einInvalidPrefix: string;
+  ssnInvalid: string;
+}
+
+function createEntitySchema(messages: EntitySchemaMessages, isUs: boolean) {
+  // The US values are only checked on a US entity; other jurisdictions carry unused defaults.
+  const us: z.ZodType<UsEntityValues> = isUs
+    ? createUsEntitySchema(messages, { requireType: false })
+    : z.custom<UsEntityValues>();
   return z.object({
     name: z.string().trim().min(1, messages.nameRequired),
     legalName: z.string().optional(),
@@ -62,6 +88,7 @@ function createEntitySchema(messages: { nameRequired: string; invalidEmail: stri
     routingNumber: z.string().optional(),
     taxId: z.string().optional(),
     registrationNumber: z.string().optional(),
+    us,
   });
 }
 
@@ -81,14 +108,23 @@ function compact<T extends Record<string, string | undefined>>(record: T): Parti
   return out;
 }
 
-function toFormValues(entity: AccountingEntity, taxIdField: 'vatNumber' | 'einOrSsn'): EntityFormValues {
+/** A US entity's address is a US address: without a country the form would offer a free-text state. */
+function usAddressDefaults(address: PostalAddress, jurisdictionCode: string): PostalAddress {
+  return isUsJurisdictionCode(jurisdictionCode) && !address.country?.trim() ? { ...address, country: 'US' } : address;
+}
+
+function toFormValues(
+  entity: AccountingEntity,
+  taxIdField: 'vatNumber' | 'einOrSsn',
+  usEntityTypes: readonly UsEntityTypeSummary[] | undefined,
+): EntityFormValues {
   const ids = entity.taxIdentifiers ?? {};
   return {
     name: entity.name ?? '',
     legalName: entity.legalName ?? '',
     entityType: entity.entityType || NO_ENTITY_TYPE,
     fiscalYearStart: String(entity.fiscalYearStart ?? 1),
-    address: toPostalAddressFormValue(normalizeAccountingAddress(entity.address)),
+    address: usAddressDefaults(toPostalAddressFormValue(normalizeAccountingAddress(entity.address)), entity.jurisdictionCode),
     email: entity.contact?.email ?? '',
     phone: entity.contact?.phone ?? '',
     website: entity.contact?.website ?? '',
@@ -99,6 +135,7 @@ function toFormValues(entity: AccountingEntity, taxIdField: 'vatNumber' | 'einOr
     routingNumber: entity.bankDetails?.routingNumber ?? '',
     taxId: ids[taxIdField] ?? '',
     registrationNumber: ids.registrationNumber ?? '',
+    us: isUsJurisdictionCode(entity.jurisdictionCode) ? usValuesFromEntity(entity, usEntityTypes) : DEFAULT_US_VALUES,
   };
 }
 
@@ -109,6 +146,7 @@ export default function EditEntityPage() {
   const entityQuery = useAccountingEntity(id);
   const { data: jurisdictions } = useAccountingJurisdictions();
   const canUpdate = useCan('entities:update');
+  const canRevealTaxIds = useCan('tax_ids:reveal');
 
   const entity = entityQuery.data;
   const jurisdictionCode = entity?.jurisdictionCode?.toUpperCase() ?? null;
@@ -163,12 +201,14 @@ export default function EditEntityPage() {
         key={entity.id}
         entity={entity}
         canUpdate={canUpdate}
+        canRevealTaxIds={canRevealTaxIds}
         language={language || 'en'}
         taxIdField={terminology.taxId === 'ein' ? 'einOrSsn' : 'vatNumber'}
         taxIdLabel={labels.taxId}
         taxIdIsEin={terminology.taxId === 'ein'}
         registrationLabel={labels.registrationId}
         jurisdictionName={jurisdiction ? `${jurisdiction.name} (${jurisdiction.code})` : entity.jurisdictionCode}
+        usEntityTypes={jurisdiction?.entityTypes}
       />
 
       <LockDatesCard entity={entity} canUpdate={canUpdate} />
@@ -180,33 +220,53 @@ export default function EditEntityPage() {
 interface EntityDetailsFormProps {
   entity: AccountingEntity;
   canUpdate: boolean;
+  canRevealTaxIds: boolean;
   language: string;
   taxIdField: 'vatNumber' | 'einOrSsn';
   taxIdLabel: string;
   taxIdIsEin: boolean;
   registrationLabel: string;
   jurisdictionName: string;
+  usEntityTypes: UsEntityTypeSummary[] | undefined;
 }
 
 function EntityDetailsForm({
   entity,
   canUpdate,
+  canRevealTaxIds,
   language,
   taxIdField,
   taxIdLabel,
   taxIdIsEin,
   registrationLabel,
   jurisdictionName,
+  usEntityTypes,
 }: Readonly<EntityDetailsFormProps>) {
   const { t } = useI18n();
   const te = t.accounting.entityEdit;
+  const tu = t.weldbooksUs.setup.entity;
   const entityTypeLabels = t.accounting.entityTypes;
   const updateEntity = useUpdateAccountingEntity();
+  const isUs = isUsJurisdictionCode(entity.jurisdictionCode);
+  const [remap, setRemap] = useState<{ formLabel: string | null } | null>(null);
+
   const schema = useMemo(
-    () => createEntitySchema({ nameRequired: te.nameRequired, invalidEmail: te.invalidEmail }),
-    [te.nameRequired, te.invalidEmail],
+    () =>
+      createEntitySchema(
+        {
+          nameRequired: te.nameRequired,
+          invalidEmail: te.invalidEmail,
+          entityTypeRequired: tu.entityTypeRequired,
+          classificationRequired: tu.classificationRequired,
+          einInvalidFormat: tu.einInvalidFormat,
+          einInvalidPrefix: tu.einInvalidPrefix,
+          ssnInvalid: tu.ssnInvalid,
+        },
+        isUs,
+      ),
+    [te.nameRequired, te.invalidEmail, tu.entityTypeRequired, tu.classificationRequired, tu.einInvalidFormat, tu.einInvalidPrefix, tu.ssnInvalid, isUs],
   );
-  const initial = useMemo(() => toFormValues(entity, taxIdField), [entity, taxIdField]);
+  const initial = useMemo(() => toFormValues(entity, taxIdField, usEntityTypes), [entity, taxIdField, usEntityTypes]);
 
   const form = useForm<EntityFormValues>({
     resolver: zodResolver(schema),
@@ -215,7 +275,6 @@ function EntityDetailsForm({
   });
 
   const ibanBanking = usesIban(entity.jurisdictionCode);
-  const isUs = entity.jurisdictionCode?.toUpperCase() === 'US';
   const entityTypes = entityTypesFor(entity.jurisdictionCode, entity.entityType);
   const months = useMemo(() => {
     const fmt = new Intl.DateTimeFormat(language, { month: 'long', timeZone: 'UTC' });
@@ -232,15 +291,22 @@ function EntityDetailsForm({
     // identifier it receives against the jurisdiction (an untouched empty
     // GSTIN would fail), and a cleared one is sent as '' to remove it.
     const taxIdentifiers: NonNullable<UpdateAccountingEntityInput['taxIdentifiers']> = {};
-    if (trimmed(values.taxId) !== (ids[taxIdField] ?? '')) taxIdentifiers[taxIdField] = trimmed(values.taxId);
-    if (trimmed(values.registrationNumber) !== (ids.registrationNumber ?? '')) {
-      taxIdentifiers.registrationNumber = trimmed(values.registrationNumber);
+    if (isUs) {
+      const ein = einPayload(values.us) ?? '';
+      if (ein !== (ids.einOrSsn ?? ids.vatNumber ?? '')) taxIdentifiers.einOrSsn = ein;
+      if (trimmed(values.us.stateTaxId) !== (ids.registrationNumber ?? '')) {
+        taxIdentifiers.registrationNumber = trimmed(values.us.stateTaxId);
+      }
+    } else {
+      if (trimmed(values.taxId) !== (ids[taxIdField] ?? '')) taxIdentifiers[taxIdField] = trimmed(values.taxId);
+      if (trimmed(values.registrationNumber) !== (ids.registrationNumber ?? '')) {
+        taxIdentifiers.registrationNumber = trimmed(values.registrationNumber);
+      }
     }
 
     const payload: UpdateAccountingEntityInput = {
       name: values.name.trim(),
       legalName: trimmed(values.legalName),
-      fiscalYearStart: Number(values.fiscalYearStart),
       address: cleanPostalAddress(values.address) ?? {},
       contact: compact({ email: values.email, phone: values.phone, website: values.website }),
       bankDetails: ibanBanking
@@ -259,12 +325,29 @@ function EntityDetailsForm({
             bic: entity.bankDetails?.bic,
           }),
     };
-    if (values.entityType !== NO_ENTITY_TYPE) payload.entityType = values.entityType;
+    if (isUs) {
+      Object.assign(payload, usPayload(values.us));
+      const ssn = ssnPayload(values.us);
+      if (ssn !== undefined) payload.ssn = ssn;
+    } else {
+      payload.fiscalYearStart = Number(values.fiscalYearStart);
+      if (values.entityType !== NO_ENTITY_TYPE) payload.entityType = values.entityType;
+    }
     if (Object.keys(taxIdentifiers).length > 0) payload.taxIdentifiers = taxIdentifiers;
 
     try {
-      await updateEntity.mutateAsync({ id: entity.id, data: payload });
-      toast.success(te.saved);
+      const res = await updateEntity.mutateAsync({ id: entity.id, data: payload });
+      // Start from what the server stored: the SSN field is write-only and must not keep what was typed.
+      form.reset(toFormValues(res.data, taxIdField, usEntityTypes));
+      if (res.data.taxLineRemapNeeded) {
+        const formLabel =
+          classificationsOf(usEntityTypes, res.data.entityType).find((c) => c.value === res.data.taxClassification)
+            ?.formLabel ?? null;
+        toast.success(tu.savedRemap);
+        setRemap({ formLabel });
+      } else {
+        toast.success(te.saved);
+      }
     } catch (err) {
       // e.g. an invalid VAT number / GSTIN / EIN for this jurisdiction.
       toast.error(te.saveFailed, { description: err instanceof Error ? err.message : undefined });
@@ -272,206 +355,244 @@ function EntityDetailsForm({
   };
 
   const errors = form.formState.errors;
+  const state = form.watch('address.state');
 
   return (
-    <form onSubmit={form.handleSubmit(submit)} className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{te.general}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="entity-name">{te.name} *</Label>
-            <Input id="entity-name" disabled={disabled} aria-describedby="entity-name-help" {...form.register('name')} />
-            <p id="entity-name-help" className="text-xs text-muted-foreground">{te.nameHelp}</p>
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="entity-legalName">{te.legalName}</Label>
-            <Input
-              id="entity-legalName"
-              disabled={disabled}
-              aria-describedby="entity-legalName-help"
-              {...form.register('legalName')}
-            />
-            <p id="entity-legalName-help" className="text-xs text-muted-foreground">{te.legalNameHelp}</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="entity-type">{te.entityType}</Label>
-            <Controller
-              control={form.control}
-              name="entityType"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
-                  <SelectTrigger id="entity-type">
-                    <SelectValue placeholder={te.selectEntityType} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {field.value === NO_ENTITY_TYPE && (
-                      <SelectItem value={NO_ENTITY_TYPE}>{te.selectEntityType}</SelectItem>
+    <>
+      <form onSubmit={form.handleSubmit(submit)} className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>{te.general}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="entity-name">{te.name} *</Label>
+              <Input id="entity-name" disabled={disabled} aria-describedby="entity-name-help" {...form.register('name')} />
+              <p id="entity-name-help" className="text-xs text-muted-foreground">{te.nameHelp}</p>
+              {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="entity-legalName">{te.legalName}</Label>
+              <Input
+                id="entity-legalName"
+                disabled={disabled}
+                aria-describedby="entity-legalName-help"
+                {...form.register('legalName')}
+              />
+              <p id="entity-legalName-help" className="text-xs text-muted-foreground">{te.legalNameHelp}</p>
+            </div>
+            {!isUs && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="entity-type">{te.entityType}</Label>
+                  <Controller
+                    control={form.control}
+                    name="entityType"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                        <SelectTrigger id="entity-type">
+                          <SelectValue placeholder={te.selectEntityType} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {field.value === NO_ENTITY_TYPE && (
+                            <SelectItem value={NO_ENTITY_TYPE}>{te.selectEntityType}</SelectItem>
+                          )}
+                          {entityTypes.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {entityTypeLabels[type]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     )}
-                    {entityTypes.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {entityTypeLabels[type]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="entity-fiscalYearStart">{te.fiscalYearStart}</Label>
-            <Controller
-              control={form.control}
-              name="fiscalYearStart"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
-                  <SelectTrigger id="entity-fiscalYearStart">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {months.map((month) => (
-                      <SelectItem key={month.value} value={month.value}>
-                        {month.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium">{te.jurisdiction}</p>
-            <p className="text-sm text-muted-foreground">{jurisdictionName}</p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-medium">{te.baseCurrency}</p>
-            <p className="text-sm text-muted-foreground">{entity.baseCurrency}</p>
-          </div>
-        </CardContent>
-      </Card>
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="entity-fiscalYearStart">{te.fiscalYearStart}</Label>
+                  <Controller
+                    control={form.control}
+                    name="fiscalYearStart"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                        <SelectTrigger id="entity-fiscalYearStart">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {months.map((month) => (
+                            <SelectItem key={month.value} value={month.value}>
+                              {month.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+              </>
+            )}
+            <div className="space-y-1">
+              <p className="text-sm font-medium">{te.jurisdiction}</p>
+              <p className="text-sm text-muted-foreground">{jurisdictionName}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium">{te.baseCurrency}</p>
+              <p className="text-sm text-muted-foreground">{entity.baseCurrency}</p>
+            </div>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{te.address}</CardTitle>
-        </CardHeader>
-        <CardContent>
+        {isUs && (
           <Controller
             control={form.control}
-            name="address"
+            name="us"
             render={({ field }) => (
-              <AddressFields idPrefix="entity-address" value={field.value} onChange={field.onChange} disabled={disabled} />
+              <UsEntityCards
+                idPrefix="entity-us"
+                value={field.value}
+                onChange={field.onChange}
+                errors={usFieldErrors(errors.us)}
+                entityTypes={usEntityTypes ?? []}
+                disabled={disabled}
+                entity={entity}
+                state={state}
+                canRevealTaxIds={canRevealTaxIds}
+              />
             )}
           />
-        </CardContent>
-      </Card>
+        )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{te.contact}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="entity-email">{te.email}</Label>
-            <Input id="entity-email" type="email" disabled={disabled} {...form.register('email')} />
-            {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="entity-phone">{te.phone}</Label>
-            <Input id="entity-phone" type="tel" disabled={disabled} {...form.register('phone')} />
-          </div>
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="entity-website">{te.website}</Label>
-            <Input id="entity-website" type="url" disabled={disabled} {...form.register('website')} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{te.taxIdentifiers}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="entity-taxId">{taxIdLabel}</Label>
-            <Input
-              id="entity-taxId"
-              disabled={disabled}
-              aria-describedby={taxIdIsEin ? 'entity-taxId-help' : undefined}
-              {...form.register('taxId')}
+        <Card>
+          <CardHeader>
+            <CardTitle>{te.address}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Controller
+              control={form.control}
+              name="address"
+              render={({ field }) => (
+                <AddressFields idPrefix="entity-address" value={field.value} onChange={field.onChange} disabled={disabled} />
+              )}
             />
-            {taxIdIsEin && (
-              <p id="entity-taxId-help" className="text-xs text-muted-foreground">{te.einHelp}</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="entity-registrationNumber">{registrationLabel}</Label>
-            <Input id="entity-registrationNumber" disabled={disabled} {...form.register('registrationNumber')} />
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{te.bankDetails}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="entity-bankName">{te.bankName}</Label>
-            <Input id="entity-bankName" disabled={disabled} {...form.register('bankName')} />
-          </div>
-          {ibanBanking ? (
-            <>
+        <Card>
+          <CardHeader>
+            <CardTitle>{te.contact}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="entity-email">{te.email}</Label>
+              <Input id="entity-email" type="email" disabled={disabled} {...form.register('email')} />
+              {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="entity-phone">{te.phone}</Label>
+              <Input id="entity-phone" type="tel" disabled={disabled} {...form.register('phone')} />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="entity-website">{te.website}</Label>
+              <Input id="entity-website" type="url" disabled={disabled} {...form.register('website')} />
+            </div>
+          </CardContent>
+        </Card>
+
+        {!isUs && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{te.taxIdentifiers}</CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="entity-iban">{te.iban}</Label>
-                <Input id="entity-iban" disabled={disabled} {...form.register('iban')} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="entity-bic">{te.bic}</Label>
-                <Input id="entity-bic" disabled={disabled} {...form.register('bic')} />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="entity-accountNumber">{te.accountNumber}</Label>
+                <Label htmlFor="entity-taxId">{taxIdLabel}</Label>
                 <Input
-                  id="entity-accountNumber"
-                  inputMode="numeric"
-                  autoComplete="off"
+                  id="entity-taxId"
                   disabled={disabled}
-                  {...form.register('accountNumber')}
+                  aria-describedby={taxIdIsEin ? 'entity-taxId-help' : undefined}
+                  {...form.register('taxId')}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="entity-routingNumber">{te.routingNumber}</Label>
-                <Input
-                  id="entity-routingNumber"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  disabled={disabled}
-                  aria-describedby={isUs ? 'entity-routingNumber-help' : undefined}
-                  {...form.register('routingNumber')}
-                />
-                {isUs && (
-                  <p id="entity-routingNumber-help" className="text-xs text-muted-foreground">
-                    {te.routingNumberHelp}
-                  </p>
+                {taxIdIsEin && (
+                  <p id="entity-taxId-help" className="text-xs text-muted-foreground">{te.einHelp}</p>
                 )}
               </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+              <div className="space-y-2">
+                <Label htmlFor="entity-registrationNumber">{registrationLabel}</Label>
+                <Input id="entity-registrationNumber" disabled={disabled} {...form.register('registrationNumber')} />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-      {canUpdate && (
-        <div className="flex justify-end">
-          <Button type="submit" disabled={updateEntity.isPending}>
-            {updateEntity.isPending ? te.saving : te.save}
-          </Button>
-        </div>
-      )}
-    </form>
+        <Card>
+          <CardHeader>
+            <CardTitle>{te.bankDetails}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="entity-bankName">{te.bankName}</Label>
+              <Input id="entity-bankName" disabled={disabled} {...form.register('bankName')} />
+            </div>
+            {ibanBanking ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="entity-iban">{te.iban}</Label>
+                  <Input id="entity-iban" disabled={disabled} {...form.register('iban')} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="entity-bic">{te.bic}</Label>
+                  <Input id="entity-bic" disabled={disabled} {...form.register('bic')} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="entity-accountNumber">{te.accountNumber}</Label>
+                  <Input
+                    id="entity-accountNumber"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    disabled={disabled}
+                    {...form.register('accountNumber')}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="entity-routingNumber">{te.routingNumber}</Label>
+                  <Input
+                    id="entity-routingNumber"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    disabled={disabled}
+                    aria-describedby={isUs ? 'entity-routingNumber-help' : undefined}
+                    {...form.register('routingNumber')}
+                  />
+                  {isUs && (
+                    <p id="entity-routingNumber-help" className="text-xs text-muted-foreground">
+                      {te.routingNumberHelp}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {canUpdate && (
+          <div className="flex justify-end">
+            <Button type="submit" disabled={updateEntity.isPending}>
+              {updateEntity.isPending ? te.saving : te.save}
+            </Button>
+          </div>
+        )}
+      </form>
+
+      <RemapTaxLinesDialog
+        entityId={entity.id}
+        formLabel={remap?.formLabel}
+        open={remap !== null}
+        onOpenChange={(open) => {
+          if (!open) setRemap(null);
+        }}
+      />
+    </>
   );
 }

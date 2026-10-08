@@ -148,13 +148,15 @@ approve.post('/', zValidator('json', approveInput), async (c) => {
       .from(t)
       .where(and(eq(t.userId, userId), eq(t.name, CLI_KEY_NAME), isNull(t.deletedAt)));
 
-    for (const row of existing) {
-      await db
-        .update(t)
-        .set({ deletedAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(t.id, row.id), eq(t.userId, userId)));
-      await unregisterApiKey(getMasterDb(c.env), row.id);
-    }
+    await Promise.all(
+      existing.map(async (row) => {
+        await db
+          .update(t)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(t.id, row.id), eq(t.userId, userId)));
+        await unregisterApiKey(getMasterDb(c.env), row.id);
+      }),
+    );
 
     const { key, hash, prefix } = await generateApiKey();
     const id = generateId('ak');

@@ -66,6 +66,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { useI18n } from '@/lib/i18n/provider';
+import { runEditorCommand } from '@weldsuite/ui/lib/editor-commands';
 
 // Color values are locale-independent; labels are translated inside the component
 const textColorValues = [
@@ -578,9 +579,9 @@ function buildInlineFormat(
 
 // Collapsed cursor: let the browser apply the format to the next typed characters.
 function applyNativeInlineFormat(format: Partial<CellFormat>): void {
-  if (format.bold !== undefined) document.execCommand('bold');
-  if (format.italic !== undefined) document.execCommand('italic');
-  if (format.strikethrough !== undefined) document.execCommand('strikeThrough');
+  if (format.bold !== undefined) runEditorCommand('bold');
+  if (format.italic !== undefined) runEditorCommand('italic');
+  if (format.strikethrough !== undefined) runEditorCommand('strikeThrough');
 }
 
 // Format for one cell of "Convert to table": styled header, then banded rows.
@@ -1522,6 +1523,15 @@ function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClo
   const { t } = useI18n();
   const [checked, setChecked] = useState<Set<string>>(() => new Set(allowed ?? values));
 
+  // Escape closes the popover (keyboard equivalent of clicking the backdrop).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   const toggle = (v: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
@@ -1539,7 +1549,7 @@ function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClo
 
   return (
     <>
-      <div className="fixed inset-0 z-40" role="presentation" onMouseDown={onClose} />
+      <div className="fixed inset-0 z-40" aria-hidden="true" onMouseDown={onClose} />
       <div
         role="presentation"
         className="fixed z-50 w-64 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"

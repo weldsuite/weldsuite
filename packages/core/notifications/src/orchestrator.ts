@@ -305,35 +305,38 @@ async function sendPushBatches<Env extends NotificationEnv>(
   const { channelId, priority } = androidDelivery(category, notificationType);
   const pushData = buildPushData(params);
 
-  const allInvalid: string[] = [];
-  for (const [appCode, appTokens] of byAppCode) {
-    const messages: ExpoPushMessage[] = appTokens.map((token) => ({
-      to: token,
-      title,
-      body,
-      sound: 'default',
-      // Ensure the app icon badge updates on arrival (orchestrator never
-      // sent a count before; clients reconcile the real unread total via
-      // realtime / API).
-      badge: 1,
-      ...(channelId ? { channelId } : {}),
-      priority,
-      data: pushData,
-    }));
-    console.log(
-      `[Notifications] Expo push attempt user=${userId} type=${notificationType} appCode=${appCode} tokens=${appTokens.length} androidChannel=${channelId ?? 'none'} dataKeys=${Object.keys(pushData).join(',')}`,
-    );
-    const { invalidTokens, tickets } = await sendExpoPush(messages);
-    const ticketErrors = tickets.filter((t) => t.status === 'error');
-    if (ticketErrors.length > 0) {
-      console.error(
-        '[Notifications] Expo push ticket errors:',
-        ticketErrors.map((t) => ({ message: t.message, error: t.details?.error })),
+  // One request per target app (a category maps to a fixed handful of app
+  // codes), so these are bounded and independent: send them concurrently.
+  const invalidPerApp = await Promise.all(
+    [...byAppCode].map(async ([appCode, appTokens]) => {
+      const messages: ExpoPushMessage[] = appTokens.map((token) => ({
+        to: token,
+        title,
+        body,
+        sound: 'default',
+        // Ensure the app icon badge updates on arrival (orchestrator never
+        // sent a count before; clients reconcile the real unread total via
+        // realtime / API).
+        badge: 1,
+        ...(channelId ? { channelId } : {}),
+        priority,
+        data: pushData,
+      }));
+      console.log(
+        `[Notifications] Expo push attempt user=${userId} type=${notificationType} appCode=${appCode} tokens=${appTokens.length} androidChannel=${channelId ?? 'none'} dataKeys=${Object.keys(pushData).join(',')}`,
       );
-    }
-    allInvalid.push(...invalidTokens.filter(Boolean));
-  }
-  return allInvalid;
+      const { invalidTokens, tickets } = await sendExpoPush(messages);
+      const ticketErrors = tickets.filter((t) => t.status === 'error');
+      if (ticketErrors.length > 0) {
+        console.error(
+          '[Notifications] Expo push ticket errors:',
+          ticketErrors.map((t) => ({ message: t.message, error: t.details?.error })),
+        );
+      }
+      return invalidTokens.filter(Boolean);
+    }),
+  );
+  return invalidPerApp.flat();
 }
 
 /** Push to the user's active devices for this category's app(s). Never throws. */

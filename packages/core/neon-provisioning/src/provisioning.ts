@@ -480,16 +480,19 @@ export class DatabaseProvisioningService {
 
     if (selectedApps && selectedApps.length > 0) {
       const now = new Date();
-      for (const appCode of selectedApps) {
-        await tenantDb.insert(workspaceInstalledApps).values({
-          id: generateId('app'),
-          appCode,
-          isActive: true,
-          displayOrder: 0,
-          installedAt: now,
-          installedBy: initialMember?.userId,
-        }).onConflictDoNothing();
-      }
+      // A handful of apps picked at sign-up, one idempotent row each.
+      await Promise.all(
+        selectedApps.map((appCode) =>
+          tenantDb.insert(workspaceInstalledApps).values({
+            id: generateId('app'),
+            appCode,
+            isActive: true,
+            displayOrder: 0,
+            installedAt: now,
+            installedBy: initialMember?.userId,
+          }).onConflictDoNothing()
+        )
+      );
     }
 
     let storedUrl = databaseUrl;

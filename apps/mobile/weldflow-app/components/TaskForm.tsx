@@ -37,7 +37,7 @@ import type {
 import { LABEL_COLORS } from '@/types/weldflow';
 import { useProjectMembers, useLabels, useCreateLabel } from '@/hooks/use-weldflow';
 import { labelsForIds, resolveLabelIds } from '@/lib/task-labels';
-import { StatusBadge } from './status-badge';
+import { TaskStatusBadge } from './status-badge';
 import { PriorityIndicator } from './PriorityIndicator';
 import { BRAND } from '@/lib/brand';
 
@@ -824,7 +824,7 @@ export function TaskForm({
       <View style={styles.row}>
         <FieldShell label="Status" half colors={colors}>
           <PickerButton onPress={() => setPicker('status')} colors={colors}>
-            <StatusBadge status={status} />
+            <TaskStatusBadge status={status} />
             <ChevronDown size={18} color={colors.muted} />
           </PickerButton>
         </FieldShell>

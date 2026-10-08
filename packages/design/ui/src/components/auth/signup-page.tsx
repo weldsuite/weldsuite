@@ -17,7 +17,6 @@ const { spinner: SpinnerIcon, google: GoogleIcon, gitHub: GitHubIcon } = Icons;
 interface SignupPageProps {
   appName?: string;
   showSocialLogin?: boolean;
-  redirectTo?: string;
 }
 
 export function SignupPage({ 

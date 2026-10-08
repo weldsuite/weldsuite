@@ -58,7 +58,6 @@ export function NewEventDialog({ open, onOpenChange, defaults, hideTypeTabs }: R
           calendars={allCalendars}
           defaultCalendarId={defaultCalendar?.id}
           onClose={() => onOpenChange(false)}
-          onMoreOptions={() => onOpenChange(false)}
           showTypeTabs={!hideTypeTabs}
         />
       </div>

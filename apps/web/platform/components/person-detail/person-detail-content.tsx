@@ -41,7 +41,7 @@ export function PersonDetailContent({
         <div className="rounded-lg border border-border/60 bg-card mb-4">
           <div className="grid grid-cols-2 md:grid-cols-3 divide-x divide-border/60">
             {stats.map((stat, index) => (
-              <div key={index} className={`py-3 md:py-3.5 px-3 md:px-4 ${index >= 2 ? 'col-span-2 md:col-span-1 border-t md:border-t-0 border-border/60' : ''}`}>
+              <div key={stat.label} className={`py-3 md:py-3.5 px-3 md:px-4 ${index >= 2 ? 'col-span-2 md:col-span-1 border-t md:border-t-0 border-border/60' : ''}`}>
                 <p className="text-xs md:text-sm font-medium text-muted-foreground mb-1">{stat.label}</p>
                 <p className="text-base md:text-lg font-semibold">{stat.value}</p>
               </div>

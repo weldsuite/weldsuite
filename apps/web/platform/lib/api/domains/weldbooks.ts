@@ -1,7 +1,22 @@
 import { weldbooksApi } from '../weldbooks-client';
 import type { PostalAddress } from '@/components/address/postal-address';
 import type { StoredAccountingAddress } from '@/lib/weldbooks/address';
+import type { WeekFiscalYearConfig } from '@/lib/weldbooks/fiscal-year';
 import type { JurisdictionSummary } from '@/lib/weldbooks/jurisdiction';
+import type { UsAccountingMethod } from '@/lib/weldbooks/us-entity';
+import type {
+  AgedReport,
+  BalanceSheetReport,
+  CashFlowReport,
+  GeneralLedgerReport,
+  ProfitLossReport,
+  ReportFormat,
+  ReportName,
+  ReportPrintDocument,
+  ReportQuery,
+  TaxWorksheet,
+  TrialBalanceReport,
+} from '@/lib/weldbooks/report-types';
 
 // ============================================================================
 // Types
@@ -20,12 +35,25 @@ export interface AccountingEntity extends Partial<EntityLockDates> {
   id: string;
   name: string;
   legalName?: string | null;
+  /** US: sole_proprietorship | single_member_llc | multi_member_llc | partnership | s_corp | c_corp | nonprofit. */
   entityType?: string | null;
+  /** US: how the IRS taxes the entity (sole_proprietor | disregarded | partnership | s_corp | c_corp | exempt). */
+  taxClassification?: string | null;
+  /** US: doing-business-as name. */
+  dba?: string | null;
+  /** US: default basis of the entity's reports; null = the workspace setting. */
+  accountingMethod?: UsAccountingMethod | null;
   jurisdictionCode: string;
   baseCurrency: string;
   locale?: string | null;
   timezone?: string | null;
   fiscalYearStart?: number | null;
+  /** US: a 52-53-week fiscal year; null for a month-based one. */
+  fiscalYearConfig?: WeekFiscalYearConfig | null;
+  /** US: an SSN is stored (encrypted); only its last four digits are ever returned. */
+  hasSsn?: boolean;
+  ssnLast4?: string | null;
+  hasSalesTaxCredentials?: boolean;
   isDefault?: boolean | null;
   isActive?: boolean | null;
   address?: StoredAccountingAddress | null;
@@ -58,6 +86,11 @@ export interface UpdateAccountingEntityInput {
   name?: string;
   legalName?: string;
   entityType?: string;
+  /** US: checked against the entity type; defaults from it. */
+  taxClassification?: string;
+  dba?: string | null;
+  /** US: `null` falls back to the workspace setting. */
+  accountingMethod?: UsAccountingMethod | null;
   address?: PostalAddress;
   contact?: { email?: string; phone?: string; website?: string };
   bankDetails?: {
@@ -68,10 +101,108 @@ export interface UpdateAccountingEntityInput {
     bankName?: string;
   };
   taxIdentifiers?: { vatNumber?: string; registrationNumber?: string; einOrSsn?: string };
+  /** US: Social Security number of a sole proprietor without an EIN. Write-only; `null` clears it. */
+  ssn?: string | null;
   fiscalYearStart?: number;
+  /** US: a 52-53-week year; `null` returns to the month-based year of `fiscalYearStart`. */
+  fiscalYearConfig?: WeekFiscalYearConfig | null;
   locale?: string;
   timezone?: string;
   jurisdictionSettings?: Record<string, unknown>;
+}
+
+/** An entity as the update returns it. */
+export interface UpdateAccountingEntityResult extends AccountingEntity {
+  /** The tax classification changed the return the entity files: its accounts still point at the old return's lines. */
+  taxLineRemapNeeded?: boolean;
+}
+
+export interface CreateAccountingEntityInput extends UpdateAccountingEntityInput {
+  name: string;
+  jurisdictionCode: string;
+  baseCurrency?: string;
+  isDefault?: boolean;
+  seedDefaults?: boolean;
+}
+
+export interface ApplyTaxLinesInput {
+  /** Also replace lines set by hand on the entity's current return. */
+  overwrite?: boolean;
+  taxYear?: number;
+}
+
+export interface TaxLineChange {
+  accountId: string;
+  code: string;
+  name: string;
+  from: string | null;
+  to: string | null;
+}
+
+export interface ApplyTaxLinesResult {
+  form: string;
+  formLabel: string;
+  taxYear: number;
+  updated: number;
+  unchanged: number;
+  /** Accounts mapped by hand to a line of the current return, left alone. */
+  keptOverrides: number;
+  changes: TaxLineChange[];
+  /** Accounts that still have no line (no default exists for them). */
+  unmapped: Array<{ accountId: string; code: string; name: string }>;
+}
+
+/** A line of the income-tax return of the entity's classification. */
+export interface TaxLineDef {
+  /** `<form>.<line key>`, e.g. `sch_c.8`. */
+  code: string;
+  form: string;
+  /** Line number as printed on the form. */
+  line: string;
+  label: string;
+  section: string;
+}
+
+export interface TaxLineCatalog {
+  form: string;
+  /** e.g. `Form 1120-S` */
+  formLabel: string;
+  taxYear: number;
+  sections: Array<{ key: string; label: string }>;
+  lines: TaxLineDef[];
+}
+
+export type DimensionKind = 'class' | 'location';
+
+export interface DimensionValue {
+  id: string;
+  entityId: string;
+  dimension: DimensionKind;
+  name: string;
+  code: string | null;
+  parentId: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDimensionValueInput {
+  dimension: DimensionKind;
+  name: string;
+  code?: string | null;
+  parentId?: string | null;
+  isActive?: boolean;
+}
+
+export type UpdateDimensionValueInput = Partial<Omit<CreateDimensionValueInput, 'dimension'>>;
+
+export interface DimensionValueFilters {
+  dimension?: DimensionKind;
+  isActive?: boolean;
+  parentId?: string;
+  search?: string;
+  limit?: number;
+  cursor?: string;
 }
 
 export interface UpdateLockDatesInput {
@@ -207,6 +338,10 @@ export interface Account {
   openingBalance: string | null;
   currentBalance: string | null;
   normalSide: string;
+  /** US: line of the entity's income-tax return (`sch_c.8`, `f1120s.16`, ...). */
+  taxLine?: string | null;
+  /** US: default 1099 box for payments booked here (`nec_1`, `misc_1`, ... or `omit`). */
+  form1099Box?: string | null;
 }
 
 export interface TaxRate {
@@ -566,6 +701,12 @@ interface PaginatedResponse<T> {
   pagination: { page: number; pageSize: number; totalCount: number; totalPages: number; hasMore: boolean };
 }
 
+/** Cursor-paginated list (dimension values): `{ data, pagination: { totalCount, hasMore, cursor } }`. */
+interface CursorListResponse<T> {
+  data: T[];
+  pagination: { totalCount: number; hasMore: boolean; cursor: string | null };
+}
+
 // ============================================================================
 // API Methods
 // ============================================================================
@@ -577,6 +718,15 @@ function buildQuery(params: Record<string, string | number | boolean | undefined
   }
   const str = qs.toString();
   return str ? `?${str}` : '';
+}
+
+/** Query string of a report request; empty values are left out. */
+export function reportQueryString(query: ReportQuery, format?: ReportFormat): string {
+  return buildQuery({ ...query, format: format && format !== 'json' ? format : undefined });
+}
+
+function getReport<T>(name: ReportName, query: ReportQuery = {}) {
+  return weldbooksApi.get<ApiResponse<T>>(`/accounting-reports/${name}${reportQueryString(query)}`);
 }
 
 export const accountingApi = {
@@ -606,8 +756,16 @@ export const accountingApi = {
   listJurisdictions: () => weldbooksApi.get<ApiResponse<JurisdictionSummary[]>>('/accounting-entities/jurisdictions'),
   listEntities: () => weldbooksApi.get<ApiResponse<AccountingEntity[]>>('/accounting-entities'),
   getEntity: (id: string) => weldbooksApi.get<ApiResponse<AccountingEntity>>(`/accounting-entities/${id}`),
+  createEntity: (data: CreateAccountingEntityInput) =>
+    weldbooksApi.post<ApiResponse<AccountingEntity>>('/accounting-entities', data),
   updateEntity: (id: string, data: UpdateAccountingEntityInput) =>
-    weldbooksApi.patch<ApiResponse<AccountingEntity>>(`/accounting-entities/${id}`, data),
+    weldbooksApi.patch<ApiResponse<UpdateAccountingEntityResult>>(`/accounting-entities/${id}`, data),
+  /** US: point every account at the lines of the entity's current return. */
+  applyTaxLines: (id: string, data: ApplyTaxLinesInput = {}) =>
+    weldbooksApi.post<ApiResponse<ApplyTaxLinesResult>>(`/accounting-entities/${id}/apply-tax-lines`, data),
+  /** US: the stored SSN in clear text (needs `tax_ids:reveal`; every reveal is logged). Never cache the result. */
+  revealEntitySsn: (id: string, reason?: string) =>
+    weldbooksApi.post<ApiResponse<{ ssn: string }>>(`/accounting-entities/${id}/reveal-ssn`, reason ? { reason } : {}),
   updateLockDates: (id: string, data: UpdateLockDatesInput) =>
     weldbooksApi.patch<ApiResponse<AccountingEntity>>(`/accounting-entities/${id}/lock-dates`, data),
   listLockExceptions: (id: string) =>
@@ -620,12 +778,26 @@ export const accountingApi = {
     ),
 
   // Accounts
-  listAccounts: (params?: { type?: string; subtype?: string; isActive?: string; search?: string }) =>
+  /** `taxLine: 'none'` lists the income and expense accounts without a tax line (US); a line code lists the accounts on it. */
+  listAccounts: (params?: { type?: string; subtype?: string; isActive?: string; search?: string; taxLine?: string }) =>
     weldbooksApi.get<ApiResponse<Account[]>>(`/gl-accounts${buildQuery(params || {})}`),
+  /** US: the lines of the entity's income-tax return for a tax year (default: the current one). */
+  getTaxLines: (year?: number) =>
+    weldbooksApi.get<ApiResponse<TaxLineCatalog>>(`/gl-accounts/tax-lines${buildQuery({ year })}`),
   getAccount: (id: string) => weldbooksApi.get<ApiResponse<Account>>(`/gl-accounts/${id}`),
   createAccount: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<Account>>('/gl-accounts', data),
   updateAccount: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Account>>(`/gl-accounts/${id}`, data),
   deleteAccount: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/gl-accounts/${id}`),
+
+  // Reporting dimensions (classes and locations)
+  listDimensionValues: (filters: DimensionValueFilters = {}) =>
+    weldbooksApi.get<CursorListResponse<DimensionValue>>(`/accounting-dimensions${buildQuery({ ...filters })}`),
+  createDimensionValue: (data: CreateDimensionValueInput) =>
+    weldbooksApi.post<ApiResponse<DimensionValue>>('/accounting-dimensions', data),
+  updateDimensionValue: (id: string, data: UpdateDimensionValueInput) =>
+    weldbooksApi.patch<ApiResponse<DimensionValue>>(`/accounting-dimensions/${id}`, data),
+  /** 409 when the value is on bookings or has children: deactivate it instead. */
+  deleteDimensionValue: (id: string) => weldbooksApi.delete<unknown>(`/accounting-dimensions/${id}`),
 
   // Tax Rates
   listTaxRates: (params?: { type?: string; isActive?: string }) =>
@@ -786,16 +958,23 @@ export const accountingApi = {
   deletePayment: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/payments/${id}`),
 
   // Reports
-  getProfitLoss: (params?: { from?: string; to?: string }) => weldbooksApi.get<ApiResponse<unknown>>(`/accounting-reports/profit-loss${buildQuery(params || {})}`),
-  getBalanceSheet: (params?: { asOf?: string }) => weldbooksApi.get<ApiResponse<unknown>>(`/accounting-reports/balance-sheet${buildQuery(params || {})}`),
-  getTrialBalance: (params?: { from?: string; to?: string }) => weldbooksApi.get<ApiResponse<unknown>>(`/accounting-reports/trial-balance${buildQuery(params || {})}`),
-  getAgedReceivables: () => weldbooksApi.get<ApiResponse<unknown>>('/accounting-reports/aged-receivables'),
-  getAgedPayables: () => weldbooksApi.get<ApiResponse<unknown>>('/accounting-reports/aged-payables'),
+  getProfitLoss: (query?: ReportQuery) => getReport<ProfitLossReport>('profit-loss', query),
+  getBalanceSheet: (query?: ReportQuery) => getReport<BalanceSheetReport>('balance-sheet', query),
+  getTrialBalance: (query?: ReportQuery) => getReport<TrialBalanceReport>('trial-balance', query),
+  getGeneralLedger: (query: ReportQuery & { accountId: string }) =>
+    getReport<GeneralLedgerReport>('general-ledger', query),
+  getCashFlow: (query?: ReportQuery) => getReport<CashFlowReport>('cash-flow', query),
+  getAgedReceivables: (query?: ReportQuery) => getReport<AgedReport>('aged-receivables', query),
+  getAgedPayables: (query?: ReportQuery) => getReport<AgedReport>('aged-payables', query),
+  /** US: the fiscal year's trial balance grouped by the lines of the entity's income-tax return. */
+  getTaxWorksheet: (query?: ReportQuery) => getReport<TaxWorksheet>('tax-worksheet', query),
+  /** The report as a download (`format=csv`, UTF-8 with BOM). */
+  downloadReportCsv: (name: ReportName, query: ReportQuery = {}) =>
+    weldbooksApi.getBlob(`/accounting-reports/${name}${reportQueryString(query, 'csv')}`),
+  /** The report as a print-ready document (`format=print`) that `lib/weldbooks/report-pdf` turns into a PDF. */
+  getReportPrintDocument: (name: ReportName, query: ReportQuery = {}) =>
+    weldbooksApi.get<ApiResponse<ReportPrintDocument>>(`/accounting-reports/${name}${reportQueryString(query, 'print')}`),
   getVatSummary: (params?: { from?: string; to?: string }) => weldbooksApi.get<ApiResponse<unknown>>(`/accounting-reports/vat-summary${buildQuery(params || {})}`),
-  getGeneralLedger: (params: { accountId: string; from?: string; to?: string; page?: number; pageSize?: number }) =>
-    weldbooksApi.get<ApiResponse<unknown>>(`/accounting-reports/general-ledger${buildQuery(params)}`),
-  getCashFlow: (params?: { from?: string; to?: string }) =>
-    weldbooksApi.get<ApiResponse<unknown>>(`/accounting-reports/cash-flow${buildQuery(params || {})}`),
   getRevenueByCustomer: (params?: { from?: string; to?: string }) =>
     weldbooksApi.get<ApiResponse<unknown>>(`/accounting-reports/revenue-by-customer${buildQuery(params || {})}`),
   getExpenseByCategory: (params?: { from?: string; to?: string }) =>
