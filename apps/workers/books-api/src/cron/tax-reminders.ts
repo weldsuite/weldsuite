@@ -24,7 +24,13 @@ import { entityCalendar } from '../services/tax-calendar';
 import { expiringCertificates } from '../services/sales-tax-reports';
 import { nexusOverview } from '../services/nexus-monitor';
 
-export const TAX_CENTER_PATH = '/weldbooks/tax';
+/** Platform routes the reminders link to. */
+export const REMINDER_PATHS = {
+  salesTax: '/weldbooks/sales-tax',
+  calendar: '/weldbooks/tax-calendar',
+  certificates: '/weldbooks/sales-tax/certificates/reports',
+  nexus: '/weldbooks/sales-tax/nexus',
+} as const;
 
 export interface ReminderNotice {
   title: string;
@@ -113,7 +119,7 @@ async function salesTaxCandidates(db: Database, entity: EntityRow, today: string
           title: threshold === 'overdue' ? `Sales tax return overdue: ${agency.name}` : `Sales tax return due ${inDays(d)}: ${agency.name}`,
           body: `The ${agency.stateCode} return for ${p.periodStart} to ${p.periodEnd} is due ${p.dueDate} (${inDays(d)}). ${status}`,
           severity: threshold === 'overdue' ? 'error' : 'warning',
-          actionUrl: `${TAX_CENTER_PATH}/sales-tax`,
+          actionUrl: REMINDER_PATHS.salesTax,
           entityType: 'sales_tax_agency',
           entityId: agency.id,
           data: { kind: 'sales_tax_due', agencyId: agency.id, periodEnd: p.periodEnd, dueDate: p.dueDate, threshold },
@@ -143,7 +149,7 @@ async function calendarCandidates(db: Database, entity: EntityRow, today: string
           title: `${item.title} is due ${inDays(d)}`,
           body: `Due ${item.dueDate}${item.note ? `. ${item.note}` : ''}`,
           severity: threshold === '3d' ? 'warning' : 'info',
-          actionUrl: `${TAX_CENTER_PATH}/calendar`,
+          actionUrl: REMINDER_PATHS.calendar,
           entityType: 'tax_deadline',
           entityId: entity.id,
           data: { kind: 'tax_deadline', deadlineKey: item.key, dueDate: item.dueDate, threshold },
@@ -166,7 +172,7 @@ async function certificateCandidates(db: Database, entity: EntityRow, now: Date)
         title: 'Exemption certificate expiring',
         body: `${c.customerName ?? 'A customer'}${c.certificateNumber ? ` (${c.certificateNumber})` : ''} expires ${c.expiresOn} (${inDays(c.daysLeft)}).`,
         severity: 'warning' as const,
-        actionUrl: `${TAX_CENTER_PATH}/certificates`,
+        actionUrl: REMINDER_PATHS.certificates,
         entityType: 'exemption_certificate',
         entityId: c.certificateId,
         data: { kind: 'certificate_expiring', certificateId: c.certificateId, expiresOn: c.expiresOn },
@@ -187,7 +193,7 @@ async function nexusCandidates(db: Database, entity: EntityRow, now: Date): Prom
           r.exceededOn ? `; the threshold was reached on ${r.exceededOn}` : ''
         }${r.collectFrom ? `. Collect sales tax from ${r.collectFrom}${r.collectFromVerified ? '' : ' (check with the state)'}` : ''}. Register to stay compliant.`,
         severity: 'error' as const,
-        actionUrl: `${TAX_CENTER_PATH}/nexus`,
+        actionUrl: REMINDER_PATHS.nexus,
         entityType: 'nexus',
         entityId: r.stateCode,
         data: { kind: 'nexus_exceeded', stateCode: r.stateCode },
@@ -280,7 +286,7 @@ export async function runTaxReminders(db: Database, options: TaxReminderOptions)
             .map((c) => c.notice.body)
             .join(' ') + (certificates.length > 5 ? ` And ${certificates.length - 5} more.` : ''),
           severity: 'warning',
-          actionUrl: `${TAX_CENTER_PATH}/certificates`,
+          actionUrl: REMINDER_PATHS.certificates,
           entityType: 'exemption_certificate',
           entityId: entity.id,
           data: { kind: 'certificate_expiring', count: String(certificates.length) },
