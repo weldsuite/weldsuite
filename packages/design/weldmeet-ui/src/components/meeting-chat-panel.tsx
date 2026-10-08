@@ -53,6 +53,7 @@ import { EmojiPicker } from './emoji-picker';
 import { useIsMobile } from '../hooks/use-is-mobile';
 import { sanitizeRichText, hasRichFormatting } from '../lib/sanitize-rich-text';
 import { randomIdSuffix } from '../lib/random-id';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // ============================================================================
 // Shared types
@@ -865,12 +866,12 @@ function MessageInput({
 
   const updateActiveFormats = useCallback(() => {
     const formats = new Set<string>();
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('strikeThrough')) formats.add('strikeThrough');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('insertUnorderedList');
-    if (document.queryCommandState('insertOrderedList')) formats.add('insertOrderedList');
+    if (isEditorCommandActive('bold')) formats.add('bold');
+    if (isEditorCommandActive('italic')) formats.add('italic');
+    if (isEditorCommandActive('underline')) formats.add('underline');
+    if (isEditorCommandActive('strikeThrough')) formats.add('strikeThrough');
+    if (isEditorCommandActive('insertUnorderedList')) formats.add('insertUnorderedList');
+    if (isEditorCommandActive('insertOrderedList')) formats.add('insertOrderedList');
     setActiveFormats(formats);
   }, []);
 
@@ -884,7 +885,7 @@ function MessageInput({
     (command: string) => {
       if (!editorRef.current) return;
       editorRef.current.focus();
-      document.execCommand(command, false);
+      runEditorCommand(command);
       updateActiveFormats();
       handleInput();
     },

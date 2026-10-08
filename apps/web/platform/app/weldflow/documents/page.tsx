@@ -46,6 +46,7 @@ import {
   ChevronLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 interface Command {
   id: string;
@@ -193,16 +194,16 @@ export default function DocumentsPage() {
   const checkActiveFormats = () => {
     const formats = new Set<string>();
 
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('strikeThrough')) formats.add('strikethrough');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('bulletList');
-    if (document.queryCommandState('insertOrderedList')) formats.add('numberedList');
-    if (document.queryCommandState('justifyLeft')) formats.add('alignLeft');
-    if (document.queryCommandState('justifyCenter')) formats.add('alignCenter');
-    if (document.queryCommandState('justifyRight')) formats.add('alignRight');
-    if (document.queryCommandState('justifyFull')) formats.add('alignJustify');
+    if (isEditorCommandActive('bold')) formats.add('bold');
+    if (isEditorCommandActive('italic')) formats.add('italic');
+    if (isEditorCommandActive('underline')) formats.add('underline');
+    if (isEditorCommandActive('strikeThrough')) formats.add('strikethrough');
+    if (isEditorCommandActive('insertUnorderedList')) formats.add('bulletList');
+    if (isEditorCommandActive('insertOrderedList')) formats.add('numberedList');
+    if (isEditorCommandActive('justifyLeft')) formats.add('alignLeft');
+    if (isEditorCommandActive('justifyCenter')) formats.add('alignCenter');
+    if (isEditorCommandActive('justifyRight')) formats.add('alignRight');
+    if (isEditorCommandActive('justifyFull')) formats.add('alignJustify');
 
     setActiveFormats(formats);
   };
@@ -257,7 +258,7 @@ export default function DocumentsPage() {
     // Enter afterwards split the *previous* paragraph instead of starting a new
     // one. insertText keeps the editor's flat <p> model intact and leaves the
     // caret at the end of the pasted text.
-    document.execCommand('insertText', false, text);
+    runEditorCommand('insertText', text);
   };
 
   const handleCommandMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -335,20 +336,20 @@ export default function DocumentsPage() {
   };
 
   const formatText = (command: string, value?: string) => {
-    document.execCommand(command, false, value);
+    runEditorCommand(command, value);
     contentRef.current?.focus();
     checkActiveFormats();
   };
 
   const changeFontFamily = (font: string) => {
     setFontFamily(font);
-    document.execCommand('fontName', false, font);
+    runEditorCommand('fontName', font);
     contentRef.current?.focus();
   };
 
   const changeFontSize = (size: string) => {
     setFontSize(size);
-    document.execCommand('fontSize', false, '7');
+    runEditorCommand('fontSize', '7');
     // Wrap the selection in a span with custom font size
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
@@ -365,12 +366,12 @@ export default function DocumentsPage() {
   };
 
   const changeTextColor = (color: string) => {
-    document.execCommand('foreColor', false, color);
+    runEditorCommand('foreColor', color);
     contentRef.current?.focus();
   };
 
   const changeBackgroundColor = (color: string) => {
-    document.execCommand('hiliteColor', false, color);
+    runEditorCommand('hiliteColor', color);
     contentRef.current?.focus();
   };
 

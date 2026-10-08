@@ -66,6 +66,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { useI18n } from '@/lib/i18n/provider';
+import { runEditorCommand } from '@weldsuite/ui/lib/editor-commands';
 
 // Color values are locale-independent; labels are translated inside the component
 const textColorValues = [
@@ -578,9 +579,9 @@ function buildInlineFormat(
 
 // Collapsed cursor: let the browser apply the format to the next typed characters.
 function applyNativeInlineFormat(format: Partial<CellFormat>): void {
-  if (format.bold !== undefined) document.execCommand('bold');
-  if (format.italic !== undefined) document.execCommand('italic');
-  if (format.strikethrough !== undefined) document.execCommand('strikeThrough');
+  if (format.bold !== undefined) runEditorCommand('bold');
+  if (format.italic !== undefined) runEditorCommand('italic');
+  if (format.strikethrough !== undefined) runEditorCommand('strikeThrough');
 }
 
 // Format for one cell of "Convert to table": styled header, then banded rows.

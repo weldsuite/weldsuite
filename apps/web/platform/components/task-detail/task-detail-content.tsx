@@ -73,6 +73,7 @@ import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -2473,7 +2474,7 @@ const EXEC_COMMANDS: Record<Exclude<EditorFormatKind, 'code' | 'highlight'>, str
 };
 
 function execListOrInlineCommand(kind: Exclude<EditorFormatKind, 'code' | 'highlight'>): void {
-  document.execCommand(EXEC_COMMANDS[kind], false);
+  runEditorCommand(EXEC_COMMANDS[kind]);
 }
 
 function placeCaretAfter(sel: Selection, node: Node): void {
@@ -2588,9 +2589,9 @@ export function DescriptionField({
     if (!editorRef.current) return;
     if (!editorRef.current.contains(document.activeElement)) return;
     const next = new Set<string>();
-    if (document.queryCommandState('bold')) next.add('bold');
-    if (document.queryCommandState('italic')) next.add('italic');
-    if (document.queryCommandState('strikeThrough')) next.add('strike');
+    if (isEditorCommandActive('bold')) next.add('bold');
+    if (isEditorCommandActive('italic')) next.add('italic');
+    if (isEditorCommandActive('strikeThrough')) next.add('strike');
     // <code> / <mark> aren't execCommands — detect by ancestor walk.
     const sel = window.getSelection();
     const anchor = sel?.anchorNode;
@@ -2602,8 +2603,8 @@ export function DescriptionField({
       ? anchor.closest('mark')
       : anchor?.parentElement?.closest('mark');
     if (markEl && editorRef.current.contains(markEl)) next.add('highlight');
-    if (document.queryCommandState('insertUnorderedList')) next.add('ul');
-    if (document.queryCommandState('insertOrderedList')) next.add('ol');
+    if (isEditorCommandActive('insertUnorderedList')) next.add('ul');
+    if (isEditorCommandActive('insertOrderedList')) next.add('ol');
     setActiveFormats(next);
   }, []);
 
@@ -2646,7 +2647,7 @@ export function DescriptionField({
     const html = kind === 'image'
       ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(name)}" />`
       : `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
-    document.execCommand('insertHTML', false, html);
+    runEditorCommand('insertHTML', html);
     currentHtmlRef.current = el.innerHTML;
   }, []);
 
@@ -2688,7 +2689,7 @@ export function DescriptionField({
     // unwanted styles from other apps.
     e.preventDefault();
     const text = e.clipboardData?.getData('text/plain') ?? '';
-    document.execCommand('insertText', false, text);
+    runEditorCommand('insertText', text);
   }, [handleUploadFiles]);
 
   const handleSave = () => {
