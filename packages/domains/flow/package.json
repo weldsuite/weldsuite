@@ -9,6 +9,7 @@
     "./project-access": "./src/project-access.ts",
     "./project-stats": "./src/project-stats.ts",
     "./task-numbering": "./src/task-numbering.ts",
+    "./task-tree": "./src/task-tree.ts",
     "./tasks": "./src/tasks.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",
     "./workflows/import-tasks": "./src/workflows/import-tasks.ts",

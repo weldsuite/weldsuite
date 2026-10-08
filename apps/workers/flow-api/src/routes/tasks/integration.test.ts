@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { tasksRoutes } from './index';
+import { myTasksRoutes } from '../my-tasks';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -841,5 +842,122 @@ describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integrat
     mockedPublish.mockClear();
     expect((await put({ dependsOn: ['task_ev_1'] })).status).toBe(400);
     expect(mockedPublish).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/tasks/:id · subtask tree + dependencies · pglite integration', () => {
+  const now = new Date();
+  const seedProject = (id: string) =>
+    db
+      .insert(schema.projects)
+      .values({ id, name: id, createdAt: now, updatedAt: now } as typeof schema.projects.$inferInsert);
+  const seedTask = (values: Record<string, unknown>) =>
+    db.insert(schema.tasks).values({ title: 'Task', ...values } as typeof schema.tasks.$inferInsert);
+  const row = async (id: string) => {
+    const [found] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1);
+    return found;
+  };
+  const remove = (id: string) => {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:delete', 'projects:scope:all'), tenantDb: db },
+    });
+    return request(`/api/tasks/${id}`, { method: 'DELETE' });
+  };
+
+  it('soft-deletes every subtask level with the parent, so none stay in My Tasks', async () => {
+    await seedProject('proj_del_tree');
+    await seedTask({ id: 'task_del_parent', projectId: 'proj_del_tree' });
+    await seedTask({
+      id: 'task_del_child',
+      projectId: 'proj_del_tree',
+      parentTaskId: 'task_del_parent',
+      assigneeId: 'user_test_default',
+    });
+    await seedTask({
+      id: 'task_del_grandchild',
+      projectId: 'proj_del_tree',
+      parentTaskId: 'task_del_child',
+      assigneeIds: ['user_test_default'],
+    });
+    await seedTask({ id: 'task_del_sibling', projectId: 'proj_del_tree', assigneeId: 'user_test_default' });
+
+    mockedPublish.mockClear();
+    expect((await remove('task_del_parent')).status).toBe(204);
+
+    expect((await row('task_del_parent'))?.deletedAt).not.toBeNull();
+    expect((await row('task_del_child'))?.deletedAt).not.toBeNull();
+    expect((await row('task_del_grandchild'))?.deletedAt).not.toBeNull();
+    expect((await row('task_del_sibling'))?.deletedAt).toBeNull();
+
+    const deletedIds = mockedPublish.mock.calls
+      .map((call) => call[0] as { action: string; entityId: string })
+      .filter((call) => call.action === 'deleted')
+      .map((call) => call.entityId)
+      .sort();
+    expect(deletedIds).toEqual(['task_del_child', 'task_del_grandchild', 'task_del_parent']);
+
+    const { request } = createTestApp('/api/my-tasks', myTasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: db },
+    });
+    const res = await request('/api/my-tasks?projectId=proj_del_tree');
+    const body = (await res.json()) as { data: { id: string }[] };
+    expect(body.data.map((task) => task.id)).toEqual(['task_del_sibling']);
+  });
+
+  it('prunes links to any deleted task from other projects too', async () => {
+    await seedProject('proj_del_a');
+    await seedProject('proj_del_b');
+    await seedTask({ id: 'task_dep_parent', projectId: 'proj_del_a', blocks: ['task_dep_other'] });
+    await seedTask({ id: 'task_dep_child', projectId: 'proj_del_a', parentTaskId: 'task_dep_parent' });
+    await seedTask({
+      id: 'task_dep_other',
+      projectId: 'proj_del_b',
+      dependsOn: ['task_dep_parent', 'task_dep_keep'],
+      blocks: ['task_dep_child'],
+    });
+    await seedTask({ id: 'task_dep_keep', projectId: 'proj_del_b' });
+
+    expect((await remove('task_dep_parent')).status).toBe(204);
+
+    const other = await row('task_dep_other');
+    expect(other?.dependsOn).toEqual(['task_dep_keep']);
+    expect(other?.blocks).toEqual([]);
+  });
+
+  it('drops the calendar slot of every removed task, and no other', async () => {
+    const seedSlot = (id: string) =>
+      db.insert(schema.calendarEvents).values({
+        id,
+        title: id,
+        type: 'reminder',
+        startTime: now,
+        calendarId: 'cal_del_test',
+        organizerId: 'user_test_default',
+      } as typeof schema.calendarEvents.$inferInsert);
+    const slot = async (id: string) => {
+      const [found] = await db
+        .select()
+        .from(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.id, id))
+        .limit(1);
+      return found;
+    };
+    await seedSlot('cevt_del_parent');
+    await seedSlot('cevt_del_child');
+    await seedSlot('cevt_del_keep');
+    await seedTask({ id: 'task_cal_parent', calendarEventId: 'cevt_del_parent' });
+    await seedTask({ id: 'task_cal_child', parentTaskId: 'task_cal_parent', calendarEventId: 'cevt_del_child' });
+    await seedTask({ id: 'task_cal_keep', calendarEventId: 'cevt_del_keep' });
+
+    expect((await remove('task_cal_parent')).status).toBe(204);
+
+    expect((await slot('cevt_del_parent'))?.deletedAt).not.toBeNull();
+    expect((await slot('cevt_del_child'))?.deletedAt).not.toBeNull();
+    expect((await slot('cevt_del_keep'))?.deletedAt).toBeNull();
+  });
+
+  it('returns 404 for a task that is already deleted', async () => {
+    await seedTask({ id: 'task_del_twice', deletedAt: now });
+    expect((await remove('task_del_twice')).status).toBe(404);
   });
 });

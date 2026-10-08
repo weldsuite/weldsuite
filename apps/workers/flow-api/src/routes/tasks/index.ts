@@ -37,7 +37,6 @@ import {
   rescheduleCalendarEvent,
   cancelCalendarEvent,
   confirmCalendarEvent,
-  deleteCalendarEvent,
   fetchTaskScheduledSlots,
 } from '@weldsuite/db/lib/calendar-sync';
 import { createTaskSchema, updateTaskSchema, moveTaskSchema } from '@weldsuite/app-api-client/schemas/tasks';
@@ -62,12 +61,7 @@ import {
 } from '../../lib/project-access';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
 import { createTask } from '@weldsuite/flow-domain/tasks';
-
-// ============================================================================
-// Constants
-// ============================================================================
-
-const MAX_SUBTASK_DEPTH = 10;
+import { MAX_SUBTASK_DEPTH, softDeleteTaskTree } from '@weldsuite/flow-domain/task-tree';
 
 // ============================================================================
 // Filter helpers (ported from api-worker tasks.ts)
@@ -2434,7 +2428,8 @@ app.patch(
 );
 
 // ============================================================================
-// DELETE /:id — Soft delete with calendar event cleanup + dependency pruning
+// DELETE /:id — Soft delete the task and its subtask tree, with calendar event
+// cleanup + dependency pruning (softDeleteTaskTree)
 // ============================================================================
 
 app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
@@ -2444,67 +2439,24 @@ app.delete('/:id', requirePermission('tasks:delete'), async (c) => {
   if (_taskAccess === 'not-found') return error.notFound(c, 'Task', id);
   if (_taskAccess === 'denied') return error.forbidden(c, TASK_PROJECT_WRITE_DENIED);
   try {
-    const [existing] = await db
-      .select()
-      .from(t)
-      .where(and(eq(t.id, id), isNull(t.deletedAt)))
-      .limit(1);
-    if (!existing) return error.notFound(c, 'Task', id);
+    const removed = await softDeleteTaskTree(db, id);
+    if (!removed) return error.notFound(c, 'Task', id);
 
-    await db
-      .update(t)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(t.id, id), isNull(t.deletedAt)));
+    for (const row of removed) {
+      publishEntityEvent({
+        c,
+        entityType: 'project_task',
+        entityId: row.id,
+        action: 'deleted',
+        data: { id: row.id, title: row.title },
+      });
 
-    // Delete linked calendar event
-    if ((existing as any).calendarEventId) {
-      c.executionCtx.waitUntil(
-        deleteCalendarEvent(db, (existing as any).calendarEventId).catch((err) =>
-          console.error('[app-api/tasks] calendar event delete failed:', err),
-        ),
-      );
+      dispatchGithubOutboundSync(c, {
+        taskId: row.id,
+        projectId: row.projectId,
+        kinds: ['delete'],
+      });
     }
-
-    // Prune from other tasks' dependsOn / blocks
-    const projectId = (existing as any).projectId;
-    const dependentConditions: any[] = [isNull(t.deletedAt)];
-    if (projectId) dependentConditions.push(eq(t.projectId, projectId));
-    dependentConditions.push(
-      or(
-        sql`${t.dependsOn}::jsonb @> ${JSON.stringify([id])}::jsonb`,
-        sql`${t.blocks}::jsonb @> ${JSON.stringify([id])}::jsonb`,
-      )!,
-    );
-
-    const dependentTasks = await db
-      .select({ id: t.id, dependsOn: t.dependsOn, blocks: t.blocks })
-      .from(t)
-      .where(and(...dependentConditions));
-
-    for (const dep of dependentTasks) {
-      const updatedDependsOn = ((dep.dependsOn as string[]) || []).filter(
-        (did) => did !== id,
-      );
-      const updatedBlocks = ((dep.blocks as string[]) || []).filter((bid) => bid !== id);
-      await db
-        .update(t)
-        .set({ dependsOn: updatedDependsOn, blocks: updatedBlocks, updatedAt: new Date() })
-        .where(eq(t.id, dep.id));
-    }
-
-    publishEntityEvent({
-      c,
-      entityType: 'project_task',
-      entityId: id,
-      action: 'deleted',
-      data: { id, title: (existing as any).title },
-    });
-
-    dispatchGithubOutboundSync(c, {
-      taskId: id,
-      projectId: (existing as any).projectId,
-      kinds: ['delete'],
-    });
 
     return noContent(c);
   } catch (err) {
