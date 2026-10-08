@@ -19,6 +19,7 @@ import type { UserCalendar } from '@/hooks/queries/use-calendar-queries';
 import { CreateCalendarDialog } from './create-calendar-dialog';
 import { DeleteCalendarDialog } from './delete-calendar-dialog';
 import { ShareCalendarDialog } from './share-calendar-dialog';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 // Stored in localStorage to remember which calendars are visible
 function getVisibleCalendarIds(): Set<string> {
@@ -140,12 +141,7 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
                   aria-label={cal.name}
                   tabIndex={0}
                   onClick={() => toggleCalendar(cal.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      toggleCalendar(cal.id);
-                    }
-                  }}
+                  onKeyDown={activateOnKey(() => toggleCalendar(cal.id))}
                 >
                   <div
                     className={`flex items-center gap-2 flex-1 min-w-0 pr-0 ${hasMenu ? ROW_MENU_PADDING_CLASS : ''}`}
