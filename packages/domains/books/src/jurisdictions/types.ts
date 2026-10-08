@@ -125,13 +125,18 @@ export interface InvoiceLabels {
   registrationLabel: string;
 }
 
+/** Entity identifiers an invoice can print. `einOrSsn` is the US tax ID (print it only when it is an EIN). */
+export type InvoiceField = 'vatNumber' | 'registrationNumber' | 'einOrSsn' | 'iban' | 'bic';
+
 export interface InvoiceRequirements {
   /** Format an entity-scoped sequence number (prefix + padded number). */
   formatInvoiceNumber(prefix: string, value: number, padding: number): string;
   /** Default padding for new number sequences in this jurisdiction. */
   defaultPadding: number;
   /** Legally required display fields on an invoice. */
-  requiredFields: Array<'vatNumber' | 'registrationNumber' | 'iban' | 'bic'>;
+  requiredFields: InvoiceField[];
+  /** Fields printed when the entity has them although no law requires them (US: the EIN). */
+  recommendedFields?: InvoiceField[];
   /** Free-form legally required text to append to the invoice. */
   requiredFooter?: string;
   /** Translated labels for invoice rendering. */
