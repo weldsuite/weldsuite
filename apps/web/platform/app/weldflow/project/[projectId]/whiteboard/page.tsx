@@ -25,6 +25,7 @@ import { whiteboardApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface WhiteboardItem {
   id: string;
@@ -139,8 +140,11 @@ export default function WhiteboardPage() {
     return (
       <div
         key={item.id}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
         onClick={() => router.push(`/weldflow/project/${projectId}/whiteboard/${item.id}`)}
+        onKeyDown={activateOnKey(() => router.push(`/weldflow/project/${projectId}/whiteboard/${item.id}`))}
       >
         <div className="flex-1 min-w-[300px]">
           <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">

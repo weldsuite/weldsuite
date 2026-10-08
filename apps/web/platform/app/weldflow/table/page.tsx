@@ -805,9 +805,18 @@ const focusOnMount = (el: HTMLInputElement | null) => {
 };
 
 // Cell wrapper component that enforces 40px height
-const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: React.MouseEventHandler<HTMLDivElement>; style?: React.CSSProperties }> = ({ children, onClick, style }) => (
+const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: (e: React.SyntheticEvent<HTMLDivElement>) => void; style?: React.CSSProperties }> = ({ children, onClick, style }) => (
   <div
+    role={onClick ? 'button' : undefined}
+    tabIndex={onClick ? 0 : undefined}
     onClick={onClick}
+    onKeyDown={onClick ? (e) => {
+      if (e.target !== e.currentTarget) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onClick(e);
+      }
+    } : undefined}
     style={{
       height: '40px',
       width: '100%',

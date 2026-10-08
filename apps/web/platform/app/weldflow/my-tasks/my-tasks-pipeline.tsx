@@ -319,18 +319,17 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
   );
 
   return (
-    <div
+    <button
+      type="button"
       ref={setNodeRef}
       style={style}
       {...attributes}
       {...listeners}
-      role="button"
-      tabIndex={0}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
       className={cn(
-        "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
+        "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border text-left",
         "hover:bg-gray-50 dark:hover:bg-secondary/70 cursor-grab active:cursor-grabbing w-full",
         "p-3 transition-all duration-200",
         isDragging && "opacity-50 !bg-gray-100 dark:!bg-gray-800 !border-transparent",
@@ -338,7 +337,7 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
       )}
     >
       {isDragging ? <div className="invisible">{cardContent}</div> : cardContent}
-    </div>
+    </button>
   );
 }
 
