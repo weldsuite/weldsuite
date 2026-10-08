@@ -5,7 +5,7 @@
  * Fetches data from helpdesk API routes and shows contact-relevant fields only.
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react';
 import {
   User, Mail, Phone, Smartphone, Minimize, Maximize, Loader2, X,
   LayoutGrid, MessageSquare, FileText, Globe, MapPin, Type, Tag,
@@ -118,24 +118,26 @@ function ContactDetailProvider({
   const [activeTab, setActiveTab] = useState<ContactTab>(defaultTab);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('details');
 
-  const contact: HelpdeskContactRow | null = raw?.contactResult?.success
-    ? (raw.contactResult.data as unknown as HelpdeskContactRow)
-    : null;
-  const conversations: Helpdesk.Conversation[] = raw?.conversationsResult?.success
-    ? (Array.isArray(raw.conversationsResult.data) ? (raw.conversationsResult.data as Helpdesk.Conversation[]) : [])
-    : [];
-  const fullName = contact
-    ? (contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || t('sweep.weldcrm.contactDetailView.unknown'))
-    : '';
+  const data = useMemo((): ContactDetailData | null => {
+    const contact: HelpdeskContactRow | null = raw?.contactResult?.success
+      ? (raw.contactResult.data as unknown as HelpdeskContactRow)
+      : null;
+    if (!contact) return null;
+    const conversations: Helpdesk.Conversation[] = raw?.conversationsResult?.success
+      ? (Array.isArray(raw.conversationsResult.data) ? (raw.conversationsResult.data as Helpdesk.Conversation[]) : [])
+      : [];
+    const fullName = contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || t('sweep.weldcrm.contactDetailView.unknown');
+    return { contact, conversations, fullName };
+  }, [raw, t]);
 
-  const data: ContactDetailData | null = contact ? { contact, conversations, fullName } : null;
+  const value = useMemo(() => ({
+    data, isLoading, activeTab, setActiveTab, sidebarTab, setSidebarTab,
+    refresh: () => { void refetch(); },
+    contactId, onClose, onToggleExpand, isExpanded, mode, visitorLocation,
+  }), [data, isLoading, activeTab, setActiveTab, sidebarTab, setSidebarTab, refetch, contactId, onClose, onToggleExpand, isExpanded, mode, visitorLocation]);
 
   return (
-    <ContactDetailContext.Provider value={{
-      data, isLoading, activeTab, setActiveTab, sidebarTab, setSidebarTab,
-      refresh: () => { void refetch(); },
-      contactId, onClose, onToggleExpand, isExpanded, mode, visitorLocation,
-    }}>
+    <ContactDetailContext.Provider value={value}>
       {children}
     </ContactDetailContext.Provider>
   );

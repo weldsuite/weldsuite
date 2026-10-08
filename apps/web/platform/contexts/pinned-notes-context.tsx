@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useMemo, useCallback, ReactNode } from 'react';
 
 interface Note {
   id: string;
@@ -39,42 +39,45 @@ const PinnedNotesContext = createContext<PinnedNotesContextType | undefined>(und
 export function PinnedNotesProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [pinnedNotes, setPinnedNotes] = useState<PinnedNote[]>([]);
 
-  const addPinnedNote = (note: Note) => {
-    // Check if already pinned
-    if (pinnedNotes.some(n => n.id === note.id)) return;
-    
-    // Add note with default position (bottom right corner with padding)
-    setPinnedNotes(prev => [...prev, {
+  const addPinnedNote = useCallback((note: Note) => {
+    // Add note with default position (bottom right corner with padding),
+    // unless it is already pinned
+    setPinnedNotes(prev => prev.some(n => n.id === note.id) ? prev : [...prev, {
       ...note,
       position: { x: Math.max(20, window.innerWidth - 430), y: Math.max(20, window.innerHeight - 350) },
       isMinimized: false
     }]);
-  };
+  }, []);
 
-  const removePinnedNote = (noteId: string) => {
+  const removePinnedNote = useCallback((noteId: string) => {
     setPinnedNotes(prev => prev.filter(note => note.id !== noteId));
-  };
+  }, []);
 
-  const updatePinnedNote = (noteId: string, updates: Partial<PinnedNote>) => {
-    setPinnedNotes(prev => prev.map(note => 
+  const updatePinnedNote = useCallback((noteId: string, updates: Partial<PinnedNote>) => {
+    setPinnedNotes(prev => prev.map(note =>
       note.id === noteId ? { ...note, ...updates } : note
     ));
-  };
+  }, []);
 
-  const toggleMinimize = (noteId: string) => {
-    setPinnedNotes(prev => prev.map(note => 
+  const toggleMinimize = useCallback((noteId: string) => {
+    setPinnedNotes(prev => prev.map(note =>
       note.id === noteId ? { ...note, isMinimized: !note.isMinimized } : note
     ));
-  };
+  }, []);
 
-  return (
-    <PinnedNotesContext.Provider value={{
+  const value = useMemo(
+    () => ({
       pinnedNotes,
       addPinnedNote,
       removePinnedNote,
       updatePinnedNote,
       toggleMinimize
-    }}>
+    }),
+    [pinnedNotes, addPinnedNote, removePinnedNote, updatePinnedNote, toggleMinimize]
+  );
+
+  return (
+    <PinnedNotesContext.Provider value={value}>
       {children}
     </PinnedNotesContext.Provider>
   );

@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
 
 interface ComposeData {
   to: string;
@@ -67,8 +67,8 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
     setPreviousUrlState(url);
   }, []);
 
-  return (
-    <ComposeContext.Provider value={{
+  const value = useMemo(
+    () => ({
       isComposeOpen,
       composeData,
       previousUrl,
@@ -77,7 +77,15 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
       updateComposeData,
       minimizeToPanel,
       setPreviousUrl
-    }}>
+    }),
+    [
+      isComposeOpen, composeData, previousUrl, openCompose, closeCompose, updateComposeData,
+      minimizeToPanel, setPreviousUrl,
+    ]
+  );
+
+  return (
+    <ComposeContext.Provider value={value}>
       {children}
     </ComposeContext.Provider>
   );

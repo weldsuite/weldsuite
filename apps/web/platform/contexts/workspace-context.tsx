@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth, useOrganizationList } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
@@ -169,7 +169,7 @@ export function WorkspaceProvider({ children }: Readonly<{ children: React.React
     fetchWorkspaces();
   }, [isLoaded, isSignedIn, fetchWorkspaces]);
 
-  const value = {
+  const value = useMemo(() => ({
     currentWorkspace,
     workspaces,
     loading,
@@ -177,7 +177,7 @@ export function WorkspaceProvider({ children }: Readonly<{ children: React.React
     switchWorkspace,
     createWorkspace,
     refreshWorkspaces: fetchWorkspaces,
-  };
+  }), [currentWorkspace, workspaces, loading, error, switchWorkspace, createWorkspace, fetchWorkspaces]);
 
   return (
     <WorkspaceContext.Provider value={value}>

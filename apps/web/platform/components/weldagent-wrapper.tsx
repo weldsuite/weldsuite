@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback, useEffect, useMemo } from 'react';
 
 export interface EntityContext {
   type: string; // 'call', 'contact', 'deal', etc.
@@ -30,14 +30,19 @@ export function WeldAgentProvider({ children }: Readonly<{ children: ReactNode }
   const [isOpen, setIsOpen] = useState(false);
   const [entityContext, setEntityContextState] = useState<EntityContext | null>(null);
 
-  const toggle = () => setIsOpen(prev => !prev);
+  const toggle = useCallback(() => setIsOpen(prev => !prev), []);
 
   const setEntityContext = useCallback((context: EntityContext | null) => {
     setEntityContextState(context);
   }, []);
 
+  const value = useMemo(
+    () => ({ isOpen, toggle, entityContext, setEntityContext }),
+    [isOpen, toggle, entityContext, setEntityContext]
+  );
+
   return (
-    <WeldAgentContext.Provider value={{ isOpen, toggle, entityContext, setEntityContext }}>
+    <WeldAgentContext.Provider value={value}>
       {children}
     </WeldAgentContext.Provider>
   );

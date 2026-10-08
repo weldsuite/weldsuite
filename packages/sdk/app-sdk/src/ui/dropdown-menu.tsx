@@ -7,6 +7,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type HTMLAttributes,
@@ -63,8 +64,13 @@ export function DropdownMenu({ children }: Readonly<DropdownMenuProps>) {
   const triggerRef = useRef<HTMLElement | null>(null);
   const menuId = useId();
 
+  const value = useMemo(
+    () => ({ open, setOpen, triggerRef, menuId }),
+    [open, setOpen, triggerRef, menuId],
+  );
+
   return (
-    <DropdownContext.Provider value={{ open, setOpen, triggerRef, menuId }}>
+    <DropdownContext.Provider value={value}>
       {children}
     </DropdownContext.Provider>
   );

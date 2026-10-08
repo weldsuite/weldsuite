@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useCallback } from 'react';
+import React, { createContext, useContext, useCallback, useMemo } from 'react';
 import { useAuth, useUser, useOrganization } from '@clerk/expo';
 
 export interface ClerkUser {
@@ -38,7 +38,7 @@ export function ClerkAuthProvider({ children }: Readonly<{ children: React.React
 
   const isLoading = !isLoaded || !isUserLoaded;
 
-  const user: ClerkUser | null = clerkUser && isSignedIn ? {
+  const user = useMemo((): ClerkUser | null => clerkUser && isSignedIn ? {
     id: clerkUser.id,
     email: clerkUser.primaryEmailAddress?.emailAddress || '',
     firstName: clerkUser.firstName || undefined,
@@ -48,7 +48,7 @@ export function ClerkAuthProvider({ children }: Readonly<{ children: React.React
     organizationId: organization?.id || undefined,
     organizationRole: undefined,
     organizationSlug: organization?.slug || undefined,
-  } : null;
+  } : null, [clerkUser, isSignedIn, organization?.id, organization?.slug]);
 
   const signOut = useCallback(async () => {
     try {
@@ -88,7 +88,7 @@ export function ClerkAuthProvider({ children }: Readonly<{ children: React.React
     }
   }, [isSignedIn, getToken]);
 
-  const value: ClerkAuthContextType = {
+  const value = useMemo((): ClerkAuthContextType => ({
     user,
     isLoading,
     isSignedIn: !!isSignedIn,
@@ -97,7 +97,7 @@ export function ClerkAuthProvider({ children }: Readonly<{ children: React.React
     signOut,
     getCredentials,
     getToken: getTokenAsync,
-  };
+  }), [user, isLoading, isSignedIn, organization?.id, signOut, getCredentials, getTokenAsync]);
 
   return (
     <ClerkAuthContext.Provider value={value}>

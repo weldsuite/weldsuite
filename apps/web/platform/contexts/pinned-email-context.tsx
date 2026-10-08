@@ -1,5 +1,5 @@
 
-import { createContext, useState, ReactNode } from 'react';
+import { createContext, useState, useMemo, useCallback, ReactNode } from 'react';
 
 interface EmailData {
   to: string;
@@ -25,24 +25,33 @@ export function PinnedEmailProvider({ children }: { children: ReactNode }) {
   const [isPinned, setIsPinned] = useState(false);
   const [emailData, setEmailData] = useState<EmailData | null>(null);
 
-  const pinEmail = (data: EmailData) => {
+  const pinEmail = useCallback((data: EmailData) => {
     setEmailData(data);
     setIsPinned(true);
-  };
+  }, []);
 
-  const unpinEmail = () => {
+  const unpinEmail = useCallback(() => {
     setIsPinned(false);
     // Keep email data for potential re-pinning
-  };
+  }, []);
 
-  const updateEmailData = (data: Partial<EmailData>) => {
-    if (emailData) {
-      setEmailData({ ...emailData, ...data });
-    }
-  };
+  const updateEmailData = useCallback((data: Partial<EmailData>) => {
+    setEmailData(prev => (prev ? { ...prev, ...data } : prev));
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      isPinned,
+      emailData,
+      pinEmail,
+      unpinEmail,
+      updateEmailData,
+    }),
+    [isPinned, emailData, pinEmail, unpinEmail, updateEmailData]
+  );
 
   return (
-    <PinnedEmailContext.Provider value={{ isPinned, emailData, pinEmail, unpinEmail, updateEmailData }}>
+    <PinnedEmailContext.Provider value={value}>
       {children}
     </PinnedEmailContext.Provider>
   );

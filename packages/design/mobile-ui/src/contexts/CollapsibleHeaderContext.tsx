@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useRef, useCallback, useState } from 'react';
+import React, { createContext, useContext, useRef, useCallback, useMemo, useState } from 'react';
 import { NativeScrollEvent, NativeSyntheticEvent, LayoutAnimation, Platform, UIManager } from 'react-native';
 
 if (
@@ -107,8 +107,17 @@ export function CollapsibleHeaderProvider({ children }: Readonly<{ children: Rea
     }
   }, [hideHeader, showHeader]);
 
+  const value = useMemo(
+    () => ({
+      isCollapsed,
+      onScroll,
+      resetHeader,
+    }),
+    [isCollapsed, onScroll, resetHeader]
+  );
+
   return (
-    <CollapsibleHeaderContext.Provider value={{ isCollapsed, onScroll, resetHeader }}>
+    <CollapsibleHeaderContext.Provider value={value}>
       {children}
     </CollapsibleHeaderContext.Provider>
   );

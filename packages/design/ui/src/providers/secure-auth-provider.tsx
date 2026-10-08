@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { 
   onAuthStateChanged, 
@@ -563,24 +563,32 @@ export function SecureAuthProvider({ children }: Readonly<{ children: React.Reac
     }
   }, [loading, user, pathname, router]);
 
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      error,
+      csrfToken,
+      signIn,
+      signUp,
+      signOut,
+      signOutAll,
+      socialSignIn,
+      resetPassword,
+      refreshSession,
+      checkSession,
+      generateFingerprint,
+      clearError,
+    }),
+    [
+      user, loading, error, csrfToken, signIn, signUp, signOut, signOutAll, socialSignIn,
+      resetPassword, refreshSession, checkSession, generateFingerprint, clearError,
+    ]
+  );
+
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        error,
-        csrfToken,
-        signIn,
-        signUp,
-        signOut,
-        signOutAll,
-        socialSignIn,
-        resetPassword,
-        refreshSession,
-        checkSession,
-        generateFingerprint,
-        clearError,
-      }}
+      value={value}
     >
       {children}
     </AuthContext.Provider>

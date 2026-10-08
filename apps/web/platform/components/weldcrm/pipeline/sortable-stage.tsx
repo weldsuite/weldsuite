@@ -2,7 +2,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
-import { ReactNode, createContext, useContext } from 'react';
+import { ReactNode, createContext, useContext, useMemo } from 'react';
 import { useDroppableContext } from './droppable-stage';
 
 interface SortableStageContextType {
@@ -48,8 +48,13 @@ export function SortableStage({ id, children, isDragging }: Readonly<SortableSta
   const droppableContext = useDroppableContext();
   const _isOver = droppableContext?.isOver || false;
 
+  const contextValue = useMemo(
+    () => ({ attributes, listeners, isDragging: isSorting }),
+    [attributes, listeners, isSorting]
+  );
+
   return (
-    <SortableStageContext.Provider value={{ attributes, listeners, isDragging: isSorting }}>
+    <SortableStageContext.Provider value={contextValue}>
       <div
         ref={setNodeRef}
         style={style}

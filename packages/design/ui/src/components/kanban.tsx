@@ -26,6 +26,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
   useContext,
+  useMemo,
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -328,8 +329,17 @@ export const KanbanProvider = <
     },
   };
 
+  const contextValue = useMemo(
+    () => ({
+      columns,
+      data,
+      activeCardId,
+    }),
+    [columns, data, activeCardId]
+  );
+
   return (
-    <KanbanContext.Provider value={{ columns, data, activeCardId }}>
+    <KanbanContext.Provider value={contextValue}>
       <DndContext
         accessibility={{ announcements }}
         collisionDetection={customCollisionDetection}
