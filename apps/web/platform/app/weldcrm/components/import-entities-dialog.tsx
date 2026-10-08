@@ -415,8 +415,8 @@ export function ImportEntitiesDialog({
       reader.onload = (e) => {
         try {
           const data = e.target?.result;
-          if (!data) throw new Error('empty');
-          const wb = XLSX.read(data, { type: 'binary', cellDates: true, cellNF: false, cellText: false });
+          if (!(data instanceof ArrayBuffer) || data.byteLength === 0) throw new Error('empty');
+          const wb = XLSX.read(new Uint8Array(data), { type: 'array', cellDates: true, cellNF: false, cellText: false });
           const sheet = wb.Sheets[wb.SheetNames[0]!];
           if (!sheet) throw new Error('no sheet');
           const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
@@ -473,7 +473,7 @@ export function ImportEntitiesDialog({
           setFile(null);
         }
       };
-      reader.readAsBinaryString(f);
+      reader.readAsArrayBuffer(f);
     },
     [fields, t],
   );

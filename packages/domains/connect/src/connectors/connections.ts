@@ -453,8 +453,6 @@ export async function finishSyncRun(args: {
   applied?: { created: number; modified: number; skipped: number; deleted: number; failed: number };
   error?: string | null;
   errorSamples?: Array<{ externalId: string; message: string }>;
-  /** @deprecated Prefer syncWatermarksPatch. Applied only when status is success and no patch is given. */
-  watermark?: { model: string; at: string } | null;
   /**
    * Merge into connection.syncWatermarks. `null` removes a key.
    * Applied for any run status so truncated backfills can persist a page cursor.
@@ -493,16 +491,7 @@ export async function finishSyncRun(args: {
     .where(eq(schema.connectorConnections.id, args.connectionId))
     .limit(1);
 
-  const patch: Record<string, string | null> = { ...args.syncWatermarksPatch };
-  if (
-    args.watermark
-    && args.status === 'success'
-    && args.syncWatermarksPatch === undefined
-  ) {
-    patch[args.watermark.model] = args.watermark.at;
-  }
-
-  const watermarksSql = buildWatermarksSql(patch);
+  const watermarksSql = buildWatermarksSql(args.syncWatermarksPatch ?? {});
 
   await args.db
     .update(schema.connectorConnections)

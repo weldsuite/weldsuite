@@ -23,10 +23,8 @@ const tokenSchema = z.object({
 const TOKEN_TTL_SECONDS = 3600;
 
 function base64Url(input: string | ArrayBuffer): string {
-  const raw =
-    typeof input === 'string'
-      ? btoa(unescape(encodeURIComponent(input)))
-      : btoa(String.fromCodePoint(...new Uint8Array(input)));
+  const bytes = typeof input === 'string' ? new TextEncoder().encode(input) : new Uint8Array(input);
+  const raw = btoa(String.fromCodePoint(...bytes));
   return raw.replaceAll('=', '').replaceAll('+', '-').replaceAll('/', '_');
 }
 

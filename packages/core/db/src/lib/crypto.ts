@@ -72,12 +72,8 @@ async function importKey(hexKey: string): Promise<CryptoKey> {
   ]);
 }
 
-/**
- * Encrypt a plaintext string with AES-256-GCM (legacy v1 format).
- * @deprecated Use encryptField() with a keyring so new writes pick up the v2 key.
- * @returns "iv:ciphertext" hex string
- */
-export async function encrypt(plaintext: string, hexKey: string): Promise<string> {
+/** AES-256-GCM encrypt to the untagged "iv:ciphertext" hex form. */
+async function encryptRaw(plaintext: string, hexKey: string): Promise<string> {
   const key = await importKey(hexKey);
   const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV
   const encoded = new TextEncoder().encode(plaintext);
@@ -92,11 +88,16 @@ export async function encrypt(plaintext: string, hexKey: string): Promise<string
 }
 
 /**
- * Decrypt an "iv:ciphertext" hex string with AES-256-GCM (legacy v1 format).
- * @deprecated Use decryptField() with a keyring so v2 values are handled.
- * @returns plaintext string
+ * Encrypt a plaintext string with AES-256-GCM (legacy v1 format).
+ * @deprecated Use encryptField() with a keyring so new writes pick up the v2 key.
+ * @returns "iv:ciphertext" hex string
  */
-export async function decrypt(encrypted: string, hexKey: string): Promise<string> {
+export async function encrypt(plaintext: string, hexKey: string): Promise<string> {
+  return encryptRaw(plaintext, hexKey);
+}
+
+/** AES-256-GCM decrypt of the untagged "iv:ciphertext" hex form. */
+async function decryptRaw(encrypted: string, hexKey: string): Promise<string> {
   const [ivHex, cipherHex] = encrypted.split(':');
   if (!ivHex || !cipherHex) {
     throw new Error('Invalid encrypted format — expected "iv:ciphertext"');
@@ -116,6 +117,15 @@ export async function decrypt(encrypted: string, hexKey: string): Promise<string
 }
 
 /**
+ * Decrypt an "iv:ciphertext" hex string with AES-256-GCM (legacy v1 format).
+ * @deprecated Use decryptField() with a keyring so v2 values are handled.
+ * @returns plaintext string
+ */
+export async function decrypt(encrypted: string, hexKey: string): Promise<string> {
+  return decryptRaw(encrypted, hexKey);
+}
+
+/**
  * Encrypt a field value using the newest key in the keyring.
  * With a v2 key present → "v2:iv:ciphertext"; otherwise legacy "iv:ciphertext".
  */
@@ -124,10 +134,10 @@ export async function encryptField(
   keyring: EncryptionKeyring,
 ): Promise<string> {
   if (keyring.v2) {
-    return `v2:${await encrypt(plaintext, keyring.v2)}`;
+    return `v2:${await encryptRaw(plaintext, keyring.v2)}`;
   }
   if (keyring.v1) {
-    return encrypt(plaintext, keyring.v1);
+    return encryptRaw(plaintext, keyring.v1);
   }
   throw new Error('encryptField: keyring has no keys');
 }
@@ -144,13 +154,13 @@ export async function decryptField(
     if (!keyring.v2) {
       throw new Error('decryptField: value is v2 but keyring has no v2 key');
     }
-    return decrypt(value.slice(3), keyring.v2);
+    return decryptRaw(value.slice(3), keyring.v2);
   }
   if (V1_FORMAT.test(value)) {
     if (!keyring.v1) {
       throw new Error('decryptField: value is v1 but keyring has no v1 key');
     }
-    return decrypt(value, keyring.v1);
+    return decryptRaw(value, keyring.v1);
   }
   throw new Error('decryptField: value is not in a recognized encrypted format');
 }
