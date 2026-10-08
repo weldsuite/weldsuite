@@ -193,4 +193,67 @@ describe('POST /api/workflows/webhook/:webhookId', () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: 'Workflow not found or not active' });
   });
+
+  describe('call counters', () => {
+    async function stats(webhookId: string) {
+      const [row] = await db
+        .select({
+          total: schema.workflowWebhooks.totalCalls,
+          ok: schema.workflowWebhooks.successfulCalls,
+          failed: schema.workflowWebhooks.failedCalls,
+          lastCalledAt: schema.workflowWebhooks.lastCalledAt,
+        })
+        .from(schema.workflowWebhooks)
+        .where(eq(schema.workflowWebhooks.id, webhookId));
+      return row;
+    }
+
+    it('does not count requests rejected because the workflow is a draft or paused', async () => {
+      resolveWebhookWorkspace.mockResolvedValue('org_1');
+      for (const status of ['draft', 'paused']) {
+        const webhookId = await seedWebhook(await seedWorkflow(status));
+        const res = await publicWorkflowWebhookRoutes.request(`/${webhookId}`, { method: 'POST', body: '{}' }, fakeEnv());
+        expect(res.status).toBe(404);
+        const row = await stats(webhookId);
+        expect(row.total ?? 0).toBe(0);
+        expect(row.failed ?? 0).toBe(0);
+        expect(row.lastCalledAt).toBeNull();
+      }
+    });
+
+    it('does not count requests rejected by the signature check', async () => {
+      const webhookId = await seedWebhook(await seedWorkflow(), { validateSignature: true, secret: 'topsecret123' });
+      resolveWebhookWorkspace.mockResolvedValue('org_1');
+      const res = await publicWorkflowWebhookRoutes.request(`/${webhookId}`, { method: 'POST', body: '{}' }, fakeEnv());
+      expect(res.status).toBe(401);
+      expect((await stats(webhookId)).total ?? 0).toBe(0);
+    });
+
+    it('counts each accepted call once', async () => {
+      const webhookId = await seedWebhook(await seedWorkflow());
+      resolveWebhookWorkspace.mockResolvedValue('org_1');
+      for (let n = 0; n < 2; n++) {
+        const res = await publicWorkflowWebhookRoutes.request(`/${webhookId}`, { method: 'POST', body: '{}' }, fakeEnv());
+        expect(res.status).toBe(200);
+      }
+      const row = await stats(webhookId);
+      expect(row.total).toBe(2);
+      expect(row.ok).toBe(2);
+      expect(row.failed ?? 0).toBe(0);
+    });
+
+    it('counts an accepted call whose runtime is unavailable as failed', async () => {
+      const webhookId = await seedWebhook(await seedWorkflow());
+      resolveWebhookWorkspace.mockResolvedValue('org_1');
+      const res = await publicWorkflowWebhookRoutes.request(
+        `/${webhookId}`,
+        { method: 'POST', body: '{}' },
+        { ...fakeEnv(), EXECUTE_WORKFLOW: undefined },
+      );
+      expect(res.status).toBe(503);
+      const row = await stats(webhookId);
+      expect(row.total).toBe(1);
+      expect(row.failed).toBe(1);
+    });
+  });
 });

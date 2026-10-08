@@ -115,7 +115,7 @@ for (const method of ['put', 'patch'] as const) {
             scope: current.workflowId ? ('workflow' as const) : ('global' as const),
             workflowId: current.workflowId,
           };
-          if (await variables.findConflictingVariable(db, data.name, target)) {
+          if (await variables.findConflictingVariable(db, data.name, target, id)) {
             return error.conflict(c, `A variable named "${data.name}" already exists`, { reason: 'name_taken' });
           }
         }

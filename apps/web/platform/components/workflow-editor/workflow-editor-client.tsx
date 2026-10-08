@@ -91,6 +91,7 @@ import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepCo
 import { buildAllVariables, getStepOutputVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { getWorkflowIssueCodes, isUnsupportedWorkflowError } from '@/app/weldconnect/mvp';
 import type { RecordFieldDef } from '@/app/weldconnect/record-fields';
+import { deriveWebhookStatus } from '@/app/weldconnect/webhooks/webhook-utils';
 import { TriggerEmptyState } from './components/trigger-empty-state';
 import { RunsPanel } from './components/runs-panel';
 import { TestRunDialog, type TestRunRequest } from './components/test-run-dialog';
@@ -1581,13 +1582,23 @@ function WebhookSecretField({ webhookSecret, form }: Readonly<{ webhookSecret: s
   );
 }
 
+const WEBHOOK_STATUS_DOT: Record<ReturnType<typeof deriveWebhookStatus>, string> = {
+  active: 'bg-green-500',
+  paused: 'bg-amber-500',
+  draft: 'bg-gray-400',
+  archived: 'bg-gray-400',
+  disabled: 'bg-gray-400',
+};
+
 function WebhookDetails({
   webhookData,
   workflowId,
+  workflowStatus,
   form,
 }: Readonly<{
   webhookData: WebhookData;
   workflowId: string;
+  workflowStatus: string;
   form: TriggerFormApi;
 }>) {
   const { t } = useI18n();
@@ -1595,6 +1606,7 @@ function WebhookDetails({
   const rotateSecret = useRotateWebhookSecret(workflowId);
   const disableSignature = useDisableWebhookSignature(workflowId);
   const pending = rotateSecret.isPending || disableSignature.isPending;
+  const webhookStatus = deriveWebhookStatus({ isEnabled: webhookData.isEnabled, workflowStatus });
   // `GET .../workflow/:id` never returns the secret (it's masked by design —
   // see services/weldconnect-mvp.ts). The ONLY place it's ever visible is the
   // one-time response of the rotate-secret call this toggle makes when
@@ -1656,15 +1668,12 @@ function WebhookDetails({
       {/* Webhook Secret — shown once, right after signing is turned on. */}
       {revealedSecret && <WebhookSecretField webhookSecret={revealedSecret} form={form} />}
 
-      {/* Status indicator */}
+      {/* Status indicator: the URL only answers once the workflow is published. */}
       <div className="p-3 bg-muted/50 rounded-lg">
         <div className="flex items-center gap-2">
-          <div className={cn(
-            "w-2 h-2 rounded-full",
-            webhookData.isEnabled ? "bg-green-500" : "bg-gray-400"
-          )} />
+          <div className={cn("w-2 h-2 rounded-full", WEBHOOK_STATUS_DOT[webhookStatus])} />
           <span className="text-xs text-muted-foreground">
-            {webhookData.isEnabled ? tec.triggerPanel.webhookActive : tec.triggerPanel.webhookDisabled}
+            {tec.triggerPanel.webhookStatus[webhookStatus]}
           </span>
         </div>
       </div>
@@ -1675,10 +1684,12 @@ function WebhookDetails({
 function WebhookFields({
   webhookData,
   workflowId,
+  workflowStatus,
   form,
 }: Readonly<{
   webhookData: WebhookData | null | undefined;
   workflowId: string;
+  workflowStatus: string;
   form: TriggerFormApi;
 }>) {
   const { t } = useI18n();
@@ -1687,7 +1698,7 @@ function WebhookFields({
   return (
     <div className="pt-3 border-t space-y-4">
       {webhookData ? (
-        <WebhookDetails webhookData={webhookData} workflowId={workflowId} form={form} />
+        <WebhookDetails webhookData={webhookData} workflowId={workflowId} workflowStatus={workflowStatus} form={form} />
       ) : (
         <div className="p-3 bg-muted/50 rounded-lg">
           <p className="text-xs text-muted-foreground">
@@ -1723,6 +1734,8 @@ interface TriggerPanelProps {
   webhookData: WebhookData | null | undefined;
   /** Needed by the webhook signature toggle (rotate-secret / disable-signing calls). */
   workflowId: string;
+  /** The workflow's status: its webhook only answers while it is `active`. */
+  workflowStatus: string;
   cronPresets: CronPreset[];
   oneTimeScheduleAllowed: boolean;
   form: TriggerFormApi;
@@ -1739,6 +1752,7 @@ function TriggerTypeDetails({
   workflowsForChaining,
   webhookData,
   workflowId,
+  workflowStatus,
   cronPresets,
   oneTimeScheduleAllowed,
   form,
@@ -1772,7 +1786,7 @@ function TriggerTypeDetails({
     case 'workflow_complete':
       return <WorkflowCompleteFields form={form} workflowsForChaining={workflowsForChaining} applyTriggerData={applyTriggerData} />;
     case 'webhook':
-      return <WebhookFields webhookData={webhookData} workflowId={workflowId} form={form} />;
+      return <WebhookFields webhookData={webhookData} workflowId={workflowId} workflowStatus={workflowStatus} form={form} />;
     case 'manual':
       return <TriggerHint text={tec.triggerPanel.manualHint} />;
     case 'api':
@@ -4138,6 +4152,7 @@ export function WorkflowEditorClient({
           workflowsForChaining={workflowsForChaining}
           webhookData={webhookData}
           workflowId={workflow.id}
+          workflowStatus={String(workflow.status ?? 'draft').toLowerCase()}
           cronPresets={CRON_PRESETS}
           oneTimeScheduleAllowed={oneTimeScheduleAllowed}
           form={triggerForm}

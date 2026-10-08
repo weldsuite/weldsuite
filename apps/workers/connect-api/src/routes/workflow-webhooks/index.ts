@@ -65,16 +65,23 @@ function isManagedWebhook(webhook: Pick<WebhookRow, 'triggerId'>, workflowTrigge
 /**
  * Read shape of a webhook: the row without its inbound HMAC secret (only
  * rotate-secret reveals that), plus the absolute receiver URL, the workflow's
- * name and whether the workflow editor manages it.
+ * name and status, and whether the workflow editor manages it.
  */
-function toWebhookView(webhook: WebhookRow, workflowName: string | null, workflowTriggers: unknown, base: string) {
+function toWebhookView(
+  webhook: WebhookRow,
+  workflow: { name: string | null; status: string | null; triggers: unknown },
+  base: string,
+) {
   const { secret, ...rest } = webhook;
   return {
     ...rest,
     externalUrl: webhook.externalUrl || `${base}${webhook.url}`,
     hasSecret: !!secret,
-    workflowName,
-    isManaged: isManagedWebhook(webhook, workflowTriggers),
+    workflowName: workflow.name,
+    // The receiver only accepts calls while the workflow is `active`, so the
+    // UI derives the webhook's effective status (Draft / Paused / Active) from this.
+    workflowStatus: workflow.status,
+    isManaged: isManagedWebhook(webhook, workflow.triggers),
   };
 }
 
@@ -93,7 +100,7 @@ app.get('/', requirePermission('workflow-webhooks:read'), async (c) => {
   try {
     const [rows, countRes] = await Promise.all([
       db
-        .select({ webhook: wh, workflowName: wf.name, workflowTriggers: wf.triggers })
+        .select({ webhook: wh, workflowName: wf.name, workflowStatus: wf.status, workflowTriggers: wf.triggers })
         .from(wh)
         .leftJoin(wf, eq(wh.workflowId, wf.id))
         .where(and(...conditions))
@@ -104,7 +111,7 @@ app.get('/', requirePermission('workflow-webhooks:read'), async (c) => {
     const hasMore = rows.length > limit;
     const sliced = hasMore ? rows.slice(0, limit) : rows;
     const base = publicApiBase(c.env);
-    const data = sliced.map((r) => toWebhookView(r.webhook, r.workflowName, r.workflowTriggers, base));
+    const data = sliced.map((r) => toWebhookView(r.webhook, { name: r.workflowName, status: r.workflowStatus, triggers: r.workflowTriggers }, base));
     const cursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     return list(c, data, cursorPagination(Number(countRes[0]?.count ?? 0), hasMore, cursor));
   } catch (err) {
@@ -158,13 +165,20 @@ app.get('/:id', requirePermission('workflow-webhooks:read'), async (c) => {
   const id = c.req.param('id');
   try {
     const [row] = await db
-      .select({ webhook: wh, workflowName: wf.name, workflowTriggers: wf.triggers })
+      .select({ webhook: wh, workflowName: wf.name, workflowStatus: wf.status, workflowTriggers: wf.triggers })
       .from(wh)
       .leftJoin(wf, eq(wh.workflowId, wf.id))
       .where(and(eq(wh.id, id), isNull(wh.deletedAt)))
       .limit(1);
     if (!row) return error.notFound(c, 'Webhook', id);
-    return success(c, toWebhookView(row.webhook, row.workflowName, row.workflowTriggers, publicApiBase(c.env)));
+    return success(
+      c,
+      toWebhookView(
+        row.webhook,
+        { name: row.workflowName, status: row.workflowStatus, triggers: row.workflowTriggers },
+        publicApiBase(c.env),
+      ),
+    );
   } catch (err) {
     console.error('[app-api/workflow-webhooks] get failed:', err);
     return error.internal(c, 'Failed to fetch webhook');

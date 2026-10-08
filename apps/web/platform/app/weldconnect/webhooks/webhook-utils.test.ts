@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { SIGNATURE_PLACEHOLDER, buildWebhookCurl, eventStatusTone } from './webhook-utils';
+import {
+  SIGNATURE_PLACEHOLDER,
+  buildWebhookCurl,
+  deriveWebhookStatus,
+  eventStatusTone,
+  webhookDisplayName,
+} from './webhook-utils';
 
 describe('buildWebhookCurl', () => {
   it('posts JSON without a signature header when signing is off', () => {
@@ -27,5 +33,41 @@ describe('eventStatusTone', () => {
     expect(eventStatusTone('running')).toBe('pending');
     expect(eventStatusTone('queued')).toBe('pending');
     expect(eventStatusTone('cancelled')).toBe('neutral');
+  });
+});
+
+describe('deriveWebhookStatus', () => {
+  it('follows the workflow: only a published workflow answers calls', () => {
+    expect(deriveWebhookStatus({ isEnabled: true, workflowStatus: 'active' })).toBe('active');
+    expect(deriveWebhookStatus({ isEnabled: true, workflowStatus: 'paused' })).toBe('paused');
+    expect(deriveWebhookStatus({ isEnabled: true, workflowStatus: 'draft' })).toBe('draft');
+    expect(deriveWebhookStatus({ isEnabled: true, workflowStatus: 'archived' })).toBe('archived');
+  });
+
+  it('treats a missing workflow status as a draft', () => {
+    expect(deriveWebhookStatus({ isEnabled: true })).toBe('draft');
+    expect(deriveWebhookStatus({ isEnabled: true, workflowStatus: null })).toBe('draft');
+  });
+
+  it('shows a switched-off webhook as disabled whatever the workflow does', () => {
+    expect(deriveWebhookStatus({ isEnabled: false, workflowStatus: 'active' })).toBe('disabled');
+  });
+});
+
+describe('webhookDisplayName', () => {
+  it('shows the workflow name for the default "Webhook" name', () => {
+    expect(webhookDisplayName({ name: 'Webhook', workflowName: 'Order intake' })).toBe('Order intake');
+    expect(webhookDisplayName({ name: ' webhook ', workflowName: 'Order intake' })).toBe('Order intake');
+    expect(webhookDisplayName({ name: 'Webhook Trigger', workflowName: 'Order intake' })).toBe('Order intake');
+    expect(webhookDisplayName({ name: '', workflowName: 'Order intake' })).toBe('Order intake');
+  });
+
+  it('keeps a name someone chose', () => {
+    expect(webhookDisplayName({ name: 'Shopify orders', workflowName: 'Order intake' })).toBe('Shopify orders');
+  });
+
+  it('falls back to the stored name when there is no workflow', () => {
+    expect(webhookDisplayName({ name: 'Webhook', workflowName: null })).toBe('Webhook');
+    expect(webhookDisplayName({ name: null, workflowName: null })).toBe('');
   });
 });

@@ -11,7 +11,7 @@ function deriveScope(v: WorkflowVariable): 'global' | 'workflow' {
 
 export default function VariablesPage() {
   // The list filters and searches client-side, so load a full page up front.
-  const { data: variablesResult, isLoading } = useVariables({ limit: 100 });
+  const { data: variablesResult, isPending } = useVariables({ limit: 100 });
   const { data: workflowsResult } = useVariableWorkflows();
 
   const variables = variablesResult?.data ?? [];
@@ -33,6 +33,6 @@ export default function VariablesPage() {
   for (const w of workflowsResult?.data ?? []) workflowNames[w.id] = w.name;
 
   return (
-    <VariablesClient initialVariables={mappedVariables} isLoading={isLoading} workflowNames={workflowNames} />
+    <VariablesClient initialVariables={mappedVariables} isLoading={isPending} workflowNames={workflowNames} />
   );
 }
