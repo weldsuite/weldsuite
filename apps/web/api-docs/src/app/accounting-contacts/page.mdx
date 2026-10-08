@@ -20,9 +20,6 @@ Accounting contacts are **workspace-wide** — they are not tied to a single acc
   <Property name="id" type="string">Unique identifier (e.g. `acn_abc123`).</Property>
   <Property name="name" type="string">Contact display name.</Property>
   <Property name="type" type="string">Role: `customer`, `supplier`, or `both`.</Property>
-  <Property name="email" type="string">Email address.</Property>
-  <Property name="phone" type="string">Phone number.</Property>
-  <Property name="taxNumber" type="string">VAT / tax number.</Property>
   <Property name="createdAt" type="timestamp">When created.</Property>
   <Property name="updatedAt" type="timestamp">When last updated.</Property>
 </Properties>
@@ -86,7 +83,7 @@ Accounting contacts are **workspace-wide** — they are not tied to a single acc
       <Property name="name" type="string">Contact name.</Property>
     </Properties>
     
-    Optional: `type`, `email`, `phone`, `taxNumber`, `isActive`.
+    Optional: `type` (defaults to `customer`). The public API stores the `name` and `type` of a contact only and ignores any other field; email, phone, tax numbers, addresses and ledger defaults are set in WeldBooks.
 
   </Col>
   <Col sticky>
@@ -99,8 +96,7 @@ Accounting contacts are **workspace-wide** — they are not tied to a single acc
       -H "Content-Type: application/json" \
       -d '{
         "name": "Smith Industries",
-        "type": "customer",
-        "email": "ap@smith.example"
+        "type": "customer"
       }'
     ```
 

@@ -1,8 +1,14 @@
 # Bank accounts
 
-Bank accounts linked to the general ledger. Mutations require the `bank_accounts:write` scope; reads require `bank_accounts:read`. {{ className: 'lead' }}
+Bank accounts linked to the general ledger. Reads require the `bank_accounts:read` scope. {{ className: 'lead' }}
 
 <ResourceVersionBanner />
+
+---
+
+## Read-only resource
+
+Bank accounts are read-only through the public API because each bank account is tied to the ledger account its payments post to, which WeldBooks sets up and checks. `POST`, `PUT`, `PATCH` and `DELETE` on `/v1/bank-accounts` answer `405 METHOD_NOT_ALLOWED`; make changes in WeldBooks.
 
 ---
 
@@ -11,8 +17,7 @@ Bank accounts linked to the general ledger. Mutations require the `bank_accounts
 Every bank account belongs to one **accounting entity** (legal company / set of books). The `entityId` field on each record references an [accounting entity](/accounting-entities) (`ent_*`).
 
 - **On read:** responses include `entityId` — that is how you know which books a record belongs to.
-- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity.
-- **On create:** send `entityId` in the JSON body. The external API does **not** pick a default for you. Read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
+- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity. To find the id, read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
 
 ---
 
@@ -77,59 +82,6 @@ Every bank account belongs to one **accounting entity** (legal company / set of 
 
 ---
 
-## Create a bank account {{ tag: 'POST', label: '/v1/bank-accounts' }}
-
-<Row>
-  <Col>
-
-    Create a bank account.
-    
-    ### Accounting entity
-    
-    Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).
-    
-    ### Required attributes
-    
-    <Properties>
-      <Property name="name" type="string">Account name.</Property>
-    </Properties>
-    
-    Optional: `entityId`, `bankName`, `iban`, `accountNumber`, `currency`, `glAccountId`, `isActive`.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="POST" label="/v1/bank-accounts">
-
-    ```bash {{ title: 'cURL' }}
-    curl https://api.weldsuite.org/v1/bank-accounts \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "entityId": "ent_abc123",
-        "name": "Operating account",
-        "currency": "EUR"
-      }'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "ba_new456",
-        "entityId": "ent_abc123",
-        "createdAt": "2024-12-01T14:00:00Z",
-        "updatedAt": "2024-12-01T14:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
 ## Retrieve a bank account {{ tag: 'GET', label: '/v1/bank-accounts/:id' }}
 
 <Row>
@@ -156,69 +108,6 @@ Every bank account belongs to one **accounting entity** (legal company / set of 
         "entityId": "ent_abc123"
       }
     }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Update a bank account {{ tag: 'PATCH', label: '/v1/bank-accounts/:id' }}
-
-<Row>
-  <Col>
-
-    Partially update a bank account. Only the fields you send are changed. You may update `entityId` to move a record to another accounting entity when your workflow allows it.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="PATCH" label="/v1/bank-accounts/ba_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X PATCH https://api.weldsuite.org/v1/bank-accounts/ba_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{}'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "ba_abc123",
-        "updatedAt": "2024-12-01T15:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Delete a bank account {{ tag: 'DELETE', label: '/v1/bank-accounts/:id' }}
-
-<Row>
-  <Col>
-
-    Soft-delete a bank account. Returns `204 No Content`.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="DELETE" label="/v1/bank-accounts/ba_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X DELETE https://api.weldsuite.org/v1/bank-accounts/ba_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key"
-    ```
-
-    </CodeGroup>
-
-    ```text {{ title: 'Response' }}
-    204 No Content
     ```
 
   </Col>

@@ -24,17 +24,18 @@ const listQuery = z.object({
   role: z.string().optional(),
 });
 
-function mapCreateBody(body: Record<string, unknown>): Record<string, unknown> {
-  const mapped: Record<string, unknown> = { ...body };
-  if (body.name !== undefined) mapped.displayName = body.name;
-  if (body.type !== undefined) mapped.role = body.type;
-  delete mapped.name;
-  delete mapped.type;
-  delete mapped.taxNumber;
-  delete mapped.entityId;
-  delete mapped.isActive;
-  delete mapped.metadata;
-  return mapped;
+/**
+ * The request schema passes unknown keys through, and `parties` also holds
+ * columns that feed the ledger (default revenue and expense accounts, tax
+ * exemption, the outstanding balance) or point at the CRM identity rows. The
+ * public API writes the two fields it documents, a name and a role, and
+ * nothing else; the rest is set in WeldBooks.
+ */
+function toPartyColumns(body: Record<string, unknown>): Record<string, unknown> {
+  const columns: Record<string, unknown> = {};
+  if (body.name !== undefined) columns.displayName = body.name;
+  if (body.type !== undefined) columns.role = body.type;
+  return columns;
 }
 
 function toResponse(row: Record<string, unknown>): Record<string, unknown> {
@@ -88,7 +89,7 @@ app.post('/', requireScope('accounting_contacts:write'), zValidator('json', crea
   const id = generateId('acn');
   const insert = {
     id,
-    ...mapCreateBody(body),
+    ...toPartyColumns(body),
     role: (body.type as string | undefined) ?? 'customer',
     outstandingBalance: '0',
     createdAt: now,
@@ -119,7 +120,7 @@ app.patch('/:id', requireScope('accounting_contacts:write'), zValidator('json', 
   if (!existing) return error.notFound(c, 'Accounting contact', id);
   const [row] = await db
     .update(table)
-    .set({ ...mapCreateBody(body), updatedAt: new Date() })
+    .set({ ...toPartyColumns(body), updatedAt: new Date() })
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .returning();
   if (!row) return error.internal(c, 'Failed to update accounting contact');

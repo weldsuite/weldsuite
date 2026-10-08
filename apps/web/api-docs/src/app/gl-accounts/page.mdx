@@ -1,8 +1,14 @@
 # GL accounts
 
-Chart-of-accounts lines (general ledger). Mutations require the `gl_accounts:write` scope; reads require `gl_accounts:read`. {{ className: 'lead' }}
+Chart-of-accounts lines (general ledger). Reads require the `gl_accounts:read` scope. {{ className: 'lead' }}
 
 <ResourceVersionBanner />
+
+---
+
+## Read-only resource
+
+GL accounts are read-only through the public API because every posting depends on the chart of accounts, so changes to it are made in WeldBooks, where they are checked and written to the audit log. `POST`, `PUT`, `PATCH` and `DELETE` on `/v1/gl-accounts` answer `405 METHOD_NOT_ALLOWED`; make changes in WeldBooks.
 
 ---
 
@@ -11,8 +17,7 @@ Chart-of-accounts lines (general ledger). Mutations require the `gl_accounts:wri
 Every GL account belongs to one **accounting entity** (legal company / set of books). The `entityId` field on each record references an [accounting entity](/accounting-entities) (`ent_*`).
 
 - **On read:** responses include `entityId` — that is how you know which books a record belongs to.
-- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity.
-- **On create:** send `entityId` in the JSON body. The external API does **not** pick a default for you. Read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
+- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity. To find the id, read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
 
 ---
 
@@ -77,61 +82,6 @@ Every GL account belongs to one **accounting entity** (legal company / set of bo
 
 ---
 
-## Create a GL account {{ tag: 'POST', label: '/v1/gl-accounts' }}
-
-<Row>
-  <Col>
-
-    Create a GL account.
-    
-    ### Accounting entity
-    
-    Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).
-    
-    ### Required attributes
-    
-    <Properties>
-      <Property name="code" type="string">Account code.</Property>
-  <Property name="name" type="string">Account name.</Property>
-    </Properties>
-    
-    Optional: `entityId`, `type`, `parentId`, `description`, `isActive`. Defaults: `type=asset`, `normalSide=debit`.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="POST" label="/v1/gl-accounts">
-
-    ```bash {{ title: 'cURL' }}
-    curl https://api.weldsuite.org/v1/gl-accounts \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "entityId": "ent_abc123",
-        "code": "1000",
-        "name": "Cash",
-        "type": "asset"
-      }'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "acc_new456",
-        "entityId": "ent_abc123",
-        "createdAt": "2024-12-01T14:00:00Z",
-        "updatedAt": "2024-12-01T14:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
 ## Retrieve a GL account {{ tag: 'GET', label: '/v1/gl-accounts/:id' }}
 
 <Row>
@@ -158,69 +108,6 @@ Every GL account belongs to one **accounting entity** (legal company / set of bo
         "entityId": "ent_abc123"
       }
     }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Update a GL account {{ tag: 'PATCH', label: '/v1/gl-accounts/:id' }}
-
-<Row>
-  <Col>
-
-    Partially update a GL account. Only the fields you send are changed. You may update `entityId` to move a record to another accounting entity when your workflow allows it.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="PATCH" label="/v1/gl-accounts/acc_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X PATCH https://api.weldsuite.org/v1/gl-accounts/acc_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{}'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "acc_abc123",
-        "updatedAt": "2024-12-01T15:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Delete a GL account {{ tag: 'DELETE', label: '/v1/gl-accounts/:id' }}
-
-<Row>
-  <Col>
-
-    Soft-delete a GL account. Returns `204 No Content`.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="DELETE" label="/v1/gl-accounts/acc_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X DELETE https://api.weldsuite.org/v1/gl-accounts/acc_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key"
-    ```
-
-    </CodeGroup>
-
-    ```text {{ title: 'Response' }}
-    204 No Content
     ```
 
   </Col>

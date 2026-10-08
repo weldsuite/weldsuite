@@ -14,6 +14,16 @@ A history of notable changes to the WeldSuite External API. The API is served un
 
 The current stable version. All endpoints live under `https://api.weldsuite.org/v1`.
 
+### 2026-10-08: WeldBooks is read-only
+
+A deliberate exception to the additive-only rule above: the ledger only changes through WeldBooks.
+
+- **Writes closed**, `POST`, `PUT`, `PATCH` and `DELETE` on [Accounting Entities](/accounting-entities), [GL Accounts](/gl-accounts), [Invoices](/invoices), [Bills](/bills), [Journal Entries](/journal-entries), [Payments](/payments), [Bank Accounts](/bank-accounts), [Bank Transactions](/bank-transactions), [Tax Rates](/tax-rates), [Recurring Invoices](/recurring-invoices), [Reconciliation Rules](/reconciliation-rules), [Fiscal Periods](/fiscal-periods), [FX Rates](/fx-rates), [VAT Returns](/vat-returns), [ICP Declarations](/icp-declarations), [Accounting Documents](/accounting-documents) and [Accounting Settings](/accounting-settings) now return `405 METHOD_NOT_ALLOWED`. List and retrieve are unchanged.
+- **Why**, a write through the API skipped everything WeldBooks does around the books: tax calculation, numbering, posting to the journal, fiscal period checks, entity setup and the audit log.
+- **Scopes**, the `:write` scopes of these resources no longer grant anything. Keep the `:read` scopes.
+- **Accounting Settings**, `GET /v1/accounting-settings` no longer creates the settings row. It returns `404` until WeldBooks has created it.
+- **Accounting Contacts**, still writable, but only `name` and `type` are stored. Any other field is ignored.
+
 ### 2026-10-07: WeldMail
 
 - **New resources**, [Mail Accounts](/mail-accounts) (read-only), [Messages](/mail-messages), [Threads](/mail-threads), [Labels](/mail-labels), [Folders](/mail-folders), [Drafts](/mail-drafts) and [Attachments](/mail-attachments).
@@ -38,7 +48,7 @@ The current stable version. All endpoints live under `https://api.weldsuite.org/
 - **WeldCalendar**, Calendars, Events (with recurrence support)
 - **WeldDrive**, Files (soft delete), Folders (soft delete), Drive (unified feed + storage stats, read-only)
 - **WeldMail**, Mail Accounts (read-only), Messages, Threads, Labels, Folders, Drafts, Attachments
-- **WeldBooks**, Accounting Entities, GL Accounts, Invoices, Bills, Journal Entries, Payments, Bank Accounts, Bank Transactions, Accounting Contacts, Tax Rates, Recurring Invoices, Reconciliation Rules, Fiscal Periods, FX Rates, VAT Returns, Accounting Documents, ICP Declarations, Accounting Settings (singleton)
+- **WeldBooks**, Accounting Entities, GL Accounts, Invoices, Bills, Journal Entries, Payments, Bank Accounts, Bank Transactions, Accounting Contacts, Tax Rates, Recurring Invoices, Reconciliation Rules, Fiscal Periods, FX Rates, VAT Returns, Accounting Documents, ICP Declarations, Accounting Settings (singleton). All read-only except Accounting Contacts
 
 ### Notes
 

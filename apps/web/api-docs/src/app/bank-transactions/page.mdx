@@ -1,8 +1,14 @@
 # Bank transactions
 
-Imported or manual bank statement lines. Mutations require the `bank_transactions:write` scope; reads require `bank_transactions:read`. {{ className: 'lead' }}
+Imported or manual bank statement lines. Reads require the `bank_transactions:read` scope. {{ className: 'lead' }}
 
 <ResourceVersionBanner />
+
+---
+
+## Read-only resource
+
+Bank transactions are read-only through the public API because imported bank lines are categorised, matched to documents and posted in WeldBooks. `POST`, `PUT`, `PATCH` and `DELETE` on `/v1/bank-transactions` answer `405 METHOD_NOT_ALLOWED`; make changes in WeldBooks.
 
 ---
 
@@ -11,8 +17,7 @@ Imported or manual bank statement lines. Mutations require the `bank_transaction
 Every bank transaction belongs to one **accounting entity** (legal company / set of books). The `entityId` field on each record references an [accounting entity](/accounting-entities) (`ent_*`).
 
 - **On read:** responses include `entityId` — that is how you know which books a record belongs to.
-- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity.
-- **On create:** send `entityId` in the JSON body. The external API does **not** pick a default for you. Read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
+- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity. To find the id, read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
 
 ---
 
@@ -78,54 +83,6 @@ Every bank transaction belongs to one **accounting entity** (legal company / set
 
 ---
 
-## Create a bank transaction {{ tag: 'POST', label: '/v1/bank-transactions' }}
-
-<Row>
-  <Col>
-
-    Create a bank transaction.
-    
-    ### Accounting entity
-    
-    Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).
-    
-    Optional: `entityId`, `bankAccountId`, `amount`, `currency`, `transactionDate`, `reference`, `counterpartyName`. Import and reconcile flows are on the app API.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="POST" label="/v1/bank-transactions">
-
-    ```bash {{ title: 'cURL' }}
-    curl https://api.weldsuite.org/v1/bank-transactions \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "entityId": "ent_abc123",
-        "bankAccountId": "ba_abc123",
-        "amount": "-45.00",
-        "currency": "EUR"
-      }'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "bt_new456",
-        "entityId": "ent_abc123",
-        "createdAt": "2024-12-01T14:00:00Z",
-        "updatedAt": "2024-12-01T14:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
 ## Retrieve a bank transaction {{ tag: 'GET', label: '/v1/bank-transactions/:id' }}
 
 <Row>
@@ -152,69 +109,6 @@ Every bank transaction belongs to one **accounting entity** (legal company / set
         "entityId": "ent_abc123"
       }
     }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Update a bank transaction {{ tag: 'PATCH', label: '/v1/bank-transactions/:id' }}
-
-<Row>
-  <Col>
-
-    Partially update a bank transaction. Only the fields you send are changed. You may update `entityId` to move a record to another accounting entity when your workflow allows it.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="PATCH" label="/v1/bank-transactions/bt_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X PATCH https://api.weldsuite.org/v1/bank-transactions/bt_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{}'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "bt_abc123",
-        "updatedAt": "2024-12-01T15:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Delete a bank transaction {{ tag: 'DELETE', label: '/v1/bank-transactions/:id' }}
-
-<Row>
-  <Col>
-
-    Soft-delete a bank transaction. Returns `204 No Content`.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="DELETE" label="/v1/bank-transactions/bt_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X DELETE https://api.weldsuite.org/v1/bank-transactions/bt_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key"
-    ```
-
-    </CodeGroup>
-
-    ```text {{ title: 'Response' }}
-    204 No Content
     ```
 
   </Col>

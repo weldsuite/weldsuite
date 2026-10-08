@@ -1,8 +1,14 @@
 # Bills
 
-Supplier bills (accounts payable). Mutations require the `bills:write` scope; reads require `bills:read`. {{ className: 'lead' }}
+Supplier bills (accounts payable). Reads require the `bills:read` scope. {{ className: 'lead' }}
 
 <ResourceVersionBanner />
+
+---
+
+## Read-only resource
+
+Bills are read-only through the public API because every bill is tax-calculated and posted to the ledger in WeldBooks, and a write that skips those steps would leave the books out of balance. `POST`, `PUT`, `PATCH` and `DELETE` on `/v1/bills` answer `405 METHOD_NOT_ALLOWED`; make changes in WeldBooks.
 
 ---
 
@@ -11,8 +17,7 @@ Supplier bills (accounts payable). Mutations require the `bills:write` scope; re
 Every bill belongs to one **accounting entity** (legal company / set of books). The `entityId` field on each record references an [accounting entity](/accounting-entities) (`ent_*`).
 
 - **On read:** responses include `entityId` — that is how you know which books a record belongs to.
-- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity.
-- **On create:** send `entityId` in the JSON body. The external API does **not** pick a default for you. Read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
+- **On list:** pass `?entityId=ent_abc123` to restrict results to one entity. To find the id, read `defaultEntityId` from [accounting settings](/accounting-settings), or list [accounting entities](/accounting-entities) and use the row with `isDefault: true`.
 
 ---
 
@@ -78,53 +83,6 @@ Every bill belongs to one **accounting entity** (legal company / set of books). 
 
 ---
 
-## Create a bill {{ tag: 'POST', label: '/v1/bills' }}
-
-<Row>
-  <Col>
-
-    Create a bill.
-    
-    ### Accounting entity
-    
-    Include **`entityId`** (an `ent_*` id). The external API does not infer a default — resolve it from [accounting settings](/accounting-settings) (`defaultEntityId`) or [accounting entities](/accounting-entities) (`isDefault`).
-    
-    Common fields: `entityId`, `supplierId`, `supplierName`, `reference`, `issueDate`, `dueDate`, `currency`, `items`. Approval workflows remain on the app API.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="POST" label="/v1/bills">
-
-    ```bash {{ title: 'cURL' }}
-    curl https://api.weldsuite.org/v1/bills \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{
-        "entityId": "ent_abc123",
-        "supplierName": "Office Supplies Co",
-        "currency": "EUR"
-      }'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "bil_new456",
-        "entityId": "ent_abc123",
-        "createdAt": "2024-12-01T14:00:00Z",
-        "updatedAt": "2024-12-01T14:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
 ## Retrieve a bill {{ tag: 'GET', label: '/v1/bills/:id' }}
 
 <Row>
@@ -151,69 +109,6 @@ Every bill belongs to one **accounting entity** (legal company / set of books). 
         "entityId": "ent_abc123"
       }
     }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Update a bill {{ tag: 'PATCH', label: '/v1/bills/:id' }}
-
-<Row>
-  <Col>
-
-    Partially update a bill. Only the fields you send are changed. You may update `entityId` to move a record to another accounting entity when your workflow allows it.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="PATCH" label="/v1/bills/bil_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X PATCH https://api.weldsuite.org/v1/bills/bil_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key" \
-      -H "Content-Type: application/json" \
-      -d '{}'
-    ```
-
-    </CodeGroup>
-
-    ```json {{ title: 'Response' }}
-    {
-      "data": {
-        "id": "bil_abc123",
-        "updatedAt": "2024-12-01T15:00:00Z"
-      }
-    }
-    ```
-
-  </Col>
-</Row>
-
----
-
-## Delete a bill {{ tag: 'DELETE', label: '/v1/bills/:id' }}
-
-<Row>
-  <Col>
-
-    Soft-delete a bill. Returns `204 No Content`.
-
-  </Col>
-  <Col sticky>
-
-    <CodeGroup title="Request" tag="DELETE" label="/v1/bills/bil_abc123">
-
-    ```bash {{ title: 'cURL' }}
-    curl -X DELETE https://api.weldsuite.org/v1/bills/bil_abc123 \
-      -H "Authorization: Bearer wsk_your_api_key"
-    ```
-
-    </CodeGroup>
-
-    ```text {{ title: 'Response' }}
-    204 No Content
     ```
 
   </Col>
