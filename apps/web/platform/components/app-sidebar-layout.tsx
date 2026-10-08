@@ -336,49 +336,51 @@ interface SidebarBrandProps {
 }
 
 function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, state, isDark }: Readonly<SidebarBrandProps>) {
+  if (showBackButton) {
+    return (
+      <>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 -ml-2"
+          onClick={onBack}
+        >
+          <ChevronLeft className="h-6 w-6" />
+        </Button>
+        {state === "expanded" && (
+          <span className="text-lg font-semibold -ml-1">{appName}</span>
+        )}
+      </>
+    );
+  }
+  if (appLogo) {
+    // Icon + app name lockup — a consistent, lightweight treatment
+    // that suits the gray panel far better than the full-colour
+    // branded wordmarks. Collapsed state shows just the icon.
+    return (
+      <>
+        {appLogo.iconLight?.includes('/weldcalendar/') ? (
+          <CalendarLogoIcon className={appLogo.iconClassName || "h-5 w-5 shrink-0"} />
+        ) : (
+          <img
+            src={isDark ? appLogo.iconDark : appLogo.iconLight}
+            alt={appName}
+            width={64}
+            height={64}
+            className={appLogo.iconClassName || "h-5 w-5 shrink-0 object-contain"}
+          />
+        )}
+        {state === "expanded" && (
+          <span className="text-lg font-semibold">{appName}</span>
+        )}
+      </>
+    );
+  }
   return (
     <>
-      {showBackButton ? (
-        <>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 -ml-2"
-            onClick={onBack}
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </Button>
-          {state === "expanded" && (
-            <span className="text-lg font-semibold -ml-1">{appName}</span>
-          )}
-        </>
-      ) : appLogo ? (
-        // Icon + app name lockup — a consistent, lightweight treatment
-        // that suits the gray panel far better than the full-colour
-        // branded wordmarks. Collapsed state shows just the icon.
-        <>
-          {appLogo.iconLight?.includes('/weldcalendar/') ? (
-            <CalendarLogoIcon className={appLogo.iconClassName || "h-5 w-5 shrink-0"} />
-          ) : (
-            <img
-              src={isDark ? appLogo.iconDark : appLogo.iconLight}
-              alt={appName}
-              width={64}
-              height={64}
-              className={appLogo.iconClassName || "h-5 w-5 shrink-0 object-contain"}
-            />
-          )}
-          {state === "expanded" && (
-            <span className="text-lg font-semibold">{appName}</span>
-          )}
-        </>
-      ) : (
-        <>
-          <AppIcon className="h-6 w-6 shrink-0" />
-          {state === "expanded" && (
-            <span className="text-lg font-semibold">{appName}</span>
-          )}
-        </>
+      <AppIcon className="h-6 w-6 shrink-0" />
+      {state === "expanded" && (
+        <span className="text-lg font-semibold">{appName}</span>
       )}
     </>
   );

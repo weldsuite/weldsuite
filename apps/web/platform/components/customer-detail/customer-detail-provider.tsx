@@ -177,9 +177,14 @@ export function CustomerDetailProvider({
   const detailQuery = isContact ? personDetailQuery : companyDetailQuery;
 
   // Derive detail data from queries
-  const queryData = isContact
-    ? (personDetailQuery.data?.data ? personToCustomerDetailData(personDetailQuery.data.data as unknown as PersonDetailRow) : null)
-    : (companyDetailQuery.data?.data as CustomerDetailData | null ?? null);
+  let queryData: CustomerDetailData | null = null;
+  if (isContact) {
+    if (personDetailQuery.data?.data) {
+      queryData = personToCustomerDetailData(personDetailQuery.data.data as unknown as PersonDetailRow);
+    }
+  } else {
+    queryData = companyDetailQuery.data?.data as CustomerDetailData | null ?? null;
+  }
 
   const data = initialData ?? queryData;
 
@@ -232,7 +237,7 @@ export function CustomerDetailProvider({
     returnUrl,
     showHeader,
     showTabs,
-    showSidebar: mode === 'page' ? showSidebar : isExpanded ? true : false,
+    showSidebar: mode === 'page' ? showSidebar : !!isExpanded,
     onCompose,
     onCall,
     onClose,

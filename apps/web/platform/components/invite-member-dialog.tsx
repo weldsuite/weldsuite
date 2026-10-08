@@ -389,18 +389,10 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
   // Check if user can invite (has available seats for paid plan)
   const noSeatsAvailable = isPaidPlan && prepaidSeats && !prepaidSeats.canAddMore;
 
-  // Render invite form step
-  const renderInviteForm = () => (
-    <>
-      <DialogHeader>
-        <DialogTitle>
-          Invite Team Members
-        </DialogTitle>
-      </DialogHeader>
-
-      <MemberLimitNotices memberLimits={memberLimits} prepaidSeats={prepaidSeats} isPaidPlan={isPaidPlan} />
-
-      {memberLimits?.atLimit ? (
+  // Render the invite form body: upgrade / buy-seats prompt or the form itself
+  const renderInviteBody = () => {
+    if (memberLimits?.atLimit) {
+      return (
         <DialogFooter>
           <Button
             type="button"
@@ -413,7 +405,10 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
             Upgrade Plan
           </Button>
         </DialogFooter>
-      ) : noSeatsAvailable ? (
+      );
+    }
+    if (noSeatsAvailable) {
+      return (
         <DialogFooter>
           <Button
             type="button"
@@ -426,59 +421,75 @@ export function InviteMemberDialog({ open, onOpenChange }: Readonly<InviteMember
             Buy More Seats
           </Button>
         </DialogFooter>
-      ) : (
-        <form onSubmit={handleSubmit}>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-3 max-h-[300px] overflow-y-auto">
-              {invites.map((invite) => (
-                <InviteRow
-                  key={invite.id}
-                  invite={invite}
-                  roles={roles}
-                  isLoading={isLoading}
-                  canRemove={invites.length > 1}
-                  onUpdate={updateInvite}
-                  onRemove={removeInvite}
-                />
-              ))}
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-fit text-gray-600"
-              onClick={addInvite}
-              disabled={isLoading}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Add another
-            </Button>
-
+      );
+    }
+    return (
+      <form onSubmit={handleSubmit}>
+        <div className="grid gap-4 py-4">
+          <div className="space-y-3 max-h-[300px] overflow-y-auto">
+            {invites.map((invite) => (
+              <InviteRow
+                key={invite.id}
+                invite={invite}
+                roles={roles}
+                isLoading={isLoading}
+                canRemove={invites.length > 1}
+                onUpdate={updateInvite}
+                onRemove={removeInvite}
+              />
+            ))}
           </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleOpenChange(false)}
-              disabled={isLoading}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                sendInvitesLabel(invites)
-              )}
-            </Button>
-          </DialogFooter>
-        </form>
-      )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit text-gray-600"
+            onClick={addInvite}
+            disabled={isLoading}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add another
+          </Button>
+
+        </div>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleOpenChange(false)}
+            disabled={isLoading}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={isLoading}>
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              sendInvitesLabel(invites)
+            )}
+          </Button>
+        </DialogFooter>
+      </form>
+    );
+  };
+
+  // Render invite form step
+  const renderInviteForm = () => (
+    <>
+      <DialogHeader>
+        <DialogTitle>
+          Invite Team Members
+        </DialogTitle>
+      </DialogHeader>
+
+      <MemberLimitNotices memberLimits={memberLimits} prepaidSeats={prepaidSeats} isPaidPlan={isPaidPlan} />
+
+      {renderInviteBody()}
     </>
   );
 

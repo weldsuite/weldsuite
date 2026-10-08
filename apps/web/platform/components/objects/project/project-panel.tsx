@@ -36,8 +36,9 @@ export function ProjectPanel(props: Readonly<ObjectPanelComponentProps>) {
   const project = (data?.data ?? null) as ProjectRecord | null;
 
   const title = project?.name ?? t('sweep.entities.projectFallbackTitle');
+  const statusSuffix = project?.status ? ' · ' + project.status : '';
   const subtitle = project?.code
-    ? `${project.code}${project.status ? ' · ' + project.status : ''}`
+    ? `${project.code}${statusSuffix}`
     : project?.status ?? undefined;
 
   return (

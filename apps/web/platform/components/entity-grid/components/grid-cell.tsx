@@ -38,6 +38,11 @@ interface GridCellProps<TEntity> {
   isFirstColumn: boolean;
 }
 
+function cellPadding(isFirstColumn?: boolean, compact?: boolean): string {
+  if (isFirstColumn) return compact ? '0 6px 0 8px' : '0 12px 0 20px';
+  return compact ? '0 6px' : '0 12px';
+}
+
 // Cell wrapper component
 const CellWrapper: React.FC<{
   children: React.ReactNode;
@@ -55,9 +60,7 @@ const CellWrapper: React.FC<{
       display: 'flex',
       alignItems: 'center',
       overflow: 'hidden',
-      padding: isFirstColumn
-        ? compact ? '0 6px 0 8px' : '0 12px 0 20px'
-        : compact ? '0 6px' : '0 12px',
+      padding: cellPadding(isFirstColumn, compact),
       cursor: onClick ? 'pointer' : 'default',
       fontSize: compact ? '12px' : undefined,
       boxShadow: isEditing ? '0 0 0 1px color-mix(in srgb, var(--border) 70%, var(--foreground) 30%)' : undefined,

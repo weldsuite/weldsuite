@@ -99,6 +99,12 @@ export function OrdersSection({ orders, totalCount }: Readonly<OrdersSectionProp
   );
 }
 
+function paymentStatusClass(paymentStatus: CustomerOrder['paymentStatus']): string {
+  if (paymentStatus === 'paid') return 'text-green-600';
+  if (paymentStatus === 'refunded') return 'text-red-600';
+  return 'text-muted-foreground';
+}
+
 function OrderCard({ order }: Readonly<{ order: CustomerOrder }>) {
   const t = useTranslations();
   const status = order.status || 'pending';
@@ -144,9 +150,7 @@ function OrderCard({ order }: Readonly<{ order: CustomerOrder }>) {
         {order.paymentStatus && (
           <p className={cn(
             "text-xs",
-            order.paymentStatus === 'paid' ? 'text-green-600' :
-            order.paymentStatus === 'refunded' ? 'text-red-600' :
-            'text-muted-foreground'
+            paymentStatusClass(order.paymentStatus)
           )}>
             {order.paymentStatus}
           </p>

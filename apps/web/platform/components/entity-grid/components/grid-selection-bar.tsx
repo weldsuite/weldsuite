@@ -125,37 +125,42 @@ function BulkDeleteDialog({
 }: Readonly<BulkDeleteDialogProps>) {
   const t = useTranslations();
   const isSingular = selectedCount === 1;
+  let title: string;
+  let description: string;
+  if (listName) {
+    title = t(
+      isSingular
+        ? 'sweep.entities.removeItemsFromListTitleSingular'
+        : 'sweep.entities.removeItemsFromListTitlePlural',
+      { count: selectedCount, listName },
+    );
+    description = t(
+      isSingular
+        ? 'sweep.entities.removeItemsDescriptionSingular'
+        : 'sweep.entities.removeItemsDescriptionPlural',
+    );
+  } else {
+    title = t(
+      isSingular
+        ? 'sweep.entities.deleteItemsTitleSingular'
+        : 'sweep.entities.deleteItemsTitlePlural',
+      { count: selectedCount },
+    );
+    description = t(
+      isSingular
+        ? 'sweep.entities.deleteItemsDescriptionSingular'
+        : 'sweep.entities.deleteItemsDescriptionPlural',
+    );
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {listName
-              ? t(
-                  isSingular
-                    ? 'sweep.entities.removeItemsFromListTitleSingular'
-                    : 'sweep.entities.removeItemsFromListTitlePlural',
-                  { count: selectedCount, listName },
-                )
-              : t(
-                  isSingular
-                    ? 'sweep.entities.deleteItemsTitleSingular'
-                    : 'sweep.entities.deleteItemsTitlePlural',
-                  { count: selectedCount },
-                )}
+            {title}
           </DialogTitle>
           <DialogDescription>
-            {listName
-              ? t(
-                  isSingular
-                    ? 'sweep.entities.removeItemsDescriptionSingular'
-                    : 'sweep.entities.removeItemsDescriptionPlural',
-                )
-              : t(
-                  isSingular
-                    ? 'sweep.entities.deleteItemsDescriptionSingular'
-                    : 'sweep.entities.deleteItemsDescriptionPlural',
-                )}
+            {description}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

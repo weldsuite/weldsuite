@@ -826,12 +826,12 @@ export function WorkloadCard({
         <div className="w-[280px] shrink-0 border-r border-border/70">
           {WORKLOAD.map((w, i) => {
             const initials = (w.name ?? '?').slice(0, 2);
-            const hoursColor =
-              w.hours > w.hoursPerDay
-                ? 'text-red-500'
-                : w.hours > w.hoursPerDay * 0.8
-                ? 'text-green-500'
-                : 'text-muted-foreground';
+            let hoursColor = 'text-muted-foreground';
+            if (w.hours > w.hoursPerDay) {
+              hoursColor = 'text-red-500';
+            } else if (w.hours > w.hoursPerDay * 0.8) {
+              hoursColor = 'text-green-500';
+            }
             return (
               <div
                 key={w.name}
@@ -2055,14 +2055,14 @@ export function WorkflowsCard({
         const TrigIcon = TRIGGER_ICON[w.trigger];
         const rowKey = w.id ?? w.name;
         const clickable = !!onRowClick && !!w.id;
-        const rateColor =
-          w.executions === 0
-            ? 'text-muted-foreground'
-            : w.successRate >= 90
-            ? 'text-green-600 dark:text-green-400'
-            : w.successRate >= 70
-            ? 'text-yellow-600 dark:text-yellow-400'
-            : 'text-red-600 dark:text-red-400';
+        let rateColor = 'text-red-600 dark:text-red-400';
+        if (w.executions === 0) {
+          rateColor = 'text-muted-foreground';
+        } else if (w.successRate >= 90) {
+          rateColor = 'text-green-600 dark:text-green-400';
+        } else if (w.successRate >= 70) {
+          rateColor = 'text-yellow-600 dark:text-yellow-400';
+        }
         return (
           <div
             key={rowKey}
