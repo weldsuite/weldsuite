@@ -51,6 +51,7 @@ test.describe('Onboarding — new-user signup + workspace creation', () => {
   // Skip gracefully when the test-fixtures infrastructure isn't wired (e.g.
   // a local dev machine without .env.test). This keeps CI green during rollout.
   test.beforeAll(() => {
+    // Skipped: Seeds and cleans up through app-api /test-fixtures, so it needs TEST_API_URL, TEST_FIXTURES_TOKEN and TEST_WORKSPACE_ID.
     test.skip(
       !isTestFixturesConfigured(),
       'TEST_API_URL / TEST_FIXTURES_TOKEN / TEST_WORKSPACE_ID not set — skipping onboarding teardown spec',

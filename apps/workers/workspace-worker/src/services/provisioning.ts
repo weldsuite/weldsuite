@@ -30,16 +30,20 @@ export interface ProvisionKickoffResult {
   error?: string;
 }
 
+export interface ProvisionWorkspaceOptions {
+  initialMember?: InitialMember;
+  region?: string;
+  selectedApps?: string[];
+  slug?: string;
+  seedSampleData?: boolean;
+}
+
 export async function provisionWorkspaceDatabase(
   env: Env,
   masterDb: any,
   workspaceId: string,
   workspaceName: string,
-  initialMember?: InitialMember,
-  region?: string,
-  selectedApps?: string[],
-  slug?: string,
-  seedSampleData?: boolean,
+  { initialMember, region, selectedApps, slug, seedSampleData }: ProvisionWorkspaceOptions = {},
 ): Promise<ProvisionKickoffResult> {
   try {
     // 1. Skip only if provisioning actually COMPLETED. A workspace whose Neon

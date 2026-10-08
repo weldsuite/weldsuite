@@ -297,11 +297,13 @@ function drawLineItems(
   pdf: PDFDocument,
   ctx: DrawContext,
   invoice: InvoiceDetail,
-  currency: string,
-  locale: string,
-  tableX: number,
-  tableWidth: number,
-  startY: number,
+  {
+    currency,
+    locale,
+    tableX,
+    tableWidth,
+    startY,
+  }: { currency: string; locale: string; tableX: number; tableWidth: number; startY: number },
 ): number {
   let y = startY;
   const totalsReservedHeight = 120; // approx space for totals + footer
@@ -469,7 +471,7 @@ export async function generateInvoicePdf(
   y -= TABLE_HEADER_HEIGHT;
 
   // --- Line items rows ---
-  y = drawLineItems(pdf, ctx, invoice, currency, locale, tableX, tableWidth, y);
+  y = drawLineItems(pdf, ctx, invoice, { currency, locale, tableX, tableWidth, startY: y });
 
   // --- Totals (right-aligned) ---
   drawTotals(ctx, invoice, currency, locale, y);
@@ -491,6 +493,6 @@ export function downloadPdf(bytes: Uint8Array, filename: string) {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  a.remove();
   URL.revokeObjectURL(url);
 }

@@ -53,6 +53,27 @@ function setLatch(next: string | null): void {
   listeners.forEach((l) => l());
 }
 
+async function hydrateLatch(): Promise<void> {
+  try {
+    const v = await AsyncStorage.getItem(LATCH_KEY);
+    if (!v || latch) return;
+    if (knownSignedOut) {
+      // Cold start after the session ended while the app was closed: the
+      // sign-out effect below already ran (with no latch to clear), so
+      // wipe the previous user's scope here. Latching it would show their
+      // cached mail to the next user who signs in.
+      AsyncStorage.removeItem(LATCH_KEY).catch(() => {});
+      void clearOrgCache(v);
+      void clearOutbox(v);
+      return;
+    }
+    setLatch(v);
+  } catch {
+    // An unreadable latch only costs the cold-start scope; the live org id
+    // latches as soon as Clerk resolves it.
+  }
+}
+
 export function useCacheOrgId(): string | null {
   const { organizationId, isSignedIn } = useClerkAuth();
   const latched = useSyncExternalStore(subscribe, getSnapshot);
@@ -62,22 +83,7 @@ export function useCacheOrgId(): string | null {
   useEffect(() => {
     if (hydrateStarted) return;
     hydrateStarted = true;
-    AsyncStorage.getItem(LATCH_KEY)
-      .then((v) => {
-        if (!v || latch) return;
-        if (knownSignedOut) {
-          // Cold start after the session ended while the app was closed: the
-          // sign-out effect below already ran (with no latch to clear), so
-          // wipe the previous user's scope here. Latching it would show their
-          // cached mail to the next user who signs in.
-          AsyncStorage.removeItem(LATCH_KEY).catch(() => {});
-          void clearOrgCache(v);
-          void clearOutbox(v);
-          return;
-        }
-        setLatch(v);
-      })
-      .catch(() => {});
+    void hydrateLatch();
   }, []);
 
   // Latch the live org id the instant it resolves and persist it. A genuine

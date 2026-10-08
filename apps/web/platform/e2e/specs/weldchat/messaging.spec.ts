@@ -35,6 +35,7 @@ test.describe('WeldChat · live messaging (seed-gated)', () => {
   let channelId: string | null = null;
 
   test.beforeAll(() => {
+    // Skipped: Seeds and cleans up through app-api /test-fixtures, so it needs TEST_API_URL, TEST_FIXTURES_TOKEN and TEST_WORKSPACE_ID.
     test.skip(
       !isTestFixturesConfigured(),
       'test-fixtures env vars not set — skipping live WeldChat messaging tests',
@@ -115,6 +116,7 @@ test.describe('WeldChat · live messaging (seed-gated)', () => {
   });
 
   test('the member panel lists seeded channel members', async ({ page, api }) => {
+    // Skipped: A resolvable channel member is seeded from the test user's id (TEST_USER_ID).
     test.skip(!TEST_USER_ID, 'TEST_USER_ID not set — cannot seed a resolvable member');
     const channel = await api.seedChatChannel({ name: `E2E Members ${Date.now().toString(36)}` });
     channelId = channel.id;

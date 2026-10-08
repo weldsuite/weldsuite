@@ -233,7 +233,11 @@ browserRoutes.post('/act', async (c) => {
       });
     }
 
-    await browser.disconnect().catch(() => browser.close().catch(() => undefined));
+    try {
+      await browser.disconnect();
+    } catch {
+      await browser.close().catch(() => undefined);
+    }
 
     return c.json({
       ok: true,

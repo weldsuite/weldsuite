@@ -8,6 +8,78 @@ interface WidgetInstallationPanelProps {
   widgetId: string;
 }
 
+function CodeBlock({
+  code,
+  copyKey,
+  copiedKey,
+  copyTitle,
+  onCopy,
+}: Readonly<{
+  code: string;
+  copyKey: string;
+  copiedKey: string | null;
+  copyTitle: string;
+  onCopy: (text: string, key: string) => void;
+}>) {
+  return (
+    <div className="relative group">
+      <pre className="bg-gray-50 dark:bg-background/50 border border-gray-200 dark:border-border rounded-lg p-3 overflow-x-auto text-xs font-mono">
+        <code className="text-gray-900 dark:text-foreground">{code}</code>
+      </pre>
+      <Button
+        variant="ghost"
+        onClick={() => onCopy(code, copyKey)}
+        className="absolute top-2 right-2 p-1.5 rounded-md bg-white dark:bg-secondary border border-gray-200 dark:border-border hover:bg-gray-50 dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
+        title={copyTitle}
+      >
+        {copiedKey === copyKey ? (
+          <Check className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+        ) : (
+          <Copy className="w-3.5 h-3.5 text-gray-600 dark:text-muted-foreground" />
+        )}
+      </Button>
+    </div>
+  );
+}
+
+function FrameworkSection({
+  id,
+  title,
+  expandedId,
+  onToggle,
+  children
+}: Readonly<{
+  id: string;
+  title: string;
+  expandedId: string | null;
+  onToggle: (id: string) => void;
+  children: React.ReactNode
+}>) {
+  const isExpanded = expandedId === id;
+
+  return (
+    <div className="border-b border-gray-200 dark:border-border last:border-0">
+      <Button
+        variant="ghost"
+        onClick={() => onToggle(id)}
+        className="w-full flex items-center justify-between px-3 py-3 hover:bg-gray-50 dark:hover:bg-background/30 transition-colors"
+      >
+        <span className="text-xs font-medium text-gray-900 dark:text-foreground">{title}</span>
+        {isExpanded ? (
+          <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-muted-foreground" />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-muted-foreground" />
+        )}
+      </Button>
+      {isExpanded && (
+        <div className="px-3 pb-3 space-y-2">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WidgetInstallationPanel({ widgetId }: Readonly<WidgetInstallationPanelProps>) {
   const t = useTranslations();
   const [copied, setCopied] = useState<string | null>(null);
@@ -27,58 +99,10 @@ export function WidgetInstallationPanel({ widgetId }: Readonly<WidgetInstallatio
     setExpandedFramework(expandedFramework === framework ? null : framework);
   };
 
-  const CodeBlock = ({ code, copyKey }: Readonly<{ code: string; copyKey: string }>) => (
-    <div className="relative group">
-      <pre className="bg-gray-50 dark:bg-background/50 border border-gray-200 dark:border-border rounded-lg p-3 overflow-x-auto text-xs font-mono">
-        <code className="text-gray-900 dark:text-foreground">{code}</code>
-      </pre>
-      <Button
-        variant="ghost"
-        onClick={() => copyToClipboard(code, copyKey)}
-        className="absolute top-2 right-2 p-1.5 rounded-md bg-white dark:bg-secondary border border-gray-200 dark:border-border hover:bg-gray-50 dark:hover:bg-accent transition-colors opacity-0 group-hover:opacity-100"
-        title={t('sweep.welddesk.widgetInstallation.copyCodeTitle')}
-      >
-        {copied === copyKey ? (
-          <Check className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
-        ) : (
-          <Copy className="w-3.5 h-3.5 text-gray-600 dark:text-muted-foreground" />
-        )}
-      </Button>
-    </div>
-  );
-
-  const FrameworkSection = ({
-    id,
-    title,
-    children
-  }: Readonly<{
-    id: string;
-    title: string;
-    children: React.ReactNode
-  }>) => {
-    const isExpanded = expandedFramework === id;
-
-    return (
-      <div className="border-b border-gray-200 dark:border-border last:border-0">
-        <Button
-          variant="ghost"
-          onClick={() => toggleFramework(id)}
-          className="w-full flex items-center justify-between px-3 py-3 hover:bg-gray-50 dark:hover:bg-background/30 transition-colors"
-        >
-          <span className="text-xs font-medium text-gray-900 dark:text-foreground">{title}</span>
-          {isExpanded ? (
-            <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-muted-foreground" />
-          ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-muted-foreground" />
-          )}
-        </Button>
-        {isExpanded && (
-          <div className="px-3 pb-3 space-y-2">
-            {children}
-          </div>
-        )}
-      </div>
-    );
+  const codeBlockProps = {
+    copiedKey: copied,
+    copyTitle: t('sweep.welddesk.widgetInstallation.copyCodeTitle'),
+    onCopy: copyToClipboard,
   };
 
   return (
@@ -118,10 +142,11 @@ export function WidgetInstallationPanel({ widgetId }: Readonly<WidgetInstallatio
       {/* Framework Instructions */}
       <div className="border border-gray-200 dark:border-border rounded-lg overflow-hidden">
         {/* Vanilla JavaScript */}
-        <FrameworkSection id="vanilla" title="Vanilla JavaScript / HTML">
+        <FrameworkSection id="vanilla" title="Vanilla JavaScript / HTML" expandedId={expandedFramework} onToggle={toggleFramework}>
           <div className="space-y-2">
             <p className="text-xs text-gray-600 dark:text-muted-foreground">{t('sweep.welddesk.widgetInstallation.addToHtmlFile')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="vanilla"
               code={`<!-- Load from CDN -->
 <script src="https://unpkg.com/@weldsuite/helpdesk-widget-sdk@latest/dist/index.umd.js"></script>
@@ -136,15 +161,17 @@ export function WidgetInstallationPanel({ widgetId }: Readonly<WidgetInstallatio
         </FrameworkSection>
 
         {/* React */}
-        <FrameworkSection id="react" title="React / Next.js">
+        <FrameworkSection id="react" title="React / Next.js" expandedId={expandedFramework} onToggle={toggleFramework}>
           <div className="space-y-2">
             <p className="text-xs text-gray-600 dark:text-muted-foreground">{t('sweep.welddesk.widgetInstallation.installPackage')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="react-install"
               code={`npm install @weldsuite/helpdesk-widget-sdk`}
             />
             <p className="text-xs text-gray-600 dark:text-muted-foreground mt-3">{t('sweep.welddesk.widgetInstallation.useComponent')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="react-component"
               code={`import { HelpdeskWidgetReact } from '@weldsuite/helpdesk-widget-sdk/react';
 
@@ -161,15 +188,17 @@ function App() {
         </FrameworkSection>
 
         {/* Vue */}
-        <FrameworkSection id="vue" title="Vue 3">
+        <FrameworkSection id="vue" title="Vue 3" expandedId={expandedFramework} onToggle={toggleFramework}>
           <div className="space-y-2">
             <p className="text-xs text-gray-600 dark:text-muted-foreground">{t('sweep.welddesk.widgetInstallation.installPackage')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="vue-install"
               code={`npm install @weldsuite/helpdesk-widget-sdk`}
             />
             <p className="text-xs text-gray-600 dark:text-muted-foreground mt-3">{t('sweep.welddesk.widgetInstallation.useComponent')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="vue-component"
               code={`<script setup>
 import { HelpdeskWidget } from '@weldsuite/helpdesk-widget-sdk/vue';
@@ -186,15 +215,17 @@ import { HelpdeskWidget } from '@weldsuite/helpdesk-widget-sdk/vue';
         </FrameworkSection>
 
         {/* Angular */}
-        <FrameworkSection id="angular" title="Angular">
+        <FrameworkSection id="angular" title="Angular" expandedId={expandedFramework} onToggle={toggleFramework}>
           <div className="space-y-2">
             <p className="text-xs text-gray-600 dark:text-muted-foreground">{t('sweep.welddesk.widgetInstallation.installPackage')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="angular-install"
               code={`npm install @weldsuite/helpdesk-widget-sdk`}
             />
             <p className="text-xs text-gray-600 dark:text-muted-foreground mt-3">{t('sweep.welddesk.widgetInstallation.useComponent')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="angular-component"
               code={`import { HelpdeskWidgetComponent } from '@weldsuite/helpdesk-widget-sdk/angular';
 
@@ -213,15 +244,17 @@ export class AppComponent {}`}
         </FrameworkSection>
 
         {/* Svelte */}
-        <FrameworkSection id="svelte" title="Svelte">
+        <FrameworkSection id="svelte" title="Svelte" expandedId={expandedFramework} onToggle={toggleFramework}>
           <div className="space-y-2">
             <p className="text-xs text-gray-600 dark:text-muted-foreground">{t('sweep.welddesk.widgetInstallation.installPackage')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="svelte-install"
               code={`npm install @weldsuite/helpdesk-widget-sdk`}
             />
             <p className="text-xs text-gray-600 dark:text-muted-foreground mt-3">{t('sweep.welddesk.widgetInstallation.useComponent')}</p>
             <CodeBlock
+              {...codeBlockProps}
               copyKey="svelte-component"
               code={`<script>
   import { HelpdeskWidget } from '@weldsuite/helpdesk-widget-sdk/svelte';

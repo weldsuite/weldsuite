@@ -83,21 +83,18 @@ function reverseTransform(
   transformType: string,
   config?: Record<string, unknown>,
 ): unknown {
-  switch (transformType) {
-    case 'lookup': {
-      if (!config?.lookupTable || typeof config.lookupTable !== 'object') return value;
-      const table = config.lookupTable as Record<string, unknown>;
-      const reversed: Record<string, string> = {};
-      for (const [k, v] of Object.entries(table)) {
-        reversed[String(v)] = k;
-      }
-      const strValue = String(value);
-      return strValue in reversed ? reversed[strValue] : value;
+  if (transformType === 'lookup') {
+    if (!config?.lookupTable || typeof config.lookupTable !== 'object') return value;
+    const table = config.lookupTable as Record<string, unknown>;
+    const reversed: Record<string, string> = {};
+    for (const [k, v] of Object.entries(table)) {
+      reversed[String(v)] = k;
     }
-
-    default:
-      return applyTransform(value, transformType, config);
+    const strValue = String(value);
+    return strValue in reversed ? reversed[strValue] : value;
   }
+
+  return applyTransform(value, transformType, config);
 }
 
 export class FieldMapper {

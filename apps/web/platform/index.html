@@ -26,7 +26,10 @@
 
           // Apply font size immediately
           document.documentElement.style.fontSize = fontSize + 'px';
-        } catch(e) {}
+        } catch(e) {
+          // Storage or matchMedia unavailable (private mode, blocked cookies):
+          // keep the default theme and font size; the app applies settings on mount.
+        }
       })();
     </script>
   </head>

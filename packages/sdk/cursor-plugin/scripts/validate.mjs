@@ -124,7 +124,9 @@ async function main() {
   console.log('WeldSuite Cursor plugin OK:', path.relative(repoRoot, pluginRoot));
 }
 
-main().catch((err) => {
+try {
+  await main();
+} catch (err) {
   console.error(err);
   process.exit(1);
-});
+}

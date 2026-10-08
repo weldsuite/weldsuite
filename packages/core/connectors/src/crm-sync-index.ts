@@ -56,7 +56,7 @@ export async function upsertCrmSyncIndex(
   const now = input.now ?? Date.now();
   const intervalMinutes = input.intervalMinutes ?? DEFAULT_CRM_INTERVAL_MINUTES;
   const nextDue = input.dueNow ? now : now + intervalMinutes * 60_000;
-  const renewWatchAt = input.renewWatchAt === undefined ? null : input.renewWatchAt;
+  const renewWatchAt = input.renewWatchAt ?? null;
 
   await d1
     .prepare(

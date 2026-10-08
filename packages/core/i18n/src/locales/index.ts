@@ -72,7 +72,7 @@ export function isLocaleLoaded(locale: Language): boolean {
  */
 export function loadLocale(locale: Language): Promise<Translations> {
   if (loadedTranslations[locale]) return Promise.resolve(loadedTranslations[locale] as Translations);
-  if (inflightLoads[locale]) return inflightLoads[locale] as Promise<Translations>;
+  if (inflightLoads[locale] !== undefined) return inflightLoads[locale] as Promise<Translations>;
 
   const loader = localeLoaders[locale];
   const promise = loader().then((bundle) => {

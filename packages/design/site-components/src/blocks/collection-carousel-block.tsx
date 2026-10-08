@@ -108,6 +108,70 @@ const DEFAULT_SLOTS: CollectionSlot[] = [
   { id: 'slot-4' },
 ];
 
+function getCollectionLink(collection: Collection): string {
+  return collection.link || `/collections/${collection.id}`;
+}
+
+interface CollectionCardDisplay {
+  mode: NonNullable<CollectionCarouselBlockProps['mode']>;
+  imageRounding: number;
+  textColor: string;
+  showDescription: boolean;
+  showProductCount: boolean;
+}
+
+// Collection card component to avoid duplication
+function CollectionCard({
+  collection,
+  mode,
+  imageRounding,
+  textColor,
+  showDescription,
+  showProductCount,
+}: Readonly<{ collection: Collection } & CollectionCardDisplay>) {
+  return (
+    <a
+      href={getCollectionLink(collection)}
+      className="block group"
+      onClick={(e) => mode !== 'live' && e.preventDefault()}
+    >
+      {/* Image */}
+      <div
+        className="relative overflow-hidden bg-gray-100 aspect-[3/4] mb-3"
+        style={{ borderRadius: imageRounding }}
+      >
+        <img
+          src={collection.image}
+          alt={collection.name}
+          className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
+        />
+        {/* Overlay on hover */}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
+      </div>
+
+      {/* Content */}
+      <div className="px-1">
+        <h3
+          className="text-sm font-medium mb-0.5 group-hover:underline"
+          style={{ color: textColor }}
+        >
+          {collection.name}
+        </h3>
+        {showDescription && collection.description && (
+          <p className="text-xs text-gray-500 mb-1 line-clamp-1">
+            {collection.description}
+          </p>
+        )}
+        {showProductCount && collection.productCount !== undefined && (
+          <p className="text-xs text-gray-500">
+            {collection.productCount} {collection.productCount === 1 ? 'product' : 'products'}
+          </p>
+        )}
+      </div>
+    </a>
+  );
+}
+
 export function CollectionCarouselBlock({
   title = 'Most Popular',
   subtitle = '',
@@ -192,54 +256,12 @@ export function CollectionCarouselBlock({
     return DEFAULT_COLLECTIONS[index % DEFAULT_COLLECTIONS.length]!;
   };
 
-  const getCollectionLink = (collection: Collection): string => {
-    return collection.link || `/collections/${collection.id}`;
-  };
-
-  // Collection card component to avoid duplication
-  const CollectionCard = ({ slot, index }: { slot: CollectionSlot; index: number }) => {
-    const collection = getCollectionForSlot(slot, index);
-    return (
-      <a
-        href={getCollectionLink(collection)}
-        className="block group"
-        onClick={(e) => mode !== 'live' && e.preventDefault()}
-      >
-        {/* Image */}
-        <div
-          className="relative overflow-hidden bg-gray-100 aspect-[3/4] mb-3"
-          style={{ borderRadius: imageRounding }}
-        >
-          <img
-            src={collection.image}
-            alt={collection.name}
-            className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
-          />
-          {/* Overlay on hover */}
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
-        </div>
-
-        {/* Content */}
-        <div className="px-1">
-          <h3
-            className="text-sm font-medium mb-0.5 group-hover:underline"
-            style={{ color: textColor }}
-          >
-            {collection.name}
-          </h3>
-          {showDescription && collection.description && (
-            <p className="text-xs text-gray-500 mb-1 line-clamp-1">
-              {collection.description}
-            </p>
-          )}
-          {showProductCount && collection.productCount !== undefined && (
-            <p className="text-xs text-gray-500">
-              {collection.productCount} {collection.productCount === 1 ? 'product' : 'products'}
-            </p>
-          )}
-        </div>
-      </a>
-    );
+  const cardDisplay: CollectionCardDisplay = {
+    mode,
+    imageRounding,
+    textColor,
+    showDescription,
+    showProductCount,
   };
 
   return (
@@ -312,7 +334,7 @@ export function CollectionCarouselBlock({
                 className="flex-shrink-0"
                 style={{ width: getItemWidth() }}
               >
-                <CollectionCard slot={slot} index={index} />
+                <CollectionCard collection={getCollectionForSlot(slot, index)} {...cardDisplay} />
               </div>
             ))}
           </div>
@@ -323,7 +345,7 @@ export function CollectionCarouselBlock({
             style={{ columnGap: cardSpacing, rowGap: cardSpacing * 2 }}
           >
             {collectionSlots.map((slot, index) => (
-              <CollectionCard key={slot.id} slot={slot} index={index} />
+              <CollectionCard key={slot.id} collection={getCollectionForSlot(slot, index)} {...cardDisplay} />
             ))}
           </div>
         )}

@@ -106,7 +106,7 @@ function projectHostControls(row: Record<string, unknown>): Record<string, unkno
   const out: Record<string, unknown> = {};
   for (const key of HOST_CONTROL_KEYS) {
     const v = row[key];
-    out[key] = v === null || v === undefined ? (DEFAULT_HOST_CONTROLS as unknown as Record<string, unknown>)[key] : v;
+    out[key] = v ?? (DEFAULT_HOST_CONTROLS as unknown as Record<string, unknown>)[key];
   }
   return out;
 }

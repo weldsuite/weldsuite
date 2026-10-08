@@ -19,6 +19,7 @@ test.describe('WeldCRM · Sequences create dialog', () => {
   let seededSequenceId: string | null = null;
 
   test.beforeAll(() => {
+    // Skipped: Seeds and cleans up through app-api /test-fixtures, so it needs TEST_API_URL, TEST_FIXTURES_TOKEN and TEST_WORKSPACE_ID.
     test.skip(!isTestFixturesConfigured(), 'test-fixtures env vars not set');
   });
 

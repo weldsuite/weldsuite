@@ -72,7 +72,7 @@ export function parseRetryAfter(header: string | null, now: number = Date.now())
   if (trimmed === '') return undefined;
 
   const asNumber = Number(trimmed);
-  if (Number.isFinite(asNumber)) return asNumber < 0 ? 0 : asNumber;
+  if (Number.isFinite(asNumber)) return Math.max(0, asNumber);
 
   const asDate = Date.parse(trimmed);
   if (Number.isNaN(asDate)) return undefined;

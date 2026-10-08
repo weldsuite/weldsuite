@@ -1703,7 +1703,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           toast.error(t.mail.messageDetail.failedToMoveToTrash);
         },
       });
-      return;
     } else {
       // Gmail-style: Add "trash" label, remove "inbox" label
       try {

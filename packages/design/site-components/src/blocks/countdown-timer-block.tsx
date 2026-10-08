@@ -27,7 +27,7 @@ export function CountdownTimerBlock({
   useEffect(() => {
     const calculateTimeLeft = () => {
       const end = new Date(endDate);
-      const difference = end.getTime() - new Date().getTime();
+      const difference = end.getTime() - Date.now();
 
       if (difference > 0) {
         const days = Math.floor(difference / (1000 * 60 * 60 * 24));

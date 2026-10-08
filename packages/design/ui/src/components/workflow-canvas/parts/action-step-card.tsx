@@ -27,8 +27,6 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
-} from '../../collapsible';
-import {
   Dialog,
   DialogContent,
   DialogDescription,

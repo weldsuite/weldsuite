@@ -1237,7 +1237,6 @@ export function SpreadsheetGrid({
         onSelectionEndChange(coord);
       }
       onContextMenu(e, 'cell', coord);
-      return;
     }
   }, [onContextMenu, onSelectedCellChange, onSelectionEndChange]);
 

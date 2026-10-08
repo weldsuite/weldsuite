@@ -53,8 +53,10 @@ async function main(): Promise<void> {
   console.log(`\nAll good on "${ai.gateway}".`);
 }
 
-main().catch((err: unknown) => {
+try {
+  await main();
+} catch (err: unknown) {
   console.error('\n✗ Smoke test FAILED');
   console.error(err instanceof Error ? `${err.name}: ${err.message}` : err);
   process.exit(1);
-});
+}

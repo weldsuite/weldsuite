@@ -169,7 +169,7 @@ export async function updateDomain(
   if (!existing) throw new MailDomainError('NOT_FOUND', 'Domain not found');
 
   const nextEnabled =
-    data.catchAllEnabled !== undefined ? data.catchAllEnabled : existing.catchAllEnabled;
+    data.catchAllEnabled ?? existing.catchAllEnabled;
   const nextAccountId =
     data.catchAllAccountId !== undefined ? data.catchAllAccountId : existing.catchAllAccountId;
 

@@ -59,7 +59,6 @@ export default function ClerkTasksPage() {
     if (memberships.length === 0) {
       redirectingRef.current = true;
       window.location.href = '/onboarding';
-      return;
     }
   }, [authLoaded, orgsLoaded, orgLoaded, isSignedIn, organization, userMemberships, setActive]);
 

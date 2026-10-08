@@ -102,7 +102,7 @@ function LeaveBalancesCard({ overview }: Readonly<{ overview: Overview }>) {
           {overview.leaveBalances.map((b) => (
             <li key={b.leaveTypeId} className="flex justify-between text-sm">
               <span className="text-gray-700">{b.name}</span>
-              <span className="text-gray-500">{b.remaining === null ? dict.leave.unlimited : b.remaining}</span>
+              <span className="text-gray-500">{b.remaining ?? dict.leave.unlimited}</span>
             </li>
           ))}
         </ul>

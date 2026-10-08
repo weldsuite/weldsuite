@@ -289,7 +289,7 @@ async function handleOrganizationCreated(
       // Pass org.slug so the WeldMail domain ({slug}.weldmail.com) gets provisioned
       // too — matching the onboard path. selectedApps is unknown on webhook-only org
       // creations (an edge case now that both UI paths go through /api/onboard).
-      await provisionWorkspaceDatabase(env, masterDb, workspaceId, org.name, initialMember, region, undefined, org.slug);
+      await provisionWorkspaceDatabase(env, masterDb, workspaceId, org.name, { initialMember, region, slug: org.slug });
     } else if (createdViaOnboard) {
       console.log(`[Clerk Webhook] Skipping provisioning — org created via onboard endpoint`);
     }
