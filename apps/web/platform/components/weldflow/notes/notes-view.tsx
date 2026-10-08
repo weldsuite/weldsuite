@@ -30,6 +30,7 @@ import {
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface LinkedCompany {
   id: string;
@@ -421,8 +422,11 @@ function NoteCard({ note, onToggleFavorite, onClick }: Readonly<{
 
   return (
     <div 
+      role="button"
+      tabIndex={0}
       className="group relative bg-white dark:bg-background rounded-lg border border-gray-200 dark:border-border hover:shadow-md transition-shadow cursor-pointer"
       onClick={onClick}
+      onKeyDown={activateOnKey(() => onClick())}
     >
       {/* Star when favorited - Always visible in top-right corner */}
       {note.isFavorite && (

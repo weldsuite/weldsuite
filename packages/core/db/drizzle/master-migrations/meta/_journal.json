@@ -348,8 +348,15 @@
     {
       "idx": 49,
       "version": "7",
-      "when": 1791449040129,
-      "tag": "0049_bank_feed_connection_index",
+      "when": 1791463365009,
+      "tag": "0049_app_catalog_is_beta",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791472235445,
+      "tag": "0050_bank_feed_connection_index",
       "breakpoints": true
     }
   ]

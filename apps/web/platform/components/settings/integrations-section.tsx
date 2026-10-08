@@ -329,9 +329,10 @@ export function IntegrationsSection() {
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {integrationsByCategory[category].map((integration) => (
-                    <div
+                    <button
+                      type="button"
                       key={integration.id}
-                      className="bg-card border border-border rounded-xl p-4 cursor-pointer transition-all relative hover:bg-accent/50 hover:border-border/80"
+                      className="block w-full text-left bg-card border border-border rounded-xl p-4 cursor-pointer transition-all relative hover:bg-accent/50 hover:border-border/80"
                       onMouseEnter={() => setHoveredIntegration(integration.id)}
                       onMouseLeave={() => setHoveredIntegration(null)}
                       onClick={() => router.push(integration.href || `/settings/integrations/${integration.id}`)}
@@ -344,27 +345,27 @@ export function IntegrationsSection() {
                       {hoveredIntegration === integration.id && (
                         <ChevronRight className="absolute top-5 right-4 z-10 h-4 w-4 text-muted-foreground" />
                       )}
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-[0.625rem] bg-white dark:bg-background border border-gray-200 dark:border-border flex items-center justify-center shrink-0">
+                      <span className="flex flex-col gap-3">
+                        <span className="flex items-start gap-3">
+                          <span className="w-10 h-10 rounded-[0.625rem] bg-white dark:bg-background border border-gray-200 dark:border-border flex items-center justify-center shrink-0">
                             {integration.icon}
-                          </div>
-                          <div className="relative top-px">
-                            <div className="flex items-center gap-1.5 mb-px">
-                              <h3 className="text-[0.9375rem] font-semibold text-foreground m-0">
+                          </span>
+                          <span className="block relative top-px">
+                            <span className="flex items-center gap-1.5 mb-px">
+                              <span className="block text-[0.9375rem] font-semibold text-foreground m-0">
                                 {integration.name}
-                              </h3>
-                            </div>
-                            <p className="text-xs text-muted-foreground m-0">
+                              </span>
+                            </span>
+                            <span className="block text-xs text-muted-foreground m-0">
                               {integration.category}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="text-sm text-muted-foreground m-0 leading-[1.4] line-clamp-2">
+                            </span>
+                          </span>
+                        </span>
+                        <span className="block text-sm text-muted-foreground m-0 leading-[1.4] line-clamp-2">
                           {integration.description}
-                        </p>
-                      </div>
-                    </div>
+                        </span>
+                      </span>
+                    </button>
                   ))}
                 </div>
               </div>

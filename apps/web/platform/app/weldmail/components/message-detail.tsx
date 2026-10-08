@@ -95,6 +95,8 @@ import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { copyText } from '@/lib/clipboard';
+import { activateOnKey } from '@/lib/activate-on-key';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 type EmailMessage = MailTypes.Email;
 
@@ -475,11 +477,11 @@ function formatAttachmentSize(size: number): string {
 
 function readActiveFormats(): Record<string, boolean> {
   return {
-    bold: document.queryCommandState('bold'),
-    italic: document.queryCommandState('italic'),
-    underline: document.queryCommandState('underline'),
-    insertUnorderedList: document.queryCommandState('insertUnorderedList'),
-    insertOrderedList: document.queryCommandState('insertOrderedList'),
+    bold: isEditorCommandActive('bold'),
+    italic: isEditorCommandActive('italic'),
+    underline: isEditorCommandActive('underline'),
+    insertUnorderedList: isEditorCommandActive('insertUnorderedList'),
+    insertOrderedList: isEditorCommandActive('insertOrderedList'),
   };
 }
 
@@ -699,13 +701,7 @@ function DraftReplyCard({ draft, className, deleteButtonClassName, onOpen, onDel
       tabIndex={0}
       className={className}
       onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
+      onKeyDown={activateOnKey(() => onOpen())}
     >
       <div className="px-3 md:px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -950,12 +946,7 @@ function ThreadMessageCard({
         role="button"
         tabIndex={0}
         onClick={onToggle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
+        onKeyDown={activateOnKey(() => onToggle())}
         className="w-full px-3 md:px-4 py-4 flex items-center justify-between hover:bg-muted/50 transition-colors rounded-lg cursor-pointer"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1992,7 +1983,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
     const execCommand = (command: string, value?: string) => {
       editorRef.current?.focus();
-      document.execCommand(command, false, value);
+      runEditorCommand(command, value);
       setActiveFormats(readActiveFormats());
     };
 

@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData, SectionSettings } from '../types';
 import { Card, CardContent } from "@weldsuite/ui/components/card";
 import { Star } from "lucide-react";
 
@@ -12,8 +11,6 @@ interface TestimonialsSectionProps {
     content: string;
     rating?: number;
   }>;
-  store?: StoreData;
-  settings?: SectionSettings;
 }
 
 const defaultTestimonials = [

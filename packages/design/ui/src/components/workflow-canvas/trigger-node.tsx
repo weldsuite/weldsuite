@@ -72,6 +72,7 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
   };
     if (!trigger) return clickToConfigure;
     if (nodeData.label === 'Select Trigger') return clickToConfigure;
+    if (trigger.summary) return trigger.summary;
 
     switch (trigger.type) {
       case 'entity_event':
@@ -184,7 +185,7 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
       )}
 
       {/* Mobile-only add step button */}
-      <div className="lg:hidden flex flex-col items-center -mt-[14px]">
+      <div className="lg:hidden relative z-10 flex flex-col items-center -mt-[14px]">
         <button
           type="button"
           aria-label={addStepLabel}

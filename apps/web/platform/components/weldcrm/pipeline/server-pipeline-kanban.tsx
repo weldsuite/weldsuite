@@ -12,10 +12,9 @@ import { toast } from 'sonner';
 
 interface ServerPipelineKanbanProps {
   pipelineId?: string;
-  pipelineName?: string;
 }
 
-export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelineKanbanProps = {}) {
+export function ServerPipelineKanban({ pipelineId }: ServerPipelineKanbanProps = {}) {
   const t = useTranslations();
   // Fetch opportunities - both hooks are always called to satisfy React rules of hooks
   // Only the relevant one is enabled based on whether pipelineId exists
@@ -119,13 +118,11 @@ export function ServerPipelineKanban({ pipelineId, pipelineName }: ServerPipelin
     <PipelineKanban
       initialDeals={deals}
       initialStages={pipelineStages}
-      workspaceId=""
       customers={customers}
       contacts={contacts}
       onDealMove={handleDealMove}
       onDealCreate={handleDealCreate}
       pipelineId={pipelineId}
-      pipelineName={pipelineName}
       initialSettings={initialSettings}
     />
   );

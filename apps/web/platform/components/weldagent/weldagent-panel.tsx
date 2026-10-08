@@ -7,24 +7,21 @@ import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useWeldAgentChat } from '@/hooks/queries/use-ai-chat';
 import { useAgents } from '@/hooks/queries/use-agent-queries';
-import type { ModuleKey, EntityContext } from '@/lib/weldagent/tools/types';
+import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
+import { BetaBadge } from '@/components/layout/beta-badge';
+import type { EntityContext } from '@/lib/weldagent/tools/types';
 
 interface WeldAgentPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  moduleKey?: ModuleKey;
   entityContext?: EntityContext;
   width?: number;
   disableAnimation?: boolean;
   className?: string;
-  saveHistory?: boolean;
-  onToolResult?: (toolName: string, result: unknown) => void;
-  autoRefreshOnMutation?: boolean;
   forceNewConversation?: boolean;
   onNewConversationCreated?: () => void;
   prefillText?: string | null;
   onPrefillConsumed?: () => void;
-  onWidthChange?: (width: number) => void;
 }
 
 export function WeldAgentPanel({
@@ -41,6 +38,7 @@ export function WeldAgentPanel({
 }: Readonly<WeldAgentPanelProps>) {
   const t = getTranslations('common').ai.chat;
   const { data: agents = [] } = useAgents();
+  const { data: betaAppCodes } = useBetaAppCodes();
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
 
   const { messages, sendMessage, retry, reset, isSending, error } = useWeldAgentChat({
@@ -101,6 +99,7 @@ export function WeldAgentPanel({
           <span className="text-sm font-semibold text-gray-900 dark:text-foreground truncate">
             {chatTitle}
           </span>
+          {betaAppCodes?.has('weldagent') ? <BetaBadge variant="inline" /> : null}
         </div>
         <div className="flex items-center gap-1">
           <Button

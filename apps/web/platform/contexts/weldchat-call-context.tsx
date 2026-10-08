@@ -7,6 +7,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useLeaveCallGuard } from '@weldsuite/weldmeet-ui';
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import {
   createRnnoiseSuppressor,
@@ -315,11 +316,11 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const callIdRef = useRef<string | null>(null);
   const channelIdRef = useRef<string | null>(null);
 
-  // Keep refs in sync so beforeunload / roomLeft can access latest values
+  // Keep refs in sync so pagehide / roomLeft can access latest values
   useEffect(() => { callIdRef.current = callId; }, [callId]);
   useEffect(() => { channelIdRef.current = channelId; }, [channelId]);
 
-  // Ref to hold the latest Clerk JWT so beforeunload can use it synchronously
+  // Ref to hold the latest Clerk JWT so pagehide can use it synchronously
   const authTokenRef = useRef<string | null>(null);
 
   // Keep the token fresh while in an active call
@@ -333,7 +334,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       } catch { /* ignore */ }
     };
     void refresh();
-    // Refresh every 30s to keep the token valid for beforeunload
+    // Refresh every 30s to keep the token valid for pagehide
     const iv = setInterval(refresh, 30_000);
     return () => { cancelled = true; clearInterval(iv); };
   }, [status, getToken]);
@@ -353,15 +354,15 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     }).catch(() => {});
   }, []);
 
-  // Notify backend on tab close / navigation so the call doesn't stay open
-  useEffect(() => {
-    const handler = () => {
+  // Confirm before a reload / tab close drops an active call, and notify the
+  // backend once the page really goes away so the call doesn't stay open.
+  useLeaveCallGuard({
+    warn: status === 'ringing-outgoing' || status === 'connecting' || status === 'connected',
+    onLeave: () => {
       const cId = callIdRef.current;
       if (cId) fireLeaveRequest(cId);
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [fireLeaveRequest]);
+    },
+  });
 
   // Duration timer
   useEffect(() => {

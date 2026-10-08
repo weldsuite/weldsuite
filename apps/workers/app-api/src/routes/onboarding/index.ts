@@ -967,38 +967,40 @@ app.post('/finalize', async (c) => {
         const tenantDb = await getTenantDbForWorkspace(c.env, orgId);
         const { workspaceInstalledApps, userAppAssignments } = schema;
 
-        for (const appCode of selectedApps) {
-          try {
-            // Install app at workspace level.
-            await tenantDb
-              .insert(workspaceInstalledApps)
-              .values({
-                id: generateId('wia'),
-                appCode,
-                installedBy: userId,
-                isActive: true,
-                installedAt: new Date(),
-                createdAt: new Date(),
-                updatedAt: new Date(),
-              })
-              .onConflictDoNothing();
+        await Promise.all(
+          selectedApps.map(async (appCode) => {
+            try {
+              // Install app at workspace level.
+              await tenantDb
+                .insert(workspaceInstalledApps)
+                .values({
+                  id: generateId('wia'),
+                  appCode,
+                  installedBy: userId,
+                  isActive: true,
+                  installedAt: new Date(),
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                })
+                .onConflictDoNothing();
 
-            // Assign app to the onboarding user.
-            await tenantDb
-              .insert(userAppAssignments)
-              .values({
-                id: generateId('uaa'),
-                userId,
-                appCode,
-                isActive: true,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-              })
-              .onConflictDoNothing();
-          } catch (appError) {
-            console.error(`[Onboarding] Failed to install app ${appCode}:`, appError);
-          }
-        }
+              // Assign app to the onboarding user.
+              await tenantDb
+                .insert(userAppAssignments)
+                .values({
+                  id: generateId('uaa'),
+                  userId,
+                  appCode,
+                  isActive: true,
+                  createdAt: new Date(),
+                  updatedAt: new Date(),
+                })
+                .onConflictDoNothing();
+            } catch (appError) {
+              console.error(`[Onboarding] Failed to install app ${appCode}:`, appError);
+            }
+          }),
+        );
       } catch (dbError) {
         console.error('[Onboarding] Failed to connect to tenant DB for app install:', dbError);
         // Continue — onboarding is still marked complete.

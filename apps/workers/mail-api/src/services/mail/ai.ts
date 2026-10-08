@@ -706,11 +706,8 @@ export async function classifyMessagesBatch(
   // inaccessible message refuses the request before anything is classified,
   // written back or charged. Ids that no longer exist are skipped.
   const gate = accountGate(db, userId, 'Access to one or more mail accounts is not allowed');
-  const batch: LoadedMessage[] = [];
-  for (const id of input.messageIds) {
-    const message = await loadAccessibleMessage(db, gate, id);
-    if (message) batch.push(message);
-  }
+  const loaded = await Promise.all(input.messageIds.map((id) => loadAccessibleMessage(db, gate, id)));
+  const batch = loaded.filter((message): message is LoadedMessage => !!message);
 
   const ai = getAi(env);
   await assertAiCredits(metering);

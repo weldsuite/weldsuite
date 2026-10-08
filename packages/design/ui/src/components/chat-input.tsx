@@ -14,6 +14,7 @@ import {
 
 import { cn } from "@weldsuite/ui/lib/utils";
 import { Button } from "@weldsuite/ui/components/button";
+import { runEditorCommand } from "../lib/editor-commands";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -328,7 +329,7 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
       const el = editorRef.current;
       if (!el) return;
       el.focus();
-      document.execCommand("insertText", false, "@");
+      runEditorCommand("insertText", "@");
       detectMentionQuery();
     }, [detectMentionQuery]);
 

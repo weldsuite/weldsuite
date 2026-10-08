@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 
@@ -12,8 +11,6 @@ export interface ProductActionButtonsBlockProps {
   showAddToCart?: boolean;
   showOrderNow?: boolean;
   borderRadius?: number;
-  mode?: 'live' | 'edit' | 'preview';
-  store?: StoreData;
 }
 
 export function ProductActionButtonsBlock({

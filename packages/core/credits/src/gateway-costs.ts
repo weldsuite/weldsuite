@@ -223,37 +223,39 @@ function monthStart(from: Date): Date {
 export async function rollupGatewayCredits(db: CreditsDb, now = new Date()): Promise<GatewayCreditRow[]> {
   const rows: Record<string, unknown>[] = await db.select().from(aiGatewayCredits);
 
-  for (const row of rows) {
-    let periodStart = row.periodStart as Date;
-    let periodEnd = row.periodEnd as Date;
+  await Promise.all(
+    rows.map(async (row) => {
+      let periodStart = row.periodStart as Date;
+      let periodEnd = row.periodEnd as Date;
 
-    if ((row.resetPolicy as string) === 'monthly' && now.getTime() >= periodEnd.getTime()) {
-      periodStart = monthStart(now);
-      periodEnd = nextMonthStart(now);
-    }
+      if ((row.resetPolicy as string) === 'monthly' && now.getTime() >= periodEnd.getTime()) {
+        periodStart = monthStart(now);
+        periodEnd = nextMonthStart(now);
+      }
 
-    // Covered end-to-end by ai_provider_usage_gateway_created_idx.
-    const [agg] = await db
-      .select({ spent: sql<string>`COALESCE(SUM(${aiProviderUsage.providerCostNanoUsd}), 0)` })
-      .from(aiProviderUsage)
-      .where(
-        and(
-          eq(aiProviderUsage.gateway, row.gateway as string),
-          gte(aiProviderUsage.createdAt, periodStart),
-        ),
-      );
+      // Covered end-to-end by ai_provider_usage_gateway_created_idx.
+      const [agg] = await db
+        .select({ spent: sql<string>`COALESCE(SUM(${aiProviderUsage.providerCostNanoUsd}), 0)` })
+        .from(aiProviderUsage)
+        .where(
+          and(
+            eq(aiProviderUsage.gateway, row.gateway as string),
+            gte(aiProviderUsage.createdAt, periodStart),
+          ),
+        );
 
-    await db
-      .update(aiGatewayCredits)
-      .set({
-        spentNanoUsd: Number(agg?.spent ?? 0),
-        periodStart,
-        periodEnd,
-        lastRolledUpAt: now,
-        updatedAt: now,
-      })
-      .where(eq(aiGatewayCredits.id, row.id as string));
-  }
+      await db
+        .update(aiGatewayCredits)
+        .set({
+          spentNanoUsd: Number(agg?.spent ?? 0),
+          periodStart,
+          periodEnd,
+          lastRolledUpAt: now,
+          updatedAt: now,
+        })
+        .where(eq(aiGatewayCredits.id, row.id as string));
+    }),
+  );
 
   return readGatewayCredits(db, now);
 }

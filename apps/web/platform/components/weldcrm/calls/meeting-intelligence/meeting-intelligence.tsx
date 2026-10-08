@@ -765,7 +765,6 @@ ${transcriptionText}
         <MeetingIntelligenceHeader
           call={call}
           mediaType={mediaType}
-          videoDuration={duration}
           isTranscribing={showTranscribing}
           hasTranscription={hasTranscription}
           isLoadingTranscription={isLoadingTranscription}

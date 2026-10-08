@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from 'react';
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
@@ -24,8 +23,6 @@ export interface HeroVideoTextHeadingBlockProps {
   fontFamily?: string;
   fontSize?: string;
   className?: string;
-  mode?: RenderMode;
-  store?: StoreData;
 }
 
 export function HeroVideoTextHeadingBlock({
@@ -69,8 +66,6 @@ export interface HeroVideoTextDescriptionBlockProps {
   fontSize?: string;
   maxWidth?: string;
   className?: string;
-  mode?: RenderMode;
-  store?: StoreData;
 }
 
 export function HeroVideoTextDescriptionBlock({
@@ -122,7 +117,6 @@ export interface HeroVideoTextButtonBlockProps {
   showIcon?: boolean;
   className?: string;
   mode?: RenderMode;
-  store?: StoreData;
 }
 
 export function HeroVideoTextButtonBlock({
@@ -169,7 +163,6 @@ export interface HeroVideoTextBlockProps {
   gap?: number;
   className?: string;
   mode?: RenderMode;
-  store?: StoreData;
   children?: React.ReactNode;
   // Legacy props for backward compatibility (when no children)
   videoUrl?: string;
@@ -188,7 +181,6 @@ export function HeroVideoTextBlock({
   gap = 24,
   className,
   mode = 'live',
-  store,
   children,
   // Legacy props
   videoUrl,
@@ -244,20 +236,15 @@ export function HeroVideoTextBlock({
             videoUrl={videoUrl}
             text={text}
             fontFamily={fontFamily}
-            mode={mode}
-            store={store}
           />
           <HeroVideoTextDescriptionBlock
             description={description}
             textColor={textColor}
-            mode={mode}
-            store={store}
           />
           <HeroVideoTextButtonBlock
             buttonText={buttonText}
             buttonLink={buttonLink}
             mode={mode}
-            store={store}
           />
         </div>
       </div>

@@ -25,6 +25,7 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { cn } from '@/lib/utils';
+import { activateOnKey } from '@/lib/activate-on-key';
 import type { SectionProps } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -363,18 +364,22 @@ export function MeetingsSection(_props: Readonly<SectionProps>) {
     const isBotRecording = recording.type === 'bot';
     const status = recording.status?.toLowerCase() || '';
     const hasRecording = recording.recordingUrl && status === 'completed';
+    const openRecording = () => {
+      if (isBotRecording) {
+        router.push(`/weldmeet/${recording.id.replace('bot-', '')}`);
+      } else {
+        router.push(`/weldcall/${recording.id.replace('call-', '')}`);
+      }
+    };
 
     return (
       <div
         key={recording.id}
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/50"
-        onClick={() => {
-          if (isBotRecording) {
-            router.push(`/weldmeet/${recording.id.replace('bot-', '')}`);
-          } else {
-            router.push(`/weldcall/${recording.id.replace('call-', '')}`);
-          }
-        }}
+        onClick={openRecording}
+        onKeyDown={activateOnKey(openRecording)}
       >
         {/* Title */}
         <RecordingTitleCell recording={recording} />

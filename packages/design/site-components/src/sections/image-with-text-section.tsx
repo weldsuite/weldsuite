@@ -14,8 +14,6 @@ interface ImageWithTextSectionProps {
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  imageWidth?: number;
-  sectionId?: string;
   textFont?: string;
   textFontWeight?: string;
   textSize?: string;

@@ -36,19 +36,28 @@ export function ParticipantNameTag({
   onClick,
   icon,
 }: Readonly<ParticipantNameTagProps>) {
-  return (
-    <div
-      className={cn(
-        'absolute bottom-2 left-2 z-10 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm text-white text-[13px] font-medium px-2.5 py-1 rounded-md',
-        onClick && 'cursor-pointer hover:bg-black/70 transition-colors',
-        className,
-      )}
-      onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}
-    >
+  const baseClassName =
+    'absolute bottom-2 left-2 z-10 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm text-white text-[13px] font-medium px-2.5 py-1 rounded-md';
+  const content = (
+    <>
       {icon}
       {!audioEnabled && <MicOff className="h-3.5 w-3.5" />}
       {localMuted && <VolumeX className="h-3.5 w-3.5 text-red-400" />}
       <span>{name}</span>
-    </div>
+    </>
   );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className={cn(baseClassName, 'cursor-pointer hover:bg-black/70 transition-colors', className)}
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className={cn(baseClassName, className)}>{content}</div>;
 }

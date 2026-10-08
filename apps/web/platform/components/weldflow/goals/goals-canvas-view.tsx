@@ -43,6 +43,7 @@ import { TagLabel } from '@/components/weldflow/tag-label';
 import { TaskDetailPanel } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 // Fixed zoom stops. Module scope so the array identity is stable across renders.
 const zoomLevels = [0.025, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5];
@@ -1392,6 +1393,22 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     const isHighlighted = highlightStatus !== 'none' && goal.status === highlightStatus;
     const isDraggingThis = isDragging && draggedGoal === goal.id;
 
+    const openGoalPanel = () => {
+      if (goal.linkedTaskId) {
+        // Move the card selection indicator to the clicked goal, then
+        // push the real task onto the global object-panel stack.
+        setSelectedGoal(goal.id);
+        setShowDetailsPanel(false);
+        openObjectPanel({ type: 'task', id: goal.linkedTaskId });
+      } else {
+        // Goal mode — render the goal as a task in the legacy panel
+        // (goals are not real tasks, so the unified TaskPanel can't
+        // fetch them from app-api).
+        setSelectedGoal(goal.id);
+        setShowDetailsPanel(true);
+      }
+    };
+
     return (
       <div
         key={goal.id}
@@ -1418,25 +1435,14 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
           pointerEvents: isDragging && !isDraggingThis ? 'none' : 'auto',
           willChange: isDraggingThis ? 'transform' : 'auto'
         }}
+        role="button"
+        tabIndex={0}
         onClick={(e) => {
           e.stopPropagation();
           // Only open panel if user didn't drag
-          if (!hasDraggedRef.current) {
-            if (goal.linkedTaskId) {
-              // Move the card selection indicator to the clicked goal, then
-              // push the real task onto the global object-panel stack.
-              setSelectedGoal(goal.id);
-              setShowDetailsPanel(false);
-              openObjectPanel({ type: 'task', id: goal.linkedTaskId });
-            } else {
-              // Goal mode — render the goal as a task in the legacy panel
-              // (goals are not real tasks, so the unified TaskPanel can't
-              // fetch them from app-api).
-              setSelectedGoal(goal.id);
-              setShowDetailsPanel(true);
-            }
-          }
+          if (!hasDraggedRef.current) openGoalPanel();
         }}
+        onKeyDown={activateOnKey(() => openGoalPanel())}
         onMouseDown={(e) => {
           if (tool === 'select') {
             e.stopPropagation();

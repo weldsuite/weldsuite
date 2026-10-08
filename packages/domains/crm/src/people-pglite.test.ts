@@ -171,6 +171,22 @@ describe('people service · pglite integration', () => {
       expect(all.data.map((r) => r.id)).toContain(guest.id);
     });
 
+    it('listPeople with hasPhone=true keeps only people with a direct or mobile phone', async () => {
+      const direct = await createPerson(db, { firstName: 'Direct', lastName: 'Phone', directPhone: '+31 20 123 4567' });
+      const mobile = await createPerson(db, { firstName: 'Mobile', lastName: 'Phone', mobilePhone: '+31 6 1234 5678' });
+      const blank = await createPerson(db, { firstName: 'Blank', lastName: 'Phone', directPhone: '  ' });
+      const none = await createPerson(db, { firstName: 'No', lastName: 'Phone' });
+
+      const withPhone = (await listPeople(db, { limit: 100, hasPhone: true })).data.map((r) => r.id);
+      expect(withPhone).toEqual(expect.arrayContaining([direct.id, mobile.id]));
+      expect(withPhone).not.toContain(blank.id);
+      expect(withPhone).not.toContain(none.id);
+
+      const withoutPhone = (await listPeople(db, { limit: 100, hasPhone: false })).data.map((r) => r.id);
+      expect(withoutPhone).toEqual(expect.arrayContaining([blank.id, none.id]));
+      expect(withoutPhone).not.toContain(direct.id);
+    });
+
     it('addPersonToCrm flips inCrm to true and assigns the acting owner', async () => {
       const email = `promote-${Date.now()}@e2e.test`;
       const guest = await findOrCreatePersonByEmail(db, { email });

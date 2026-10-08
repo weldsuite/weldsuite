@@ -51,6 +51,14 @@ R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
+# Schedule-index D1 (shared with workflow-worker / agent-api): its
+# `workspace_due_index` rows tell the snooze sweep which workspaces have mail
+# coming due, so it never opens idle tenant DBs. Migrations: workflow-worker.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
 [[queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
@@ -87,8 +95,9 @@ class_name = "SendScheduledEmailWorkflow"
 
 # Snooze wake-up sweep (src/cron/snooze-sweep.ts, scheduled() in
 # src/index.ts): snoozed mail whose time has come goes back to the inbox.
-# Keep the expression in step with SNOOZE_SWEEP_CRONS. Test is hourly
-# (below) so its master Neon compute can scale to zero.
+# Keep the expression in step with SNOOZE_SWEEP_CRONS. A quiet tick reads only
+# the SCHEDULE_INDEX due index (D1) — no master or tenant DB — so every
+# environment runs it every 5 minutes.
 [triggers]
 crons = ["*/5 * * * *"]
 
@@ -113,6 +122,11 @@ app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-test"
@@ -133,11 +147,9 @@ name = "send-scheduled-email-v3-test"
 binding = "SEND_SCHEDULED_EMAIL"
 class_name = "SendScheduledEmailWorkflow"
 
-# Hourly, not */5. Each sweep reads the master DB (mailbox workspaces, then
-# tenant URLs once the 5-minute workspace cache expires). On test that kept
-# the master compute from ever suspending. Wake-up latency here is up to an hour.
+# Snooze wake-up sweep (see [triggers] above).
 [env.test.triggers]
-crons = ["0 * * * *"]
+crons = ["*/5 * * * *"]
 
 [env.test.observability]
 enabled = true
@@ -163,6 +175,11 @@ app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
 
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"

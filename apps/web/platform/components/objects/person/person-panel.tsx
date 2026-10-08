@@ -82,7 +82,6 @@ import {
   useUpdatePerson,
   useDeletePerson,
   useAddPersonToCrm,
-  usePersonChannel,
   useArchivePerson,
   useUnarchivePerson,
 } from './use-person-data';
@@ -667,13 +666,6 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
     <PersonChat personId={id} personName={person?.displayName} />
   );
 
-  // The chat channel is created lazily on the first sent message, so
-  // "channel exists" === "there is at least one message". Reads from the same
-  // cached query PersonChat runs, so it adds no extra request. Used to hide the
-  // resize-handle line above the composer until a conversation actually exists.
-  const personChannel = usePersonChannel(id);
-  const hasMessages = !!personChannel.data?.data;
-
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
@@ -689,7 +681,6 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
-      sidebarShowResizeHandle={hasMessages}
       sidebarDefaultSize={mode === 'panel' ? 320 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}
@@ -729,7 +720,6 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
         <CallsTab
           entityId={person.id}
           entityKind="person"
-          defaultDialNumber={person.directPhone ?? person.mobilePhone ?? undefined}
         />
       )}
       {person && activeTab === 'meetings' && (

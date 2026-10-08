@@ -65,7 +65,7 @@ function Render({ settings }: Readonly<{ settings: WelddriveRecentSettings }>) {
   const res = useDriveFiles({ pageSize: settings.maxCount, sort: 'modified_desc' } as never);
   const apiRows = ((res.data as { data?: ApiFile[] } | undefined)?.data ?? []) as ApiFile[];
   const rows = apiRows.map(mapFile).slice(0, settings.maxCount);
-  return <DriveCard rows={rows} isLoading={res.isLoading} title="WeldDrive — Recent" />;
+  return <DriveCard rows={rows} isLoading={res.isLoading} />;
 }
 
 function SettingsForm({ value, onChange }: { value: WelddriveRecentSettings; onChange: (next: WelddriveRecentSettings) => void }) {

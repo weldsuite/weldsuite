@@ -25,10 +25,6 @@ interface ParcelTrackingViewProps {
   onNavigateFAQ?: () => void;
   onNavigateStatus?: () => void;
   onNavigateChangelog?: () => void;
-  onNavigateNews?: () => void;
-  onNavigateAppointments?: () => void;
-  onNavigateAnnouncements?: () => void;
-  onNavigateEvents?: () => void;
   enabledPages?: string[];
   companyLogoUrl?: string;
 }

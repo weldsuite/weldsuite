@@ -4,8 +4,10 @@ import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { useRouter, usePathname } from '@/lib/router';
 import { Play, Pause, Maximize, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { useTranslations } from '@weldsuite/i18n/client';
 
 export function GlobalFloatingVideo() {
+  const t = useTranslations();
   const ctx = useFloatingVideo();
   const mobileNav = useMobileNavOptional();
   const router = useRouter();
@@ -36,8 +38,10 @@ export function GlobalFloatingVideo() {
         />
 
         {/* Center play/pause button - separate from overlay to avoid opacity glitch */}
-        <div
-          className="absolute inset-0 z-30 flex items-center justify-center cursor-pointer opacity-0 group-hover/minivid:opacity-100 transition-opacity duration-150"
+        <button
+          type="button"
+          aria-label={t('sweep.weldcrm.videoPlayer.playPause')}
+          className="absolute inset-0 z-30 flex h-full w-full items-center justify-center cursor-pointer opacity-0 group-hover/minivid:opacity-100 focus-visible:opacity-100 transition-opacity duration-150"
           onClick={togglePlayPause}
         >
           <div className="w-10 h-10 rounded-full bg-black/60 flex items-center justify-center border border-white/20">
@@ -47,7 +51,7 @@ export function GlobalFloatingVideo() {
               <Play className="h-4 w-4 text-white fill-white ml-0.5" />
             )}
           </div>
-        </div>
+        </button>
 
         {/* Hover controls */}
         <div className="absolute inset-0 z-40 opacity-0 group-hover/minivid:opacity-100 transition-opacity duration-150 pointer-events-none">

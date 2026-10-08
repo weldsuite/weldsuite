@@ -35,7 +35,6 @@ const meta = {
     onAddSubAgent: fn(),
     onEditSubAgent: fn(),
     onDeselect: fn(),
-    onNotify: fn(),
   },
 } satisfies Meta<typeof WorkflowCanvas>;
 

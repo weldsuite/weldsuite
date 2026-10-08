@@ -4,7 +4,6 @@ import React from 'react';
 
 export interface ProductInfoHeaderElementProps {
   storeName?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductInfoHeaderElement({

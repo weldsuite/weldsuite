@@ -187,6 +187,9 @@ export function getSlowExecutions(db: Database, limit = 10) {
 /** Statuses a run can still be cancelled from. */
 const CANCELLABLE_STATUSES = ['queued', 'pending', 'running', 'waiting_for_input'];
 
+/** Step statuses that mean "not finished", settled to `cancelled` when the run is cancelled. */
+const IN_FLIGHT_STEP_STATUSES = ['pending', 'running', 'waiting_for_input'];
+
 export type CancelExecutionResult =
   | { kind: 'cancelled'; id: string; workflowId: string; status: 'cancelled' }
   | { kind: 'not_found' }
@@ -196,7 +199,7 @@ export type CancelExecutionResult =
  * Cancel a queued, running or waiting execution. The row is flipped first so
  * the worker's finalize step (which never overwrites `cancelled`) cannot race
  * it, then the Cloudflare Workflow instance is terminated so no further step
- * runs. A failed terminate is logged, not surfaced: the instance may already
+ * runs, and steps still pending/running/waiting are marked cancelled. A failed terminate is logged, not surfaced: the instance may already
  * have finished, and the row is cancelled either way.
  */
 export async function cancelExecution(
@@ -224,6 +227,19 @@ export async function cancelExecution(
       console.warn('[connect-api/workflow-executions] terminate failed:', err);
     }
   }
+
+  // The terminated instance never gets to close the step it was inside, so
+  // settle in-flight steps here: otherwise a cancelled run shows a spinner.
+  await db
+    .update(workflowExecutionSteps)
+    .set({ status: 'cancelled', completedAt: now })
+    .where(
+      and(
+        eq(workflowExecutionSteps.executionId, id),
+        inArray(workflowExecutionSteps.status, IN_FLIGHT_STEP_STATUSES),
+      ),
+    )
+    .catch((stepErr) => console.warn('[connect-api/workflow-executions] could not settle in-flight steps:', stepErr));
 
   return { kind: 'cancelled', id, workflowId: execution.workflowId, status: 'cancelled' };
 }

@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { labelsApi } from '@/app/weldflow/lib/api-client';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface ProjectLabel {
   id: string;
@@ -131,8 +132,11 @@ function TaskItem({ task, availableLabels, onOpen, onToggle, onDelete, st }: Rea
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       className="group flex items-center gap-3 py-2.5 px-3 -mx-3 hover:bg-gray-50 dark:hover:bg-background/50 rounded-lg transition-colors cursor-pointer"
       onClick={() => onOpen(task)}
+      onKeyDown={activateOnKey(() => onOpen(task))}
     >
       <Checkbox
         checked={task.completed}

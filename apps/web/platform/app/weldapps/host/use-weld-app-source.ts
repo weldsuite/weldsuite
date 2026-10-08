@@ -9,10 +9,14 @@ export const APP_API_BASE = getAppApiUrl();
  * Resolve what to load for `appCode`: the installed app row, and the iframe
  * source — the developer's `weld app dev` preview when one is active, else
  * the published bundle on app-api.
+ *
+ * `pollDevSession: false` keeps the preview session from being polled (used by
+ * kept-alive frames that are not currently shown); the last known session is
+ * still used.
  */
-export function useWeldAppSource(appCode: string | undefined) {
+export function useWeldAppSource(appCode: string | undefined, options: { pollDevSession?: boolean } = {}) {
   const { data: installedApps, isLoading } = useInstalledUserApps();
-  const { data: devSession } = useUserAppDevSession(appCode);
+  const { data: devSession } = useUserAppDevSession(appCode, { poll: options.pollDevSession });
 
   const app = installedApps?.find((a) => a.appCode === appCode);
   const previewUrl = devSession?.url ?? null;

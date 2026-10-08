@@ -330,14 +330,6 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.target !== e.currentTarget) return;
-    if ((e.key === 'Enter' || e.key === ' ') && onClick && !isSortableDragging) {
-      e.preventDefault();
-      onClick();
-    }
-  };
-
   const priorityConfig: Record<string, { label: string; color: string; bg: string }> = {
     low: { label: t.projects.pipeline.priorityLow, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     medium: { label: t.projects.pipeline.priorityMedium, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
@@ -480,19 +472,17 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
   );
 
   return (
-    <div
+    <button
+      type="button"
       ref={setNodeRef}
       style={style}
       {...attributes}
       {...listeners}
-      role="button"
-      tabIndex={0}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
-      onKeyDown={handleKeyDown}
       className={cn(
-        "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
+        "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border text-left",
         "hover:bg-gray-50 dark:hover:bg-secondary/70 w-full",
         canWrite && "cursor-grab active:cursor-grabbing",
         "p-3 transition-all duration-200",
@@ -502,7 +492,7 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
       )}
     >
       {isSortableDragging ? <div className="invisible">{cardContent}</div> : cardContent}
-    </div>
+    </button>
   );
 }
 

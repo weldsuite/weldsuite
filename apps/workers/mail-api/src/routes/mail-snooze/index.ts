@@ -4,8 +4,9 @@
  * Per-message snooze state. Snooze metadata is stored on the message's
  * `customFields` blob rather than a separate column so the inbox UI
  * can pick it up from the same row it already queries for the message
- * list. Auto-unsnooze on `until` is handled by a separate sweep — this
- * surface only writes the snooze state.
+ * list. Auto-unsnooze on `until` is handled by the snooze sweep
+ * (src/cron/snooze-sweep.ts); snooze and re-snooze mark the workspace due in
+ * its D1 index, so the sweep never opens idle tenants to find out.
  *
  * URLs are flat: `accountId` rides in the path so a single
  * `/messages/:messageId` segment is unambiguous within an account.
@@ -20,6 +21,7 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import * as snooze from '@weldsuite/mail-domain/snooze';
 import { MailSnoozeError } from '@weldsuite/mail-domain/snooze';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -76,6 +78,8 @@ app.post(
         messageId,
         new Date(until),
       );
+      // Tell the snooze sweep when to look at this workspace (D1 due index).
+      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('workspaceId'), new Date(until));
       return success(c, result);
     } catch (err) {
       if (err instanceof MailSnoozeError) return mapSnoozeError(c, err);
@@ -121,6 +125,7 @@ app.post(
         messageId,
         new Date(until),
       );
+      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('workspaceId'), new Date(until));
       return success(c, result);
     } catch (err) {
       if (err instanceof MailSnoozeError) return mapSnoozeError(c, err);

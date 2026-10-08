@@ -10,7 +10,6 @@ export interface HeroVideoBackgroundBlockProps {
   fontSize?: string;
   backgroundOpacity?: number;
   minHeight?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function HeroVideoBackgroundBlock({

@@ -20,6 +20,12 @@ export interface WorkflowStep {
   type: string;
   name: string;
   description?: string;
+  /**
+   * One-line, already-translated summary of the step's configuration, computed
+   * by the host (e.g. "To: a@b.co"). The node shows it under the title in place
+   * of the generic fallback; the user's own `description` still wins.
+   */
+  summary?: string;
   order?: number;
   config: Record<string, unknown>;
   inputs: Record<string, unknown>;
@@ -51,6 +57,12 @@ export interface TriggerConfig {
   name: string;
   isEnabled: boolean;
   config: Record<string, unknown>;
+  /**
+   * One-line, already-translated summary of the trigger's configuration
+   * (e.g. "Task created"), computed by the host. The node shows it instead of
+   * "Click to configure" once the trigger is set up.
+   */
+  summary?: string;
 }
 
 /** A single variable item for the variable picker. */

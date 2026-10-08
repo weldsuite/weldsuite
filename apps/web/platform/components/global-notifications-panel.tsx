@@ -15,6 +15,7 @@ import { Link } from '@/lib/router';
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useResolveAccessRequest } from '@/hooks/queries/use-access-requests-queries';
 import { renderContentWithMentions } from '@/lib/render-mentions';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 type NotificationType = 'message' | 'task' | 'mention' | 'system' | 'order' | 'invoice' | 'calendar' | 'mail' | 'helpdesk' | 'crm' | 'commerce' | 'parcel' | 'projects';
 
@@ -416,7 +417,14 @@ export function GlobalNotificationsPanel({ isOpen, onClose, width = 400, skipAni
                 <div
                   key={notification.id}
                   className={baseClassName}
+                  role={isAccessRequest ? undefined : 'button'}
+                  tabIndex={isAccessRequest ? undefined : 0}
                   onClick={isAccessRequest ? undefined : () => handleMarkAsRead(notification.id)}
+                  onKeyDown={
+                    isAccessRequest
+                      ? undefined
+                      : activateOnKey(() => handleMarkAsRead(notification.id))
+                  }
                 >
                   {content}
                 </div>

@@ -13,6 +13,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.githubConnections;
@@ -20,7 +21,7 @@ const t = schema.githubConnections;
 app.get('/', requirePermission('integrations:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
+  const limit = parseLimit(q.limit, 25, 100);
 
   const conditions: any[] = [isNull(t.deletedAt)];
   if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status as never));

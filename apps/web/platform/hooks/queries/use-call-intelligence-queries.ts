@@ -8,7 +8,7 @@
  * `useFetchVoiceToken` is exported and reachable (via `global-call-panel.tsx`).
  *
  * The recording upload/download surface has no app-api home — see the
- * TODO(phase-out) block near the bottom.
+ * phase-out note near the bottom.
  */
 
 import { useMutation } from '@tanstack/react-query';

@@ -269,7 +269,8 @@ export async function syncAccounts(
   // unique per tenant, so this set can never include another workspace's profile.
   const ownProfileIds = new Set<string>([primaryProfileId]);
   try {
-    for (const p of await client.listProfiles()) {
+    const profiles = await client.listProfiles();
+    for (const p of profiles) {
       if (p.name === workspaceId) ownProfileIds.add(p.id);
     }
   } catch {
@@ -1272,7 +1273,7 @@ export async function syncAnalytics(
 
   const metrics = await client.getAnalytics({ postId: post.postpeerPostId });
   const now = new Date();
-  let snapshots = 0;
+  const rows: Array<typeof socialAnalytics.$inferInsert> = [];
 
   for (const m of metrics) {
     const accountId = (m.accountId && byIntegration.get(m.accountId)) || fallbackAccountId;
@@ -1280,7 +1281,7 @@ export async function syncAnalytics(
     const engagement =
       m.engagement ?? (m.likes ?? 0) + (m.comments ?? 0) + (m.shares ?? 0) + (m.saves ?? 0);
     const impressions = m.impressions ?? 0;
-    await db.insert(socialAnalytics).values({
+    rows.push({
       id: generateId('san'),
       postId: post.id,
       accountId,
@@ -1301,8 +1302,9 @@ export async function syncAnalytics(
       createdAt: now,
       updatedAt: now,
     } as unknown as typeof socialAnalytics.$inferInsert);
-    snapshots += 1;
   }
 
-  return { snapshots };
+  if (rows.length > 0) await db.insert(socialAnalytics).values(rows);
+
+  return { snapshots: rows.length };
 }

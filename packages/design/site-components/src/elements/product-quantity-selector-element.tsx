@@ -8,7 +8,6 @@ export interface ProductQuantitySelectorElementProps {
   minQuantity?: number;
   maxQuantity?: number;
   label?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductQuantitySelectorElement({

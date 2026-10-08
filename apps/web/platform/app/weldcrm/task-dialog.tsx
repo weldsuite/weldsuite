@@ -42,6 +42,7 @@ import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { RepeatConfigMenu, repeatLabel, type RepeatFrequency, type RepeatUnit } from '@/components/tasks/repeat-config';
+import { runEditorCommand } from '@weldsuite/ui/lib/editor-commands';
 
 const statusConfig = {
   'backlog': { label: 'Backlog', color: 'bg-gray-100 text-gray-800 dark:bg-background/30 dark:text-muted-foreground', btnColor: 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200 dark:bg-secondary dark:text-muted-foreground dark:border-border' },
@@ -1139,7 +1140,7 @@ export function TaskDialog({
       e.preventDefault();
       const text = e.clipboardData.getData('text/plain');
       if (text) {
-        document.execCommand('insertText', false, text);
+        runEditorCommand('insertText', text);
       }
     }
   }, [handleUploadFiles]);

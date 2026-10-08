@@ -259,17 +259,19 @@ export async function resolveAccessRequest(
       ),
     );
 
-  for (const n of existingAdminNotifications) {
-    const nextData = {
-      ...(n.data as Record<string, unknown> | null),
-      resolvedStatus: params.status,
-      resolvedBy: params.resolverUserId,
-    };
-    await db
-      .update(notifications)
-      .set({ data: nextData, isRead: true, readAt: now })
-      .where(eq(notifications.id, n.id));
-  }
+  await Promise.all(
+    existingAdminNotifications.map((n) => {
+      const nextData = {
+        ...(n.data as Record<string, unknown> | null),
+        resolvedStatus: params.status,
+        resolvedBy: params.resolverUserId,
+      };
+      return db
+        .update(notifications)
+        .set({ data: nextData, isRead: true, readAt: now })
+        .where(eq(notifications.id, n.id));
+    }),
+  );
 
   // Tell the requester the outcome.
   const title =

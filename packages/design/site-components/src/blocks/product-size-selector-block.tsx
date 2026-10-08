@@ -9,7 +9,6 @@ export interface ProductSizeSelectorBlockProps {
   textColor?: string;
   showSizeFit?: boolean;
   borderRadius?: number;
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData;
 }
 

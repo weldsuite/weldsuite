@@ -8,7 +8,6 @@ interface HeadingBlockProps {
   alignment?: 'left' | 'center' | 'right';
   color?: string;
   fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
-  mode?: string;
 }
 
 export function HeadingBlock({

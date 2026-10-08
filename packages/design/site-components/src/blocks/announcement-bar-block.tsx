@@ -47,8 +47,6 @@ interface Feature {
 }
 
 export interface AnnouncementBarBlockProps {
-  rating?: number;
-  reviewCount?: number;
   features?: {
     freeShipping?: { enabled: boolean; text: string };
     returns?: { enabled: boolean; text: string };
@@ -56,9 +54,6 @@ export interface AnnouncementBarBlockProps {
     support?: { enabled: boolean; text: string };
   };
   featuresList?: Feature[];
-  showRating?: boolean;
-  showVerifiedBadge?: boolean;
-  verifiedBadgeText?: string;
   showSocialIcons?: boolean;
   socialMediaLinks?: SocialMediaLink[];
   socialIconsColor?: string;
@@ -111,15 +106,16 @@ export function AnnouncementBarBlock({
   // Use featuresList if available, otherwise fall back to legacy features object
   const featureItems = featuresList
     ? featuresList.filter(f => f.enabled !== false).map(f => ({
+        id: f.id,
         icon: getFeatureIcon(f.icon),
         text: f.text,
         enabled: f.enabled !== false,
       }))
     : [
-        { icon: getFeatureIcon('Truck'), text: features?.freeShipping?.text || 'Free shipping over $75', enabled: features?.freeShipping?.enabled ?? true },
-        { icon: getFeatureIcon('RotateCcw'), text: features?.returns?.text || '30-day free returns', enabled: features?.returns?.enabled ?? true },
-        { icon: getFeatureIcon('Shield'), text: features?.warranty?.text || '2-year warranty', enabled: features?.warranty?.enabled ?? true },
-        { icon: getFeatureIcon('Headphones'), text: features?.support?.text || '24/7 support', enabled: features?.support?.enabled ?? true },
+        { id: 'freeShipping', icon: getFeatureIcon('Truck'), text: features?.freeShipping?.text || 'Free shipping over $75', enabled: features?.freeShipping?.enabled ?? true },
+        { id: 'returns', icon: getFeatureIcon('RotateCcw'), text: features?.returns?.text || '30-day free returns', enabled: features?.returns?.enabled ?? true },
+        { id: 'warranty', icon: getFeatureIcon('Shield'), text: features?.warranty?.text || '2-year warranty', enabled: features?.warranty?.enabled ?? true },
+        { id: 'support', icon: getFeatureIcon('Headphones'), text: features?.support?.text || '24/7 support', enabled: features?.support?.enabled ?? true },
       ].filter(f => f.enabled);
 
   // Get enabled social media links
@@ -194,9 +190,9 @@ export function AnnouncementBarBlock({
 
           {/* Features - Center */}
           <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 flex-1">
-            {featureItems.map((feature, index) => (
+            {featureItems.map((feature) => (
               <div
-                key={index}
+                key={feature.id}
                 className="flex items-center gap-1.5 text-sm"
                 style={{ color: textColor }}
               >

@@ -665,17 +665,18 @@ export async function adoptOfficialSystemInstallsForTenant(params: {
     (code) => !NATIVE_ONLY_APP_CODES.includes(code),
   );
   const officialApps = await findOfficialAppsForCodes(master, codes);
-  let adopted = 0;
-  for (const app of officialApps) {
-    const result = await adoptSystemInstallInTenant({
-      master,
-      tenantDb,
-      app,
-      workspaceId,
-      installedBy,
-    });
-    if (result === 'adopted') adopted += 1;
-  }
+  const results = await Promise.all(
+    officialApps.map((app) =>
+      adoptSystemInstallInTenant({
+        master,
+        tenantDb,
+        app,
+        workspaceId,
+        installedBy,
+      }),
+    ),
+  );
+  const adopted = results.filter((result) => result === 'adopted').length;
   return { adopted };
 }
 

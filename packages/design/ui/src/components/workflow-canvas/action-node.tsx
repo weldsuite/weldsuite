@@ -176,6 +176,7 @@ const ACTION_DESCRIBERS: Record<string, (config: ActionConfig, labels: ActionNod
 function getActionDescription(nodeData: ActionNodeDataExtended, labels: ActionNodeLabels): string {
   const fallback = labels.noDescription || 'Not configured';
   if (nodeData.step?.description) return nodeData.step.description;
+  if (nodeData.step?.summary) return nodeData.step.summary;
   const config = nodeData.step?.config as ActionConfig | undefined;
   if (!config || Object.keys(config).length === 0) return fallback;
   if (typeof config.description === 'string') return config.description;
@@ -214,9 +215,10 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
       <div className="relative">
         {needsConfig && <SetupRequiredBadge label={nodeData.setupRequiredLabel} />}
         <Handle type="target" position={Position.Top} className="!bg-transparent !border-0" style={{ top: 0, width: 0, height: 0, minWidth: 0, minHeight: 0 }} />
-        <div
+        <button
+          type="button"
           className={cn(
-            'bg-white dark:bg-background rounded-xl w-[340px] border transition-all',
+            'block bg-white dark:bg-background rounded-xl w-[340px] border text-left transition-all',
             borderClass
           )}
           onClick={() => nodeData.onSelect?.()}
@@ -241,7 +243,7 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
               </div>
             </div>
           )}
-        </div>
+        </button>
 
         {nodeData.actionType === 'ai_agent' && (
           <div className="absolute top-1/2 -translate-y-1/2 left-full hidden lg:flex items-center">
@@ -283,7 +285,7 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
         </>
       )}
 
-      <div className="lg:hidden flex flex-col items-center -mt-[14px]">
+      <div className="lg:hidden relative z-10 flex flex-col items-center -mt-[14px]">
         <button
           type="button"
           aria-label={addStepLabel}

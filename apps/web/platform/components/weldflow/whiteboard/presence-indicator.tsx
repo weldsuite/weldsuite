@@ -20,7 +20,6 @@ import { useTranslations } from '@weldsuite/i18n/client';
 
 interface PresenceIndicatorProps {
   presence: WhiteboardPresence[];
-  isConnected: boolean;
   className?: string;
 }
 

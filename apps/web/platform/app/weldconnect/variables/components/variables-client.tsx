@@ -1,5 +1,5 @@
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
@@ -20,6 +20,7 @@ import {
   GitBranch,
   Edit,
   Trash2,
+  Variable as VariableIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -31,6 +32,7 @@ import {
   type FilterConfig,
   type ActiveFilter,
 } from '@/components/entity-list';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { VariableDialog } from './variable-dialog';
 import { asText } from '@weldsuite/text';
 
@@ -53,6 +55,18 @@ interface VariablesClientProps {
   workflowNames?: Record<string, string>;
 }
 
+// Header and row cells share these. Name and Value take the free space and
+// truncate; the narrow columns never shrink (a shrinking fixed-width Value cell
+// ended up ~48px wide), and Created drops out below `xl` to make room.
+const COLUMN_WIDTHS = {
+  name: 'min-w-[160px] flex-1',
+  value: 'min-w-[140px] flex-1',
+  type: 'w-[90px] shrink-0',
+  scope: 'w-[110px] shrink-0',
+  created: 'hidden xl:block w-[100px] shrink-0',
+  actions: 'w-[48px] shrink-0',
+} as const;
+
 const scopeClassConfig: Record<string, { icon: React.ElementType; className: string }> = {
   global: {
     icon: Globe,
@@ -69,22 +83,21 @@ const scopeClassConfig: Record<string, { icon: React.ElementType; className: str
 };
 
 // A secret's value never leaves the server (the API masks it), so there is
-// nothing to reveal here.
+// nothing to reveal here. The full text is returned: the cell truncates it
+// with CSS to whatever width the table has, and shows all of it as a tooltip.
 function formatValue(variable: Variable): string {
   if (variable.isSecret) return '••••••••';
 
   const value = variable.value;
 
-  if (typeof value === 'string') {
-    return value.length > 50 ? `${value.substring(0, 50)}...` : value;
-  }
+  if (typeof value === 'string') return value;
 
   if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
   }
 
-  if (typeof value === 'object') {
-    return `${JSON.stringify(value).substring(0, 50)}...`;
+  if (typeof value === 'object' && value !== null) {
+    return JSON.stringify(value);
   }
 
   return asText(value);
@@ -100,22 +113,22 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
   ]);
 
   const deleteVariableMutation = useDeleteVariable();
-  const [variables, setVariables] = useState<Variable[]>(initialVariables);
-
-  useEffect(() => {
-    setVariables(initialVariables);
-  }, [initialVariables]);
+  // The rows come straight from the query (a delete refetches it), not from a
+  // local copy: a copy synced in an effect renders one empty frame, "No
+  // variables yet", between the data arriving and the effect running.
+  const variables = initialVariables;
+  const [pendingDelete, setPendingDelete] = useState<Variable | null>(null);
 
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingVariable, setEditingVariable] = useState<Variable | null>(null);
 
   const headerColumns: HeaderColumn[] = useMemo(() => [
-    { id: 'name', header: t.weldconnect.variables.columns.name, width: 'min-w-[200px] flex-1' },
-    { id: 'value', header: t.weldconnect.variables.columns.value, width: 'w-[220px]' },
-    { id: 'type', header: t.weldconnect.variables.columns.type, width: 'w-[100px]' },
-    { id: 'scope', header: t.weldconnect.variables.columns.scope, width: 'w-[120px]' },
-    { id: 'created', header: t.weldconnect.variables.columns.created, width: 'w-[120px]' },
-    { id: 'actions', header: '', width: 'w-[48px] flex-shrink-0' },
+    { id: 'name', header: t.weldconnect.variables.columns.name, width: COLUMN_WIDTHS.name },
+    { id: 'value', header: t.weldconnect.variables.columns.value, width: COLUMN_WIDTHS.value },
+    { id: 'type', header: t.weldconnect.variables.columns.type, width: COLUMN_WIDTHS.type },
+    { id: 'scope', header: t.weldconnect.variables.columns.scope, width: COLUMN_WIDTHS.scope },
+    { id: 'created', header: t.weldconnect.variables.columns.created, width: COLUMN_WIDTHS.created },
+    { id: 'actions', header: '', width: COLUMN_WIDTHS.actions },
   ], [t]);
 
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -151,19 +164,17 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
     return result;
   }, []);
 
-  const handleDelete = useCallback((variable: Variable) => {
-    if (!confirm(t.weldconnect.variables.deleteConfirm.replace('{name}', variable.name))) return;
-
-    deleteVariableMutation.mutate(variable.id, {
-      onSuccess: () => {
-        setVariables((prev) => prev.filter((v) => v.id !== variable.id));
-        toast.success(t.weldconnect.variables.toasts.deleted);
-      },
-      onError: () => {
-        toast.error(t.weldconnect.variables.toasts.deleteFailed);
-      },
-    });
-  }, [deleteVariableMutation, t.weldconnect.variables.deleteConfirm, t.weldconnect.variables.toasts.deleted, t.weldconnect.variables.toasts.deleteFailed]);
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    try {
+      await deleteVariableMutation.mutateAsync(pendingDelete.id);
+      toast.success(t.weldconnect.variables.toasts.deleted);
+    } catch {
+      toast.error(t.weldconnect.variables.toasts.deleteFailed);
+    } finally {
+      setPendingDelete(null);
+    }
+  }, [deleteVariableMutation, pendingDelete, t.weldconnect.variables.toasts.deleted, t.weldconnect.variables.toasts.deleteFailed]);
 
   const renderRow = useCallback((variable: Variable) => {
     const config = scopeClassConfig[variable.scope] || scopeClassConfig.global;
@@ -175,7 +186,7 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
         key={variable.id}
         className="flex items-center gap-4 py-3 px-4 hover:bg-gray-50 dark:hover:bg-secondary/50 group border-b border-gray-200/70 dark:border-border"
       >
-        <div className="min-w-[200px] flex-1 flex items-center gap-2 min-w-0">
+        <div className={cn(COLUMN_WIDTHS.name, 'flex items-center gap-2 min-w-0')}>
           {variable.isSecret && <Lock className="h-4 w-4 text-red-600 shrink-0" />}
           <div className="min-w-0">
             <div className="text-sm font-medium font-mono truncate">{variable.name}</div>
@@ -185,19 +196,22 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
           </div>
         </div>
 
-        <div className="w-[220px] flex items-center gap-2 min-w-0">
-          <span className="text-sm font-mono truncate">
+        <div className={cn(COLUMN_WIDTHS.value, 'flex items-center gap-2 min-w-0')}>
+          <span
+            className="text-sm font-mono truncate"
+            title={variable.isSecret ? undefined : formatValue(variable)}
+          >
             {formatValue(variable)}
           </span>
         </div>
 
-        <div className="w-[100px]">
+        <div className={COLUMN_WIDTHS.type}>
           <Badge variant="outline" className="capitalize">
             {variable.type}
           </Badge>
         </div>
 
-        <div className="w-[120px]">
+        <div className={COLUMN_WIDTHS.scope}>
           <Badge variant="outline" className={cn('text-[11px]', config.className)}>
             <ScopeIcon className="h-3 w-3 mr-1" />
             {scopeLabel}
@@ -209,14 +223,14 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
           )}
         </div>
 
-        <div className="w-[120px]">
+        <div className={COLUMN_WIDTHS.created}>
           <div className="text-sm">{new Date(variable.createdAt).toLocaleDateString()}</div>
           <div className="text-xs text-muted-foreground">
             {new Date(variable.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>
 
-        <div className="w-[48px] flex-shrink-0 flex justify-end">
+        <div className={cn(COLUMN_WIDTHS.actions, 'flex justify-end')}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -231,7 +245,7 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
                 {t.weldconnect.variables.actions.edit}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(variable)}>
+              <DropdownMenuItem className="text-destructive" onClick={() => setPendingDelete(variable)}>
                 <Trash2 className="mr-0.5 h-4 w-4 text-red-600 dark:text-red-400" />
                 {t.weldconnect.variables.actions.delete}
               </DropdownMenuItem>
@@ -240,7 +254,7 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
         </div>
       </div>
     );
-  }, [handleDelete, t, workflowNames]);
+  }, [t, workflowNames]);
 
   return (
     <>
@@ -260,12 +274,7 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
         emptyState={{
           icon: (
             <EmptyStateIllustration>
-              <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="28" y="36" width="64" height="48" rx="6" className="fill-white dark:fill-secondary stroke-gray-200 dark:stroke-border" strokeWidth="1" />
-                <circle cx="48" cy="56" r="8" className="stroke-gray-200 dark:stroke-border" strokeWidth="1" fill="none" />
-                <path d="M52 56h20M52 64h14" className="stroke-gray-200 dark:stroke-border" strokeWidth="1.5" strokeLinecap="round" />
-                <rect x="40" y="78" width="40" height="4" rx="2" className="fill-gray-200 dark:fill-border" opacity="0.5" />
-              </svg>
+              <VariableIcon className="h-10 w-10 text-muted-foreground/60" strokeWidth={1.5} />
             </EmptyStateIllustration>
           ),
           title: vc.emptyTitle,
@@ -279,6 +288,17 @@ export function VariablesClient({ initialVariables, isLoading = false, workflowN
           title: vc.noResultsTitle,
           description: vc.noResultsDescription,
         }}
+      />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title={t.weldconnect.variables.deleteConfirmTitle}
+        description={t.weldconnect.variables.deleteConfirm.replace('{name}', pendingDelete?.name ?? '')}
+        confirmLabel={t.weldconnect.variables.actions.delete}
+        cancelLabel={t.common.actions.cancel}
+        variant="destructive"
+        onConfirm={handleConfirmDelete}
       />
 
       <VariableDialog

@@ -174,7 +174,16 @@ export function TreeNodeTrigger({ children, className }: TreeNodeTriggerProps) {
         className,
       )}
       style={{ paddingLeft: `${level * 16}px` }}
+      role="button"
+      tabIndex={0}
       onClick={() => treeContext.toggleSelected(nodeId)}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          treeContext.toggleSelected(nodeId);
+        }
+      }}
     >
       {children}
     </div>

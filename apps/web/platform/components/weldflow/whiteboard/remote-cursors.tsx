@@ -22,7 +22,6 @@ interface RemoteCursorsProps {
     y: number;
     scale: number;
   };
-  canvasBounds?: { width: number; height: number };
 }
 
 interface RemoteCursorProps {

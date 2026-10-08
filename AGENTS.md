@@ -25,6 +25,13 @@ it has real work:
   from the tenant when the tenant is open anyway; the sweep reads only D1.
   Migrations live in `apps/workers/workflow-worker/migrations/d1/` and
   `deploy.yml` applies them.
+- **Per-workspace "next due" sweeps** use the generic `workspace_due_index`
+  in the same D1 through `@weldsuite/worker-kit/due-index`:
+  `runDueIndexSweep` (one-time seed, D1-only quiet ticks, compare-and-set
+  re-derive), `markWorkspaceDue` / `syncWorkspaceDue` on write paths. Kinds
+  today: `mail_snooze` (mail-api, every 5 min), `calendar_replan`
+  (calendar-api, daily) and `domain_renew` (host-api, daily). A new sweep of
+  this shape adds a kind there instead of a new table.
 - **Master DB** (single always-on Neon), when the data already lives there,
   e.g. the digest sweep filters on master `digest_schedules` first.
 - **Event-driven** work (entity-event queues, Workflows started by a request)
@@ -35,8 +42,10 @@ fan-out. A one-time backfill that opens every tenant (guarded by a KV flag,
 like `weldagent:routine-index:backfill:v1`) is acceptable when introducing a
 new index.
 
-Known offenders still to migrate: `app-api/src/cron/calendar-replan.ts` and
-`app-api/src/cron/domain-auto-renew.ts` open every active tenant daily.
+The same goes for the browser: a `refetchInterval` keeps firing while a tab is
+merely visible, so polls that are mounted everywhere (sidebar badges, unread
+counts) must use `useIdleAwareRefetchInterval`
+(`apps/web/platform/hooks/use-user-idle.ts`) and stop when nobody is there.
 
 ## Cursor Cloud specific instructions
 

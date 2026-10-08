@@ -26,6 +26,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { activateOnKey } from '@/lib/activate-on-key';
 import {
   useCrmTasks,
   useCreateTask,
@@ -350,7 +351,10 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
       {/* Desktop row - hidden in panel mode. Matches the canonical WeldFlow
           tasks page row design (apps/web/platform/app/weldflow/project/[id]/tasks). */}
       {!isPanel && <div
+        role="button"
+        tabIndex={0}
         onClick={() => openTaskPanel(task)}
+        onKeyDown={activateOnKey(() => openTaskPanel(task))}
         className={cn(
           "hidden md:flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50",
           task.status === 'done' && 'opacity-50'
@@ -587,12 +591,15 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
 
       {/* Compact row - always in panel mode, mobile-only otherwise */}
       <div
+        role="button"
+        tabIndex={0}
         className={cn(
           isPanel ? "flex" : "md:hidden flex",
           "group items-center gap-3 px-4 py-3 border-b border-border/70 hover:bg-gray-50 dark:hover:bg-secondary/40 active:bg-muted/50 cursor-pointer transition-colors",
           task.status === 'done' && 'opacity-50'
         )}
         onClick={() => openTaskPanel(task)}
+        onKeyDown={activateOnKey(() => openTaskPanel(task))}
       >
         <div onClick={(e) => e.stopPropagation()}>
           <Checkbox

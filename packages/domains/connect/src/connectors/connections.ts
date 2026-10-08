@@ -35,12 +35,16 @@ export async function encryptCredentials(
   credentials: Record<string, string>,
   keyring: EncryptionKeyring,
 ): Promise<Record<string, string>> {
-  const encrypted: Record<string, string> = {};
-  for (const [key, value] of Object.entries(credentials)) {
-    if (!value) continue;
-    encrypted[key] = keyring.v1 || keyring.v2 ? await encryptField(value, keyring) : value;
-  }
-  return encrypted;
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(credentials)
+        .filter(([, value]) => value)
+        .map(async ([key, value]): Promise<[string, string]> => [
+          key,
+          keyring.v1 || keyring.v2 ? await encryptField(value, keyring) : value,
+        ]),
+    ),
+  );
 }
 
 export async function decryptCredentials(
@@ -48,12 +52,13 @@ export async function decryptCredentials(
   keyring: EncryptionKeyring,
 ): Promise<Record<string, string>> {
   if (!credentials) return {};
-  const decrypted: Record<string, string> = {};
-  for (const [key, value] of Object.entries(credentials)) {
-    if (!value) continue;
-    decrypted[key] = await maybeDecryptField(value, keyring);
-  }
-  return decrypted;
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(credentials)
+        .filter(([, value]) => value)
+        .map(async ([key, value]): Promise<[string, string]> => [key, await maybeDecryptField(value, keyring)]),
+    ),
+  );
 }
 
 export function encryptWebhookSecret(secret: string, keyring: EncryptionKeyring): Promise<string> {
@@ -328,33 +333,35 @@ export async function seedDefaultConnectorFieldMappings(
   const fm = schema.integrationFieldMappings;
   const entityTypes = [...new Set(connector.syncs.map((s) => s.internalEntity))];
 
-  for (const entityType of entityTypes) {
-    const existing = await db
-      .select({ id: fm.id })
-      .from(fm)
-      .where(and(eq(fm.connectionId, connectionId), eq(fm.entityType, entityType)))
-      .limit(1);
-    if (existing.length > 0) continue;
+  await Promise.all(
+    entityTypes.map(async (entityType) => {
+      const existing = await db
+        .select({ id: fm.id })
+        .from(fm)
+        .where(and(eq(fm.connectionId, connectionId), eq(fm.entityType, entityType)))
+        .limit(1);
+      if (existing.length > 0) return;
 
-    const defaults = getDefaultConnectorFieldMappings(entityType, provider);
-    if (defaults.length === 0) continue;
+      const defaults = getDefaultConnectorFieldMappings(entityType, provider);
+      if (defaults.length === 0) return;
 
-    await db.insert(fm).values(
-      defaults.map((m, i) => ({
-        id: generateId('ifm'),
-        connectionId,
-        entityType,
-        externalFieldPath: m.externalFieldPath,
-        internalFieldPath: m.internalFieldPath,
-        direction: m.direction,
-        transformType: m.transformType,
-        transformConfig: m.transformConfig ?? null,
-        isRequired: m.isRequired ?? false,
-        isDefault: true,
-        position: i,
-      })),
-    );
-  }
+      await db.insert(fm).values(
+        defaults.map((m, i) => ({
+          id: generateId('ifm'),
+          connectionId,
+          entityType,
+          externalFieldPath: m.externalFieldPath,
+          internalFieldPath: m.internalFieldPath,
+          direction: m.direction,
+          transformType: m.transformType,
+          transformConfig: m.transformConfig ?? null,
+          isRequired: m.isRequired ?? false,
+          isDefault: true,
+          position: i,
+        })),
+      );
+    }),
+  );
 }
 
 export async function markConnectionError(args: {
@@ -453,8 +460,6 @@ export async function finishSyncRun(args: {
   applied?: { created: number; modified: number; skipped: number; deleted: number; failed: number };
   error?: string | null;
   errorSamples?: Array<{ externalId: string; message: string }>;
-  /** @deprecated Prefer syncWatermarksPatch. Applied only when status is success and no patch is given. */
-  watermark?: { model: string; at: string } | null;
   /**
    * Merge into connection.syncWatermarks. `null` removes a key.
    * Applied for any run status so truncated backfills can persist a page cursor.
@@ -493,16 +498,7 @@ export async function finishSyncRun(args: {
     .where(eq(schema.connectorConnections.id, args.connectionId))
     .limit(1);
 
-  const patch: Record<string, string | null> = { ...args.syncWatermarksPatch };
-  if (
-    args.watermark
-    && args.status === 'success'
-    && args.syncWatermarksPatch === undefined
-  ) {
-    patch[args.watermark.model] = args.watermark.at;
-  }
-
-  const watermarksSql = buildWatermarksSql(patch);
+  const watermarksSql = buildWatermarksSql(args.syncWatermarksPatch ?? {});
 
   await args.db
     .update(schema.connectorConnections)

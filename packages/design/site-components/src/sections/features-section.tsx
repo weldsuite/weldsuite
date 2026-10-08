@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData, SectionSettings } from '../types';
 import { Truck, Shield, CreditCard, Headphones } from "lucide-react";
 
 interface FeaturesectionProps {
@@ -10,8 +9,6 @@ interface FeaturesectionProps {
     title: string;
     description: string;
   }>;
-  store?: StoreData;
-  settings?: SectionSettings;
 }
 
 const defaultFeatures = [

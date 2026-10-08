@@ -80,53 +80,58 @@ export async function syncTicketTypeDefinitions(
   const existingBySlug = new Map(existing.map((d) => [d.slug, d]));
   const now = new Date();
 
-  // Upsert every desired field.
-  for (const field of custom) {
-    const fieldType = mapFieldType(field.type);
-    const options =
-      field.options && field.options.length > 0
-        ? field.options.map((o) => ({ label: o.label, value: o.value }))
-        : null;
-    const prior = existingBySlug.get(field.key);
+  // Upsert every desired field. Each field touches its own definition row (a
+  // ticket type has a handful), so the writes are independent.
+  await Promise.all(
+    custom.map(async (field) => {
+      const fieldType = mapFieldType(field.type);
+      const options =
+        field.options && field.options.length > 0
+          ? field.options.map((o) => ({ label: o.label, value: o.value }))
+          : null;
+      const prior = existingBySlug.get(field.key);
 
-    if (prior) {
-      await db
-        .update(defs)
-        .set({
+      if (prior) {
+        await db
+          .update(defs)
+          .set({
+            name: field.label,
+            fieldType,
+            options,
+            required: field.required ?? false,
+            sortOrder: field.order ?? 0,
+            updatedAt: now,
+          })
+          .where(eq(defs.id, prior.id));
+      } else {
+        await db.insert(defs).values({
+          id: generateId('cfld'),
+          entityType: 'ticket',
+          ticketTypeId,
           name: field.label,
+          slug: field.key,
           fieldType,
           options,
           required: field.required ?? false,
           sortOrder: field.order ?? 0,
+          createdAt: now,
           updatedAt: now,
-        })
-        .where(eq(defs.id, prior.id));
-    } else {
-      await db.insert(defs).values({
-        id: generateId('cfld'),
-        entityType: 'ticket',
-        ticketTypeId,
-        name: field.label,
-        slug: field.key,
-        fieldType,
-        options,
-        required: field.required ?? false,
-        sortOrder: field.order ?? 0,
-        createdAt: now,
-        updatedAt: now,
-      } as typeof defs.$inferInsert);
-    }
-  }
+        } as typeof defs.$inferInsert);
+      }
+    }),
+  );
 
   // Soft-delete definitions whose field was removed from the ticket type. Value
   // rows keyed on the retired definition go inert (recoverable), matching how a
   // soft-deleted definition behaves everywhere else.
-  for (const prior of existing) {
-    if (!desiredBySlug.has(prior.slug)) {
-      await db
-        .update(defs)
-        .set({ deletedAt: now, updatedAt: now })
-        .where(eq(defs.id, prior.id));
-    }
-  }
+  await Promise.all(
+    existing
+      .filter((prior) => !desiredBySlug.has(prior.slug))
+      .map((prior) =>
+        db
+          .update(defs)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(eq(defs.id, prior.id)),
+      ),
+  );
 }

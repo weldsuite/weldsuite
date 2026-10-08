@@ -167,21 +167,19 @@ export function ForwardMessageDialog({
 
   // Resolve each selected target to a channelId we can post into. For users, create/find a DM.
   const resolveChannelIds = async () => {
-    const ids: string[] = [];
-    for (const target of selectedList) {
-      if (target.kind === 'user') {
+    const resolved = await Promise.all(
+      selectedList.map(async (target): Promise<string | undefined> => {
+        if (target.kind !== 'user') return target.rawId;
         try {
           const dm = await createDm({ userIds: [target.rawId] });
-          const dmId = dm?.data?.id;
-          if (dmId) ids.push(dmId);
+          return dm?.data?.id;
         } catch {
           toast.error(st('sweep.weldchat.forwardMessage.couldNotOpenDm', { name: target.name }));
+          return undefined;
         }
-      } else {
-        ids.push(target.rawId);
-      }
-    }
-    return ids;
+      }),
+    );
+    return resolved.filter((id): id is string => !!id);
   };
 
   const handleForward = async () => {

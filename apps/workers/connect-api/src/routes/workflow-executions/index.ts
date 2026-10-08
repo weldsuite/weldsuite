@@ -23,6 +23,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { eq } from 'drizzle-orm';
 import * as executions from '../../services/workflow-executions';
 import * as approvals from '../../services/workflow-approvals';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.workflowExecutions;
@@ -38,7 +39,7 @@ app.get('/', requirePermission('workflow-executions:read'), async (c) => {
       startDate: q.startDate,
       endDate: q.endDate,
       cursor: q.cursor,
-      limit: q.limit ? parseInt(q.limit, 10) : 25,
+      limit: parseLimit(q.limit, 25, 100),
     });
     return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
   } catch (err) {
@@ -49,7 +50,7 @@ app.get('/', requirePermission('workflow-executions:read'), async (c) => {
 
 app.get('/recent', requirePermission('workflow-executions:read'), async (c) => {
   const db = c.get('tenantDb');
-  const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 10;
+  const limit = parseLimit(c.req.query('limit'), 10, 100);
   try {
     return success(c, await executions.getRecentExecutions(db, limit));
   } catch (err) {
@@ -72,7 +73,7 @@ app.get('/trends', requirePermission('workflow-executions:read'), async (c) => {
 
 app.get('/slow', requirePermission('workflow-executions:read'), async (c) => {
   const db = c.get('tenantDb');
-  const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 10;
+  const limit = parseLimit(c.req.query('limit'), 10, 50);
   try {
     return success(c, await executions.getSlowExecutions(db, limit));
   } catch (err) {

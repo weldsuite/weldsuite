@@ -61,6 +61,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { cn } from '@/lib/utils';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 interface CommandItem {
   id: string;
@@ -130,7 +131,7 @@ const RESIZE_HANDLES: ReadonlyArray<{ handle: string; className: string }> = [
 function getActiveFormats(): Set<string> {
   const formats = new Set<string>();
   for (const [command, format] of FORMAT_COMMANDS) {
-    if (document.queryCommandState(command)) formats.add(format);
+    if (isEditorCommandActive(command)) formats.add(format);
   }
   return formats;
 }
@@ -700,7 +701,7 @@ export default function NewHelpArticlePage() {
       return;
     }
 
-    document.execCommand(command, false, value);
+    runEditorCommand(command, value);
     contentRef.current?.focus();
     checkActiveFormats();
   };
@@ -788,13 +789,13 @@ export default function NewHelpArticlePage() {
 
   const changeFontFamily = (font: string) => {
     setFontFamily(font);
-    document.execCommand('fontName', false, font);
+    runEditorCommand('fontName', font);
     contentRef.current?.focus();
   };
 
   const changeFontSize = (size: string) => {
     setFontSize(size);
-    document.execCommand('fontSize', false, '7');
+    runEditorCommand('fontSize', '7');
     const selection = window.getSelection();
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
@@ -810,12 +811,12 @@ export default function NewHelpArticlePage() {
   };
 
   const changeTextColor = (color: string) => {
-    document.execCommand('foreColor', false, color);
+    runEditorCommand('foreColor', color);
     contentRef.current?.focus();
   };
 
   const changeBackgroundColor = (color: string) => {
-    document.execCommand('hiliteColor', false, color);
+    runEditorCommand('hiliteColor', color);
     contentRef.current?.focus();
   };
 

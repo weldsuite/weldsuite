@@ -32,6 +32,7 @@ import { registryDeps } from '../../services/workflow-webhook-registry';
 import { publicApiBase } from '../../lib/public-api-base';
 import { snapshotWorkflowVersion } from '../../services/workflow-versions';
 import { registerGenerateWorkflowRoute } from './generate';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -120,7 +121,7 @@ app.get('/', requirePermission('workflows:read'), async (c) => {
       tags: q.tags,
       excludeTags: q.excludeTags,
       cursor: q.cursor,
-      limit: q.limit ? parseInt(q.limit, 10) : 25,
+      limit: parseLimit(q.limit, 25, 100),
     });
     return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
   } catch (err) {

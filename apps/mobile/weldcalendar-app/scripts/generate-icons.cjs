@@ -136,16 +136,17 @@ async function fitRect(buf, width, height, targetFraction, bg) {
   );
 
   console.log('Generated:');
-  for (const f of [
+  const generated = [
     'icon.png',
     'adaptive-icon.png',
     'splash-icon.png',
     'notification-icon.png',
     'logo.png',
-  ]) {
-    const m = await sharp(path.join(OUT, f)).metadata();
-    console.log(' ', f, `${m.width}x${m.height}`);
-  }
+  ];
+  const metas = await Promise.all(generated.map((f) => sharp(path.join(OUT, f)).metadata()));
+  generated.forEach((f, i) => {
+    console.log(' ', f, `${metas[i].width}x${metas[i].height}`);
+  });
 })().catch((err) => {
   console.error(err);
   process.exit(1);

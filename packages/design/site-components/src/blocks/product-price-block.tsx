@@ -9,7 +9,6 @@ export interface ProductPriceBlockProps {
   compareAtPrice?: string;
   currency?: string;
   textColor?: string;
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData & { selectedProduct?: Product };
 }
 

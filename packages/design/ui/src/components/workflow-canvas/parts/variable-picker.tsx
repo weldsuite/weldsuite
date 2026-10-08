@@ -45,7 +45,6 @@ export interface VariablePickerProps {
   trigger: React.ReactNode;
   onSelect: (variable: string) => void;
   triggerType?: string;
-  triggerData?: Record<string, unknown>;
   steps?: Array<{
     id: string;
     name: string;

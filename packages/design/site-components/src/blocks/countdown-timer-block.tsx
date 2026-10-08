@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 
 export interface CountdownTimerBlockProps {
   endDate?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 interface TimeLeft {

@@ -1,5 +1,5 @@
 {
-  "id": "9da09e99-9153-4cdc-b511-0cf6d853672a",
+  "id": "85027122-7265-4205-aaf3-c490217bdf0e",
   "prevId": "57f48b63-532f-47a4-b82b-317b42f65e63",
   "version": "7",
   "dialect": "postgresql",
@@ -800,6 +800,13 @@
           "notNull": true,
           "default": false
         },
+        "is_beta": {
+          "name": "is_beta",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "sort_order": {
           "name": "sort_order",
           "type": "integer",
@@ -1145,153 +1152,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.bank_feed_connection_index": {
-      "name": "bank_feed_connection_index",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider_connection_id": {
-          "name": "provider_connection_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "clerk_org_id": {
-          "name": "clerk_org_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "connection_id": {
-          "name": "connection_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "sync_interval_hours": {
-          "name": "sync_interval_hours",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 24
-        },
-        "next_sync_at": {
-          "name": "next_sync_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_triggered_at": {
-          "name": "last_triggered_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "bank_feed_connection_index_provider_uidx": {
-          "name": "bank_feed_connection_index_provider_uidx",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "provider_connection_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "bank_feed_connection_index_org_idx": {
-          "name": "bank_feed_connection_index_org_idx",
-          "columns": [
-            {
-              "expression": "clerk_org_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "bank_feed_connection_index_next_sync_idx": {
-          "name": "bank_feed_connection_index_next_sync_idx",
-          "columns": [
-            {
-              "expression": "next_sync_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

@@ -26,6 +26,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from './dialog';
+import { runEditorCommand } from '../lib/editor-commands';
 
 export function FloatingEmailWidget() {
   const { isPinned, emailData, unpinEmail, updateEmailData } = usePinnedEmail();
@@ -61,7 +62,7 @@ export function FloatingEmailWidget() {
   const applyFormatting = (command: string, value?: string) => {
     if (emailBodyRef.current) {
       emailBodyRef.current.focus();
-      document.execCommand(command, false, value);
+      runEditorCommand(command, value);
       updateEmailData({ body: emailBodyRef.current.innerHTML });
       emailBodyRef.current.focus();
     }
@@ -70,7 +71,7 @@ export function FloatingEmailWidget() {
   const handleInsertVariable = (variable: string) => {
     if (emailBodyRef.current) {
       emailBodyRef.current.focus();
-      document.execCommand('insertText', false, variable);
+      runEditorCommand('insertText', variable);
       updateEmailData({ body: emailBodyRef.current.innerHTML });
       emailBodyRef.current.focus();
     }
@@ -80,7 +81,7 @@ export function FloatingEmailWidget() {
   const handleInsertEmoji = (emoji: string) => {
     if (emailBodyRef.current) {
       emailBodyRef.current.focus();
-      document.execCommand('insertText', false, emoji);
+      runEditorCommand('insertText', emoji);
       updateEmailData({ body: emailBodyRef.current.innerHTML });
       emailBodyRef.current.focus();
     }

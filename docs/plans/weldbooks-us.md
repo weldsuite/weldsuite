@@ -912,7 +912,7 @@ for, even if other phases slip.
 One PR on top of phase 0. Migrations (approved): tenant
 `0202_weldbooks_us` (23 tables, US columns on entities, accounts, tax rates,
 documents and lines, journal lines, payments, bank accounts and transactions,
-parties and `tax_lines`) and master `0049_bank_feed_connection_index`.
+parties and `tax_lines`) and master `0050_bank_feed_connection_index`.
 
 **Domain (`packages/domains/books`)**
 - `jurisdictions/us/`: the adapter (features `salesTax` + `form1099`,

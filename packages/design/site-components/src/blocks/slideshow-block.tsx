@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 
@@ -26,7 +25,6 @@ export interface SlideshowBlockProps {
   contentAlignment?: 'left' | 'center' | 'right';
   transitionStyle?: 'fade' | 'slide' | 'zoom';
   mode?: 'live' | 'edit' | 'preview';
-  store?: StoreData;
 }
 
 export function SlideshowBlock({

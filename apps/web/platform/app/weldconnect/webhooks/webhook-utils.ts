@@ -43,3 +43,42 @@ export function eventStatusTone(status: string): EventTone {
       return 'neutral';
   }
 }
+
+/**
+ * The state a webhook is really in. The receiver only accepts calls while its
+ * workflow is published (`active`), so a webhook that is switched on still
+ * answers 404 for a draft or paused workflow: the status follows the workflow.
+ */
+export type WebhookStatus = 'active' | 'draft' | 'paused' | 'archived' | 'disabled';
+
+export function deriveWebhookStatus(webhook: {
+  isEnabled: boolean;
+  workflowStatus?: string | null;
+}): WebhookStatus {
+  if (!webhook.isEnabled) return 'disabled';
+  switch ((webhook.workflowStatus ?? '').toLowerCase()) {
+    case 'active':
+      return 'active';
+    case 'paused':
+      return 'paused';
+    case 'archived':
+      return 'archived';
+    default:
+      return 'draft';
+  }
+}
+
+/** The names a webhook gets when nobody named it (see routes/workflow-webhooks). */
+const GENERIC_WEBHOOK_NAMES = new Set(['webhook', 'webhook trigger']);
+
+/**
+ * Name to show for a webhook. The API names every provisioned webhook just
+ * "Webhook", which makes a list of them indistinguishable: fall back to the
+ * workflow's name, and keep any name a person chose.
+ */
+export function webhookDisplayName(webhook: { name?: string | null; workflowName?: string | null }): string {
+  const name = webhook.name?.trim() ?? '';
+  const workflowName = webhook.workflowName?.trim() ?? '';
+  if (workflowName && (!name || GENERIC_WEBHOOK_NAMES.has(name.toLowerCase()))) return workflowName;
+  return name || workflowName;
+}
