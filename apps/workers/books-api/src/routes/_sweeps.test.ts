@@ -37,6 +37,7 @@ import { salesTaxAgenciesRoutes } from './sales-tax-agencies';
 import { salesTaxJurisdictionsRoutes } from './sales-tax-jurisdictions';
 import { salesTaxRulesRoutes } from './sales-tax-rules';
 import { salesTaxZonesRoutes } from './sales-tax-zones';
+import { taxReturnsRoutes } from './tax-returns';
 import { w9RequestsRoutes } from './w9-requests';
 
 const ROUTES_DIR = __dirname;
@@ -53,6 +54,8 @@ const EXEMPT_ROUTES = new Set<string>([
 
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/bills', router: billsRoutes, prefix: 'bills' },
+  // Sales Tax Center: filing and payment need taxes:file on top (sub-routes, not the standard CRUD calls).
+  { mount: '/api/tax-returns', router: taxReturnsRoutes, prefix: 'taxes' },
   // US sales tax setup: agencies, the manual engine's jurisdictions, zones and rules, exemption certificates.
   { mount: '/api/sales-tax-agencies', router: salesTaxAgenciesRoutes, prefix: 'taxes' },
   { mount: '/api/sales-tax-jurisdictions', router: salesTaxJurisdictionsRoutes, prefix: 'taxes' },
@@ -76,6 +79,7 @@ const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/invoices', router: invoicesRoutes, permission: 'invoices:read' },
+  { mount: '/api/tax-returns', router: taxReturnsRoutes, permission: 'taxes:read' },
   { mount: '/api/sales-tax-agencies', router: salesTaxAgenciesRoutes, permission: 'taxes:read' },
   { mount: '/api/sales-tax-jurisdictions', router: salesTaxJurisdictionsRoutes, permission: 'taxes:read' },
   { mount: '/api/sales-tax-zones', router: salesTaxZonesRoutes, permission: 'taxes:read' },
