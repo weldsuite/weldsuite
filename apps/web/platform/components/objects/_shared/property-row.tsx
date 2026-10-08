@@ -224,11 +224,15 @@ export function PropertyRow({
         onClick={() => {
           if (editable && !isEditing) setIsEditing(true);
         }}
-        role={editable ? 'button' : undefined}
-        tabIndex={editable ? 0 : undefined}
+        role={editable && !isEditing ? 'button' : undefined}
+        tabIndex={editable && !isEditing ? 0 : undefined}
         onKeyDown={(e) => {
           if (!editable || isEditing) return;
-          if (e.key === 'Enter') setIsEditing(true);
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsEditing(true);
+          }
         }}
       >
         {isEditing ? renderEditor() : renderReadMode()}
