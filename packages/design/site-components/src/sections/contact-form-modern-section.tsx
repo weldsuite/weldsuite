@@ -41,6 +41,23 @@ export function ContactFormModernSection({
   maxWidth = 800,
   customFields = [],
 }: Readonly<ContactFormModernSectionProps>) {
+  // Darken the send button on hover and on keyboard focus.
+  const highlightSendButton = (e: React.SyntheticEvent<HTMLButtonElement>) => {
+    const rgb = Number.parseInt(buttonBackgroundColor.replace('#', ''), 16);
+    const r = (rgb >> 16) & 0xff;
+    const g = (rgb >> 8) & 0xff;
+    const b = rgb & 0xff;
+    const factor = 0.9;
+    const newR = Math.floor(r * factor);
+    const newG = Math.floor(g * factor);
+    const newB = Math.floor(b * factor);
+    e.currentTarget.style.backgroundColor = `rgb(${newR}, ${newG}, ${newB})`;
+  };
+
+  const resetSendButton = (e: React.SyntheticEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.backgroundColor = buttonBackgroundColor;
+  };
+
   // Helper function to render a form field
   const renderField = (field: FormField) => {
     const fieldStyle = {
@@ -216,20 +233,10 @@ export function ContactFormModernSection({
                 cursor: 'pointer',
                 transition: 'background-color 0.2s',
               }}
-              onMouseOver={(e) => {
-                const rgb = Number.parseInt(buttonBackgroundColor.replace('#', ''), 16);
-                const r = (rgb >> 16) & 0xff;
-                const g = (rgb >> 8) & 0xff;
-                const b = rgb & 0xff;
-                const factor = 0.9;
-                const newR = Math.floor(r * factor);
-                const newG = Math.floor(g * factor);
-                const newB = Math.floor(b * factor);
-                e.currentTarget.style.backgroundColor = `rgb(${newR}, ${newG}, ${newB})`;
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.backgroundColor = buttonBackgroundColor;
-              }}
+              onMouseOver={highlightSendButton}
+              onFocus={highlightSendButton}
+              onMouseOut={resetSendButton}
+              onBlur={resetSendButton}
             >
               {buttonText}
             </button>

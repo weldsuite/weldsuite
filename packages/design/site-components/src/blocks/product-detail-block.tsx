@@ -95,9 +95,10 @@ export function ProductDetailGalleryBlock({
         {/* Desktop Grid */}
         <div className="hidden md:grid md:grid-cols-2 gap-2">
           {displayImages.slice(0, 5).map((image: ProductImage, index: number) => (
-            <div
+            <button
+              type="button"
               key={index}
-              className={`aspect-square bg-gray-100 overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`}
+              className={`block w-full p-0 aspect-square bg-gray-100 overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`}
               style={{ borderRadius: `${imageRounding}px` }}
               onClick={() => setCurrentImageIndex(index)}
             >
@@ -106,7 +107,7 @@ export function ProductDetailGalleryBlock({
                 alt={image.alt || `Product image ${index + 1}`}
                 className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
               />
-            </div>
+            </button>
           ))}
         </div>
       </div>
