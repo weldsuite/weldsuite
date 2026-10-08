@@ -8,7 +8,6 @@ export interface VideoTextBlockProps {
   fontFamily?: string;
   fontSize?: string;
   textColor?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function VideoTextBlock({

@@ -7,7 +7,6 @@ export interface SlideTextBlockProps {
   fontSize?: number;
   color?: string;
   maxWidth?: number;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function SlideTextBlock({

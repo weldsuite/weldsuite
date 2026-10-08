@@ -15,7 +15,6 @@ export interface ProductShippingFeaturesBlockProps {
   returnsDays?: string;
   textColor?: string;
   iconColor?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductShippingFeaturesBlock({

@@ -7,7 +7,6 @@ export interface GalleryBlockProps {
   columns?: 2 | 3 | 4 | 5 | 6;
   gap?: 'sm' | 'md' | 'lg';
   lightbox?: boolean;
-  mode?: 'live' | 'preview';
 }
 
 export function GalleryBlock({

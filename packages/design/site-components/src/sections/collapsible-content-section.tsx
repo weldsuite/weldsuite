@@ -15,7 +15,6 @@ interface CollapsibleContentSectionProps {
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  sectionId?: string;
 }
 
 export function CollapsibleContentSection({

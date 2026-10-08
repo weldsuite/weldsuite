@@ -28,7 +28,6 @@ interface NavbarMinimalSectionProps {
   borderColor?: string;
   minimalStyle?: boolean;
   store?: StoreData;
-  mode?: string;
 }
 
 export function NavbarMinimalSection({

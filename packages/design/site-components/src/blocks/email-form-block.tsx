@@ -6,7 +6,6 @@ import { ArrowRight } from 'lucide-react';
 export interface EmailFormBlockProps {
   placeholder?: string;
   onSubmit?: (email: string) => void;
-  mode?: 'live' | 'preview';
 }
 
 export function EmailFormBlock({

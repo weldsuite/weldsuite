@@ -12,7 +12,6 @@ export interface QuoteBlockProps {
   borderColor?: string;
   fontSize?: 'sm' | 'md' | 'lg' | 'xl';
   fontStyle?: 'normal' | 'italic';
-  mode?: 'live' | 'preview';
 }
 
 export function QuoteBlock({

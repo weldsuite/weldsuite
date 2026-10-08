@@ -8,7 +8,6 @@ export interface ProductTitleRatingElementProps {
   showRating?: boolean;
   rating?: number;
   reviewCount?: number;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductTitleRatingElement({

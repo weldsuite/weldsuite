@@ -19,7 +19,6 @@ export interface ProductGridBlockProps {
   collectionHandle?: string;
   filterBy?: 'all' | 'collection' | 'new' | 'sale' | 'category';
   store?: StoreData;
-  mode?: 'live' | 'preview';
   // Product Card Settings
   imageRatio?: '1/1' | '4/5' | '3/4' | '16/9' | 'auto';
   imageShape?: 'square' | 'rounded' | 'circle';

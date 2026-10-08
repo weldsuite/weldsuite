@@ -13,7 +13,6 @@ export interface ProductCardBlockProps {
   variant?: 'default' | 'compact' | 'featured';
   productUrl?: string;
   onAddToCart?: () => void;
-  mode?: 'live' | 'preview';
 }
 
 export function ProductCardBlock({

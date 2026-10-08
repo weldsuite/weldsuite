@@ -13,7 +13,6 @@ export interface SocialIconsBlockProps {
   hoverColor?: string;
   backgroundColor?: string;
   layout?: 'horizontal' | 'vertical';
-  mode?: 'live' | 'preview';
 }
 
 export function SocialIconsBlock({

@@ -6,7 +6,6 @@ export interface SlideContainerBlockProps {
   backgroundImage?: string;
   overlayOpacity?: number;
   contentAlignment?: 'left' | 'center' | 'right';
-  mode?: 'live' | 'edit' | 'preview';
   children?: React.ReactNode;
 }
 

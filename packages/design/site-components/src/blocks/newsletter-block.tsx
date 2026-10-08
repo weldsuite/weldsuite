@@ -10,7 +10,6 @@ export interface NewsletterBlockProps {
   backgroundColor?: string;
   textColor?: string;
   onSubmit?: (email: string) => void;
-  mode?: 'live' | 'preview';
 }
 
 export function NewsletterBlock({

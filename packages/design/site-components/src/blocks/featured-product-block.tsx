@@ -33,7 +33,6 @@ export interface FeaturedProductBlockProps {
   badgeColor?: string;
   backgroundColor?: string;
   textColor?: string;
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData;
   storeName?: string;
   rating?: number;

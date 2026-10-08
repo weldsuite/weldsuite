@@ -9,7 +9,6 @@ export interface CartIconBlockProps {
   badgeTextColor?: string;
   size?: 'sm' | 'md' | 'lg';
   onClick?: () => void;
-  mode?: 'live' | 'preview';
 }
 
 export function CartIconBlock({

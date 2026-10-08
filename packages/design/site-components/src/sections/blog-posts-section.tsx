@@ -27,7 +27,6 @@ interface BlogPostsSectionProps {
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  sectionId?: string;
   store?: StoreData;
   posts?: BlogPost[];
 }

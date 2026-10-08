@@ -8,7 +8,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 
 interface FeaturedCollectionSectionProps {
-  sectionId?: string;
   heading?: string;
   subheading?: string;
   collectionTitle?: string;

@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from 'react';
 
 type HorizontalPosition = 'left' | 'center' | 'right';
@@ -39,7 +38,6 @@ export interface MultirowBlockProps {
   selectedBlockId?: string;
 
   // Store context
-  store?: StoreData;
 }
 
 export function MultirowBlock({

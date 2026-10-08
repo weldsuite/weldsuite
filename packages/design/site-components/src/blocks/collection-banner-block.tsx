@@ -12,7 +12,6 @@ export interface CollectionBannerBlockProps {
   overlayOpacity?: number;
   textColor?: string;
   buttonColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function CollectionBannerBlock({

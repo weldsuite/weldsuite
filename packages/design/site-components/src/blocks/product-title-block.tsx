@@ -6,7 +6,6 @@ import React from 'react';
 export interface ProductTitleBlockProps {
   productName?: string;
   textColor?: string;
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData;
 }
 

@@ -8,7 +8,6 @@ interface TextBlockProps {
   fontSize?: 'sm' | 'base' | 'lg' | 'xl' | '2xl';
   fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
   color?: string;
-  mode?: string;
 }
 
 export function TextBlock({

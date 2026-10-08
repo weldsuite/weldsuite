@@ -8,7 +8,6 @@ export interface GridBlockProps {
   mobileColumns?: number;
   tabletColumns?: number;
   children?: React.ReactNode;
-  mode?: 'live' | 'preview';
 }
 
 export function GridBlock({

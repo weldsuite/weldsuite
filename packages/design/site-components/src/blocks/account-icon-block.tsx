@@ -9,7 +9,6 @@ export interface AccountIconBlockProps {
   isLoggedIn?: boolean;
   showLabel?: boolean;
   labelText?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function AccountIconBlock({

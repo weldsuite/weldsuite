@@ -12,7 +12,6 @@ export interface HorizontalAccordionGalleryBlockProps {
   collapsedWidth?: number;
   gap?: number;
   showBorder?: boolean;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function HorizontalAccordionGalleryBlock({

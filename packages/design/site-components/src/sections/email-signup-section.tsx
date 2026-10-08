@@ -12,7 +12,6 @@ interface EmailSignupSectionProps {
   image?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  sectionId?: string;
 }
 
 export function EmailSignupSection({

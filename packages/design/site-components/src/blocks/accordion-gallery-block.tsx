@@ -6,7 +6,6 @@ import { activateOnKey } from "../lib/activate-on-key";
 
 export interface AccordionGalleryBlockProps {
   images?: Array<{ src: string; title: string; code: string }>;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function AccordionGalleryBlock({

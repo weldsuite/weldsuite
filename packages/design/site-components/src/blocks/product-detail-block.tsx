@@ -24,7 +24,6 @@ export interface ProductDetailGalleryBlockProps {
   imageRounding?: number;
   images?: ProductImage[];
   textColor?: string;
-  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -686,7 +685,6 @@ export function ProductDetailBlock({
               galleryStyle={galleryStyle}
               imageRounding={imageRounding}
               textColor={textColor}
-              mode={mode}
               store={store}
             />
           </div>

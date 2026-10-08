@@ -17,7 +17,6 @@ export interface CountdownBlockProps {
   };
   textColor?: string;
   backgroundColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function CountdownBlock({

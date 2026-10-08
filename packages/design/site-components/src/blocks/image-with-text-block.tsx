@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from 'react';
 
 interface Block {
@@ -47,7 +46,6 @@ export interface ImageWithTextBlockProps {
   selectedBlockId?: string;
 
   // Store context
-  store?: StoreData;
 }
 
 export function ImageWithTextBlock({
