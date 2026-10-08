@@ -20,6 +20,7 @@ import { useAgentsSidebarItems } from '@/app/agents/hooks/use-agents-sidebar-ite
 import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconnect-sidebar-items';
 import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sidebar-items';
 import { useWeldbooksSidebarItems } from '@/app/weldbooks/hooks/use-weldbooks-sidebar-items';
+import { isAppBeta } from '@/lib/apps/app-registry';
 
 interface UnifiedModuleSidebarProps {
   user?: UserInfo;
@@ -170,6 +171,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
         appName={config.appName}
         appIcon={config.appIcon}
         appLogo={config.appLogo}
+        appBeta={moduleKey ? isAppBeta(moduleKey) : false}
         menuItems={visibleMenuItems}
         user={user}
         currentWorkspace={currentWorkspace}

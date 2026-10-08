@@ -7,7 +7,8 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Loader2, Globe, FileText, Mail, CheckCircle, ChevronLeft, TrendingUp, Headphones, MessageSquare, CheckSquare, Server, Calculator, Layers, Info, type LucideIcon } from 'lucide-react';
-import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
+import { getAppLogo, getAppLucideIcon, isAppBeta } from '@/lib/apps/app-registry';
+import { BetaBadge } from '@/components/beta-badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
@@ -182,6 +183,7 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
                 {/* App Name */}
                 <div className="flex items-center gap-2 mb-0 leading-tight">
                   <h1 className="text-2xl font-semibold text-foreground leading-tight">{app.name}</h1>
+                  {isAppBeta(app.code) && <BetaBadge />}
                 </div>
 
                 {/* Tagline */}

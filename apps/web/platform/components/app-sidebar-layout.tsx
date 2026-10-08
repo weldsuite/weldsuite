@@ -74,6 +74,7 @@ import { useFeatureFlag } from "@/hooks/queries/use-feature-flags-queries"
 import { ResourceUsage } from "@/components/resource-usage"
 import { OnboardingChecklist } from "@/components/layout/onboarding-checklist-group"
 import { CalendarLogoIcon } from "@/components/calendar-logo-icon"
+import { BetaBadge } from "@/components/beta-badge"
 
 export { type UserInfo, type Workspace }
 
@@ -245,6 +246,8 @@ export interface AppSidebarLayoutProps extends React.ComponentProps<typeof Sideb
   appName: string;
   appIcon: LucideIcon | React.ComponentType<{ className?: string }>;
   appLogo?: AppLogo;
+  /** Show a "Beta" badge next to the app name in the sidebar header */
+  appBeta?: boolean;
   menuItems: MenuGroupProps[];
   workspaceSwitcher?: React.ReactNode;
   footer?: React.ReactNode;
@@ -331,11 +334,12 @@ interface SidebarBrandProps {
   appLogo?: AppLogo;
   AppIcon: AppSidebarLayoutProps['appIcon'];
   appName: string;
+  appBeta?: boolean;
   state: ReturnType<typeof useSidebar>['state'];
   isDark: boolean;
 }
 
-function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, state, isDark }: Readonly<SidebarBrandProps>) {
+function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, appBeta, state, isDark }: Readonly<SidebarBrandProps>) {
   if (showBackButton) {
     return (
       <>
@@ -348,7 +352,10 @@ function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, state
           <ChevronLeft className="h-6 w-6" />
         </Button>
         {state === "expanded" && (
-          <span className="text-lg font-semibold -ml-1">{appName}</span>
+          <>
+            <span className="text-lg font-semibold -ml-1">{appName}</span>
+            {appBeta && <BetaBadge />}
+          </>
         )}
       </>
     );
@@ -371,7 +378,10 @@ function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, state
           />
         )}
         {state === "expanded" && (
-          <span className="text-lg font-semibold">{appName}</span>
+          <>
+            <span className="text-lg font-semibold">{appName}</span>
+            {appBeta && <BetaBadge />}
+          </>
         )}
       </>
     );
@@ -380,7 +390,10 @@ function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, state
     <>
       <AppIcon className="h-6 w-6 shrink-0" />
       {state === "expanded" && (
-        <span className="text-lg font-semibold">{appName}</span>
+        <>
+          <span className="text-lg font-semibold">{appName}</span>
+          {appBeta && <BetaBadge />}
+        </>
       )}
     </>
   );
@@ -1090,6 +1103,7 @@ export function AppSidebarLayout({
   appName,
   appIcon: AppIcon,
   appLogo,
+  appBeta,
   menuItems,
   workspaceSwitcher,
   footer,
@@ -1254,6 +1268,7 @@ export function AppSidebarLayout({
               appLogo={appLogo}
               AppIcon={AppIcon}
               appName={appName}
+              appBeta={appBeta}
               state={state}
               isDark={isDark}
             />

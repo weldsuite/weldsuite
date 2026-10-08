@@ -27,7 +27,8 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
+import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass, isAppBeta } from '@/lib/apps/app-registry';
+import { RailBetaBadge } from '@/components/beta-badge';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 
@@ -148,6 +149,7 @@ function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverE
           <span className={cn('transition-all', !isActive && 'grayscale opacity-60 group-hover:grayscale-0 group-hover:opacity-100')}>
             {icon}
           </span>
+          {isAppBeta(app.appCode) && <RailBetaBadge />}
         </a>
       </TooltipTrigger>
       <TooltipContent side="right">
@@ -382,6 +384,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
                       <span className={cn('transition-all', !isActive(appPath) && 'grayscale opacity-60 group-hover:grayscale-0 group-hover:opacity-100')}>
                         {icon}
                       </span>
+                      {isAppBeta(app.appCode) && <RailBetaBadge />}
                     </Link>
                   </TooltipTrigger>
                   <TooltipContent side="right">

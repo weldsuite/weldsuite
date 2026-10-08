@@ -39,6 +39,8 @@ export interface AppAssets {
   sidebarIconClass?: string;
   /** Hide this app from the onboarding app selection (still visible in app store) */
   hideFromOnboarding?: boolean;
+  /** Show a "Beta" badge wherever the app is presented (rail, module header, app store) */
+  beta?: boolean;
 }
 
 function makeLogo(appCode: string, opts?: { iconClassName?: string }): AppLogo {
@@ -110,6 +112,7 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
       iconDark: '/assets/images/weldconnect/logo-dark.png',
     },
     sidebarIconClass: 'h-[27px] w-[27px]',
+    beta: true,
   },
   weldhost: {
     lucideIcon: Globe,
@@ -365,4 +368,9 @@ export function getAppShortName(code: string, fallback: string): string {
 /** Check if an app should be hidden from the onboarding flow. */
 export function isHiddenFromOnboarding(code: string): boolean {
   return lookupAssets(code)?.hideFromOnboarding === true;
+}
+
+/** Whether the app is still in beta and should carry a "Beta" badge. */
+export function isAppBeta(code: string): boolean {
+  return lookupAssets(code)?.beta === true;
 }

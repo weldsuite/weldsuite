@@ -32,7 +32,8 @@ import { useSettings } from '@/providers/settings-provider';
 import { useSidebarBadges } from '@/hooks/use-sidebar-badges';
 import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
 import { useTheme } from '@/hooks/use-theme';
-import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
+import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass, isAppBeta } from '@/lib/apps/app-registry';
+import { RailBetaBadge } from '@/components/beta-badge';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { Button } from '@weldsuite/ui/components/button';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
@@ -244,11 +245,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         ) : null}
-        {showBeta ? (
-          <span className="absolute -top-1 -right-1 z-10 text-[10px] font-mono text-white bg-black border border-black h-[16px] flex items-center justify-center rounded-[5px] px-1 pointer-events-none">
-            <span className="-translate-y-[0.5px]">{st('sweep.shared.beta')}</span>
-          </span>
-        ) : null}
+        {showBeta ? <RailBetaBadge /> : null}
       </Button>
     );
   };
@@ -320,9 +317,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
           {/* Installed Apps */}
           {installedApps.map((app) => {
             const appPath = appHref(app.appCode, app.appType);
-            const showBeta =
-              app.appCode === 'welddesk' ||
-              app.appCode === 'weldconnect';
+            const showBeta = app.appCode === 'welddesk' || isAppBeta(app.appCode);
             return (
               <React.Fragment key={app.id}>
                 {renderRailButton({

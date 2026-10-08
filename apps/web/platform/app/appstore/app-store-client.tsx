@@ -8,7 +8,8 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
+import { getAppLogo, getAppLucideIcon, isAppBeta } from '@/lib/apps/app-registry';
+import { BetaBadge } from '@/components/beta-badge';
 import { getTranslations } from '@/lib/i18n';
 import { CustomAppsSection, OfficialHostedAppsSection } from './custom-apps-section';
 
@@ -254,6 +255,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                               <h3 className="text-[0.9375rem] font-semibold text-foreground m-0">
                                 {app.name}
                               </h3>
+                              {isAppBeta(app.code) && <BetaBadge />}
                             </div>
                             <p className="text-xs text-muted-foreground m-0">
                               {app.category}
