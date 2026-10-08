@@ -224,10 +224,14 @@ app.post(
     const encKey = { v1: c.env.DATABASE_ENCRYPTION_KEY, v2: c.env.DATABASE_ENCRYPTION_KEY_V2 };
     const { credentials } = c.req.valid('json');
 
-    const encrypted: Record<string, string> = {};
-    for (const [k, v] of Object.entries(credentials)) {
-      encrypted[k] = encKey.v1 || encKey.v2 ? await encryptField(v, encKey) : v;
-    }
+    const encrypted: Record<string, string> = Object.fromEntries(
+      await Promise.all(
+        Object.entries(credentials).map(async ([k, v]): Promise<[string, string]> => [
+          k,
+          encKey.v1 || encKey.v2 ? await encryptField(v, encKey) : v,
+        ]),
+      ),
+    );
 
     const now = new Date();
     const id = generateId('int');

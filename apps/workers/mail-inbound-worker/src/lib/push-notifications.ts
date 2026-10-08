@@ -159,16 +159,18 @@ export async function sendNewEmailPushNotification(
 
     if (tokensToDeactivate.size > 0) {
       console.log(`[PushNotify] Deactivating ${tokensToDeactivate.size} invalid token(s)`);
-      for (const invalidToken of tokensToDeactivate) {
-        try {
-          await tenantDb
-            .update(tenantSchema.deviceTokens)
-            .set({ isActive: new Date() })
-            .where(eq(tenantSchema.deviceTokens.token, invalidToken));
-        } catch (err) {
-          console.error(`[PushNotify] Failed to deactivate token:`, err);
-        }
-      }
+      await Promise.all(
+        [...tokensToDeactivate].map(async (invalidToken) => {
+          try {
+            await tenantDb
+              .update(tenantSchema.deviceTokens)
+              .set({ isActive: new Date() })
+              .where(eq(tenantSchema.deviceTokens.token, invalidToken));
+          } catch (err) {
+            console.error(`[PushNotify] Failed to deactivate token:`, err);
+          }
+        }),
+      );
     }
 
     if (result.receiptIds.length > 0) {
@@ -280,16 +282,18 @@ export async function sendPersonalEmailPushNotification(
       console.log(
         `[PushNotify] Deactivating ${tokensToDeactivate.size} invalid personal token(s)`,
       );
-      for (const invalidToken of tokensToDeactivate) {
-        try {
-          await personalDb
-            .update(personalSchema.personalDeviceTokens)
-            .set({ isActive: new Date(), updatedAt: new Date() })
-            .where(eq(personalSchema.personalDeviceTokens.token, invalidToken));
-        } catch (err) {
-          console.error('[PushNotify] Failed to deactivate personal token:', err);
-        }
-      }
+      await Promise.all(
+        [...tokensToDeactivate].map(async (invalidToken) => {
+          try {
+            await personalDb
+              .update(personalSchema.personalDeviceTokens)
+              .set({ isActive: new Date(), updatedAt: new Date() })
+              .where(eq(personalSchema.personalDeviceTokens.token, invalidToken));
+          } catch (err) {
+            console.error('[PushNotify] Failed to deactivate personal token:', err);
+          }
+        }),
+      );
     }
 
     return result;

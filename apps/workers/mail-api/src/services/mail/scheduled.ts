@@ -19,7 +19,7 @@
  * "send via Cloudflare" code lives in one place.
  */
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
@@ -154,25 +154,25 @@ export async function scheduleEmail(
   // create rows for the freshly-uploaded ones so the workflow can fetch
   // them from R2 at delivery time.
   if (data.attachmentIds?.length) {
-    for (const attachmentId of data.attachmentIds) {
-      await db
-        .update(mailAttachments)
-        .set({ messageId, updatedAt: now })
-        .where(eq(mailAttachments.id, attachmentId));
-    }
+    await db
+      .update(mailAttachments)
+      .set({ messageId, updatedAt: now })
+      .where(inArray(mailAttachments.id, data.attachmentIds));
   }
-  for (const att of validated) {
-    await db.insert(mailAttachments).values({
-      id: generateId('attach'),
-      messageId,
-      fileName: att.filename,
-      contentType: att.contentType ?? 'application/octet-stream',
-      size: att.size,
-      storagePath: att.fileKey,
-      isInline: false,
-      createdAt: now,
-      updatedAt: now,
-    });
+  if (validated.length > 0) {
+    await db.insert(mailAttachments).values(
+      validated.map((att) => ({
+        id: generateId('attach'),
+        messageId,
+        fileName: att.filename,
+        contentType: att.contentType ?? 'application/octet-stream',
+        size: att.size,
+        storagePath: att.fileKey,
+        isInline: false,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
   }
 
   // Workflow instance id == messageId — cancel/reschedule routes look it
