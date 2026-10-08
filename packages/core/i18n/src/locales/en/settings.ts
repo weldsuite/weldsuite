@@ -75,7 +75,7 @@ export const settings = {
       mailAccounts: 'Mail Accounts',
       manageMailAccounts: 'Manage email accounts',
       weldhrSettings: 'WeldHR',
-      configureWeldhr: 'Departments, checklist templates, leave types, evaluation forms and KPIs',
+      configureWeldhr: 'Departments and leave types',
     },
 
     companyInfo: {
@@ -1038,7 +1038,7 @@ export const settings = {
 
     weldhr: {
       title: 'WeldHR',
-      description: 'Departments, onboarding checklists, leave types, evaluation forms and KPI definitions.',
+      description: 'Departments and leave types.',
     },
 
     weldcrm: {

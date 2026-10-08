@@ -5,7 +5,6 @@
  */
 import { weldhrAdmin } from './weldhr-admin';
 import { weldhrPeople } from './weldhr-people';
-import { weldhrPerformance } from './weldhr-performance';
 import { weldhrSelf } from './weldhr-self';
 import { weldhrTime } from './weldhr-time';
 
@@ -24,15 +23,11 @@ export const weldhr = {
     add: 'Toevoegen',
     edit: 'Bewerken',
     delete: 'Verwijderen',
-    remove: 'Verwijderen',
-    close: 'Sluiten',
-    confirm: 'Bevestigen',
     search: 'Zoeken',
     all: 'Alle',
     none: 'Geen',
     yes: 'Ja',
     no: 'Nee',
-    employee: 'Medewerker',
     client: 'Klantaccount',
     date: 'Datum',
     from: 'Van',
@@ -43,13 +38,7 @@ export const weldhr = {
     loadFailed: 'Deze gegevens konden niet worden geladen.',
     saveFailed: 'Je wijzigingen konden niet worden opgeslagen.',
     deleteFailed: 'Dit item kon niet worden verwijderd.',
-    confirmDelete: 'Dit item verwijderen? Dit kan niet ongedaan worden gemaakt.',
-    sharedWithClient: 'Gedeeld met klant',
-    sharedWithClientHint: 'Zichtbaar voor de klant in het medewerkersportaal.',
     internalOnly: 'Alleen intern',
-    importCsv: 'CSV importeren',
-    importResult: '{created} toegevoegd, {updated} bijgewerkt',
-    importErrors: '{count} rijen konden niet worden geïmporteerd',
     noPermission: 'Je hebt geen toegang tot deze gegevens.',
   },
 
@@ -152,7 +141,6 @@ export const weldhr = {
 
   ...weldhrPeople,
   ...weldhrTime,
-  ...weldhrPerformance,
   ...weldhrAdmin,
   ...weldhrSelf,
 };
