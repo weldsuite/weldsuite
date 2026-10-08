@@ -21,6 +21,15 @@ function SubAgentNodeComponent({ data, selected }: NodeProps) {
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={() => nodeData.onEditSubAgent?.(nodeData.subAgentId)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          nodeData.onEditSubAgent?.(nodeData.subAgentId);
+        }
+      }}
     >
       {/* Left-side target handle */}
       <Handle

@@ -35,7 +35,6 @@ import { PencilIcon, PlusIcon, TrashIcon } from 'lucide-react';
 import type {
   CSSProperties,
   FC,
-  KeyboardEventHandler,
   MouseEventHandler,
   ReactNode,
   RefObject,
@@ -518,7 +517,7 @@ export const GanttSidebarItem: FC<GanttSidebarItemProps> = ({
     ? formatDistance(feature.startAt, tempEndAt)
     : `${formatDistance(feature.startAt, new Date())} so far`;
 
-  const handleClick: MouseEventHandler<HTMLDivElement> = (event) => {
+  const handleClick: MouseEventHandler<HTMLButtonElement> = (event) => {
     if (event.target === event.currentTarget) {
       // Scroll to the feature in the timeline
       gantt.scrollToFeature?.(feature);
@@ -527,30 +526,19 @@ export const GanttSidebarItem: FC<GanttSidebarItemProps> = ({
     }
   };
 
-  const handleKeyDown: KeyboardEventHandler<HTMLDivElement> = (event) => {
-    if (event.key === 'Enter') {
-      // Scroll to the feature in the timeline
-      gantt.scrollToFeature?.(feature);
-      // Call the original onSelectItem callback
-      onSelectItem?.(feature.id);
-    }
-  };
-
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        'relative flex items-center gap-2.5 p-2.5 text-xs hover:bg-secondary',
+        'relative flex w-full items-center gap-2.5 p-2.5 text-left text-xs hover:bg-secondary',
         feature.isSubtask && 'pl-6',
         className
       )}
       key={feature.id}
       onClick={handleClick}
-      onKeyDown={handleKeyDown}
-      role="button"
       style={{
         height: 'var(--gantt-row-height)',
       }}
-      tabIndex={0}
     >
       <div
         className={cn(
@@ -568,7 +556,7 @@ export const GanttSidebarItem: FC<GanttSidebarItemProps> = ({
         {feature.name}
       </p>
       <p className="pointer-events-none text-muted-foreground">{duration}</p>
-    </div>
+    </button>
   );
 };
 
@@ -1343,7 +1331,8 @@ export const GanttMarker: FC<
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div
+          <button
+            type="button"
             className={cn(
               'group pointer-events-auto sticky top-0 flex select-auto flex-col flex-nowrap items-center justify-center whitespace-nowrap rounded-b-md bg-card px-2 py-1 text-foreground text-xs cursor-pointer',
               className
@@ -1351,10 +1340,10 @@ export const GanttMarker: FC<
             onClick={(e) => handleSelect(e)}
           >
             {label}
-            <span className="max-h-[0] overflow-hidden opacity-80 transition-all group-hover:max-h-[2rem]">
+            <span className="max-h-[0] overflow-hidden opacity-80 transition-all group-hover:max-h-[2rem] group-focus-visible:max-h-[2rem]">
               {formatDate(date, 'MMM dd, yyyy')}
             </span>
-          </div>
+          </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
           {onRename ? (

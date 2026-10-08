@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useCallback, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   Mic,
   MicOff,
@@ -117,24 +117,18 @@ function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: Re
   const clickable = !!onClickPerson && !isWaiting && !row.isSelf;
   // The context menu is enabled for any in-call row (incl. self) on platform.
   const menuEnabled = !!onClickPerson && !isWaiting;
-  return (
-    <div
-      className={cn(
-        'group flex items-center gap-3 px-4 py-3 border-b border-border/70',
-        'hover:bg-gray-50 dark:hover:bg-secondary/40 transition-colors',
-        clickable && 'cursor-pointer',
-      )}
-      onClick={clickable ? () => onClickPerson(row.raw) : undefined}
-      onContextMenu={
-        menuEnabled
-          ? (e) => {
-              e.preventDefault();
-              onOpenMenu(row, e.clientX, e.clientY);
-            }
-          : undefined
+  const rowClassName = cn(
+    'group flex items-center gap-3 px-4 py-3 border-b border-border/70',
+    'hover:bg-gray-50 dark:hover:bg-secondary/40 transition-colors',
+  );
+  const handleContextMenu = menuEnabled
+    ? (e: ReactMouseEvent) => {
+        e.preventDefault();
+        onOpenMenu(row, e.clientX, e.clientY);
       }
-      title={clickable ? `View ${row.name}` : undefined}
-    >
+    : undefined;
+  const content = (
+    <>
       <div className="relative flex-shrink-0">
         <Avatar className="h-7 w-7 !rounded-[8px]">
           {row.picture && <AvatarImage src={row.picture} className="!rounded-[8px]" />}
@@ -150,6 +144,24 @@ function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: Re
         </p>
       </div>
       <RowTrailing row={row} isWaiting={isWaiting} onAdmit={onAdmit} onReject={onReject} />
+    </>
+  );
+  if (clickable) {
+    return (
+      <button
+        type="button"
+        className={cn(rowClassName, 'w-full text-left cursor-pointer')}
+        onClick={() => onClickPerson(row.raw)}
+        onContextMenu={handleContextMenu}
+        title={`View ${row.name}`}
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <div className={rowClassName} onContextMenu={handleContextMenu}>
+      {content}
     </div>
   );
 }

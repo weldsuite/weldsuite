@@ -295,6 +295,15 @@ function PinnedBar({
       <div
         className="group border-b bg-muted/30 flex-shrink-0 flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors"
         onClick={handleClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleClick();
+          }
+        }}
       >
         {pinnedMessages.length > 1 && (
           <div className="flex flex-col justify-center gap-[2px] flex-shrink-0 h-[20px]">
