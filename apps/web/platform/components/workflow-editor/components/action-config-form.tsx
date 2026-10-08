@@ -123,6 +123,21 @@ interface ActionConfigFormProps {
   excludeGroups?: string[];
 }
 
+// Header rows have no id; give each row object a stable render key so
+// removing a row doesn't shift input state onto its neighbour.
+const headerRowKeys = new WeakMap<object, string>();
+let headerRowKeySeq = 0;
+
+function getHeaderRowKey(row: object): string {
+  let key = headerRowKeys.get(row);
+  if (!key) {
+    headerRowKeySeq += 1;
+    key = `header-${headerRowKeySeq}`;
+    headerRowKeys.set(row, key);
+  }
+  return key;
+}
+
 // Field wrapper with label and description
 function FormField({
   label,
@@ -626,7 +641,7 @@ function HttpRequestForm({
       <FormField label={acf.headers}>
         <div className="space-y-2">
           {headers.map((header, index) => (
-            <div key={index} className="flex gap-2">
+            <div key={getHeaderRowKey(header)} className="flex gap-2">
               <Input
                 value={header.key}
                 onChange={(e) => {

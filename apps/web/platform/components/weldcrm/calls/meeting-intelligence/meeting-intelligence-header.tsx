@@ -111,9 +111,9 @@ export function MeetingIntelligenceHeader({
             )}
           </Button>
         )}
-        {headerActions?.map((action, i) => (
+        {headerActions?.map((action) => (
           <Button
-            key={i}
+            key={action.label}
             variant={action.variant || 'ghost'}
             size={action.showLabel ? 'sm' : 'icon-sm'}
             className={action.showLabel ? 'h-8 gap-1.5' : undefined}

@@ -209,10 +209,10 @@ export function ZapietHomeView({
                   title: 'Performance improvements',
                   date: 'Nov 28',
                 }
-              ].map((item, index) => (
+              ].map((item) => (
                 <Button
                   variant="ghost"
-                  key={index}
+                  key={item.title}
                   onClick={enabledPages.includes('changelog') ? onOpenChangelog : onOpenNews}
                   className="w-full flex items-center justify-between px-3.5 py-3 bg-gray-50 dark:bg-background hover:bg-gray-100 dark:hover:bg-secondary rounded-lg transition-all duration-150 group"
                 >

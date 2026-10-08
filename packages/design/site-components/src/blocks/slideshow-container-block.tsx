@@ -109,7 +109,7 @@ export function SlideshowContainerBlock({
       <div className="absolute inset-0 w-full h-full">
         {slides.map((slide, index) => (
           <div
-            key={index}
+            key={React.isValidElement(slide) ? (slide.key ?? index) : index}
             className={`absolute inset-0 w-full h-full ${getTransitionClasses(index)}`}
           >
             {slide}
