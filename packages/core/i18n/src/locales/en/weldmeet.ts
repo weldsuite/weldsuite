@@ -261,6 +261,7 @@ export const weldmeet = {
     copyJoiningInfo: 'Copy joining info',
     joiningInfoCopied: 'Joining info copied',
     popOut: 'Pop out',
+    hide: 'Hide',
     endMeeting: 'End meeting',
     leaveMeeting: 'Leave meeting',
     you: 'You',

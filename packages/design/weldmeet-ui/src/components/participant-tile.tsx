@@ -145,6 +145,10 @@ function tileClassName({ showColoredTile, clickable, pinned, isSpeaking, isHandR
 }
 
 /** Keeps the context menu (220x340) inside the viewport when opened at the pointer. */
+// In-meeting camera-off avatar: smaller and rounder than ParticipantAvatar's
+// default (28cqmin, max 128px, 20% radius). The ringing halo shares the box.
+const TILE_AVATAR_BOX = 'h-[21cqmin] w-[21cqmin] max-h-24 max-w-24 rounded-[30%]';
+
 function getContextMenuPosition(clientX: number, clientY: number) {
   const menuW = 220;
   const menuH = 340;
@@ -256,7 +260,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
       {/* Outgoing-call ringing halo — a pulse emanating from the avatar. */}
       {ringing && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span className="h-[28cqmin] w-[28cqmin] min-h-10 min-w-10 max-h-32 max-w-32 rounded-[20%] ring-2 ring-primary/60 animate-ping" />
+          <span className={cn(TILE_AVATAR_BOX, 'min-h-10 min-w-10 ring-2 ring-primary/60 animate-ping')} />
         </div>
       )}
       {ringing && participant.ringingLabel && (
@@ -303,6 +307,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
           initials={initials}
           color={theme.avatar}
           picture={participant.picture}
+          className={cn(TILE_AVATAR_BOX, 'text-[clamp(0.75rem,6cqmin,1.75rem)]')}
         />
       ) : (
         // Auto Picture-in-Picture is owned exclusively by the off-screen video
