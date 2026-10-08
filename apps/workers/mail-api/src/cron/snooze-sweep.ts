@@ -1,16 +1,21 @@
 /**
- * Snooze wake-up sweep — Cloudflare Cron Handler
+ * Snooze wake-up sweep — Cloudflare Cron Handler (every 5 minutes).
  *
- * Production and local dev run every 5 minutes. Test runs hourly
- * (`0 * * * *`). Each tick lists mailbox workspaces from the master DB, then
- * resolves each tenant (a master read whenever the 5-minute workspace cache
- * has expired). On Neon's 5-minute suspend window that cadence never lets the
- * test master compute go idle, so test trades wake-up latency for scale-to-zero.
+ * Snoozing only moves a mail out of the inbox; this brings it back once its
+ * `snoozedUntil` has passed (`wakeDueSnoozedMessages`: one indexed UPDATE per
+ * workspace). The thread listing also wakes due mail for the mailbox being
+ * opened, so this sweep matters for the time nobody is looking.
  *
- * Snoozing only moves a mail out of the inbox; nothing brought it back, so a
- * snoozed mail stayed hidden for good. This walks the workspaces that have a
- * mailbox and wakes every message whose `snoozedUntil` has passed
- * (`wakeDueSnoozedMessages`: one indexed UPDATE per workspace).
+ * It must not open idle tenants to find out (AGENTS.md: "Never periodically
+ * wake tenant databases"). Every workspace has a mailbox, so the old
+ * walk-every-mailbox loop woke every tenant Neon every tick. Timing now lives
+ * in the SCHEDULE_INDEX D1 `workspace_due_index` (kind `mail_snooze`):
+ *
+ * - The snooze / re-snooze routes mark the workspace due at the snooze time.
+ * - Each tick reads only D1, opens the workspaces that are due, wakes their
+ *   mail and stores when the next snoozed mail comes due (or drops the row).
+ * - A one-time seed (KV flag below) marks every mailbox workspace due once,
+ *   so mail snoozed before the index existed is picked up.
  *
  * Only workspace mailboxes are swept. Personal inboxes live in the shared
  * personal database, which is personal-api's.
@@ -19,18 +24,21 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema } from '@weldsuite/worker-kit/db';
-import { wakeDueSnoozedMessages } from '@weldsuite/mail-domain/snooze';
+import { runDueIndexSweep, type DueIndexSweepResult } from '@weldsuite/worker-kit/due-index';
+import { nextSnoozeDueAt, wakeDueSnoozedMessages } from '@weldsuite/mail-domain/snooze';
 
-/**
- * Cron expressions that run this sweep. Production and local dev use the
- * 5-minute one; test uses the hourly one so the master compute can suspend.
- * Both must stay in step with the `[triggers]` blocks in wrangler.toml.
- */
-export const SNOOZE_SWEEP_CRONS = ['*/5 * * * *', '0 * * * *'] as const;
+/** The cron expression that runs this sweep; keep in step with wrangler.toml. */
+export const SNOOZE_SWEEP_CRONS = ['*/5 * * * *'] as const;
 
 export function isSnoozeSweepCron(cron: string): boolean {
   return (SNOOZE_SWEEP_CRONS as readonly string[]).includes(cron);
 }
+
+/** KV flag: mailbox workspaces were seeded into the due index. Bump to reseed. */
+export const SNOOZE_INDEX_SEED_KEY = 'mail:snooze-index:seed:v1';
+
+/** A workspace that failed (Neon hiccup, broken tenant) is retried after this. */
+const RETRY_AFTER_MS = 15 * 60_000;
 
 /** The Clerk org ids of the active workspaces that have at least one mailbox. */
 async function listMailWorkspaceOrgIds(env: Env): Promise<string[]> {
@@ -54,25 +62,27 @@ async function listMailWorkspaceOrgIds(env: Env): Promise<string[]> {
 export async function runSnoozeSweep(
   env: Env,
   now: Date = new Date(),
-): Promise<{ workspaces: number; woken: number; failed: number }> {
-  const orgIds = await listMailWorkspaceOrgIds(env);
-
+): Promise<DueIndexSweepResult & { woken: number }> {
   let woken = 0;
-  let failed = 0;
-  for (const orgId of orgIds) {
-    try {
+  const result = await runDueIndexSweep({
+    d1: env.SCHEDULE_INDEX,
+    kv: env.WORKSPACE_CACHE,
+    kind: 'mail_snooze',
+    label: '[SnoozeSweep]',
+    seed: { key: SNOOZE_INDEX_SEED_KEY, listWorkspaces: () => listMailWorkspaceOrgIds(env) },
+    retryAfterMs: RETRY_AFTER_MS,
+    now: now.getTime(),
+    process: async (orgId, at) => {
       const db = await getTenantDbForWorkspace(env, orgId);
-      const result = await wakeDueSnoozedMessages(db, { now });
-      woken += result.woken;
-    } catch (err) {
-      // One broken tenant must not keep everyone else's mail snoozed.
-      failed++;
-      console.error(`[SnoozeSweep] Workspace ${orgId} failed:`, err instanceof Error ? err.message : err);
-    }
-  }
+      woken += (await wakeDueSnoozedMessages(db, { now: at })).woken;
+      return nextSnoozeDueAt(db);
+    },
+  });
 
-  if (woken > 0 || failed > 0) {
-    console.log(`[SnoozeSweep] workspaces=${orgIds.length} woken=${woken} failed=${failed}`);
+  if (result.due > 0 || result.failed > 0) {
+    console.log(
+      `[SnoozeSweep] due=${result.due} processed=${result.processed} woken=${woken} failed=${result.failed}`,
+    );
   }
-  return { workspaces: orgIds.length, woken, failed };
+  return { ...result, woken };
 }

@@ -7,6 +7,7 @@
 
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useIdleAwareRefetchInterval } from '@/hooks/use-user-idle';
 import type { ActivityItem, ListActivityQuery } from '@weldsuite/core-api-client/schemas/weldchat-activity';
 import type { DraftItem, UpsertDraftInput } from '@weldsuite/core-api-client/schemas/weldchat-drafts';
 import type { DirectoryChannelItem } from '@weldsuite/core-api-client/schemas/weldchat-directories';
@@ -77,15 +78,19 @@ export function useChatActivity(filter: ListActivityQuery['filter'] = 'all') {
 
 export function useChatActivityUnread() {
   const { getClient } = useAppApiClient();
+  const queryKey = weldchatExtrasKeys.activityUnread();
+  // Mounted for every module (sidebar badge), so the poll must stop when the
+  // user is idle or an unattended tab keeps the workspace database awake.
+  const refetchInterval = useIdleAwareRefetchInterval(queryKey, 60_000);
 
   return useQuery({
-    queryKey: weldchatExtrasKeys.activityUnread(),
+    queryKey,
     queryFn: async () => {
       const client = await getClient();
       return client.get<{ data: { count: number } }>('/chat-activity/unread-count');
     },
     refetchOnWindowFocus: true,
-    refetchInterval: 60_000,
+    refetchInterval,
   });
 }
 

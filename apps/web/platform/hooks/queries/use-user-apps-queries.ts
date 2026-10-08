@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
+import { useIdleAwareRefetchInterval } from '@/hooks/use-user-idle';
 import { getAppApiUrl } from '@/lib/api/public-env';
 
 /**
@@ -476,13 +477,21 @@ export interface UserAppDevSession {
  * Active `weld app dev` preview for the signed-in developer. Polls so the
  * iframe picks up a session started after this page was opened. Other
  * workspace members always get `null` and keep seeing the R2 bundle.
+ *
+ * The poll only matters while a developer is iterating, so it stops when the
+ * user is idle (an unattended tab must not keep the workspace database awake)
+ * and while `options.poll` is false. WeldApp frames stay mounted after the user
+ * navigates away; the frame layer passes `poll: false` for the hidden ones.
+ * Polling resumes with one immediate refresh.
  */
-export function useUserAppDevSession(appCode: string | undefined) {
+export function useUserAppDevSession(appCode: string | undefined, options: { poll?: boolean } = {}) {
   const { getClient } = useAppApiClient();
+  const queryKey = userAppsKeys.devSession(appCode ?? '');
+  const refetchInterval = useIdleAwareRefetchInterval(queryKey, 5_000, { active: options.poll ?? true });
   return useQuery({
-    queryKey: userAppsKeys.devSession(appCode ?? ''),
+    queryKey,
     enabled: Boolean(appCode),
-    refetchInterval: 5_000,
+    refetchInterval,
     queryFn: async () => {
       const client = await getClient();
       const result = await client.get<{ data: UserAppDevSession | null }>(

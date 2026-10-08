@@ -11,6 +11,10 @@ export interface Env extends KitEnv {
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
 
+  /** Schedule-index D1: `workspace_due_index` rows (kind `mail_snooze`) that
+   *  tell the snooze sweep which workspaces have mail coming due. */
+  SCHEDULE_INDEX?: D1Database;
+
   /** R2 bucket for mail attachments and generated contact avatars. */
   STORAGE?: R2Bucket;
   /** Public hostname that serves objects in the STORAGE bucket. */

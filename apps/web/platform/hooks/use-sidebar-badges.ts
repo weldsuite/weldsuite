@@ -3,6 +3,9 @@ import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-quer
 import { useUser } from '@clerk/clerk-react';
 import { useWorkspace } from '@/contexts/workspace-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useIdleAwareRefetchInterval } from '@/hooks/use-user-idle';
+
+const SIDEBAR_BADGES_POLL_MS = 60_000;
 
 export interface SidebarBadgeCounts {
   mail: number;
@@ -38,6 +41,7 @@ export function useSidebarBadges(): UseSidebarBadgesReturn {
   useWorkspace();
   const { getClient } = useAppApiClient();
   const queryClient = useQueryClient();
+  const refetchInterval = useIdleAwareRefetchInterval(sidebarBadgeKeys.counts(), SIDEBAR_BADGES_POLL_MS);
 
   // Single shared query — TanStack Query deduplicates across all consumers
   const { data, isLoading } = useQuery({
@@ -58,8 +62,10 @@ export function useSidebarBadges(): UseSidebarBadgesReturn {
       }
       return defaultCounts;
     },
-    // Poll every 60s for counts that don't have real-time updates (task/orders)
-    refetchInterval: 60000,
+    // Poll every 60s for counts that don't have real-time updates (task/orders),
+    // but not while the user is idle: an unattended visible tab would otherwise
+    // keep the workspace database awake. Refreshes once when they come back.
+    refetchInterval,
     placeholderData: defaultCounts,
   });
 

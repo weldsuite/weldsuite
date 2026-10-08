@@ -1155,21 +1155,67 @@ export async function deleteCalendarEvent(db: Database, calendarEventId: string)
 // ── Nightly re-plan: catch up stale auto-scheduled events ───────────────
 
 /**
+ * The auto-scheduled task events the nightly re-plan looks after once their
+ * start has passed (call with `schema.tasks` joined on `calendarEvents.sourceId`).
+ * Shared by `replanStaleAutoScheduledEvents` and `nextAutoScheduledReplanAt`
+ * so the sweep's due index can never disagree with what the re-plan moves.
+ */
+function replannableEventConditions(db: Database) {
+  const { calendarEvents, tasks, userPreferences } = schema;
+  return [
+    isNull(calendarEvents.deletedAt),
+    eq(calendarEvents.autoScheduled, true),
+    eq(calendarEvents.status, 'confirmed'),
+    isNull(tasks.deletedAt),
+    not(inArray(tasks.status, ['done', 'cancelled'])),
+    notExists(
+      db
+        .select({ one: sql`1` })
+        .from(userPreferences)
+        .where(and(
+          eq(userPreferences.userId, calendarEvents.organizerId),
+          isNull(userPreferences.deletedAt),
+          sql`${userPreferences.uiPreferences}->>'autoRescheduleTasks' = 'false'`,
+        )),
+    ),
+  ];
+}
+
+/**
+ * When the next auto-scheduled event of this workspace will need re-planning
+ * (its start time; in the past if one is already stale), or `null` when there
+ * is none. The calendar re-plan sweep stores this in its D1 due index.
+ */
+export async function nextAutoScheduledReplanAt(db: Database): Promise<Date | null> {
+  const { calendarEvents, tasks } = schema;
+  const [row] = await db
+    .select({
+      // mapWith: decode like the column (UTC), not as a local-time string.
+      next: sql<Date | null>`min(${calendarEvents.startTime})`.mapWith(calendarEvents.startTime),
+    })
+    .from(calendarEvents)
+    .innerJoin(tasks, eq(calendarEvents.sourceId, tasks.id))
+    .where(and(...replannableEventConditions(db)));
+  return row?.next ?? null;
+}
+
+/**
  * Walk all auto-scheduled calendar events whose startTime has slipped into
  * the past while their source task is still incomplete. Reschedule each so
  * the calendar reflects "what's coming up", not "what should have happened".
  *
  * Users who set `uiPreferences.autoRescheduleTasks = false` are skipped:
- * their past slots stay where they were. The opt-out is filtered in SQL so
- * those events never consume the batch limit.
+ * their past slots stay where they were. The opt-out and finished tasks are
+ * filtered in SQL so those events never consume the batch limit.
  *
- * Intended to be invoked from a daily cron handler (one DB at a time).
+ * Intended to be invoked from the daily calendar-api sweep, one due
+ * workspace at a time (see `nextAutoScheduledReplanAt`).
  */
 export async function replanStaleAutoScheduledEvents(
   db: Database,
   options: { batchLimit?: number } = {},
 ): Promise<{ scanned: number; rescheduled: number; failed: number }> {
-  const { calendarEvents, tasks, userPreferences } = schema;
+  const { calendarEvents, tasks } = schema;
   const limit = options.batchLimit ?? 200;
   const now = new Date();
 
@@ -1192,21 +1238,8 @@ export async function replanStaleAutoScheduledEvents(
     .from(calendarEvents)
     .innerJoin(tasks, eq(calendarEvents.sourceId, tasks.id))
     .where(and(
-      isNull(calendarEvents.deletedAt),
-      eq(calendarEvents.autoScheduled, true),
-      eq(calendarEvents.status, 'confirmed'),
+      ...replannableEventConditions(db),
       lte(calendarEvents.startTime, now),
-      isNull(tasks.deletedAt),
-      notExists(
-        db
-          .select({ one: sql`1` })
-          .from(userPreferences)
-          .where(and(
-            eq(userPreferences.userId, calendarEvents.organizerId),
-            isNull(userPreferences.deletedAt),
-            sql`${userPreferences.uiPreferences}->>'autoRescheduleTasks' = 'false'`,
-          )),
-      ),
     ))
     // DB-level sort: highest priority first, then earliest due date, then oldest task.
     // Mirrors the in-memory sort below so pagination respects the same order.

@@ -1,28 +1,43 @@
 /**
  * Domain auto-renew sweep — daily Cloudflare Cron Handler
  *
- * Walks every active workspace, finds Realtime Register domains whose
- * expiry is inside the renewal window with auto-renew on, invoices the
- * workspace Stripe customer, and renews at the registrar only after
- * payment succeeds.
+ * Finds Realtime Register domains whose expiry is inside the renewal window
+ * with auto-renew on, invoices the workspace Stripe customer, and renews at
+ * the registrar only after payment succeeds.
  *
  * Wired into the daily cron ("0 4 * * *") next to calendar replan.
  *
+ * It used to open every paying workspace's tenant DB each night. Timing now
+ * lives in the SCHEDULE_INDEX D1 `workspace_due_index` (kind `domain_renew`),
+ * per AGENTS.md: each run opens only due workspaces and stores when the
+ * workspace next needs a look (`nextDomainRenewCheckAt`). Writes mark a
+ * workspace due through the host-api middleware in ../index.ts and the
+ * Realtime Register webhook; a one-time seed (KV flag below) marks every
+ * paying workspace due once.
+ *
  * Work per invocation is capped so Cloudflare subrequest / wall-time
  * limits cannot abort the sweep mid-loop with no record of remaining
- * domains. Unprocessed domains stay inside the 14-day window and are
- * picked up on the next daily run.
+ * domains. Unprocessed domains stay inside the 14-day window, so their
+ * workspace stays due and is picked up on the next daily run.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema } from '@weldsuite/worker-kit/db';
+import { runDueIndexSweep } from '@weldsuite/worker-kit/due-index';
 import { getRealtimeRegistrar } from '../lib/realtime-registrar';
 import {
   chargeAndRenewDomain,
   listDomainsDueForAutoRenew,
+  loadNextDomainRenewCheckAt,
 } from '../services/domain-renewal-billing';
 import { pollRenewalProcess } from '@weldsuite/host-domain/domains';
+
+/** KV flag: paying workspaces were seeded into the due index. Bump to reseed. */
+export const DOMAIN_RENEW_SEED_KEY = 'host:domain-renew-index:seed:v1';
+
+/** Workspaces per run; the rest stay due for the next day. */
+const WORKSPACES_PER_RUN = 1000;
 
 /** Hard cap on charge/renew attempts in one cron invocation. */
 export const DOMAIN_AUTO_RENEW_MAX_PER_SWEEP = 40;
@@ -153,14 +168,7 @@ export async function runDomainAutoRenewSweep(env: Env): Promise<{
   }
 
   const masterDb = getMasterDb(env);
-  const workspaces = await masterDb
-    .select({
-      id: masterSchema.workspaces.id,
-      clerkOrgId: masterSchema.workspaces.clerkOrgId,
-      stripeCustomerId: masterSchema.workspaces.stripeCustomerId,
-    })
-    .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.isActive, true));
+  const { workspaces } = masterSchema;
 
   const stats: SweepStats = {
     domainsScanned: 0,
@@ -170,7 +178,6 @@ export async function runDomainAutoRenewSweep(env: Env): Promise<{
     failed: 0,
     processed: 0,
   };
-  let workspacesFailed = 0;
   const ctx: SweepContext = {
     rtr,
     masterDb,
@@ -179,20 +186,43 @@ export async function runDomainAutoRenewSweep(env: Env): Promise<{
   };
   let hitCap = false;
 
-  for (const ws of workspaces) {
-    if (!ws.clerkOrgId) continue;
-    if (!ws.stripeCustomerId) continue;
+  const sweep = await runDueIndexSweep({
+    d1: env.SCHEDULE_INDEX,
+    kv: env.WORKSPACE_CACHE,
+    kind: 'domain_renew',
+    label: '[DomainAutoRenew]',
+    seed: {
+      key: DOMAIN_RENEW_SEED_KEY,
+      listWorkspaces: async () => {
+        const rows = await masterDb
+          .select({ clerkOrgId: workspaces.clerkOrgId })
+          .from(workspaces)
+          .where(and(eq(workspaces.isActive, true), isNotNull(workspaces.stripeCustomerId)));
+        return rows.map((r) => r.clerkOrgId).filter((id): id is string => !!id);
+      },
+    },
+    limit: WORKSPACES_PER_RUN,
+    now: ctx.now.getTime(),
+    shouldStop: () => hitCap,
+    process: async (orgId) => {
+      const [ws] = await masterDb
+        .select({ id: workspaces.id, isActive: workspaces.isActive, stripeCustomerId: workspaces.stripeCustomerId })
+        .from(workspaces)
+        .where(eq(workspaces.clerkOrgId, orgId))
+        .limit(1);
+      // Gone, inactive or never billed: nothing can be renewed — drop it
+      // without opening the tenant. Any later domain write marks it again.
+      if (!ws?.isActive || !ws.stripeCustomerId) return null;
 
-    try {
-      const db = await getTenantDbForWorkspace(env, ws.clerkOrgId);
-      hitCap = await sweepWorkspaceDomains(ctx, db, { id: ws.id, clerkOrgId: ws.clerkOrgId }, stats);
-      if (hitCap) break;
-    } catch (err) {
-      console.error(`[DomainAutoRenew] Workspace ${ws.id} failed:`, err);
-      workspacesFailed += 1;
-    }
-  }
+      const db = await getTenantDbForWorkspace(env, orgId);
+      hitCap = await sweepWorkspaceDomains(ctx, db, { id: ws.id, clerkOrgId: orgId }, stats);
+      // Still-due domains (cap hit, unpaid invoice) keep it due for tomorrow.
+      return loadNextDomainRenewCheckAt(db, ctx.now);
+    },
+  });
 
+  // A failed workspace stays due in the index and is retried tomorrow.
+  const workspacesFailed = sweep.failed;
   const { domainsScanned, invoiced, renewed, pending, failed, processed } = stats;
   let skipped = 0;
   if (hitCap) {
@@ -203,11 +233,11 @@ export async function runDomainAutoRenewSweep(env: Env): Promise<{
   }
 
   console.log(
-    `[DomainAutoRenew] Done. workspaces=${workspaces.length} workspacesFailed=${workspacesFailed} scanned=${domainsScanned} invoiced=${invoiced} renewed=${renewed} pending=${pending} failed=${failed} skipped=${skipped}`,
+    `[DomainAutoRenew] Done. due=${sweep.due} workspaces=${sweep.processed} workspacesFailed=${workspacesFailed} scanned=${domainsScanned} invoiced=${invoiced} renewed=${renewed} pending=${pending} failed=${failed} skipped=${skipped}`,
   );
 
   return {
-    workspacesScanned: workspaces.length,
+    workspacesScanned: sweep.processed,
     workspacesFailed,
     domainsScanned,
     invoiced,

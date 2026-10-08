@@ -133,7 +133,9 @@ function PooledFrame({
   /** Current app-relative path while shown; null keeps the last one. */
   path: string | null;
 }>) {
-  const source = useWeldAppSource(appCode);
+  // Frames outlive their page, so only the shown one polls for a `weld app dev`
+  // preview session; hidden ones would otherwise ping the API forever.
+  const source = useWeldAppSource(appCode, { pollDevSession: active });
   const status = useWeldAppFrameStatus(appCode);
   const { resolvedTheme } = useTheme();
   const iframeRef = useRef<HTMLIFrameElement>(null);
