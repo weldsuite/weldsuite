@@ -25,6 +25,7 @@ function toTeamMember(member: Member): TeamMember {
     workspaceRole: member.role,
     workspaceRoleId: 'roleId' in member ? member.roleId ?? null : null,
     status: member.status as TeamMember['status'],
+    memberType: member.memberType,
     createdAt: 'createdAt' in member ? new Date(member.createdAt) : new Date(),
   };
 }

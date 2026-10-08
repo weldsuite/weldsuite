@@ -59,6 +59,7 @@ export {
   PERMISSION_CATALOG_OBJECTS,
   PERMISSION_CATALOG,
   SYSTEM_ROLES,
+  EMPLOYEE_MEMBER_PERMISSIONS,
   ROUTE_TO_APP,
   getAllPermissionKeys,
 } from './catalog';

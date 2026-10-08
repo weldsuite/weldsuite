@@ -47,8 +47,10 @@ export const workspaceMembers = pgTable(
     // Status: ACTIVE, PENDING (invited but not accepted), SUSPENDED
     status: varchar('status', { length: 20 }).notNull().default('ACTIVE'),
 
-    // Member type: INTERNAL (workspace employee, counts as a paid seat),
-    // EXTERNAL_GUEST (outside collaborator scoped to invited channels, free).
+    // Member type: INTERNAL (team member, counts as a paid seat),
+    // EXTERNAL_GUEST (outside collaborator scoped to invited channels, free),
+    // EMPLOYEE (paid seat with a fixed permission set: My HR for their own
+    // WeldHR employee record, plus WeldChat — see EMPLOYEE_MEMBER_PERMISSIONS).
     memberType: varchar('member_type', { length: 20 }).notNull().default('INTERNAL'),
 
     // Invitation tracking

@@ -37,6 +37,9 @@ import type {
   CreateHrMilestoneInput,
   CreateHrShiftInput,
   HrEmployeeSensitiveInput,
+  HrSelfServiceAcknowledgeInput,
+  HrSelfServiceClockInput,
+  HrSelfServiceLeaveRequestInput,
   ImportHrAttendanceInput,
   ImportHrKpiValuesInput,
   InviteHrPortalAccessInput,
@@ -79,6 +82,8 @@ export const weldhrKeys = {
   milestones: (params: object) => [...weldhrKeys.all, 'milestones', params] as const,
   portalSettings: () => [...weldhrKeys.all, 'portal-settings'] as const,
   portalAccess: (params: object) => [...weldhrKeys.all, 'portal-access', params] as const,
+  availableMembers: (params: object) => [...weldhrKeys.all, 'available-members', params] as const,
+  me: (part: string, params: object = {}) => [...weldhrKeys.all, 'me', part, params] as const,
 };
 
 /** Mutation hook that invalidates the whole WeldHR cache on success. */
@@ -145,6 +150,18 @@ export function useCreateHrEmployee() {
 export function useCreateHrEmployeeFromMember() {
   const { weldhr } = useAppApi();
   return useHrMutation((input: CreateHrEmployeeFromMemberInput) => weldhr.createEmployeeFromMember(input));
+}
+
+/** Workspace members who can still become an employee (active, INTERNAL or EMPLOYEE, unlinked). */
+export function useHrAvailableMembers(params: { search?: string; limit?: number } = {}, opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.availableMembers(params),
+    queryFn: () => weldhr.listAvailableMembers(params),
+    select: (r) => r.data,
+    placeholderData: keepPreviousData,
+    enabled: opts.enabled ?? true,
+  });
 }
 
 export function useUpdateHrEmployee() {
@@ -619,4 +636,123 @@ export function useRestoreHrPortalAccess() {
 export function useDeleteHrPortalAccess() {
   const { weldhr } = useAppApi();
   return useHrMutation((id: string) => weldhr.deletePortalAccess(id));
+}
+
+// ---------------------------------------------------------------------------
+// My HR — the signed-in member's own employee record. Every endpoint resolves
+// the employee from the session server-side; nothing here takes an id for
+// the employee.
+// ---------------------------------------------------------------------------
+
+/** `employee: null` when the member has no (or a terminated) employee record. */
+export function useMyHr(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('self'),
+    queryFn: () => weldhr.me(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+    staleTime: 60 * 1000,
+  });
+}
+
+export function useMyHrOverview(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('overview'),
+    queryFn: () => weldhr.meOverview(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrAttendance(params: { from?: string; to?: string } = {}, opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('attendance', params),
+    queryFn: () => weldhr.meAttendance(params),
+    select: (r) => r.data,
+    placeholderData: keepPreviousData,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrClock() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: HrSelfServiceClockInput) => weldhr.meClock(input));
+}
+
+export function useMyHrLeave(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('leave'),
+    queryFn: () => weldhr.meLeave(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrRequestLeave() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: HrSelfServiceLeaveRequestInput) => weldhr.meRequestLeave(input));
+}
+
+export function useMyHrCancelLeave() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.meCancelLeave(id));
+}
+
+export function useMyHrTasks(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('tasks'),
+    queryFn: () => weldhr.meTasks(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrCompleteTask() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, done }: { id: string; done: boolean }) => weldhr.meCompleteTask(id, done));
+}
+
+export function useMyHrCoaching(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('coaching'),
+    queryFn: () => weldhr.meCoaching(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrAcknowledgeCoaching() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: HrSelfServiceAcknowledgeInput & { id: string }) => weldhr.meAcknowledgeCoaching(id, input));
+}
+
+export function useMyHrEvaluations(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('evaluations'),
+    queryFn: () => weldhr.meEvaluations(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrAcknowledgeEvaluation() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: HrSelfServiceAcknowledgeInput & { id: string }) => weldhr.meAcknowledgeEvaluation(id, input));
+}
+
+export function useMyHrPerformance(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('performance'),
+    queryFn: () => weldhr.mePerformance(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
 }

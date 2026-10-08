@@ -18,7 +18,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { appName } from '../roles';
-import { SYSTEM_ROLES } from '@weldsuite/permissions';
+import { EMPLOYEE_MEMBER_PERMISSIONS, SYSTEM_ROLES } from '@weldsuite/permissions';
 
 const { workspaceMembers, roles, userAppAssignments, workspaceInstalledApps } = schema;
 
@@ -61,6 +61,7 @@ async function findMember(db: Database, memberId: string) {
       roleId: workspaceMembers.roleId,
       permissions: workspaceMembers.permissions,
       permissionDenies: workspaceMembers.permissionDenies,
+      memberType: workspaceMembers.memberType,
     })
     .from(workspaceMembers)
     .where(and(eq(workspaceMembers.id, memberId), isNull(workspaceMembers.deletedAt)))
@@ -98,12 +99,17 @@ export async function getMemberPermissions(
 
   const memberOverrides = (member.permissions as string[] | null) || [];
   const memberDenies = (member.permissionDenies as string[] | null) || [];
-  const inheritedPermissions = member.roleId
-    ? rolePermissions
-    : [...(SYSTEM_ROLES[member.role]?.permissions ?? [])];
+  // An EMPLOYEE member's access is the fixed set, whatever role is stored.
+  let inheritedPermissions: string[];
+  if (member.memberType === 'EMPLOYEE') inheritedPermissions = [...EMPLOYEE_MEMBER_PERMISSIONS];
+  else if (member.roleId) inheritedPermissions = rolePermissions;
+  else inheritedPermissions = [...(SYSTEM_ROLES[member.role]?.permissions ?? [])];
 
   return {
-    effective: [...new Set([...rolePermissions, ...memberOverrides])],
+    effective:
+      member.memberType === 'EMPLOYEE'
+        ? inheritedPermissions
+        : [...new Set([...rolePermissions, ...memberOverrides])],
     rolePermissions,
     memberOverrides,
     memberDenies,

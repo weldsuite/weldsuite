@@ -224,15 +224,17 @@ app.get('/', async (c) => {
   const query = c.req.query();
 
   // memberType filter:
-  //   ?memberType=INTERNAL        (default — employees only)
+  //   ?memberType=INTERNAL        (default — full team members only)
   //   ?memberType=EXTERNAL_GUEST  (guests only)
-  //   ?memberType=all             (both)
+  //   ?memberType=EMPLOYEE        (My HR-only employee members)
+  //   ?memberType=all             (every type)
   // Legacy alias: ?include=guests → maps to memberType=all so older callers
   // (chat member picker) keep working.
-  let memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'all' | undefined;
+  let memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE' | 'all' | undefined;
   if (
     query.memberType === 'INTERNAL' ||
     query.memberType === 'EXTERNAL_GUEST' ||
+    query.memberType === 'EMPLOYEE' ||
     query.memberType === 'all'
   ) {
     memberType = query.memberType;
@@ -355,18 +357,22 @@ app.post('/sync', requirePermission('team:read'), async (c) => {
 // ===========================================================================
 
 type InviteRole = { roleName: string; resolvedRoleId: string | null };
+type InviteMemberType = 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE';
 
 /**
- * Resolve role. Guests always land on VIEWER role with a fixed permissions
- * allowlist — the guest-scope middleware enforces the hard ceiling regardless
- * of role. Returns null when the requested role does not exist.
+ * Resolve role. Returns null when the requested role does not exist.
+ *
+ * Guests and EMPLOYEE members don't take a role. Guests land on VIEWER with a
+ * fixed permissions allowlist. An EMPLOYEE member's access is the fixed
+ * EMPLOYEE_MEMBER_PERMISSIONS set (the permission resolver ignores their
+ * role); VIEWER is stored so the row still carries the lowest tier.
  */
 async function resolveInviteRole(
   db: Database,
-  isGuest: boolean,
+  memberType: InviteMemberType,
   roleId: string | undefined | null,
 ): Promise<InviteRole | null> {
-  if (isGuest) return { roleName: 'VIEWER', resolvedRoleId: null };
+  if (memberType !== 'INTERNAL') return { roleName: 'VIEWER', resolvedRoleId: null };
   if (!roleId) return { roleName: 'MEMBER', resolvedRoleId: null };
   const role = await lookupRole(db, roleId);
   if (!role) return null;
@@ -644,7 +650,7 @@ async function insertPendingMember(
     name: string;
     roleName: string;
     resolvedRoleId: string | null;
-    memberType: 'INTERNAL' | 'EXTERNAL_GUEST';
+    memberType: InviteMemberType;
     isGuest: boolean;
     clerkInvitationId: string;
     invitingUserId: string;
@@ -689,12 +695,13 @@ app.post('/invite', async (c) => {
 
   // Permission gate: guests use a separate permission so admins can grant
   // "invite externals" to roles that can't invite internal teammates.
+  // EMPLOYEE members take a paid seat like teammates, so `team:create`.
   const requiredPermission = isGuest ? 'team:invite_external' : 'team:create';
   if (!(await hasContextPermission(c, requiredPermission))) {
     return error.forbidden(c, `Missing required permission: ${requiredPermission}`);
   }
 
-  const inviteRole = await resolveInviteRole(db, isGuest, roleId);
+  const inviteRole = await resolveInviteRole(db, memberType, roleId);
   if (!inviteRole) return error.notFound(c, 'Role', roleId ?? '');
   const { roleName, resolvedRoleId } = inviteRole;
 
@@ -703,8 +710,8 @@ app.post('/invite', async (c) => {
   const conflictMessage = await getExistingMemberConflict(db, email);
   if (conflictMessage) return error.conflict(c, conflictMessage);
 
-  // Seat check, internal members only — guests are tagged EXTERNAL_GUEST and
-  // excluded from the seat count, so they never consume one. Clerk enforces
+  // Seat check, internal and EMPLOYEE members — guests are tagged EXTERNAL_GUEST
+  // and excluded from the seat count, so they never consume one. Clerk enforces
   // the same cap via max_allowed_memberships and would reject this anyway;
   // checking first turns a generic 500 into an answer the UI can act on,
   // which matters most on Free, where the cap is a single seat.
@@ -889,6 +896,11 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
     }
     if (member.status !== 'ACTIVE') {
       return error.badRequest(c, 'Can only update role of an active member.');
+    }
+    // An EMPLOYEE member's access is fixed (My HR + WeldChat); a role would
+    // not apply and would still raise their Clerk org role.
+    if (member.memberType === 'EMPLOYEE') {
+      return error.badRequest(c, 'Employee members have fixed access and no role. Invite them as a team member to give them a role.');
     }
 
     const change = await resolveMemberRoleChange(db, body);

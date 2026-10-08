@@ -59,12 +59,12 @@ export interface CurrentMember {
   roleId: string | null;
   permissions: string[] | null;
   status: string;
-  memberType: 'INTERNAL' | 'EXTERNAL_GUEST';
+  memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE';
 }
 
 export interface InviteMemberResult {
   memberId: string;
-  memberType: 'INTERNAL' | 'EXTERNAL_GUEST';
+  memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE';
   /** True when the invitee already had a Clerk identity and was added directly. */
   activated: boolean;
 }

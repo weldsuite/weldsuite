@@ -259,12 +259,12 @@ async function activatePendingMember(
     .filter(Boolean).join(' ') || null;
   const picture = membership.public_user_data.image_url;
 
-  // Guests stay on VIEWER regardless of Clerk role — their access is
-  // gated by the guest-scope middleware + per-channel membership,
-  // not by role. memberType itself is on the row already (set at
-  // invite time) and is intentionally not in the SET clause.
-  const isGuest = pending.memberType === 'EXTERNAL_GUEST';
-  const resolvedRole = isGuest
+  // Guests and EMPLOYEE members stay on VIEWER regardless of Clerk role —
+  // guests are gated by per-channel membership and EMPLOYEE members by their
+  // fixed permission set, not by role. memberType itself is on the row
+  // already (set at invite time) and is intentionally not in the SET clause.
+  const keepsInvitedRole = pending.memberType === 'EXTERNAL_GUEST' || pending.memberType === 'EMPLOYEE';
+  const resolvedRole = keepsInvitedRole
     ? (pending.role || 'VIEWER')
     : (CLERK_ROLE_MAP[membership.role] || pending.role || 'MEMBER');
 
