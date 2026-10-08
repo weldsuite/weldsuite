@@ -47,8 +47,6 @@ interface Feature {
 }
 
 export interface AnnouncementBarBlockProps {
-  rating?: number;
-  reviewCount?: number;
   features?: {
     freeShipping?: { enabled: boolean; text: string };
     returns?: { enabled: boolean; text: string };
@@ -56,9 +54,6 @@ export interface AnnouncementBarBlockProps {
     support?: { enabled: boolean; text: string };
   };
   featuresList?: Feature[];
-  showRating?: boolean;
-  showVerifiedBadge?: boolean;
-  verifiedBadgeText?: string;
   showSocialIcons?: boolean;
   socialMediaLinks?: SocialMediaLink[];
   socialIconsColor?: string;

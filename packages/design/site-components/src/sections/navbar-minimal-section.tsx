@@ -7,7 +7,6 @@ import { Search, ShoppingBag, User, X } from 'lucide-react';
 interface NavbarMinimalSectionProps {
   logo?: string;
   logoText?: string;
-  logoPosition?: 'left' | 'center' | 'right';
   logoStyle?: 'text' | 'image';
   logoFontSize?: number;
   logoFontWeight?: string;
@@ -26,7 +25,6 @@ interface NavbarMinimalSectionProps {
   stickyHeader?: boolean;
   showBorder?: boolean;
   borderColor?: string;
-  minimalStyle?: boolean;
   store?: StoreData;
 }
 

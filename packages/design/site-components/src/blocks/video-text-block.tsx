@@ -7,7 +7,6 @@ export interface VideoTextBlockProps {
   text?: string;
   fontFamily?: string;
   fontSize?: string;
-  textColor?: string;
 }
 
 export function VideoTextBlock({

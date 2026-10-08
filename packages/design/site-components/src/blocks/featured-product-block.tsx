@@ -17,32 +17,24 @@ interface ColorOption {
 }
 
 export interface FeaturedProductBlockProps {
-  layout?: 'image-left' | 'image-right' | 'image-top';
   productHandle?: string;
   heading?: string;
   description?: string;
   price?: string;
   compareAtPrice?: string;
-  imageUrl?: string;
-  imageAspectRatio?: 'square' | 'portrait' | 'landscape';
   showQuantitySelector?: boolean;
-  buttonText?: string;
-  buttonVariant?: 'primary' | 'secondary' | 'outline';
   showBadge?: boolean;
   badgeText?: string;
   badgeColor?: string;
   backgroundColor?: string;
   textColor?: string;
   store?: StoreData;
-  storeName?: string;
   rating?: number;
   reviewCount?: number;
   images?: string[];
   settings?: SectionSettings;
   showSizeSelector?: boolean;
   showColorSelector?: boolean;
-  showReviews?: boolean;
-  showFAQ?: boolean;
   showShippingPolicy?: boolean;
   showRefundPolicy?: boolean;
 }

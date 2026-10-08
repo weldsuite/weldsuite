@@ -8,8 +8,6 @@ interface EmailSignupSectionProps {
   buttonText?: string;
   backgroundColor?: string;
   textColor?: string;
-  showImage?: boolean;
-  image?: string;
   paddingTop?: number;
   paddingBottom?: number;
 }

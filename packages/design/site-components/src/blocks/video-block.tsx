@@ -40,8 +40,6 @@ interface VideoBlockProps {
 
   // Legacy props for backward compatibility
   controls?: boolean;
-  aspectRatio?: '16/9' | '4/3' | '1/1' | '21/9';
-  borderRadius?: number;
 }
 
 export function VideoBlock({

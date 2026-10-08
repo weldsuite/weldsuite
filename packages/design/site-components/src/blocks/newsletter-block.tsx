@@ -7,7 +7,6 @@ export interface NewsletterBlockProps {
   heading?: string;
   description?: string;
   placeholder?: string;
-  backgroundColor?: string;
   textColor?: string;
   onSubmit?: (email: string) => void;
 }

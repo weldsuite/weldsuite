@@ -33,7 +33,6 @@ interface VideoPlayerBlockProps {
   overlayOpacity?: number;
   textColor?: string;
   contentAlignment?: 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right';
-  fullWidth?: boolean;
 
   // Legacy props
   controls?: boolean;

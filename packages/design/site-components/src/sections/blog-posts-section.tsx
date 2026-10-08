@@ -17,7 +17,6 @@ interface BlogPost {
 
 interface BlogPostsSectionProps {
   heading?: string;
-  subheading?: string;
   postsToShow?: number;
   columns?: number;
   showExcerpt?: boolean;

@@ -36,9 +36,6 @@ export interface ImageWithTextBlockProps {
   buttonLink?: string;
   buttonStyle?: 'primary' | 'secondary' | 'link';
 
-  // Color Scheme
-  colorScheme?: 'scheme-1' | 'scheme-2' | 'scheme-3';
-
   // Nested blocks for individual elements
   blocks?: Block[];
 

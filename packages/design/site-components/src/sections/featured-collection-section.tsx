@@ -10,8 +10,6 @@ import { Badge } from '@weldsuite/ui/components/badge';
 interface FeaturedCollectionSectionProps {
   heading?: string;
   subheading?: string;
-  collectionTitle?: string;
-  layout?: 'grid' | 'carousel';
   columns?: number;
   productsToShow?: number;
   showViewAll?: boolean;
@@ -48,7 +46,6 @@ interface FeaturedCollectionSectionProps {
   // Store data
   store?: StoreData;
   products?: Product[];
-  collectionId?: string;
 }
 
 // Mock product data - Shopify style with real PNG product images
