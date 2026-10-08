@@ -99,7 +99,12 @@ export async function registerDeviceToken(
     const deviceId = await getDeviceId();
 
     const isExpoToken = token.startsWith('ExponentPushToken[');
-    const tokenType = isExpoToken ? 'expo' : (Platform.OS === 'android' ? 'fcm' : 'apns');
+    let tokenType = 'apns';
+    if (isExpoToken) {
+      tokenType = 'expo';
+    } else if (Platform.OS === 'android') {
+      tokenType = 'fcm';
+    }
 
     // Matches the app-api `/api/push-tokens` register schema.
     const body = {

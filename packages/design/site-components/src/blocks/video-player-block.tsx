@@ -3,7 +3,7 @@
 import type { StoreData } from '../types';
 import React, { useState, useRef } from 'react';
 import { buildEmbedUrl } from '../lib/video-embed';
-import { VideoCover } from '../components/video-cover';
+import { VideoMedia } from '../components/video-media';
 
 interface VideoPlayerBlockProps {
   // Video source
@@ -132,28 +132,19 @@ export function VideoPlayerBlock({
     >
       {/* Video Container */}
       <div className="absolute inset-0">
-        {!isPlaying && coverImage ? (
-          <VideoCover coverImage={coverImage} heading={heading} onPlay={handlePlay} />
-        ) : isYouTube || isVimeo ? (
-          <iframe
-            src={embedUrl}
-            className="absolute inset-0 w-full h-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            title={heading || 'Video'}
-          />
-        ) : (
-          <video
-            ref={videoRef}
-            src={embedUrl}
-            className="w-full h-full object-cover"
-            autoPlay={autoplay}
-            loop={loop}
-            muted={muted}
-            controls={showControls !== undefined ? showControls : controls}
-            playsInline
-          />
-        )}
+        <VideoMedia
+          showCover={!isPlaying}
+          coverImage={coverImage}
+          heading={heading}
+          onPlay={handlePlay}
+          isEmbed={isYouTube || isVimeo}
+          embedUrl={embedUrl}
+          videoRef={videoRef}
+          autoplay={autoplay}
+          loop={loop}
+          muted={muted}
+          controls={showControls ?? controls}
+        />
 
         {/* Overlay */}
         {(heading || description || showButton) && (

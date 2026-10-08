@@ -48,6 +48,11 @@ export function HeroInteractiveBlock({
   const isFullWidth = layout === 'fullWidth';
   const isEditMode = mode === 'edit';
 
+  let sizeClass = "h-[85vh]";
+  if (isFullWidth) {
+    sizeClass = isEditMode ? "h-[100vh] w-full" : "h-screen w-screen";
+  }
+
   return (
     <section
       className={cn(isFullWidth ? "" : "py-18", className)}
@@ -58,11 +63,7 @@ export function HeroInteractiveBlock({
           ref={containerRef}
           className={cn(
             "relative flex flex-col items-center justify-center overflow-hidden bg-cover bg-center",
-            isFullWidth
-              ? isEditMode
-                ? "h-[100vh] w-full"
-                : "h-screen w-screen"
-              : "h-[85vh]"
+            sizeClass
           )}
           style={{
             backgroundImage: `url('${backgroundImage}')`,

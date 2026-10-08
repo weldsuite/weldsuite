@@ -396,8 +396,20 @@ export function EntityList<T extends { id: string }>({
           {(headerColumns || columns || []).map((column) => {
             const isSortable = 'sortable' in column && column.sortable && onSort;
             const isActive = sortState?.columnId === column.id;
+            let headerClassName: string | undefined;
+            if ('className' in column) {
+              headerClassName = column.className;
+            } else if ('headerClassName' in column) {
+              headerClassName = column.headerClassName;
+            }
+            let sortIcon = <ArrowUpDown className="h-3 w-3 opacity-0 group-hover/header:opacity-100" />;
+            if (isActive) {
+              sortIcon = sortState.direction === 'asc'
+                ? <ArrowUp className="h-3 w-3" />
+                : <ArrowDown className="h-3 w-3" />;
+            }
             return (
-              <div key={column.id} className={cn(column.width, 'className' in column ? column.className : ('headerClassName' in column ? column.headerClassName : undefined))}>
+              <div key={column.id} className={cn(column.width, headerClassName)}>
                 {isSortable ? (
                   <button
                     type="button"
@@ -408,13 +420,7 @@ export function EntityList<T extends { id: string }>({
                     )}
                   >
                     {column.header}
-                    {isActive ? (
-                      sortState.direction === 'asc'
-                        ? <ArrowUp className="h-3 w-3" />
-                        : <ArrowDown className="h-3 w-3" />
-                    ) : (
-                      <ArrowUpDown className="h-3 w-3 opacity-0 group-hover/header:opacity-100" />
-                    )}
+                    {sortIcon}
                   </button>
                 ) : (
                   <span className="text-xs font-medium text-muted-foreground">

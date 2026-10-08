@@ -14,7 +14,12 @@ export default function TextSection({
   content = "Add your text content here",
   align = 'center'
 }: Readonly<TextSectionProps>) {
-  const textAlign = align === 'left' ? 'text-left' : align === 'right' ? 'text-right' : 'text-center';
+  let textAlign = 'text-center';
+  if (align === 'left') {
+    textAlign = 'text-left';
+  } else if (align === 'right') {
+    textAlign = 'text-right';
+  }
   
   return (
     <section className="py-12 px-4">

@@ -29,6 +29,12 @@ const mockUsers = [
   { id: 5, name: "Charlie Wilson", email: "charlie@example.com", role: "Admin", status: "pending", lastActive: "Never", avatar: "CW" },
 ]
 
+function getUserStatusBadgeVariant(status: string) {
+  if (status === "active") return "default"
+  if (status === "inactive") return "secondary"
+  return "outline"
+}
+
 export function UsersSection() {
   const [selectedUsers, setSelectedUsers] = React.useState<number[]>([])
 
@@ -106,11 +112,7 @@ export function UsersSection() {
                 </TableCell>
                 <TableCell className="py-2">
                   <Badge
-                    variant={
-                      user.status === "active" ? "default" :
-                      user.status === "inactive" ? "secondary" :
-                      "outline"
-                    }
+                    variant={getUserStatusBadgeVariant(user.status)}
                   >
                     {user.status}
                   </Badge>

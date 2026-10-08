@@ -177,6 +177,12 @@ const tabs = [
 ]
 
 
+function getUserStatusBadgeVariant(status: string) {
+  if (status === "active") return "success"
+  if (status === "inactive") return "secondary"
+  return "warning"
+}
+
 export function SettingsDialogFull({
   open = false,
   onOpenChange,
@@ -435,11 +441,7 @@ export function SettingsDialogFull({
                               </TableCell>
                               <TableCell>
                                 <Badge 
-                                  variant={
-                                    user.status === "active" ? "success" : 
-                                    user.status === "inactive" ? "secondary" : 
-                                    "warning"
-                                  }
+                                  variant={getUserStatusBadgeVariant(user.status)}
                                   className="gap-1"
                                 >
                                   {user.status === "active" && <CheckCircle className="h-3 w-3" />}

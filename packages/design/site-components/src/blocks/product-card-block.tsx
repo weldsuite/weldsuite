@@ -31,6 +31,13 @@ export function ProductCardBlock({
   const isCompact = variant === 'compact';
   const isFeatured = variant === 'featured';
 
+  let titleSizeClass = 'text-base';
+  if (isFeatured) {
+    titleSizeClass = 'text-lg';
+  } else if (isCompact) {
+    titleSizeClass = 'text-sm';
+  }
+
   const handleAddToCart = (e: React.MouseEvent) => {
     e.preventDefault();
     if (onAddToCart) {
@@ -63,9 +70,7 @@ export function ProductCardBlock({
 
         <div className={`p-${isCompact ? '3' : '4'}`}>
           <h3
-            className={`font-semibold text-gray-900 mb-2 line-clamp-2 ${
-              isFeatured ? 'text-lg' : isCompact ? 'text-sm' : 'text-base'
-            }`}
+            className={`font-semibold text-gray-900 mb-2 line-clamp-2 ${titleSizeClass}`}
           >
             {title}
           </h3>

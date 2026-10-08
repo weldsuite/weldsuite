@@ -216,13 +216,10 @@ export function FloatingTabBar({
             });
           };
 
-          const color = isAccent
-            ? isFocused
-              ? (accentColor ?? colors.text)
-              : colors.muted
-            : isFocused
-              ? colors.text
-              : colors.muted;
+          let color = colors.muted;
+          if (isFocused) {
+            color = isAccent ? (accentColor ?? colors.text) : colors.text;
+          }
 
           const iconSize = isAccent ? 24 : 22;
 

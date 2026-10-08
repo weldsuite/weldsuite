@@ -26,6 +26,11 @@ export function SlidingPanel({
   position = "right",
   width = "w-[400px]"
 }: Readonly<SlidingPanelProps>) {
+  let translateClass = "translate-x-0"
+  if (!isOpen) {
+    translateClass = position === "right" ? "translate-x-full" : "-translate-x-full"
+  }
+
   return (
     <>
       {/* Overlay */}
@@ -43,9 +48,7 @@ export function SlidingPanel({
           "fixed top-0 bottom-0 z-50 bg-background border-l shadow-xl transition-transform duration-300",
           width,
           position === "right" ? "right-0" : "left-0",
-          position === "right" 
-            ? (isOpen ? "translate-x-0" : "translate-x-full")
-            : (isOpen ? "translate-x-0" : "-translate-x-full"),
+          translateClass,
           className
         )}
       >

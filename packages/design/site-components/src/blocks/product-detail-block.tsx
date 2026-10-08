@@ -390,6 +390,13 @@ export interface ProductDetailVariantSelectorBlockProps {
   };
 }
 
+function getVariantOptionClass(isSelected: boolean, inStock: boolean | undefined): string {
+  if (isSelected) return 'bg-gray-900 text-white border-gray-900';
+  return inStock
+    ? 'border-gray-900 hover:bg-gray-100'
+    : 'border-gray-200 text-gray-400 line-through cursor-not-allowed';
+}
+
 export function ProductDetailVariantSelectorBlock({
   label = 'Color',
   options = [
@@ -411,13 +418,7 @@ export function ProductDetailVariantSelectorBlock({
             key={option.id}
             onClick={() => option.inStock && setSelectedValue(option.value)}
             disabled={!option.inStock}
-            className={`px-4 py-2 text-sm border rounded-md transition-colors ${
-              selectedValue === option.value
-                ? 'bg-gray-900 text-white border-gray-900'
-                : option.inStock
-                  ? 'border-gray-900 hover:bg-gray-100'
-                  : 'border-gray-200 text-gray-400 line-through cursor-not-allowed'
-            }`}
+            className={`px-4 py-2 text-sm border rounded-md transition-colors ${getVariantOptionClass(selectedValue === option.value, option.inStock)}`}
             style={selectedValue === option.value ? {} : { color: option.inStock ? textColor : undefined }}
           >
             {option.label}

@@ -243,12 +243,13 @@ export function PeopleEntityListPanel({
   }, [meeting, waitlisted]);
 
   const items = useMemo<PersonRow[]>(() => {
+    const selfName = selfIsHost ? 'You (Host)' : 'You';
     const inCall: PersonRow[] = participants.map((p, i) => {
       const isSelf = i === 0;
       const baseName = p.name ?? (isSelf ? 'You' : 'Participant');
       return {
         id: p.id ?? `participant-${i}`,
-        name: isSelf ? `You${selfIsHost ? ' (Host)' : ''}` : baseName,
+        name: isSelf ? selfName : baseName,
         picture: p.picture ?? null,
         audioEnabled: !!p.audioEnabled,
         videoEnabled: !!p.videoEnabled,

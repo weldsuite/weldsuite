@@ -32,7 +32,12 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
 
-  const borderColor = error ? colors.destructive : focused ? colors.ring : colors.border;
+  let borderColor = colors.border;
+  if (error) {
+    borderColor = colors.destructive;
+  } else if (focused) {
+    borderColor = colors.ring;
+  }
 
   return (
     <View style={[styles.container, containerStyle]}>

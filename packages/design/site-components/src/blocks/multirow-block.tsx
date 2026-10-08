@@ -118,6 +118,15 @@ export function MultirowBlock({
     }
   };
 
+  // Get button style classes
+  const getButtonStyleClass = (buttonStyle: string) => {
+    switch (buttonStyle) {
+      case 'primary': return 'bg-blue-600 text-white hover:bg-blue-700';
+      case 'secondary': return 'bg-gray-200 text-gray-900 hover:bg-gray-300';
+      default: return 'text-blue-600 hover:text-blue-700 underline';
+    }
+  };
+
   return (
     <section className={`w-full py-12 md:py-16 ${getColorSchemeClass(colorScheme)}`}>
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -238,13 +247,7 @@ export function MultirowBlock({
                         )}
                         <a
                           href={finalButtonLink}
-                          className={`inline-block px-6 py-3 rounded-md font-medium transition-colors ${
-                            finalButtonStyle === 'primary'
-                              ? 'bg-blue-600 text-white hover:bg-blue-700'
-                              : finalButtonStyle === 'secondary'
-                              ? 'bg-gray-200 text-gray-900 hover:bg-gray-300'
-                              : 'text-blue-600 hover:text-blue-700 underline'
-                          }`}
+                          className={`inline-block px-6 py-3 rounded-md font-medium transition-colors ${getButtonStyleClass(finalButtonStyle)}`}
                         >
                           {finalButtonLabel}
                         </a>

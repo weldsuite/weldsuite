@@ -115,7 +115,12 @@ function summarizeHttpRequest(config: ActionConfig): string[] {
 
 function summarizeCondition(config: ActionConfig): string[] {
   if (!config.field || !config.operator) return [];
-  const op = config.operator === 'eq' ? '==' : config.operator === 'ne' ? '!=' : config.operator;
+  let op = config.operator;
+  if (op === 'eq') {
+    op = '==';
+  } else if (op === 'ne') {
+    op = '!=';
+  }
   return [`${asText(config.field)} ${asText(op)} ${asText(config.value || '')}`];
 }
 

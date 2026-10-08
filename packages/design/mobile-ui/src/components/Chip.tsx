@@ -21,6 +21,11 @@ export interface ChipProps {
   style?: StyleProp<ViewStyle>;
 }
 
+function pressedOpacity(disabled: boolean, pressed: boolean): number {
+  if (disabled) return 0.5;
+  return pressed ? 0.85 : 1;
+}
+
 export function Chip({
   label,
   selected = false,
@@ -46,7 +51,7 @@ export function Chip({
         styles.base,
         {
           backgroundColor,
-          opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+          opacity: pressedOpacity(disabled, pressed),
         },
         style,
       ]}

@@ -60,6 +60,15 @@ export function SubscriptionCard({
   const isFreePlan = usage?.isFreePlan || !subscription;
   const planName = subscription?.plan?.displayName || "Free Plan";
 
+  let planDescription: string;
+  if (isFreePlan) {
+    planDescription = "Upgrade to Pro for more storage and features";
+  } else if (subscription?.cancelledAt) {
+    planDescription = `Cancelled - Expires ${formatDate(subscription.currentPeriodEnd)}`;
+  } else {
+    planDescription = `Renews ${formatDate(subscription?.currentPeriodEnd || "")}`;
+  }
+
   return (
     <>
       <Card>
@@ -68,11 +77,7 @@ export function SubscriptionCard({
             <div>
               <CardTitle>{planName}</CardTitle>
               <CardDescription>
-                {isFreePlan
-                  ? "Upgrade to Pro for more storage and features"
-                  : subscription?.cancelledAt
-                  ? `Cancelled - Expires ${formatDate(subscription.currentPeriodEnd)}`
-                  : `Renews ${formatDate(subscription?.currentPeriodEnd || "")}`}
+                {planDescription}
               </CardDescription>
             </div>
             {subscription && getStatusBadge(subscription.status)}
