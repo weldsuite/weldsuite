@@ -25,9 +25,12 @@ import { bankAccountsRoutes } from './bank-accounts';
 import { bankDepositsRoutes } from './bank-deposits';
 import { bankReconciliationsRoutes } from './bank-reconciliations';
 import { billsRoutes } from './bills';
+import { fiscalPeriodsRoutes } from './fiscal-periods';
+import { fixedAssetsRoutes } from './fixed-assets';
 import { form1099FilingsRoutes } from './form-1099/filings';
 import { invoicesRoutes } from './invoices';
 import { paymentRunsRoutes } from './payment-runs';
+import { payrollConnectionsRoutes, payrollImportsRoutes } from './payroll';
 import { paymentsRoutes } from './payments';
 import { w9RequestsRoutes } from './w9-requests';
 
@@ -45,6 +48,10 @@ const EXEMPT_ROUTES = new Set<string>([
 
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/bills', router: billsRoutes, prefix: 'bills' },
+  { mount: '/api/fixed-assets', router: fixedAssetsRoutes, prefix: 'accounts' },
+  // Payroll: imports are created through POST /csv (not POST /) and reversed by DELETE; never patched.
+  { mount: '/api/payroll/imports', router: payrollImportsRoutes, prefix: 'journal', skipPost: true, skipPatch: true },
+  { mount: '/api/payroll/connections', router: payrollConnectionsRoutes, prefix: 'journal', skipPatch: true },
   { mount: '/api/bank-accounts', router: bankAccountsRoutes, prefix: 'banking' },
   { mount: '/api/bank-deposits', router: bankDepositsRoutes, prefix: 'banking' },
   { mount: '/api/bank-reconciliations', router: bankReconciliationsRoutes, prefix: 'banking' },
@@ -59,6 +66,10 @@ const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/invoices', router: invoicesRoutes, permission: 'invoices:read' },
   { mount: '/api/bills', router: billsRoutes, permission: 'bills:read' },
+  { mount: '/api/fixed-assets', router: fixedAssetsRoutes, permission: 'accounts:read' },
+  { mount: '/api/payroll/imports', router: payrollImportsRoutes, permission: 'journal:read' },
+  { mount: '/api/payroll/connections', router: payrollConnectionsRoutes, permission: 'journal:read' },
+  { mount: '/api/fiscal-periods', router: fiscalPeriodsRoutes, permission: 'reports:read' },
   { mount: '/api/bank-accounts', router: bankAccountsRoutes, permission: 'banking:read' },
   { mount: '/api/bank-deposits', router: bankDepositsRoutes, permission: 'banking:read' },
   { mount: '/api/bank-reconciliations', router: bankReconciliationsRoutes, permission: 'banking:read' },
