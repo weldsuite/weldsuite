@@ -131,6 +131,31 @@ interface PageData {
   kind?: ListKind;
 }
 
+/**
+ * Creates a template's stages on a new pipeline. Each stage carries its own
+ * position, so they are created in parallel.
+ */
+async function createTemplateStages(
+  client: Awaited<ReturnType<ReturnType<typeof useAppApiClient>['getClient']>>,
+  pipelineId: string,
+  templateId: string,
+): Promise<void> {
+  await Promise.all(
+    getTemplateStages(templateId).map((stageData, i) =>
+      client.post('/pipeline-stages', {
+        name: stageData.name,
+        color: stageData.color,
+        probability: stageData.probability,
+        pipeline: pipelineId,
+        position: i,
+        isWon: stageData.isWon || false,
+        isLost: stageData.isLost || false,
+        isDefault: i === 0,
+      }),
+    ),
+  );
+}
+
 export function useCrmSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
@@ -404,20 +429,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       if (pipeline?.id) {
         // Create template stages for the new pipeline
         const client = await getClient();
-        const templateStages = getTemplateStages('blank');
-        for (let i = 0; i < templateStages.length; i++) {
-          const stageData = templateStages[i];
-          await client.post('/pipeline-stages', {
-            name: stageData.name,
-            color: stageData.color,
-            probability: stageData.probability,
-            pipeline: pipeline.id,
-            position: i,
-            isWon: stageData.isWon || false,
-            isLost: stageData.isLost || false,
-            isDefault: i === 0,
-          });
-        }
+        await createTemplateStages(client, pipeline.id, 'blank');
         const newPage: PageData = {
           id: pipeline.id,
           title: pipeline.name,
@@ -451,20 +463,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       if (pipeline?.id) {
         // Create template stages for the new pipeline
         const client = await getClient();
-        const templateStages = getTemplateStages(template.id);
-        for (let i = 0; i < templateStages.length; i++) {
-          const stageData = templateStages[i];
-          await client.post('/pipeline-stages', {
-            name: stageData.name,
-            color: stageData.color,
-            probability: stageData.probability,
-            pipeline: pipeline.id,
-            position: i,
-            isWon: stageData.isWon || false,
-            isLost: stageData.isLost || false,
-            isDefault: i === 0,
-          });
-        }
+        await createTemplateStages(client, pipeline.id, template.id);
         const newPage: PageData = {
           id: pipeline.id,
           title: pipeline.name,
@@ -564,19 +563,22 @@ export function useCrmSidebarItems(isActive: boolean): {
         // Copy stages
         const stagesResult = await client.get<{ data?: PipelineStage[] }>(`/pipeline-stages?pipeline=${pageId}`);
         if (stagesResult.data) {
-          for (const stage of stagesResult.data) {
-            await client.post('/pipeline-stages', {
-              name: stage.name,
-              color: stage.color,
-              probability: stage.probability,
-              pipeline: pipeline.id,
-              position: stage.position,
-              isWon: stage.isWon || false,
-              isLost: stage.isLost || false,
-              isDefault: stage.isDefault || false,
-              description: stage.description,
-            });
-          }
+          // Each copy keeps the original's position, so they can be created in parallel.
+          await Promise.all(
+            stagesResult.data.map((stage) =>
+              client.post('/pipeline-stages', {
+                name: stage.name,
+                color: stage.color,
+                probability: stage.probability,
+                pipeline: pipeline.id,
+                position: stage.position,
+                isWon: stage.isWon || false,
+                isLost: stage.isLost || false,
+                isDefault: stage.isDefault || false,
+                description: stage.description,
+              }),
+            ),
+          );
         }
         const newPage: PageData = {
           id: pipeline.id,

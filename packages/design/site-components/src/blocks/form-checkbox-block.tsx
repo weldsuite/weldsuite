@@ -9,7 +9,6 @@ export interface FormCheckboxBlockProps {
   name?: string;
   labelColor?: string;
   checkboxColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function FormCheckboxBlock({

@@ -13,7 +13,6 @@ export interface StatsBlockProps {
   numberColor?: string;
   labelColor?: string;
   iconColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function StatsBlock({

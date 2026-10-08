@@ -15,6 +15,11 @@
     "./jurisdictions/nl": "./src/jurisdictions/nl/index.ts",
     "./jurisdictions/registry": "./src/jurisdictions/registry.ts",
     "./jurisdictions/types": "./src/jurisdictions/types.ts",
+    "./jurisdictions/us": "./src/jurisdictions/us/index.ts",
+    "./jurisdictions/us/*": "./src/jurisdictions/us/*.ts",
+    "./sales-tax": "./src/sales-tax/index.ts",
+    "./sales-tax/*": "./src/sales-tax/*.ts",
+    "./us-compliance/*": "./src/us-compliance/*.ts",
     "./vies": "./src/vies.ts"
   },
   "scripts": {

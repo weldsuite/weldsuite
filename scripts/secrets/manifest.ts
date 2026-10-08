@@ -161,6 +161,16 @@ export const manifest: Record<string, SecretEntry[]> = {
     "GITHUB_WEBHOOK_SECRET",
     "FACEBOOK_APP_SECRET",
     "FACEBOOK_WEBHOOK_VERIFY_TOKEN",
+    // WeldBooks bank feed webhooks (POST /webhooks/bank-feeds/:provider). Plaid's
+    // credentials fetch its webhook verification key (same values as books-api);
+    // STRIPE_FC_WEBHOOK_SECRET is the signing secret of the Stripe Financial
+    // Connections endpoint (its own endpoint, not billing-worker's).
+    "PLAID_CLIENT_ID",
+    "PLAID_SECRET",
+    "STRIPE_FC_WEBHOOK_SECRET",
+    // Master DB for the bank-feed connection index lookup. Production reaches it
+    // through the HYPERDRIVE_MASTER binding; the test env has no Hyperdrive.
+    "DATABASE_URL_MASTER",
     ["BETTERSTACK_TOKEN_INTEGRATION_WEBHOOK_WORKER", "BETTERSTACK_TOKEN"],
   ],
 
@@ -168,6 +178,9 @@ export const manifest: Record<string, SecretEntry[]> = {
   // authenticate against app-api's internal integrations router.
   "integration-sync-worker": [
     "INTERNAL_API_SECRET",
+    // Master DB for the bank-feed due sweep (bank_feed_connection_index).
+    // Production uses HYPERDRIVE_MASTER; the test env has no Hyperdrive.
+    "DATABASE_URL_MASTER",
   ],
 
   // app-api. (The GitHub App secrets for the install flow + callback +
@@ -436,6 +449,21 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // WeldBooks bank feeds (@weldsuite/bank-feeds). Each provider is offered only
+    // when its credentials are present, so any of these may stay unset (secrets:sync
+    // warns). DATABASE_ENCRYPTION_KEY above encrypts the stored access tokens.
+    // Plaid: https://dashboard.plaid.com (PLAID_ENV var: sandbox | production).
+    "PLAID_CLIENT_ID",
+    "PLAID_SECRET",
+    // Stripe Financial Connections: the secret key of the Stripe account FC is
+    // registered on (possibly a separate account from billing's STRIPE_SECRET_KEY).
+    "STRIPE_FC_SECRET_KEY",
+    // Isabel Group Ponto Connect (Europe); needs the PONTO_CERT mTLS binding.
+    "PONTO_CLIENT_ID",
+    "PONTO_CLIENT_SECRET",
+    // Enable Banking (Europe): application id + PKCS#8 PEM private key.
+    "ENABLE_BANKING_APP_ID",
+    "ENABLE_BANKING_PRIVATE_KEY",
   ],
 
   // calendar-api: the calendar module's API worker (split from app-api). Base

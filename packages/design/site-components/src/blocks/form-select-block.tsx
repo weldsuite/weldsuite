@@ -12,7 +12,6 @@ export interface FormSelectBlockProps {
   labelColor?: string;
   inputBorderColor?: string;
   inputBackgroundColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function FormSelectBlock({

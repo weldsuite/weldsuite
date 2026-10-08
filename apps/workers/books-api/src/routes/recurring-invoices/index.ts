@@ -7,8 +7,10 @@
  *   - Pause/resume lifecycle (PATCH /:id/pause | /:id/resume).
  *   - POST /:id/generate materialises the next invoice from the template
  *     (services/accounting-recurring): claims the period so it can't be billed
- *     twice, calculates tax like a manual invoice, and finalizes (posts) it
- *     when the schedule has autoFinalize. The daily cron uses the same service.
+ *     twice, calculates tax like a manual invoice (US: the sales tax engine,
+ *     from the template lines' tax codes), and finalizes (posts) it when the
+ *     schedule has autoFinalize; if the engine can't answer the invoice stays
+ *     a draft and `finalizeError` says why. The daily cron uses the same service.
  *
  * Integrity: every mutation is written to the accounting audit log.
  *
@@ -34,6 +36,8 @@ import {
 } from '../../services/accounting-recurring';
 import { PostingError } from '../../services/accounting-posting';
 import { TaxCalculationError } from '../../services/accounting-tax-resolve';
+import { salesTaxErrorResponse } from '../../services/sales-tax/errors';
+import { salesTaxRuntimeFromEnv } from '../../services/sales-tax/runtime';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -276,7 +280,7 @@ app.post('/:id/generate', requirePermission('invoices:create'), async (c) => {
       return error.badRequest(c, 'Recurring invoice belongs to a different accounting entity');
     }
 
-    const generated = await generateRecurringInvoice(db, rec, { userId });
+    const generated = await generateRecurringInvoice(db, rec, { userId, tax: salesTaxRuntimeFromEnv(c.env) });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: rec.entityId,
@@ -314,6 +318,8 @@ app.post('/:id/generate', requirePermission('invoices:create'), async (c) => {
   } catch (err) {
     if (err instanceof RecurringAlreadyGeneratedError) return error.conflict(c, err.message);
     if (err instanceof PostingError || err instanceof TaxCalculationError) return error.badRequest(c, err.message);
+    const salesTax = salesTaxErrorResponse(c, err);
+    if (salesTax) return salesTax;
     console.error('[books-api/recurring-invoices] generate failed:', err);
     return error.internal(c, 'Failed to generate recurring invoice');
   }

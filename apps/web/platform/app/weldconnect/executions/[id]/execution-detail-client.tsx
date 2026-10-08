@@ -52,6 +52,7 @@ import {
 } from '../execution-utils';
 import { useNow } from '../use-now';
 import { ApprovalPanel } from './approval-panel';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 export interface ExecutionStepView {
   id: string;
@@ -332,6 +333,8 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
   const cancelExecutionMutation = useCancelExecution();
   const retryExecutionMutation = useRetryExecution();
   const isPending = cancelExecutionMutation.isPending || retryExecutionMutation.isPending;
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [retryDialogOpen, setRetryDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('steps');
   const [expandedSteps, setExpandedSteps] = useState<ReadonlySet<string>>(new Set());
 
@@ -371,10 +374,6 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
   }, [realtimeProgress, isLive, t, st]);
 
   const handleCancel = () => {
-    if (!confirm(t.weldconnect.executionDetail.cancelConfirm)) {
-      return;
-    }
-
     cancelExecutionMutation.mutate(execution.id, {
       onSuccess: () => {
         toast.success(t.weldconnect.executionDetail.toasts.cancelled);
@@ -382,11 +381,17 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
       onError: () => {
         toast.error(t.weldconnect.executionDetail.toasts.cancelFailed);
       },
+      onSettled: () => {
+        setCancelDialogOpen(false);
+      },
     });
   };
 
   const handleRetry = () => {
     retryExecutionMutation.mutate(execution.id, {
+      onSettled: () => {
+        setRetryDialogOpen(false);
+      },
       onSuccess: (data) => {
         toast.success(t.weldconnect.executionDetail.toasts.retried);
         // The retry is a new execution that already exists (queued), so open it.
@@ -495,7 +500,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
       label: t.weldconnect.executionDetail.cancelExecution,
       icon: Pause,
       variant: 'destructive',
-      onClick: handleCancel,
+      onClick: () => setCancelDialogOpen(true),
       disabled: isPending,
     });
   }
@@ -505,7 +510,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
       label: t.weldconnect.executionDetail.retryExecution,
       icon: RefreshCw,
       variant: 'default',
-      onClick: handleRetry,
+      onClick: () => setRetryDialogOpen(true),
       disabled: isPending,
     });
   }
@@ -517,6 +522,10 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
     ? stepRows.filter((s) => s.status === 'success' || s.status === 'completed').length
     : progress.completed;
   const totalSteps = stepRows.length > 0 ? stepRows.length : progress.total;
+  // A retry starts over from the first step, so these will run again.
+  const rerunStepNames = stepRows
+    .filter((s) => s.status === 'success' || s.status === 'completed')
+    .map((s) => s.name);
 
   // Old runs have no logs: hide the tab instead of offering an empty one
   const hasLogs = initialLogs.length > 0;
@@ -550,6 +559,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
           {quickActions.map((action) => (
             <Button
               key={action.label}
+              type="button"
               variant={action.variant || 'outline'}
               size="icon"
               className="h-8 w-8 shadow-none"
@@ -564,6 +574,7 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
           {primaryActions.map((action) => (
             <Button
               key={action.label}
+              type="button"
               variant={action.variant || 'default'}
               onClick={action.onClick}
               disabled={action.disabled}
@@ -861,6 +872,40 @@ export function ExecutionDetailClient({ execution, initialLogs }: Readonly<Execu
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={cancelDialogOpen}
+        onOpenChange={setCancelDialogOpen}
+        title={t.weldconnect.executionDetail.cancelDialogTitle}
+        description={t.weldconnect.executionDetail.cancelDialogDescription}
+        confirmLabel={t.weldconnect.executionDetail.cancelDialogConfirm}
+        cancelLabel={t.weldconnect.executionDetail.cancelDialogKeep}
+        variant="destructive"
+        loading={cancelExecutionMutation.isPending}
+        onConfirm={handleCancel}
+      />
+
+      <ConfirmDialog
+        open={retryDialogOpen}
+        onOpenChange={setRetryDialogOpen}
+        title={t.weldconnect.executionDetail.retryDialogTitle}
+        description={(
+          <>
+            <span className="block">{t.weldconnect.executionDetail.retryDialogDescription}</span>
+            {rerunStepNames.length > 0 && (
+              <span className="mt-2 block text-foreground">
+                {t.weldconnect.executionDetail.retryDialogRerunSteps
+                  .replace('{count}', String(rerunStepNames.length))
+                  .replace('{steps}', rerunStepNames.join(', '))}
+              </span>
+            )}
+          </>
+        )}
+        confirmLabel={t.weldconnect.executionDetail.retryDialogConfirm}
+        cancelLabel={t.weldconnect.executionDetail.retryDialogCancel}
+        loading={retryExecutionMutation.isPending}
+        onConfirm={handleRetry}
+      />
     </>
   );
 }

@@ -44,6 +44,7 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { PaginatedDocMenubar, type DocCommand, type DocActions } from './menubar';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // ---------------------------------------------------------------------------
 // Standalone paginated document editor — plain contenteditable, no BlockNote.
@@ -250,7 +251,7 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     // ---- Command surface (execCommand — reliable inside contenteditable) ----
     const exec = useCallback((command: string, value?: string) => {
       restoreSelection();
-      document.execCommand(command, false, value);
+      runEditorCommand(command, value);
       handleInput();
       refreshToolbarRef.current();
     }, [handleInput, restoreSelection]);
@@ -265,9 +266,9 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     // deprecated <font color>. We flip it on for the command and back off after.
     const applyColor = useCallback((command: 'foreColor' | 'hiliteColor', color: string) => {
       restoreSelection();
-      try { document.execCommand('styleWithCSS', false, 'true'); } catch { /* noop */ }
-      document.execCommand(command, false, color);
-      try { document.execCommand('styleWithCSS', false, 'false'); } catch { /* noop */ }
+      try { runEditorCommand('styleWithCSS', 'true'); } catch { /* noop */ }
+      runEditorCommand(command, color);
+      try { runEditorCommand('styleWithCSS', 'false'); } catch { /* noop */ }
       handleInput();
       refreshToolbarRef.current();
     }, [handleInput, restoreSelection]);
@@ -275,9 +276,9 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     // Apply a font family to the selection (styleWithCSS → inline `style` spans).
     const applyFontName = useCallback((family: string) => {
       restoreSelection();
-      try { document.execCommand('styleWithCSS', false, 'true'); } catch { /* noop */ }
-      document.execCommand('fontName', false, family);
-      try { document.execCommand('styleWithCSS', false, 'false'); } catch { /* noop */ }
+      try { runEditorCommand('styleWithCSS', 'true'); } catch { /* noop */ }
+      runEditorCommand('fontName', family);
+      try { runEditorCommand('styleWithCSS', 'false'); } catch { /* noop */ }
       handleInput();
       refreshToolbarRef.current();
     }, [handleInput, restoreSelection]);
@@ -313,8 +314,8 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
       pendingFontSizeRef.current = null;
 
       // styleWithCSS off → execCommand emits the <font size="7"> sentinels.
-      try { document.execCommand('styleWithCSS', false, 'false'); } catch { /* noop */ }
-      document.execCommand('fontSize', false, '7');
+      try { runEditorCommand('styleWithCSS', 'false'); } catch { /* noop */ }
+      runEditorCommand('fontSize', '7');
 
       if (collapsed) {
         // Nothing selected: apply to the next typed text (handleInput rewrites
@@ -345,9 +346,9 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     // block instead of wrapping it in <blockquote>.
     const indentBlock = useCallback((direction: 'indent' | 'outdent') => {
       restoreSelection();
-      try { document.execCommand('styleWithCSS', false, 'true'); } catch { /* noop */ }
-      document.execCommand(direction);
-      try { document.execCommand('styleWithCSS', false, 'false'); } catch { /* noop */ }
+      try { runEditorCommand('styleWithCSS', 'true'); } catch { /* noop */ }
+      runEditorCommand(direction);
+      try { runEditorCommand('styleWithCSS', 'false'); } catch { /* noop */ }
       handleInput();
       refreshToolbarRef.current();
     }, [handleInput, restoreSelection]);
@@ -405,13 +406,13 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
           ul.querySelectorAll('li').forEach((li) => {
             delete li.dataset.checked;
           });
-          document.execCommand('insertUnorderedList');
+          runEditorCommand('insertUnorderedList');
         } else {
           // Plain bullet list → promote to checklist.
           ul.classList.add('pgn-checklist');
         }
       } else {
-        document.execCommand('insertUnorderedList');
+        runEditorCommand('insertUnorderedList');
         const created = findListAncestor();
         created?.classList.add('pgn-checklist');
       }
@@ -752,7 +753,7 @@ function readFontAtSelection(
 
 function queryCommandStateSafe(cmd: string): boolean {
   try {
-    return document.queryCommandState(cmd);
+    return isEditorCommandActive(cmd);
   } catch {
     return false;
   }

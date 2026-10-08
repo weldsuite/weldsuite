@@ -16,6 +16,11 @@ export default defineConfig({
         __dirname,
         '../../../packages/core/entity-events/src/types.ts',
       ),
+      // The prefix alias below would swallow subpaths such as /schema/master.
+      '@weldsuite/db/schema/master': path.resolve(
+        __dirname,
+        '../../../packages/core/db/src/schema/master.ts',
+      ),
       '@weldsuite/db/schema': path.resolve(
         __dirname,
         '../../../packages/core/db/src/schema/index.ts',

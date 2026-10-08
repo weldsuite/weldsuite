@@ -126,22 +126,24 @@ function EditableField({
   let valueContent: ReactNode;
   if (field.editable && !displayValue) {
     valueContent = (
-      <span
+      <button
+        type="button"
         className="text-sm text-primary ml-auto cursor-pointer hover:underline"
         onClick={handleClick}
       >
         {t('sweep.weldcrm.personDetailSidebar.add')}
-      </span>
+      </button>
     );
   } else if (field.editable && displayValue) {
     valueContent = (
-      <span
+      <button
+        type="button"
         className="text-sm text-foreground ml-auto truncate max-w-[180px] cursor-pointer hover:text-primary"
         onClick={handleClick}
         title={t('sweep.weldcrm.personDetailSidebar.clickToEdit')}
       >
         {displayValue}
-      </span>
+      </button>
     );
   } else {
     valueContent = (
@@ -171,9 +173,9 @@ export function PersonDetailSidebar({ sections, className, onFieldSave }: Readon
           {section.title && (
             <p className="text-sm font-medium text-foreground mb-3">{section.title}</p>
           )}
-          {section.fields.map((field, fieldIndex) => (
+          {section.fields.map((field) => (
             <EditableField
-              key={fieldIndex}
+              key={field.key ?? field.label}
               field={field}
               onSave={onFieldSave}
             />

@@ -10,7 +10,6 @@ export interface FormRadioBlockProps {
   required?: boolean;
   labelColor?: string;
   radioColor?: string;
-  mode?: 'live' | 'preview';
 }
 
 export function FormRadioBlock({

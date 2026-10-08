@@ -201,18 +201,11 @@ export function ChannelAttachmentsTab({ channelId, messages }: Readonly<ChannelA
         jumpToMessage(r.messageId);
       };
       return (
-        <div
+        <button
           key={r.id}
-          role="button"
-          tabIndex={0}
+          type="button"
           onClick={handleOpen}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              handleOpen();
-            }
-          }}
-          className="flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border"
+          className="flex w-full text-left items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border"
         >
           <div className="flex-1 min-w-0 flex items-start gap-3">
             <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
@@ -230,7 +223,7 @@ export function ChannelAttachmentsTab({ channelId, messages }: Readonly<ChannelA
               </div>
             </div>
           </div>
-        </div>
+        </button>
       );
     },
     [navigate],

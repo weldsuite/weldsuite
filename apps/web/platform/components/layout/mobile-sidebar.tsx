@@ -30,7 +30,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useClerk, useOrganization, useOrganizationList } from '@clerk/clerk-react';
 import { useSettings } from '@/providers/settings-provider';
 import { useSidebarBadges } from '@/hooks/use-sidebar-badges';
-import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
+import { useBetaAppCodes, useCanManageApps } from '@/hooks/queries/use-settings-queries';
+import { BetaBadge } from '@/components/layout/beta-badge';
 import { useTheme } from '@/hooks/use-theme';
 import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
@@ -127,6 +128,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
   const { counts: badgeCounts } = useSidebarBadges();
   // App Store is owner/admin-only (install/uninstall surface) — hide otherwise.
   const { data: canManageApps } = useCanManageApps();
+  const { data: betaAppCodes } = useBetaAppCodes();
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === 'dark';
   const [showWorkspaces, setShowWorkspaces] = React.useState(false);
@@ -244,11 +246,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
             {badgeCount > 99 ? '99+' : badgeCount}
           </span>
         ) : null}
-        {showBeta ? (
-          <span className="absolute -top-1 -right-1 z-10 text-[10px] font-mono text-white bg-black border border-black h-[16px] flex items-center justify-center rounded-[5px] px-1 pointer-events-none">
-            <span className="-translate-y-[0.5px]">{st('sweep.shared.beta')}</span>
-          </span>
-        ) : null}
+        {showBeta ? <BetaBadge /> : null}
       </Button>
     );
   };
@@ -305,7 +303,6 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
             onClick: () => handleAppClick('home', '/'),
             title: t.navigation.home,
             refIfActive: true,
-            showBeta: true,
             children: (
               <img
                 src="/assets/images/weldsuite/logo-light.png"
@@ -320,9 +317,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
           {/* Installed Apps */}
           {installedApps.map((app) => {
             const appPath = appHref(app.appCode, app.appType);
-            const showBeta =
-              app.appCode === 'welddesk' ||
-              app.appCode === 'weldconnect';
+            const showBeta = betaAppCodes?.has(app.appCode) ?? false;
             return (
               <React.Fragment key={app.id}>
                 {renderRailButton({
@@ -347,7 +342,7 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
             title: t.navigation.aiAgents,
             refIfActive: true,
             grayscaleWhenInactive: false,
-            showBeta: true,
+            showBeta: betaAppCodes?.has('weldagent') ?? false,
             children: (
               <img
                 src="/assets/images/weldagent/icon.svg"

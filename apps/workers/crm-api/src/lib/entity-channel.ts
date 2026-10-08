@@ -92,20 +92,23 @@ async function resurrectEntityChannel(
 
   const memberIds = new Set<string>(info.defaultMemberIds.filter(Boolean));
   memberIds.add(actingUserId);
-  for (const userId of memberIds) {
-    try {
-      await db.insert(chatChannelMembers).values({
-        id: generateId('cmb'),
-        channelId,
-        userId,
-        role: userId === actingUserId ? 'owner' : 'member',
-        joinedAt: now,
-        createdAt: now,
-      });
-    } catch {
-      // Already a member — ignore.
-    }
-  }
+  // Owner, account manager and the acting user at most: insert them together.
+  await Promise.all(
+    [...memberIds].map(async (userId) => {
+      try {
+        await db.insert(chatChannelMembers).values({
+          id: generateId('cmb'),
+          channelId,
+          userId,
+          role: userId === actingUserId ? 'owner' : 'member',
+          joinedAt: now,
+          createdAt: now,
+        });
+      } catch {
+        // Already a member — ignore.
+      }
+    }),
+  );
 
   const currentMembers = await db
     .select({ id: chatChannelMembers.id })
@@ -186,20 +189,23 @@ export async function getOrCreateEntityChannel(params: {
     throw err;
   }
 
-  for (const userId of memberIds) {
-    try {
-      await db.insert(chatChannelMembers).values({
-        id: generateId('cmb'),
-        channelId,
-        userId,
-        role: userId === actingUserId ? 'owner' : 'member',
-        joinedAt: now,
-        createdAt: now,
-      });
-    } catch {
-      // Duplicate membership — ignore.
-    }
-  }
+  // Owner, account manager and the acting user at most: insert them together.
+  await Promise.all(
+    [...memberIds].map(async (userId) => {
+      try {
+        await db.insert(chatChannelMembers).values({
+          id: generateId('cmb'),
+          channelId,
+          userId,
+          role: userId === actingUserId ? 'owner' : 'member',
+          joinedAt: now,
+          createdAt: now,
+        });
+      } catch {
+        // Duplicate membership — ignore.
+      }
+    }),
+  );
 
   const [channel] = await db
     .select()

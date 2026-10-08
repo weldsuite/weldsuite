@@ -24,7 +24,6 @@ export interface ProductDetailGalleryBlockProps {
   imageRounding?: number;
   images?: ProductImage[];
   textColor?: string;
-  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -95,9 +94,10 @@ export function ProductDetailGalleryBlock({
         {/* Desktop Grid */}
         <div className="hidden md:grid md:grid-cols-2 gap-2">
           {displayImages.slice(0, 5).map((image: ProductImage, index: number) => (
-            <div
+            <button
+              type="button"
               key={index}
-              className={`aspect-square bg-gray-100 overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`}
+              className={`block w-full p-0 aspect-square bg-gray-100 overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`}
               style={{ borderRadius: `${imageRounding}px` }}
               onClick={() => setCurrentImageIndex(index)}
             >
@@ -106,7 +106,7 @@ export function ProductDetailGalleryBlock({
                 alt={image.alt || `Product image ${index + 1}`}
                 className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
               />
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -281,7 +281,6 @@ export interface ProductDetailTitleBlockProps {
   textColor?: string;
   fontSize?: 'sm' | 'md' | 'lg' | 'xl';
   fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
-  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -327,7 +326,6 @@ export interface ProductDetailPriceBlockProps {
   salePrice?: number;
   currency?: string;
   textColor?: string;
-  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -387,11 +385,6 @@ export interface ProductDetailVariantSelectorBlockProps {
   label?: string;
   options?: VariantOption[];
   textColor?: string;
-  mode?: RenderMode;
-  store?: {
-    products?: Product[];
-    selectedProduct?: Product;
-  };
 }
 
 function getVariantOptionClass(isSelected: boolean, inStock: boolean | undefined): string {
@@ -440,11 +433,6 @@ export function ProductDetailVariantSelectorBlock({
 export interface ProductDetailQuantityBlockProps {
   label?: string;
   textColor?: string;
-  mode?: RenderMode;
-  store?: {
-    products?: Product[];
-    selectedProduct?: Product;
-  };
 }
 
 export function ProductDetailQuantityBlock({
@@ -494,10 +482,6 @@ export interface ProductDetailButtonsBlockProps {
   showBuyNow?: boolean;
   textColor?: string;
   mode?: RenderMode;
-  store?: {
-    products?: Product[];
-    selectedProduct?: Product;
-  };
 }
 
 export function ProductDetailButtonsBlock({
@@ -538,7 +522,6 @@ export function ProductDetailButtonsBlock({
 export interface ProductDetailDescriptionBlockProps {
   description?: string;
   textColor?: string;
-  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -573,7 +556,6 @@ export interface ProductDetailAccordionBlockProps {
   items?: AccordionItem[];
   textColor?: string;
   borderColor?: string;
-  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -624,12 +606,10 @@ export function ProductDetailAccordionBlock({
 // ============================================
 
 export interface ProductDetailBlockProps {
-  productId?: string;
   galleryStyle?: 'grid' | 'thumbnailLeft' | 'thumbnailScroll' | 'masonry';
   imageRounding?: number;
   backgroundColor?: string;
   textColor?: string;
-  showAccordion?: boolean;
   mode?: RenderMode;
   store?: {
     products?: Product[];
@@ -685,7 +665,6 @@ export function ProductDetailBlock({
               galleryStyle={galleryStyle}
               imageRounding={imageRounding}
               textColor={textColor}
-              mode={mode}
               store={store}
             />
           </div>
@@ -693,9 +672,9 @@ export function ProductDetailBlock({
           {/* Info Column */}
           <div className="md:w-[40%]">
             <div className="sticky top-24 space-y-6">
-              <ProductDetailTitleBlock textColor={textColor} mode={mode} store={store} />
-              <ProductDetailPriceBlock textColor={textColor} mode={mode} store={store} />
-              <ProductDetailVariantSelectorBlock label="Color" textColor={textColor} mode={mode} store={store} />
+              <ProductDetailTitleBlock textColor={textColor} store={store} />
+              <ProductDetailPriceBlock textColor={textColor} store={store} />
+              <ProductDetailVariantSelectorBlock label="Color" textColor={textColor} />
               <ProductDetailVariantSelectorBlock
                 label="Material"
                 options={[
@@ -704,13 +683,11 @@ export function ProductDetailBlock({
                   { id: 'nylon', label: 'Nylon', value: 'nylon', inStock: true },
                 ]}
                 textColor={textColor}
-                mode={mode}
-                store={store}
               />
-              <ProductDetailQuantityBlock textColor={textColor} mode={mode} store={store} />
-              <ProductDetailButtonsBlock textColor={textColor} mode={mode} store={store} />
-              <ProductDetailDescriptionBlock textColor={textColor} mode={mode} store={store} />
-              <ProductDetailAccordionBlock textColor={textColor} mode={mode} store={store} />
+              <ProductDetailQuantityBlock textColor={textColor} />
+              <ProductDetailButtonsBlock textColor={textColor} mode={mode} />
+              <ProductDetailDescriptionBlock textColor={textColor} store={store} />
+              <ProductDetailAccordionBlock textColor={textColor} store={store} />
             </div>
           </div>
         </div>

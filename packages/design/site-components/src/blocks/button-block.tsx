@@ -12,7 +12,6 @@ interface ButtonBlockProps {
   textColor?: string;
   borderRadius?: number;
   alignment?: 'left' | 'center' | 'right';
-  mode?: string;
 }
 
 export function ButtonBlock({

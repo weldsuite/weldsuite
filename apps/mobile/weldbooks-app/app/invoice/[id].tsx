@@ -17,12 +17,15 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { IconButton } from '@weldsuite/mobile-ui/components/IconButton';
 import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
+import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 
 import api from '@/services/api';
 import { toNumber } from '@/lib/currency';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { Translations } from '@/lib/i18n/locales/en';
 import { BRAND } from '@/lib/brand';
+import { addressLines, isUsAddressTaxable, toAddressDraft } from '@/lib/us';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow } from '@/components/detail';
 import {
@@ -35,6 +38,7 @@ import {
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge } from '@/components/status-badge';
 import { RecordPaymentSheet } from '@/components/record-payment-sheet';
+import { TaxBreakdownCard } from '@/components/tax-breakdown';
 import type { Invoice } from '@/types/accounting';
 
 type Confirm = 'delete' | 'cancel' | 'creditNote' | null;
@@ -50,13 +54,14 @@ function statusOptions(
   status: Invoice['status'],
   t: Translations,
   setConfirm: (confirm: Confirm) => void,
+  createCreditNote: string,
 ): MoreOption[] {
   if (status === 'draft') {
     return [{ text: t.invoiceDetail.deleteDraft, style: 'destructive', onPress: () => setConfirm('delete') }];
   }
   if (status === 'cancelled') return [];
   return [
-    { text: t.invoiceDetail.createCreditNote, onPress: () => setConfirm('creditNote') },
+    { text: createCreditNote, onPress: () => setConfirm('creditNote') },
     { text: t.invoiceDetail.cancelInvoice, style: 'destructive', onPress: () => setConfirm('cancel') },
   ];
 }
@@ -132,8 +137,9 @@ export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const router = useRouter();
-  const { t } = useI18n();
-  const { formatDate } = useLocaleFormatters();
+  const { t, format } = useI18n();
+  const { formatDate, currency: entityCurrency } = useLocaleFormatters();
+  const { isUs, labels, terms } = useJurisdiction();
 
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,7 +167,7 @@ export default function InvoiceDetailScreen() {
   }, [load]);
 
   /** `run` refreshes after each mutation so derived fields (balance, status) are current. */
-  const { busy, run, remove } = useDocumentMutations(load);
+  const { busy, run, remove, error: actionError, clearError } = useDocumentMutations(load);
 
   const handleMore = useCallback(() => {
     if (!invoice) return;
@@ -176,16 +182,16 @@ export default function InvoiceDetailScreen() {
             router.replace(`/invoice/${copy.id}`);
           }, t.invoiceDetail.duplicated),
       },
-      ...statusOptions(invoice.status, t, setConfirm),
+      ...statusOptions(invoice.status, t, setConfirm, format(t.invoiceDetail.createCreditNote, terms)),
       { text: t.common.dismiss, style: 'cancel' },
     ];
 
     Alert.alert(t.invoiceDetail.actionsTitle, undefined, options);
-  }, [invoice, run, router, t]);
+  }, [invoice, run, router, t, format, terms]);
 
   const header = (
     <ScreenHeader
-      title={invoice?.invoiceNumber || t.invoiceDetail.title}
+      title={invoice?.invoiceNumber || (invoice?.type === 'credit_note' ? labels.creditNote : t.invoiceDetail.title)}
       subtitle={invoice?.contactName}
       showBack
       actions={
@@ -229,8 +235,17 @@ export default function InvoiceDetailScreen() {
     );
   }
 
-  const currency = documentCurrency(invoice);
+  const currency = documentCurrency(invoice, entityCurrency);
   const balanceDue = toNumber(invoice.balanceDue);
+  const isCreditNote = invoice.type === 'credit_note';
+  const shipTo = addressLines(invoice.shippingAddress);
+  const billTo = addressLines(invoice.billingAddress);
+  // A US draft finalises only with a ship-to (or bill-to) state and ZIP; the app can't edit a draft afterwards.
+  const missingAddress =
+    isUs &&
+    invoice.status === 'draft' &&
+    !isUsAddressTaxable(toAddressDraft(invoice.shippingAddress)) &&
+    !isUsAddressTaxable(toAddressDraft(invoice.billingAddress));
 
   return (
     <Screen header={header}>
@@ -260,22 +275,57 @@ export default function InvoiceDetailScreen() {
           }
         />
 
+        {missingAddress ? (
+          <Banner variant="warning" style={styles.banner}>
+            {t.invoiceDetail.addressMissing}
+          </Banner>
+        ) : null}
+
+        {actionError ? (
+          <Banner
+            variant="error"
+            title={t.invoiceDetail.finaliseFailed}
+            onClose={clearError}
+            style={styles.banner}
+          >
+            {actionError}
+          </Banner>
+        ) : null}
+
         <SectionCard title={t.invoiceDetail.details}>
+          {isCreditNote ? (
+            <DetailRow label={t.invoiceDetail.documentType} value={labels.creditNote} />
+          ) : null}
           <DetailRow label={t.invoiceDetail.customer} value={invoice.contactName} />
           {invoice.contactEmail ? <DetailRow label={t.invoiceDetail.email} value={invoice.contactEmail} /> : null}
           <DetailRow label={t.invoiceDetail.issueDate} value={formatDate(invoice.issueDate)} />
           <DetailRow label={t.invoiceDetail.dueDate} value={formatDate(invoice.dueDate)} />
           {invoice.reference ? <DetailRow label={t.invoiceDetail.reference} value={invoice.reference} /> : null}
+          {isUs && shipTo.length > 0 ? (
+            <DetailRow label={t.invoiceDetail.shipTo} value={shipTo.join('\n')} />
+          ) : null}
+          {isUs && billTo.length > 0 && billTo.join() !== shipTo.join() ? (
+            <DetailRow label={t.invoiceDetail.billTo} value={billTo.join('\n')} />
+          ) : null}
         </SectionCard>
 
         <DocumentLineItems
           items={invoice.items}
           currency={currency}
           title={t.invoiceDetail.lineItems}
-          vatRateLabel={t.invoiceDetail.vatRate}
+          kind="invoice"
         />
 
-        <DocumentTotalsCard doc={invoice} labels={t.invoiceDetail} />
+        <DocumentTotalsCard doc={invoice} labels={t.invoiceDetail} taxLabel={labels.tax} />
+
+        {isUs ? (
+          <TaxBreakdownCard
+            rows={invoice.taxBreakdown}
+            warnings={invoice.taxWarnings}
+            currency={currency}
+            initiallyExpanded={invoice.status === 'draft'}
+          />
+        ) : null}
 
         {invoice.notes ? (
           <SectionCard title={t.invoiceDetail.notes}>
@@ -299,6 +349,7 @@ export default function InvoiceDetailScreen() {
         onClose={() => setPaymentOpen(false)}
         balanceDue={balanceDue}
         currency={currency}
+        direction="received"
         submitting={busy}
         onSubmit={async (payment) => {
           await run(
@@ -340,7 +391,7 @@ export default function InvoiceDetailScreen() {
 
       <ConfirmModal
         visible={confirm === 'creditNote'}
-        title={t.invoiceDetail.creditNoteTitle}
+        title={format(t.invoiceDetail.creditNoteTitle, terms)}
         message={t.invoiceDetail.creditNoteMessage}
         confirmText={t.common.create}
         loading={busy}
@@ -350,7 +401,7 @@ export default function InvoiceDetailScreen() {
           run(async () => {
             const note = await api.createCreditNote(invoice.id);
             router.replace(`/invoice/${note.id}`);
-          }, t.invoiceDetail.creditNoteCreated);
+          }, format(t.invoiceDetail.creditNoteCreated, terms));
         }}
       />
     </Screen>
@@ -359,6 +410,7 @@ export default function InvoiceDetailScreen() {
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 40, paddingTop: 4 },
+  banner: { marginHorizontal: 12, marginTop: 8 },
   notes: { fontSize: 14, lineHeight: 20 },
   actions: { padding: 12, paddingTop: 20, gap: 8 },
 });

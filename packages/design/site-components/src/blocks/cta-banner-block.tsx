@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import React from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
 
@@ -17,7 +16,6 @@ interface CtaBannerBlockProps {
   borderRadius?: number;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: StoreData;
 }
 
 export function CtaBannerBlock({

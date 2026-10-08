@@ -4,7 +4,6 @@ import React from 'react';
 
 interface SpacerBlockProps {
   height?: number;
-  mode?: string;
 }
 
 export function SpacerBlock({

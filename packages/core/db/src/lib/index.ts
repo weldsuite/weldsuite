@@ -135,3 +135,18 @@ export {
   type IngestDeskPhoneInput,
   type ListDeskConversationsQuery,
 } from './desk';
+
+// Ciphertext columns (TIN, SSN, account numbers, provider credentials) that
+// never leave the server: strip them from rows, column lists and payloads.
+export {
+  SENSITIVE_COLUMNS,
+  ALL_SENSITIVE_KEYS,
+  sensitiveColumnsOf,
+  omitSensitive,
+  omitSensitiveRows,
+  scrubSensitiveKeys,
+  selectableColumns,
+  type SensitiveTableName,
+  type SensitiveKeysOf,
+  type WithoutSensitive,
+} from './sensitive-columns';

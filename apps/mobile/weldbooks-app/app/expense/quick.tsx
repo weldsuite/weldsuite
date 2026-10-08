@@ -38,11 +38,17 @@ import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { Card } from '@weldsuite/mobile-ui/components/Card';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
+import { Select } from '@weldsuite/mobile-ui/components/Select';
+import { Switch } from '@weldsuite/mobile-ui/components/Switch';
 
 import api from '@/services/api';
 import { parseAmount } from '@/lib/currency';
 import { today } from '@/lib/date';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { defaultTaxRateFor } from '@/lib/jurisdiction';
+import { describeApiError } from '@/lib/sales-tax';
+import { DEFAULT_TAX_CODE, WELD_TAX_CODES } from '@/lib/us';
 import { BRAND, tint } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard } from '@/components/detail';
@@ -71,6 +77,16 @@ function exclusiveFromPrefill(prefill: BillPrefill): number | null {
   return prefill.total;
 }
 
+/**
+ * The amount to prefill. A VAT / GST expense is entered excluding tax and the
+ * rate is added on top; a US expense is entered as paid, since the sales tax
+ * the vendor charged is part of the cost.
+ */
+function amountFromPrefill(prefill: BillPrefill, isUs: boolean): number | null {
+  if (isUs && prefill.total != null && prefill.total > 0) return prefill.total;
+  return exclusiveFromPrefill(prefill);
+}
+
 function amountInput(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
@@ -83,7 +99,15 @@ export default function QuickExpenseScreen() {
   const { isOnline, addToQueue } = useOfflineQueue();
   const params = useLocalSearchParams<{ amount?: string; vendorName?: string; documentId?: string }>();
   const { t, format } = useI18n();
-  const { formatCurrency } = useLocaleFormatters();
+  const { isUs, code, labels } = useJurisdiction();
+  const {
+    formatCurrency,
+    parseAmount: parseTyped,
+    parseDateInput,
+    formatDateInput,
+    datePlaceholder,
+  } = useLocaleFormatters();
+  const defaultTaxRate = defaultTaxRateFor(code);
 
   const categoryLabels: Record<ExpenseCategory, string> = {
     food: t.expenseQuick.food,
@@ -100,10 +124,13 @@ export default function QuickExpenseScreen() {
   const [category, setCategory] = useState<ExpenseCategory>('other');
   const [vendorName, setVendorName] = useState(params.vendorName ?? '');
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState(today());
-  const [taxRate, setTaxRate] = useState('21');
+  const [date, setDate] = useState(() => formatDateInput(today()));
+  const [taxRate, setTaxRate] = useState(defaultTaxRate);
+  const [accrueUseTax, setAccrueUseTax] = useState(false);
+  const [taxCode, setTaxCode] = useState<string>(DEFAULT_TAX_CODE);
   const [saving, setSaving] = useState(false);
   const [amountError, setAmountError] = useState<string | undefined>();
+  const [dateError, setDateError] = useState<string | undefined>();
   const [ocrState, setOcrState] = useState<'idle' | 'loading' | 'ready' | 'failed'>(
     params.documentId ? 'loading' : 'idle',
   );
@@ -117,11 +144,11 @@ export default function QuickExpenseScreen() {
         const prefill = await api.getBillFromDocument(params.documentId!);
         if (cancelled) return;
         if (prefill.contactName) setVendorName(prefill.contactName);
-        if (prefill.issueDate) setDate(prefill.issueDate);
-        const exclusive = exclusiveFromPrefill(prefill);
-        if (exclusive != null && exclusive > 0) setAmount(amountInput(exclusive));
+        if (prefill.issueDate) setDate(formatDateInput(prefill.issueDate));
+        const prefillAmount = amountFromPrefill(prefill, isUs);
+        if (prefillAmount != null && prefillAmount > 0) setAmount(amountInput(prefillAmount));
         const rate = prefill.items.find((item) => item.taxRate)?.taxRate;
-        if (rate) setTaxRate(rate);
+        if (rate && !isUs) setTaxRate(rate);
         const firstLine = prefill.items[0]?.description?.trim();
         if (firstLine && firstLine !== prefill.contactName) setDescription(firstLine);
         setOcrState('ready');
@@ -132,24 +159,33 @@ export default function QuickExpenseScreen() {
     return () => {
       cancelled = true;
     };
-  }, [params.documentId]);
+  }, [params.documentId, isUs, formatDateInput]);
 
   const handleSave = useCallback(async () => {
-    const value = parseAmount(amount);
+    const value = parseTyped(amount);
     if (value <= 0) {
       setAmountError(t.expenseQuick.amountError);
       return;
     }
     setAmountError(undefined);
 
+    const isoDate = parseDateInput(date);
+    if (!isoDate) {
+      setDateError(format(t.expenseQuick.dateError, { example: datePlaceholder }));
+      return;
+    }
+    setDateError(undefined);
+
     const payload = {
       amount: value,
       category,
       description: description.trim() || undefined,
       vendorName: vendorName.trim() || undefined,
-      date,
+      date: isoDate,
       documentId: params.documentId || undefined,
-      taxRate: parseAmount(taxRate || '0'),
+      // A US expense is booked at what was paid: the tax in it is part of the cost, and use tax is accrued on request.
+      taxRate: isUs ? 0 : parseTyped(taxRate || '0'),
+      ...(isUs && accrueUseTax ? { accrueUseTax: true, taxCode } : {}),
     };
 
     setSaving(true);
@@ -174,7 +210,7 @@ export default function QuickExpenseScreen() {
         toast.info(t.expenseQuick.queuedRetry);
         router.back();
       } catch {
-        toast.error(err instanceof Error ? err.message : t.expenseQuick.saveFailed);
+        toast.error(describeApiError(err, t, t.expenseQuick.saveFailed));
       }
     } finally {
       setSaving(false);
@@ -186,12 +222,19 @@ export default function QuickExpenseScreen() {
     vendorName,
     date,
     taxRate,
+    accrueUseTax,
+    taxCode,
+    isUs,
+    parseTyped,
+    parseDateInput,
+    datePlaceholder,
     params.documentId,
     isOnline,
     addToQueue,
     router,
     toast,
     t,
+    format,
   ]);
 
   return (
@@ -249,12 +292,15 @@ export default function QuickExpenseScreen() {
               <Text style={[styles.amountError, { color: colors.destructive }]}>{amountError}</Text>
             ) : (
               <Text style={[styles.amountHint, { color: colors.mutedForeground }]}>
-                {format(t.expenseQuick.amountHint, {
-                  rate: parseAmount(taxRate || '0'),
-                  total: formatCurrency(
-                    parseAmount(amount || '0') * (1 + parseAmount(taxRate || '0') / 100),
-                  ),
-                })}
+                {isUs
+                  ? t.expenseQuick.amountHintUs
+                  : format(t.expenseQuick.amountHint, {
+                      rate: parseTyped(taxRate || '0'),
+                      tax: labels.tax,
+                      total: formatCurrency(
+                        parseTyped(amount || '0') * (1 + parseTyped(taxRate || '0') / 100),
+                      ),
+                    })}
               </Text>
             )}
           </Card>
@@ -299,7 +345,7 @@ export default function QuickExpenseScreen() {
 
           <SectionCard title={t.expenseQuick.details}>
             <Input
-              label={t.expenseQuick.vendor}
+              label={labels.supplier}
               value={vendorName}
               onChangeText={setVendorName}
               placeholder={t.expenseQuick.vendorPlaceholder}
@@ -308,18 +354,46 @@ export default function QuickExpenseScreen() {
             <Input
               label={t.expenseQuick.date}
               value={date}
-              onChangeText={setDate}
-              placeholder={t.expenseQuick.datePlaceholder}
+              onChangeText={(text) => {
+                setDate(text);
+                if (dateError) setDateError(undefined);
+              }}
+              placeholder={isUs ? datePlaceholder : t.expenseQuick.datePlaceholder}
+              error={dateError}
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <Input
-              label={t.expenseQuick.vatPercent}
-              value={taxRate}
-              onChangeText={setTaxRate}
-              keyboardType="decimal-pad"
-              placeholder="21"
-            />
+            {isUs ? (
+              <>
+                <Switch
+                  label={t.expenseQuick.accrueUseTax}
+                  value={accrueUseTax}
+                  onValueChange={setAccrueUseTax}
+                />
+                <Text style={[styles.amountHint, styles.leftHint, { color: colors.mutedForeground }]}>
+                  {t.expenseQuick.accrueUseTaxHint}
+                </Text>
+                {accrueUseTax ? (
+                  <Select
+                    label={t.salesTax.taxCode}
+                    value={taxCode}
+                    onValueChange={setTaxCode}
+                    options={WELD_TAX_CODES.map((option) => ({
+                      label: t.salesTax.codes[option],
+                      value: option,
+                    }))}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <Input
+                label={labels.taxPercent}
+                value={taxRate}
+                onChangeText={setTaxRate}
+                keyboardType="decimal-pad"
+                placeholder={defaultTaxRate}
+              />
+            )}
             <Textarea
               label={t.expenseQuick.description}
               value={description}
@@ -358,6 +432,7 @@ const styles = StyleSheet.create({
   },
   amountError: { fontSize: 13, marginTop: 4 },
   amountHint: { fontSize: 12, marginTop: 4 },
+  leftHint: { lineHeight: 17 },
   categories: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 16, paddingTop: 12 },
   category: {
     width: '23%',

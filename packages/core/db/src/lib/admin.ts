@@ -784,16 +784,18 @@ export const adminAppScreenshots = {
   },
 
   async reorder(appId: string, screenshotIds: string[]) {
-    // Update sort order for each screenshot
-    for (const [i, screenshotId] of screenshotIds.entries()) {
-      await masterDb
-        .update(masterSchema.appScreenshots)
-        .set({ sortOrder: i })
-        .where(and(
-          eq(masterSchema.appScreenshots.id, screenshotId),
-          eq(masterSchema.appScreenshots.appId, appId)
-        ));
-    }
+    // Update sort order for each screenshot (independent rows, one app's handful)
+    await Promise.all(
+      screenshotIds.map((screenshotId, i) =>
+        masterDb
+          .update(masterSchema.appScreenshots)
+          .set({ sortOrder: i })
+          .where(and(
+            eq(masterSchema.appScreenshots.id, screenshotId),
+            eq(masterSchema.appScreenshots.appId, appId)
+          ))
+      )
+    );
   },
 
   async update(id: string, data: Partial<masterSchema.NewAppScreenshot>) {

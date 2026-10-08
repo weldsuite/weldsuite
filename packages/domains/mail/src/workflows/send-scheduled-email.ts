@@ -90,23 +90,24 @@ async function resolveAttachments(
     .from(mailAttachments)
     .where(and(eq(mailAttachments.messageId, messageId), isNull(mailAttachments.deletedAt)));
 
-  const resolvedAttachments: ResolvedAttachment[] = [];
-  if (attachmentRows.length === 0 || !storage) return resolvedAttachments;
+  if (attachmentRows.length === 0 || !storage) return [];
 
-  for (const row of attachmentRows) {
-    if (!row.storagePath) continue;
-    const obj = await storage.get(row.storagePath);
-    if (!obj) {
-      console.warn(`[SendScheduledEmail] Attachment ${row.id} missing from R2 at ${row.storagePath}`);
-      continue;
-    }
-    resolvedAttachments.push({
-      filename: row.fileName,
-      contentType: row.contentType || undefined,
-      content: await obj.arrayBuffer(),
-    });
-  }
-  return resolvedAttachments;
+  const resolved = await Promise.all(
+    attachmentRows.map(async (row): Promise<ResolvedAttachment | null> => {
+      if (!row.storagePath) return null;
+      const obj = await storage.get(row.storagePath);
+      if (!obj) {
+        console.warn(`[SendScheduledEmail] Attachment ${row.id} missing from R2 at ${row.storagePath}`);
+        return null;
+      }
+      return {
+        filename: row.fileName,
+        contentType: row.contentType || undefined,
+        content: await obj.arrayBuffer(),
+      };
+    }),
+  );
+  return resolved.filter((att): att is ResolvedAttachment => att !== null);
 }
 
 export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduledEmailEnv, SendScheduledEmailParams> {

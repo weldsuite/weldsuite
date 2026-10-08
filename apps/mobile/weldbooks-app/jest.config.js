@@ -16,6 +16,8 @@ module.exports = {
       { configFile: false, babelrc: false, presets: ['babel-preset-expo'] },
     ],
   },
+  // Runs the suite in a fixed, US time zone (see the file): accounting dates are midnight UTC.
+  globalSetup: '<rootDir>/jest.global-setup.js',
   setupFiles: ['<rootDir>/jest.setup.js'],
   // 'jest-junit' feeds the aggregated test dashboard (apps/tools/test-dashboard).
   reporters: [

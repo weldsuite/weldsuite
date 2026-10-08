@@ -449,12 +449,12 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
     reader.onload = (e) => {
       try {
         const data = e.target?.result;
-        if (!data) {
+        if (!(data instanceof ArrayBuffer) || data.byteLength === 0) {
           throw new Error("No data read from file");
         }
 
-        const workbook = XLSX.read(data, {
-          type: "binary",
+        const workbook = XLSX.read(new Uint8Array(data), {
+          type: "array",
           cellDates: true,
           cellNF: false,
           cellText: false,
@@ -534,7 +534,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
       }
     };
 
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   }, [t]);
 
   const handleMappingChange = (sourceField: string, destField: string) => {

@@ -6,7 +6,6 @@ export interface BadgeBlockProps {
   text?: string;
   variant?: 'success' | 'warning' | 'error' | 'info' | 'neutral';
   size?: 'sm' | 'md' | 'lg';
-  mode?: 'live' | 'preview';
 }
 
 export function BadgeBlock({

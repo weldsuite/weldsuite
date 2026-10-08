@@ -41,6 +41,7 @@ export interface AppFormValues {
   howItWorks: { title: string; description: string }[];
   isActive: boolean;
   isPublished: boolean;
+  isBeta: boolean;
   sortOrder: number;
   version: string;
   provider: string;
@@ -63,6 +64,7 @@ export const emptyAppForm: AppFormValues = {
   howItWorks: [],
   isActive: true,
   isPublished: false,
+  isBeta: false,
   sortOrder: 0,
   version: '1.0.0',
   provider: 'WeldSuite',
@@ -307,6 +309,12 @@ export function AppForm({
             description="Visible in the App Store."
             checked={values.isPublished}
             onChange={(v) => set('isPublished', v)}
+          />
+          <Toggle
+            label="Beta"
+            description="Shows a BETA badge on the app icon in the platform sidebar."
+            checked={values.isBeta}
+            onChange={(v) => set('isBeta', v)}
           />
         </div>
         <Field label="Sort order" hint="Lower = appears first.">

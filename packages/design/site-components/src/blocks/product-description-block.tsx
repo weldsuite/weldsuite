@@ -7,7 +7,6 @@ export interface ProductDescriptionBlockProps {
   description?: string;
   heading?: string;
   textColor?: string;
-  mode?: 'live' | 'edit' | 'preview';
   store?: StoreData;
 }
 

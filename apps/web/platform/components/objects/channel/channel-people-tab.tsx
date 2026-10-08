@@ -220,7 +220,16 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
         <div
           key={r.id}
           data-testid="chat-member-row"
+          role="button"
+          tabIndex={0}
           onClick={handleOpen}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleOpen();
+            }
+          }}
           className={`group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 transition-colors cursor-pointer ${isOffline ? 'opacity-60' : ''}`}
         >
           <div className="relative flex-shrink-0">

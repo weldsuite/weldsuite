@@ -103,15 +103,12 @@ function fieldText(value: unknown, fallback: string): string {
 
 interface ApiKeysContentProps {
   apiKeys: ApiKey[];
-  loading: boolean;
-  onAddNew: () => void;
   onDelete: (id: string) => void;
   showForm: boolean;
   formData: Record<string, unknown>;
   setFormData: (data: Record<string, unknown>) => void;
   onFormSubmit: (e: React.FormEvent) => void | Promise<void>;
   setShowForm: (show: boolean) => void;
-  formMode: 'add' | 'edit';
   newApiToken?: { token: string; name: string } | null;
   setNewApiToken?: (token: { token: string; name: string } | null) => void;
 }

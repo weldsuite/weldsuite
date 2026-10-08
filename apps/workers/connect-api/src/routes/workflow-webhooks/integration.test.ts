@@ -48,6 +48,7 @@ interface WebhookView {
   isManaged: boolean;
   hasSecret: boolean;
   workflowName: string | null;
+  workflowStatus: string | null;
   secret?: string;
 }
 
@@ -109,6 +110,7 @@ describe('reads', () => {
     expect(manual?.isManaged).toBe(false);
     expect(managed?.externalUrl).toBe(`${BASE}/api/workflows/webhook/wh_0002_managed`);
     expect(managed?.workflowName).toBe('Inbound orders');
+    expect(managed?.workflowStatus).toBe('active');
     expect(managed?.hasSecret).toBe(true);
     expect(data.every((w) => w.secret === undefined)).toBe(true);
   });
@@ -119,6 +121,16 @@ describe('reads', () => {
     const { data } = (await res.json()) as { data: WebhookView };
     expect(data.isManaged).toBe(true);
     expect(data.secret).toBeUndefined();
+  });
+
+  it('GET / and GET /:id report the workflow status so a paused workflow is not shown as active', async () => {
+    await db.insert(schema.workflows).values({ id: 'wf_paused', name: 'Paused flow', status: 'paused' });
+    await seedWebhook('wh_0003_paused', 'wf_paused', null);
+    const list = (await (await app()('/api/workflow-webhooks')).json()) as { data: WebhookView[] };
+    expect(list.data.find((w) => w.id === 'wh_0003_paused')?.workflowStatus).toBe('paused');
+    const one = (await (await app()('/api/workflow-webhooks/wh_0003_paused')).json()) as { data: WebhookView };
+    expect(one.data.workflowStatus).toBe('paused');
+    expect(one.data.workflowName).toBe('Paused flow');
   });
 
   it('GET /workflow/:id gives the editor the trigger-provisioned row', async () => {

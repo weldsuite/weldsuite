@@ -1069,14 +1069,17 @@ async function seedAttachmentObjects(
   attachments: { fileKey: string; size: number; contentType?: string }[],
 ): Promise<void> {
   if (!env.STORAGE) return;
-  for (const att of attachments) {
-    // Only seed workspace-prefixed keys — a deliberately mis-prefixed key is
-    // left absent so the workspace-guard path can be exercised.
-    const bytes = new Uint8Array(Math.max(0, att.size));
-    await env.STORAGE.put(att.fileKey, bytes, {
-      httpMetadata: att.contentType ? { contentType: att.contentType } : undefined,
-    });
-  }
+  const storage = env.STORAGE;
+  await Promise.all(
+    attachments.map(async (att) => {
+      // Only seed workspace-prefixed keys — a deliberately mis-prefixed key is
+      // left absent so the workspace-guard path can be exercised.
+      const bytes = new Uint8Array(Math.max(0, att.size));
+      await storage.put(att.fileKey, bytes, {
+        httpMetadata: att.contentType ? { contentType: att.contentType } : undefined,
+      });
+    }),
+  );
 }
 
 const seedMailMessageBody = z.object({
@@ -2028,22 +2031,24 @@ testFixturesRoutes.post(
     const apps = body.apps?.length ? body.apps : DEFAULT_INSTALL_APPS;
     const now = new Date();
 
-    for (const appCode of apps) {
-      await db
-        .insert(schema.workspaceInstalledApps)
-        .values({
-          id: generateId('wia'),
-          appCode,
-          isActive: true,
-          installedBy: TEST_MARKER,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: schema.workspaceInstalledApps.appCode,
-          set: { isActive: true, deletedAt: null, updatedAt: now },
-        });
-    }
+    await Promise.all(
+      apps.map((appCode) =>
+        db
+          .insert(schema.workspaceInstalledApps)
+          .values({
+            id: generateId('wia'),
+            appCode,
+            isActive: true,
+            installedBy: TEST_MARKER,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: schema.workspaceInstalledApps.appCode,
+            set: { isActive: true, deletedAt: null, updatedAt: now },
+          }),
+      ),
+    );
 
     // Promote every workspace member to OWNER so the dashboard installed-apps
     // endpoint returns ALL installed apps for them (it only returns the full
@@ -2058,23 +2063,26 @@ testFixturesRoutes.post(
     // Grant explicit assignments for every installed app so they see all of it.
     if (body.userId) {
       const installedCodes = body.apps?.length ? body.apps : DEFAULT_INSTALL_APPS;
-      for (const appCode of installedCodes) {
-        await db
-          .insert(schema.userAppAssignments)
-          .values({
-            id: generateId('uaa'),
-            userId: body.userId,
-            appCode,
-            isActive: true,
-            grantedBy: TEST_MARKER,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoUpdate({
-            target: [schema.userAppAssignments.userId, schema.userAppAssignments.appCode],
-            set: { isActive: true, deletedAt: null, updatedAt: now },
-          });
-      }
+      const userId = body.userId;
+      await Promise.all(
+        installedCodes.map((appCode) =>
+          db
+            .insert(schema.userAppAssignments)
+            .values({
+              id: generateId('uaa'),
+              userId,
+              appCode,
+              isActive: true,
+              grantedBy: TEST_MARKER,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [schema.userAppAssignments.userId, schema.userAppAssignments.appCode],
+              set: { isActive: true, deletedAt: null, updatedAt: now },
+            }),
+        ),
+      );
     }
 
     const rows = await db

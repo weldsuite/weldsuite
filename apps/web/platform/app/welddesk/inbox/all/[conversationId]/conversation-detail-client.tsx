@@ -1034,6 +1034,50 @@ function ContactSidebar({
   );
 }
 
+/** Full-screen image preview. Escape or a click outside the image closes it. */
+function ImagePreviewOverlay({
+  image,
+  ti,
+  onClose,
+}: Readonly<{ image: { url: string; name: string }; ti: InboxStrings; onClose: () => void }>) {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+      <div aria-hidden="true" className="absolute inset-0" onClick={onClose} />
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onClose}
+        className="absolute top-4 right-4 p-2 rounded-lg bg-black/50 hover:bg-black/70 text-white transition-colors z-10"
+      >
+        <X className="h-5 w-5" />
+      </Button>
+      <a
+        href={image.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute top-4 right-16 p-2 rounded-lg bg-black/50 hover:bg-black/70 text-white transition-colors z-10"
+        title={ti.openInNewTab}
+      >
+        <Download className="h-5 w-5" />
+      </a>
+      <Loader2 className="h-6 w-6 animate-spin text-white/50 absolute pointer-events-none" />
+      <img
+        src={image.url}
+        alt={image.name}
+        className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg relative"
+      />
+    </div>
+  );
+}
+
 export default function ConversationDetailClient({
   conversation: initialConversation,
   initialMessages,
@@ -1394,18 +1438,32 @@ export default function ConversationDetailClient({
   };
 
   const uploadAttachments = async (attachments: AttachmentPreview[]): Promise<ActionMessageAttachment[]> => {
-    const uploaded: ActionMessageAttachment[] = [];
     try {
       const client = await getClient();
-      for (const attachment of attachments) {
-        const result = await uploadAttachment(client, attachment);
-        if (result) uploaded.push(result);
+      // The attachments of one message: upload them in parallel, keep the
+      // ones that made it (in their original order) if any upload throws.
+      const settled = await Promise.allSettled(
+        attachments.map((attachment) => uploadAttachment(client, attachment)),
+      );
+      const uploaded: ActionMessageAttachment[] = [];
+      let firstError: unknown;
+      for (const outcome of settled) {
+        if (outcome.status === 'fulfilled') {
+          if (outcome.value) uploaded.push(outcome.value);
+        } else if (firstError === undefined) {
+          firstError = outcome.reason;
+        }
       }
+      if (firstError !== undefined) {
+        console.error('Failed to upload attachments:', firstError);
+        toast.error(ti.failedToUploadAttachments);
+      }
+      return uploaded;
     } catch (error) {
       console.error('Failed to upload attachments:', error);
       toast.error(ti.failedToUploadAttachments);
+      return [];
     }
-    return uploaded;
   };
 
   const handleWeldAgentSend = async (attachments?: AttachmentPreview[]) => {
@@ -1976,38 +2034,7 @@ export default function ConversationDetailClient({
 
     {/* Image Preview Overlay */}
     {previewImage && (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-        onClick={(e) => { if (!(e.target instanceof HTMLImageElement)) setPreviewImage(null); }}
-        onKeyDown={(e) => { if (e.key === 'Escape') setPreviewImage(null); }}
-        tabIndex={0}
-        ref={(el) => el?.focus()}
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setPreviewImage(null)}
-          className="absolute top-4 right-4 p-2 rounded-lg bg-black/50 hover:bg-black/70 text-white transition-colors z-10"
-        >
-          <X className="h-5 w-5" />
-        </Button>
-        <a
-          href={previewImage.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="absolute top-4 right-16 p-2 rounded-lg bg-black/50 hover:bg-black/70 text-white transition-colors z-10"
-          title={ti.openInNewTab}
-        >
-          <Download className="h-5 w-5" />
-        </a>
-        <Loader2 className="h-6 w-6 animate-spin text-white/50 absolute" />
-        <img
-          src={previewImage.url}
-          alt={previewImage.name}
-          className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg relative"
-        />
-      </div>
+      <ImagePreviewOverlay image={previewImage} ti={ti} onClose={() => setPreviewImage(null)} />
     )}
 
     </>

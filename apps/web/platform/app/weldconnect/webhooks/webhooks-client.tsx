@@ -1,5 +1,5 @@
 
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';
@@ -15,13 +15,12 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
   Trash2,
-  CheckCircle,
-  XCircle,
   EllipsisVertical,
   ExternalLink,
   Workflow as WorkflowIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useDeleteWebhook } from '@/hooks/queries/use-automation-queries';
 import {
   EntityList,
@@ -30,6 +29,8 @@ import {
   type FilterConfig,
   type ActiveFilter,
 } from '@/components/entity-list';
+import { WebhookStatusBadge } from './webhook-status-badge';
+import { deriveWebhookStatus, webhookDisplayName } from './webhook-utils';
 
 /**
  * A webhook as /api/workflow-webhooks returns it. Webhook URLs come from the
@@ -44,6 +45,8 @@ export interface WebhookView {
   isEnabled: boolean;
   workflowId: string;
   workflowName?: string | null;
+  /** The workflow's status (draft / active / paused / archived): calls are only accepted while it is active. */
+  workflowStatus?: string | null;
   isManaged: boolean;
   createdAt: string;
   updatedAt: string;
@@ -74,6 +77,7 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
 
   const deleteWebhookMutation = useDeleteWebhook();
   const isPending = deleteWebhookMutation.isPending;
+  const [pendingDelete, setPendingDelete] = useState<WebhookView | null>(null);
 
   const headerColumns: HeaderColumn[] = useMemo(() => [
     { id: 'name', header: wc.columnName, width: 'min-w-[200px] flex-1' },
@@ -90,12 +94,12 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
       label: wc.columnStatus,
       options: [
         { value: 'active', label: t.weldconnect.webhooks.statuses.active },
+        { value: 'draft', label: t.weldconnect.webhooks.statuses.draft },
+        { value: 'paused', label: t.weldconnect.webhooks.statuses.paused },
         { value: 'disabled', label: t.weldconnect.webhooks.statuses.disabled },
       ],
       getDisplayValue: (value) =>
-        value === 'active'
-          ? t.weldconnect.webhooks.statuses.active
-          : t.weldconnect.webhooks.statuses.disabled,
+        (t.weldconnect.webhooks.statuses as Record<string, string>)[value] ?? value,
     },
   ], [t, wc.columnStatus]);
 
@@ -104,8 +108,7 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
     filters.forEach((filter) => {
       if (!filter.operator || !filter.value) return;
       if (filter.field === 'status') {
-        const matches = (w: WebhookView) =>
-          filter.value === 'active' ? w.isEnabled : !w.isEnabled;
+        const matches = (w: WebhookView) => deriveWebhookStatus(w) === filter.value;
         result = filter.operator === 'is'
           ? result.filter(matches)
           : result.filter((w) => !matches(w));
@@ -114,18 +117,17 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
     return result;
   }, []);
 
-  const handleDeleteWebhook = useCallback((webhookId: string) => {
-    if (!confirm(t.weldconnect.webhooks.confirms.delete)) return;
-
-    deleteWebhookMutation.mutate(webhookId, {
-      onSuccess: () => {
-        toast.success(t.weldconnect.webhooks.toasts.deleted);
-      },
-      onError: () => {
-        toast.error(t.weldconnect.webhooks.toasts.deleteFailed);
-      },
-    });
-  }, [deleteWebhookMutation, t.weldconnect.webhooks.confirms.delete, t.weldconnect.webhooks.toasts.deleted, t.weldconnect.webhooks.toasts.deleteFailed]);
+  const handleConfirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    try {
+      await deleteWebhookMutation.mutateAsync(pendingDelete.id);
+      toast.success(t.weldconnect.webhooks.toasts.deleted);
+    } catch {
+      toast.error(t.weldconnect.webhooks.toasts.deleteFailed);
+    } finally {
+      setPendingDelete(null);
+    }
+  }, [deleteWebhookMutation, pendingDelete, t.weldconnect.webhooks.toasts.deleted, t.weldconnect.webhooks.toasts.deleteFailed]);
 
   const renderRow = useCallback((webhook: WebhookView) => (
     <div
@@ -138,7 +140,7 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
         className="min-w-[200px] flex-1 min-w-0 text-left after:absolute after:inset-0 after:content-['']"
       >
         <span className="flex items-center gap-2 text-sm font-medium truncate">
-          <span className="truncate">{webhook.name}</span>
+          <span className="truncate">{webhookDisplayName(webhook)}</span>
           {!webhook.isManaged && (
             <Badge variant="outline" className="text-[10px] font-normal shrink-0">
               {wc.notLinked}
@@ -149,17 +151,7 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
       </button>
 
       <div className="w-[110px]">
-        {webhook.isEnabled ? (
-          <Badge variant="default" className="bg-green-500 text-[11px]">
-            <CheckCircle className="h-3 w-3 mr-1" />
-            {t.weldconnect.webhooks.statuses.active}
-          </Badge>
-        ) : (
-          <Badge variant="secondary" className="text-[11px]">
-            <XCircle className="h-3 w-3 mr-1" />
-            {t.weldconnect.webhooks.statuses.disabled}
-          </Badge>
-        )}
+        <WebhookStatusBadge status={deriveWebhookStatus(webhook)} />
       </div>
 
       <div className="w-[180px]">
@@ -204,7 +196,7 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive"
-                  onClick={() => handleDeleteWebhook(webhook.id)}
+                  onClick={() => setPendingDelete(webhook)}
                   disabled={isPending}
                 >
                   <Trash2 className="mr-0.5 h-4 w-4 text-red-600 dark:text-red-400" />
@@ -216,9 +208,10 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
         </DropdownMenu>
       </div>
     </div>
-  ), [handleDeleteWebhook, isPending, router, t, wc.lastCalled, wc.notLinked]);
+  ), [isPending, router, t, wc.lastCalled, wc.notLinked]);
 
   return (
+    <>
     <EntityList<WebhookView>
       items={webhooks}
       isLoading={isLoading}
@@ -250,5 +243,17 @@ export function WebhooksClient({ webhooks, isLoading = false }: Readonly<Webhook
         description: wc.noResultsDescription,
       }}
     />
+
+    <ConfirmDialog
+      open={!!pendingDelete}
+      onOpenChange={(open) => !open && setPendingDelete(null)}
+      title={t.weldconnect.webhooks.confirms.deleteTitle}
+      description={t.weldconnect.webhooks.confirms.delete}
+      confirmLabel={t.weldconnect.webhooks.actions.delete}
+      cancelLabel={t.common.actions.cancel}
+      variant="destructive"
+      onConfirm={handleConfirmDelete}
+    />
+    </>
   );
 }

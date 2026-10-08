@@ -356,8 +356,8 @@ app.patch('/:id/tags', requirePermission('tickets:update'), zValidator('json', a
  *     down every "recently updated" list as if nothing had happened.
  *
  * `authorName` / `authorEmail` are resolved from the `helpdesk_agents` roster by
- * userId. api-worker hardcoded 'Agent' / '' here with a TODO; the roster is the
- * lookup that TODO was asking for, and it is the same table `/api/helpdesk-agents`
+ * userId. api-worker hardcoded 'Agent' / '' here and left the lookup for later;
+ * the roster is that lookup, and it is the same table `/api/helpdesk-agents`
  * already serves. Falls back to api-worker's literals when the replying user has
  * no agent row.
  *

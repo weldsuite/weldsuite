@@ -4,7 +4,7 @@
  * response payload; the raw value is never returned to the client.
  */
 
-import { and, desc, eq, isNull, like, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, like, lt, ne, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { asText } from '@weldsuite/text';
@@ -120,13 +120,23 @@ export function resolveVariableScope(data: {
  * leaves the value that wins down to row order. A global name must be unique
  * workspace-wide; a workflow variable must not clash with a global or with
  * another variable of the same workflow.
+ *
+ * Names are compared case-insensitively (`E2E_BASE_URL` clashes with
+ * `e2e_base_url`): two names that differ only in case read as the same
+ * variable to a user. `excludeId` leaves one variable out, so renaming a
+ * variable (including a case-only rename) doesn't clash with itself.
  */
 export async function findConflictingVariable(
   db: Database,
   name: string,
   target: { scope: 'global' | 'workflow'; workflowId: string | null },
+  excludeId?: string,
 ) {
-  const nameMatch = and(eq(workflowVariables.name, name), isNull(workflowVariables.deletedAt));
+  const nameMatch = and(
+    sql`lower(${workflowVariables.name}) = lower(${name})`,
+    isNull(workflowVariables.deletedAt),
+    excludeId ? ne(workflowVariables.id, excludeId) : undefined,
+  );
   const where =
     target.scope === 'global' || !target.workflowId
       ? nameMatch

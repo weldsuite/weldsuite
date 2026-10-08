@@ -200,8 +200,33 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('bills',         'Bills'),
   objectPermissions('journal',       'Journal Entries',      ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('accounts',      'Accounts',             ['read', 'create', 'update', 'delete', 'manage']),
-  objectPermissions('banking',       'Banking',              ['read', 'create', 'update', 'manage']),
+  objectPermissions('banking',       'Banking',              ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('reports',       'Reports',              ['read', 'manage']),
+  // Sales tax agencies, rates, returns, exemption certificates and 1099s.
+  {
+    key: 'taxes',
+    label: 'Taxes',
+    permissions: [
+      { key: 'taxes:read', label: 'View sales tax, tax returns and 1099s' },
+      { key: 'taxes:create', label: 'Create agencies, rates, certificates and returns' },
+      { key: 'taxes:update', label: 'Edit agencies, rates, certificates and returns' },
+      { key: 'taxes:delete', label: 'Delete agencies, rates and certificates' },
+      { key: 'taxes:file', label: 'Mark tax returns and 1099s filed and record their payment' },
+    ],
+  },
+  // Revealing a full TIN, SSN or bank account number. Kept apart from every
+  // read grant (like `employees:sensitive`); each reveal is logged.
+  {
+    key: 'tax_ids',
+    label: 'Tax IDs',
+    permissions: [
+      {
+        key: 'tax_ids:reveal',
+        label: 'Reveal full TINs, SSNs and bank account numbers',
+        description: 'Every reveal is recorded in the tax ID reveal log.',
+      },
+    ],
+  },
 
   // ── Helpdesk (WeldDesk) ───────────────────────────────────────────────
   objectPermissions('tickets',       'Tickets'),

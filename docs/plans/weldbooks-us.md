@@ -1,7 +1,8 @@
 # WeldBooks: United States accounting
 
-Status (8 October 2026): phase 0 (ledger foundations) is built — see "Phase 0:
-what was built" below; phases 1 and later are not started. The research behind it (US
+Status (8 October 2026): phases 0 to 8 are built. See "Phase 0: what was
+built" and "Phases 1 to 8: what was built" below, including what still needs
+provider sandboxes, live verification or a later decision. The research behind it (US
 federal rules, sales and use tax, QuickBooks Online, Odoo, bank-feed
 aggregators, with sources) is in
 [weldbooks-us-research/](weldbooks-us-research/README.md), which starts with a
@@ -905,6 +906,108 @@ for, even if other phases slip.
 | 6. Remote sellers | Nexus monitor, marketplace-facilitator sales flag (counts toward thresholds, no tax collected), multi-state onboarding, use tax accrual on bills, WeldCommerce checkout tax through the same engine |
 | 7. Paying vendors | Check printing (MICR line for blank stock, Letter voucher layouts, amount in words, void/reprint, check register), NACHA ACH payment runs (PPD/CCD/CCD+/CTX, balanced or unbalanced per bank, same-day flag, prenotes), Positive Pay export per bank, online W-9 request for vendors. Nacha's 2026 fraud-monitoring rule applies to our customers as originators, so payment runs ship with dual approval and a verification hold when a vendor's bank details change |
 | 8. More | Fixed assets with book, federal and state depreciation books (MACRS with the mid-quarter test, Section 179, bonus after the 19 January 2025 cut-off, de minimis expensing); classes and locations as line-level dimensions; payroll journal import (CSV first, then Gusto's general-ledger API); BAI2 import; 52–53-week fiscal years; 1099 e-filing (partner or IRIS A2A) and IRS TIN matching; an income tax due-date calendar per entity type; mobile app parity (`apps/mobile/weldbooks-app` is NL-only today); an EU bank-feed adapter for Dutch customers |
+
+### Phases 1 to 8: what was built
+
+One PR on top of phase 0. Migrations (approved): tenant
+`0202_weldbooks_us` (23 tables, US columns on entities, accounts, tax rates,
+documents and lines, journal lines, payments, bank accounts and transactions,
+parties and `tax_lines`) and master `0050_bank_feed_connection_index`.
+
+**Domain (`packages/domains/books`)**
+- `jurisdictions/us/`: the adapter (features `salesTax` + `form1099`,
+  terminology, `purchaseTax: 'cost'`), identifiers (EIN/SSN/ITIN, ABA, ZIP),
+  entity types and tax classifications, the chart with an equity section per
+  entity type, tax-line catalogs (Schedule C, 1065, 1120-S, 1120, 990,
+  versioned per year), states, nexus thresholds, 1099 forms and thresholds,
+  product tax codes mapped to Stripe Tax and Avalara, the sales tax return
+  worksheet.
+- `sales-tax/`: the engine contract, the manual engine, Stripe Tax and
+  Avalara adapters (raw fetch, recorded fixtures), the DB loader, mapping to
+  the tax breakdown and tax ledger.
+- `us-compliance/`: 1099 computation, IRIS CSV, substitute-copy data, TIN
+  matching, backup withholding and Form 945, fiscal years incl. 52–53 weeks,
+  the tax calendar with federal holidays, nexus measurement, NACHA, checks
+  and MICR, Positive Pay, depreciation (MACRS tables, mid-quarter, §179,
+  bonus, de minimis).
+
+**`@weldsuite/bank-feeds`** (`packages/core/bank-feeds`): provider interface,
+normalization, webhook verification, Plaid, Stripe Financial Connections,
+Ponto and Enable Banking; routing per country through `BANK_FEED_PROVIDERS`.
+
+**books-api**
+- Entities (US setup, write-only SSN, 52–53-week years), accounts (tax line,
+  1099 box), reports (cash/accrual, fiscal-year ranges, comparatives,
+  month/quarter columns, class/location filters, CSV and print export, tax
+  worksheet), dimensions.
+- Sales tax: agencies (per-agency payable child accounts), jurisdictions and
+  dated rates, zones, taxability rules, engine settings with encrypted
+  credentials, calculation preview, exemption certificates (a late
+  certificate cures earlier exempt sales within 90 days), engine-driven tax
+  on invoices / credit memos / bills (use tax) / recurring invoices, posting
+  per agency with one tax-ledger row per line and jurisdiction, provider
+  commit/reverse, bad-debt tax rows, orders converted to invoices.
+- Sales Tax Center (`/api/tax-returns`), sales tax reports, nexus monitor,
+  tax calendar, daily reminders (in-app) and monthly depreciation in the sweep.
+- Banking: US bank accounts, OFX/QFX/QBO/BAI2 and explicit CSV formats,
+  name/check-number matching, Undeposited Funds and deposits, statement
+  reconciliation with undo, bank feed connections and sync (internal
+  endpoints on the `BooksInternal` entrypoint).
+- 1099: vendor tax data (encrypted TIN and ACH account, logged reveals),
+  computation, filings, IRIS files, copies, corrections, TIN matching,
+  backup withholding in payments, online W-9 (`/public/w9/:token`).
+- Payment runs: check runs, NACHA ACH files, Positive Pay, dual approval,
+  bank-detail holds, withholding at the net.
+- Fixed assets, payroll import (CSV, Gusto), 52–53-week fiscal periods.
+- W-9 and exemption-certificate scans are never sent to OCR.
+
+**Other workers**: integration-webhook-worker receives bank-feed webhooks;
+integration-sync-worker sweeps due connections; commerce-api calculates US
+sales tax on orders; external-api, the commerce portal, the XAF export,
+workflow record actions and every entity event drop the encrypted columns
+(`@weldsuite/db/lib/sensitive-columns`).
+
+**Platform**: US entity setup, tax-line mapping, report toolbar and tax
+worksheet, dimensions, US banking (import formats, deposits, statement
+reconciliation), bank feed connections, sales tax setup and certificates,
+Sales Tax Center, nexus, sales tax on invoice/bill/recurring forms, the 1099
+Center and vendor tax data, the public W-9 page, payment runs and check
+printing, fixed assets, payroll import, tax calendar, fiscal periods, and
+the sidebar entries gated on the jurisdiction features. **Mobile**
+(`apps/mobile/weldbooks-app`): jurisdiction-aware wording and formatting, US
+entity setup, US invoices with server-calculated sales tax, US payments and
+bank accounts. **Help docs**: eleven guides under `/weldbooks/us`.
+
+**Not live-tested or still to verify before relying on it**
+- Every provider adapter runs on fixtures only: Plaid, Stripe Financial
+  Connections (and live transaction access for WeldSuite's Stripe entity),
+  Ponto (needs the mTLS certificate binding), Enable Banking, Stripe Tax,
+  Avalara, Gusto.
+- Data written from research or memory that needs checking: IRIS CSV column
+  headers (the importer accepts the downloaded template's header row), the
+  per-state 1099 direct-filing table, tax-line numbers beyond page 1 of each
+  return, some Avalara tax codes, nexus collection-start rules, vendor
+  discounts and due days per state, Positive Pay bank layouts (generic
+  formats plus configurable templates), MICR positions, Copy B wording
+  against Pub 1179.
+
+**Deferred or open**
+- Blank-stock check printing: the MICR line needs an E-13B font
+  (`@pdf-lib/fontkit` plus a licensed font); pre-printed stock works.
+- 1099 e-filing through IRIS A2A is not built; WeldBooks produces the IRIS
+  portal CSV files and TIN matching files, and the user uploads them.
+- Email delivery (W-9 request links, 1099 copies, reminders) is not wired:
+  links are shown to copy, copies are downloaded, reminders are in-app.
+- Columns the schema lacks: listed property on fixed assets, an original
+  line id on credit-memo items (matching is explicit or heuristic), an
+  attorney flag on parties (kept in `w9.isAttorney`).
+- A Stripe Tax calculation expires after about 90 days, so a much later
+  commit retry needs a recalculation path.
+- Ops: register the bank-feed callback URL (`/weldbooks/banking/feeds/callback`)
+  with Plaid, Ponto and Enable Banking; set the provider secrets
+  (`scripts/secrets/manifest.ts`); add `VITE_STRIPE_FC_PUBLISHABLE_KEY` (or
+  `VITE_STRIPE_PUBLISHABLE_KEY`) to the platform build; register the
+  provider webhooks.
 
 ## Testing
 

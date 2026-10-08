@@ -42,6 +42,15 @@ export interface Invoice {
   balanceDue: string;
   notes?: string;
   reference?: string;
+  /** `standard`, or `credit_note` for a credit memo. */
+  type?: string;
+  billingAddress?: PostalAddress | null;
+  /** US: where the goods or service go; decides the sales tax. Falls back to the billing address. */
+  shippingAddress?: PostalAddress | null;
+  /** US sales tax per jurisdiction and line, as the entity's tax engine calculated it. */
+  taxBreakdown?: TaxBreakdownRow[];
+  /** Engine warnings (`not_registered_in_state`, `address_unverified`, ...), possibly `code: detail`. */
+  taxWarnings?: string[];
   items?: InvoiceItem[];
   payments?: Payment[];
   createdAt: string;
@@ -55,8 +64,67 @@ export interface InvoiceItem {
   taxRate: string;
   lineTotal: string;
   taxAmount?: string;
+  /** US: the WeldBooks product tax code the line was taxed under. */
+  taxCode?: string | null;
   accountId?: string;
   sortOrder: number;
+}
+
+// ---------------------------------------------------------------------------
+// Addresses and tax breakdown
+// ---------------------------------------------------------------------------
+
+/** The shared address shape every accounting row stores (US: `state` is the USPS code). */
+export interface PostalAddress {
+  line1?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+}
+
+export type TaxJurisdictionLevel = 'state' | 'county' | 'city' | 'district';
+
+/**
+ * One row of a document's `taxBreakdown`: a tax amount per rate (VAT / GST) or,
+ * for US sales tax, per jurisdiction and line.
+ */
+export interface TaxBreakdownRow {
+  taxRateName?: string;
+  /** Percentage, e.g. 8.25. */
+  taxRate?: number | string;
+  taxableAmount?: number | string;
+  taxAmount?: number | string;
+  lineId?: string;
+  jurisdictionCode?: string;
+  jurisdictionName?: string;
+  jurisdictionLevel?: TaxJurisdictionLevel;
+  stateCode?: string;
+  /** The part of the line that is exempt (certificate) or not taxable (product taxability). */
+  exemptAmount?: number | string;
+  nonTaxableAmount?: number | string;
+  exemptReason?: string;
+  certificateId?: string;
+  taxCode?: string;
+  /** `use` = US use tax accrued on a purchase. */
+  kind?: 'tax' | 'use';
+  /** GST component when expanded (cgst / sgst / igst). */
+  component?: string;
+}
+
+/** The result of `POST /api/sales-tax/calculate`: tax of a draft, nothing saved. */
+export interface TaxPreview {
+  engine: string | null;
+  warnings: string[];
+  shipToState: string | null;
+  shipToPostalCode: string | null;
+  addressIncomplete: boolean;
+  subtotal: number;
+  taxTotal: number;
+  total: number;
+  /** Per jurisdiction and line; `groupTaxBreakdown` sums it per jurisdiction. */
+  taxBreakdown: TaxBreakdownRow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +157,10 @@ export interface Bill {
   notes?: string;
   reference?: string;
   sourceDocumentId?: string;
+  /** US: where the goods were delivered; sets the use tax rate. */
+  deliveryAddress?: PostalAddress | null;
+  /** US: the use tax accrued on lines the vendor charged no sales tax on. */
+  taxBreakdown?: TaxBreakdownRow[];
   items?: BillItem[];
   createdAt: string;
 }
@@ -101,6 +173,9 @@ export interface BillItem {
   taxRate: string;
   lineTotal: string;
   taxAmount?: string;
+  taxCode?: string | null;
+  /** US: the vendor charged no sales tax, so use tax is accrued on this line. */
+  accrueUseTax?: boolean;
   accountId?: string;
   sortOrder: number;
 }
@@ -114,7 +189,12 @@ export interface BankAccount {
   name: string;
   iban?: string;
   bankName?: string;
+  /** checking, savings, credit_card, money_market or line_of_credit (US). */
   accountType: string;
+  /** US ABA routing number. */
+  routingNumber?: string;
+  /** US: the last four digits of the account number; the full number never reaches the app. */
+  accountNumberLast4?: string;
   currency: string;
   /** Decimal string from app-api. */
   currentBalance: string;
@@ -186,6 +266,8 @@ export interface Payment {
   amount: string;
   date: string;
   paymentMethod?: string;
+  /** US: the number of a received or issued check. */
+  checkNumber?: string;
   reference?: string;
 }
 
@@ -246,14 +328,77 @@ export interface AccountingEntity {
   legalName?: string;
   jurisdictionCode: string;
   baseCurrency: string;
+  /** BCP 47 locale the entity's documents are formatted in, e.g. `en-US`, `nl-NL`. */
+  locale?: string;
+  timezone?: string;
+  address?: PostalAddress | null;
+  /** US: sole_proprietorship, single_member_llc, ..., c_corp, nonprofit. */
+  entityType?: string;
+  /** US: how the IRS taxes the entity (sole_proprietor, disregarded, partnership, s_corp, c_corp, exempt). */
+  taxClassification?: string;
+  /** US: doing-business-as name. */
+  dba?: string;
+  /** US: the EIN, when one is stored (a Social Security number is never shown). */
+  ein?: string;
   isDefault?: boolean;
   isActive?: boolean;
+}
+
+/** Which jurisdiction-specific modules an entity gets (`GET /accounting-entities/jurisdictions`). */
+export interface JurisdictionFeatures {
+  /** Dutch BTW return (rubrieken), filed through Digipoort. */
+  vatReturn: boolean;
+  /** EU ICP listing of intra-community supplies. */
+  icp: boolean;
+  /** Dutch XAF audit file export. */
+  xafExport: boolean;
+  /** Small-business VAT exemption (NL KOR). */
+  smallBusinessScheme: boolean;
+  /** India GST return. */
+  gstReturn: boolean;
+  /** US sales tax: agencies and per-state returns. */
+  salesTax: boolean;
+  /** US 1099 information returns. */
+  form1099: boolean;
+}
+
+/** Codes of the words that differ per jurisdiction; the UI translates them. */
+export interface JurisdictionTerminology {
+  tax: 'vat' | 'gst' | 'sales_tax';
+  taxId: 'vat_number' | 'gstin' | 'ein';
+  registrationId: 'kvk' | 'pan' | 'company_number' | 'state_id';
+  supplier: 'supplier' | 'vendor';
+  creditNote: 'credit_note' | 'credit_memo';
+}
+
+export interface UsTaxClassificationOption {
+  value: string;
+  /** Return form code, e.g. `f1120s`. */
+  form: string;
+  /** Return form as printed, e.g. `Form 1120-S`. */
+  formLabel: string;
+}
+
+/** One legal form of the US jurisdiction with the tax classifications it may have. */
+export interface UsEntityTypeOption {
+  type: string;
+  /** English label from the server; the app prefers its own translation. */
+  label: string;
+  description: string;
+  minOwners: number;
+  defaultClassification: string;
+  classifications: UsTaxClassificationOption[];
 }
 
 export interface Jurisdiction {
   code: string;
   name: string;
-  currency?: string;
+  defaultLocale: string;
+  defaultCurrency: string;
+  features: JurisdictionFeatures;
+  terminology: JurisdictionTerminology;
+  /** US only. */
+  entityTypes?: UsEntityTypeOption[];
 }
 
 export interface AppSettings {
@@ -270,6 +415,8 @@ export interface AppSettings {
 
 export type ContactRole = 'customer' | 'supplier' | 'both';
 
+export type TinType = 'ein' | 'ssn' | 'itin';
+
 export interface Contact {
   id: string;
   name: string;
@@ -279,6 +426,14 @@ export interface Contact {
   vatNumber?: string;
   city?: string;
   country?: string;
+  billingAddress?: PostalAddress | null;
+  shippingAddress?: PostalAddress | null;
+  /** US: the contact is a vendor that gets a 1099. */
+  is1099Vendor?: boolean;
+  /** US: the kind of taxpayer ID on file. The ID itself is never edited on mobile. */
+  tinType?: TinType;
+  /** US: the last four digits of the TIN on file; the full number never reaches the app. */
+  tinLast4?: string;
 }
 
 export interface ContactBalance {

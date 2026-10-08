@@ -551,11 +551,11 @@ export function usePrintPackingSlip() {
       const client = await getClient();
       const res = await client.getRaw(`/pick-lists/${id}/packing-slip`);
       const html = await res.text();
-      const popup = window.open('', '_blank');
-      if (popup) {
-        popup.document.write(html);
-        popup.document.close();
-      }
+      // Serve the slip from a Blob URL instead of document.write() into a blank popup.
+      const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+      const popup = window.open(url, '_blank');
+      // Give the new tab time to load the document before the URL is released.
+      setTimeout(() => URL.revokeObjectURL(url), popup ? 60_000 : 0);
     },
   });
 }

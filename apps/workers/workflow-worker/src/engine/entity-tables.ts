@@ -4,6 +4,8 @@
  * apps/api-worker/src/workflows/execute-workflow/entity-tables.ts.
  */
 
+import { getTableColumns, getTableName } from 'drizzle-orm';
+import { selectableColumns } from '@weldsuite/db/lib/sensitive-columns';
 import { schema } from '../db';
 
 const entityTableMap: Record<string, any> = {
@@ -82,6 +84,18 @@ export function getEntityTable(entityType: string): any {
     );
   }
   return table;
+}
+
+/**
+ * Column map for the record actions' `select` / `returning`: the table's own
+ * columns without any ciphertext (TIN, SSN, account numbers, credentials).
+ * Workflow step output is persisted and can reach AI prompts and webhooks, so a
+ * record action must never read those columns, whichever table it targets.
+ * `undefined` when the table has none (selects everything). Typed `any` like the
+ * rest of this file: Drizzle's overloads cannot express a runtime table.
+ */
+export function getEntityColumns(table: any): any {
+  return selectableColumns(getTableName(table), getTableColumns(table));
 }
 
 export function getEntityIdPrefix(entityType: string): string {

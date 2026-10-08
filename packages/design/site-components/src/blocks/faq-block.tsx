@@ -17,7 +17,6 @@ export interface FAQBlockProps {
   textColor?: string;
   paddingTop?: number;
   paddingBottom?: number;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function FAQBlock({
@@ -49,7 +48,6 @@ export function FAQBlock({
   textColor = '#000000',
   paddingTop = 64,
   paddingBottom = 64,
-  mode = 'live',
 }: Readonly<FAQBlockProps>) {
   return (
     <FAQSection
@@ -60,7 +58,6 @@ export function FAQBlock({
       textColor={textColor}
       paddingTop={paddingTop}
       paddingBottom={paddingBottom}
-      mode={mode === 'edit' || mode === 'preview' ? 'builder' : 'live'}
     />
   );
 }

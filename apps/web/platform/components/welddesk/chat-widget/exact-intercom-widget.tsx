@@ -61,7 +61,6 @@ interface ExactIntercomWidgetProps {
   previewKnowledgePermissions?: Record<string, boolean>;
   previewWelcomeMessage?: string;
   allowHumanEscalation?: boolean;
-  showBranding?: boolean;
 }
 
 // The widget shows at most one full-page view at a time. Each view maps to a
@@ -360,7 +359,7 @@ function WidgetViewHost({
 
   switch (view) {
     case 'messages':
-      return <MessagesView {...common} onOpenChat={onOpenChat} themeSettings={themeSettings} hideCloseButton={hideCloseButton} />;
+      return <MessagesView {...common} onOpenChat={onOpenChat} hideCloseButton={hideCloseButton} />;
     case 'status':
       return <StatusView {...common} />;
     case 'faq':
@@ -381,7 +380,6 @@ function WidgetViewHost({
       return (
         <ZapietHomeView
           onClose={onClose}
-          onBack={onOpenChat}
           onOpenChat={onOpenChat}
           onOpenMessages={() => onNavigate('messages')}
           onOpenStatus={() => onNavigate('status')}

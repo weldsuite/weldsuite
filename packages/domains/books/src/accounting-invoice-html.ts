@@ -12,6 +12,7 @@ import type { Entity, StoredPostalAddress } from '@weldsuite/db/schema';
 import { formatPostalAddressLines, normalizePostalAddress } from './accounting-address';
 import { getAdapter } from './jurisdictions/registry';
 import type { InvoiceLabels } from './jurisdictions/types';
+import { formatExemptSaleNotice } from './jurisdictions/us/invoice-format';
 
 interface InvoiceLineItem {
   description: string;
@@ -30,6 +31,15 @@ interface TaxBreakdownItem {
   taxRate: number;
   taxableAmount: number;
   taxAmount: number;
+  // US sales tax: one row per jurisdiction and line.
+  lineId?: string;
+  jurisdictionCode?: string;
+  jurisdictionName?: string;
+  jurisdictionLevel?: string;
+  stateCode?: string;
+  exemptAmount?: number;
+  exemptReason?: string;
+  certificateId?: string;
 }
 
 export interface InvoiceRenderData {
@@ -62,6 +72,8 @@ export interface InvoiceRenderData {
   amountPaid?: string;
   balanceDue?: string;
   taxBreakdown?: TaxBreakdownItem[];
+  /** US: certificate number by certificate id, for the exempt-sale notice. */
+  certificateNumbers?: Record<string, string | null | undefined>;
 }
 
 function makeCurrencyFmt(locale: string, currency: string) {
@@ -146,6 +158,80 @@ function buildTaxRows(
   `,
     )
     .join('');
+}
+
+const LEVEL_ORDER: Record<string, number> = { state: 0, county: 1, city: 2, district: 3 };
+
+/** US sales tax rows: one per jurisdiction with the rate and the taxable amount, state first. */
+function buildUsTaxRows(
+  taxBreakdown: TaxBreakdownItem[],
+  labels: InvoiceLabels,
+  fmtCurrency: CurrencyFmt,
+): string {
+  const groups = new Map<string, { name: string; level: string; rate: number; taxable: number; tax: number }>();
+  for (const row of taxBreakdown) {
+    if (row.taxAmount === 0 && row.taxableAmount === 0) continue;
+    const name = row.jurisdictionName ?? row.taxRateName ?? '';
+    const key = `${row.jurisdictionCode ?? name}|${row.jurisdictionLevel ?? ''}|${row.taxRate}`;
+    const group = groups.get(key);
+    if (group) {
+      group.taxable += row.taxableAmount;
+      group.tax += row.taxAmount;
+    } else {
+      groups.set(key, {
+        name,
+        level: row.jurisdictionLevel ?? 'state',
+        rate: row.taxRate,
+        taxable: row.taxableAmount,
+        tax: row.taxAmount,
+      });
+    }
+  }
+  return [...groups.values()]
+    .sort((a, b) => (LEVEL_ORDER[a.level] ?? 9) - (LEVEL_ORDER[b.level] ?? 9) || a.name.localeCompare(b.name))
+    .map(
+      (g) => `
+    <tr>
+      <td style="padding:4px 0;">${escapeHtml(labels.tax)} - ${escapeHtml(g.name)} ${escapeHtml(String(g.rate))}% on ${fmtCurrency(g.taxable)}</td>
+      <td style="padding:4px 0;text-align:right;">${fmtCurrency(g.tax)}</td>
+    </tr>
+  `,
+    )
+    .join('');
+}
+
+/**
+ * "Exempt sale: Resale. Certificate no. X." once per certificate. A line taxed
+ * by several agencies repeats its exempt part on each agency's row, so each
+ * line counts once.
+ */
+function buildUsExemptNotices(
+  taxBreakdown: TaxBreakdownItem[],
+  certificateNumbers: InvoiceRenderData['certificateNumbers'],
+  fmtCurrency: CurrencyFmt,
+): string {
+  const seenLines = new Set<string>();
+  const notices = new Map<string, { reason: string; certificateId?: string; amount: number }>();
+  for (const row of taxBreakdown) {
+    if (!row.exemptReason || !((row.exemptAmount ?? 0) > 0)) continue;
+    if (row.lineId) {
+      if (seenLines.has(row.lineId)) continue;
+      seenLines.add(row.lineId);
+    }
+    const key = `${row.exemptReason}|${row.certificateId ?? ''}`;
+    const notice = notices.get(key);
+    if (notice) notice.amount += row.exemptAmount ?? 0;
+    else notices.set(key, { reason: row.exemptReason, certificateId: row.certificateId, amount: row.exemptAmount ?? 0 });
+  }
+  if (notices.size === 0) return '';
+  const lines = [...notices.values()]
+    .map((n) => {
+      const number = n.certificateId ? certificateNumbers?.[n.certificateId] : null;
+      return `<div>${escapeHtml(formatExemptSaleNotice(n.reason, number))} (${fmtCurrency(n.amount)} not taxed)</div>`;
+    })
+    .join('');
+  return `
+      <div style="margin-top:12px;font-size:12px;color:#666;">${lines}</div>`;
 }
 
 /**
@@ -327,7 +413,15 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const bankDetails = entity.bankDetails ?? {};
 
   const itemRows = buildItemRows(invoice.items, fmtCurrency);
-  const taxRows = buildTaxRows(invoice.taxBreakdown || [], labels, fmtCurrency);
+  // US sales tax prints per jurisdiction, and an exempt sale prints its reason and certificate.
+  const taxBreakdown = invoice.taxBreakdown || [];
+  const usSalesTax = adapter.features.salesTax && taxBreakdown.some((row) => row.jurisdictionName);
+  const taxRows = usSalesTax
+    ? buildUsTaxRows(taxBreakdown, labels, fmtCurrency)
+    : buildTaxRows(taxBreakdown, labels, fmtCurrency);
+  const exemptNotices = usSalesTax
+    ? buildUsExemptNotices(taxBreakdown, invoice.certificateNumbers, fmtCurrency)
+    : '';
   // Countries print only when the invoice crosses a border: the buyer's
   // addresses drop the seller's own country, and the seller's address shows
   // its country only to a foreign buyer.
@@ -430,7 +524,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
           <td style="padding:12px 0;text-align:right;font-size:18px;font-weight:bold;">${fmtCurrency(invoice.total)}</td>
         </tr>
         ${buildPaidRows(amountPaid, balanceDue, labels, fmtCurrency)}
-      </table>
+      </table>${exemptNotices}
     </div>
   </div>
 

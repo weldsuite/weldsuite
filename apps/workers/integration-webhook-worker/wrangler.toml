@@ -18,9 +18,13 @@ head_sampling_rate = 1
 # WeldConnect integration triggers:
 # - SLACK_SIGNING_SECRET: verifies inbound Slack webhooks (POST /integration-webhook/slack)
 # - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET: refresh Google tokens during the Sheets poll
+# WeldBooks bank feed webhooks (POST /webhooks/bank-feeds/:provider, scripts/secrets/manifest.ts):
+# - PLAID_CLIENT_ID / PLAID_SECRET: fetch Plaid's webhook verification key (PLAID_ENV var below)
+# - STRIPE_FC_WEBHOOK_SECRET: signing secret of the Stripe Financial Connections webhook endpoint
 
 [vars]
 ENVIRONMENT = "development"
+PLAID_ENV = "sandbox"
 
 # KV namespace for workspace URL + connection caching
 [[kv_namespaces]]
@@ -37,6 +41,17 @@ id = "748b8f38937f4807b3978cacb17e1880"
 binding = "CONNECT_INTERNAL"
 service = "weldsuite-connect-api-test"
 entrypoint = "ConnectInternal"
+remote = true
+
+# books-api's BooksInternal entrypoint: verified bank feed events from
+# POST /webhooks/bank-feeds/:provider go to /internal/bank-connections/events (the
+# workspace is looked up in the master bank_feed_connection_index first). Named
+# entrypoint = reachable only over the binding, so no secret. `remote = true` lets
+# plain `wrangler dev` reach the deployed test worker.
+[[services]]
+binding = "BOOKS_INTERNAL"
+service = "weldsuite-books-api-test"
+entrypoint = "BooksInternal"
 remote = true
 
 # app-api service binding: the public /webhooks/woocommerce/auth compat forward, and
@@ -112,11 +127,17 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+PLAID_ENV = "sandbox"
 
 [[env.test.services]]
 binding = "CONNECT_INTERNAL"
 service = "weldsuite-connect-api-test"
 entrypoint = "ConnectInternal"
+
+[[env.test.services]]
+binding = "BOOKS_INTERNAL"
+service = "weldsuite-books-api-test"
+entrypoint = "BooksInternal"
 
 [[env.test.services]]
 binding = "APP_API"
@@ -186,6 +207,7 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+PLAID_ENV = "production"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
@@ -196,6 +218,12 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 binding = "CONNECT_INTERNAL"
 service = "weldsuite-connect-api"
 entrypoint = "ConnectInternal"
+
+# books-api's [env.production] name is "weldsuite-books-api" (no "-production" suffix).
+[[env.production.services]]
+binding = "BOOKS_INTERNAL"
+service = "weldsuite-books-api"
+entrypoint = "BooksInternal"
 
 # app-api's [env.production] name is "weldsuite-app-api" (no "-production" suffix).
 [[env.production.services]]

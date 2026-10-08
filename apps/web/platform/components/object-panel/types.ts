@@ -29,12 +29,6 @@ export interface ObjectPanelComponentProps {
    */
   mode?: 'panel' | 'fullscreen';
   onModeChange?: (next: 'panel' | 'fullscreen') => void;
-  /**
-   * Horizontal offset (pixels) from the right edge of the content area.
-   * Populated by `ObjectPanelHost` so panels in a stack cascade left as
-   * newer ones push in from the right. Top-of-stack gets `0`.
-   */
-  rightOffset?: number;
 }
 
 export interface ObjectPanelDefinition {

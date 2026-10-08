@@ -404,7 +404,6 @@ function ChatMeetingRoomAdapter() {
       onPictureInPicture={minimizeToPiP}
       onToggleEffects={() => setShowEffects((v) => !v)}
       effectsOpen={showEffects}
-      backgroundType={backgroundType}
       backgroundEffectsSlot={backgroundEffectsSlot}
       // In-call chat tab — shows the CURRENT channel's chat (the call always
       // belongs to a channel/DM). Rendered via the shared chat panel, wired to

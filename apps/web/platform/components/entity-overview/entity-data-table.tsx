@@ -119,7 +119,7 @@ export interface PaginationData {
   hasMore: boolean;
 }
 
-export interface EntityDataTableProps<T = unknown> {
+export interface EntityDataTableProps<T extends { id: string } = { id: string }> {
   data: T[];
   columns: ColumnDefinition<T>[];
   pagination: PaginationData;
@@ -151,7 +151,7 @@ function renderSortIcon(isSorted: boolean, sortOrder: string) {
   );
 }
 
-export function EntityDataTable<T = unknown>({
+export function EntityDataTable<T extends { id: string } = { id: string }>({
   data: initialData,
   columns,
   pagination: initialPagination,
@@ -465,9 +465,9 @@ export function EntityDataTable<T = unknown>({
       </TableRow>
     );
   } else {
-    tableRows = data.map((item, rowIndex) => (
+    tableRows = data.map((item) => (
       <TableRow
-        key={rowIndex}
+        key={item.id}
         className={`border-b border-border/30 hover:bg-muted/10 transition-colors duration-200 ${onRowClick ? 'cursor-pointer' : ''}`}
         onClick={() => onRowClick?.(item)}
       >

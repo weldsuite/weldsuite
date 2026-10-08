@@ -7,7 +7,6 @@ export interface ProductPriceDisplayElementProps {
   compareAtPrice?: number;
   showShipping?: boolean;
   shippingText?: string;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductPriceDisplayElement({

@@ -20,6 +20,8 @@ import { useAgentsSidebarItems } from '@/app/agents/hooks/use-agents-sidebar-ite
 import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconnect-sidebar-items';
 import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sidebar-items';
 import { useWeldbooksSidebarItems } from '@/app/weldbooks/hooks/use-weldbooks-sidebar-items';
+import { resolveAppCode } from '@/lib/apps/app-registry';
+import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 
 interface UnifiedModuleSidebarProps {
   user?: UserInfo;
@@ -57,6 +59,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   const [showCreateDialog, setShowCreateDialog] = React.useState(false);
 
   const moduleKey = getModuleKey(pathname);
+  const { data: betaAppCodes } = useBetaAppCodes();
   const userAppCode = moduleKey?.startsWith('user-app:') ? moduleKey.slice('user-app:'.length) : null;
   const { data: installedUserApps } = useInstalledUserApps(!!userAppCode);
   const installedUserApp = userAppCode
@@ -170,6 +173,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
         appName={config.appName}
         appIcon={config.appIcon}
         appLogo={config.appLogo}
+        appBeta={moduleKey ? (betaAppCodes?.has(resolveAppCode(moduleKey)) ?? false) : false}
         menuItems={visibleMenuItems}
         user={user}
         currentWorkspace={currentWorkspace}

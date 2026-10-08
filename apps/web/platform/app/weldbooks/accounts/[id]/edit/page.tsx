@@ -29,6 +29,8 @@ import {
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import { TaxReportingCard } from '../../components/tax-reporting-card';
 
 const subtypesByType: Record<string, { value: string; labelKey: string }[]> = {
   asset: [
@@ -79,6 +81,8 @@ function createAccountSchema(st: (key: string) => string) {
     currency: z.string().optional(),
     openingBalance: z.coerce.number().optional(),
     isActive: z.boolean().optional(),
+    taxLine: z.string().optional(),
+    form1099Box: z.string().optional(),
   });
 }
 
@@ -93,6 +97,8 @@ export default function EditAccountPage() {
   const st = useTranslations();
   const ta = t.accounting.accounts;
   const { entityCurrency } = useCurrentEntityCurrency();
+  const { code: jurisdictionCode, features } = useCurrentJurisdiction();
+  const isUs = jurisdictionCode === 'US';
   const accountSchema = useMemo(() => createAccountSchema(st), [st]);
 
   const account = data?.data;
@@ -110,6 +116,8 @@ export default function EditAccountPage() {
           currency: account.currency ?? entityCurrency ?? '',
           openingBalance: Number(account.openingBalance ?? 0),
           isActive: account.isActive ?? true,
+          taxLine: account.taxLine ?? '',
+          form1099Box: account.form1099Box ?? '',
         }
       : undefined,
   });
@@ -128,10 +136,16 @@ export default function EditAccountPage() {
   }
 
   const onSubmit = async (values: AccountFormValues) => {
+    // The tax line and the 1099 box exist for US entities only; an empty one clears the stored one.
+    const { taxLine, form1099Box, ...rest } = values;
     // An empty currency is left out so the stored one is kept.
     await updateAccount.mutateAsync({
       id,
-      data: { ...values, currency: values.currency || undefined } as Record<string, unknown>,
+      data: {
+        ...rest,
+        currency: values.currency || undefined,
+        ...(isUs ? { taxLine: taxLine || null, ...(features.form1099 ? { form1099Box: form1099Box || null } : {}) } : {}),
+      } as Record<string, unknown>,
     });
     navigate({ to: '/weldbooks/accounts/$id', params: { id } });
   };
@@ -240,6 +254,16 @@ export default function EditAccountPage() {
             </div>
           </CardContent>
         </Card>
+
+        {isUs && (
+          <TaxReportingCard
+            taxLine={form.watch('taxLine') ?? ''}
+            form1099Box={form.watch('form1099Box') ?? ''}
+            onTaxLineChange={(code) => form.setValue('taxLine', code, { shouldDirty: true })}
+            onForm1099BoxChange={(code) => form.setValue('form1099Box', code, { shouldDirty: true })}
+            showForm1099={features.form1099}
+          />
+        )}
 
         <Card>
           <CardHeader>

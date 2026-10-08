@@ -37,6 +37,7 @@ import {
 } from '@/hooks/queries/use-automation-queries';
 import { useEditorWorkspaceMembers } from '@/hooks/use-workflow-editor-data';
 import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { getTriggerLabel } from '../../trigger-labels';
 import {
@@ -57,6 +58,7 @@ import {
 } from '../executions-filters';
 import { useNow } from '../use-now';
 import { ExecutionStatusBadge } from './execution-status-badge';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface ExecutionRow {
   id: string;
@@ -205,8 +207,15 @@ export function ExecutionsClient() {
   const { mutate: retryExecution } = retryExecutionMutation;
   const { mutate: cancelExecution } = cancelExecutionMutation;
 
+  // Cancel and Retry both ask first; the row menu only records which run and which action.
+  const [pendingAction, setPendingAction] = useState<{ kind: 'cancel' | 'retry'; id: string } | null>(null);
+  const requestRetry = useCallback((executionId: string) => setPendingAction({ kind: 'retry', id: executionId }), []);
+  const requestCancel = useCallback((executionId: string) => setPendingAction({ kind: 'cancel', id: executionId }), []);
+  const closePendingAction = useCallback(() => setPendingAction(null), []);
+
   const handleRetry = useCallback((executionId: string) => {
     retryExecution(executionId, {
+      onSettled: closePendingAction,
       onSuccess: () => {
         toast.success(t.weldconnect.executions.toasts.retried);
       },
@@ -218,10 +227,11 @@ export function ExecutionsClient() {
         );
       },
     });
-  }, [retryExecution, t]);
+  }, [retryExecution, closePendingAction, t]);
 
   const handleCancel = useCallback((executionId: string) => {
     cancelExecution(executionId, {
+      onSettled: closePendingAction,
       onSuccess: () => {
         toast.success(t.weldconnect.executions.toasts.cancelled);
       },
@@ -229,7 +239,7 @@ export function ExecutionsClient() {
         toast.error(t.weldconnect.executions.toasts.cancelFailed);
       },
     });
-  }, [cancelExecution, t]);
+  }, [cancelExecution, closePendingAction, t]);
 
   const handleCopyId = useCallback((executionId: string) => {
     navigator.clipboard.writeText(executionId).then(
@@ -352,11 +362,7 @@ export function ExecutionsClient() {
         role="link"
         tabIndex={0}
         onClick={openDetails}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && e.target === e.currentTarget) {
-            openDetails();
-          }
-        }}
+        onKeyDown={activateOnKey(() => openDetails())}
         className="flex flex-wrap items-start md:flex-nowrap md:items-center gap-x-4 gap-y-2 px-3 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Workflow */}
@@ -399,7 +405,7 @@ export function ExecutionsClient() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     disabled={retryExecutionMutation.isPending}
-                    onClick={() => handleRetry(execution.id)}
+                    onClick={() => requestRetry(execution.id)}
                   >
                     <RefreshCw className="mr-0.5 h-4 w-4" />
                     {t.weldconnect.executions.actions.retry}
@@ -411,7 +417,7 @@ export function ExecutionsClient() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     disabled={cancelExecutionMutation.isPending}
-                    onClick={() => handleCancel(execution.id)}
+                    onClick={() => requestCancel(execution.id)}
                     className="text-red-600 hover:!bg-red-50 hover:!text-red-600 dark:text-red-400 dark:hover:!bg-red-950 dark:hover:!text-red-400"
                   >
                     <Ban className="mr-0.5 h-4 w-4" />
@@ -470,8 +476,8 @@ export function ExecutionsClient() {
     );
   }, [
     router,
-    handleRetry,
-    handleCancel,
+    requestRetry,
+    requestCancel,
     handleCopyId,
     retryExecutionMutation.isPending,
     cancelExecutionMutation.isPending,
@@ -616,6 +622,29 @@ export function ExecutionsClient() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingAction?.kind === 'cancel'}
+        onOpenChange={(open) => { if (!open) closePendingAction(); }}
+        title={t.weldconnect.executionDetail.cancelDialogTitle}
+        description={t.weldconnect.executionDetail.cancelDialogDescription}
+        confirmLabel={t.weldconnect.executionDetail.cancelDialogConfirm}
+        cancelLabel={t.weldconnect.executionDetail.cancelDialogKeep}
+        variant="destructive"
+        loading={cancelExecutionMutation.isPending}
+        onConfirm={() => { if (pendingAction) handleCancel(pendingAction.id); }}
+      />
+
+      <ConfirmDialog
+        open={pendingAction?.kind === 'retry'}
+        onOpenChange={(open) => { if (!open) closePendingAction(); }}
+        title={t.weldconnect.executionDetail.retryDialogTitle}
+        description={t.weldconnect.executionDetail.retryDialogDescription}
+        confirmLabel={t.weldconnect.executionDetail.retryDialogConfirm}
+        cancelLabel={t.weldconnect.executionDetail.retryDialogCancel}
+        loading={retryExecutionMutation.isPending}
+        onConfirm={() => { if (pendingAction) handleRetry(pendingAction.id); }}
+      />
     </div>
   );
 }

@@ -19,6 +19,7 @@ export type NotificationCategory =
   | 'task'
   | 'weldchat'
   | 'weldagent'
+  | 'weldbooks'
   | 'system'
   | 'security';
 
@@ -56,6 +57,11 @@ export type NotificationType =
   | 'system_update'
   | 'access_request'
   | 'access_request_resolved'
+  // WeldBooks (daily sweep reminders)
+  | 'sales_tax_due'
+  | 'tax_deadline'
+  | 'certificate_expiring'
+  | 'nexus_exceeded'
   | 'custom';
 
 export const notifications = pgTable('notifications', {

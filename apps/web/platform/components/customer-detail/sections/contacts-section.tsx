@@ -18,6 +18,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { activateOnKey } from '@/lib/activate-on-key';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ClientApi } from '@weldsuite/api-client/types';
@@ -170,12 +171,22 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
 
   const renderContactRow = useCallback((contact: CustomerContact) => {
     const name = getContactName(contact);
+    const openCompactContact = () => {
+      if (isPanel) {
+        setOpenContact(contact);
+      } else {
+        openObjectPanel({ type: 'person', id: contact.id, stack: true });
+      }
+    };
     return (
       <div key={contact.id}>
         {/* Desktop row - hidden in panel mode */}
         {!isPanel && <div
+          role="button"
+          tabIndex={0}
           className="hidden md:flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/30"
           onClick={() => openObjectPanel({ type: 'person', id: contact.id, stack: true })}
+          onKeyDown={activateOnKey(() => openObjectPanel({ type: 'person', id: contact.id, stack: true }))}
         >
           {/* Name (with avatar) */}
           <div className="w-[360px] min-w-0 flex items-center gap-3">
@@ -275,17 +286,14 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
 
         {/* Compact row - always in panel mode, mobile-only otherwise */}
         <div
+          role="button"
+          tabIndex={0}
           className={cn(
             isPanel ? "flex" : "md:hidden flex",
             "group items-center gap-3 px-4 py-3 border-b border-border/70 hover:bg-gray-50 dark:hover:bg-secondary/40 active:bg-muted/50 cursor-pointer transition-colors",
           )}
-          onClick={() => {
-            if (isPanel) {
-              setOpenContact(contact);
-            } else {
-              openObjectPanel({ type: 'person', id: contact.id, stack: true });
-            }
-          }}
+          onClick={openCompactContact}
+          onKeyDown={activateOnKey(openCompactContact)}
         >
           <Avatar className="h-[22px] w-[22px] !rounded-[8px] flex-shrink-0">
             <AvatarImage src={contact.avatarUrl} alt={name} className="!rounded-[8px]" />

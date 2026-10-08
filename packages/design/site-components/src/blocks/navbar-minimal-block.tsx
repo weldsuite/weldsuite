@@ -7,7 +7,6 @@ import { NavbarMinimalSection } from '../sections/navbar-minimal-section';
 export interface NavbarMinimalBlockProps {
   logo?: string;
   logoText?: string;
-  logoPosition?: 'left' | 'center' | 'right';
   logoStyle?: 'text' | 'image';
   logoFontSize?: number;
   logoFontWeight?: string;
@@ -26,7 +25,6 @@ export interface NavbarMinimalBlockProps {
   stickyHeader?: boolean;
   showBorder?: boolean;
   borderColor?: string;
-  minimalStyle?: boolean;
   store?: StoreData;
   mode?: string;
 }

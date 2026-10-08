@@ -148,9 +148,9 @@ export function GenerateWithAiDialog({ open, onOpenChange, onApply }: Readonly<G
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">{tg.examplesLabel}</p>
               <div className="flex flex-wrap gap-1.5">
-                {examples.map((example, i) => (
+                {examples.map((example) => (
                   <Button
-                    key={i}
+                    key={example}
                     type="button"
                     variant="outline"
                     size="sm"

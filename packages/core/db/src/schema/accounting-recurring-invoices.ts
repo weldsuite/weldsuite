@@ -31,6 +31,7 @@ export const recurringInvoices = pgTable('recurring_invoices', {
       unit?: string;
       taxRateId?: string | null;
       accountId?: string | null;
+      taxCode?: string | null;
     }>;
     notes?: string;
     internalNotes?: string;

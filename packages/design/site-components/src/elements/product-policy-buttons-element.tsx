@@ -7,7 +7,6 @@ export interface ProductPolicyButtonsElementProps {
   refundPolicyText?: string;
   showShippingPolicy?: boolean;
   showRefundPolicy?: boolean;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductPolicyButtonsElement({

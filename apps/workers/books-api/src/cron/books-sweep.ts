@@ -13,7 +13,12 @@
  *   - generates recurring invoices whose next issue date has come (one period
  *     per schedule per run; the claim in generateRecurringInvoice makes a
  *     concurrent manual "generate" safe);
- *   - stores today's ECB rates in fx_rates.
+ *   - stores today's ECB rates in fx_rates;
+ *   - for US entities, sends the tax reminders (sales tax returns, tax calendar
+ *     deadlines, expiring certificates, newly exceeded nexus) to the workspace
+ *     owners and admins, once per reminder (cron/tax-reminders.ts);
+ *   - posts the depreciation of fixed assets that is due, through the end of
+ *     last month (services/fixed-assets, idempotent per asset and period).
  */
 
 import { and, eq, gt, inArray, isNull, lt, lte, sql } from 'drizzle-orm';
@@ -21,6 +26,10 @@ import { getTenantDbForWorkspace, schema, type Database } from '@weldsuite/worke
 import type { Env } from '../types';
 import { generateRecurringInvoice, RecurringAlreadyGeneratedError } from '../services/accounting-recurring';
 import { persistDailyEcbRates } from '../services/accounting-currency';
+import { lastCompletedMonthEnd, runMonthlyDepreciation } from '../services/fixed-assets';
+import { salesTaxRuntimeFromEnv, type SalesTaxRuntime } from '../services/sales-tax/runtime';
+import { createInAppNotifier } from './reminder-notifier';
+import { kvMarkers, runTaxReminders } from './tax-reminders';
 
 export const BOOKS_ACTIVE_PREFIX = 'books:active:';
 const ACTIVE_TTL_SECONDS = 120 * 24 * 60 * 60;
@@ -48,7 +57,12 @@ export interface TenantSweepResult {
   fxRates: number;
 }
 
-export async function sweepTenant(db: Database, now: Date = new Date()): Promise<TenantSweepResult> {
+export async function sweepTenant(
+  db: Database,
+  now: Date = new Date(),
+  /** Opens the stored sales tax engine credentials, so recurring US invoices can be taxed by a provider engine. */
+  tax?: SalesTaxRuntime,
+): Promise<TenantSweepResult> {
   const result: TenantSweepResult = { overdue: 0, recurringGenerated: 0, recurringFailed: 0, fxRates: 0 };
 
   const overdue = await db
@@ -78,7 +92,7 @@ export async function sweepTenant(db: Database, now: Date = new Date()): Promise
     );
   for (const rec of due) {
     try {
-      const generated = await generateRecurringInvoice(db, rec, { userId: null, now });
+      const generated = await generateRecurringInvoice(db, rec, { userId: null, now, tax });
       result.recurringGenerated += 1;
       if (generated.finalizeError) {
         console.warn(`[books-sweep] recurring ${rec.id}: invoice ${generated.invoiceNumber} left as draft: ${generated.finalizeError}`);
@@ -122,10 +136,32 @@ export async function runBooksDailySweep(env: Env, now: Date = new Date()): Prom
       const clerkOrgId = key.name.slice(BOOKS_ACTIVE_PREFIX.length);
       try {
         const db = (await getTenantDbForWorkspace(env, clerkOrgId)) as unknown as Database;
-        const result = await sweepTenant(db, now);
+        const result = await sweepTenant(db, now, salesTaxRuntimeFromEnv(env));
         tenants += 1;
         if (result.overdue || result.recurringGenerated || result.recurringFailed) {
           console.log(`[books-sweep] ${clerkOrgId}: ${JSON.stringify(result)}`);
+        }
+        // A failing reminder must not fail the tenant's sweep.
+        try {
+          const reminders = await runTaxReminders(db, {
+            now,
+            markers: kvMarkers(env.WORKSPACE_CACHE, clerkOrgId),
+            notifier: createInAppNotifier(db, env, clerkOrgId),
+          });
+          if (reminders.sent || reminders.failed) console.log(`[books-sweep] ${clerkOrgId} reminders: ${JSON.stringify(reminders)}`);
+        } catch (err) {
+          console.error(`[books-sweep] ${clerkOrgId} reminders failed:`, err instanceof Error ? err.message : err);
+        }
+        // Nor may depreciation: a locked period is skipped inside the run, anything else is logged.
+        try {
+          const runs = await runMonthlyDepreciation(db, { through: lastCompletedMonthEnd(now.toISOString().slice(0, 10)) });
+          if (runs.length > 0) {
+            console.log(
+              `[books-sweep] ${clerkOrgId} depreciation: ${runs.map((r) => `${r.entityId} posted ${r.posted.length}, skipped ${r.skipped.length}`).join('; ')}`,
+            );
+          }
+        } catch (err) {
+          console.error(`[books-sweep] ${clerkOrgId} depreciation failed:`, err instanceof Error ? err.message : err);
         }
       } catch (err) {
         failed += 1;

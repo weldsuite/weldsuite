@@ -97,12 +97,6 @@ export default function ChangelogPage() {
     },
   ];
 
-  const counts = {
-    total: stats.total,
-    published: stats.published,
-    draft: stats.draft,
-  };
-
   return (
     <EntityPageHeader
       title={tc.title}
@@ -115,7 +109,6 @@ export default function ChangelogPage() {
         params={currentParams}
         statusFilters={statusFilters}
         additionalFilters={additionalFilters}
-        counts={counts}
       />
     </EntityPageHeader>
   );

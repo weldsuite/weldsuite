@@ -28,6 +28,7 @@ function routeGet(routes: Record<string, unknown>) {
 
 beforeEach(() => {
   resetClient();
+  api.setAccountingEntityCurrency(null);
 });
 
 describe('getDashboard', () => {
@@ -372,10 +373,14 @@ describe('accounting entity header', () => {
       getExtraHeaders: () => Record<string, string>;
     };
 
-    expect(opts.getExtraHeaders()).toEqual({});
+    // Every request says which app's permissions apply; the entity header joins it once one is selected.
+    expect(opts.getExtraHeaders()).toEqual({ 'X-Weld-App': 'weldbooks' });
 
     api.setAccountingEntityId('ent_2');
-    expect(opts.getExtraHeaders()).toEqual({ 'X-Accounting-Entity-Id': 'ent_2' });
+    expect(opts.getExtraHeaders()).toEqual({
+      'X-Weld-App': 'weldbooks',
+      'X-Accounting-Entity-Id': 'ent_2',
+    });
   });
 });
 

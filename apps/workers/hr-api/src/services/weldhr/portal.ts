@@ -155,20 +155,22 @@ export async function grantsForEmail(db: Database, email: string) {
     .where(and(sql`lower(${pa.email}) = ${email.trim().toLowerCase()}`, sql`${pa.status} <> 'revoked'`));
   if (rows.length === 0) return [];
 
-  // Drop employee grants whose employee is gone or terminated.
-  const valid = [];
-  for (const row of rows) {
-    if (row.kind === 'employee') {
-      if (!row.employeeId) continue;
+  // Drop employee grants whose employee is gone or terminated. One email holds
+  // a handful of grants, so check them together and keep the row order.
+  const checked = await Promise.all(
+    rows.map(async (row) => {
+      if (row.kind !== 'employee') return row;
+      if (!row.employeeId) return null;
       const [employee] = await db
         .select({ status: schema.hrEmployees.status })
         .from(schema.hrEmployees)
         .where(and(eq(schema.hrEmployees.id, row.employeeId), isNull(schema.hrEmployees.deletedAt)))
         .limit(1);
-      if (!employee || employee.status === 'terminated') continue;
-    }
-    valid.push(row);
-  }
+      if (!employee || employee.status === 'terminated') return null;
+      return row;
+    }),
+  );
+  const valid = checked.filter((row): row is (typeof rows)[number] => row !== null);
   const names = await companyNames(db, valid.map((r) => r.companyId));
   return valid.map((r) => ({ ...r, companyName: r.companyId ? names.get(r.companyId) ?? null : null }));
 }

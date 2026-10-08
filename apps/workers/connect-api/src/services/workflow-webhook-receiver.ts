@@ -12,7 +12,7 @@
  * - per-call stats bookkeeping on the workflow_webhooks row
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 /**
@@ -53,7 +53,12 @@ export function constantTimeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Bump the per-webhook call statistics after a receive attempt.
+ * Bump the per-webhook call statistics for a call the webhook ACCEPTED (it
+ * passed signature / method / IP checks and its workflow is active). Rejected
+ * requests are never recorded: `totalCalls` is accepted calls only, and
+ * `failedCalls` counts accepted calls whose run could not be started.
+ *
+ * Counters are incremented in SQL so concurrent calls don't lose updates.
  * Best-effort — never throws.
  */
 export async function updateWebhookStats(
@@ -62,31 +67,20 @@ export async function updateWebhookStats(
   success: boolean,
   sourceIp?: string,
 ): Promise<void> {
+  const t = schema.workflowWebhooks;
   try {
-    const [webhook] = await db
-      .select()
-      .from(schema.workflowWebhooks)
-      .where(eq(schema.workflowWebhooks.id, webhookId))
-      .limit(1);
-
-    if (webhook) {
-      await db
-        .update(schema.workflowWebhooks)
-        .set({
-          totalCalls: (webhook.totalCalls || 0) + 1,
-          successfulCalls: success
-            ? (webhook.successfulCalls || 0) + 1
-            : webhook.successfulCalls,
-          failedCalls: !success
-            ? (webhook.failedCalls || 0) + 1
-            : webhook.failedCalls,
-          lastCalledAt: new Date(),
-          lastCallStatus: success ? 'success' : 'failed',
-          lastCallIp: sourceIp,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.workflowWebhooks.id, webhookId));
-    }
+    await db
+      .update(t)
+      .set({
+        totalCalls: sql`coalesce(${t.totalCalls}, 0) + 1`,
+        successfulCalls: success ? sql`coalesce(${t.successfulCalls}, 0) + 1` : t.successfulCalls,
+        failedCalls: success ? t.failedCalls : sql`coalesce(${t.failedCalls}, 0) + 1`,
+        lastCalledAt: new Date(),
+        lastCallStatus: success ? 'success' : 'failed',
+        lastCallIp: sourceIp,
+        updatedAt: new Date(),
+      })
+      .where(eq(t.id, webhookId));
   } catch (err) {
     console.error('[WebhookReceiver] Failed to update stats:', err);
   }

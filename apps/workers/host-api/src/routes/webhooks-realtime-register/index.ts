@@ -15,6 +15,7 @@ import { verifyWebhookToken } from '@weldsuite/worker-kit/webhook-token';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
+import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import * as domainsService from '@weldsuite/host-domain/domains';
 import * as transfersService from '../../services/domain-transfers';
@@ -97,6 +98,9 @@ async function syncMappedProcess(
     await transfersService.syncTransferFromRegistrar(tenantDb, rtr, mapping.transferId);
     console.log(`[RTR Webhook] synced transfer ${logSafe(mapping.transferId)} for process ${logSafe(processId)}`);
   }
+  // A registration / transfer / renewal settled: let the auto-renew sweep
+  // re-derive when this workspace next needs a look (D1 due index).
+  await markWorkspaceDue(env.SCHEDULE_INDEX, 'domain_renew', mapping.workspaceId);
 
   const outcome = await rtr.pollProcess(processId);
   if (outcome !== 'pending' && env.WORKSPACE_CACHE) {

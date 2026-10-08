@@ -83,6 +83,37 @@ describe('execution row lifecycle (pglite)', () => {
     expect((await row('wex_test_new')).executionContext).toEqual({ isTest: true });
   });
 
+  it('reports that a fresh or queued row may run', async () => {
+    expect(await startExecutionRow(db, { ...base, id: 'wex_may_new' })).toBe(true);
+    await db.insert(schema.workflowExecutions).values({ id: 'wex_may_queued', workflowId: 'wf_1', status: 'queued' });
+    expect(await startExecutionRow(db, { ...base, id: 'wex_may_queued' })).toBe(true);
+    // a replayed create-execution step re-enters on an already running row
+    expect(await startExecutionRow(db, { ...base, id: 'wex_may_queued' })).toBe(true);
+  });
+
+  it.each(['cancelled', 'completed', 'failed', 'timeout', 'skipped'])(
+    'never revives a %s row: it stays as it was and the caller is told not to run',
+    async (status) => {
+      const id = `wex_dead_${status}`;
+      const completedAt = new Date('2024-05-05T10:00:00Z');
+      await db.insert(schema.workflowExecutions).values({
+        id,
+        workflowId: 'wf_1',
+        workflowName: 'old name',
+        status,
+        completedAt,
+      });
+
+      expect(await startExecutionRow(db, { ...base, id })).toBe(false);
+
+      const r = await row(id);
+      expect(r.status).toBe(status);
+      expect(r.workflowName).toBe('old name');
+      expect(r.cfWorkflowInstanceId).toBeNull();
+      expect(r.completedAt).toEqual(completedAt);
+    },
+  );
+
   it('cancels a queued row with the reason', async () => {
     await db.insert(schema.workflowExecutions).values({ id: 'wex_skip', workflowId: 'wf_1', status: 'queued' });
     await cancelQueuedExecutionRow(db, 'wex_skip', 'Workflow not active');

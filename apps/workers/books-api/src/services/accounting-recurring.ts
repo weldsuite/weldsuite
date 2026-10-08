@@ -5,8 +5,11 @@
  * The schedule is claimed first: `nextIssueDate` moves forward only if it
  * still holds the value we read, so two runs (a double click, a retry, the
  * cron racing a user) can never bill the same period twice. The invoice gets
- * the same server-side tax calculation as a manual one, and schedules with
- * `autoFinalize` are finalized (posted) straight away.
+ * the same server-side tax calculation as a manual one (US entities: the sales
+ * tax engine), and schedules with `autoFinalize` are finalized (posted)
+ * straight away. When the sales tax engine can't answer, the invoice is still
+ * generated as a draft, without tax and flagged, and finalizing is skipped:
+ * it never posts zero tax for a failure.
  */
 
 import { z } from 'zod';
@@ -16,9 +19,26 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { nextEntityNumber, resolveEntityBaseCurrency } from '../lib/entity-context';
-import { calculateDocumentTax } from './accounting-tax-resolve';
+import { type DocumentTaxItem } from './accounting-tax-resolve';
 import { finalizeInvoice } from './accounting-invoice-finalize';
 import { PostingError } from './accounting-posting';
+import {
+  calculateDraftTax,
+  engineUnavailableWarning,
+  invoiceTaxColumns,
+  itemTaxColumns,
+} from './sales-tax/persist';
+import type { SalesTaxRuntime } from './sales-tax/runtime';
+
+const templateAddressSchema = z.object({
+  line1: z.string().optional(),
+  line2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  postalCode: z.string().optional(),
+  country: z.string().optional(),
+  county: z.string().optional(),
+});
 
 export const recurringTemplateSchema = z.object({
   items: z.array(z.object({
@@ -28,7 +48,16 @@ export const recurringTemplateSchema = z.object({
     unit: z.string().optional(),
     taxRateId: z.string().nullable().optional(),
     accountId: z.string().nullable().optional(),
+    // US sales tax
+    productId: z.string().max(30).nullable().optional(),
+    taxCode: z.string().max(30).nullable().optional(),
+    taxUse: z.enum(['business', 'personal']).nullable().optional(),
+    taxIncluded: z.boolean().optional(),
+    classId: z.string().max(30).nullable().optional(),
+    locationId: z.string().max(30).nullable().optional(),
   })).optional(),
+  /** US sales tax: the origin for origin-sourced states, when not the entity's address. */
+  shipFromAddress: templateAddressSchema.nullable().optional(),
   notes: z.string().optional(),
   internalNotes: z.string().optional(),
   paymentTermsDays: z.number().optional(),
@@ -74,7 +103,12 @@ export interface GeneratedRecurringInvoice {
 export async function generateRecurringInvoice(
   db: Database,
   rec: RecurringRow,
-  opts: { userId: string | null; now?: Date },
+  opts: {
+    userId: string | null;
+    now?: Date;
+    /** Opens the entity's stored sales tax engine credentials (provider engines). */
+    tax?: SalesTaxRuntime;
+  },
 ): Promise<GeneratedRecurringInvoice> {
   if (rec.status !== 'active') throw new PostingError('Recurring invoice is not active');
   const now = opts.now ?? new Date();
@@ -107,23 +141,44 @@ export async function generateRecurringInvoice(
   const shippingAddress = normalizePostalAddress(contact?.shippingAddress);
   const taxAddress = shippingAddress ?? billingAddress;
 
-  const lines = items.map((item) => ({
+  const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
+  const invoiceId = generateId('inv');
+  const itemIds = items.map(() => generateId('ili'));
+  const lines: DocumentTaxItem[] = items.map((item, idx) => ({
+    id: itemIds[idx],
+    description: item.description,
     quantity: String(item.quantity || 1),
     unitPrice: String(item.unitPrice || 0),
     discountPercent: '0',
     taxRateId: item.taxRateId ?? null,
+    sortOrder: idx,
+    productId: item.productId ?? null,
+    taxCode: item.taxCode ?? null,
+    taxUse: item.taxUse ?? null,
+    taxIncluded: item.taxIncluded ?? false,
   }));
-  const totals = await calculateDocumentTax(db, {
+  const issueDate = now;
+  const shipFromAddress = normalizePostalAddress(template.shipFromAddress);
+  const drafted = await calculateDraftTax(db, {
     entityId,
     direction: 'sales',
     items: lines,
     buyerCountry: taxAddress?.country,
     billingProvince: taxAddress?.state,
+    runtime: opts.tax,
+    document: {
+      kind: 'invoice',
+      documentId: invoiceId,
+      documentNumber: invoiceNumber,
+      contactId: rec.contactId,
+      issueDate,
+      currency,
+      billingAddress,
+      shippingAddress,
+      shipFromAddress,
+    },
   });
-
-  const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
-  const invoiceId = generateId('inv');
-  const issueDate = now;
+  const totals = drafted.calc;
   const dueDate = new Date(issueDate.getTime() + paymentTermsDays * 24 * 60 * 60 * 1000);
 
   const invoiceRow = {
@@ -138,13 +193,11 @@ export async function generateRecurringInvoice(
     issueDate,
     dueDate,
     currency,
-    subtotal: totals.subtotal,
-    discountTotal: totals.discountTotal,
-    taxTotal: totals.taxTotal,
-    total: totals.total,
+    ...invoiceTaxColumns(totals),
+    ...(drafted.ok ? {} : { taxWarnings: [engineUnavailableWarning(drafted.message)] }),
+    shipFromAddress,
     amountPaid: '0',
     balanceDue: totals.balanceDue,
-    taxBreakdown: totals.taxBreakdown,
     paymentTermsDays,
     reference: template.reference || null,
     notes: template.notes || null,
@@ -158,7 +211,7 @@ export async function generateRecurringInvoice(
     updatedAt: now,
   };
   const itemRows = items.map((item, idx) => ({
-    id: generateId('ili'),
+    id: itemIds[idx],
     entityId,
     invoiceId,
     description: item.description,
@@ -166,13 +219,15 @@ export async function generateRecurringInvoice(
     unitPrice: lines[idx].unitPrice,
     unit: item.unit || null,
     discountPercent: '0',
-    taxRateId: totals.processedItems[idx].taxRateId,
-    taxRate: totals.processedItems[idx].taxRate,
-    taxAmount: totals.processedItems[idx].taxAmount,
-    lineTotal: totals.processedItems[idx].lineTotal,
-    lineTotalWithTax: totals.processedItems[idx].lineTotalWithTax,
+    ...itemTaxColumns(totals, idx),
     accountId: item.accountId || template.revenueAccountId || null,
+    productId: item.productId || null,
     sortOrder: idx,
+    taxCode: item.taxCode || null,
+    taxUse: item.taxUse || null,
+    taxIncluded: item.taxIncluded ?? false,
+    classId: item.classId || null,
+    locationId: item.locationId || null,
     createdAt: now,
     updatedAt: now,
   }));
@@ -193,9 +248,16 @@ export async function generateRecurringInvoice(
 
   let journalEntryId: string | null = null;
   let finalizeError: string | null = null;
-  if (rec.autoFinalize && itemRows.length > 0) {
+  if (rec.autoFinalize && !drafted.ok) {
+    // The draft stays for someone to finalize once the engine is back.
+    finalizeError = `The sales tax engine could not calculate tax (${drafted.message}); the invoice was left as a draft.`;
+  } else if (rec.autoFinalize && itemRows.length > 0) {
     try {
-      const finalized = await finalizeInvoice(db, invoiceId, { userId: opts.userId, markSent: rec.autoSend ?? false });
+      const finalized = await finalizeInvoice(db, invoiceId, {
+        userId: opts.userId,
+        markSent: rec.autoSend ?? false,
+        tax: opts.tax,
+      });
       journalEntryId = finalized.journalEntryId;
     } catch (err) {
       // The invoice exists as a draft; someone has to look at it (missing VAT number, locked period, …).

@@ -50,7 +50,7 @@ export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const { isOnline, addToQueue } = useOfflineQueue();
   const { t, format } = useI18n();
-  const { formatCurrency } = useLocaleFormatters();
+  const { formatCurrency, currency: entityCurrency } = useLocaleFormatters();
 
   const [phase, setPhase] = useState<Phase>('camera');
   const [flashEnabled, setFlashEnabled] = useState(false);
@@ -63,7 +63,7 @@ export default function ScanScreen() {
 
   const summarisePrefill = useCallback(
     (pf: BillPrefill): string => {
-      const currency = pf.currency || 'EUR';
+      const currency = pf.currency || entityCurrency;
       const parts: string[] = [];
       if (pf.contactName) parts.push(pf.contactName);
       if (pf.total != null) parts.push(formatCurrency(pf.total, currency));
@@ -71,7 +71,7 @@ export default function ScanScreen() {
       if (parts.length === 0) return t.scan.extracted;
       return format(t.scan.found, { summary: parts.join(' · ') });
     },
-    [t, format, formatCurrency],
+    [t, format, formatCurrency, entityCurrency],
   );
 
   /**

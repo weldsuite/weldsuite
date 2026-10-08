@@ -197,17 +197,6 @@ function focusOnMount(el: HTMLElement | null) {
   el?.focus();
 }
 
-/** onKeyDown handler that runs `action` on Enter / Space, for role="button" containers. */
-function activateOnKey(action: () => void) {
-  return (e: React.KeyboardEvent) => {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      action();
-    }
-  };
-}
-
 function RoundToPopover({ value, onChange }: Readonly<{ value: string; onChange: (value: string) => void }>) {
   return (
     <Popover>
@@ -812,20 +801,18 @@ function TimesheetMonthView({
               });
 
               return (
-                <div
+                <button
+                  type="button"
                   key={day.date.getTime()}
                   className={cn(
-                    "px-2.5 py-2 cursor-pointer transition-colors group flex flex-col",
+                    "px-2.5 py-2 w-full h-full text-left cursor-pointer transition-colors group flex flex-col",
                     dayIndex > 0 && "border-l border-[#e5e5e5] dark:border-[#222]",
                     !isCurrentMonth && "bg-[#fafafa] dark:bg-[#0a0a0a]",
                     day.isToday && "bg-blue-50/50 dark:bg-blue-900/10",
                     day.isWeekend && isCurrentMonth && !day.isToday && "bg-[#fcfcfc] dark:bg-[#0d0d0d]",
                     "hover:bg-[#f5f5f5] dark:hover:bg-[#1a1a1a]"
                   )}
-                  role="button"
-                  tabIndex={0}
                   onClick={() => openAddDialogForDate(day.date)}
-                  onKeyDown={activateOnKey(() => openAddDialogForDate(day.date))}
                 >
                   {/* Day Number */}
                   <div className="flex items-center justify-between mb-2">
@@ -873,7 +860,7 @@ function TimesheetMonthView({
                       <Plus className="h-5 w-5 text-[#ccc] dark:text-[#444]" />
                     </div>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
@@ -893,18 +880,16 @@ function TimesheetMonthView({
           });
 
           return (
-            <div
+            <button
+              type="button"
               key={day.date.getTime()}
               className={cn(
-                "px-4 py-3 border-b border-[#e5e5e5] dark:border-[#222] cursor-pointer",
+                "block w-full text-left px-4 py-3 border-b border-[#e5e5e5] dark:border-[#222] cursor-pointer",
                 day.isToday && "bg-blue-50/50 dark:bg-blue-900/10",
                 day.isWeekend && !day.isToday && "bg-[#fafafa] dark:bg-[#0a0a0a]",
                 "active:bg-[#f0f0f0] dark:active:bg-[#1a1a1a]"
               )}
-              role="button"
-              tabIndex={0}
               onClick={() => openAddDialogForDate(day.date)}
-              onKeyDown={activateOnKey(() => openAddDialogForDate(day.date))}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -973,7 +958,7 @@ function TimesheetMonthView({
                   )}
                 </div>
               )}
-            </div>
+            </button>
           );
         })}
       </div>

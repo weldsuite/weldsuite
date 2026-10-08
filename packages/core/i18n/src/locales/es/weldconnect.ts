@@ -490,7 +490,6 @@ export const weldconnect = {
     export: 'Exportar',
     cancelExecution: 'Cancelar',
     retryExecution: 'Reintentar',
-    cancelConfirm: '¿Estás seguro de que quieres cancelar esta ejecución?',
     workflowLabel: 'Flujo de trabajo:',
     unknownWorkflow: 'Flujo de trabajo desconocido',
     stepsCompleted: '{successful} / {total} completados',

@@ -38,38 +38,45 @@ export async function uploadMailAttachments(
   accountId: string,
   files: File[],
 ): Promise<MailAttachmentRef[]> {
-  const uploaded: MailAttachmentRef[] = [];
-  for (const file of files) {
-    const contentType = file.type || 'application/octet-stream';
-    try {
-      const genResp = await client.post<{
-        uploadUrl: string;
-        uploadToken: string;
-        fileKey: string;
-      }>('/storage/generate-upload-url', {
-        fileName: file.name,
-        contentType,
-        fileSize: file.size,
-        folder: 'mail-attachments',
-        entityType: 'mail-attachment',
-        entityId: accountId,
-        isPublic: false,
-      });
-      const putResp = await fetch(genResp.uploadUrl, {
-        method: 'PUT',
-        body: file,
-        headers: { 'Content-Type': contentType },
-      });
-      if (!putResp.ok) throw new Error(`Upload failed: ${putResp.status}`);
-      uploaded.push({
-        filename: file.name,
-        contentType,
-        size: file.size,
-        fileKey: genResp.fileKey,
-      });
-    } catch {
-      throw new MailAttachmentUploadError(file.name);
-    }
-  }
-  return uploaded;
+  // The attachments of one email (capped by MAX_EMAIL_SIZE_BYTES): upload them
+  // in parallel, wait for all of them so a retry never overlaps this attempt,
+  // then reject with the first failing file (in the order they were picked).
+  const settled = await Promise.allSettled(
+    files.map(async (file): Promise<MailAttachmentRef> => {
+      const contentType = file.type || 'application/octet-stream';
+      try {
+        const genResp = await client.post<{
+          uploadUrl: string;
+          uploadToken: string;
+          fileKey: string;
+        }>('/storage/generate-upload-url', {
+          fileName: file.name,
+          contentType,
+          fileSize: file.size,
+          folder: 'mail-attachments',
+          entityType: 'mail-attachment',
+          entityId: accountId,
+          isPublic: false,
+        });
+        const putResp = await fetch(genResp.uploadUrl, {
+          method: 'PUT',
+          body: file,
+          headers: { 'Content-Type': contentType },
+        });
+        if (!putResp.ok) throw new Error(`Upload failed: ${putResp.status}`);
+        return {
+          filename: file.name,
+          contentType,
+          size: file.size,
+          fileKey: genResp.fileKey,
+        };
+      } catch {
+        throw new MailAttachmentUploadError(file.name);
+      }
+    }),
+  );
+  return settled.map((outcome) => {
+    if (outcome.status === 'rejected') throw outcome.reason;
+    return outcome.value;
+  });
 }

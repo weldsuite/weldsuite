@@ -27,7 +27,6 @@ export interface NavbarShopifyBlockProps {
   menuItems?: NavMenuItem[];
   backgroundColor?: string;
   textColor?: string;
-  hoverColor?: string;
   showSearch?: boolean;
   searchStyle?: 'icon' | 'bar';
   showCart?: boolean;

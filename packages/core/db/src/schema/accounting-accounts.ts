@@ -29,6 +29,10 @@ export const accounts = pgTable('accounts', {
   currentBalance: numeric('current_balance', { precision: 18, scale: 2 }).default('0'),
   normalSide: varchar('normal_side', { length: 6 }).notNull(),
   defaultTaxRateId: varchar('default_tax_rate_id', { length: 30 }),
+  /** Income-tax return line the account rolls up to (e.g. `sch_c.18`); see books-domain `us/tax-lines`. */
+  taxLine: varchar('tax_line', { length: 40 }),
+  /** Default 1099 box for payments booked here (nec_1, misc_1, ...) or `omit`. */
+  form1099Box: varchar('form_1099_box', { length: 20 }),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
 }, (table) => [
   index('acct_accounts_entity_idx').on(table.entityId),

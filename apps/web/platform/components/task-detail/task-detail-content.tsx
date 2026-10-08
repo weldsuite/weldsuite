@@ -72,6 +72,8 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
 import { descriptionToHtml, escapeHtml } from './description-html';
+import { activateOnKey } from '@/lib/activate-on-key';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -621,6 +623,14 @@ function AssigneesField({
             <div
               role="button"
               tabIndex={0}
+              onKeyDown={(e) => {
+                // Ignore keys bubbling up from the nested remove buttons.
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.currentTarget.click();
+                }
+              }}
               className="text-sm cursor-pointer flex items-start justify-between gap-2 self-start min-h-8 outline-none focus-visible:ring-2 focus-visible:ring-ring w-full group/field"
             >
               {(task.assignees && task.assignees.length > 0) || task.assignee ? (
@@ -792,6 +802,15 @@ export function TaskDetailContent({
     return availableCompanies.filter((c) => c.name.toLowerCase().includes(q));
   }, [companyQuery, availableCompanies]);
   const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
+  // Escape closes the attachment preview overlay.
+  useEffect(() => {
+    if (!previewAttachment) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewAttachment(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [previewAttachment]);
   const [activeTab, setActiveTab] = useState('details');
   const [attachmentsCollapsed, setAttachmentsCollapsed] = useState(attachments.length === 0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1352,8 +1371,8 @@ export function TaskDetailContent({
               {previewAttachment && (() => {
                 const type = isPreviewable(previewAttachment.fileName);
                 return (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setPreviewAttachment(null)}>
-                    <div className="absolute inset-0 bg-black/60" />
+                  <div className="fixed inset-0 z-50 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-black/60" aria-hidden="true" onClick={() => setPreviewAttachment(null)} />
                     <div className="fixed top-4 right-4 z-20 flex items-center gap-2">
                       <a
                         href={previewAttachment.url}
@@ -1373,7 +1392,7 @@ export function TaskDetailContent({
                         <X className="h-4.5 w-4.5" />
                       </Button>
                     </div>
-                    <div className="relative z-10 max-w-[90vw] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                    <div className="relative z-10 max-w-[90vw] max-h-[90vh] flex flex-col">
                       <div className="flex items-center justify-center overflow-auto">
                         {type === 'image' && (
                           <img src={previewAttachment.url} alt={previewAttachment.fileName} className="max-w-[85vw] max-h-[80vh] object-contain" />
@@ -1410,7 +1429,10 @@ export function TaskDetailContent({
                     return (
                       <div
                         key={attachment.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setPreviewAttachment(attachment)}
+                        onKeyDown={activateOnKey(() => setPreviewAttachment(attachment))}
                         className="flex items-center gap-2 pl-2 py-1.5 rounded-md hover:bg-muted/50 group cursor-pointer"
                       >
                         <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
@@ -1607,7 +1629,10 @@ export function SubtasksSection({
           this row is the root of the tree, nothing above it to connect to. */}
       {effectiveRoot && effectiveSubtasks.length > 0 && (
         <div
+          role={effectiveRoot.id !== currentTaskId ? 'button' : undefined}
+          tabIndex={effectiveRoot.id !== currentTaskId ? 0 : undefined}
           onClick={effectiveRoot.id !== currentTaskId ? () => onNavigateToTask?.(effectiveRoot.id) : undefined}
+          onKeyDown={effectiveRoot.id !== currentTaskId ? activateOnKey(() => onNavigateToTask?.(effectiveRoot.id)) : undefined}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', position: 'relative' }}
           className={cn('group/root-task rounded-md', effectiveRoot.id !== currentTaskId && 'cursor-pointer')}
         >
@@ -1752,7 +1777,10 @@ export function SubtasksSection({
                     {/* Subtask row — no hover bg, darkening comes from the
                         connector lines and checkbox border instead. */}
                     <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onNavigateToTask?.(subtask.id)}
+                      onKeyDown={activateOnKey(() => onNavigateToTask?.(subtask.id))}
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px 5px 9px', marginLeft: -5, overflow: 'hidden', flex: 1, minWidth: 0, cursor: 'pointer' }}
                       className="group/subtask rounded-md relative"
                     >
@@ -2446,7 +2474,7 @@ const EXEC_COMMANDS: Record<Exclude<EditorFormatKind, 'code' | 'highlight'>, str
 };
 
 function execListOrInlineCommand(kind: Exclude<EditorFormatKind, 'code' | 'highlight'>): void {
-  document.execCommand(EXEC_COMMANDS[kind], false);
+  runEditorCommand(EXEC_COMMANDS[kind]);
 }
 
 function placeCaretAfter(sel: Selection, node: Node): void {
@@ -2561,9 +2589,9 @@ export function DescriptionField({
     if (!editorRef.current) return;
     if (!editorRef.current.contains(document.activeElement)) return;
     const next = new Set<string>();
-    if (document.queryCommandState('bold')) next.add('bold');
-    if (document.queryCommandState('italic')) next.add('italic');
-    if (document.queryCommandState('strikeThrough')) next.add('strike');
+    if (isEditorCommandActive('bold')) next.add('bold');
+    if (isEditorCommandActive('italic')) next.add('italic');
+    if (isEditorCommandActive('strikeThrough')) next.add('strike');
     // <code> / <mark> aren't execCommands — detect by ancestor walk.
     const sel = window.getSelection();
     const anchor = sel?.anchorNode;
@@ -2575,8 +2603,8 @@ export function DescriptionField({
       ? anchor.closest('mark')
       : anchor?.parentElement?.closest('mark');
     if (markEl && editorRef.current.contains(markEl)) next.add('highlight');
-    if (document.queryCommandState('insertUnorderedList')) next.add('ul');
-    if (document.queryCommandState('insertOrderedList')) next.add('ol');
+    if (isEditorCommandActive('insertUnorderedList')) next.add('ul');
+    if (isEditorCommandActive('insertOrderedList')) next.add('ol');
     setActiveFormats(next);
   }, []);
 
@@ -2619,7 +2647,7 @@ export function DescriptionField({
     const html = kind === 'image'
       ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(name)}" />`
       : `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
-    document.execCommand('insertHTML', false, html);
+    runEditorCommand('insertHTML', html);
     currentHtmlRef.current = el.innerHTML;
   }, []);
 
@@ -2661,7 +2689,7 @@ export function DescriptionField({
     // unwanted styles from other apps.
     e.preventDefault();
     const text = e.clipboardData?.getData('text/plain') ?? '';
-    document.execCommand('insertText', false, text);
+    runEditorCommand('insertText', text);
   }, [handleUploadFiles]);
 
   const handleSave = () => {
@@ -2722,8 +2750,18 @@ export function DescriptionField({
           : 'border-transparent hover:border-gray-200 dark:hover:border-gray-700 cursor-pointer',
         isDraggingFile && 'ring-1 ring-primary/30',
       )}
+      role={isEditing ? undefined : 'button'}
+      tabIndex={isEditing ? undefined : 0}
       onClick={() => {
         if (!isEditing) setIsEditing(true);
+      }}
+      onKeyDown={(e) => {
+        // Keyboard entry into edit mode; once editing, the editor handles its own keys.
+        if (isEditing || e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setIsEditing(true);
+        }
       }}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setIsDraggingFile(true); } }}
       onDragLeave={(e) => { e.preventDefault(); setIsDraggingFile(false); }}

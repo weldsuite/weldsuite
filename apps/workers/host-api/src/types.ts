@@ -8,6 +8,9 @@ import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 export interface Env extends KitEnv {
   /** Entity-events hub queue (publishEntityEvent). */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
+  /** Schedule-index D1: `workspace_due_index` rows (kind `domain_renew`)
+   *  telling the daily auto-renew sweep which workspaces to open. */
+  SCHEDULE_INDEX?: D1Database;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
 

@@ -151,6 +151,11 @@ export const listPeopleQuery = z.object({
    */
   inCrm: z.coerce.boolean().optional(),
   /**
+   * Only people with a direct or mobile phone number. WeldCall's Contacts
+   * page passes `true` so it only lists people that can actually be dialled.
+   */
+  hasPhone: z.coerce.boolean().optional(),
+  /**
    * Sort key. Built-in sortable grid columns are addressed by their column id
    * (e.g. `title`, `email`, `status`); custom fields use `custom:<slug>` (the
    * same key the grid uses for its columns). Omitting this keeps the

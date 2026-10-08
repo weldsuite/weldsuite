@@ -8,7 +8,9 @@ import {
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
 import { useSendInvoice } from '@/hooks/queries/use-accounting-queries';
+import { salesTaxErrorCode } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useI18n } from '@/lib/i18n/provider';
+import { useDescribeError } from './sales-tax-error-notice';
 
 interface SendInvoiceDialogProps {
   invoiceId: string;
@@ -17,6 +19,12 @@ interface SendInvoiceDialogProps {
   isDraft?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * A sales tax rule refused the finalize that sending a draft starts (address
+   * missing, engine down, rates not set up): the page shows it as a notice
+   * with links instead of a toast that disappears.
+   */
+  onTaxError?: (error: unknown) => void;
 }
 
 export function SendInvoiceDialog({
@@ -25,19 +33,27 @@ export function SendInvoiceDialog({
   isDraft = false,
   open,
   onOpenChange,
+  onTaxError,
 }: Readonly<SendInvoiceDialogProps>) {
   const sendInvoice = useSendInvoice();
   const { t } = useI18n();
   const ts = t.accounting.sendInvoice;
+  const describeError = useDescribeError();
 
   const handleSend = () => {
+    onTaxError?.(null);
     sendInvoice.mutate(invoiceId, {
       onSuccess: () => {
         toast.success(ts.sent);
         onOpenChange(false);
       },
       onError: (err) => {
-        toast.error(ts.sendFailed, { description: err instanceof Error ? err.message : undefined });
+        if (onTaxError && salesTaxErrorCode(err)) {
+          onTaxError(err);
+          onOpenChange(false);
+          return;
+        }
+        toast.error(ts.sendFailed, { description: describeError(err) });
       },
     });
   };

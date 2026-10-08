@@ -2,9 +2,16 @@
  * Bank transaction routes — flat /api/bank-transactions/* surface backed by `bankTransactions`.
  *
  * Ported from apps/api-worker/src/routes/accounting/bank-transactions.ts.
- * Transactions enter the ledger via POST / (manual cashbook entry) or
- * POST /import (MT940 / CAMT.053 / CSV statement files). POST / can also
- * take `categoryAccountId` to post immediately (fee refunds, settlements).
+ * Transactions enter the books via POST / (manual cashbook entry) or
+ * POST /import (OFX / QFX / QBO, BAI2, CSV with an explicit layout, MT940,
+ * CAMT.053; POST /import/preview reads a file without importing it). POST /
+ * can also take `categoryAccountId` to post immediately (fee refunds,
+ * settlements). Lines carry `source` (import | feed | manual) and a
+ * `checkNumber`; GET /:id/suggestions matches by invoice number, IBAN,
+ * counterparty name + amount + date window, check number and deposit total.
+ * A line can also be tied to a payment that already exists
+ * (POST /:id/match-payment) or to a bank deposit (POST /:id/match-deposit),
+ * which links without posting.
  * Reconciliation state changes go through /:id/reconcile (invoice or bill →
  * a posted payment that settles the document; manual + categoryAccountId →
  * a posted entry, with the tax split out when a rate is given),
@@ -27,8 +34,15 @@ import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/re
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
-import { parseBankFile } from '../../services/bank-parsers';
-import { autoReconcileBatch } from '../../services/accounting-reconciliation';
+import {
+  CsvFormatRequiredError,
+  detectCsvFormat,
+  parseBankFile,
+  type CsvFormat,
+} from '../../services/bank-parsers';
+import { csvFormatSchema } from '../../services/bank-parsers/csv-format-schema';
+import { countDuplicates, importParsedTransactions } from '../../services/accounting-bank-import';
+import { autoReconcileBatch, findMatches } from '../../services/accounting-reconciliation';
 import {
   ClosedPeriodError,
   LockedPeriodError,
@@ -39,7 +53,9 @@ import {
   categorizeBankTransaction,
 } from '../../services/accounting-bank-categorize';
 import {
+  reconcileBankTransactionToDeposit,
   reconcileBankTransactionToDocument,
+  reconcileBankTransactionToPayment,
   unreconcileBankTransaction,
 } from '../../services/accounting-bank-match';
 import { PostingError } from '../../services/accounting-posting';
@@ -64,11 +80,29 @@ const reconcileSchema = z.object({
   contactId: z.string().optional(),
 });
 
+const fileFormat = z.enum(['mt940', 'camt053', 'csv', 'ofx', 'qfx', 'qbo', 'bai2']);
+
 const importSchema = z.object({
   bankAccountId: z.string().min(1),
   content: z.string().min(1),
   fileName: z.string().min(1),
-  format: z.enum(['mt940', 'camt053', 'csv']).optional(),
+  /** Forces a format; otherwise it is read from the file's content and extension. */
+  format: fileFormat.optional(),
+  /** CSV layout; falls back to the one remembered on the bank account. */
+  csvFormat: csvFormatSchema.optional(),
+  /** Remember `csvFormat` on the bank account for the next import. */
+  rememberCsvFormat: z.boolean().optional(),
+  /** Import although the file names another account number or currency than the bank account. */
+  ignoreAccountMismatch: z.boolean().optional(),
+});
+
+const previewSchema = z.object({
+  bankAccountId: z.string().min(1).optional(),
+  content: z.string().min(1),
+  fileName: z.string().min(1).optional(),
+  format: fileFormat.optional(),
+  csvFormat: csvFormatSchema.optional(),
+  sampleSize: z.number().int().min(1).max(100).default(20),
 });
 
 const autoReconcileSchema = z.object({
@@ -85,11 +119,15 @@ app.get('/', requirePermission('banking:read'), async (c) => {
 
   try {
     const accountingEntityId = await resolveEntityId(c, db);
-    if (!accountingEntityId) return error.badRequest(c, 'No accounting entity resolved');
+    // An empty tenant simply has nothing to list.
+    if (!accountingEntityId) return list(c, [], cursorPagination(0, false, null));
 
     const conditions = [isNull(bankTransactions.deletedAt), eq(bankTransactions.entityId, accountingEntityId)];
     if (q.bankAccountId) conditions.push(eq(bankTransactions.bankAccountId, q.bankAccountId));
     if (q.status) conditions.push(eq(bankTransactions.status, q.status));
+    if (q.checkNumber) conditions.push(eq(bankTransactions.checkNumber, q.checkNumber));
+    if (q.source) conditions.push(eq(bankTransactions.source, q.source));
+    if (q.depositId) conditions.push(eq(bankTransactions.depositId, q.depositId));
     if (q.from) conditions.push(gte(bankTransactions.date, new Date(q.from)));
     if (q.to) conditions.push(lte(bankTransactions.date, new Date(q.to)));
     if (q.search) {
@@ -99,6 +137,7 @@ app.get('/', requirePermission('banking:read'), async (c) => {
           like(bankTransactions.description, term),
           like(bankTransactions.counterpartyName, term),
           like(bankTransactions.reference, term),
+          eq(bankTransactions.checkNumber, q.search.trim()),
         )!,
       );
     }
@@ -122,10 +161,20 @@ app.get('/unreconciled', requirePermission('banking:read'), async (c) => {
   const db = c.get('tenantDb');
   const { bankTransactions } = schema;
   try {
+    const entityId = await resolveEntityId(c, db);
+    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+    const bankAccountId = c.req.query('bankAccountId');
     const results = await db
       .select()
       .from(bankTransactions)
-      .where(and(isNull(bankTransactions.deletedAt), eq(bankTransactions.status, 'unreconciled')))
+      .where(
+        and(
+          isNull(bankTransactions.deletedAt),
+          eq(bankTransactions.entityId, entityId),
+          eq(bankTransactions.status, 'unreconciled'),
+          ...(bankAccountId ? [eq(bankTransactions.bankAccountId, bankAccountId)] : []),
+        ),
+      )
       .orderBy(desc(bankTransactions.date))
       .limit(100);
     return success(c, results);
@@ -192,6 +241,7 @@ function buildManualTransaction(
     importBatchId: null,
     externalId: null,
     status: 'unreconciled' as const,
+    source: 'manual' as const,
     rawData: { source: 'manual' },
     createdAt: now,
     updatedAt: now,
@@ -302,7 +352,6 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createBank
 });
 
 type ParsedBankFile = ReturnType<typeof parseBankFile>;
-type ParsedBankTransaction = ParsedBankFile['transactions'][number];
 
 /** Create the import batch row in `processing` state. */
 async function createImportBatch(
@@ -338,71 +387,6 @@ async function createImportBatch(
   });
 }
 
-/** Whether a transaction with this externalId was already imported for the account. */
-async function isDuplicateImport(db: Database, bankAccountId: string, externalId: string): Promise<boolean> {
-  const { bankTransactions } = schema;
-  const existing = await db.select({ id: bankTransactions.id })
-    .from(bankTransactions)
-    .where(and(
-      eq(bankTransactions.bankAccountId, bankAccountId),
-      eq(bankTransactions.externalId, externalId),
-      isNull(bankTransactions.deletedAt),
-    )).limit(1);
-  return existing.length > 0;
-}
-
-/** Insert one parsed statement line as an unreconciled transaction. */
-async function insertImportedTransaction(
-  db: Database,
-  txn: ParsedBankTransaction,
-  ids: { accountingEntityId: string; bankAccountId: string; batchId: string },
-): Promise<void> {
-  await db.insert(schema.bankTransactions).values({
-    id: generateId('bt'),
-    entityId: ids.accountingEntityId,
-    bankAccountId: ids.bankAccountId,
-    date: new Date(txn.date),
-    valueDate: txn.valueDate ? new Date(txn.valueDate) : null,
-    description: txn.description,
-    amount: txn.amount.toString(),
-    runningBalance: txn.runningBalance?.toString() ?? null,
-    counterpartyName: txn.counterpartyName ?? null,
-    counterpartyIban: txn.counterpartyIban ?? null,
-    counterpartyBic: txn.counterpartyBic ?? null,
-    reference: txn.reference ?? null,
-    transactionCode: txn.transactionCode ?? null,
-    endToEndId: txn.endToEndId ?? null,
-    mandateId: txn.mandateId ?? null,
-    importBatchId: ids.batchId,
-    externalId: txn.externalId ?? null,
-    status: 'unreconciled',
-    rawData: txn.rawData ?? null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  });
-}
-
-/** Import transactions, skipping duplicates by externalId. */
-async function importTransactions(
-  db: Database,
-  transactions: ParsedBankTransaction[],
-  ids: { accountingEntityId: string; bankAccountId: string; batchId: string },
-): Promise<{ importedCount: number; duplicateCount: number }> {
-  let importedCount = 0;
-  let duplicateCount = 0;
-
-  for (const txn of transactions) {
-    if (txn.externalId && (await isDuplicateImport(db, ids.bankAccountId, txn.externalId))) {
-      duplicateCount++;
-      continue;
-    }
-    await insertImportedTransaction(db, txn, ids);
-    importedCount++;
-  }
-
-  return { importedCount, duplicateCount };
-}
-
 /** Best-effort auto-reconciliation; a failure never fails the import. */
 async function tryAutoReconcile(db: Database, bankAccountId: string): Promise<number> {
   try {
@@ -425,6 +409,8 @@ async function updateAccountAfterImport(
   db: Database,
   bankAccountId: string,
   closingBalance: ParsedBankFile['closingBalance'],
+  rememberedCsvFormat?: CsvFormat,
+  importSettings?: BankAccountRow['importSettings'],
 ): Promise<void> {
   const updateData: Record<string, unknown> = {
     lastImportDate: new Date(),
@@ -434,10 +420,100 @@ async function updateAccountAfterImport(
     updateData.lastImportBalance = closingBalance.toString();
     updateData.currentBalance = closingBalance.toString();
   }
+  if (rememberedCsvFormat) updateData.importSettings = { ...(importSettings ?? {}), csv: rememberedCsvFormat };
   await db.update(schema.bankAccounts).set(updateData).where(eq(schema.bankAccounts.id, bankAccountId));
 }
 
-// POST /import — parse and import bank transactions from MT940/CAMT.053/CSV files
+/** The CSV layout to use: the one sent with the request, else the one remembered on the bank account. */
+function csvFormatFor(requested: CsvFormat | undefined, account: BankAccountRow): CsvFormat | undefined {
+  if (requested) return requested;
+  const remembered = csvFormatSchema.safeParse((account.importSettings as { csv?: unknown } | null)?.csv);
+  return remembered.success ? remembered.data : undefined;
+}
+
+function sameLast4(a: string | null | undefined, b: string | null | undefined): boolean {
+  return Boolean(a && b) && a!.slice(-4).toLowerCase() === b!.slice(-4).toLowerCase();
+}
+
+/** Why a file can't go into this bank account (wrong account or currency), or null. */
+function fileProblem(parse: ParsedBankFile, account: BankAccountRow): { code: string; message: string; details: Record<string, unknown> } | null {
+  const fileNumber = parse.account?.accountNumber;
+  if (fileNumber && account.accountNumberLast4 && !sameLast4(fileNumber, account.accountNumberLast4)) {
+    return {
+      code: 'ACCOUNT_MISMATCH',
+      message: `This file is for the account ending ${fileNumber.slice(-4)}, but ${account.name} ends in ${account.accountNumberLast4}. Pick the right bank account, or import anyway.`,
+      details: { fileAccountLast4: fileNumber.slice(-4), bankAccountLast4: account.accountNumberLast4 },
+    };
+  }
+  const fileCurrency = parse.currency;
+  if (fileCurrency && account.currency && fileCurrency.toUpperCase() !== account.currency.toUpperCase()) {
+    return {
+      code: 'CURRENCY_MISMATCH',
+      message: `This file is in ${fileCurrency} but ${account.name} is in ${account.currency}. Pick the right bank account, or import anyway.`,
+      details: { fileCurrency, bankAccountCurrency: account.currency },
+    };
+  }
+  return null;
+}
+
+/** 422 with a proposed CSV layout for the user to confirm. */
+function csvFormatRequired(c: AppContext, err: CsvFormatRequiredError) {
+  return c.json(
+    { error: { code: 'CSV_FORMAT_REQUIRED', message: err.message, details: { proposal: err.proposal } } },
+    422,
+  );
+}
+
+// POST /import/preview — parse a statement file without importing it
+app.post('/import/preview', requirePermission('banking:create'), zValidator('json', previewSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const data = c.req.valid('json');
+  try {
+    const bankAccount = data.bankAccountId
+      ? (await db.select().from(schema.bankAccounts)
+          .where(and(eq(schema.bankAccounts.id, data.bankAccountId), isNull(schema.bankAccounts.deletedAt))).limit(1))[0]
+      : undefined;
+    if (data.bankAccountId && !bankAccount) return error.notFound(c, 'Bank account', data.bankAccountId);
+
+    let parse: ParsedBankFile;
+    try {
+      parse = parseBankFile(data.content, data.format, {
+        fileName: data.fileName,
+        csvFormat: bankAccount ? csvFormatFor(data.csvFormat, bankAccount) : data.csvFormat,
+        accountLast4: bankAccount?.accountNumberLast4 ?? undefined,
+      });
+    } catch (err) {
+      if (err instanceof CsvFormatRequiredError) {
+        return success(c, { format: 'csv' as const, needsCsvFormat: true, proposal: err.proposal });
+      }
+      throw err;
+    }
+
+    const duplicates = bankAccount ? await countDuplicates(db, bankAccount.id, parse.transactions) : null;
+    const problem = bankAccount ? fileProblem(parse, bankAccount) : null;
+    return success(c, {
+      format: parse.format,
+      needsCsvFormat: false,
+      proposal: parse.format === 'csv' && !data.csvFormat && !bankAccount?.importSettings ? detectCsvFormat(data.content) : undefined,
+      account: parse.account ? { ...parse.account, accountNumber: undefined, accountNumberLast4: parse.account.accountNumber?.slice(-4) } : undefined,
+      accounts: parse.accounts?.map((a) => ({ ...a, accountNumber: undefined, accountNumberLast4: a.accountNumber?.slice(-4) })),
+      currency: parse.currency,
+      dateRange: parse.dateRange,
+      openingBalance: parse.openingBalance,
+      closingBalance: parse.closingBalance,
+      totalParsed: parse.transactions.length,
+      duplicates,
+      problem,
+      errors: parse.errors,
+      sample: parse.transactions.slice(0, data.sampleSize),
+    });
+  } catch (err) {
+    console.error('[books-api/bank-transactions] import preview failed:', err);
+    return error.internal(c, `Failed to read the bank file: ${err instanceof Error ? err.message : 'unknown error'}`);
+  }
+});
+
+// POST /import — parse and import a statement: OFX / QFX / QBO, BAI2, CSV (explicit layout), MT940, CAMT.053
 app.post('/import', requirePermission('banking:create'), zValidator('json', importSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
@@ -451,7 +527,22 @@ app.post('/import', requirePermission('banking:create'), zValidator('json', impo
     if (!bankAccount) return error.notFound(c, 'Bank account', data.bankAccountId);
 
     // Parse the file
-    const parseResult = parseBankFile(data.content, data.format);
+    let parseResult: ParsedBankFile;
+    try {
+      parseResult = parseBankFile(data.content, data.format, {
+        fileName: data.fileName,
+        csvFormat: csvFormatFor(data.csvFormat, bankAccount),
+        accountLast4: bankAccount.accountNumberLast4 ?? undefined,
+      });
+    } catch (err) {
+      if (err instanceof CsvFormatRequiredError) return csvFormatRequired(c, err);
+      throw err;
+    }
+
+    const problem = fileProblem(parseResult, bankAccount);
+    if (problem && !data.ignoreAccountMismatch) {
+      return c.json({ error: { code: problem.code, message: problem.message, details: problem.details } }, 409);
+    }
 
     // Bank account already resolved above — inherit its entityId onto the batch/txns.
     const accountingEntityId = bankAccount.entityId;
@@ -468,10 +559,11 @@ app.post('/import', requirePermission('banking:create'), zValidator('json', impo
     });
 
     // Import transactions (skip duplicates by externalId)
-    const { importedCount, duplicateCount } = await importTransactions(db, parseResult.transactions, {
-      accountingEntityId,
+    const { importedCount, duplicateCount } = await importParsedTransactions(db, {
+      entityId: accountingEntityId,
       bankAccountId: data.bankAccountId,
       batchId,
+      transactions: parseResult.transactions,
     });
 
     // Run auto-reconciliation
@@ -488,9 +580,23 @@ app.post('/import', requirePermission('banking:create'), zValidator('json', impo
       updatedAt: new Date(),
     }).where(eq(bankImportBatches.id, batchId));
 
-    // Update bank account last import info
-    if (importedCount > 0) {
-      await updateAccountAfterImport(db, data.bankAccountId, parseResult.closingBalance);
+    // Update bank account last import info, and remember a confirmed CSV layout
+    const remember = parseResult.format === 'csv' && data.rememberCsvFormat && data.csvFormat ? data.csvFormat : undefined;
+    if (importedCount > 0 || remember) {
+      await updateAccountAfterImport(
+        db,
+        data.bankAccountId,
+        importedCount > 0 ? parseResult.closingBalance : undefined,
+        remember,
+        bankAccount.importSettings,
+      );
+      publishEntityEvent({
+        c,
+        entityType: 'bank_account',
+        entityId: data.bankAccountId,
+        action: 'updated',
+        data: { id: data.bankAccountId, lastImportDate: new Date().toISOString(), importedCount },
+      });
     }
 
     await writeAccountingAudit(c, db, {
@@ -517,9 +623,14 @@ app.post('/import', requirePermission('banking:create'), zValidator('json', impo
       duplicates: duplicateCount,
       autoReconciled: autoReconciledCount,
       errors: parseResult.errors,
+      dateRange: parseResult.dateRange ?? null,
+      closingBalance: parseResult.closingBalance ?? null,
+      currency: parseResult.currency ?? null,
+      csvFormatRemembered: Boolean(remember),
+      warning: problem ? { code: problem.code, message: problem.message } : null,
     }, 201);
   } catch (err) {
-    console.error('[app-api/bank-transactions] import failed:', err);
+    console.error('[books-api/bank-transactions] import failed:', err);
     const message = err instanceof Error ? err.message : 'unknown error';
     return error.internal(c, `Failed to import bank file: ${message}`);
   }
@@ -570,101 +681,112 @@ app.get('/:id', requirePermission('banking:read'), async (c) => {
   }
 });
 
-interface MatchSuggestion {
-  type: string;
-  id: string;
-  number: string | null;
-  contactName: string | null;
-  amount: string | null;
-  confidence: number;
-}
-
-/** Whether an open balance equals the transaction amount (within one cent). */
-function balanceMatches(balanceDue: string | null, amount: number): boolean {
-  return Math.abs(Number.parseFloat(balanceDue || '0') - Math.abs(amount)) < 0.01;
-}
-
-/** Confidence that an incoming transaction settles the given open invoice. */
-async function invoiceConfidence(
-  db: Database,
-  txn: BankTransactionRow,
-  inv: typeof schema.invoices.$inferSelect,
-  amount: number,
-): Promise<number> {
-  let confidence = 0;
-  if (balanceMatches(inv.balanceDue, amount)) confidence += 0.5;
-  if (txn.counterpartyIban && txn.reference && inv.invoiceNumber && txn.reference.includes(inv.invoiceNumber)) confidence += 0.3;
-
-  // Check IBAN match via contact
-  if (txn.counterpartyIban && inv.contactId) {
-    const [contact] = await db.select().from(schema.parties)
-      .where(and(eq(schema.parties.id, inv.contactId), eq(schema.parties.iban, txn.counterpartyIban))).limit(1);
-    if (contact) confidence += 0.2;
-  }
-  return confidence;
-}
-
-/** Incoming: match against open invoices. */
-async function suggestInvoices(db: Database, txn: BankTransactionRow, amount: number): Promise<MatchSuggestion[]> {
-  const invoicesTable = schema.invoices;
-  const openInvoices = await db
-    .select()
-    .from(invoicesTable)
-    .where(and(isNull(invoicesTable.deletedAt), sql`${invoicesTable.balanceDue}::numeric > 0`))
-    .limit(20);
-
-  const suggestions: MatchSuggestion[] = [];
-  for (const inv of openInvoices) {
-    const confidence = await invoiceConfidence(db, txn, inv, amount);
-    if (confidence > 0) {
-      suggestions.push({ type: 'invoice', id: inv.id, number: inv.invoiceNumber, contactName: inv.contactName, amount: inv.balanceDue, confidence });
-    }
-  }
-  return suggestions;
-}
-
-/** Outgoing: match against open bills. */
-async function suggestBills(db: Database, txn: BankTransactionRow, amount: number): Promise<MatchSuggestion[]> {
-  const billsTable = schema.bills;
-  const openBills = await db
-    .select()
-    .from(billsTable)
-    .where(and(isNull(billsTable.deletedAt), sql`${billsTable.balanceDue}::numeric > 0`))
-    .limit(20);
-
-  const suggestions: MatchSuggestion[] = [];
-  for (const bill of openBills) {
-    let confidence = 0;
-    if (balanceMatches(bill.balanceDue, amount)) confidence += 0.5;
-    if (txn.reference && bill.externalReference && txn.reference.includes(bill.externalReference)) confidence += 0.3;
-
-    if (confidence > 0) {
-      suggestions.push({ type: 'bill', id: bill.id, number: bill.billNumber, contactName: bill.contactName, amount: bill.balanceDue, confidence });
-    }
-  }
-  return suggestions;
-}
-
-// GET /:id/suggestions — matching suggestions for a transaction
+// GET /:id/suggestions — what the books know about a bank line: open invoices and bills, recorded payments (check numbers), deposits
 app.get('/:id/suggestions', requirePermission('banking:read'), async (c) => {
   const db = c.get('tenantDb');
   const txnId = c.req.param('id');
   const { bankTransactions } = schema;
 
   try {
-    const [txn] = await db.select().from(bankTransactions).where(eq(bankTransactions.id, txnId)).limit(1);
+    const [txn] = await db.select().from(bankTransactions)
+      .where(and(eq(bankTransactions.id, txnId), isNull(bankTransactions.deletedAt))).limit(1);
     if (!txn) return error.notFound(c, 'Transaction', txnId);
 
-    const amount = Number.parseFloat(txn.amount || '0');
-    const suggestions = amount > 0
-      ? await suggestInvoices(db, txn, amount)
-      : await suggestBills(db, txn, amount);
-
-    suggestions.sort((a, b) => b.confidence - a.confidence);
-    return success(c, suggestions.slice(0, 10));
+    const matches = await findMatches(db, schema, txn);
+    return success(
+      c,
+      matches.slice(0, 10).map((m) => ({
+        type: m.type,
+        id: m.entityId,
+        number: m.entityNumber,
+        contactName: m.contactName,
+        amount: m.amount,
+        confidence: m.confidence,
+        reasons: m.reasons,
+      })),
+    );
   } catch (err) {
-    console.error('[app-api/bank-transactions] suggestions failed:', err);
+    console.error('[books-api/bank-transactions] suggestions failed:', err);
     return error.internal(c, 'Failed to fetch suggestions');
+  }
+});
+
+/** Audit trail + events for a line tied to a payment or deposit. */
+async function recordLinked(
+  c: AppContext,
+  txn: BankTransactionRow,
+  linked: { kind: 'payment' | 'deposit'; id: string; journalEntryId: string | null },
+): Promise<void> {
+  const db = c.get('tenantDb');
+  await writeAccountingAudit(c, db, {
+    accountingEntityId: txn.entityId,
+    entityType: 'bank_transaction',
+    entityId: txn.id,
+    action: 'reconciled',
+    changes: {
+      status: { old: txn.status, new: 'reconciled' },
+      reconciliationType: { old: txn.reconciliationType, new: linked.kind === 'payment' ? 'payment_link' : 'deposit' },
+      ...(linked.kind === 'payment' ? { reconciledPaymentId: { old: null, new: linked.id } } : { depositId: { old: null, new: linked.id } }),
+    },
+  });
+  publishEntityEvent({
+    c,
+    entityType: 'bank_transaction',
+    entityId: txn.id,
+    action: 'updated',
+    data: { id: txn.id, bankAccountId: txn.bankAccountId, amount: txn.amount || '0', description: txn.description, status: 'reconciled' },
+  });
+  publishEntityEvent({
+    c,
+    entityType: linked.kind === 'payment' ? 'payment' : 'bank_deposit',
+    entityId: linked.id,
+    action: 'updated',
+    data: { id: linked.id, bankTransactionId: txn.id },
+  });
+}
+
+/** The bank line of the resolved entity, or null. */
+async function findLine(c: AppContext, id: string): Promise<BankTransactionRow | null> {
+  const db = c.get('tenantDb');
+  const entityId = await resolveEntityId(c, db);
+  const [txn] = await db.select().from(schema.bankTransactions)
+    .where(and(eq(schema.bankTransactions.id, id), isNull(schema.bankTransactions.deletedAt))).limit(1);
+  return txn && (!entityId || txn.entityId === entityId) ? txn : null;
+}
+
+// POST /:id/match-deposit — tie an incoming line to the bank deposit it came from
+app.post('/:id/match-deposit', requirePermission('banking:update'), zValidator('json', z.object({ depositId: z.string().min(1) })), async (c) => {
+  const db = c.get('tenantDb');
+  const txnId = c.req.param('id');
+  const { depositId } = c.req.valid('json');
+  try {
+    const txn = await findLine(c, txnId);
+    if (!txn) return error.notFound(c, 'Transaction', txnId);
+    const linked = await reconcileBankTransactionToDeposit(db, { txn, depositId, userId: c.get('userId') ?? null });
+    await recordLinked(c, txn, { kind: 'deposit', id: depositId, journalEntryId: linked.journalEntryId });
+    return success(c, { id: txnId, status: 'reconciled', depositId, journalEntryId: linked.journalEntryId });
+  } catch (err) {
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
+    console.error('[books-api/bank-transactions] match-deposit failed:', err);
+    return error.internal(c, 'Failed to match the deposit');
+  }
+});
+
+// POST /:id/match-payment — tie a line to a payment that was recorded earlier (a check that cleared)
+app.post('/:id/match-payment', requirePermission('banking:update'), zValidator('json', z.object({ paymentId: z.string().min(1) })), async (c) => {
+  const db = c.get('tenantDb');
+  const txnId = c.req.param('id');
+  const { paymentId } = c.req.valid('json');
+  try {
+    const txn = await findLine(c, txnId);
+    if (!txn) return error.notFound(c, 'Transaction', txnId);
+    const linked = await reconcileBankTransactionToPayment(db, { txn, paymentId, userId: c.get('userId') ?? null });
+    await recordLinked(c, txn, { kind: 'payment', id: paymentId, journalEntryId: linked.journalEntryId });
+    return success(c, { id: txnId, status: 'reconciled', paymentId, journalEntryId: linked.journalEntryId });
+  } catch (err) {
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
+    console.error('[books-api/bank-transactions] match-payment failed:', err);
+    return error.internal(c, 'Failed to match the payment');
   }
 });
 

@@ -56,6 +56,7 @@ export const nlAdapter: JurisdictionAdapter = {
     supplier: 'supplier',
     creditNote: 'credit_note',
   },
+  purchaseTax: 'recoverable',
 
   getChartOfAccountsTemplate() {
     return nlChartOfAccounts;

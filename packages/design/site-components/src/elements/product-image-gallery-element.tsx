@@ -8,7 +8,6 @@ export interface ProductImageGalleryElementProps {
   productName?: string;
   activeImage: number;
   onImageChange: (index: number) => void;
-  mode?: 'live' | 'edit' | 'preview';
 }
 
 export function ProductImageGalleryElement({

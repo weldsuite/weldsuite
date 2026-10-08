@@ -1,6 +1,5 @@
 "use client";
 
-import type { StoreData } from '../types';
 import { ArrowUpRight, ChevronRight, ChevronUp } from "lucide-react";
 import React from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
@@ -22,7 +21,6 @@ interface FeatureDottedBlockProps {
   textColor?: string;
   className?: string;
   mode?: 'live' | 'edit' | 'preview';
-  store?: StoreData;
 }
 
 const DottedDiv = ({

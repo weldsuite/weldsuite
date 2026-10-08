@@ -15,7 +15,6 @@ interface ContainerBlockProps {
   border?: boolean;
   borderColor?: string;
   borderWidth?: number;
-  mode?: string;
 }
 
 export function ContainerBlock({

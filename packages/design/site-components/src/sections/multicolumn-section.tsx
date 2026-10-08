@@ -19,7 +19,6 @@ interface MulticolumnSectionProps {
   paddingTop?: number;
   paddingBottom?: number;
   columnCount?: 2 | 3 | 4;
-  sectionId?: string;
 }
 
 export function MulticolumnSection({

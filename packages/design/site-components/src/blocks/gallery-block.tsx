@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 export interface GalleryBlockProps {
   images?: Array<{ src: string; alt: string; caption?: string }>;
   columns?: 2 | 3 | 4 | 5 | 6;
   gap?: 'sm' | 'md' | 'lg';
   lightbox?: boolean;
-  mode?: 'live' | 'preview';
 }
 
 export function GalleryBlock({
@@ -46,6 +45,18 @@ export function GalleryBlock({
     setSelectedImage(null);
   };
 
+  const isLightboxOpen = lightbox && selectedImage !== null;
+
+  // Keyboard users close the lightbox with Escape (mouse users click the backdrop).
+  useEffect(() => {
+    if (!isLightboxOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedImage(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isLightboxOpen]);
+
   const navigateLightbox = (direction: 'prev' | 'next') => {
     if (selectedImage === null) return;
 
@@ -59,24 +70,36 @@ export function GalleryBlock({
   return (
     <>
       <div className={`grid ${columnClasses} ${gapClasses}`}>
-        {images.map((image, index) => (
-          <div
-            key={index}
-            className={`relative overflow-hidden rounded-lg ${lightbox ? 'cursor-pointer' : ''}`}
-            onClick={() => handleImageClick(index)}
-          >
-            <img
-              src={image.src}
-              alt={image.alt}
-              className="w-full h-full object-cover transition-transform hover:scale-105"
-            />
-            {image.caption && (
-              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white p-2 text-sm">
-                {image.caption}
-              </div>
-            )}
-          </div>
-        ))}
+        {images.map((image, index) => {
+          const content = (
+            <>
+              <img
+                src={image.src}
+                alt={image.alt}
+                className="w-full h-full object-cover transition-transform hover:scale-105"
+              />
+              {image.caption && (
+                <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-60 text-white p-2 text-sm">
+                  {image.caption}
+                </div>
+              )}
+            </>
+          );
+          return lightbox ? (
+            <button
+              type="button"
+              key={index}
+              className="relative block w-full overflow-hidden rounded-lg cursor-pointer text-left"
+              onClick={() => handleImageClick(index)}
+            >
+              {content}
+            </button>
+          ) : (
+            <div key={index} className="relative overflow-hidden rounded-lg">
+              {content}
+            </div>
+          );
+        })}
       </div>
 
       {lightbox && selectedImage !== null && (
@@ -85,12 +108,16 @@ export function GalleryBlock({
           onClick={closeLightbox}
         >
           <button
+            type="button"
+            aria-label="Close"
             className="absolute top-4 right-4 text-white text-4xl hover:opacity-80"
             onClick={closeLightbox}
           >
             &times;
           </button>
           <button
+            type="button"
+            aria-label="Previous image"
             className="absolute left-4 text-white text-4xl hover:opacity-80"
             onClick={(e) => {
               e.stopPropagation();
@@ -100,6 +127,8 @@ export function GalleryBlock({
             &#8249;
           </button>
           <button
+            type="button"
+            aria-label="Next image"
             className="absolute right-4 text-white text-4xl hover:opacity-80"
             onClick={(e) => {
               e.stopPropagation();

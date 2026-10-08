@@ -1,9 +1,17 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, getTableColumns, isNull } from 'drizzle-orm';
+import { omitSensitive } from '@weldsuite/db/lib/sensitive-columns';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+
+/**
+ * A party row without its ciphertext (`sensitiveEncrypted`: TIN and vendor ACH
+ * account number). The portal only needs the commercial fields, so the blob is
+ * never read, let alone handed to a response.
+ */
+export const portalPartyColumns = omitSensitive('parties', getTableColumns(schema.parties));
 
 export async function findCompanyParty(db: Database, companyId: string) {
   const [party] = await db
-    .select()
+    .select(portalPartyColumns)
     .from(schema.parties)
     .where(
       and(

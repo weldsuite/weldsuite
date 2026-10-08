@@ -268,6 +268,27 @@ export const platformSyncMap: EntitySyncMap = {
   purchase_order: inv(['accounting', 'purchase-orders']),
   fiscal_period: inv(['accounting', 'fiscal-periods']),
   fx_rate: inv(['accounting', 'fx-rates']),
+  // US accounting (docs/plans/weldbooks-us.md).
+  sales_tax_agency: inv(['accounting', 'sales-tax-setup'], ['accounting', 'sales-tax-center']),
+  sales_tax_jurisdiction: inv(['accounting', 'sales-tax-setup']),
+  sales_tax_zone: inv(['accounting', 'sales-tax-setup']),
+  sales_tax_rule: inv(['accounting', 'sales-tax-setup']),
+  exemption_certificate: inv(
+    ['accounting', 'sales-tax-setup'],
+    ['accounting', 'exemption-certificates'],
+    ['accounting', 'sales-tax-center'],
+  ),
+  tax_return: inv(['accounting', 'sales-tax-center'], ['accounting', 'tax-calendar']),
+  form_1099_filing: inv(['accounting', 'form-1099']),
+  w9_request: inv(['accounting', 'form-1099'], ['accounting', 'customers']),
+  bank_connection: inv(['accounting', 'bank-feeds'], ['accounting', 'bank-accounts'], ['accounting', 'bank-transactions']),
+  bank_deposit: inv(['accounting', 'bank-deposits'], ['accounting', 'payments'], ['accounting', 'bank-transactions']),
+  bank_reconciliation: inv(['accounting', 'bank-reconciliations']),
+  payment_run: inv(['accounting', 'payment-runs'], ['accounting', 'bills'], ['accounting', 'payments']),
+  fixed_asset: inv(['accounting', 'fixed-assets']),
+  accounting_dimension: inv(['accounting', 'dimensions']),
+  payroll_import: inv(['accounting', 'payroll'], ['accounting', 'journal-entries']),
+  payroll_connection: inv(['accounting', 'payroll']),
 
   // =========================================================================
   // WeldStash — WMS

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -13,15 +13,13 @@ import {
 } from '@weldsuite/ui/components/select';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
+import { useAccountingJurisdictions } from '@/hooks/queries/use-accounting-queries';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { entityTypesFor } from '@/lib/weldbooks/entity-types';
-
-interface Jurisdiction {
-  code: string;
-  name: string;
-}
+import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
+import { UsEntityCreateForm } from './components/us-entity-create-form';
 
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
 
@@ -56,15 +54,9 @@ export default function AddEntityPage() {
     label: t.accounting.entityTypes[value],
   }));
 
-  const { data: jurisdictions = [] } = useQuery<Jurisdiction[]>({
-    queryKey: ['accounting', 'jurisdictions'],
-    queryFn: async () => {
-      const res = await weldbooksApi.get<{ data: Jurisdiction[] } | Jurisdiction[]>(
-        '/accounting-entities/jurisdictions',
-      );
-      return Array.isArray(res) ? res : res.data ?? [];
-    },
-  });
+  const { data: jurisdictions = [] } = useAccountingJurisdictions();
+  const isUs = isUsJurisdictionCode(jurisdictionCode);
+  const usJurisdiction = jurisdictions.find((j) => isUsJurisdictionCode(j.code));
 
   function buildBankDetails() {
     if (!iban) return undefined;
@@ -98,6 +90,30 @@ export default function AddEntityPage() {
       navigate({ to: '/weldbooks/entities' });
     },
   });
+
+  const handleJurisdictionChange = (v: string) => {
+    setJurisdictionCode(v);
+    const d = JURISDICTION_DEFAULTS[v];
+    if (d) setBaseCurrency(d.baseCurrency);
+    const allowed = entityTypesFor(v);
+    if (!allowed.includes(entityType as (typeof allowed)[number])) setEntityType(allowed[0]);
+  };
+
+  const jurisdictionPicker = (
+    <Select value={jurisdictionCode} onValueChange={handleJurisdictionChange}>
+      <SelectTrigger><SelectValue /></SelectTrigger>
+      <SelectContent>
+        {jurisdictions.map((j) => (
+          <SelectItem key={j.code} value={j.code}>{j.name} ({j.code})</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  // A US entity has its own form: legal form and tax classification, EIN or SSN, accounting method, fiscal year.
+  if (isUs && usJurisdiction?.entityTypes) {
+    return <UsEntityCreateForm jurisdictionPicker={jurisdictionPicker} entityTypes={usJurisdiction.entityTypes} />;
+  }
 
   return (
     <div className="p-6 max-w-2xl space-y-6">
@@ -136,23 +152,7 @@ export default function AddEntityPage() {
 
         <div>
           <Label>{te.jurisdiction}</Label>
-          <Select
-            value={jurisdictionCode}
-            onValueChange={(v) => {
-              setJurisdictionCode(v);
-              const d = JURISDICTION_DEFAULTS[v];
-              if (d) setBaseCurrency(d.baseCurrency);
-              const allowed = entityTypesFor(v);
-              if (!allowed.includes(entityType as (typeof allowed)[number])) setEntityType(allowed[0]);
-            }}
-          >
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {jurisdictions.map((j) => (
-                <SelectItem key={j.code} value={j.code}>{j.name} ({j.code})</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {jurisdictionPicker}
         </div>
 
         <div>

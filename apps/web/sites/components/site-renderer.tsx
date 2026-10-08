@@ -100,7 +100,6 @@ export default function SiteRenderer({ website, store }: Readonly<SiteRendererPr
               section={section}
               mode="live"
               store={store}
-              settings={website.settings}
             />
           ))}
         </div>
@@ -138,7 +137,6 @@ export default function SiteRenderer({ website, store }: Readonly<SiteRendererPr
                 section={section}
                 mode="live"
                 store={store}
-                settings={website.settings}
               />
             ))}
           </header>
@@ -158,7 +156,6 @@ export default function SiteRenderer({ website, store }: Readonly<SiteRendererPr
               section={section}
               mode="live"
               store={store}
-              settings={website.settings}
             />
           ))}
         </main>
@@ -172,7 +169,6 @@ export default function SiteRenderer({ website, store }: Readonly<SiteRendererPr
                 section={section}
                 mode="live"
                 store={store}
-                settings={website.settings}
               />
             ))}
           </footer>
