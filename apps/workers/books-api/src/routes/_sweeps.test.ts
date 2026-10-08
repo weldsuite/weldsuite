@@ -25,6 +25,7 @@ import { bankAccountsRoutes } from './bank-accounts';
 import { bankDepositsRoutes } from './bank-deposits';
 import { bankReconciliationsRoutes } from './bank-reconciliations';
 import { billsRoutes } from './bills';
+import { exemptionCertificatesRoutes } from './exemption-certificates';
 import { fiscalPeriodsRoutes } from './fiscal-periods';
 import { fixedAssetsRoutes } from './fixed-assets';
 import { form1099FilingsRoutes } from './form-1099/filings';
@@ -32,6 +33,10 @@ import { invoicesRoutes } from './invoices';
 import { paymentRunsRoutes } from './payment-runs';
 import { payrollConnectionsRoutes, payrollImportsRoutes } from './payroll';
 import { paymentsRoutes } from './payments';
+import { salesTaxAgenciesRoutes } from './sales-tax-agencies';
+import { salesTaxJurisdictionsRoutes } from './sales-tax-jurisdictions';
+import { salesTaxRulesRoutes } from './sales-tax-rules';
+import { salesTaxZonesRoutes } from './sales-tax-zones';
 import { w9RequestsRoutes } from './w9-requests';
 
 const ROUTES_DIR = __dirname;
@@ -48,6 +53,12 @@ const EXEMPT_ROUTES = new Set<string>([
 
 const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
   { mount: '/api/bills', router: billsRoutes, prefix: 'bills' },
+  // US sales tax setup: agencies, the manual engine's jurisdictions, zones and rules, exemption certificates.
+  { mount: '/api/sales-tax-agencies', router: salesTaxAgenciesRoutes, prefix: 'taxes' },
+  { mount: '/api/sales-tax-jurisdictions', router: salesTaxJurisdictionsRoutes, prefix: 'taxes' },
+  { mount: '/api/sales-tax-zones', router: salesTaxZonesRoutes, prefix: 'taxes' },
+  { mount: '/api/sales-tax-rules', router: salesTaxRulesRoutes, prefix: 'taxes' },
+  { mount: '/api/exemption-certificates', router: exemptionCertificatesRoutes, prefix: 'taxes' },
   { mount: '/api/fixed-assets', router: fixedAssetsRoutes, prefix: 'accounts' },
   // Payroll: imports are created through POST /csv (not POST /) and reversed by DELETE; never patched.
   { mount: '/api/payroll/imports', router: payrollImportsRoutes, prefix: 'journal', skipPost: true, skipPatch: true },
@@ -65,6 +76,11 @@ const AUTH_CASES: AuthGateCase<Env, Variables>[] = [
 
 const LIST_CASES: ListSweepCase<Env, Variables>[] = [
   { mount: '/api/invoices', router: invoicesRoutes, permission: 'invoices:read' },
+  { mount: '/api/sales-tax-agencies', router: salesTaxAgenciesRoutes, permission: 'taxes:read' },
+  { mount: '/api/sales-tax-jurisdictions', router: salesTaxJurisdictionsRoutes, permission: 'taxes:read' },
+  { mount: '/api/sales-tax-zones', router: salesTaxZonesRoutes, permission: 'taxes:read' },
+  { mount: '/api/sales-tax-rules', router: salesTaxRulesRoutes, permission: 'taxes:read' },
+  { mount: '/api/exemption-certificates', router: exemptionCertificatesRoutes, permission: 'taxes:read' },
   { mount: '/api/bills', router: billsRoutes, permission: 'bills:read' },
   { mount: '/api/fixed-assets', router: fixedAssetsRoutes, permission: 'accounts:read' },
   { mount: '/api/payroll/imports', router: payrollImportsRoutes, permission: 'journal:read' },
