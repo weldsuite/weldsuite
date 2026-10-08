@@ -74,6 +74,8 @@ export const usAdapter: JurisdictionAdapter = {
     supplier: 'vendor',
     creditNote: 'credit_memo',
   },
+  // Sales tax a vendor charges is part of the cost; only accrued use tax reaches a return.
+  purchaseTax: 'cost',
 
   getChartOfAccountsTemplate(opts) {
     return getUsChartOfAccountsTemplate(opts);

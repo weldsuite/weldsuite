@@ -185,7 +185,8 @@ describe('the SSN of a sole proprietor', () => {
 
     const [row] = await db.select().from(schema.entities).where(eq(schema.entities.id, id));
     expect(row.ssnEncrypted).toMatch(/^[0-9a-f]+:[0-9a-f]+$|^v2:/);
-    expect(row.ssnEncrypted).not.toContain('123');
+    // Random hex: three digits can turn up by chance, the whole number can't.
+    expect(row.ssnEncrypted).not.toContain('123456789');
     expect(row.ssnLast4).toBe('6789');
 
     for (const read of [await entities(''), await entities(`/${id}`)]) {

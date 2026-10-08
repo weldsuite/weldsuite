@@ -9,8 +9,10 @@
  *   money out →  Dr category (net), Dr input tax (tax)  /  Cr bank ledger (gross)
  *
  * The tax split only happens when a tax rate is chosen; the bank amount is
- * treated as tax-inclusive. Under the Dutch KOR purchase tax is not deductible
- * and stays in the category amount.
+ * treated as tax-inclusive. Under the Dutch KOR, and on a US entity (sales tax
+ * a supplier charges is never reclaimed), purchase tax is not deductible and
+ * stays in the category amount. A US entity's seeded 0% rate splits nothing and
+ * writes no tax-ledger row.
  *
  * The bank account's cashbook balance is already updated on import/create.
  * This only posts the GL so P&L, balance sheet and the tax ledger stay in sync.
@@ -19,6 +21,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isKorActive } from '@weldsuite/books-domain/accounting-guards';
+import { getAdapter, hasAdapter } from '@weldsuite/books-domain/jurisdictions/registry';
 import { accountForRole, loadEntityAccounts, postJournalEntry, roundMoney, type PostingLine, type PostingTaxLine } from './accounting-posting';
 import { loadEntity } from './accounting-document-posting';
 
@@ -113,33 +116,40 @@ export async function categorizeBankTransaction(
       .limit(1);
     if (!rate) throw new BankCategorizeError('Tax rate not found for this accounting entity');
     const percent = Number(rate.rate);
-    const deductible = moneyIn || !isKorActive(entity, txn.date);
+    const salesTaxEntity = hasAdapter(entity.jurisdictionCode) && getAdapter(entity.jurisdictionCode).features.salesTax;
+    const purchaseIsCost = hasAdapter(entity.jurisdictionCode) && getAdapter(entity.jurisdictionCode).purchaseTax === 'cost';
+    const deductible = moneyIn || (!isKorActive(entity, txn.date) && !purchaseIsCost);
     tax = roundMoney((gross * percent) / (100 + percent));
     if (deductible) {
       const direction = moneyIn ? 'sales' : 'purchase';
+      // The US chart has no tax_payable / tax_input roles; its sales tax payable is the fallback.
       const taxAccount =
         accounts.byId(rate.ledgerAccountId) ??
         (direction === 'purchase' ? accountForRole(accounts, 'tax_input', ['1730']) : undefined) ??
-        accountForRole(accounts, 'tax_payable', ['1700']);
-      if (!taxAccount) throw new BankCategorizeError('No tax account found. Link the tax rate to a ledger account.');
-      taxAccountId = taxAccount.id;
-      taxLines = [
-        {
-          direction,
-          taxRateId: rate.id,
-          taxRateName: rate.name,
-          taxCategoryCode: rate.taxCategoryCode ?? null,
-          rate: percent,
-          taxableAmount: roundMoney(gross - tax),
-          taxAmount: tax,
-          currency,
-          baseTaxableAmount: roundMoney(gross - tax),
-          baseTaxAmount: tax,
-          contactId,
-        },
-      ];
+        accountForRole(accounts, 'tax_payable', ['1700']) ??
+        accountForRole(accounts, 'sales_tax_payable');
+      // Nothing to book at 0%, so no account is needed.
+      if (!taxAccount && tax > 0) throw new BankCategorizeError('No tax account found. Link the tax rate to a ledger account.');
+      taxAccountId = taxAccount?.id ?? null;
+      if (!(salesTaxEntity && tax === 0)) {
+        taxLines = [
+          {
+            direction,
+            taxRateId: rate.id,
+            taxRateName: rate.name,
+            taxCategoryCode: rate.taxCategoryCode ?? null,
+            rate: percent,
+            taxableAmount: roundMoney(gross - tax),
+            taxAmount: tax,
+            currency,
+            baseTaxableAmount: roundMoney(gross - tax),
+            baseTaxAmount: tax,
+            contactId,
+          },
+        ];
+      }
     } else {
-      tax = 0; // KOR: the whole amount is the cost
+      tax = 0; // KOR, US purchase: the whole amount is the cost
     }
   }
   const net = roundMoney(gross - tax);

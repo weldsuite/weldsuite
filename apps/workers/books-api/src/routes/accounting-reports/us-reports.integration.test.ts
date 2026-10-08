@@ -39,6 +39,8 @@ import { billsRoutes } from '../bills';
 import { invoicesRoutes } from '../invoices';
 import { journalEntriesRoutes } from '../journal-entries';
 import { paymentsRoutes } from '../payments';
+import { salesTaxAgenciesRoutes } from '../sales-tax-agencies';
+import { salesTaxJurisdictionsRoutes } from '../sales-tax-jurisdictions';
 
 let db: Database;
 
@@ -93,6 +95,26 @@ async function accountsByCode(entityId: string): Promise<Record<string, string>>
   return Object.fromEntries(rows.map((a) => [a.code, a.id]));
 }
 
+/**
+ * The sales tax engine taxes a US entity's invoices: register the state with one
+ * state-level rate. The agency's liability stays on the chart's Sales Tax
+ * Payable account (2200), which the report assertions read.
+ */
+async function registerSalesTax(entityId: string, acct: Record<string, string>, stateCode: string, rate: number) {
+  const agency = await post('/api/sales-tax-agencies', salesTaxAgenciesRoutes, entityId, '', { stateCode, registeredFrom: '2026-01-01' });
+  expect(agency.status).toBe(201);
+  const jurisdiction = await post('/api/sales-tax-jurisdictions', salesTaxJurisdictionsRoutes, entityId, '', {
+    agencyId: agency.data.id,
+    level: 'state',
+    name: 'State',
+    rate: { rate, effectiveFrom: '2000-01-01' },
+  });
+  expect(jurisdiction.status).toBe(201);
+  await db.update(schema.salesTaxAgencies).set({ liabilityAccountId: acct['2200'] }).where(eq(schema.salesTaxAgencies.id, agency.data.id));
+}
+
+const texas = { line1: '1 Congress Ave', city: 'Austin', state: 'TX', postalCode: '78701' };
+
 async function manualEntry(entityId: string, date: string, debit: string, credit: string, amount: string, acct: Record<string, string>) {
   const created = await post('/api/journal-entries', journalEntriesRoutes, entityId, '', {
     date,
@@ -127,12 +149,15 @@ async function runMonth(body: Record<string, unknown>): Promise<Setup> {
     isActive: true,
     ledgerAccountId: acct['2200'],
   });
+  const billTo = (body.address as { state: string; postalCode: string }) ?? texas;
+  await registerSalesTax(id, acct, billTo.state, 8);
 
-  const invoice = async (issueDate: string, items: Array<{ description: string; unitPrice: string; accountId: string; taxRateId?: string }>) => {
+  const invoice = async (issueDate: string, items: Array<{ description: string; unitPrice: string; accountId: string; taxRateId?: string; taxCode?: string }>) => {
     const res = await post('/api/invoices', invoicesRoutes, id, '', {
       contactId: 'pty_customer',
       issueDate,
       dueDate: '2026-08-31',
+      billingAddress: billTo,
       items: items.map((i) => ({ quantity: '1', ...i })),
     });
     expect(res.status).toBe(201);
@@ -170,7 +195,7 @@ async function runMonth(body: Record<string, unknown>): Promise<Setup> {
     { description: 'Product', unitPrice: '500', accountId: acct['4010'], taxRateId },
     { description: 'Services', unitPrice: '300', accountId: acct['4020'], taxRateId },
   ]);
-  await invoice('2026-07-20', [{ description: 'Retainer', unitPrice: '400', accountId: acct['4020'] }]);
+  await invoice('2026-07-20', [{ description: 'Retainer', unitPrice: '400', accountId: acct['4020'], taxCode: 'non_taxable' }]);
   expect(invoiceA.total).toBe('1080.00');
   expect(invoiceB.total).toBe('864.00');
 
@@ -820,13 +845,15 @@ describe('rounding and payments across invoices', () => {
       isActive: true,
       ledgerAccountId: acct['2200'],
     });
+    await registerSalesTax(id, acct, 'TX', 8.25);
   });
 
-  const invoice = async (items: Array<{ unitPrice: string; accountId: string; taxRateId?: string }>) => {
+  const invoice = async (items: Array<{ unitPrice: string; accountId: string; taxRateId?: string; taxCode?: string }>) => {
     const res = await post('/api/invoices', invoicesRoutes, id, '', {
       contactId: 'pty_customer',
       issueDate: '2026-08-01',
       dueDate: '2026-09-01',
+      billingAddress: texas,
       items: items.map((i, n) => ({ description: `Line ${n + 1}`, quantity: '1', ...i })),
     });
     expect(res.status).toBe(201);
@@ -865,8 +892,8 @@ describe('rounding and payments across invoices', () => {
   });
 
   it('one payment across two invoices recognises each share, and what is left over is unapplied', async () => {
-    const x = await invoice([{ unitPrice: '100', accountId: acct['4020'] }]);
-    const y = await invoice([{ unitPrice: '150', accountId: acct['4020'] }]);
+    const x = await invoice([{ unitPrice: '100', accountId: acct['4020'], taxCode: 'non_taxable' }]);
+    const y = await invoice([{ unitPrice: '150', accountId: acct['4020'], taxCode: 'non_taxable' }]);
     const paid = await pay('2026-08-10', '300.00', [
       { invoiceId: x.id, amount: '100.00' },
       { invoiceId: y.id, amount: '150.00' },

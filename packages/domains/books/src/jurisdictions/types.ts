@@ -262,6 +262,17 @@ export interface JurisdictionFeatures {
 }
 
 /**
+ * How tax a supplier charges on a purchase is accounted for.
+ *
+ * - `recoverable`: input VAT / GST, a receivable the buyer reclaims on its
+ *   return (NL, IN). Bills post it to an input tax account.
+ * - `cost`: sales tax the buyer can never reclaim (US). Bills post it into
+ *   the line's expense or asset account; use tax the buyer accrues itself is
+ *   the only purchase tax that reaches a return.
+ */
+export type PurchaseTaxTreatment = 'recoverable' | 'cost';
+
+/**
  * Words that differ per jurisdiction, as codes the UI translates (en/nl/…):
  * a US user sees "Sales tax", "EIN", "Vendor" and "Credit memo" where a Dutch
  * user sees "BTW", "BTW-nummer", "Leverancier" and "Creditnota".
@@ -288,6 +299,8 @@ export interface JurisdictionAdapter {
   readonly defaultCurrency: string;
   readonly features: JurisdictionFeatures;
   readonly terminology: JurisdictionTerminology;
+  /** Bills post supplier-charged tax as a receivable (`recoverable`) or into the cost (`cost`). */
+  readonly purchaseTax: PurchaseTaxTreatment;
 
   getChartOfAccountsTemplate(opts?: ChartOfAccountsTemplateOptions): ChartOfAccountsTemplateRow[];
 

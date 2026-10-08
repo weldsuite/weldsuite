@@ -53,7 +53,9 @@ export async function loadTaxLinesForPeriod(
   return rows.map((r) => ({
     taxRateId: r.taxRateId ?? '',
     taxCategoryCode: r.taxCategoryCode ?? '',
-    direction: r.direction === 'purchase' ? 'purchase' : 'sales',
+    // US use tax is purchase-side tax the buyer accrues itself.
+    direction: r.direction === 'purchase' || r.direction === 'use' ? 'purchase' : 'sales',
+    ...(r.direction === 'use' ? { kind: 'use' as const } : {}),
     selfAssessed: r.selfAssessed,
     taxableAmount: Number(r.baseTaxableAmount),
     taxAmount: Number(r.baseTaxAmount),
