@@ -81,6 +81,15 @@ function ConditionNodeComponent({ data, selected }: NodeProps) {
     <div
       className="relative cursor-pointer"
       onClick={() => nodeData.onSelect?.()}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          nodeData.onSelect?.();
+        }
+      }}
     >
       <div className="relative">
         {needsConfig && <SetupRequiredBadge label={nodeData.setupRequiredLabel} />}
@@ -144,6 +153,15 @@ function ConditionBranchNodeComponent({ data, selected }: NodeProps) {
     <div
       className={cn("relative cursor-pointer", nodeData.isLastNode && "pb-12 -mb-12")}
       onClick={() => nodeData.onSelectBranch?.(nodeData.nodeId, nodeData.branchType, nodeData.parentConditionId, nodeData.parentConditionStepIndex)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          nodeData.onSelectBranch?.(nodeData.nodeId, nodeData.branchType, nodeData.parentConditionId, nodeData.parentConditionStepIndex);
+        }
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >

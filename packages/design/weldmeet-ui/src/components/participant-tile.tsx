@@ -249,6 +249,15 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
       // context-menu overlay all stop propagation, so only "empty" tile clicks
       // toggle focus. Ringing placeholders stay inert.
       onClick={ringing || !onTogglePin ? undefined : () => onTogglePin(participant.id)}
+      role={ringing || !onTogglePin ? undefined : 'button'}
+      tabIndex={ringing || !onTogglePin ? undefined : 0}
+      onKeyDown={ringing || !onTogglePin ? undefined : (e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onTogglePin(participant.id);
+        }
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         if (ringing) return; // placeholder — no participant actions
@@ -530,6 +539,15 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Reado
         focused && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
       )}
       onClick={handleClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleClick();
+        }
+      } : undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

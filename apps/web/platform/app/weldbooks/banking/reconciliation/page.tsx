@@ -97,34 +97,27 @@ export default function BankReconciliationPage() {
     transactionList = (
       <div className="max-h-[60vh] overflow-y-auto">
         {transactions.map((txn) => (
-          <div
+          <button
             key={txn.id}
-            role="button"
-            tabIndex={0}
-            className={`p-3 border-b cursor-pointer hover:bg-muted/50 ${
+            type="button"
+            className={`block w-full text-left p-3 border-b cursor-pointer hover:bg-muted/50 ${
               selectedTxnId === txn.id ? 'bg-muted' : ''
             }`}
             onClick={() => setSelectedTxnId(txn.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                setSelectedTxnId(txn.id);
-              }
-            }}
           >
-            <div className="flex items-center justify-between">
+            <span className="flex items-center justify-between">
               <span className="text-sm font-medium">{txn.counterpartyName || tsl.counterpartyUnknown}</span>
               <span className={`text-sm font-semibold ${Number(txn.amount) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {fmt(txn.amount, displayCurrency)}
               </span>
-            </div>
-            <div className="flex items-center justify-between mt-1">
+            </span>
+            <span className="flex items-center justify-between mt-1">
               <span className="text-xs text-muted-foreground truncate max-w-[200px]">
                 {txn.description}
               </span>
               <span className="text-xs text-muted-foreground">{formatDate(txn.date)}</span>
-            </div>
-          </div>
+            </span>
+          </button>
         ))}
       </div>
     );

@@ -9,7 +9,8 @@ import type { InstalledApp } from '@/lib/api/apps';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useAppPrefetch } from '@/hooks/use-app-prefetch';
 import { preloadWeldApp } from '@/app/weldapps/host/frame-store';
-import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
+import { useBetaAppCodes, useCanManageApps } from '@/hooks/queries/use-settings-queries';
+import { BetaBadge } from '@/components/layout/beta-badge';
 import {
   DndContext,
   DragEndEvent,
@@ -27,8 +28,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass, isAppBeta } from '@/lib/apps/app-registry';
-import { RailBetaBadge } from '@/components/beta-badge';
+import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 
@@ -111,9 +111,10 @@ interface SortableAppItemProps {
   onHover?: () => void;
   onHoverEnd?: () => void;
   isHomePage?: boolean;
+  showBeta?: boolean;
 }
 
-function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverEnd, isHomePage }: Readonly<SortableAppItemProps>) {
+function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverEnd, isHomePage, showBeta }: Readonly<SortableAppItemProps>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: app.appCode
   });
@@ -149,7 +150,7 @@ function SortableAppItem({ app, href, icon, isActive, onClick, onHover, onHoverE
           <span className={cn('transition-all', !isActive && 'grayscale opacity-60 group-hover:grayscale-0 group-hover:opacity-100')}>
             {icon}
           </span>
-          {isAppBeta(app.appCode) && <RailBetaBadge />}
+          {showBeta ? <BetaBadge /> : null}
         </a>
       </TooltipTrigger>
       <TooltipContent side="right">
@@ -173,6 +174,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
   // App Store is an install/uninstall surface — only owners/admins can manage
   // apps, so hide the rail button entirely for everyone else.
   const { data: canManageApps } = useCanManageApps();
+  const { data: betaAppCodes } = useBetaAppCodes();
 
   // Track if component is mounted (client-side only)
   const [mounted, setMounted] = useState(false);
@@ -341,6 +343,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
                     }}
                     onHoverEnd={() => cancelPrefetch(app.appCode)}
                     isHomePage={isHomePage}
+                    showBeta={betaAppCodes?.has(app.appCode) ?? false}
                   />
                 );
               })}
@@ -384,7 +387,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
                       <span className={cn('transition-all', !isActive(appPath) && 'grayscale opacity-60 group-hover:grayscale-0 group-hover:opacity-100')}>
                         {icon}
                       </span>
-                      {isAppBeta(app.appCode) && <RailBetaBadge />}
+                      {betaAppCodes?.has(app.appCode) ? <BetaBadge /> : null}
                     </Link>
                   </TooltipTrigger>
                   <TooltipContent side="right">
@@ -419,6 +422,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
                 alt="WeldAgent"
                 className="h-6 w-6"
               />
+              {betaAppCodes?.has('weldagent') ? <BetaBadge /> : null}
             </a>
           </TooltipTrigger>
           <TooltipContent side="right">

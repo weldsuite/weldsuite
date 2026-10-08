@@ -1,4 +1,4 @@
-import { useState, useEffect, type KeyboardEvent } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -45,6 +45,7 @@ import type {
   TicketTypeFieldCondition,
   TicketTypeStateGroup,
 } from '@/hooks/queries/use-helpdesk-queries';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 const FIELD_TYPES: { value: TicketTypeField['type']; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -126,20 +127,6 @@ interface TicketTypeEditorProps {
   onOpenChange: (open: boolean) => void;
   editingType: TicketTypeConfig | null;
   onSave: (type: TicketTypeConfig) => void;
-}
-
-/**
- * Keyboard handler for non-native interactive containers: activates on
- * Enter/Space, but only when the container itself has focus (not a nested control).
- */
-function activateOnKey(handler: () => void) {
-  return (e: KeyboardEvent<HTMLElement>) => {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handler();
-    }
-  };
 }
 
 // Options and conditions have no persisted id, so give each row object a stable
@@ -671,13 +658,11 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                       )}
                     >
                       {/* Collapsed summary row */}
-                      <div
-                        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer"
-                        role="button"
-                        tabIndex={0}
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left cursor-pointer"
                         aria-expanded={isExpanded}
                         onClick={() => setExpandedFieldIndex(isExpanded ? null : index)}
-                        onKeyDown={activateOnKey(() => setExpandedFieldIndex(isExpanded ? null : index))}
                       >
                         <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 cursor-grab shrink-0" />
                         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -702,7 +687,7 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                             <EyeOff className="h-3 w-3 text-muted-foreground/50" />
                           )}
                         </div>
-                      </div>
+                      </button>
 
                       {/* Expanded editor */}
                       {isExpanded && (

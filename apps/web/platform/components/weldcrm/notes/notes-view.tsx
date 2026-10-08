@@ -39,6 +39,7 @@ import { BlockEditor, StaticFormattingToolbar, type BlockNoteEditorInstance } fr
 import type { Block } from '@blocknote/core';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { withQuery } from '@/lib/with-query';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface Note {
   id: string;
@@ -696,7 +697,10 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   const renderNoteRow = useCallback((note: Note, _handlers: RowHandlers<Note>) => (
     <div
       key={note.id}
+      role="button"
+      tabIndex={0}
       onClick={() => openEditDialog(note)}
+      onKeyDown={activateOnKey(() => openEditDialog(note))}
       className="flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-background/50"
     >
       {/* Favorite */}

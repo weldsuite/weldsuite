@@ -206,14 +206,16 @@ export function VideoPlayer({
 
         {/* Center Play Button */}
         {!isPlaying && (
-          <div
-            className="absolute inset-0 flex items-center justify-center cursor-pointer z-10"
+          <button
+            type="button"
+            aria-label={st('sweep.weldcrm.videoPlayer.playPause')}
+            className="absolute inset-0 flex h-full w-full items-center justify-center cursor-pointer z-10"
             onClick={onTogglePlayPause}
           >
             <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center border border-white/20 transition-transform hover:scale-105">
               <Play className="h-7 w-7 text-white fill-white" style={{ transform: 'translateX(1.5px)' }} />
             </div>
-          </div>
+          </button>
         )}
 
         {/* Bottom Controls */}

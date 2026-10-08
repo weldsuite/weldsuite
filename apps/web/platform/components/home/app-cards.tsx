@@ -360,6 +360,20 @@ function HeaderCell({ children, className }: Readonly<{ children: React.ReactNod
 const ROW_CLASS =
   'flex items-center gap-4 px-4 h-[54px] hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border last:border-b-0';
 
+/** A card row: a real button when it opens something, a plain div otherwise. */
+function ClickableRow({
+  onClick,
+  className,
+  children,
+}: Readonly<{ onClick?: () => void; className?: string; children: React.ReactNode }>) {
+  if (!onClick) return <div className={className}>{children}</div>;
+  return (
+    <button type="button" onClick={onClick} className={cn('w-full text-left', className)}>
+      {children}
+    </button>
+  );
+}
+
 // ---------- WeldMail (renders ConversationListItem to match /weldmail/.../inbox exactly) ----------
 export type MailRow = {
   id: string;
@@ -566,7 +580,7 @@ export function FlowCard({
           const isDone = task.status === 'done';
           const clickable = !!onRowClick && !!task.id;
           return (
-            <div
+            <ClickableRow
               key={task.id ?? task.title}
               className={cn(ROW_CLASS, isDone && 'opacity-50', clickable && 'cursor-pointer')}
               onClick={clickable ? () => onRowClick!(task) : undefined}
@@ -597,7 +611,7 @@ export function FlowCard({
                   {priority.label}
                 </span>
               </span>
-            </div>
+            </ClickableRow>
           );
         })}
       </FitContent>
@@ -685,7 +699,7 @@ export function ProjectsCard({
         const priority = PROJECT_PRIORITY[p.priority];
         const clickable = !!onRowClick && !!p.id;
         return (
-          <div
+          <ClickableRow
             key={p.id ?? p.name}
             className={cn(ROW_CLASS, clickable && 'cursor-pointer')}
             onClick={clickable ? () => onRowClick!(p) : undefined}
@@ -726,7 +740,7 @@ export function ProjectsCard({
             <div className="w-[70px]">
               <span className="text-sm text-muted-foreground font-mono">{p.due}</span>
             </div>
-          </div>
+          </ClickableRow>
         );
       })}
     </CardShell>
@@ -1913,26 +1927,14 @@ export function ConnectCard({
         const progress = e.total > 0 ? (e.completed / e.total) * 100 : 0;
         const clickable = !!onRowClick && !!e.id;
         return (
-          <div
+          <ClickableRow
             key={e.id}
-            role={clickable ? 'button' : undefined}
-            tabIndex={clickable ? 0 : undefined}
             className={cn(
               ROW_CLASS,
               !clickable && 'cursor-default',
               clickable && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
             )}
             onClick={clickable ? () => onRowClick!(e) : undefined}
-            onKeyDown={
-              clickable
-                ? (ev) => {
-                    if (ev.key === 'Enter' || ev.key === ' ') {
-                      ev.preventDefault();
-                      onRowClick!(e);
-                    }
-                  }
-                : undefined
-            }
           >
             {/* Workflow — name + truncated id */}
             <div className="flex-1 min-w-0">
@@ -1977,7 +1979,7 @@ export function ConnectCard({
             <div className="w-[60px] text-right">
               <span className="text-sm text-muted-foreground">{e.startedAgo}</span>
             </div>
-          </div>
+          </ClickableRow>
         );
       })}
     </CardShell>
@@ -2064,33 +2066,21 @@ export function WorkflowsCard({
           rateColor = 'text-yellow-600 dark:text-yellow-400';
         }
         return (
-          <div
+          <ClickableRow
             key={rowKey}
-            role={clickable ? 'button' : undefined}
-            tabIndex={clickable ? 0 : undefined}
             className={cn(
               ROW_CLASS,
               !clickable && 'cursor-default',
               clickable && 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
             )}
             onClick={clickable ? () => onRowClick!(w) : undefined}
-            onKeyDown={
-              clickable
-                ? (ev) => {
-                    if (ev.key === 'Enter' || ev.key === ' ') {
-                      ev.preventDefault();
-                      onRowClick!(w);
-                    }
-                  }
-                : undefined
-            }
           >
             {/* Name + description */}
             <div className="flex-1 min-w-0">
               <span className="text-sm font-medium text-gray-900 dark:text-foreground block truncate">
                 {w.name}
               </span>
-              <p className="text-xs text-gray-500 dark:text-muted-foreground truncate">{w.description}</p>
+              <span className="block text-xs text-gray-500 dark:text-muted-foreground truncate">{w.description}</span>
             </div>
 
             {/* Trigger — icon + label */}
@@ -2127,7 +2117,7 @@ export function WorkflowsCard({
                 {status.label}
               </span>
             </div>
-          </div>
+          </ClickableRow>
         );
       })}
     </CardShell>

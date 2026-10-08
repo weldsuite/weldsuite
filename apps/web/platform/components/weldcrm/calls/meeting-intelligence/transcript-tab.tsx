@@ -12,6 +12,7 @@ import { getSpeakerColor } from './speaker-colors';
 import { TranscriptionProgress } from './transcription-progress';
 import type { TranscriptionSegment, WordTiming } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 const WordSpan = memo(function WordSpan({
   word,
@@ -122,11 +123,14 @@ export function TranscriptTabContent({
               ref={(el) => {
                 if (el) segmentRefs.current.set(segment.id, el);
               }}
+              role="button"
+              tabIndex={0}
               onClick={() => {
                 const selection = window.getSelection();
                 if (selection && selection.toString().length > 0) return;
                 onSeekToSegment(segment.start);
               }}
+              onKeyDown={activateOnKey(() => onSeekToSegment(segment.start))}
               className={cn(
                 "group flex gap-3 py-4 px-4 cursor-pointer transition-colors duration-200",
                 isActive

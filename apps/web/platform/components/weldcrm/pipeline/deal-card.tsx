@@ -97,6 +97,15 @@ export function DealCard({
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // Ignore keys bubbling up from the nested company / contact controls.
+    if (e.target !== e.currentTarget || !onClick || isSortableDragging) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   const formatCurrency = (amount: number) => {
     if (amount === 0) return null;
     return new Intl.NumberFormat('en-US', {
@@ -136,8 +145,18 @@ export function DealCard({
             "flex items-center gap-2 mt-2.5",
             isCompanyClickable && "hover:text-gray-900 dark:hover:text-gray-100 cursor-pointer"
           )}
+          role={isCompanyClickable ? 'button' : undefined}
+          tabIndex={isCompanyClickable ? 0 : undefined}
           onClick={(e) => {
             if (isCompanyClickable) {
+              e.stopPropagation();
+              e.preventDefault();
+              onCompanyClick!(company.id);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (!isCompanyClickable || e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') {
               e.stopPropagation();
               e.preventDefault();
               onCompanyClick!(company.id);
@@ -163,8 +182,19 @@ export function DealCard({
             "flex items-center gap-2 mt-2",
             isContactClickable && "hover:text-gray-900 dark:hover:text-gray-100 cursor-pointer"
           )}
+          role={isContactClickable ? 'button' : undefined}
+          tabIndex={isContactClickable ? 0 : undefined}
           onClick={(e) => {
             if (isContactClickable) {
+              e.stopPropagation();
+              e.preventDefault();
+              const clickId = contact?.id || owner?.id;
+              if (clickId) onContactClick!(clickId);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (!isContactClickable || e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') {
               e.stopPropagation();
               e.preventDefault();
               const clickId = contact?.id || owner?.id;
@@ -236,6 +266,7 @@ export function DealCard({
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
       className={cn(
         "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
         "hover:bg-gray-50 dark:hover:bg-secondary/70 cursor-grab active:cursor-grabbing w-full",

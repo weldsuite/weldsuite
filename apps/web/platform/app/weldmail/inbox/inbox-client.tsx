@@ -94,6 +94,7 @@ import {
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { copyText } from '@/lib/clipboard';
 import { asText } from '@weldsuite/text';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 type EmailMessage = MailTypes.Email;
 
@@ -1320,7 +1321,7 @@ function AiAssistantPanel({ aiInput, aiInputRef, aiMessages, chatHistory, curren
           "fixed inset-0 z-40",
           isAiPanelFullscreen ? "bg-black/50 pointer-events-auto animate-fade-in" : "bg-transparent pointer-events-none"
         )} 
-        role="presentation"
+        aria-hidden="true"
         onClick={() => isAiPanelFullscreen && setIsAiPanelFullscreen(false)} 
       />
 
@@ -2599,6 +2600,18 @@ export function InboxClient({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isComposing, isAiPanelFullscreen]);
 
+  // The modal backdrops are pointer-only: Escape closes the topmost modal.
+  useEffect(() => {
+    if (!showPreferencesModal && !showAppDetailModal) return;
+    const handleModalEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (showAppDetailModal) setShowAppDetailModal(false);
+      else setShowPreferencesModal(false);
+    };
+    document.addEventListener('keydown', handleModalEscape);
+    return () => document.removeEventListener('keydown', handleModalEscape);
+  }, [showPreferencesModal, showAppDetailModal]);
+
   // Handle text selection - bulletproof implementation
   useEffect(() => {
     let selectionTimeout: NodeJS.Timeout | null = null;
@@ -2851,7 +2864,10 @@ export function InboxClient({
                       "group cursor-pointer border border-transparent relative z-0 py-2.5",
                       getEmailRowStateClass(selectedEmail?.id === email.id, completedEmails.has(email.id))
                     )}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => openEmail(email)}
+                    onKeyDown={activateOnKey(() => openEmail(email))}
                   >
                     <div className="flex items-center gap-3">
                       {/* Avatar with Unread Indicator Dot */}
@@ -3523,7 +3539,7 @@ export function InboxClient({
           {/* Backdrop */}
           <div 
             className="fixed inset-0 bg-black/50 z-50"
-            role="presentation"
+            aria-hidden="true"
             onClick={() => setShowPreferencesModal(false)}
           />
           
@@ -3689,7 +3705,7 @@ export function InboxClient({
           {/* Backdrop */}
           <div 
             className="fixed inset-0 bg-black/50 z-50"
-            role="presentation"
+            aria-hidden="true"
             onClick={() => setShowAppDetailModal(false)}
           />
           

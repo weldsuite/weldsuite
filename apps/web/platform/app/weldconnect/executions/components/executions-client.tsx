@@ -58,6 +58,7 @@ import {
 } from '../executions-filters';
 import { useNow } from '../use-now';
 import { ExecutionStatusBadge } from './execution-status-badge';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface ExecutionRow {
   id: string;
@@ -361,11 +362,7 @@ export function ExecutionsClient() {
         role="link"
         tabIndex={0}
         onClick={openDetails}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && e.target === e.currentTarget) {
-            openDetails();
-          }
-        }}
+        onKeyDown={activateOnKey(() => openDetails())}
         className="flex flex-wrap items-start md:flex-nowrap md:items-center gap-x-4 gap-y-2 px-3 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Workflow */}

@@ -81,24 +81,25 @@ function EventListItem({ event, calendar, timeFormat, onClick }: Readonly<EventL
   const eventColor = event.color || EVENT_TYPE_COLORS[event.type] || EVENT_TYPE_COLORS.other;
 
   return (
-    <div
+    <button
+      type="button"
       onClick={() => onClick(event)}
-      className="flex items-start gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group transition-colors"
+      className="flex w-full text-left items-start gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group transition-colors"
     >
       {/* Color dot */}
-      <div
+      <span
         className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
         style={{ backgroundColor: eventColor }}
       />
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
+      <span className="flex-1 min-w-0">
+        <span className="flex items-center gap-1.5">
           <TypeIcon className="h-3.5 w-3.5 text-gray-400 dark:text-muted-foreground flex-shrink-0" />
           <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
             {event.title}
           </span>
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
+        </span>
+        <span className="flex items-center gap-2 mt-0.5">
           <span className="text-xs text-gray-500 dark:text-muted-foreground">
             {formatEventTime(event, timeFormat)}
           </span>
@@ -116,14 +117,14 @@ function EventListItem({ event, calendar, timeFormat, onClick }: Readonly<EventL
               <Video className="h-3 w-3 text-blue-500 flex-shrink-0" />
             </>
           )}
-        </div>
+        </span>
         {event.location && !event.isVirtual && (
-          <div className="text-xs text-gray-400 dark:text-muted-foreground mt-0.5 truncate">
+          <span className="block text-xs text-gray-400 dark:text-muted-foreground mt-0.5 truncate">
             {event.location}
-          </div>
+          </span>
         )}
-      </div>
-    </div>
+      </span>
+    </button>
   );
 }
 

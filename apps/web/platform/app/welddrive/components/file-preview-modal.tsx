@@ -191,7 +191,7 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
   return (
     <div className="fixed inset-0 z-50 flex flex-col">
       {/* Backdrop */}
-      <div role="presentation" className="absolute inset-0 bg-black/80" onClick={onClose} />
+      <div aria-hidden="true" className="absolute inset-0 bg-black/80" onClick={onClose} />
 
       {/* Top Bar */}
       <div className="relative z-10 flex items-center justify-between h-14 px-4">

@@ -3,6 +3,7 @@ import * as React from "react";
 import { ChevronRight, Folder, FolderOpen } from "lucide-react";
 import { Button } from "@weldsuite/ui/components/button";
 import { cn } from "@/lib/utils";
+import { activateOnKey } from "@/lib/activate-on-key";
 
 // Context for tree state management
 interface TreeContextValue {
@@ -170,7 +171,10 @@ export function TreeNodeTrigger({ children, className }: Readonly<TreeNodeTrigge
         className
       )}
       style={{ paddingLeft: `${level * 16}px` }}
+      role="button"
+      tabIndex={0}
       onClick={() => treeContext.toggleSelected(nodeId)}
+      onKeyDown={activateOnKey(() => treeContext.toggleSelected(nodeId))}
     >
       {children}
     </div>

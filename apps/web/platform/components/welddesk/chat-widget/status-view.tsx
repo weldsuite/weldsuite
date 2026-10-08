@@ -283,11 +283,10 @@ export function StatusView({
           </div>
 
           {/* Service Rows */}
-          <div role="list">
+          <ul>
             {services.map((service, serviceIndex) => (
               <React.Fragment key={service.name}>
-                <div
-                  role="listitem"
+                <li
                   className="group hover:bg-gray-50 dark:hover:bg-gray-750"
                   style={{
                     padding: '8px 4px',
@@ -397,18 +396,18 @@ export function StatusView({
                       />
                     ))}
                   </div>
-                </div>
+                </li>
                 
                 {/* Horizontal divider between services */}
                 {serviceIndex < services.length - 1 && (
-                  <div className="bg-gray-200 dark:border-border" style={{
+                  <li aria-hidden="true" className="bg-gray-200 dark:border-border" style={{
                     height: '1px',
                     margin: '12px 0 4px 0'
                   }} />
                 )}
               </React.Fragment>
             ))}
-          </div>
+          </ul>
         </div>
       </div>
 

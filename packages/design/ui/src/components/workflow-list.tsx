@@ -279,6 +279,19 @@ export function WorkflowListRow({
   return (
     <div
       onClick={interactive ? () => onSelectItem!(item) : undefined}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={
+        interactive
+          ? (e) => {
+              if (e.target !== e.currentTarget) return
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                onSelectItem!(item)
+              }
+            }
+          : undefined
+      }
       className={cn(
         "group flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border",
         interactive &&

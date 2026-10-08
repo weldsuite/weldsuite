@@ -232,7 +232,7 @@ describe('EventDetailPanel selectors (TASK-888, TASK-895)', () => {
 
 describe('EventDetailPanel description (TASK-888)', () => {
   const startEditing = () => {
-    fireEvent.click(screen.getByRole('textbox', { name: 'Add description...' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add description...' }));
     return screen.getByRole('textbox', { name: 'Add description...' }) as HTMLTextAreaElement;
   };
 
