@@ -1465,6 +1465,7 @@ export const weldconnect = {
       api: { name: 'API-aanroep', description: 'Trigger via API-verzoek' },
     },
     entityEvent: {
+      legacyHint: '{name} (verouderd)',
       updatedHint: 'Draait bij elke wijziging van een record van dit type, ongeacht welk veld is gewijzigd.',
       entityTypeLabel: 'Entiteitstype',
       entityTypePlaceholder: 'Entiteit selecteren...',

@@ -98,6 +98,7 @@ import { isValidCronExpression, nextCronRun } from './lib/cron';
 import { findUnknownVariables, getStepFormatIssues, isInsideLoop, isNestedWaitingStep } from './lib/step-issues';
 import { TriggerRecordFieldsProvider } from './lib/editor-field-context';
 import { withActionDefaults } from './lib/action-defaults';
+import { getLegacyEntityOption, getLegacyEventOption } from './lib/legacy-entity-options';
 import { getConfigSummary, summarizeStep, summarizeTrigger, type NodeSummaryLabels } from './lib/node-summary';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
@@ -1125,6 +1126,14 @@ function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, ap
     applyTriggerData({ type: 'entity_event', entityType, eventType: '' });
   };
 
+  const legacyEntity = getLegacyEntityOption(form.triggerEntityType, filteredEntityEvents, tcd.entityEvent.legacyHint);
+  const legacyEvent = getLegacyEventOption(
+    form.triggerEntityType,
+    form.triggerEventType,
+    filteredEntityEvents,
+    tcd.entityEvent.legacyHint,
+  );
+
   const handleEventTypeChange = (eventType: string) => {
     form.setTriggerEventType(eventType);
     // Update workflow immediately
@@ -1150,6 +1159,11 @@ function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, ap
                 ))}
               </SelectGroup>
             ))}
+            {legacyEntity && (
+              <SelectGroup>
+                <SelectItem value={legacyEntity.value}>{legacyEntity.label}</SelectItem>
+              </SelectGroup>
+            )}
           </SelectContent>
         </Select>
       </div>
@@ -1169,6 +1183,7 @@ function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, ap
                   </SelectItem>
                 );
               })}
+              {legacyEvent && <SelectItem value={legacyEvent.value}>{legacyEvent.label}</SelectItem>}
             </SelectContent>
           </Select>
           {form.triggerEventType === 'updated' && (
