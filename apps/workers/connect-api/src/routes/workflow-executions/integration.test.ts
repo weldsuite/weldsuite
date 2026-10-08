@@ -204,3 +204,34 @@ describe('GET /api/workflow-dashboard/stats', () => {
     expect(after.executions.queued).toBe(before.executions.queued);
   });
 });
+
+describe('limit query params on /recent, /slow and the list', () => {
+  const paths = ['/api/workflow-executions/recent', '/api/workflow-executions/slow', '/api/workflow-executions'];
+
+  it.each(paths)('%s answers 200 for a non-numeric, negative, zero or huge limit', async (path) => {
+    const { request } = createTestApp('/api/workflow-executions', workflowExecutionsRoutes, {
+      context: { permissions: permissions('workflow-executions:read'), tenantDb: db },
+    });
+    for (const limit of ['abc', '-1', '0', '', '999999', '1.5', 'NaN']) {
+      const res = await request(`${path}?limit=${limit}`);
+      expect(res.status, `limit=${limit}`).toBe(200);
+    }
+  });
+
+  it('caps /recent at 100 rows and honours a small limit', async () => {
+    const wfId = await seedWorkflow('active');
+    await db.insert(schema.workflowExecutions).values(
+      Array.from({ length: 105 }, (_, i) => ({ id: `wex_lim_${i}`, workflowId: wfId, status: 'completed' })),
+    );
+    const { request } = createTestApp('/api/workflow-executions', workflowExecutionsRoutes, {
+      context: { permissions: permissions('workflow-executions:read'), tenantDb: db },
+    });
+    const rows = async (limit: string) =>
+      ((await (await request(`/api/workflow-executions/recent?limit=${limit}`)).json()) as { data: unknown[] }).data;
+
+    expect(await rows('3')).toHaveLength(3);
+    expect(await rows('5000')).toHaveLength(100);
+    expect(await rows('-1')).toHaveLength(1);
+    expect(await rows('abc')).toHaveLength(10);
+  });
+});

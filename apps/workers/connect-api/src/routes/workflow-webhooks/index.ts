@@ -18,6 +18,7 @@ import { generateWebhookSecret } from '../../lib/webhook-secret';
 import { publicApiBase } from '../../lib/public-api-base';
 import { deregisterWebhookOwner, registerWebhookOwner, registryDeps } from '../../services/workflow-webhook-registry';
 import { webhookTriggerIds } from '../../services/weldconnect-mvp';
+import { parseLimit } from '../../lib/query-params';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const wh = schema.workflowWebhooks;
@@ -80,7 +81,7 @@ function toWebhookView(webhook: WebhookRow, workflowName: string | null, workflo
 app.get('/', requirePermission('workflow-webhooks:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = parseLimit(q.limit, 25, 100);
 
   const filterConditions: any[] = [isNull(wh.deletedAt)];
   if (q.workflowId) filterConditions.push(eq(wh.workflowId, q.workflowId));
