@@ -40,7 +40,6 @@ interface RosterEmployee {
   id: string;
   name: string;
   avatarUrl: string | null;
-  email: string | null;
   departmentName: string | null;
   jobTitle: string | null;
   /** Client accounts this employee is assigned to. */
@@ -309,7 +308,6 @@ export function ScheduleTab() {
         id: employee.id,
         name: employee.displayName,
         avatarUrl: employee.avatarUrl,
-        email: employee.email,
         departmentName: employee.departmentName,
         jobTitle: employee.jobTitle,
         clientIds: employee.clients.map((client) => client.companyId),
@@ -321,7 +319,6 @@ export function ScheduleTab() {
         id: shift.employeeId,
         name: shift.employeeName,
         avatarUrl: null,
-        email: null,
         departmentName: null,
         jobTitle: null,
         clientIds: [],
@@ -475,7 +472,7 @@ export function ScheduleTab() {
                     role="rowheader"
                     className="sticky left-0 z-10 flex min-w-0 items-start gap-2.5 border-b border-r border-border bg-background px-4 py-2.5"
                   >
-                    <EmployeeAvatar name={employee.name} src={employee.avatarUrl} email={employee.email} />
+                    <EmployeeAvatar name={employee.name} src={employee.avatarUrl} className="h-7 w-7 shrink-0" />
                     <div className="min-w-0">
                       <Link
                         to="/weldhr/employees/$employeeId"
