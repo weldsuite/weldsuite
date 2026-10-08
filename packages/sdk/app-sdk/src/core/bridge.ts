@@ -575,7 +575,12 @@ export class WeldAppBridge {
 
     switch (message.type) {
       case 'weldapp:init':
-        if (event.origin && event.origin !== 'null') this.hostOrigin = event.origin;
+        // Learn the host's origin once; a later handshake must come from it.
+        if (this.hostOrigin === '*') {
+          if (event.origin && event.origin !== 'null') this.hostOrigin = event.origin;
+        } else if (event.origin !== this.hostOrigin) {
+          return;
+        }
         this.handleInitMessage(message);
         break;
       case 'weldapp:response':
