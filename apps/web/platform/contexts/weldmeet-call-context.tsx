@@ -37,7 +37,7 @@ import {
   playHandLowerSound,
 } from '@/lib/utils/notification-sound';
 import { randomSuffix } from '@/lib/random';
-import { enableMicrophone, isMicrophonePermissionDenied, useMicrophoneRecovery } from '@weldsuite/weldmeet-ui';
+import { enableMicrophone, isMicrophonePermissionDenied, useLeaveCallGuard, useMicrophoneRecovery } from '@weldsuite/weldmeet-ui';
 
 // RNNoise noise suppression flag. Plain build-time/runtime gate, default ON;
 // set VITE_NOISE_SUPPRESSION=false to disable. (Legacy alias:
@@ -551,16 +551,16 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
     }).catch(() => {});
   }, []);
 
-  // Notify backend on tab close
-  useEffect(() => {
-    const handler = () => {
+  // Confirm before a reload / tab close drops an active meeting, and notify
+  // the backend once the page really goes away.
+  useLeaveCallGuard({
+    warn: status === 'connecting' || status === 'connected',
+    onLeave: () => {
       const mId = meetingIdRef.current;
       const sId = sessionIdRef.current;
       if (mId && sId) fireLeaveRequest(mId, sId);
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [fireLeaveRequest]);
+    },
+  });
 
   // Duration timer
   useEffect(() => {
