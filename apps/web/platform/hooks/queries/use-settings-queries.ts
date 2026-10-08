@@ -809,6 +809,14 @@ export function useAppCategories() {
   });
 }
 
+// The query cache is persisted to localStorage as JSON (providers/query-provider.tsx),
+// so the cached value must stay a plain array: a Set serialises to `{}` and
+// rehydrates without `.has`. Older caches still hold that `{}`, hence the
+// Array.isArray guard.
+function toBetaAppCodeSet(codes: unknown): Set<string> {
+  return new Set(Array.isArray(codes) ? (codes as string[]) : []);
+}
+
 /**
  * Codes of the apps an admin flagged as Beta in the admin console (canonical
  * codes, plus `weldagent` for the built-in agents entry). Drives the BETA
@@ -821,8 +829,9 @@ export function useBetaAppCodes() {
     queryFn: async () => {
       const client = await getClient();
       const result = await client.get<{ data: string[] }>('/app-catalog/beta');
-      return new Set(result.data || []);
+      return result.data || [];
     },
+    select: toBetaAppCodeSet,
     staleTime: 5 * 60 * 1000,
   });
 }
