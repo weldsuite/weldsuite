@@ -74,7 +74,7 @@ import { useFeatureFlag } from "@/hooks/queries/use-feature-flags-queries"
 import { ResourceUsage } from "@/components/resource-usage"
 import { OnboardingChecklist } from "@/components/layout/onboarding-checklist-group"
 import { CalendarLogoIcon } from "@/components/calendar-logo-icon"
-import { BetaBadge } from "@/components/beta-badge"
+import { BetaBadge } from "@/components/layout/beta-badge"
 
 export { type UserInfo, type Workspace }
 
@@ -354,7 +354,7 @@ function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, appBe
         {state === "expanded" && (
           <>
             <span className="text-lg font-semibold -ml-1">{appName}</span>
-            {appBeta && <BetaBadge />}
+            {appBeta && <BetaBadge variant="inline" />}
           </>
         )}
       </>
@@ -380,7 +380,7 @@ function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, appBe
         {state === "expanded" && (
           <>
             <span className="text-lg font-semibold">{appName}</span>
-            {appBeta && <BetaBadge />}
+            {appBeta && <BetaBadge variant="inline" />}
           </>
         )}
       </>
@@ -392,7 +392,7 @@ function SidebarBrand({ showBackButton, onBack, appLogo, AppIcon, appName, appBe
       {state === "expanded" && (
         <>
           <span className="text-lg font-semibold">{appName}</span>
-          {appBeta && <BetaBadge />}
+          {appBeta && <BetaBadge variant="inline" />}
         </>
       )}
     </>

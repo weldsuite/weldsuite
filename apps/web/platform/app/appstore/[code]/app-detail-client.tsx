@@ -1,14 +1,14 @@
 
 import React, { useState, type ReactNode } from 'react';
 import { useRouter } from '@/lib/router';
-import { useInstallApp, useUninstallApp, type AvailableApp } from '@/hooks/queries/use-settings-queries';
+import { useBetaAppCodes, useInstallApp, useUninstallApp, type AvailableApp } from '@/hooks/queries/use-settings-queries';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Loader2, Globe, FileText, Mail, CheckCircle, ChevronLeft, TrendingUp, Headphones, MessageSquare, CheckSquare, Server, Calculator, Layers, Info, type LucideIcon } from 'lucide-react';
-import { getAppLogo, getAppLucideIcon, isAppBeta } from '@/lib/apps/app-registry';
-import { BetaBadge } from '@/components/beta-badge';
+import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
+import { BetaBadge } from '@/components/layout/beta-badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
@@ -48,6 +48,7 @@ function getCategoryIcon(category: string): LucideIcon {
 }
 
 export function AppDetailClient({ app: initialApp, canManage = false, content }: Readonly<AppDetailClientProps>) {
+  const { data: betaAppCodes } = useBetaAppCodes();
   const t = getTranslations('navigation');
   const router = useRouter();
   const [app, setApp] = useState(initialApp);
@@ -183,7 +184,7 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
                 {/* App Name */}
                 <div className="flex items-center gap-2 mb-0 leading-tight">
                   <h1 className="text-2xl font-semibold text-foreground leading-tight">{app.name}</h1>
-                  {isAppBeta(app.code) && <BetaBadge />}
+                  {betaAppCodes?.has(app.code) && <BetaBadge variant="inline" />}
                 </div>
 
                 {/* Tagline */}

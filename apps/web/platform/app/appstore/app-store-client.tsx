@@ -1,15 +1,15 @@
 
 import React, { useState } from 'react';
 import { Link } from '@/lib/router';
-import { useInstallApp, useUninstallApp, type AvailableApp } from '@/hooks/queries/use-settings-queries';
+import { useBetaAppCodes, useInstallApp, useUninstallApp, type AvailableApp } from '@/hooks/queries/use-settings-queries';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { getAppLogo, getAppLucideIcon, isAppBeta } from '@/lib/apps/app-registry';
-import { BetaBadge } from '@/components/beta-badge';
+import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
+import { BetaBadge } from '@/components/layout/beta-badge';
 import { getTranslations } from '@/lib/i18n';
 import { CustomAppsSection, OfficialHostedAppsSection } from './custom-apps-section';
 
@@ -61,6 +61,7 @@ function getConsolidatedCategory(originalCategory: string, appCode?: string): st
 }
 
 export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppStoreClientProps>) {
+  const { data: betaAppCodes } = useBetaAppCodes();
   const t = getTranslations('navigation');
   const [apps, setApps] = useState<AvailableApp[]>(initialApps);
   const [hoveredApp, setHoveredApp] = useState<string | null>(null);
@@ -255,7 +256,7 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                               <h3 className="text-[0.9375rem] font-semibold text-foreground m-0">
                                 {app.name}
                               </h3>
-                              {isAppBeta(app.code) && <BetaBadge />}
+                              {betaAppCodes?.has(app.code) && <BetaBadge variant="inline" />}
                             </div>
                             <p className="text-xs text-muted-foreground m-0">
                               {app.category}
