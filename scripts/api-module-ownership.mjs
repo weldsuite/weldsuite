@@ -39,9 +39,12 @@ for (const f of files) {
   const deps = new Set();
   // Value imports only: `import type` / `export type` and `import('x').Type`
   // type expressions do not end up in the bundle.
-  for (const m of s.matchAll(/^\s*(import|export)\s+(type\s+)?(?:[^;'"]*?\s+from\s+)?['"]([^'"]+)['"]/gm)) {
-    if (m[2]) continue;
-    const r = resolveImport(f, m[3]);
+  for (const m of s.matchAll(/^[ \t]*(?:import|export)\b([^;'"]*)['"]([^'"]+)['"]/gm)) {
+    // m[1] is what sits between the keyword and the specifier: nothing for a
+    // side-effect import, else a clause ending in `from`.
+    const clause = m[1].trim();
+    if (/^type\b/.test(clause) || (clause && !/\bfrom$/.test(clause))) continue;
+    const r = resolveImport(f, m[2]);
     if (r) deps.add(r);
   }
   for (const m of s.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)(\.[A-Z])?/g)) {
