@@ -180,7 +180,13 @@ export function useDeleteHrDepartment() {
 
 export function useHrShifts(params: { from?: string; to?: string; employeeId?: string; companyId?: string }) {
   const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.shifts(params), queryFn: () => weldhr.listShifts(params), select: (r) => r.data });
+  return useQuery({
+    queryKey: weldhrKeys.shifts(params),
+    queryFn: () => weldhr.listShifts(params),
+    select: (r) => r.data,
+    // Paging through periods keeps the grid on screen instead of flashing a loader.
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useCreateHrShift() {

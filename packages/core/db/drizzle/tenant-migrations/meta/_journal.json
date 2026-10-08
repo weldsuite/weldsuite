@@ -1422,6 +1422,13 @@
       "when": 1791449038505,
       "tag": "0202_weldbooks_us",
       "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1791493335518,
+      "tag": "0203_weldhr_shift_work_type_breaks",
+      "breakpoints": true
     }
   ]
 }

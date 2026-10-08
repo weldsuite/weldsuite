@@ -266,6 +266,11 @@ export const hrShifts = pgTable('hr_shifts', {
   companyId: varchar('company_id', { length: 30 }),
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
   endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  /** What the employee is scheduled to do, e.g. "Cashier". Free text. */
+  workType: varchar('work_type', { length: 100 }),
+  /** Unpaid break inside the shift. Both set, or both null. */
+  breakStartsAt: timestamp('break_starts_at', { withTimezone: true }),
+  breakEndsAt: timestamp('break_ends_at', { withTimezone: true }),
   notes: text('notes'),
   createdBy: varchar('created_by', { length: 255 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),

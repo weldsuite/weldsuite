@@ -196,6 +196,11 @@ export const createHrShiftSchema = z.object({
   companyId: id.nullable().optional(),
   startsAt: isoDateTime,
   endsAt: isoDateTime,
+  /** What the employee is scheduled to do, e.g. "Cashier". */
+  workType: shortText(100).nullable().optional(),
+  /** Unpaid break inside the shift: send both or neither (the service checks the window). */
+  breakStartsAt: isoDateTime.nullable().optional(),
+  breakEndsAt: isoDateTime.nullable().optional(),
   notes: z.string().max(1000).nullable().optional(),
 });
 export const updateHrShiftSchema = createHrShiftSchema.omit({ employeeId: true }).partial();
