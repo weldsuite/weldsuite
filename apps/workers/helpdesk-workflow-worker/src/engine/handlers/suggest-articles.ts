@@ -8,7 +8,7 @@ export const suggestArticlesHandler: StepHandler = {
   type: 'suggest_articles',
 
   async execute(ctx: StepContext): Promise<StepResult> {
-    const query = asText(ctx.inputs.query || ctx.inputs.searchTerm || '').trim();
+    const query = asText(ctx.inputs.query || '').trim() || asText(ctx.inputs.searchTerm || '').trim();
     const limit = Number(ctx.inputs.limit || 3);
     // With a search term, only articles whose title or excerpt mention it.
     const pattern = `%${escapeLikeTerm(query)}%`;
