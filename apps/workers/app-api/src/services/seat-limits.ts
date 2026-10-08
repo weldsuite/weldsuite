@@ -16,11 +16,16 @@ import { eq } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
 import { getAccurateMemberCount } from './member-count';
+import { countPendingSeatInvitations } from './clerk-seat-cap';
 
 export interface SeatLimit {
   /** Maximum members, or null when the plan is unlimited. */
   limit: number | null;
-  /** Live member count from Clerk (guests excluded by the counter). */
+  /**
+   * Seats in use: the live member count from Clerk plus the pending
+   * invitations that will take a seat once accepted. Clerk counts both
+   * against its cap, so leaving the invitations out offers seats it refuses.
+   */
   current: number;
   atLimit: boolean;
   planName: string;
@@ -79,7 +84,11 @@ export async function getWorkspaceSeatLimit(
     }
   }
 
-  const current = await getAccurateMemberCount(env, orgId, workspace.id, masterDb);
+  const [members, pendingInvitations] = await Promise.all([
+    getAccurateMemberCount(env, orgId, workspace.id, masterDb),
+    countPendingSeatInvitations(env, orgId),
+  ]);
+  const current = members + (pendingInvitations ?? 0);
 
   return {
     limit,
