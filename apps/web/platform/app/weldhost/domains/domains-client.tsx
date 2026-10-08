@@ -259,7 +259,6 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
       }}
       actionButtons={
         <Button variant="outline" onClick={() => router.push('/weldhost/domains/external')}>
-          <ExternalLink className="h-4 w-4 mr-2" />
           {t.host.externalDomain.addButton}
         </Button>
       }
