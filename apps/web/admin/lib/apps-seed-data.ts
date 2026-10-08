@@ -26,6 +26,12 @@ export interface SeedAppEntry {
   websiteUrl: string | null;
   documentationUrl: string | null;
   contactUrl: string | null;
+  /**
+   * Inserted as published unless set to false. Built-in surfaces that are not
+   * installable (WeldAgent) stay unpublished: their row exists only so admins
+   * can toggle flags such as Beta on them, never in the App Store.
+   */
+  isPublished?: boolean;
 }
 
 const HELP_BASE = 'https://help.weldsuite.org';
@@ -625,5 +631,34 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     websiteUrl: 'https://weldsuite.com/weldhr',
     documentationUrl: `${HELP_BASE}/weldhr`,
     contactUrl: SUPPORT_EMAIL,
+  },
+  {
+    code: 'weldagent',
+    name: 'WeldAgent',
+    description: 'AI agents that work across your whole workspace.',
+    icon: 'Bot',
+    category: 'Productivity',
+    path: '/agents',
+    overview:
+      'WeldAgent is the AI layer of WeldSuite. Build agents that read and act on your CRM, helpdesk, mail and projects with the permissions you give them, or ask the general WeldAgent from the side panel on any page. WeldAgent is built in to every workspace, so it is never installed from the App Store.',
+    features: [
+      'Workspace agents with their own instructions, tools and permissions',
+      'Side-panel chat available on every page',
+      'Usage metered against the workspace credit wallet',
+    ],
+    howItWorks: [
+      { title: 'Open WeldAgent', description: 'Use the WeldAgent icon in the sidebar or the side panel on any page.' },
+      { title: 'Create an agent', description: 'Give it instructions and choose which apps it may use.' },
+      { title: 'Put it to work', description: 'Chat with it, or let it act on events in your workspace.' },
+    ],
+    sortOrder: 170,
+    version: '1.0.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '',
+    websiteUrl: null,
+    documentationUrl: null,
+    contactUrl: SUPPORT_EMAIL,
+    isPublished: false,
   },
 ];

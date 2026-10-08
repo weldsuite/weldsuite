@@ -10,6 +10,7 @@
  * Surface:
  *   - GET    /              — published apps + per-workspace isInstalled
  *   - GET    /categories    — distinct catalog categories
+ *   - GET    /beta          — codes of apps flagged Beta in admin (canonical codes)
  *   - GET    /:code         — single app detail + installation info
  *   - POST   /:code/install — install app (OWNER/ADMIN only)
  *   - DELETE /:code/install — uninstall app, soft delete (OWNER/ADMIN only)
@@ -53,6 +54,7 @@ import { isAdminOrOwner } from '@weldsuite/mail-domain/access';
 import {
   listCatalogApps,
   listCatalogCategories,
+  listBetaAppCodes,
   getCatalogApp,
   installCatalogApp,
   uninstallCatalogApp,
@@ -91,6 +93,18 @@ app.get('/categories', async (c) => {
   const masterDb = getMasterDb(c.env);
   const categories = await listCatalogCategories(masterDb);
   return success(c, categories);
+});
+
+// ============================================================================
+// GET /beta — codes of the apps that show a BETA badge in the sidebar.
+// Always canonical DB codes (`welddesk`, `weldagent`): only the platform reads
+// it, and its sidebar is keyed on those. Literal segment before /:code.
+// ============================================================================
+
+app.get('/beta', async (c) => {
+  const masterDb = getMasterDb(c.env);
+  const codes = await listBetaAppCodes(masterDb);
+  return success(c, codes);
 });
 
 // ============================================================================

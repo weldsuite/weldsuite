@@ -149,7 +149,7 @@ export async function seedApps(
         features: seed.features,
         howItWorks: seed.howItWorks,
         isActive: true,
-        isPublished: true,
+        isPublished: seed.isPublished ?? true,
         sortOrder: seed.sortOrder,
         version: seed.version,
         provider: seed.provider,

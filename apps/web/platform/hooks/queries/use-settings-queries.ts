@@ -809,6 +809,24 @@ export function useAppCategories() {
   });
 }
 
+/**
+ * Codes of the apps an admin flagged as Beta in the admin console (canonical
+ * codes, plus `weldagent` for the built-in agents entry). Drives the BETA
+ * badge in the sidebars. Rarely changes, so it is cached for a while.
+ */
+export function useBetaAppCodes() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: [...settingsKeys.all, 'beta-apps'] as const,
+    queryFn: async () => {
+      const client = await getClient();
+      const result = await client.get<{ data: string[] }>('/app-catalog/beta');
+      return new Set(result.data || []);
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useCanManageApps() {
   const { getClient } = useAppApiClient();
   return useQuery({
