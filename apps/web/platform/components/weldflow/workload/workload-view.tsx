@@ -43,6 +43,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 // Internal types derived from API data
 interface TeamMember {
@@ -186,9 +187,10 @@ const TaskSidebarItem = memo(({
     : `${formatDistance(task.startAt, new Date())} so far`;
 
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        "flex items-center gap-2.5 p-2.5 text-xs hover:bg-secondary pl-6 cursor-pointer transition-colors",
+        "flex w-full items-center gap-2.5 p-2.5 text-xs text-left hover:bg-secondary pl-6 cursor-pointer transition-colors",
         isSelected && "bg-secondary"
       )}
       style={{ height: rowHeight }}
@@ -205,7 +207,7 @@ const TaskSidebarItem = memo(({
         {task.name}
       </p>
       <p className="text-muted-foreground">{duration}</p>
-    </div>
+    </button>
   );
 });
 
@@ -237,9 +239,12 @@ const TeamMemberSidebarItem = memo(({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       className="border-b border-border/50 flex items-center gap-3 px-3 cursor-pointer hover:bg-secondary/50"
       style={{ height: rowHeight }}
       onClick={onToggle}
+      onKeyDown={activateOnKey(() => onToggle())}
     >
       <Button variant="ghost" className="h-5 w-5 flex items-center justify-center text-muted-foreground rounded-[5px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors p-0">
         {isExpanded ? (
@@ -1191,7 +1196,10 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                   <div
                     className="md:hidden flex items-center gap-2 px-3 py-2 bg-background border-b border-border cursor-pointer sticky left-0 z-20"
                     style={{ width: '100vw', maxWidth: '100vw' }}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => toggleMember(member.id)}
+                    onKeyDown={activateOnKey(() => toggleMember(member.id))}
                   >
                     <Button variant="ghost" className="h-5 w-5 flex items-center justify-center text-muted-foreground p-0">
                       {isExpanded ? (

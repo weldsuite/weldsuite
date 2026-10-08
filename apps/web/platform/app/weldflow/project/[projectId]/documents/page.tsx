@@ -25,6 +25,7 @@ import { useProjectPermissions } from '@/app/weldflow/contexts/project-permissio
 import { documentsApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
 import { toast } from 'sonner';
+import { activateOnKey } from '@/lib/activate-on-key';
 
 interface DocumentItem {
   id: string;
@@ -181,9 +182,11 @@ export default function ProjectDocumentsPage() {
     return (
       <div
         key={item.id}
-        role="presentation"
+        role="button"
+        tabIndex={0}
         className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
         onClick={() => openDocument(item.id)}
+        onKeyDown={activateOnKey(() => openDocument(item.id))}
       >
         <div className="flex-1 min-w-[300px] flex items-center gap-2">
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />

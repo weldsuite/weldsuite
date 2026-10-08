@@ -1522,6 +1522,15 @@ function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClo
   const { t } = useI18n();
   const [checked, setChecked] = useState<Set<string>>(() => new Set(allowed ?? values));
 
+  // Escape closes the popover (keyboard equivalent of clicking the backdrop).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   const toggle = (v: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
@@ -1539,7 +1548,7 @@ function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClo
 
   return (
     <>
-      <div className="fixed inset-0 z-40" role="presentation" onMouseDown={onClose} />
+      <div className="fixed inset-0 z-40" aria-hidden="true" onMouseDown={onClose} />
       <div
         role="presentation"
         className="fixed z-50 w-64 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
