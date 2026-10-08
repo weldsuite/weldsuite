@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { ArrowRight, ShoppingCart } from "lucide-react";
+import { activateOnKey } from "../lib/activate-on-key";
 
 export interface GalleryAccordionBlockProps {
   images?: Array<{ src: string; title: string; code: string }>;
@@ -85,8 +86,12 @@ export function GalleryAccordionBlock({
                   width: '24rem',
                   transition: 'height 0.3s ease-in-out',
                 }}
+                role="button"
+                tabIndex={0}
+                aria-expanded={activeImage === index}
                 onClick={() => setActiveImage(index)}
                 onMouseEnter={() => setActiveImage(index)}
+                onKeyDown={activateOnKey(() => setActiveImage(index))}
               >
                 {/* Gradient overlay */}
                 <div

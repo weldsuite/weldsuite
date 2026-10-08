@@ -137,7 +137,7 @@ export function ElementRenderer({
           <span
             style={styles}
             className={wrapperClasses}
-            onClick={handleClick}
+            {...selectableProps}
           >
             {content?.text || 'Text'}
           </span>
@@ -169,7 +169,7 @@ export function ElementRenderer({
       case 'image':
         if (content?.src || content?.url) {
           return (
-            <div style={styles} className={wrapperClasses} onClick={handleClick}>
+            <div style={styles} className={wrapperClasses} {...selectableProps}>
               <Image
                 src={content?.src || content?.url || ''}
                 alt={content?.alt || ''}
@@ -184,7 +184,7 @@ export function ElementRenderer({
           <div
             style={{...styles, backgroundColor: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center'}}
             className={wrapperClasses}
-            onClick={handleClick}
+            {...selectableProps}
           >
             <span className="text-muted-foreground">Image</span>
           </div>
@@ -208,7 +208,7 @@ export function ElementRenderer({
           <div
             style={{...styles, backgroundColor: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center'}}
             className={wrapperClasses}
-            onClick={handleClick}
+            {...selectableProps}
           >
             <span className="text-muted-foreground">Video</span>
           </div>
@@ -282,13 +282,13 @@ export function ElementRenderer({
           <div
             style={{...styles, minHeight: settings.height || '20px'}}
             className={wrapperClasses}
-            onClick={handleClick}
+            {...selectableProps}
           />
         );
 
       default:
         return (
-          <div style={styles} className={wrapperClasses} onClick={handleClick}>
+          <div style={styles} className={wrapperClasses} {...selectableProps}>
             <span className="text-muted-foreground">Unknown element: {type}</span>
           </div>
         );
