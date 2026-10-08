@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -130,21 +129,16 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>
             {firstEntity ? t('sweep.weldbooks.createEntity.welcomeTitle') : t('sweep.weldbooks.createEntity.newEntityTitle')}
           </DialogTitle>
-          <DialogDescription>
-            {firstEntity
-              ? t('sweep.weldbooks.createEntity.welcomeDescription')
-              : t('sweep.weldbooks.createEntity.newEntityDescription')}
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-2">
+        <div className="space-y-4 py-2">
           {!isUs && (
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="entity-name">{t('sweep.weldbooks.createEntity.nameLabel')}</Label>
             <Input
               id="entity-name"
@@ -157,7 +151,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           )}
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div className="space-y-2">
               <Label>{t('sweep.weldbooks.createEntity.jurisdictionLabel')}</Label>
               <Select
                 value={jurisdictionCode}
@@ -178,7 +172,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
               </Select>
             </div>
             {!isUs && (
-            <div>
+            <div className="space-y-2">
               <Label>{t('sweep.weldbooks.createEntity.currencyLabel')}</Label>
               <Select value={baseCurrency} onValueChange={setBaseCurrency}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -198,7 +192,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           )}
 
           {!isUs && (
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="entity-vat">
               {isIndia
                 ? t('sweep.weldbooks.createEntity.gstinLabel')

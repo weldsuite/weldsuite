@@ -211,8 +211,6 @@ export const sweep = {
     "createEntity": {
       "welcomeTitle": "Welcome to WeldBooks",
       "newEntityTitle": "New legal entity",
-      "welcomeDescription": "Create your first legal entity to start using accounting. Chart of accounts and tax rates for the selected jurisdiction are set up automatically.",
-      "newEntityDescription": "Add another legal entity to this workspace. Switch between entities from the header.",
       "nameLabel": "Name",
       "jurisdictionLabel": "Jurisdiction",
       "currencyLabel": "Currency",

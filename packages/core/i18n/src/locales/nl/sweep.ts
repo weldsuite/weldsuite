@@ -211,8 +211,6 @@ export const sweep = {
     "createEntity": {
       "welcomeTitle": "Welkom bij WeldBooks",
       "newEntityTitle": "Nieuwe juridische entiteit",
-      "welcomeDescription": "Maak uw eerste juridische entiteit aan om te starten met boekhouden. Het rekeningschema en de belastingtarieven voor het gekozen rechtsgebied worden automatisch ingesteld.",
-      "newEntityDescription": "Voeg nog een juridische entiteit toe aan deze werkruimte. Wissel tussen entiteiten via de header.",
       "nameLabel": "Naam",
       "jurisdictionLabel": "Rechtsgebied",
       "currencyLabel": "Valuta",
