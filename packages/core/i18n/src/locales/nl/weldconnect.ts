@@ -546,7 +546,6 @@ export const weldconnect = {
     export: 'Exporteren',
     cancelExecution: 'Annuleren',
     retryExecution: 'Opnieuw proberen',
-    cancelConfirm: 'Weet u zeker dat u deze uitvoering wilt annuleren?',
     cancelDialogTitle: 'Deze uitvoering annuleren?',
     cancelDialogDescription:
       'De uitvoering stopt direct en er worden geen verdere stappen uitgevoerd. Stappen die al zijn uitgevoerd worden niet teruggedraaid.',
