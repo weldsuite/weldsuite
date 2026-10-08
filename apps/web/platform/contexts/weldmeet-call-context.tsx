@@ -90,6 +90,19 @@ function stopLocalMediaTracks(meeting: RealtimeKitClient | null) {
   stop(() => self?.screenShareTracks?.audio);
 }
 
+/**
+ * Ends the current task so the browser can paint before heavy work continues.
+ * Stopping hardware tracks and RTK's leave() take a few hundred ms; run inside
+ * the click handler they hold the Leave button's next frame back (poor INP).
+ * Not requestAnimationFrame: the leave can come from the Document PiP window
+ * while the main tab is hidden, where rAF never fires.
+ */
+function yieldToMain(): Promise<void> {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  if (typeof scheduler?.yield === 'function') return scheduler.yield();
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /** RTK `self.mediaPermissions` values meaning the browser or OS blocks the device. */
 function isPermissionBlocked(permission: string | undefined): boolean {
   return permission === 'DENIED' || permission === 'SYSTEM_DENIED';
@@ -415,6 +428,8 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
   // apart from the host ending the meeting under us (toast), and to skip the
   // redundant /leave that would follow our own /end.
   const exitIntentRef = useRef<'leave' | 'end' | null>(null);
+  /** A deliberate leave is in progress; guards against a double click. */
+  const leavingRef = useRef(false);
 
   // Recording-start bookkeeping. `startPendingRef` is true from the moment THIS
   // client asks the recorder to start until RTK reports RECORDING (success
@@ -1249,7 +1264,9 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
   }, [previewStream]);
 
   const leaveMeeting = useCallback(async () => {
-    if (!meetingId || !sessionId) return;
+    // A second click while this leave is still tearing down is a no-op.
+    if (!meetingId || !sessionId || leavingRef.current) return;
+    leavingRef.current = true;
     const mId = meetingId;
     const sId = sessionId;
     exitIntentRef.current = 'leave';
@@ -1257,23 +1274,29 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
     // Refs are cleared first so the roomLeft below does not send its own /leave.
     meetingIdRef.current = null;
     sessionIdRef.current = null;
-    // Leave the room BEFORE telling the backend: it ends the session only once
-    // RealtimeKit reports the room empty, which it never does while we are
-    // still connected. Bounded, so a dead connection cannot hold up the leave.
-    if (meeting) {
-      stopLocalMediaTracks(meeting);
-      await Promise.race([
-        Promise.resolve()
-          .then(() => meeting.leave())
-          .catch(() => { /* ignore */ }),
-        new Promise((resolve) => setTimeout(resolve, RTK_LEAVE_TIMEOUT_MS)),
-      ]);
-    }
-    const client = await getClient();
     try {
-      await client.post(`/meeting-sessions/${sId}/leave`);
-    } catch { /* best effort */ }
-    cleanup();
+      // Let the click paint before the media teardown below.
+      await yieldToMain();
+      // Leave the room BEFORE telling the backend: it ends the session only once
+      // RealtimeKit reports the room empty, which it never does while we are
+      // still connected. Bounded, so a dead connection cannot hold up the leave.
+      if (meeting) {
+        stopLocalMediaTracks(meeting);
+        await Promise.race([
+          Promise.resolve()
+            .then(() => meeting.leave())
+            .catch(() => { /* ignore */ }),
+          new Promise((resolve) => setTimeout(resolve, RTK_LEAVE_TIMEOUT_MS)),
+        ]);
+      }
+      const client = await getClient();
+      try {
+        await client.post(`/meeting-sessions/${sId}/leave`);
+      } catch { /* best effort */ }
+      cleanup();
+    } finally {
+      leavingRef.current = false;
+    }
     void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
     void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
   }, [meetingId, sessionId, meeting, getClient, cleanup, queryClient]);
