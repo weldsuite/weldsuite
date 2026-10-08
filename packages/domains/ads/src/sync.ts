@@ -36,11 +36,11 @@ function keyringFromEnv(env: AdsSyncEnv): EncryptionKeyring {
   return { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 };
 }
 
-export async function decryptAccessToken(
+export function decryptAccessToken(
   encrypted: string | undefined,
   keyring: EncryptionKeyring,
 ): Promise<string | undefined> {
-  if (!encrypted) return undefined;
+  if (!encrypted) return Promise.resolve(undefined);
   return decryptField(encrypted, keyring);
 }
 

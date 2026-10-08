@@ -489,7 +489,7 @@ export function FooterBlock({
   }, [showCurrencyDropdown, showLanguageDropdown]);
 
   // Handle currency change
-  const handleCurrencyChange = async (currencyCode: string) => {
+  const handleCurrencyChange = (currencyCode: string) => {
     setSelectedCurrency(currencyCode);
     setShowCurrencyDropdown(false);
 
@@ -503,7 +503,7 @@ export function FooterBlock({
   };
 
   // Handle language change
-  const handleLanguageChange = async (languageCode: string) => {
+  const handleLanguageChange = (languageCode: string) => {
     setSelectedLanguage(languageCode);
     setShowLanguageDropdown(false);
 

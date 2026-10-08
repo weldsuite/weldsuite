@@ -90,7 +90,7 @@ export type FlagContext = FlagEvaluator;
  * Evaluation is async — Flagship's binding returns promises — so callers do
  * `await c.get('flags').isOn('some-flag')`.
  */
-export async function getFlags(c: FlagsContext): Promise<FlagEvaluator> {
+export function getFlags(c: FlagsContext): Promise<FlagEvaluator> {
   const env = c.env;
   const flagship = env.FLAGSHIP;
 
@@ -107,7 +107,7 @@ export async function getFlags(c: FlagsContext): Promise<FlagEvaluator> {
   const evalContext = (overrides?: Partial<FlagAttributes>): Record<string, unknown> =>
     overrides ? { ...baseAttributes, ...overrides } : { ...baseAttributes };
 
-  return {
+  return Promise.resolve<FlagEvaluator>({
     async isOn(key, overrides) {
       const fallback = getFlagDefault(key) as boolean;
       if (!flagship) return fallback;
@@ -154,5 +154,5 @@ export async function getFlags(c: FlagsContext): Promise<FlagEvaluator> {
         return fallback;
       }
     },
-  };
+  });
 }

@@ -86,7 +86,7 @@ export function AdmitGuestsPill({ meeting }: Readonly<AdmitGuestsPillProps>) {
   }, [waitlisted]);
 
   const handleAdmit = useCallback(
-    async (id: string) => {
+    (id: string) => {
       try {
         meeting?.participants?.acceptWaitingRoomRequest(id);
       } catch {

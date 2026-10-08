@@ -257,7 +257,7 @@ function buildExtraHeaders(data: SendComposeInput): Record<string, string> | und
 }
 
 /** Hand the envelope to the Cloudflare `send_email` binding (or fake it under dry-run). */
-async function transmitEmail(
+function transmitEmail(
   env: MailSendEnv,
   account: MailAccountRow,
   data: SendComposeInput,
@@ -266,7 +266,7 @@ async function transmitEmail(
   dryRun: boolean | undefined,
 ): Promise<TransmitResult> {
   if (dryRun) {
-    return { messageId: `<dryrun-${generateId('msg')}@e2e.test>`, pendingVerification: false };
+    return Promise.resolve({ messageId: `<dryrun-${generateId('msg')}@e2e.test>`, pendingVerification: false });
   }
   const fromAddress = account.displayName ? `${account.displayName} <${account.email}>` : account.email;
   return cfEmail.sendEmail(env, {

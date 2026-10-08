@@ -221,11 +221,11 @@ export class IframeManager {
   /**
    * Create launcher iframe
    */
-  private async createLauncherIframe(): Promise<void> {
+  private createLauncherIframe(): Promise<void> {
     // Guard: skip if launcher iframe already exists
     if (this.iframes.has(IframeType.LAUNCHER)) {
       this.logger.debug('Launcher iframe already exists, skipping creation');
-      return;
+      return Promise.resolve();
     }
 
     const { iframes } = this.config;
@@ -302,16 +302,17 @@ export class IframeManager {
     };
 
     this.logger.debug('Launcher iframe created');
+    return Promise.resolve();
   }
 
   /**
    * Create widget iframe
    */
-  private async createWidgetIframe(): Promise<void> {
+  private createWidgetIframe(): Promise<void> {
     // Guard: skip if widget iframe already exists
     if (this.iframes.has(IframeType.WIDGET)) {
       this.logger.debug('Widget iframe already exists, skipping creation');
-      return;
+      return Promise.resolve();
     }
 
     const { iframes } = this.config;
@@ -420,13 +421,15 @@ export class IframeManager {
     };
 
     this.logger.debug('Widget iframe created');
+    return Promise.resolve();
   }
 
   /**
    * Create backdrop iframe — disabled, widget stays non-modal so users can interact with the page
    */
-  private async createBackdropIframe(): Promise<void> {
+  private createBackdropIframe(): Promise<void> {
     this.logger.debug('Backdrop disabled, skipping creation');
+    return Promise.resolve();
   }
 
   /**

@@ -21,13 +21,13 @@ interface AiConfig {
 
 export const aiAction: EnrichmentAction = {
   type: 'ai',
-  async run(ctx: ActionContext): Promise<ActionResult> {
+  run(ctx: ActionContext): Promise<ActionResult> {
     const cfg = (ctx.column.config as AiConfig | null) ?? {};
     const prompt = resolveTemplate(cfg.prompt ?? '', ctx.lead, ctx.siblingValues);
     console.warn(
       '[ai] AI is currently unavailable — skipping AI enrichment column for lead',
       ctx.lead.id,
     );
-    return { value: '', data: { unavailable: true, promptResolved: Boolean(prompt.trim()) } };
+    return Promise.resolve({ value: '', data: { unavailable: true, promptResolved: Boolean(prompt.trim()) } });
   },
 };

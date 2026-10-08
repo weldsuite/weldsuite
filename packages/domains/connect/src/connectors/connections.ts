@@ -56,15 +56,15 @@ export async function decryptCredentials(
   return decrypted;
 }
 
-export async function encryptWebhookSecret(secret: string, keyring: EncryptionKeyring): Promise<string> {
-  return keyring.v1 || keyring.v2 ? encryptField(secret, keyring) : secret;
+export function encryptWebhookSecret(secret: string, keyring: EncryptionKeyring): Promise<string> {
+  return keyring.v1 || keyring.v2 ? encryptField(secret, keyring) : Promise.resolve(secret);
 }
 
-export async function maybeDecryptWebhookSecret(
+export function maybeDecryptWebhookSecret(
   secret: string | null | undefined,
   keyring: EncryptionKeyring,
 ): Promise<string | null> {
-  if (!secret) return null;
+  if (!secret) return Promise.resolve(null);
   return maybeDecryptField(secret, keyring);
 }
 
@@ -144,17 +144,19 @@ export async function findConnectionByProviderAccount(
   return row ?? null;
 }
 
-export async function listConnectionsByProvider(
+export function listConnectionsByProvider(
   db: Database,
   provider: string,
 ): Promise<ConnectorConnectionRow[]> {
-  return db
-    .select()
-    .from(schema.connectorConnections)
-    .where(
-      and(eq(schema.connectorConnections.provider, provider), isNull(schema.connectorConnections.deletedAt)),
-    )
-    .orderBy(desc(schema.connectorConnections.createdAt));
+  return Promise.resolve(
+    db
+      .select()
+      .from(schema.connectorConnections)
+      .where(
+        and(eq(schema.connectorConnections.provider, provider), isNull(schema.connectorConnections.deletedAt)),
+      )
+      .orderBy(desc(schema.connectorConnections.createdAt))
+  );
 }
 
 export async function getConnectionById(
@@ -169,12 +171,14 @@ export async function getConnectionById(
   return row ?? null;
 }
 
-export async function listConnections(db: Database): Promise<ConnectorConnectionRow[]> {
-  return db
-    .select()
-    .from(schema.connectorConnections)
-    .where(isNull(schema.connectorConnections.deletedAt))
-    .orderBy(desc(schema.connectorConnections.createdAt));
+export function listConnections(db: Database): Promise<ConnectorConnectionRow[]> {
+  return Promise.resolve(
+    db
+      .select()
+      .from(schema.connectorConnections)
+      .where(isNull(schema.connectorConnections.deletedAt))
+      .orderBy(desc(schema.connectorConnections.createdAt))
+  );
 }
 
 export async function upsertConnection(args: {
@@ -515,17 +519,19 @@ export async function finishSyncRun(args: {
     .where(eq(schema.connectorConnections.id, args.connectionId));
 }
 
-export async function listSyncRuns(
+export function listSyncRuns(
   db: Database,
   connectionId: string,
   limit = 25,
 ): Promise<Array<typeof schema.connectorSyncRuns.$inferSelect>> {
-  return db
-    .select()
-    .from(schema.connectorSyncRuns)
-    .where(eq(schema.connectorSyncRuns.connectionId, connectionId))
-    .orderBy(desc(schema.connectorSyncRuns.createdAt))
-    .limit(Math.min(limit, 100));
+  return Promise.resolve(
+    db
+      .select()
+      .from(schema.connectorSyncRuns)
+      .where(eq(schema.connectorSyncRuns.connectionId, connectionId))
+      .orderBy(desc(schema.connectorSyncRuns.createdAt))
+      .limit(Math.min(limit, 100))
+  );
 }
 
 export interface ConnectorSyncedRecord {

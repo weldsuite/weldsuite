@@ -5,7 +5,7 @@ import type { TaxReturnArtifact, TaxReturnLine } from '../types';
  * Phase 1 stub GST return: JSON summary of taxable + CGST/SGST/IGST totals.
  * Not portal-ready (no GSTR-1/3B JSON schema); satisfies JurisdictionAdapter.buildTaxReturn.
  */
-export async function buildInGstReturn(
+export function buildInGstReturn(
   entity: Entity,
   periodStart: string,
   periodEnd: string,
@@ -47,10 +47,10 @@ export async function buildInGstReturn(
     summary,
   };
 
-  return {
+  return Promise.resolve({
     filename: `gst-summary-${periodStart}-${periodEnd}.json`,
     mimeType: 'application/json',
     content: JSON.stringify(payload, null, 2),
     summary,
-  };
+  });
 }
