@@ -4,15 +4,16 @@
  * Both can optionally authenticate using a connected integration: when
  * `integrationId`/`integrationType` is supplied, an `Authorization: Bearer
  * <token>` header is injected from the integration (an explicit
- * `headers.Authorization` always wins).
+ * `headers.Authorization` always wins). The token is only ever sent to that
+ * integration provider's own API host (see INTEGRATION_API_HOSTS).
  *
  * `http_request` is a WeldConnect-exposed action (services/weldconnect-mvp.ts
  * on connect-api), so it can be pointed at ANY URL a user types in — hardened
  * accordingly: a bounded timeout, a capped response body, a scheme/target
- * allowlist that blocks obvious attempts to reach the worker's own private
- * network, and error classification the engine's retry loop can act on (a 4xx
- * is the caller's problem and won't get fixed by retrying; a 5xx or network
- * failure might).
+ * allowlist that blocks attempts to reach the worker's own private network or
+ * the platform's own hostnames, and error classification the engine's retry
+ * loop can act on (a 4xx is the caller's problem and won't get fixed by
+ * retrying; a 5xx or network failure might).
  */
 
 import type { ActionHandler, ActionContext } from '../types';
@@ -20,11 +21,61 @@ import { resolveIntegration, integrationBearerToken } from '../integrations';
 import { NonRetryableStepError } from '../errors';
 import { asText } from '@weldsuite/text';
 
-/** Merge integration-derived auth into the caller's headers (explicit wins). */
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_RESPONSE_BYTES = 1_000_000; // 1 MB
+const MAX_TIMEOUT_MS = 120_000;
+
+/**
+ * The API host(s) each integration provider's token may be sent to, keyed by
+ * integration type. An entry is an exact host (`api.github.com`) or a
+ * `*.domain` wildcard that matches subdomains only (list the apex separately
+ * when it is a valid target too). An integration type with no entry gets its
+ * token sent nowhere: `http_request` takes an author-chosen URL, so without
+ * this allowlist any workflow author could point a connected integration's
+ * token at a server they control.
+ */
+const INTEGRATION_API_HOSTS: Record<string, readonly string[]> = {
+  airtable: ['api.airtable.com'],
+  asana: ['app.asana.com'],
+  attio: ['api.attio.com'],
+  github: ['api.github.com'],
+  gmail: ['*.googleapis.com'],
+  google_calendar: ['*.googleapis.com'],
+  google_sheets: ['*.googleapis.com'],
+  hubspot: ['api.hubapi.com', 'api.hubspot.com'],
+  notion: ['api.notion.com'],
+  slack: ['slack.com', '*.slack.com'],
+  teams: ['graph.microsoft.com', 'outlook.office.com', '*.webhook.office.com'],
+  twilio: ['api.twilio.com', '*.twilio.com'],
+};
+
+/** Lower-cased hostname without a trailing root dot. */
+function normalizeHost(hostname: string): string {
+  return hostname.toLowerCase().replace(/\.$/, '');
+}
+
+function hostMatches(host: string, pattern: string): boolean {
+  if (pattern.startsWith('*.')) return host.endsWith(pattern.slice(1));
+  return host === pattern;
+}
+
+/** True when `host` is one of the API hosts registered for `integrationType`. */
+function isIntegrationApiHost(integrationType: string, host: string): boolean {
+  const patterns = INTEGRATION_API_HOSTS[integrationType];
+  return !!patterns && patterns.some((pattern) => hostMatches(host, pattern));
+}
+
+/**
+ * Merge integration-derived auth into the caller's headers (explicit wins).
+ * The integration's token is only attached when the target host is the
+ * provider's own API host; anywhere else the step fails rather than silently
+ * dropping the credential (or leaking it).
+ */
 async function withIntegrationAuth(
   inputs: Record<string, unknown>,
   ctx: ActionContext,
   headers: Record<string, string>,
+  url: URL,
 ): Promise<Record<string, string>> {
   const integrationId = inputs.integrationId ? asText(inputs.integrationId) : undefined;
   const integrationType = inputs.integrationType ? asText(inputs.integrationType) : undefined;
@@ -35,31 +86,71 @@ async function withIntegrationAuth(
 
   const integ = await resolveIntegration(ctx.db, { integrationId, type: integrationType });
   const token = integrationBearerToken(integ);
-  if (token) return { ...headers, Authorization: `Bearer ${token}` };
-  return headers;
+  if (!token) return headers;
+
+  const host = normalizeHost(url.hostname);
+  if (!isIntegrationApiHost(integ.type, host)) {
+    throw new NonRetryableStepError(
+      `The ${integ.type} integration's token can only be sent to its own API host, not to ${host}. ` +
+        'Remove the integration from this step to call another server, or set the Authorization header yourself.',
+    );
+  }
+  return { ...headers, Authorization: `Bearer ${token}` };
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000;
-const MAX_RESPONSE_BYTES = 1_000_000; // 1 MB
-const MAX_TIMEOUT_MS = 120_000;
-
-/** IPv4 ranges that never leave the host's own network (RFC 1918 + loopback + link-local). */
+/** IPv4 ranges that never leave the host's own network (RFC 1918 + loopback + link-local + CGNAT). */
 const PRIVATE_IPV4_PATTERNS = [
+  /^0\./,
   /^127\./,
   /^10\./,
   /^192\.168\./,
   /^172\.(1[6-9]|2\d|3[01])\./,
   /^169\.254\./,
-  /^0\.0\.0\.0$/,
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
 ];
 
-/** True when `hostname` obviously targets this host's own network rather than the public internet. */
+/** Platform-owned hostnames: a workflow must not call WeldSuite's own APIs from inside the platform. */
+const INTERNAL_HOST_SUFFIXES = ['weldsuite.org', 'workers.dev'];
+
+/** Cloud metadata endpoints that are not covered by an IP or `.internal` rule. */
+const METADATA_HOSTS = new Set(['metadata', 'instance-data']);
+
+function isPrivateIpv4(host: string): boolean {
+  return PRIVATE_IPV4_PATTERNS.some((pattern) => pattern.test(host));
+}
+
+/** Decode an IPv4-mapped IPv6 address (`::ffff:a00:1` / `::ffff:10.0.0.1`) back to dotted form. */
+function mappedIpv4(address: string): string | null {
+  const dotted = /^(?:0{0,4}:){0,5}:?ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(address);
+  if (dotted) return dotted[1];
+  const hex = /^(?:0{0,4}:){0,5}:?ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(address);
+  if (!hex) return null;
+  const hi = parseInt(hex[1], 16);
+  const lo = parseInt(hex[2], 16);
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+}
+
+/** True for loopback, unspecified, unique-local (fc00::/7), link-local (fe80::/10) and mapped-private IPv6 literals. */
+function isPrivateIpv6(literal: string): boolean {
+  const address = literal.replace(/^\[|\]$/g, '');
+  if (!address.includes(':')) return false;
+  if (address === '::' || address === '::1') return true;
+  const first = address.split(':')[0];
+  if (/^f[cd][0-9a-f]{2}$/.test(first)) return true; // fc00::/7
+  if (/^fe[89ab][0-9a-f]$/.test(first)) return true; // fe80::/10
+  const mapped = mappedIpv4(address);
+  return mapped !== null && isPrivateIpv4(mapped);
+}
+
+/** True when `hostname` obviously targets this host's own network, the platform itself, or a metadata service. */
 function isBlockedTarget(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal')) return true;
-  if (host === '::1' || host === '[::1]') return true;
-  if (PRIVATE_IPV4_PATTERNS.some((pattern) => pattern.test(host))) return true;
-  return false;
+  const host = normalizeHost(hostname);
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host.endsWith('.internal') || host.endsWith('.local')) return true;
+  if (METADATA_HOSTS.has(host)) return true;
+  if (INTERNAL_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return true;
+  if (isPrivateIpv6(host)) return true;
+  return isPrivateIpv4(host);
 }
 
 /** Parse + validate a user-supplied URL: http(s) only, not an internal target. Throws NonRetryableStepError otherwise. */
@@ -123,6 +214,43 @@ function parseResponseBody(text: string, contentType: string | null): unknown {
   }
 }
 
+/** Response headers safe to hand to later steps: cookies set by the remote server are dropped. */
+function safeResponseHeaders(response: Response): Record<string, string> {
+  const headers = Object.fromEntries(response.headers.entries());
+  delete headers['set-cookie'];
+  delete headers['set-cookie2'];
+  return headers;
+}
+
+/**
+ * `fetch` + capped body read under one timeout. A timeout (and any network
+ * error) stays retryable: a slow or flaky upstream may answer on a later attempt.
+ */
+async function fetchWithTimeout(
+  url: URL,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<{ response: Response; text: string }> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url.toString(), { ...init, signal: controller.signal });
+    const { text } = await readCappedBody(response);
+    return { response, text };
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function resolveTimeout(inputs: Record<string, unknown>): number {
+  return Math.min(Number(inputs.timeout) || DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+}
+
 export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
   const rawUrl = String(inputs.url || '');
   if (!rawUrl) throw new NonRetryableStepError('URL is required');
@@ -131,43 +259,31 @@ export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
   const method = asText(inputs.method || 'GET').toUpperCase();
   const baseHeaders = (inputs.headers as Record<string, string>) || {};
   const body = inputs.body;
-  const timeout = Math.min(Number(inputs.timeout) || DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  const timeout = resolveTimeout(inputs);
 
-  const headers = await withIntegrationAuth(inputs, ctx, baseHeaders);
+  const headers = await withIntegrationAuth(inputs, ctx, baseHeaders, url);
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
+  const { response, text: responseText } = await fetchWithTimeout(
+    url,
+    {
       method,
       headers: { 'Content-Type': 'application/json', ...headers },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      // Timeouts are retryable — a slow upstream may answer on a later attempt.
-      throw new Error(`Request timed out after ${timeout}ms`);
-    }
-    // Network failures (DNS, connection refused, TLS) are retryable too.
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
-  }
+    },
+    timeout,
+  );
 
-  const { text: responseText } = await readCappedBody(response);
   const parsedBody = parseResponseBody(responseText, response.headers.get('content-type'));
-  const responseHeaders = Object.fromEntries(response.headers.entries());
+  const responseHeaders = safeResponseHeaders(response);
 
   if (response.status >= 400 && response.status < 500) {
     // A 4xx is the request's problem (bad input, auth, not found) — retrying
     // the exact same request will not fix it.
-    throw new NonRetryableStepError(
-      `HTTP request failed: ${response.status} ${response.statusText}`,
-      { status: response.status, headers: responseHeaders, body: parsedBody },
-    );
+    throw new NonRetryableStepError(`HTTP request failed: ${response.status} ${response.statusText}`, {
+      status: response.status,
+      headers: responseHeaders,
+      body: parsedBody,
+    });
   }
   if (response.status >= 500) {
     // 5xx is the upstream's problem and may well succeed on retry.
@@ -190,16 +306,20 @@ export const handleWebhook: ActionHandler = async (inputs, ctx) => {
   const method = asText(inputs.method || 'POST').toUpperCase();
   const baseHeaders = (inputs.headers || {}) as Record<string, string>;
   const body = inputs.body || inputs.payload || inputs.data;
+  const timeout = resolveTimeout(inputs);
 
-  const headers = await withIntegrationAuth(inputs, ctx, baseHeaders);
+  const headers = await withIntegrationAuth(inputs, ctx, baseHeaders, url);
 
-  const response = await fetch(url.toString(), {
-    method,
-    headers: { 'Content-Type': 'application/json', ...headers },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const { response, text: responseText } = await fetchWithTimeout(
+    url,
+    {
+      method,
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    },
+    timeout,
+  );
 
-  const { text: responseText } = await readCappedBody(response);
   let responseData: unknown;
   try {
     responseData = JSON.parse(responseText);
@@ -208,7 +328,7 @@ export const handleWebhook: ActionHandler = async (inputs, ctx) => {
   }
 
   if (!response.ok) {
-    throw new Error(`Webhook failed: ${response.status} - ${responseText.slice(0, 200)}`);
+    throw new Error(`Webhook failed: ${response.status} ${response.statusText} - ${responseText.slice(0, 200)}`);
   }
   return { success: true, status: response.status, response: responseData };
 };
