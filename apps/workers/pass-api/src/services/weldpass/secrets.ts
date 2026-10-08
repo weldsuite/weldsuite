@@ -147,10 +147,11 @@ export async function readEnvironmentValues(
     .where(and(eq(t.environmentId, environmentId), isNull(t.deletedAt)))
     .orderBy(asc(t.key));
 
+  const opened = await Promise.all(rows.map((row) => openSecret(kek, locationOf(row), row)));
   const values: Record<string, string> = {};
-  for (const row of rows) {
-    values[row.key] = await openSecret(kek, locationOf(row), row);
-  }
+  rows.forEach((row, i) => {
+    values[row.key] = opened[i];
+  });
   return values;
 }
 
