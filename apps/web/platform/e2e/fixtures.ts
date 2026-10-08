@@ -2,6 +2,8 @@ import { test as base, expect } from '@playwright/test';
 import { testFixtures } from './helpers/test-fixtures-client';
 import { watchConsoleErrors } from './helpers/console-errors';
 
+export { expect } from '@playwright/test';
+
 interface E2EFixtures {
   /** Client for /test-fixtures/* — seed entities, reset, ping. */
   api: typeof testFixtures;
@@ -29,4 +31,3 @@ export const test = base.extend<E2EFixtures>({
   ],
 });
 
-export { expect };

@@ -16,11 +16,14 @@ import {
   MAIL_ENTITY_HUB_TOPICS,
   dispatchMailEntityRealtimeEvent,
   type MailEntityRealtimeHandlers,
-  type MailEntityRealtimeSurface,
 } from './mail-entity-realtime-dispatch';
 
-export type { MailEntityRealtimeSurface, MailEntityRealtimeHandlers };
-export { MAIL_ENTITY_HUB_TOPICS, dispatchMailEntityRealtimeEvent };
+export {
+  type MailEntityRealtimeSurface,
+  type MailEntityRealtimeHandlers,
+  MAIL_ENTITY_HUB_TOPICS,
+  dispatchMailEntityRealtimeEvent,
+} from './mail-entity-realtime-dispatch';
 
 interface UseMailEntityRealtimeOptions extends MailEntityRealtimeHandlers {
   /** When false, skip subscription (e.g. signed-out). Default true. */

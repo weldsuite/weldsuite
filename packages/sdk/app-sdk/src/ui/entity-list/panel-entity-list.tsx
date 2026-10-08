@@ -9,12 +9,13 @@ import {
   DropdownMenuTrigger,
 } from '../dropdown-menu';
 import { EntityList } from './entity-list';
-import type {
+import type { HeaderColumn, PanelEntityListProps } from './types';
+
+export type {
   ColumnDef,
   FilterConfig,
   ActiveFilter,
   GroupConfig,
-  HeaderColumn,
   PanelEntityListProps,
 } from './types';
 
@@ -165,4 +166,3 @@ export function PanelEntityList<T extends { id: string }>({
   );
 }
 
-export type { ColumnDef, FilterConfig, ActiveFilter, GroupConfig, PanelEntityListProps };

@@ -15,10 +15,11 @@
 import {
   addParticipant as addParticipantShared,
   seedPresets,
-  RTK_PRESETS,
   type CloudflareRealtimeEnv,
   type RtkParticipant,
 } from '@weldsuite/cloudflare-realtime';
+
+export { type RtkParticipant, RTK_PRESETS } from '@weldsuite/cloudflare-realtime';
 
 export function realtimeEnv(): CloudflareRealtimeEnv {
   return {
@@ -28,15 +29,12 @@ export function realtimeEnv(): CloudflareRealtimeEnv {
   };
 }
 
-export type { RtkParticipant };
-
 /**
  * Preset names used by WeldMeet. Re-exported from the canonical
  * `@weldsuite/cloudflare-realtime` so the portal and the platform can never
  * disagree on a name (a mismatch here is what produced the 404
  * "No preset found with name group_call_guest_waiting_v2").
  */
-export { RTK_PRESETS };
 
 /**
  * Add a participant to a meeting and get their auth token.
