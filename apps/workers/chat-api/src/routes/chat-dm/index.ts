@@ -247,16 +247,17 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
       updatedAt: now,
     });
 
-    for (const uid of allUserIds) {
-      await db.insert(chatChannelMembers).values({
+    // One multi-row insert (allUserIds always holds the caller, so it is never empty).
+    await db.insert(chatChannelMembers).values(
+      allUserIds.map((uid) => ({
         id: generateId('cmb'),
         channelId: id,
         userId: uid,
         role: 'member',
         joinedAt: now,
         createdAt: now,
-      });
-    }
+      })),
+    );
 
     const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, id)).limit(1);
     const fullMembers = await db
@@ -388,16 +389,17 @@ app.get('/:targetUserId', requirePermission('messages:read'), async (c) => {
       updatedAt: now,
     });
 
-    for (const uid of allUserIds) {
-      await db.insert(chatChannelMembers).values({
+    // One multi-row insert (allUserIds always holds the caller, so it is never empty).
+    await db.insert(chatChannelMembers).values(
+      allUserIds.map((uid) => ({
         id: generateId('cmb'),
         channelId: id,
         userId: uid,
         role: 'member',
         joinedAt: now,
         createdAt: now,
-      });
-    }
+      })),
+    );
 
     const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, id)).limit(1);
     const fullMembers = await db
