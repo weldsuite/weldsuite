@@ -4492,6 +4492,7 @@ export function EventDetailPanel({
           ) : (
             <button
               type="button"
+              aria-label={t.eventPreview.addDescription}
               className="block w-full text-left text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap min-h-[32px] text-muted-foreground"
             >
               {descriptionDraft || t.eventPreview.addDescription}
