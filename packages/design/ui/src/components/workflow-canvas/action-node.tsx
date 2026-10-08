@@ -179,7 +179,7 @@ function getActionDescription(nodeData: ActionNodeDataExtended, labels: ActionNo
   const config = nodeData.step?.config as ActionConfig | undefined;
   if (!config || Object.keys(config).length === 0) return fallback;
   if (typeof config.description === 'string') return config.description;
-  const describe = Object.prototype.hasOwnProperty.call(ACTION_DESCRIBERS, nodeData.actionType)
+  const describe = Object.hasOwn(ACTION_DESCRIBERS, nodeData.actionType)
     ? ACTION_DESCRIBERS[nodeData.actionType]
     : undefined;
   return describe?.(config, labels) ?? fallback;

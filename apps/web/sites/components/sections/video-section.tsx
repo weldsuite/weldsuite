@@ -30,7 +30,7 @@ function embedQuery(
 
 function getEmbedUrl(url: string, options: EmbedOptions): string {
   if (options.isYouTube) {
-    const videoId = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/.exec(url)?.[1];
+    const videoId = /(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/.exec(url)?.[1];
     return videoId ? `https://www.youtube.com/embed/${videoId}${embedQuery(options, '&mute=1')}` : '';
   }
   if (options.isVimeo) {

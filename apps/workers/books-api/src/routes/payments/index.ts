@@ -223,7 +223,7 @@ app.post('/', requirePermission('banking:create'), zValidator('json', createPaym
   const userId = c.get('userId');
 
   try {
-    const { payments, invoices, bills } = schema;
+    const { payments } = schema;
 
     const paymentAmount = Number.parseFloat(data.amount);
     const paymentId = generateId('pay');

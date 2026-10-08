@@ -18,7 +18,7 @@ const MAX = 10;
 const KEY = (workspaceId: string) => `weldsuite.cmdk.recents.${workspaceId}`;
 
 function isBrowser() {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  return typeof window !== 'undefined' && window.localStorage !== undefined;
 }
 
 export function getRecents(workspaceId: string | null | undefined): RecentItem[] {

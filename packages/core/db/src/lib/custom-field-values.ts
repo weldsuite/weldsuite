@@ -335,7 +335,7 @@ export async function setValues(
   for (const slug of slugs) {
     const def = defBySlug.get(slug);
     if (!def) continue;
-    const raw = Object.prototype.hasOwnProperty.call(values, slug) ? values[slug] : undefined;
+    const raw = Object.hasOwn(values, slug) ? values[slug] : undefined;
     // In non-patch mode a missing slug means "clear"; in patch mode we skip it.
     if (raw === undefined && patch) continue;
 

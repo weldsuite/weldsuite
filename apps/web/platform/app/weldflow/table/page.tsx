@@ -937,7 +937,7 @@ export default function TablePage() {
 
         if (finishedKeys.length > 0) {
           setRunningTimers(prev => omitTimers(prev, finishedKeys));
-          for (let i = 0; i < finishedKeys.length; i++) {
+          for (const _key of finishedKeys) {
             toast.success(st('sweep.weldflow.tablePage.timerFinished'));
           }
         }

@@ -102,7 +102,7 @@ export function ProductCarousel({ title, products, className }: Readonly<Product
               <p className="text-sm font-medium text-gray-900 line-clamp-1">
                 {product.name}
               </p>
-              {product.price && (
+              {!!product.price && (
                 <p className="text-sm text-gray-600">
                   ${product.price.toFixed(2)}
                 </p>

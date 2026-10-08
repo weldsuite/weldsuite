@@ -684,7 +684,7 @@ export function LabelsClient({ initialLabels, accountId }: Readonly<LabelsClient
                         className="w-4 h-4 rounded-full"
                         style={{ backgroundColor: editDialogColor }}
                       />
-                      {LABEL_COLORS.find((c) => c.value === editDialogColor) ? t.mail.settingsLabels[LABEL_COLORS.find((c) => c.value === editDialogColor)!.key] : t.mail.settingsLabels.colorCustom}
+                      {t.mail.settingsLabels[LABEL_COLORS.find((c) => c.value === editDialogColor)?.key ?? 'colorCustom']}
                     </div>
                   </SelectValue>
                 </SelectTrigger>

@@ -365,12 +365,12 @@ function contentFromData(type: string, data: CloudflareDnsRecord['data']): strin
   if (type === 'SRV') {
     const { priority, weight, port, value } = data;
     const target = value ?? (data as { target?: string }).target;
-    if ([priority, weight, port, target].some((v) => v === undefined)) return undefined;
+    if ([priority, weight, port, target].includes(undefined)) return undefined;
     return `${priority} ${weight} ${port} ${target}`;
   }
   if (type === 'CAA') {
     const { flags, tag, value } = data;
-    if ([flags, tag, value].some((v) => v === undefined)) return undefined;
+    if ([flags, tag, value].includes(undefined)) return undefined;
     return `${flags} ${tag} "${value}"`;
   }
   return undefined;

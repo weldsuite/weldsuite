@@ -66,10 +66,6 @@ function getDateRangeFromTimeRange(timeRange: string): { start: Date; end: Date 
       start.setDate(start.getDate() - 7);
       start.setHours(0, 0, 0, 0);
       break;
-    case 'last_30_days':
-      start.setDate(start.getDate() - 30);
-      start.setHours(0, 0, 0, 0);
-      break;
     case 'last_90_days':
       start.setDate(start.getDate() - 90);
       start.setHours(0, 0, 0, 0);
@@ -96,6 +92,7 @@ function getDateRangeFromTimeRange(timeRange: string): { start: Date; end: Date 
     case 'all_time':
       start = new Date(2020, 0, 1);
       break;
+    case 'last_30_days':
     default:
       start.setDate(start.getDate() - 30);
       start.setHours(0, 0, 0, 0);

@@ -154,7 +154,7 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
 type InvoiceCustomer = {
   name?: string | null;
   email?: string | null;
-  address?: InvoicePdfEntity['address'];
+  address?: NonNullable<InvoicePdfEntity['address']>;
 } | null;
 
 /** Logo (or entity name) on the left, "INVOICE" + number on the right. */

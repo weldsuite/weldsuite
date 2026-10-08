@@ -461,7 +461,7 @@ function WorkflowCanvasInner({
     const needsLayout = positionedNodes.some(
       (n) =>
         n.type !== 'trigger' &&
-        !currentNodes.find((existing) => existing.id === n.id) &&
+        !currentNodes.some((existing) => existing.id === n.id) &&
         (!n.position || (n.position.x === 0 && n.position.y === 0))
     );
 

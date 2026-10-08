@@ -301,9 +301,7 @@ async function buildMemberUpdate(
   const update: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined || IDENTITY_FIELDS.has(k)) continue;
-    if (SELF_FIELDS.has(k)) {
-      update[k] = v;
-    } else if (k === 'role' && isMod && (await canSetRole(db, existing.channelId, callerId, v))) {
+    if (SELF_FIELDS.has(k) || (k === 'role' && isMod && (await canSetRole(db, existing.channelId, callerId, v)))) {
       update[k] = v;
     }
   }

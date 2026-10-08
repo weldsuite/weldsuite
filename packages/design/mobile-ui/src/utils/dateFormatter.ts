@@ -31,18 +31,8 @@ export function formatEmailDate(utcDateString: string): string {
   return formatDayMonth(date, now);
 }
 
-export function formatShortTime(utcDateString: string): string {
-  const date = new Date(utcDateString);
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const emailDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-  if (today.getTime() === emailDay.getTime()) {
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  }
-
-  return formatDayMonth(date, now);
-}
+/** Same rendering as {@link formatEmailTime}: time today, otherwise day + month (+ year). */
+export const formatShortTime = formatEmailTime;
 
 export function formatFullDateTime(utcDateString: string): string {
   const date = new Date(utcDateString);

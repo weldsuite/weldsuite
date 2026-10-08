@@ -42,7 +42,7 @@ async function serveAsset(env: Env, code: string, assetPath: string): Promise<Re
   }
 
   // Path traversal guard — bundle keys are flat prefixes under user-apps/.
-  if (assetPath.split('/').some((seg) => seg === '..')) {
+  if (assetPath.split('/').includes('..')) {
     return jsonNotFound('Asset not found');
   }
 

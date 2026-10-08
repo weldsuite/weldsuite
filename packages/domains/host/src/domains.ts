@@ -1606,7 +1606,7 @@ type RegistrationStatusSource = {
 };
 
 export function registrationStatusFromDomain(row: RegistrationStatusSource): RegistrationStatusRow {
-  let status: RegistrationStatusRow['status'] = 'pending';
+  let status: RegistrationStatusRow['status'];
   switch (row.registrationStatus) {
     case 'pending_payment':
       status = 'pending';

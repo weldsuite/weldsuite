@@ -27,7 +27,7 @@ function isHeadingNode(node: Node): node is HeadingNode {
     node.type === 'heading' &&
     [1, 2, 3, 4, 5, 6].includes(node.attributes.level) &&
     (typeof node.attributes.id === 'string' ||
-      typeof node.attributes.id === 'undefined')
+      node.attributes.id === undefined)
   )
 }
 

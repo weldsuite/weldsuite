@@ -138,7 +138,7 @@ export function useCreateTask() {
       title: string;
       description?: string;
       status?: Task['status'] | 'in-progress' | 'blocked';
-      priority?: Task['priority'];
+      priority?: NonNullable<Task['priority']>;
       dueDate?: Date;
       /**
        * Pins the task's calendar block to this start (no auto-placement): a task
@@ -153,7 +153,7 @@ export function useCreateTask() {
       /** CRM person link — mutually exclusive with `linkedCompanyId`. */
       personId?: string;
       labels?: string[];
-      repeat?: Task['repeat'];
+      repeat?: NonNullable<Task['repeat']>;
     }) => {
       const client = await getClient();
       try {
@@ -248,9 +248,9 @@ export function useUpdateTask() {
           'status' | 'dueDate' | 'priority' | 'title' | 'description' | 'repeat' | 'labels' | 'duration'
         >
       > & {
-        assignee?: Task['assignee'] | null;
-        assignees?: Task['assignees'] | null;
-        linkedCompany?: Task['linkedCompany'] | null;
+        assignee?: NonNullable<Task['assignee']> | null;
+        assignees?: NonNullable<Task['assignees']> | null;
+        linkedCompany?: NonNullable<Task['linkedCompany']> | null;
         /** CRM person link — mutually exclusive with `linkedCompany`. */
         linkedPerson?: Task['linkedPerson'] | null;
       };

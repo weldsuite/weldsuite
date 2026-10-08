@@ -192,8 +192,8 @@ export function timingSafeEqual(left: string, right: string): boolean {
   return mismatch === 0;
 }
 
-/** WooCommerce: `X-WC-Webhook-Signature` is HMAC-SHA256 of the raw body, Base64. */
-export async function verifyWooCommerceWebhook(args: {
+/** Providers that sign the raw body with HMAC-SHA256 and send it Base64-encoded. */
+async function verifyBase64BodyHmac(args: {
   secret: string;
   body: string;
   signature: string | null | undefined;
@@ -203,16 +203,11 @@ export async function verifyWooCommerceWebhook(args: {
   return timingSafeEqual(expected, args.signature.trim());
 }
 
+/** WooCommerce: `X-WC-Webhook-Signature` is HMAC-SHA256 of the raw body, Base64. */
+export const verifyWooCommerceWebhook = verifyBase64BodyHmac;
+
 /** Shopify: `X-Shopify-Hmac-Sha256` is HMAC-SHA256 of the raw body, Base64. */
-export async function verifyShopifyWebhook(args: {
-  secret: string;
-  body: string;
-  signature: string | null | undefined;
-}): Promise<boolean> {
-  if (!args.signature) return false;
-  const expected = await hmacSha256Base64(args.secret, args.body);
-  return timingSafeEqual(expected, args.signature.trim());
-}
+export const verifyShopifyWebhook = verifyBase64BodyHmac;
 
 /** Moneybird: `Moneybird-Signature` is `t=<unix>,v1=<hex hmac of t.body>`. */
 export async function verifyMoneybirdWebhook(args: {
@@ -235,15 +230,7 @@ export async function verifyMoneybirdWebhook(args: {
 }
 
 /** Picqer: `X-Picqer-Signature` is HMAC-SHA256 of the raw body, Base64. */
-export async function verifyPicqerWebhook(args: {
-  secret: string;
-  body: string;
-  signature: string | null | undefined;
-}): Promise<boolean> {
-  if (!args.signature) return false;
-  const expected = await hmacSha256Base64(args.secret, args.body);
-  return timingSafeEqual(expected, args.signature.trim());
-}
+export const verifyPicqerWebhook = verifyBase64BodyHmac;
 
 export async function verifyConnectorWebhook(args: {
   provider: string;

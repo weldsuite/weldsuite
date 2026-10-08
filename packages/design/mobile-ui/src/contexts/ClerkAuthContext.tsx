@@ -34,7 +34,7 @@ const ClerkAuthContext = createContext<ClerkAuthContextType | undefined>(undefin
 export function ClerkAuthProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { isLoaded, isSignedIn, signOut: clerkSignOut, getToken } = useAuth();
   const { user: clerkUser, isLoaded: isUserLoaded } = useUser();
-  const { organization, isLoaded: isOrgLoaded } = useOrganization();
+  const { organization } = useOrganization();
 
   const isLoading = !isLoaded || !isUserLoaded;
 

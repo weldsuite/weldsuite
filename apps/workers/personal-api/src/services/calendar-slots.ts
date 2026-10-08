@@ -54,7 +54,7 @@ function zoneOffsetMs(instant: Date, timeZone: string): number {
 export function fromZonedTime(wallClock: string, timeZone: string): Date {
   const naive = Date.parse(`${wallClock}Z`);
   if (Number.isNaN(naive)) {
-    throw new Error(`Invalid wall-clock timestamp: ${wallClock}`);
+    throw new TypeError(`Invalid wall-clock timestamp: ${wallClock}`);
   }
   const firstPass = naive - zoneOffsetMs(new Date(naive), timeZone);
   return new Date(naive - zoneOffsetMs(new Date(firstPass), timeZone));

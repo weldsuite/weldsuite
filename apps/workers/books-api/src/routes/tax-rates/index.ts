@@ -37,7 +37,7 @@ const taxRateBaseSchema = z.object({
   /** Shared-schema alias for jurisdictionCode. */
   jurisdiction: z.string().min(2).max(5).optional(),
   name: z.string().min(1).max(100),
-  rate: z.union([z.string(), z.number()]).transform((v) => String(v)),
+  rate: z.union([z.string(), z.number()]).transform(String),
   type: z.enum(['sales', 'purchase', 'both']).default('both'),
   taxCategoryCode: z.string().max(30).optional(),
   isDefault: z.boolean().optional(),

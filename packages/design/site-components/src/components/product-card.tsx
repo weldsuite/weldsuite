@@ -96,7 +96,7 @@ function ProductRating({ rating, reviewCount }: Readonly<ProductRatingProps>) {
   return (
     <div className="flex items-center gap-1">
       <div className="flex">
-        {[...Array(5)].map((_, i) => (
+        {[...new Array(5)].map((_, i) => (
           <svg
             key={i}
             className={`w-3 h-3 ${i < Math.floor(rating) ? 'text-black' : 'text-gray-300'}`}

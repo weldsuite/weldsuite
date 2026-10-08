@@ -75,8 +75,10 @@ export class Logger {
       parts.push(`[${timestamp}]`);
     }
 
-    parts.push(`[${level.toUpperCase()}]`);
-    parts.push(message);
+    parts.push(
+      `[${level.toUpperCase()}]`,
+      message,
+    );
 
     return parts;
   }

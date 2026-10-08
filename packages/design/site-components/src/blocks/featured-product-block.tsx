@@ -186,7 +186,7 @@ export function FeaturedProductBlock({
                   {/* Rating */}
                   <div className="flex items-center gap-2 mb-2">
                     <div className="flex items-center">
-                      {[...Array(5)].map((_, i) => (
+                      {[...new Array(5)].map((_, i) => (
                         <Star
                           key={i}
                           className={cn(

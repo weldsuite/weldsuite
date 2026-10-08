@@ -57,7 +57,7 @@ function mockRoutes(page, env) {
     ['GET /api/tasks', () => ({ data: [], pagination: pagination(0) })],
     ['GET /api/project-labels', () => ({ data: [], pagination: pagination(0) })],
     ['GET /api/project-members', () => ({ data: [], pagination: pagination(0) })],
-    [/.*/, ({ url }) => { if (process.env.VIDEO_DEBUG) console.log('UNMOCKED', url.pathname + url.search); return { status: 404, body: { error: {} } } }],
+    [/.*/, ({ url }) => { if (process.env.VIDEO_DEBUG) { console.log('UNMOCKED', url.pathname + url.search); } return { status: 404, body: { error: {} } } }],
   ])
 }
 

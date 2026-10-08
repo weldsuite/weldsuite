@@ -661,8 +661,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       const children = goals.filter(g => g.parentId === id);
       const descendants: string[] = [];
       children.forEach(child => {
-        descendants.push(child.id);
-        descendants.push(...getAllDescendants(child.id));
+        descendants.push(
+          child.id,
+          ...getAllDescendants(child.id),
+        );
       });
       return descendants;
     };
@@ -1043,15 +1045,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
         dragCurrentPosition.current = { x: goal.x, y: goal.y };
         hasDraggedRef.current = false;
       }
-    } else if (tool === 'pan' || (tool === 'select' && e.shiftKey)) {
-      // Start panning with pan tool or shift key
-      setIsPanning(true);
-      setPanStart({
-        x: e.clientX - panPosition.x,
-        y: e.clientY - panPosition.y
-      });
-    } else if (!goalId) {
-      // Clicked on empty canvas area - start panning
+    } else if (tool === 'pan' || (tool === 'select' && e.shiftKey) || !goalId) {
+      // Pan with the pan tool, shift key, or a click on the empty canvas area
       setIsPanning(true);
       setPanStart({
         x: e.clientX - panPosition.x,

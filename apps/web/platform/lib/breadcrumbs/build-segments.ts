@@ -17,8 +17,8 @@ import type { ComponentType } from 'react';
 export interface MatchLike {
   pathname: string;
   status?: 'pending' | 'success' | 'error' | 'notFound' | 'redirected';
-  staticData?: { breadcrumb?: BreadcrumbDescriptor } | undefined;
-  loaderData?: BreadcrumbLoaderData | undefined;
+  staticData?: { breadcrumb?: BreadcrumbDescriptor };
+  loaderData?: BreadcrumbLoaderData;
 }
 
 export interface BreadcrumbSegment {

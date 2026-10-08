@@ -22,7 +22,7 @@ function lucideKey(name: string): string {
 
 /** True when `name` is a real Lucide icon (PascalCase or kebab-case). */
 export function isKnownLucideIcon(name: string): boolean {
-  return Object.prototype.hasOwnProperty.call(dynamicIconImports, lucideKey(name));
+  return Object.hasOwn(dynamicIconImports, lucideKey(name));
 }
 
 export function LucideDynamicIcon({

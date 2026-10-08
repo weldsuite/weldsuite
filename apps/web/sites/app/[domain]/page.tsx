@@ -25,32 +25,6 @@ export default async function DomainPage({ params, searchParams }: Readonly<Page
     notFound();
   }
 
-  // Extract product and collection IDs from sections if they exist
-  const extractResourceIds = (sections: any[]) => {
-    const productIds = new Set<string>();
-    const collectionIds = new Set<string>();
-
-    sections?.forEach((section: any) => {
-      // Check for productIds in section props
-      if (section.props?.productIds) {
-        section.props.productIds.forEach((id: string) => productIds.add(id));
-      }
-      // Check for collectionIds in section props
-      if (section.props?.collectionIds) {
-        section.props.collectionIds.forEach((id: string) => collectionIds.add(id));
-      }
-      // Check for single productId or collectionId
-      if (section.props?.productId) {
-        productIds.add(section.props.productId);
-      }
-      if (section.props?.collectionId) {
-        collectionIds.add(section.props.collectionId);
-      }
-    });
-
-    return { productIds: Array.from(productIds), collectionIds: Array.from(collectionIds) };
-  };
-
   // Find the home page from the websitePages array
   const pages = website.websitePages as any[];
   console.log(pages)

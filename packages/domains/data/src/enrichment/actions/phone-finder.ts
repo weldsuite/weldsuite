@@ -44,7 +44,7 @@ const TEL_HREF_RE = /href\s*=\s*["']tel:([^"']+)["']/gi;
 /** Conservative text fallbacks — strong phone signals, rarely false positives. */
 const PHONE_TEXT_RES = [
   /(?:\+|00)\d[\d\s().\-–]{6,16}\d/g, // international: +31 20 1234567 / 0044 20 ...
-  /\(\d{2,5}\)[\s.\-]?\d[\d\s.\-]{5,14}\d/g, // (020) 7946 0000 / (212) 555-0147
+  /\(\d{2,5}\)[\s.-]?\d[\d\s.-]{5,14}\d/g, // (020) 7946 0000 / (212) 555-0147
 ];
 
 function cleanDomain(domain: string | null | undefined): string {

@@ -413,7 +413,7 @@ export class ImportTasksWorkflow extends WorkflowEntrypoint<ImportTasksEnv, Impo
     );
 
     if (!Array.isArray(rows)) {
-      throw new Error('Invalid payload — expected array');
+      throw new TypeError('Invalid payload — expected array');
     }
 
     // Step 2: Mark running + write total

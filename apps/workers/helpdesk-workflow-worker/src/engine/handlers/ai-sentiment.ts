@@ -71,7 +71,7 @@ export const aiSentimentHandler: StepHandler = {
       maxTokens: 50,
     });
 
-    let sentiment: 'positive' | 'neutral' | 'negative' = 'neutral';
+    let sentiment: 'positive' | 'neutral' | 'negative';
 
     try {
       const response = await agent.generate([

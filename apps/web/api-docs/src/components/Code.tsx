@@ -246,7 +246,7 @@ function usePreventLayoutShift() {
 
   useEffect(() => {
     return () => {
-      if (typeof rafRef.current !== 'undefined') {
+      if (rafRef.current !== undefined) {
         window.cancelAnimationFrame(rafRef.current)
       }
     }
@@ -368,7 +368,7 @@ export function Code({
 
   if (isGrouped) {
     if (typeof children !== 'string') {
-      throw new Error(
+      throw new TypeError(
         '`Code` children must be a string when nested inside a `CodeGroup`.',
       )
     }

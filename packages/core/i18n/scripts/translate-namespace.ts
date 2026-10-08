@@ -105,7 +105,7 @@ type Tree = string | { [k: string]: Tree };
 
 function isBrandOnly(value: string): boolean {
   const trimmed = value.trim();
-  return BRAND_NAMES.some(b => b === trimmed);
+  return BRAND_NAMES.includes(trimmed);
 }
 
 function shouldFlagForReview(value: string): boolean {

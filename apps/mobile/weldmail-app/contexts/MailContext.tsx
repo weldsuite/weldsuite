@@ -598,9 +598,7 @@ export function MailProvider({ children }: Readonly<{ children: React.ReactNode 
   }, [organizationId]);
 
   useEffect(() => {
-    if (isUnifiedInbox && accounts.length > 0) {
-      void fetchLabels();
-    } else if (selectedAccount && !isUnifiedInbox) {
+    if ((isUnifiedInbox && accounts.length > 0) || (selectedAccount && !isUnifiedInbox)) {
       void fetchLabels();
     }
   }, [selectedAccount?.id, isUnifiedInbox, accounts.length, fetchLabels]);

@@ -21,10 +21,10 @@ import { decode as base64Decode, encode as base64Encode } from 'base-64';
 
 // Hermes lacks atob/btoa. realtimekit-react-native's own entry sets these,
 // but only once it gets a chance to run — see the file-level comment.
-if (typeof globalThis.atob === 'undefined') {
+if (globalThis.atob === undefined) {
   globalThis.atob = base64Decode;
 }
-if (typeof globalThis.btoa === 'undefined') {
+if (globalThis.btoa === undefined) {
   globalThis.btoa = base64Encode;
 }
 

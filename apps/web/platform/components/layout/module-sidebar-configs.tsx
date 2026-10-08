@@ -482,8 +482,7 @@ export function getModuleKey(pathname: string): string | null {
   if (userAppMatch) {
     return `user-app:${userAppMatch[1]}`;
   }
-  const segments = pathname.split('/').filter(Boolean);
-  const first = segments[0];
+  const first = pathname.split('/').find(Boolean);
   if (first && MODULE_CONFIGS[first]) {
     return first;
   }
