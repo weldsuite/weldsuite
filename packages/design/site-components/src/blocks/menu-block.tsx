@@ -45,7 +45,8 @@ export function MenuBlock({
       {items.map((item, index) => (
         <div key={index} className="relative group">
           <a
-            href={mode === 'live' ? item.url : '#'}
+            href={item.url}
+            onClick={mode === 'live' ? undefined : (e) => e.preventDefault()}
             className="text-gray-700 hover:text-gray-900 font-medium transition-colors py-2 inline-block"
             onMouseEnter={() => item.children && setOpenDropdown(index)}
             onMouseLeave={() => setOpenDropdown(null)}
@@ -64,7 +65,8 @@ export function MenuBlock({
               {item.children.map((child, childIndex) => (
                 <a
                   key={childIndex}
-                  href={mode === 'live' ? child.url : '#'}
+                  href={child.url}
+                  onClick={mode === 'live' ? undefined : (e) => e.preventDefault()}
                   className="block px-4 py-2 text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors"
                 >
                   {child.label}

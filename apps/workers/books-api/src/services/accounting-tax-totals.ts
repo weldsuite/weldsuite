@@ -8,6 +8,9 @@ export type TaxBreakdownRow = {
   taxAmount: number;
   component?: string;
   accountRole?: string;
+  taxCategoryCode?: string;
+  /** Purchase tax the buyer accounts for itself; not owed to the supplier. */
+  selfAssessed?: boolean;
 };
 
 export type TaxTotalsItemInput = {
@@ -17,8 +20,16 @@ export type TaxTotalsItemInput = {
   taxRate?: string | null;
   taxRateId?: string | null;
   taxRateName?: string | null;
+  taxCategoryCode?: string | null;
   jurisdictionMetadata?: Record<string, unknown> | null;
 };
+
+/**
+ * Purchase tax categories the buyer self-assesses: EU acquisitions and
+ * services (NL rubriek 4b), imports (4a) and domestic reverse charge (2a).
+ * The supplier charges no tax, so it stays out of the bill total.
+ */
+const SELF_ASSESSED_PURCHASE_CATEGORIES = new Set(['eu_b2b_service', 'import_goods', 'reverse_charge']);
 
 export type PlaceOfSupplyContext = {
   jurisdictionCode?: string;
@@ -135,10 +146,19 @@ export function calculateLineTaxTotals(
       ];
     }
 
-    const lineTax = roundMoney(rows.reduce((sum, r) => sum + r.taxAmount, 0));
+    const selfAssessed =
+      place?.direction === 'purchase' &&
+      Boolean(item.taxCategoryCode && SELF_ASSESSED_PURCHASE_CATEGORIES.has(item.taxCategoryCode));
+    for (const row of rows) {
+      if (item.taxCategoryCode) row.taxCategoryCode = item.taxCategoryCode;
+      if (selfAssessed) row.selfAssessed = true;
+    }
+
+    // Only tax the counterparty actually charges counts toward the document total.
+    const lineTax = roundMoney(rows.reduce((sum, r) => sum + (r.selfAssessed ? 0 : r.taxAmount), 0));
 
     for (const row of rows) {
-      const key = `${row.taxRateId}:${row.taxRateName}:${row.taxRate}:${row.component ?? ''}`;
+      const key = `${row.taxRateId}:${row.taxRateName}:${row.taxRate}:${row.component ?? ''}:${row.selfAssessed ? 'sa' : ''}`;
       const existing = breakdownMap.get(key);
       if (existing) {
         existing.taxableAmount = roundMoney(existing.taxableAmount + row.taxableAmount);
@@ -160,7 +180,9 @@ export function calculateLineTaxTotals(
   });
 
   const taxBreakdown = Array.from(breakdownMap.values());
-  const breakdownTaxSum = roundMoney(taxBreakdown.reduce((sum, r) => sum + r.taxAmount, 0));
+  const breakdownTaxSum = roundMoney(
+    taxBreakdown.reduce((sum, r) => sum + (r.selfAssessed ? 0 : r.taxAmount), 0),
+  );
   // Header must match both processed line taxes and breakdown (already allocated per line)
   const reconciledTaxTotal = taxBreakdown.length > 0 ? breakdownTaxSum : taxTotal;
 
@@ -181,13 +203,13 @@ export function getEntityStateCode(entity: {
   jurisdictionSettings?: Record<string, unknown> | null;
 }): string | undefined {
   const fromSettings = entity.jurisdictionSettings?.stateCode;
-  if (typeof fromSettings === 'string' && /^[0-9]{2}$/.test(fromSettings.trim())) {
+  if (typeof fromSettings === 'string' && /^\d{2}$/.test(fromSettings.trim())) {
     return fromSettings.trim();
   }
   const gstin = entity.taxIdentifiers?.vatNumber;
   if (gstin) {
     const normalized = gstin.replace(/[\s-]/g, '').toUpperCase();
-    const match = normalized.match(/^[0-9]{2}/);
+    const match = /^\d{2}/.exec(normalized);
     return match?.[0];
   }
   return undefined;

@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export async function middleware(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const hostname = request.headers.get('host') || '';
-  const url = request.nextUrl.clone();
   
   // Extract subdomain by removing port and base domain
   let currentHost = hostname
@@ -48,7 +47,7 @@ export async function middleware(request: NextRequest) {
   
   // Route to subdomain-specific content
   const searchParams = request.nextUrl.searchParams.toString();
-  const path = `${request.nextUrl.pathname}${searchParams ? `?${searchParams}` : ''}`;
+  const path = searchParams ? `${request.nextUrl.pathname}?${searchParams}` : request.nextUrl.pathname;
   
   // Rewrite to /[domain]/... path structure
   const rewritePath = `/${subdomain}${path === '/' ? '' : path}`;

@@ -20,7 +20,7 @@ export enum LogLevel {
  * Logger class
  */
 export class Logger {
-  private config: LogConfig;
+  private readonly config: LogConfig;
   private level: LogLevel;
 
   constructor(config: LogConfig) {
@@ -75,8 +75,10 @@ export class Logger {
       parts.push(`[${timestamp}]`);
     }
 
-    parts.push(`[${level.toUpperCase()}]`);
-    parts.push(message);
+    parts.push(
+      `[${level.toUpperCase()}]`,
+      message,
+    );
 
     return parts;
   }
@@ -126,7 +128,7 @@ export class Logger {
   /**
    * Log error message
    */
-  public error(message: string, error?: Error | any): void {
+  public error(message: string, error?: any): void {
     if (!this.shouldLog(LogLevel.ERROR)) return;
 
     const formatted = this.format('error', message);

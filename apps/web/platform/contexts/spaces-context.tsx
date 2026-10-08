@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 
 export type ModuleType =
   | 'tasks'
@@ -118,7 +118,7 @@ function PipelinesProvider({ children }: Readonly<{ children: React.ReactNode }>
     }
   }, [pipelines, isLoaded]);
 
-  const createPipeline = (name: string): Pipeline => {
+  const createPipeline = useCallback((name: string): Pipeline => {
     // Use a deterministic color based on the pipeline name
     const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
     const colorIndex = name.length % colors.length;
@@ -134,24 +134,22 @@ function PipelinesProvider({ children }: Readonly<{ children: React.ReactNode }>
     };
     setPipelines(prev => [...prev, newPipeline]);
     return newPipeline;
-  };
+  }, []);
 
-  const updatePipeline = (id: string, updates: Partial<Pipeline>) => {
+  const updatePipeline = useCallback((id: string, updates: Partial<Pipeline>) => {
     setPipelines(prev => prev.map(pipeline => 
       pipeline.id === id 
         ? { ...pipeline, ...updates, modules: updates.modules || pipeline.modules || [] } 
         : pipeline
     ));
-  };
+  }, []);
 
-  const deletePipeline = (id: string) => {
+  const deletePipeline = useCallback((id: string) => {
     setPipelines(prev => prev.filter(pipeline => pipeline.id !== id));
-    if (activePipelineId === id) {
-      setActivePipelineId(null);
-    }
-  };
+    setActivePipelineId(prev => (prev === id ? null : prev));
+  }, []);
 
-  const addModuleToPipeline = (pipelineId: string, moduleType: ModuleType) => {
+  const addModuleToPipeline = useCallback((pipelineId: string, moduleType: ModuleType) => {
     const template = moduleTemplates[moduleType];
     const timestamp = typeof window !== 'undefined' ? Date.now() : 0;
     const newModule: Module = {
@@ -166,22 +164,22 @@ function PipelinesProvider({ children }: Readonly<{ children: React.ReactNode }>
         ? { ...pipeline, modules: [...pipeline.modules, newModule] }
         : pipeline
     ));
-  };
+  }, []);
 
-  const removeModuleFromPipeline = (pipelineId: string, moduleId: string) => {
+  const removeModuleFromPipeline = useCallback((pipelineId: string, moduleId: string) => {
     setPipelines(prev => prev.map(pipeline => 
       pipeline.id === pipelineId 
         ? { ...pipeline, modules: pipeline.modules.filter(m => m.id !== moduleId) }
         : pipeline
     ));
-  };
+  }, []);
 
-  const setActivePipeline = (id: string | null) => {
+  const setActivePipeline = useCallback((id: string | null) => {
     setActivePipelineId(id);
-  };
+  }, []);
 
-  return (
-    <PipelinesContext.Provider value={{
+  const value = useMemo(
+    () => ({
       pipelines,
       activePipelineId,
       createPipeline,
@@ -190,7 +188,15 @@ function PipelinesProvider({ children }: Readonly<{ children: React.ReactNode }>
       addModuleToPipeline,
       removeModuleFromPipeline,
       setActivePipeline,
-    }}>
+    }),
+    [
+      pipelines, activePipelineId, createPipeline, updatePipeline, deletePipeline,
+      addModuleToPipeline, removeModuleFromPipeline, setActivePipeline,
+    ]
+  );
+
+  return (
+    <PipelinesContext.Provider value={value}>
       {children}
     </PipelinesContext.Provider>
   );
@@ -227,7 +233,7 @@ export function SpacesProvider({ children }: Readonly<{ children: React.ReactNod
     }
   }, [spaces, isLoaded]);
 
-  const createSpace = (name: string): Space => {
+  const createSpace = useCallback((name: string): Space => {
     // Use a deterministic color based on the space name
     const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
     const colorIndex = name.length % colors.length;
@@ -243,24 +249,22 @@ export function SpacesProvider({ children }: Readonly<{ children: React.ReactNod
     };
     setSpaces(prev => [...prev, newSpace]);
     return newSpace;
-  };
+  }, []);
 
-  const updateSpace = (id: string, updates: Partial<Space>) => {
+  const updateSpace = useCallback((id: string, updates: Partial<Space>) => {
     setSpaces(prev => prev.map(space => 
       space.id === id 
         ? { ...space, ...updates, modules: updates.modules || space.modules || [] } 
         : space
     ));
-  };
+  }, []);
 
-  const deleteSpace = (id: string) => {
+  const deleteSpace = useCallback((id: string) => {
     setSpaces(prev => prev.filter(space => space.id !== id));
-    if (activeSpaceId === id) {
-      setActiveSpaceId(null);
-    }
-  };
+    setActiveSpaceId(prev => (prev === id ? null : prev));
+  }, []);
 
-  const addModuleToSpace = (spaceId: string, moduleType: ModuleType) => {
+  const addModuleToSpace = useCallback((spaceId: string, moduleType: ModuleType) => {
     const template = moduleTemplates[moduleType];
     const timestamp = typeof window !== 'undefined' ? Date.now() : 0;
     const newModule: Module = {
@@ -275,33 +279,41 @@ export function SpacesProvider({ children }: Readonly<{ children: React.ReactNod
         ? { ...space, modules: [...space.modules, newModule] }
         : space
     ));
-  };
+  }, []);
 
-  const removeModuleFromSpace = (spaceId: string, moduleId: string) => {
+  const removeModuleFromSpace = useCallback((spaceId: string, moduleId: string) => {
     setSpaces(prev => prev.map(space => 
       space.id === spaceId 
         ? { ...space, modules: space.modules.filter(m => m.id !== moduleId) }
         : space
     ));
-  };
+  }, []);
 
-  const setActiveSpace = (id: string | null) => {
+  const setActiveSpace = useCallback((id: string | null) => {
     setActiveSpaceId(id);
-  };
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      spaces,
+      activeSpaceId,
+      createSpace,
+      updateSpace,
+      deleteSpace,
+      addModuleToSpace,
+      removeModuleFromSpace,
+      setActiveSpace,
+    }),
+    [
+      spaces, activeSpaceId, createSpace, updateSpace, deleteSpace, addModuleToSpace,
+      removeModuleFromSpace, setActiveSpace,
+    ]
+  );
 
   // Wrap both providers
   return (
     <PipelinesProvider>
-      <SpacesContext.Provider value={{
-        spaces,
-        activeSpaceId,
-        createSpace,
-        updateSpace,
-        deleteSpace,
-        addModuleToSpace,
-        removeModuleFromSpace,
-        setActiveSpace,
-      }}>
+      <SpacesContext.Provider value={value}>
         {children}
       </SpacesContext.Provider>
     </PipelinesProvider>

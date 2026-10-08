@@ -440,7 +440,6 @@ function useKeyboardOpen() {
 
 function useContactSuggestions() {
   const [contactSuggestions, setContactSuggestions] = useState<ContactSuggestion[]>([]);
-  const [, setLoadingSuggestions] = useState(false);
   const contactSearchRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   // Load recent contacts on mount
@@ -464,11 +463,9 @@ function useContactSuggestions() {
 
     contactSearchRef.current = setTimeout(async () => {
       try {
-        setLoadingSuggestions(true);
         const { data } = await appApiClient.get<ContactRows>(`/people?search=${encodeURIComponent(text.trim())}&limit=10`);
         setContactSuggestions(mapContactSuggestions(data));
       } catch {} finally {
-        setLoadingSuggestions(false);
       }
     }, 200);
   }, []);
@@ -597,7 +594,6 @@ function useRichEditor(textColor: string) {
   const [bodyHtml, setBodyHtml] = useState('');
   const [bodyFocused, setBodyFocused] = useState(false);
   const [formats, setFormats] = useState<Formats>({ b: false, i: false, u: false, l: false, ol: false });
-  const [, setEditorReady] = useState(false);
   const editorRef = useRef<WebView>(null);
   const editorHtml = useRef(buildEditorHtml(textColor));
 
@@ -622,9 +618,7 @@ function useRichEditor(textColor: string) {
     Keyboard.dismiss();
   }, []);
 
-  const onLoadEnd = useCallback(() => setEditorReady(true), []);
-
-  return { body, bodyHtml, bodyFocused, formats, editorRef, editorHtml, execFormat, onEditorMessage, dismissKeyboard, onLoadEnd };
+  return { body, bodyHtml, bodyFocused, formats, editorRef, editorHtml, execFormat, onEditorMessage, dismissKeyboard };
 }
 
 function useAttachments() {
@@ -1087,7 +1081,6 @@ function ComposeBody({ subject, onChangeSubject, attachments, onRemoveAttachment
           hideKeyboardAccessoryView={true}
           originWhitelist={['*']}
           onMessage={editor.onEditorMessage}
-          onLoadEnd={editor.onLoadEnd}
         />
       </View>
 

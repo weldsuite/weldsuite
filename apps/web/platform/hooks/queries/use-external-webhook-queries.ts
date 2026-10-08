@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { withQuery } from '@/lib/with-query';
 
 // =============================================================================
 // Query Keys
@@ -127,7 +128,7 @@ export function useExternalWebhooks(filters?: ExternalWebhookFilters) {
       if (filters?.cursor) params.set('cursor', filters.cursor);
       if (filters?.limit) params.set('limit', String(filters.limit));
       const qs = params.toString();
-      return client.get<ListResponse<ExternalWebhook>>(`/external-webhooks${qs ? `?${qs}` : ''}`);
+      return client.get<ListResponse<ExternalWebhook>>(withQuery('/external-webhooks', qs));
     },
   });
 }
@@ -143,7 +144,7 @@ export function useExternalWebhookDeliveries(webhookId: string, filters?: Delive
       if (filters?.limit) params.set('limit', String(filters.limit));
       const qs = params.toString();
       return client.get<ListResponse<WebhookDelivery>>(
-        `/external-webhooks/${webhookId}/deliveries${qs ? `?${qs}` : ''}`,
+        withQuery(`/external-webhooks/${webhookId}/deliveries`, qs),
       );
     },
     enabled: !!webhookId,

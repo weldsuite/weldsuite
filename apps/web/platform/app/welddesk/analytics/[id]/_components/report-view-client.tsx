@@ -214,7 +214,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
   };
 
   // Save layout changes
-  const saveLayoutChanges = async () => {
+  const saveLayoutChanges = () => {
     startTransition(async () => {
       // Update report title/description
       const client = await getClient();
@@ -314,7 +314,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
   };
 
   // Remove a widget
-  const removeWidget = async (chartId: string) => {
+  const removeWidget = (chartId: string) => {
     startTransition(async () => {
       const client = await getClient();
       // Non-2xx throws on the app-api client, so reaching the next line means
@@ -336,7 +336,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
   // `POST /helpdesk-analytics/charts`, which assigns the new id and sortIndex.
   // That endpoint answers `{ data: { id } }` rather than the full row, so the
   // local copy is built from the source chart plus the returned id.
-  const handleDuplicateChart = async (chartId: string) => {
+  const handleDuplicateChart = (chartId: string) => {
     const source = charts.find((c) => c.id === chartId);
     if (!source) return;
 
@@ -396,7 +396,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
   };
 
   // Create a new report
-  const handleCreateNewReport = async () => {
+  const handleCreateNewReport = () => {
     if (!newReportTitle.trim()) return;
 
     startTransition(async () => {
@@ -425,7 +425,7 @@ export function ReportViewClient({ report, initialCharts, allReports }: Readonly
   };
 
   // Delete current report
-  const deleteCurrentReport = async () => {
+  const deleteCurrentReport = () => {
     startTransition(async () => {
       const client = await getClient();
       // Report delete is DELETE /helpdesk-analytics/:id on app-api; non-2xx
@@ -1066,7 +1066,7 @@ function renderAreaChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
     <AreaChart accessibilityLayer data={points} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
       <CartesianGrid vertical={false} />
       <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatTick} />
-      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={(value) => String(value)} />} />
+      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={String} />} />
       <Area dataKey="value" type={chart.smoothCurve ? "natural" : "linear"} fill={chart.fillArea ? chart.color : "transparent"} fillOpacity={chart.fillArea ? 0.2 : 0} stroke={chart.color} strokeWidth={2} dot={chart.showDataLabels} />
     </AreaChart>
   );
@@ -1210,7 +1210,7 @@ function renderDefaultChart(chart: AnalyticsChart, points: ChartDataPoint[]) {
     <AreaChart accessibilityLayer data={points} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
       <CartesianGrid vertical={false} />
       <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={formatTick} />
-      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={(value) => String(value)} />} />
+      <ChartTooltip cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }} wrapperStyle={TOOLTIP_WRAPPER_STYLE} content={<ChartTooltipContent labelFormatter={String} />} />
       <Area dataKey="value" type="natural" fill={chart.color} fillOpacity={0.2} stroke={chart.color} strokeWidth={2} />
     </AreaChart>
   );

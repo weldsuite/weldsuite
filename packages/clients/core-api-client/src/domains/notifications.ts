@@ -8,9 +8,11 @@ import type {
   BatchSuccessResponse,
 } from '../schemas/notifications';
 
+const LIMIT_25 = { limit: 25 } as const;
+
 export function createNotificationsApi(api: ClientApi) {
   return {
-    list(params: ListNotificationsQuery = { limit: 25 }): Promise<ListResponse<Notification>> {
+    list(params: ListNotificationsQuery = LIMIT_25): Promise<ListResponse<Notification>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<Notification>>(`/notifications${query}`);
     },

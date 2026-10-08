@@ -12,7 +12,7 @@ import { MessageSquare, Pin, Phone, Video, CornerUpRight, Hash, Lock, Bot, Workf
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
-import { renderMessageContent } from '../lib/render-message-content';
+import { messagePreviewText, renderMessageContent } from '../lib/render-message-content';
 import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
@@ -385,7 +385,7 @@ export function MessageItem({
               <AvatarFallback className="text-[8px] !rounded-[5.5px]">{(replyToMessage.authorName || '?')[0]}</AvatarFallback>
             </Avatar>
             <span className="font-semibold text-foreground/70">{replyToMessage.authorName}</span>
-            <span className="truncate max-w-[300px]">{replyToMessage.content}</span>
+            <span className="truncate max-w-[300px]">{messagePreviewText(replyToMessage.content ?? '', membersMap)}</span>
           </div>
         </div>
       )}

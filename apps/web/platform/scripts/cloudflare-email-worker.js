@@ -21,7 +21,7 @@ export default {
 
         // Read raw email
         const rawEmail = await new Response(message.raw).arrayBuffer();
-        const base64Email = btoa(String.fromCharCode(...new Uint8Array(rawEmail)));
+        const base64Email = btoa(String.fromCodePoint(...new Uint8Array(rawEmail)));
 
         const payload = {
             rawEmail: base64Email,

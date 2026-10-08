@@ -203,7 +203,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     prevCanWriteRef.current = canWrite;
   }, [canWrite]);
   const [elements, setElements] = useState<WhiteboardElement[]>(initialElements);
-  const [_isSaving, setIsSaving] = useState(false);
 
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const [selectedElements, setSelectedElements] = useState<Set<string>>(new Set());
@@ -234,7 +233,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
   const [arrowType, setArrowType] = useState<ArrowType>('arrow');
   const [isResizing, setIsResizing] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<'nw' | 'ne' | 'sw' | 'se' | null>(null);
-  const [_resizeStartPoint, setResizeStartPoint] = useState({ x: 0, y: 0 });
   const [resizeStartSize, setResizeStartSize] = useState({ width: 0, height: 0, x: 0, y: 0 });
   const [editingElement, setEditingElement] = useState<string | null>(null);
   const [isMiddleMouseDown, setIsMiddleMouseDown] = useState(false);
@@ -535,7 +533,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     }
 
     try {
-      setIsSaving(true);
       const client = await getClient();
       // `PUT /projects/:projectId/whiteboard[/:id]` never existed (api-worker mounts
       // no projects routes). Canonical surface: `PATCH /api/whiteboards/:id` to update
@@ -556,7 +553,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
       console.error('Failed to save whiteboard:', error);
       toast.error(st('sweep.weldflow.whiteboardView.saveFailed'));
     } finally {
-      setIsSaving(false);
     }
   }, [canWrite, projectId, whiteboardId, getClient, st]);
 
@@ -1079,27 +1075,27 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     eraserUpdateQueue.current = [];
   }, [processBatchedErasing]);
   
-  // Original processErasing kept for compatibility but now uses batching
-  const processErasing = (eraserPoint: { x: number; y: number }, currentEraserSize: number, immediate = false) => {
-    if (immediate) {
-      // Process immediately without any delay
-      if (eraserBatchTimer.current) {
-        clearTimeout(eraserBatchTimer.current);
-      }
-      eraserUpdateQueue.current = [{ point: eraserPoint, size: currentEraserSize }];
-      processBatchedErasing();
-    } else {
-      // Skip if point hasn't moved enough
-      if (lastProcessedPoint.current) {
-        const dist = Math.sqrt(
-          Math.pow(eraserPoint.x - lastProcessedPoint.current.x, 2) +
-          Math.pow(eraserPoint.y - lastProcessedPoint.current.y, 2)
-        );
-        if (dist < 2) return; // Reduced threshold for smoother erasing
-      }
-      lastProcessedPoint.current = eraserPoint;
-      queueEraserUpdate(eraserPoint, currentEraserSize);
+  // Erase at a point immediately, without any delay
+  const eraseNow = (eraserPoint: { x: number; y: number }, currentEraserSize: number) => {
+    if (eraserBatchTimer.current) {
+      clearTimeout(eraserBatchTimer.current);
     }
+    eraserUpdateQueue.current = [{ point: eraserPoint, size: currentEraserSize }];
+    processBatchedErasing();
+  };
+
+  // Queue an erase through the batch, skipping points that barely moved
+  const eraseBatched = (eraserPoint: { x: number; y: number }, currentEraserSize: number) => {
+    // Skip if point hasn't moved enough
+    if (lastProcessedPoint.current) {
+      const dist = Math.sqrt(
+        Math.pow(eraserPoint.x - lastProcessedPoint.current.x, 2) +
+        Math.pow(eraserPoint.y - lastProcessedPoint.current.y, 2)
+      );
+      if (dist < 2) return; // Reduced threshold for smoother erasing
+    }
+    lastProcessedPoint.current = eraserPoint;
+    queueEraserUpdate(eraserPoint, currentEraserSize);
   };
 
   // Start panning from the current pointer position
@@ -1119,7 +1115,6 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
       e.preventDefault(); // Prevent text selection
       setIsResizing(true);
       setResizeHandle(resize.handle);
-      setResizeStartPoint(point);
       setResizeStartSize({
         width: resize.box.width,
         height: resize.box.height,
@@ -1263,7 +1258,7 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
         setIsErasing(true);
         setEraserPath([point]);
         // Just process the erasing, don't modify elements unnecessarily
-        processErasing(point, eraserSize, true);
+        eraseNow(point, eraserSize);
         setSelectedElement(null);
         setSelectedElements(new Set());
         break;
@@ -1362,14 +1357,14 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
     if (!lastPoint) {
       // First point
       setEraserPath([point]);
-      processErasing(point, eraserSize, true);
+      eraseNow(point, eraserSize);
       return;
     }
 
     // Interpolate points for smooth erasing
     const interpolated = interpolateEraserPoints(lastPoint, point, eraserSize);
     if (interpolated.length === 0) return;
-    interpolated.forEach(interpPoint => processErasing(interpPoint, eraserSize, false));
+    interpolated.forEach(interpPoint => eraseBatched(interpPoint, eraserSize));
     setEraserPath(prev => trimEraserPath([...prev, point]));
   };
 
@@ -3164,11 +3159,9 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                 key={color}
                 className={cn(
                   "h-6 w-6 rounded border-2 transition-all duration-150",
-                  selectedColor === color
-                    ? "border-gray-500 dark:border-gray-300"
-                    : hoveredColor === color && selectedColor !== color
-                    ? "border-gray-300 dark:border-gray-500"
-                    : "border-transparent"
+                  selectedColor === color && "border-gray-500 dark:border-gray-300",
+                  selectedColor !== color && hoveredColor === color && "border-gray-300 dark:border-gray-500",
+                  selectedColor !== color && hoveredColor !== color && "border-transparent"
                 )}
                 style={{
                   backgroundColor: color
@@ -4322,7 +4315,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
               const endY = connectionEndPoint.y;
               const dx = endX - startX;
               const dy = endY - startY;
-              const distance = Math.sqrt(dx * dx + dy * dy);
+              const distance = Math.hypot(dx, dy);
               const curveOffset = Math.min(distance * 0.5, 150);
 
               // Control point 1 based on start connection point

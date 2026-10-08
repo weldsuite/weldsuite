@@ -120,7 +120,7 @@ function consentDeclined(): boolean {
   if (typeof document === 'undefined') return false;
   return document.cookie
     .split('; ')
-    .some((entry) => entry === `${CONSENT_COOKIE}=declined`);
+    .includes(`${CONSENT_COOKIE}=declined`);
 }
 
 /**

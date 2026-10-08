@@ -66,7 +66,7 @@ export function Button({
     </>
   )
 
-  if (typeof props.href === 'undefined') {
+  if (props.href === undefined) {
     return (
       <button className={className} {...props}>
         {inner}

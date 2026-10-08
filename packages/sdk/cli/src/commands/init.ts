@@ -24,7 +24,8 @@ Options:
 async function prompt(question: string, fallback?: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const suffix = fallback ? ` ${dim(`(${fallback})`)}` : '';
+    const hint = fallback ? dim(`(${fallback})`) : '';
+    const suffix = hint ? ` ${hint}` : '';
     const answer = (await rl.question(`${question}${suffix}: `)).trim();
     return answer.length > 0 ? answer : (fallback ?? '');
   } finally {
@@ -37,7 +38,7 @@ function suggestCode(source: string): string {
   const slug = source
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/^-+|(?<!-)-+$/g, '')
     .replace(/^[^a-z]+/, '');
   return slug.length >= 3 ? slug.slice(0, 50) : 'my-weld-app';
 }

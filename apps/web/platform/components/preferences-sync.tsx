@@ -41,11 +41,12 @@ export function PreferencesSync() {
     const userLang = preferences.language;
     const workspaceLang = workspaceSettings?.data?.language;
 
-    const resolvedLang = (
-      userLang && (languages as string[]).includes(userLang) ? userLang :
-      workspaceLang && (languages as string[]).includes(workspaceLang) ? workspaceLang :
-      null
-    ) as Language | null;
+    let resolvedLang: Language | null = null;
+    if (userLang && (languages as string[]).includes(userLang)) {
+      resolvedLang = userLang as Language;
+    } else if (workspaceLang && (languages as string[]).includes(workspaceLang)) {
+      resolvedLang = workspaceLang as Language;
+    }
 
     if (resolvedLang && language !== resolvedLang) {
       setLanguage(resolvedLang);

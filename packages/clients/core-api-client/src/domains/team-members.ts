@@ -37,6 +37,8 @@ import type {
   ListMemberActivityQuery,
 } from '../schemas/member-profile';
 
+const LIMIT_25 = { limit: 25 } as const;
+
 export interface TeamMemberListItem {
   id: string;
   userId: string;
@@ -57,12 +59,12 @@ export interface CurrentMember {
   roleId: string | null;
   permissions: string[] | null;
   status: string;
-  memberType: 'INTERNAL' | 'EXTERNAL_GUEST';
+  memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE';
 }
 
 export interface InviteMemberResult {
   memberId: string;
-  memberType: 'INTERNAL' | 'EXTERNAL_GUEST';
+  memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE';
   /** True when the invitee already had a Clerk identity and was added directly. */
   activated: boolean;
 }
@@ -161,7 +163,7 @@ export function createTeamMembersApi(api: ClientApi) {
 
     listActivity(
       userId: string,
-      params: ListMemberActivityQuery = { limit: 25 },
+      params: ListMemberActivityQuery = LIMIT_25,
     ): Promise<ListResponse<MemberActivityItem>> {
       const query = buildQueryString(params as Record<string, unknown>);
       return api.get<ListResponse<MemberActivityItem>>(

@@ -33,11 +33,19 @@ import { recurringInvoicesRoutes } from './routes/recurring-invoices';
 import { taxRatesRoutes } from './routes/tax-rates';
 import { vatReturnsRoutes } from './routes/vat-returns';
 import type { Env, Variables } from './types';
+import { registerBooksWorkspace, runBooksDailySweep } from './cron/books-sweep';
 
 const app = createModuleApi<Env, Variables>({ service: 'books-api' });
 
 // Auth + tenant DB + feature flags for everything under /api/*
 app.use('/api/*', ...apiAuth());
+
+// Remember which workspaces use WeldBooks, so the daily sweep only opens those tenants.
+app.use('/api/*', async (c, next) => {
+  await next();
+  const orgId = c.get('orgId');
+  if (orgId) c.executionCtx.waitUntil(registerBooksWorkspace(c.env, orgId));
+});
 
 // Object-based routes, in app-api's mount order.
 app.route('/api/accounting-contacts', accountingContactsRoutes);
@@ -64,4 +72,12 @@ app.route('/api/vat-returns', vatReturnsRoutes);
 
 export default {
   fetch: app.fetch,
+  // Daily at 03:00 UTC: overdue invoices, due recurring invoices, ECB rates.
+  scheduled: async (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+    ctx.waitUntil(
+      runBooksDailySweep(env).catch((err) => {
+        console.error('[books-sweep] failed:', err);
+      }),
+    );
+  },
 };

@@ -31,7 +31,7 @@ app.route('/api/working-hours', workingHoursRoutes);
 
 export default {
   fetch: app.fetch,
-  scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+  scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     // Daily at 04:00 UTC: re-plan stale auto-scheduled calendar events.
     if (event.cron === '0 4 * * *') {
       ctx.waitUntil(

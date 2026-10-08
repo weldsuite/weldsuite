@@ -5,7 +5,7 @@
  * Fetches data from helpdesk API routes and shows contact-relevant fields only.
  */
 
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react';
 import {
   User, Mail, Phone, Smartphone, Minimize, Maximize, Loader2, X,
   LayoutGrid, MessageSquare, FileText, Globe, MapPin, Type, Tag,
@@ -118,24 +118,27 @@ function ContactDetailProvider({
   const [activeTab, setActiveTab] = useState<ContactTab>(defaultTab);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('details');
 
-  const contact: HelpdeskContactRow | null = raw?.contactResult?.success
-    ? (raw.contactResult.data as unknown as HelpdeskContactRow)
-    : null;
-  const conversations: Helpdesk.Conversation[] = raw?.conversationsResult?.success
-    ? (Array.isArray(raw.conversationsResult.data) ? (raw.conversationsResult.data as Helpdesk.Conversation[]) : [])
-    : [];
-  const fullName = contact
-    ? (contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || t('sweep.weldcrm.contactDetailView.unknown'))
-    : '';
+  const data = useMemo((): ContactDetailData | null => {
+    const contact: HelpdeskContactRow | null = raw?.contactResult?.success
+      ? (raw.contactResult.data as unknown as HelpdeskContactRow)
+      : null;
+    if (!contact) return null;
+    const conversations: Helpdesk.Conversation[] =
+      raw?.conversationsResult?.success && Array.isArray(raw.conversationsResult.data)
+        ? (raw.conversationsResult.data as Helpdesk.Conversation[])
+        : [];
+    const fullName = contact.fullName || `${contact.firstName || ''} ${contact.lastName || ''}`.trim() || t('sweep.weldcrm.contactDetailView.unknown');
+    return { contact, conversations, fullName };
+  }, [raw, t]);
 
-  const data: ContactDetailData | null = contact ? { contact, conversations, fullName } : null;
+  const value = useMemo(() => ({
+    data, isLoading, activeTab, setActiveTab, sidebarTab, setSidebarTab,
+    refresh: () => { void refetch(); },
+    contactId, onClose, onToggleExpand, isExpanded, mode, visitorLocation,
+  }), [data, isLoading, activeTab, setActiveTab, sidebarTab, setSidebarTab, refetch, contactId, onClose, onToggleExpand, isExpanded, mode, visitorLocation]);
 
   return (
-    <ContactDetailContext.Provider value={{
-      data, isLoading, activeTab, setActiveTab, sidebarTab, setSidebarTab,
-      refresh: () => { void refetch(); },
-      contactId, onClose, onToggleExpand, isExpanded, mode, visitorLocation,
-    }}>
+    <ContactDetailContext.Provider value={value}>
       {children}
     </ContactDetailContext.Provider>
   );
@@ -590,6 +593,18 @@ function OverviewContent() {
 // Conversations tab
 // =============================================================================
 
+function conversationStatusClass(status: Helpdesk.Conversation['status']): string {
+  if (status === 'active') return 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300';
+  if (status === 'closed') return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400';
+  return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300';
+}
+
+function conversationDateLabel(conv: Helpdesk.Conversation): string {
+  if (conv.lastMessageAt) return format(new Date(conv.lastMessageAt), 'MMM d, yyyy');
+  if (conv.createdAt) return format(new Date(conv.createdAt), 'MMM d, yyyy');
+  return '';
+}
+
 function ConversationList() {
   const t = useTranslations();
   const { data } = useContactDetailContext();
@@ -607,9 +622,7 @@ function ConversationList() {
             <span className="text-sm font-medium text-foreground truncate">{conv.subject || t('sweep.weldcrm.contactDetailView.noSubject')}</span>
             <span className={cn(
               'text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ml-2',
-              conv.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' :
-              conv.status === 'closed' ? 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' :
-              'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+              conversationStatusClass(conv.status)
             )}>
               {conv.status}
             </span>
@@ -617,7 +630,7 @@ function ConversationList() {
           {conv.preview && <p className="text-xs text-muted-foreground line-clamp-2 mb-1">{conv.preview}</p>}
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{conv.conversationNumber}</span>
-            <span>{conv.lastMessageAt ? format(new Date(conv.lastMessageAt), 'MMM d, yyyy') : conv.createdAt ? format(new Date(conv.createdAt), 'MMM d, yyyy') : ''}</span>
+            <span>{conversationDateLabel(conv)}</span>
           </div>
         </div>
       ))}

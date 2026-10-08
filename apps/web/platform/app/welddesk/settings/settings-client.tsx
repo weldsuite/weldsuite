@@ -99,22 +99,16 @@ export function SettingsClient({ initialSettings }: Readonly<SettingsClientProps
     promises.push(
       new Promise((resolve, reject) =>
         updateNotificationsMutation.mutate(notifications, { onSuccess: resolve, onError: reject })
-      )
-    );
-    promises.push(
+      ),
       new Promise((resolve, reject) =>
         updateTicketsMutation.mutate(tickets, { onSuccess: resolve, onError: reject })
-      )
-    );
-    promises.push(
+      ),
       new Promise((resolve, reject) =>
         updateSatisfactionMutation.mutate(satisfaction, { onSuccess: resolve, onError: reject })
-      )
-    );
-    promises.push(
+      ),
       new Promise((resolve, reject) =>
         updateAutomationMutation.mutate(automation, { onSuccess: resolve, onError: reject })
-      )
+      ),
     );
 
     try {

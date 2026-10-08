@@ -313,7 +313,7 @@ const authorColors = [
 
 function getAuthorColor(name: string) {
   let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < name.length; i++) hash = name.codePointAt(i)! + ((hash << 5) - hash);
   return authorColors[Math.abs(hash) % authorColors.length];
 }
 
@@ -349,7 +349,7 @@ function splitAssignment(text: string): [string, string, string, string] | null 
 function highlightSystemText(text: string, type: InternalNote['type']): React.ReactNode {
   if (type === 'status_change') {
     // "Status changed from Open to In Progress"
-    const statusMatch = text.match(/^(Status changed from )(.+?)( to )(.+)$/);
+    const statusMatch = /^(Status changed from )(.+?)( to )(.+)$/.exec(text);
     if (statusMatch) {
       return <>{statusMatch[1]}<span className="text-foreground font-medium">{statusMatch[2]}</span>{statusMatch[3]}<span className="text-foreground font-medium">{statusMatch[4]}</span></>;
     }
@@ -360,7 +360,7 @@ function highlightSystemText(text: string, type: InternalNote['type']): React.Re
     if (assignMatch) {
       return <>{assignMatch[1]}<span className="text-foreground font-medium">{assignMatch[2]}</span><span className="text-muted-foreground">{assignMatch[3]}</span></>;
     }
-    const simpleAssign = text.match(/^(Assigned to )(.+)$/);
+    const simpleAssign = /^(Assigned to )(.+)$/.exec(text);
     if (simpleAssign) {
       return <>{simpleAssign[1]}<span className="text-foreground font-medium">{simpleAssign[2]}</span></>;
     }
@@ -526,18 +526,8 @@ function buildNoteText(noteText: string, attachments?: AttachmentPreview[]): str
   return noteText;
 }
 
-// --- Back-Office View ---
-function BackOfficeView({
-  notes,
-  ticket,
-  onAddNote,
-}: Readonly<{
-  notes: InternalNote[];
-  ticket: TicketMessage;
-  onAddNote: (text: string, attachments?: AttachmentPreview[]) => void;
-}>) {
-  const { t } = useI18n();
-  const tp = t.helpdesk.ticketsPage;
+/** Draft state for an internal-note thread: keeps the timeline scrolled to the newest note and posts the draft. */
+function useNoteComposer(notes: InternalNote[], onAddNote: (text: string) => void) {
   const [noteText, setNoteText] = useState('');
   const timelineEndRef = useRef<HTMLDivElement>(null);
 
@@ -550,6 +540,23 @@ function BackOfficeView({
     onAddNote(buildNoteText(noteText, attachments));
     setNoteText('');
   };
+
+  return { noteText, setNoteText, timelineEndRef, handleSubmit };
+}
+
+// --- Back-Office View ---
+function BackOfficeView({
+  notes,
+  ticket,
+  onAddNote,
+}: Readonly<{
+  notes: InternalNote[];
+  ticket: TicketMessage;
+  onAddNote: (text: string, attachments?: AttachmentPreview[]) => void;
+}>) {
+  const { t } = useI18n();
+  const tp = t.helpdesk.ticketsPage;
+  const { noteText, setNoteText, timelineEndRef, handleSubmit } = useNoteComposer(notes, onAddNote);
 
   return (
     <>
@@ -639,19 +646,8 @@ function TrackerView({
 }>) {
   const { t } = useI18n();
   const tp = t.helpdesk.ticketsPage;
-  const [noteText, setNoteText] = useState('');
-  const timelineEndRef = useRef<HTMLDivElement>(null);
+  const { noteText, setNoteText, timelineEndRef, handleSubmit } = useNoteComposer(notes, onAddNote);
   const router = useRouter();
-
-  useEffect(() => {
-    timelineEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [notes]);
-
-  const handleSubmit = (attachments?: AttachmentPreview[]) => {
-    if (!noteText.trim() && (!attachments || attachments.length === 0)) return;
-    onAddNote(buildNoteText(noteText, attachments));
-    setNoteText('');
-  };
 
   return (
     <>
@@ -1305,7 +1301,6 @@ export default function TicketDetailClient({
   const [showCreateTicket, setShowCreateTicket] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isEditingSubject, setIsEditingSubject] = useState(false);
-  const [, setEditedSubject] = useState(ticket.subject || '');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const subjectInputRef = useRef<HTMLInputElement>(null);
 
@@ -1319,7 +1314,7 @@ export default function TicketDetailClient({
     if (isEditingSubject) subjectInputRef.current?.focus();
   }, [isEditingSubject]);
 
-  const handleWeldAgentSend = async () => {
+  const handleWeldAgentSend = () => {
     if (!weldAgentPrompt.trim()) return;
 
     const messageContent = weldAgentPrompt;
@@ -1478,7 +1473,6 @@ export default function TicketDetailClient({
                   type="button"
                   className="flex items-center max-w-full min-w-0 group cursor-text text-left border border-transparent hover:border-gray-300 dark:hover:border-border rounded-md px-2 py-0.5 -ml-0.5 transition-colors"
                   onClick={() => {
-                    setEditedSubject(ticket.subject || '');
                     setIsEditingSubject(true);
                   }}
                 >

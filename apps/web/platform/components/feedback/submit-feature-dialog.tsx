@@ -87,6 +87,15 @@ export function SubmitFeatureDialog({
     }
   };
 
+  let titlePlaceholder: string;
+  if (type === 'bug') {
+    titlePlaceholder = t('sweep.shared.describeBugBrieflyPlaceholder');
+  } else if (type === 'improvement') {
+    titlePlaceholder = t('sweep.shared.whatWouldYouImprovePlaceholder');
+  } else {
+    titlePlaceholder = t('sweep.shared.whatFeatureWouldYouLikePlaceholder');
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
@@ -176,13 +185,7 @@ export function SubmitFeatureDialog({
                 id="title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder={
-                  type === 'bug'
-                    ? t('sweep.shared.describeBugBrieflyPlaceholder')
-                    : type === 'improvement'
-                    ? t('sweep.shared.whatWouldYouImprovePlaceholder')
-                    : t('sweep.shared.whatFeatureWouldYouLikePlaceholder')
-                }
+                placeholder={titlePlaceholder}
                 maxLength={500}
               />
             </div>

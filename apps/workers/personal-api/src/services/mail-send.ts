@@ -17,6 +17,7 @@ import { generateId } from '../lib/id';
 import { sendEmail } from '../lib/cloudflare-email';
 import type { Env } from '../types';
 import type { PersonalEntitlements } from '../lib/billing';
+import { tagsToSpaces } from '@weldsuite/text';
 
 const { personalMailAccounts, personalMailMessages } = personalSchema;
 
@@ -69,7 +70,7 @@ function toAddresses(values: string[] | undefined): PersonalMailEmailAddress[] |
 function previewFrom(textBody?: string | null, htmlBody?: string | null): string | null {
   const raw =
     textBody?.trim() ||
-    htmlBody?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() ||
+    (htmlBody && tagsToSpaces(htmlBody).replace(/\s+/g, ' ').trim()) ||
     '';
   if (!raw) return null;
   return raw.slice(0, 500);

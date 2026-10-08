@@ -37,7 +37,7 @@ const AVATAR_COLORS = ['#4F46E5', '#7C3AED', '#DB2777', '#EA580C', '#16A34A', '#
 
 function colorFor(name: string): string {
   let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < name.length; i++) hash = name.codePointAt(i)! + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 

@@ -38,14 +38,16 @@ export type CustomFieldDefinitionRow = Definition;
 export type CustomFieldMap = Record<string, unknown>;
 
 /** Load active definitions for an entity type (needed to map slug<->fieldId). */
-export async function getDefinitionsForEntityType(
+export function getDefinitionsForEntityType(
   db: AnyDb,
   entityType: string,
 ): Promise<Definition[]> {
-  return db
-    .select()
-    .from(defs)
-    .where(and(eq(defs.entityType, entityType), isNull(defs.deletedAt)));
+  return Promise.resolve(
+    db
+      .select()
+      .from(defs)
+      .where(and(eq(defs.entityType, entityType), isNull(defs.deletedAt)))
+  );
 }
 
 /**
@@ -60,17 +62,19 @@ export async function getDefinitionsForEntityType(
  *
  * `ticketTypeId` null/undefined → only the global ticket definitions.
  */
-export async function getDefinitionsForTicket(
+export function getDefinitionsForTicket(
   db: AnyDb,
   ticketTypeId: string | null | undefined,
 ): Promise<Definition[]> {
   const scope = ticketTypeId
     ? or(eq(defs.ticketTypeId, ticketTypeId), isNull(defs.ticketTypeId))
     : isNull(defs.ticketTypeId);
-  return db
-    .select()
-    .from(defs)
-    .where(and(eq(defs.entityType, 'ticket'), scope, isNull(defs.deletedAt)));
+  return Promise.resolve(
+    db
+      .select()
+      .from(defs)
+      .where(and(eq(defs.entityType, 'ticket'), scope, isNull(defs.deletedAt)))
+  );
 }
 
 /**
@@ -335,7 +339,7 @@ export async function setValues(
   for (const slug of slugs) {
     const def = defBySlug.get(slug);
     if (!def) continue;
-    const raw = Object.prototype.hasOwnProperty.call(values, slug) ? values[slug] : undefined;
+    const raw = Object.hasOwn(values, slug) ? values[slug] : undefined;
     // In non-patch mode a missing slug means "clear"; in patch mode we skip it.
     if (raw === undefined && patch) continue;
 

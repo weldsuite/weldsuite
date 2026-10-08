@@ -237,7 +237,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
   };
 
   // Save layout changes
-  const saveLayoutChanges = async () => {
+  const saveLayoutChanges = () => {
     startTransition(async () => {
       await analyticsApi.updateReport(reportId, {
         title: pageTitle,
@@ -323,7 +323,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
   };
 
   // Remove a widget
-  const removeWidget = async (chartId: string) => {
+  const removeWidget = (chartId: string) => {
     startTransition(async () => {
       const result = await analyticsApi.deleteChart(reportId, chartId);
       if (result.success) {
@@ -334,7 +334,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
   };
 
   // Duplicate a widget
-  const handleDuplicateChart = async (chartId: string) => {
+  const handleDuplicateChart = (chartId: string) => {
     startTransition(async () => {
       const result = await analyticsApi.duplicateChart(reportId, chartId);
       if (result.success && result.data) {

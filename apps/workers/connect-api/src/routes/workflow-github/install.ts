@@ -23,6 +23,7 @@ import {
   revokeConnection,
   upsertConnection,
 } from '../../services/github/connections';
+import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -153,7 +154,7 @@ app.get(
 
       if (!resp.ok) {
         const body = await resp.text();
-        console.error('[GitHub] Failed to list installations:', resp.status, body);
+        console.error('[GitHub] Failed to list installations:', resp.status, logSafe(body));
         return error.internal(c, 'Failed to fetch GitHub installations');
       }
 

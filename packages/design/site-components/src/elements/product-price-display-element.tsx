@@ -21,7 +21,7 @@ export function ProductPriceDisplayElement({
       {/* Price */}
       <div style={{ fontSize: '1.875rem', fontWeight: 'bold', lineHeight: '2.25rem' }}>
         US$ {typeof price === 'number' ? price.toFixed(2) : Number.parseFloat(String(price)).toFixed(2)}
-        {compareAtPrice && (
+        {!!compareAtPrice && (
           <span style={{
             fontSize: '1.125rem',
             textDecoration: 'line-through',

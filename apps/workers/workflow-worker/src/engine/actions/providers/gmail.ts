@@ -40,8 +40,8 @@ function validatedRecipients(value: unknown, field: 'To' | 'Cc' | 'Bcc', require
 function base64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
   let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+  for (const b of bytes) bin += String.fromCodePoint(b);
+  return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replace(/(?<!=)=+$/, '');
 }
 
 /** RFC 2047-ish escaping is unnecessary for ASCII headers; this only guards

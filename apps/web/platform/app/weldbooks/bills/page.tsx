@@ -10,7 +10,7 @@ import {
   type GroupConfig,
 } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 interface BillRow {
   id: string;
@@ -44,7 +44,7 @@ export default function BillsPage() {
   const { data, isLoading } = useAccountingBills({ search });
   const navigate = useNavigate();
   const { t } = useI18n();
-  const { formatMoney } = useCurrentEntityCurrency();
+  const { formatMoney, formatDate } = useWeldbooksFormat();
   const tbp = t.accounting.billsPage;
 
   const bills = (data?.data ?? []) as unknown as BillRow[];
@@ -81,7 +81,7 @@ export default function BillsPage() {
       header: tbp.colDate,
       width: 'w-[140px]',
       render: (bill) => (
-        <span className="text-muted-foreground">{bill.issueDate ?? '—'}</span>
+        <span className="text-muted-foreground">{formatDate(bill.issueDate)}</span>
       ),
     },
     {
@@ -89,7 +89,7 @@ export default function BillsPage() {
       header: tbp.colDueDate,
       width: 'w-[140px]',
       render: (bill) => (
-        <span className="text-muted-foreground">{bill.dueDate ?? '—'}</span>
+        <span className="text-muted-foreground">{formatDate(bill.dueDate)}</span>
       ),
     },
     {

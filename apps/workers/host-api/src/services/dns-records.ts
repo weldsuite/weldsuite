@@ -23,11 +23,13 @@ import {
   addUserLock,
   removeUserLock,
   type SyncResult,
-  type DnsRecordLock,
 } from '../lib/host-dns-sync';
 
-export type { DnsRecordLock };
-export { isRecordLocked, getRecordLocks };
+export {
+  type DnsRecordLock,
+  isRecordLocked,
+  getRecordLocks,
+} from '../lib/host-dns-sync';
 
 const { hostDnsRecords, hostDnsZones, hostDomains } = schema;
 

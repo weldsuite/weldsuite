@@ -187,4 +187,26 @@ describe('calculateLineTaxTotals', () => {
     expect(result.taxBreakdown[0].component).toBe('export');
     expect(result.taxBreakdown[0].taxAmount).toBe(0);
   });
+  it('keeps self-assessed purchase tax out of the bill total', () => {
+    const result = calculateLineTaxTotals(
+      [
+        { quantity: '1', unitPrice: '100', discountPercent: '0', taxRate: '21', taxRateId: 'txr_eu', taxRateName: 'BTW Inkoop EU', taxCategoryCode: 'eu_b2b_service' },
+        { quantity: '1', unitPrice: '50', discountPercent: '0', taxRate: '21', taxRateId: 'txr_voor', taxRateName: 'BTW Voorbelasting 21%', taxCategoryCode: 'standard' },
+      ],
+      { jurisdictionCode: 'NL', direction: 'purchase' },
+    );
+    expect(result.taxTotal).toBe('10.50');
+    expect(result.total).toBe('160.50');
+    const selfAssessed = result.taxBreakdown.find((r) => r.taxRateId === 'txr_eu');
+    expect(selfAssessed).toMatchObject({ selfAssessed: true, taxAmount: 21, taxCategoryCode: 'eu_b2b_service' });
+    expect(result.processedItems[0].taxAmount).toBe('0.00');
+  });
+
+  it('charges the same category normally on a sale', () => {
+    const result = calculateLineTaxTotals(
+      [{ quantity: '1', unitPrice: '100', discountPercent: '0', taxRate: '21', taxRateId: 'txr', taxCategoryCode: 'eu_b2b_service' }],
+      { jurisdictionCode: 'NL', direction: 'sales' },
+    );
+    expect(result.taxTotal).toBe('21.00');
+  });
 });

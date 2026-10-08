@@ -27,6 +27,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
@@ -633,7 +634,7 @@ function withOccurrenceKeys<T>(items: readonly T[], base: (item: T) => string): 
 }
 
 function OcrResultView({ result, matchedContactId, td }: Readonly<{ result: OcrResult; matchedContactId: string | null; td: DocumentsTranslations }>) {
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
   return (
     <div className="space-y-4">
       {/* Supplier */}
@@ -662,9 +663,9 @@ function OcrResultView({ result, matchedContactId, td }: Readonly<{ result: OcrR
         </CardHeader>
         <CardContent className="text-sm grid grid-cols-2 gap-2">
           <p><strong>{td.ocrFieldNumber}</strong> {result.invoiceNumber ?? '-'}</p>
-          <p><strong>{td.ocrFieldDate}</strong> {result.invoiceDate ?? '-'}</p>
-          <p><strong>{td.ocrFieldDueDate}</strong> {result.dueDate ?? '-'}</p>
-          <p><strong>{td.ocrFieldCurrency}</strong> {result.currency ?? 'EUR'}</p>
+          <p><strong>{td.ocrFieldDate}</strong> {formatDate(result.invoiceDate, '-')}</p>
+          <p><strong>{td.ocrFieldDueDate}</strong> {formatDate(result.dueDate, '-')}</p>
+          <p><strong>{td.ocrFieldCurrency}</strong> {result.currency ?? '-'}</p>
           {result.paymentReference && <p><strong>{td.ocrFieldReference}</strong> {result.paymentReference}</p>}
           {result.iban && <p><strong>{td.ocrFieldPaymentIban}</strong> {result.iban}</p>}
         </CardContent>

@@ -59,12 +59,9 @@ app.get('/', requirePermission('general:read'), zValidator('query', listQuerySch
   try {
     const masterDb = getMasterDb(c.env);
 
-    const orderBy =
-      sortBy === 'newest'
-        ? desc(featureRequests.createdAt)
-        : sortBy === 'oldest'
-          ? asc(featureRequests.createdAt)
-          : desc(featureRequests.voteCount);
+    let orderBy = desc(featureRequests.voteCount);
+    if (sortBy === 'newest') orderBy = desc(featureRequests.createdAt);
+    else if (sortBy === 'oldest') orderBy = asc(featureRequests.createdAt);
 
     // `feature_requests` lives in the MASTER db and is GLOBAL across every
     // workspace, and this route is gated on the baseline `general:read` that

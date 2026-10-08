@@ -1,6 +1,6 @@
 
 import { useRouter } from '@/lib/router';
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   X,
   Building2,
@@ -487,7 +487,7 @@ export function CustomerDetailHeader({
       a.download = `${slug}-${stamp}.json`;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      a.remove();
       toast.success(t('sweep.weldcrm.customerDetailHeader.exportDownloaded'));
     } catch (err) {
       console.error('[CustomerDetailHeader] Failed to export:', err);
@@ -1184,6 +1184,53 @@ function AddToListPicker({
     !search.trim() || (l.name || '').toLowerCase().includes(search.trim().toLowerCase())
   );
 
+  let listContent: ReactNode;
+  if (isLoading) {
+    listContent = (
+      <div className="flex items-center justify-center py-12 gap-3">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t('sweep.weldcrm.customerDetailHeader.loadingLists')}</span>
+      </div>
+    );
+  } else if (filtered.length === 0) {
+    listContent = (
+      <div className="text-center py-10 text-sm text-muted-foreground">
+        {search ? t('sweep.weldcrm.customerDetailHeader.noListsMatch', { query: search }) : t('sweep.weldcrm.customerDetailHeader.noListsAvailable')}
+      </div>
+    );
+  } else {
+    listContent = filtered.map((list) => {
+      const IconComp = list.icon
+        ? (coloredSquareIcons.find((i) => i.label === list.icon)?.value || ListPlus)
+        : ListPlus;
+      return (
+        <Button
+          variant="ghost"
+          key={list.id}
+          onClick={() => onPick(list.id)}
+          className="w-full flex items-center gap-2.5 px-4 py-1.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-secondary/40"
+        >
+          <div
+            className={cn(
+              'w-5 h-5 rounded-[6px] flex items-center justify-center flex-shrink-0',
+              list.color || 'bg-muted'
+            )}
+          >
+            <IconComp
+              className={cn(
+                'h-3 w-3',
+                list.color ? 'text-white' : 'text-muted-foreground'
+              )}
+            />
+          </div>
+          <span className="text-[14px] font-medium text-foreground truncate">
+            {list.name || t('sweep.weldcrm.customerDetailHeader.untitledList')}
+          </span>
+        </Button>
+      );
+    });
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[460px] p-0 gap-0 overflow-hidden rounded-xl [&>button]:hidden flex flex-col max-h-[480px]">
@@ -1214,51 +1261,33 @@ function AddToListPicker({
           </div>
         </div>
         <div className="flex-1 overflow-y-auto pb-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12 gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{t('sweep.weldcrm.customerDetailHeader.loadingLists')}</span>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-10 text-sm text-muted-foreground">
-              {search ? t('sweep.weldcrm.customerDetailHeader.noListsMatch', { query: search }) : t('sweep.weldcrm.customerDetailHeader.noListsAvailable')}
-            </div>
-          ) : (
-            filtered.map((list) => {
-              const IconComp = list.icon
-                ? (coloredSquareIcons.find((i) => i.label === list.icon)?.value || ListPlus)
-                : ListPlus;
-              return (
-                <Button
-                  variant="ghost"
-                  key={list.id}
-                  onClick={() => onPick(list.id)}
-                  className="w-full flex items-center gap-2.5 px-4 py-1.5 text-left transition-colors hover:bg-gray-50 dark:hover:bg-secondary/40"
-                >
-                  <div
-                    className={cn(
-                      'w-5 h-5 rounded-[6px] flex items-center justify-center flex-shrink-0',
-                      list.color || 'bg-muted'
-                    )}
-                  >
-                    <IconComp
-                      className={cn(
-                        'h-3 w-3',
-                        list.color ? 'text-white' : 'text-muted-foreground'
-                      )}
-                    />
-                  </div>
-                  <span className="text-[14px] font-medium text-foreground truncate">
-                    {list.name || t('sweep.weldcrm.customerDetailHeader.untitledList')}
-                  </span>
-                </Button>
-              );
-            })
-          )}
+          {listContent}
         </div>
       </DialogContent>
     </Dialog>
   );
+}
+
+function channelShareKind(ch: ChatChannel): 'private' | 'group' | 'channel' {
+  if (ch.isPrivate || ch.type === 'private') return 'private';
+  if (ch.type === 'group') return 'group';
+  return 'channel';
+}
+
+function ShareTargetChipIcon({ target }: Readonly<{ target: ShareTarget }>) {
+  if (target.kind === 'user') {
+    return (
+      <Avatar className="h-3.5 w-3.5 !rounded-[4px]">
+        {target.picture && <AvatarImage src={target.picture} alt={target.name} className="!rounded-[4px]" />}
+        <AvatarFallback className="!rounded-[4px] text-[8px] font-medium bg-gray-200 dark:bg-background text-gray-600 dark:text-muted-foreground">
+          {(target.name || '?').charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+    );
+  }
+  if (target.kind === 'group') return <UsersIcon className="h-3 w-3" />;
+  if (target.kind === 'private') return <Lock className="h-3 w-3" />;
+  return <Hash className="h-3 w-3" />;
 }
 
 /** DM channel row, as `/chat-dm` projects it — a channel row with DM-specific fields. */
@@ -1332,11 +1361,7 @@ function ShareDialog({
         id: `channel:${ch.id}`,
         rawId: ch.id,
         name: ch.name || '',
-        kind: (ch.isPrivate || ch.type === 'private'
-          ? 'private'
-          : ch.type === 'group'
-            ? 'group'
-            : 'channel') as 'private' | 'group' | 'channel',
+        kind: channelShareKind(ch),
       }));
 
     // DM channels — split into 1:1 (kind=user, posts straight to channel) and
@@ -1499,20 +1524,7 @@ function ShareDialog({
                     key={t.id}
                     className="inline-flex items-center gap-1 rounded bg-accent text-accent-foreground px-1.5 py-[4px] text-xs font-medium"
                   >
-                    {t.kind === 'user' ? (
-                      <Avatar className="h-3.5 w-3.5 !rounded-[4px]">
-                        {t.picture && <AvatarImage src={t.picture} alt={t.name} className="!rounded-[4px]" />}
-                        <AvatarFallback className="!rounded-[4px] text-[8px] font-medium bg-gray-200 dark:bg-background text-gray-600 dark:text-muted-foreground">
-                          {(t.name || '?').charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    ) : t.kind === 'group' ? (
-                      <UsersIcon className="h-3 w-3" />
-                    ) : t.kind === 'private' ? (
-                      <Lock className="h-3 w-3" />
-                    ) : (
-                      <Hash className="h-3 w-3" />
-                    )}
+                    <ShareTargetChipIcon target={t} />
                     {t.name}
                     <Button
                       variant="ghost"

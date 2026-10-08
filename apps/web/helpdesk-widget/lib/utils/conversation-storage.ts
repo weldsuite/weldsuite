@@ -67,9 +67,8 @@ function saveConversationRefs(widgetId: string, refs: StoredConversationRef[]): 
     const key = getStorageKey(widgetId);
 
     // Keep only the most recent MAX_CONVERSATIONS_PER_WIDGET
-    const limitedRefs = refs
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, MAX_CONVERSATIONS_PER_WIDGET);
+    refs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const limitedRefs = refs.slice(0, MAX_CONVERSATIONS_PER_WIDGET);
 
     localStorage.setItem(key, JSON.stringify(limitedRefs));
   } catch (error) {
@@ -136,11 +135,11 @@ export function getMostRecentConversationId(widgetId: string): string | null {
     if (activeRefs.length === 0) return null;
 
     // Sort by createdAt descending and get the first one
-    const sorted = activeRefs.sort(
+    activeRefs.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
 
-    const first = sorted[0];
+    const first = activeRefs[0];
     return first ? first.conversationId : null;
   } catch (error) {
     console.error('Failed to get most recent conversation ID:', error);

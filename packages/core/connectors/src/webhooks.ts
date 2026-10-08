@@ -139,7 +139,7 @@ export function matchWebhookTopic(provider: string, topic: string): ConnectorWeb
 }
 
 export function connectorWebhookDeliveryUrl(baseUrl: string, connectionId: string): string {
-  const trimmed = baseUrl.replace(/\/+$/, '');
+  const trimmed = baseUrl.replace(/(?<!\/)\/+$/, '');
   return `${trimmed}/webhooks/connectors/${connectionId}`;
 }
 
@@ -155,7 +155,7 @@ export interface ConnectorWebhookKvEntry {
 function bytesToBase64(bytes: ArrayBuffer): string {
   const view = new Uint8Array(bytes);
   let binary = '';
-  for (const byte of view) binary += String.fromCharCode(byte);
+  for (const byte of view) binary += String.fromCodePoint(byte);
   return btoa(binary);
 }
 
@@ -188,12 +188,12 @@ export async function hmacSha256Base64(secret: string, body: string): Promise<st
 export function timingSafeEqual(left: string, right: string): boolean {
   if (left.length !== right.length) return false;
   let mismatch = 0;
-  for (let i = 0; i < left.length; i++) mismatch |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  for (let i = 0; i < left.length; i++) mismatch |= left.codePointAt(i)! ^ right.codePointAt(i)!;
   return mismatch === 0;
 }
 
-/** WooCommerce: `X-WC-Webhook-Signature` is HMAC-SHA256 of the raw body, Base64. */
-export async function verifyWooCommerceWebhook(args: {
+/** Providers that sign the raw body with HMAC-SHA256 and send it Base64-encoded. */
+async function verifyBase64BodyHmac(args: {
   secret: string;
   body: string;
   signature: string | null | undefined;
@@ -203,16 +203,11 @@ export async function verifyWooCommerceWebhook(args: {
   return timingSafeEqual(expected, args.signature.trim());
 }
 
+/** WooCommerce: `X-WC-Webhook-Signature` is HMAC-SHA256 of the raw body, Base64. */
+export const verifyWooCommerceWebhook = verifyBase64BodyHmac;
+
 /** Shopify: `X-Shopify-Hmac-Sha256` is HMAC-SHA256 of the raw body, Base64. */
-export async function verifyShopifyWebhook(args: {
-  secret: string;
-  body: string;
-  signature: string | null | undefined;
-}): Promise<boolean> {
-  if (!args.signature) return false;
-  const expected = await hmacSha256Base64(args.secret, args.body);
-  return timingSafeEqual(expected, args.signature.trim());
-}
+export const verifyShopifyWebhook = verifyBase64BodyHmac;
 
 /** Moneybird: `Moneybird-Signature` is `t=<unix>,v1=<hex hmac of t.body>`. */
 export async function verifyMoneybirdWebhook(args: {
@@ -235,15 +230,7 @@ export async function verifyMoneybirdWebhook(args: {
 }
 
 /** Picqer: `X-Picqer-Signature` is HMAC-SHA256 of the raw body, Base64. */
-export async function verifyPicqerWebhook(args: {
-  secret: string;
-  body: string;
-  signature: string | null | undefined;
-}): Promise<boolean> {
-  if (!args.signature) return false;
-  const expected = await hmacSha256Base64(args.secret, args.body);
-  return timingSafeEqual(expected, args.signature.trim());
-}
+export const verifyPicqerWebhook = verifyBase64BodyHmac;
 
 export async function verifyConnectorWebhook(args: {
   provider: string;
@@ -318,6 +305,6 @@ export function generateWebhookSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
   return btoa(binary);
 }

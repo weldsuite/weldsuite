@@ -21,8 +21,9 @@ export function TicketPanel(props: Readonly<ObjectPanelComponentProps>) {
     (ticket?.ticketNumber
       ? t('sweep.entities.ticketNumberTitle', { number: ticket.ticketNumber })
       : t('sweep.entities.ticketFallbackTitle'));
+  const customerSuffix = ticket?.customerName ? ' · ' + ticket.customerName : '';
   const subtitle = ticket?.ticketNumber
-    ? `#${ticket.ticketNumber}${ticket.customerName ? ' · ' + ticket.customerName : ''}`
+    ? `#${ticket.ticketNumber}${customerSuffix}`
     : ticket?.customerName ?? undefined;
 
   return (

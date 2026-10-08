@@ -31,8 +31,9 @@ import {
 } from '@/hooks/queries/use-weldpass-queries';
 import { PageLoader } from '@/components/page-loader';
 import { PanelEntityList, type ColumnDef } from '@/components/panel-entity-list';
+import { formatDateTime } from '@/lib/utils';
 import { emptyIcon, usePassBreadcrumbs } from './components/page-kit';
-import { ErrorBanner, TimeAgo, errorMessage } from './components/shared';
+import { ErrorBanner, errorMessage } from './components/shared';
 
 export default function WeldPassLandingPage() {
   const { can, isLoading } = usePermissions();
@@ -65,12 +66,7 @@ function WeldPassProjectsPage() {
       header: t('weldpass.projectList.table.name'),
       width: 'flex-1',
       render: (project) => (
-        <span className="block min-w-0">
-          <span className="block truncate font-medium">{project.name}</span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {project.description || project.slug}
-          </span>
-        </span>
+        <span className="block truncate font-medium">{project.name}</span>
       ),
     },
     {
@@ -99,10 +95,10 @@ function WeldPassProjectsPage() {
     {
       id: 'updated',
       header: t('weldpass.projectList.table.updated'),
-      width: 'w-[140px]',
+      width: 'hidden md:block md:w-[200px]',
       render: (project) => (
-        <span className="text-sm">
-          <TimeAgo value={project.updatedAt} />
+        <span className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+          {formatDateTime(project.updatedAt)}
         </span>
       ),
     },

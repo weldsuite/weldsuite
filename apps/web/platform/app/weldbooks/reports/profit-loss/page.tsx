@@ -13,32 +13,34 @@ import {
 } from '@weldsuite/ui/components/table';
 import { useProfitLossReport } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+
+type Amount = string | number | null;
 
 interface ProfitLossAccountRow {
   accountId: string;
   accountCode: string;
   accountName: string;
-  total: string | number | null;
+  total: Amount;
 }
 
 interface ProfitLossReport {
   revenue?: ProfitLossAccountRow[];
   expenses?: ProfitLossAccountRow[];
-  totalRevenue?: string | number | null;
-  totalExpenses?: string | number | null;
-  netProfit?: string | number | null;
+  totalRevenue?: Amount;
+  totalExpenses?: Amount;
+  netProfit?: Amount;
 }
 
 export default function ProfitLossReportPage() {
   const { t } = useI18n();
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, today } = useWeldbooksFormat();
   const tr = t.accounting.reports;
 
-  const today = new Date();
-  const startOfYear = `${today.getFullYear()}-01-01`;
+  const todayIso = today();
+  const startOfYear = `${todayIso.slice(0, 4)}-01-01`;
   const [from, setFrom] = useState(startOfYear);
-  const [to, setTo] = useState(today.toISOString().slice(0, 10));
+  const [to, setTo] = useState(todayIso);
 
   const { data, isLoading, refetch } = useProfitLossReport({ from, to });
   const report = data?.data as ProfitLossReport | undefined;

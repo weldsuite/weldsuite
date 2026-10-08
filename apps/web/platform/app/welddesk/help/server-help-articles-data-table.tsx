@@ -411,7 +411,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
   const breadcrumbs = getBreadcrumbs();
 
   // Fetch articles from server using direct API call
-  const loadArticles = useCallback(async () => {
+  const loadArticles = useCallback(() => {
     setIsFiltering(true);
 
     const filters: HelpArticlesFilter = {
@@ -474,7 +474,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
 
   // Fetch articles when dependencies change
   useEffect(() => {
-    void loadArticles();
+    loadArticles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     pagination.page,
@@ -502,7 +502,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
   };
 
   // Export data
-  const handleExport = async () => {
+  const handleExport = () => {
     try {
       // Exports the rows currently loaded in the table.
       //
@@ -600,7 +600,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
   };
 
   // Folder management handlers
-  const handleCreateFolder = async () => {
+  const handleCreateFolder = () => {
     if (!newFolderName.trim()) return;
 
     setIsCreatingFolder(true);
@@ -617,7 +617,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
           setSelectedFolderId(null);
           setSelectedFolderPath(null);
           void refreshFolders();
-          void loadArticles();
+          loadArticles();
         },
         onError: () => {
           toast.error(th.failedToCreateFolder);
@@ -684,7 +684,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
       }
       setShowDeleteDialog(false);
       setDeleteTarget(null);
-      void loadArticles();
+      loadArticles();
     } catch {
       toast.error(th.failedToDelete);
     }
@@ -1438,7 +1438,7 @@ export function ServerHelpArticlesDataTable({ initialStatus = "all" }: Readonly<
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    void handleCreateFolder();
+                    handleCreateFolder();
                   }
                 }}
               />

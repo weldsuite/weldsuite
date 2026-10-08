@@ -176,7 +176,8 @@ const TRIGGER_CATEGORY_HELP = [
 function buildSystemPrompt(): string {
   const actionsList = ACTION_TYPES.map((a) => {
     const fields = BUILTIN_ACTION_CONFIG_FIELDS[a.id] ?? (a as { inputs?: Array<{ key: string }> }).inputs?.map((i) => i.key) ?? [];
-    return `- ${a.id}: ${a.description}${fields.length ? ` (config fields: ${fields.join(', ')})` : ''}`;
+    const fieldNote = fields.length ? ` (config fields: ${fields.join(', ')})` : '';
+    return `- ${a.id}: ${a.description}${fieldNote}`;
   }).join('\n');
 
   const integrationTriggers = (TRIGGER_TYPES as Array<{ id: string; description: string; provider?: string }>)

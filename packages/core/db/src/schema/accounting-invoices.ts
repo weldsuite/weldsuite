@@ -8,6 +8,7 @@ import {
   jsonb,
   index,
 } from 'drizzle-orm/pg-core';
+import type { StoredPostalAddress } from './accounting-address';
 
 export const invoices = pgTable('invoices', {
   id: varchar('id', { length: 30 }).primaryKey(),
@@ -47,14 +48,9 @@ export const invoices = pgTable('invoices', {
   reference: varchar('reference', { length: 255 }),
   notes: text('notes'),
   internalNotes: text('internal_notes'),
-  billingAddress: jsonb('billing_address').$type<{
-    street?: string;
-    houseNumber?: string;
-    postalCode?: string;
-    city?: string;
-    province?: string;
-    country?: string;
-  }>(),
+  billingAddress: jsonb('billing_address').$type<StoredPostalAddress>(),
+  /** Where the goods or service go; drives destination-based tax. Falls back to the billing address. */
+  shippingAddress: jsonb('shipping_address').$type<StoredPostalAddress>(),
 
   revenueAccountId: varchar('revenue_account_id', { length: 30 }),
   creditNoteForInvoiceId: varchar('credit_note_for_invoice_id', { length: 30 }),
@@ -79,6 +75,10 @@ export const invoices = pgTable('invoices', {
     component?: string;
     /** System account role for journal posting. */
     accountRole?: string;
+    /** The rate's tax category (standard, reduced, reverse_charge, ...). */
+    taxCategoryCode?: string;
+    /** Purchase tax the buyer self-assesses (reverse charge, imports): not owed to the supplier. */
+    selfAssessed?: boolean;
   }>>(),
 
   paymentLink: varchar('payment_link', { length: 500 }),
@@ -110,7 +110,7 @@ export const invoiceItems = pgTable('invoice_items', {
   unit: varchar('unit', { length: 20 }),
   discountPercent: numeric('discount_percent', { precision: 5, scale: 2 }).default('0'),
   taxRateId: varchar('tax_rate_id', { length: 30 }),
-  taxRate: numeric('tax_rate', { precision: 5, scale: 2 }),
+  taxRate: numeric('tax_rate', { precision: 7, scale: 4 }),
   taxAmount: numeric('tax_amount', { precision: 18, scale: 2 }),
   lineTotal: numeric('line_total', { precision: 18, scale: 2 }),
   lineTotalWithTax: numeric('line_total_with_tax', { precision: 18, scale: 2 }),

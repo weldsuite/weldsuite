@@ -427,6 +427,7 @@ export const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
           <div
             ref={editorRef}
             role="textbox"
+            tabIndex={disabled ? -1 : 0}
             aria-multiline="true"
             aria-label={placeholder}
             contentEditable={!disabled}

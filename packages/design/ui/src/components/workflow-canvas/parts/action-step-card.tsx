@@ -27,8 +27,6 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
-} from '../../collapsible';
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -115,7 +113,12 @@ function summarizeHttpRequest(config: ActionConfig): string[] {
 
 function summarizeCondition(config: ActionConfig): string[] {
   if (!config.field || !config.operator) return [];
-  const op = config.operator === 'eq' ? '==' : config.operator === 'ne' ? '!=' : config.operator;
+  let op = config.operator;
+  if (op === 'eq') {
+    op = '==';
+  } else if (op === 'ne') {
+    op = '!=';
+  }
   return [`${asText(config.field)} ${asText(op)} ${asText(config.value || '')}`];
 }
 
@@ -165,7 +168,7 @@ const CONFIG_SUMMARIZERS: Record<string, (config: ActionConfig) => string[]> = {
 };
 
 function getConfigSummary(actionType: string, config: ActionConfig): string[] {
-  const summarize = Object.prototype.hasOwnProperty.call(CONFIG_SUMMARIZERS, actionType)
+  const summarize = Object.hasOwn(CONFIG_SUMMARIZERS, actionType)
     ? CONFIG_SUMMARIZERS[actionType]
     : undefined;
   return summarize ? summarize(config) : [];

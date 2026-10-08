@@ -67,7 +67,7 @@ export function CategoryHeaderBlock({
                     />
                   )}
                   <a
-                    href={mode === 'live' ? link.href : '#'}
+                    href={link.href}
                     onClick={(e) => mode !== 'live' && e.preventDefault()}
                     className={cn(
                       "hover:underline transition-colors",

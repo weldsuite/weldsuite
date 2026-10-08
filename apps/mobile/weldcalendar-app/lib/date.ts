@@ -11,12 +11,14 @@
  * row never crashes a list.
  */
 
+type DateInput = string | Date | null | undefined;
+
 const DASH = '—';
 
 /** Monday-first, matching the platform grid and European conventions. */
 export const WEEK_STARTS_ON = 1;
 
-export function parse(value: string | Date | null | undefined): Date | null {
+export function parse(value: DateInput): Date | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -25,14 +27,14 @@ export function parse(value: string | Date | null | undefined): Date | null {
 // ── Formatting ───────────────────────────────────────────────────────────
 
 /** "5 Aug 2026" */
-export function formatDate(value: string | Date | null | undefined, locale = 'en-GB'): string {
+export function formatDate(value: DateInput, locale = 'en-GB'): string {
   const date = parse(value);
   if (!date) return DASH;
   return date.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 /** "5 Aug" — for dense rows where the year is implied. */
-export function formatShortDate(value: string | Date | null | undefined, locale = 'en-GB'): string {
+export function formatShortDate(value: DateInput, locale = 'en-GB'): string {
   const date = parse(value);
   if (!date) return DASH;
   return date.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
@@ -40,7 +42,7 @@ export function formatShortDate(value: string | Date | null | undefined, locale 
 
 /** "Wed 5 Aug" */
 export function formatWeekdayDate(
-  value: string | Date | null | undefined,
+  value: DateInput,
   locale = 'en-GB',
 ): string {
   const date = parse(value);
@@ -49,7 +51,7 @@ export function formatWeekdayDate(
 }
 
 /** "09:00" */
-export function formatTime(value: string | Date | null | undefined, locale = 'en-GB'): string {
+export function formatTime(value: DateInput, locale = 'en-GB'): string {
   const date = parse(value);
   if (!date) return DASH;
   return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
@@ -65,8 +67,8 @@ export function formatMonthYear(value: Date, locale = 'en-GB'): string {
  * end, or the caller's all-day label. Multi-day ranges get the end date too.
  */
 export function formatEventTimeRange(
-  start: string | Date | null | undefined,
-  end: string | Date | null | undefined,
+  start: DateInput,
+  end: DateInput,
   options: { allDay?: boolean | null; allDayLabel: string; locale?: string },
 ): string {
   const locale = options.locale ?? 'en-GB';
@@ -90,8 +92,8 @@ export function formatEventTimeRange(
 
 /** "1h 30m" / "45m" / "2h". Empty string when there is no measurable span. */
 export function formatDuration(
-  start: string | Date | null | undefined,
-  end: string | Date | null | undefined,
+  start: DateInput,
+  end: DateInput,
 ): string {
   const s = parse(start);
   const e = parse(end);
@@ -119,7 +121,7 @@ export function isSameMonth(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 }
 
-export function isToday(value: string | Date | null | undefined): boolean {
+export function isToday(value: DateInput): boolean {
   const date = parse(value);
   return date ? isSameDay(date, new Date()) : false;
 }
@@ -155,7 +157,7 @@ export function addMonths(date: Date, months: number): Date {
 }
 
 /** Local `YYYY-MM-DD` — the key events are bucketed under. */
-export function dayKey(value: string | Date | null | undefined): string {
+export function dayKey(value: DateInput): string {
   const date = parse(value);
   if (!date) return '';
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -209,7 +211,7 @@ export interface RelativeDayLabels {
  * full date once the year differs) so an agenda heading is never ambiguous.
  */
 export function relativeDayLabel(
-  value: string | Date | null | undefined,
+  value: DateInput,
   labels: RelativeDayLabels,
   locale = 'en-GB',
 ): string {
@@ -232,8 +234,8 @@ export function relativeDayLabel(
 
 /** True once an event's end (or start, when open-ended) is in the past. */
 export function isPastEvent(
-  start: string | Date | null | undefined,
-  end: string | Date | null | undefined,
+  start: DateInput,
+  end: DateInput,
 ): boolean {
   const reference = parse(end) ?? parse(start);
   if (!reference) return false;
@@ -245,8 +247,8 @@ export function isPastEvent(
  * for an hour after their start, matching how the platform grid draws them.
  */
 export function isOngoing(
-  start: string | Date | null | undefined,
-  end: string | Date | null | undefined,
+  start: DateInput,
+  end: DateInput,
 ): boolean {
   const s = parse(start);
   if (!s) return false;

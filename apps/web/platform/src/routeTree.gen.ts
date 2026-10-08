@@ -110,6 +110,7 @@ import { Route as WeldhrSettingsIndexRouteImport } from './routes/weldhr/setting
 import { Route as WeldhrPortalIndexRouteImport } from './routes/weldhr/portal/index'
 import { Route as WeldhrPerformanceIndexRouteImport } from './routes/weldhr/performance/index'
 import { Route as WeldhrOrgChartIndexRouteImport } from './routes/weldhr/org-chart/index'
+import { Route as WeldhrMeIndexRouteImport } from './routes/weldhr/me/index'
 import { Route as WeldhrLifecycleIndexRouteImport } from './routes/weldhr/lifecycle/index'
 import { Route as WeldhrLeaveIndexRouteImport } from './routes/weldhr/leave/index'
 import { Route as WeldhrEvaluationsIndexRouteImport } from './routes/weldhr/evaluations/index'
@@ -355,6 +356,7 @@ import { Route as AuthRegisterTasksSplatRouteImport } from './routes/auth/regist
 import { Route as AuthLoginTasksSplatRouteImport } from './routes/auth/login/tasks/$'
 import { Route as PreviewWeldmailAccountIdLabelSlugRouteRouteImport } from './routes/preview/weldmail/$accountId/$labelSlug/route'
 import { Route as PreviewWeldflowProjectProjectIdRouteRouteImport } from './routes/preview/weldflow/project/$projectId/route'
+import { Route as WeldpassPasswordsVaultsVaultIdIndexRouteImport } from './routes/weldpass/passwords/vaults/$vaultId/index'
 import { Route as WeldmailUnifiedLabelSlugComposeIndexRouteImport } from './routes/weldmail/unified/$labelSlug/compose/index'
 import { Route as WeldmailUnifiedLabelSlugMessageIdIndexRouteImport } from './routes/weldmail/unified/$labelSlug/$messageId/index'
 import { Route as WeldmailAccountIdLabelSlugComposeIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/compose/index'
@@ -391,6 +393,7 @@ import { Route as WeldconnectTemplatesIdEditIndexRouteImport } from './routes/we
 import { Route as WeldcalendarSchedulingIdViewIndexRouteImport } from './routes/weldcalendar/scheduling/$id/view/index'
 import { Route as WeldcalendarSchedulingIdEditIndexRouteImport } from './routes/weldcalendar/scheduling/$id/edit/index'
 import { Route as WeldbooksInvoicesIdEditIndexRouteImport } from './routes/weldbooks/invoices/$id/edit/index'
+import { Route as WeldbooksEntitiesIdEditIndexRouteImport } from './routes/weldbooks/entities/$id/edit/index'
 import { Route as WeldbooksCustomersIdEditIndexRouteImport } from './routes/weldbooks/customers/$id/edit/index'
 import { Route as WeldbooksBillsIdEditIndexRouteImport } from './routes/weldbooks/bills/$id/edit/index'
 import { Route as WeldbooksAccountsIdEditIndexRouteImport } from './routes/weldbooks/accounts/$id/edit/index'
@@ -923,6 +926,11 @@ const WeldhrPerformanceIndexRoute = WeldhrPerformanceIndexRouteImport.update({
 const WeldhrOrgChartIndexRoute = WeldhrOrgChartIndexRouteImport.update({
   id: '/org-chart/',
   path: '/org-chart/',
+  getParentRoute: () => WeldhrRouteRoute,
+} as any)
+const WeldhrMeIndexRoute = WeldhrMeIndexRouteImport.update({
+  id: '/me/',
+  path: '/me/',
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
 const WeldhrLifecycleIndexRoute = WeldhrLifecycleIndexRouteImport.update({
@@ -2266,6 +2274,12 @@ const PreviewWeldflowProjectProjectIdRouteRoute =
     path: '/project/$projectId',
     getParentRoute: () => PreviewWeldflowRouteRoute,
   } as any)
+const WeldpassPasswordsVaultsVaultIdIndexRoute =
+  WeldpassPasswordsVaultsVaultIdIndexRouteImport.update({
+    id: '/passwords/vaults/$vaultId/',
+    path: '/passwords/vaults/$vaultId/',
+    getParentRoute: () => WeldpassRouteRoute,
+  } as any)
 const WeldmailUnifiedLabelSlugComposeIndexRoute =
   WeldmailUnifiedLabelSlugComposeIndexRouteImport.update({
     id: '/compose/',
@@ -2480,6 +2494,12 @@ const WeldbooksInvoicesIdEditIndexRoute =
   WeldbooksInvoicesIdEditIndexRouteImport.update({
     id: '/invoices/$id/edit/',
     path: '/invoices/$id/edit/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
+const WeldbooksEntitiesIdEditIndexRoute =
+  WeldbooksEntitiesIdEditIndexRouteImport.update({
+    id: '/entities/$id/edit/',
+    path: '/entities/$id/edit/',
     getParentRoute: () => WeldbooksRouteRoute,
   } as any)
 const WeldbooksCustomersIdEditIndexRoute =
@@ -2857,6 +2877,7 @@ export interface FileRoutesByFullPath {
   '/weldhr/evaluations/': typeof WeldhrEvaluationsIndexRoute
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/lifecycle/': typeof WeldhrLifecycleIndexRoute
+  '/weldhr/me/': typeof WeldhrMeIndexRoute
   '/weldhr/org-chart/': typeof WeldhrOrgChartIndexRoute
   '/weldhr/performance/': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal/': typeof WeldhrPortalIndexRoute
@@ -2999,6 +3020,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/bills/$id/edit/': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit/': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/entities/$id/edit/': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/invoices/$id/edit/': typeof WeldbooksInvoicesIdEditIndexRoute
   '/weldcalendar/scheduling/$id/edit/': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view/': typeof WeldcalendarSchedulingIdViewIndexRoute
@@ -3035,6 +3057,7 @@ export interface FileRoutesByFullPath {
   '/weldmail/$accountId/$labelSlug/compose/': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId/': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
   '/weldmail/unified/$labelSlug/compose/': typeof WeldmailUnifiedLabelSlugComposeIndexRoute
+  '/weldpass/passwords/vaults/$vaultId/': typeof WeldpassPasswordsVaultsVaultIdIndexRoute
   '/preview/weldcalendar/scheduling/$id/view/': typeof PreviewWeldcalendarSchedulingIdViewIndexRoute
   '/preview/weldflow/project/$projectId/tasks/': typeof PreviewWeldflowProjectProjectIdTasksIndexRoute
   '/preview/weldmail/$accountId/$labelSlug/$messageId/': typeof PreviewWeldmailAccountIdLabelSlugMessageIdIndexRoute
@@ -3230,6 +3253,7 @@ export interface FileRoutesByTo {
   '/weldhr/evaluations': typeof WeldhrEvaluationsIndexRoute
   '/weldhr/leave': typeof WeldhrLeaveIndexRoute
   '/weldhr/lifecycle': typeof WeldhrLifecycleIndexRoute
+  '/weldhr/me': typeof WeldhrMeIndexRoute
   '/weldhr/org-chart': typeof WeldhrOrgChartIndexRoute
   '/weldhr/performance': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal': typeof WeldhrPortalIndexRoute
@@ -3370,6 +3394,7 @@ export interface FileRoutesByTo {
   '/weldbooks/accounts/$id/edit': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/bills/$id/edit': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/entities/$id/edit': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/invoices/$id/edit': typeof WeldbooksInvoicesIdEditIndexRoute
   '/weldcalendar/scheduling/$id/edit': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view': typeof WeldcalendarSchedulingIdViewIndexRoute
@@ -3406,6 +3431,7 @@ export interface FileRoutesByTo {
   '/weldmail/$accountId/$labelSlug/compose': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
   '/weldmail/unified/$labelSlug/compose': typeof WeldmailUnifiedLabelSlugComposeIndexRoute
+  '/weldpass/passwords/vaults/$vaultId': typeof WeldpassPasswordsVaultsVaultIdIndexRoute
   '/preview/weldcalendar/scheduling/$id/view': typeof PreviewWeldcalendarSchedulingIdViewIndexRoute
   '/preview/weldflow/project/$projectId/tasks': typeof PreviewWeldflowProjectProjectIdTasksIndexRoute
   '/preview/weldmail/$accountId/$labelSlug/$messageId': typeof PreviewWeldmailAccountIdLabelSlugMessageIdIndexRoute
@@ -3639,6 +3665,7 @@ export interface FileRoutesById {
   '/weldhr/evaluations/': typeof WeldhrEvaluationsIndexRoute
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/lifecycle/': typeof WeldhrLifecycleIndexRoute
+  '/weldhr/me/': typeof WeldhrMeIndexRoute
   '/weldhr/org-chart/': typeof WeldhrOrgChartIndexRoute
   '/weldhr/performance/': typeof WeldhrPerformanceIndexRoute
   '/weldhr/portal/': typeof WeldhrPortalIndexRoute
@@ -3781,6 +3808,7 @@ export interface FileRoutesById {
   '/weldbooks/accounts/$id/edit/': typeof WeldbooksAccountsIdEditIndexRoute
   '/weldbooks/bills/$id/edit/': typeof WeldbooksBillsIdEditIndexRoute
   '/weldbooks/customers/$id/edit/': typeof WeldbooksCustomersIdEditIndexRoute
+  '/weldbooks/entities/$id/edit/': typeof WeldbooksEntitiesIdEditIndexRoute
   '/weldbooks/invoices/$id/edit/': typeof WeldbooksInvoicesIdEditIndexRoute
   '/weldcalendar/scheduling/$id/edit/': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view/': typeof WeldcalendarSchedulingIdViewIndexRoute
@@ -3817,6 +3845,7 @@ export interface FileRoutesById {
   '/weldmail/$accountId/$labelSlug/compose/': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId/': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
   '/weldmail/unified/$labelSlug/compose/': typeof WeldmailUnifiedLabelSlugComposeIndexRoute
+  '/weldpass/passwords/vaults/$vaultId/': typeof WeldpassPasswordsVaultsVaultIdIndexRoute
   '/preview/weldcalendar/scheduling/$id/view/': typeof PreviewWeldcalendarSchedulingIdViewIndexRoute
   '/preview/weldflow/project/$projectId/tasks/': typeof PreviewWeldflowProjectProjectIdTasksIndexRoute
   '/preview/weldmail/$accountId/$labelSlug/$messageId/': typeof PreviewWeldmailAccountIdLabelSlugMessageIdIndexRoute
@@ -4050,6 +4079,7 @@ export interface FileRouteTypes {
     | '/weldhr/evaluations/'
     | '/weldhr/leave/'
     | '/weldhr/lifecycle/'
+    | '/weldhr/me/'
     | '/weldhr/org-chart/'
     | '/weldhr/performance/'
     | '/weldhr/portal/'
@@ -4192,6 +4222,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id/edit/'
     | '/weldbooks/bills/$id/edit/'
     | '/weldbooks/customers/$id/edit/'
+    | '/weldbooks/entities/$id/edit/'
     | '/weldbooks/invoices/$id/edit/'
     | '/weldcalendar/scheduling/$id/edit/'
     | '/weldcalendar/scheduling/$id/view/'
@@ -4228,6 +4259,7 @@ export interface FileRouteTypes {
     | '/weldmail/$accountId/$labelSlug/compose/'
     | '/weldmail/unified/$labelSlug/$messageId/'
     | '/weldmail/unified/$labelSlug/compose/'
+    | '/weldpass/passwords/vaults/$vaultId/'
     | '/preview/weldcalendar/scheduling/$id/view/'
     | '/preview/weldflow/project/$projectId/tasks/'
     | '/preview/weldmail/$accountId/$labelSlug/$messageId/'
@@ -4423,6 +4455,7 @@ export interface FileRouteTypes {
     | '/weldhr/evaluations'
     | '/weldhr/leave'
     | '/weldhr/lifecycle'
+    | '/weldhr/me'
     | '/weldhr/org-chart'
     | '/weldhr/performance'
     | '/weldhr/portal'
@@ -4563,6 +4596,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id/edit'
     | '/weldbooks/bills/$id/edit'
     | '/weldbooks/customers/$id/edit'
+    | '/weldbooks/entities/$id/edit'
     | '/weldbooks/invoices/$id/edit'
     | '/weldcalendar/scheduling/$id/edit'
     | '/weldcalendar/scheduling/$id/view'
@@ -4599,6 +4633,7 @@ export interface FileRouteTypes {
     | '/weldmail/$accountId/$labelSlug/compose'
     | '/weldmail/unified/$labelSlug/$messageId'
     | '/weldmail/unified/$labelSlug/compose'
+    | '/weldpass/passwords/vaults/$vaultId'
     | '/preview/weldcalendar/scheduling/$id/view'
     | '/preview/weldflow/project/$projectId/tasks'
     | '/preview/weldmail/$accountId/$labelSlug/$messageId'
@@ -4831,6 +4866,7 @@ export interface FileRouteTypes {
     | '/weldhr/evaluations/'
     | '/weldhr/leave/'
     | '/weldhr/lifecycle/'
+    | '/weldhr/me/'
     | '/weldhr/org-chart/'
     | '/weldhr/performance/'
     | '/weldhr/portal/'
@@ -4973,6 +5009,7 @@ export interface FileRouteTypes {
     | '/weldbooks/accounts/$id/edit/'
     | '/weldbooks/bills/$id/edit/'
     | '/weldbooks/customers/$id/edit/'
+    | '/weldbooks/entities/$id/edit/'
     | '/weldbooks/invoices/$id/edit/'
     | '/weldcalendar/scheduling/$id/edit/'
     | '/weldcalendar/scheduling/$id/view/'
@@ -5009,6 +5046,7 @@ export interface FileRouteTypes {
     | '/weldmail/$accountId/$labelSlug/compose/'
     | '/weldmail/unified/$labelSlug/$messageId/'
     | '/weldmail/unified/$labelSlug/compose/'
+    | '/weldpass/passwords/vaults/$vaultId/'
     | '/preview/weldcalendar/scheduling/$id/view/'
     | '/preview/weldflow/project/$projectId/tasks/'
     | '/preview/weldmail/$accountId/$labelSlug/$messageId/'
@@ -5782,6 +5820,13 @@ declare module '@tanstack/react-router' {
       path: '/org-chart'
       fullPath: '/weldhr/org-chart/'
       preLoaderRoute: typeof WeldhrOrgChartIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
+    '/weldhr/me/': {
+      id: '/weldhr/me/'
+      path: '/me'
+      fullPath: '/weldhr/me/'
+      preLoaderRoute: typeof WeldhrMeIndexRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
     '/weldhr/lifecycle/': {
@@ -7499,6 +7544,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewWeldflowProjectProjectIdRouteRouteImport
       parentRoute: typeof PreviewWeldflowRouteRoute
     }
+    '/weldpass/passwords/vaults/$vaultId/': {
+      id: '/weldpass/passwords/vaults/$vaultId/'
+      path: '/passwords/vaults/$vaultId'
+      fullPath: '/weldpass/passwords/vaults/$vaultId/'
+      preLoaderRoute: typeof WeldpassPasswordsVaultsVaultIdIndexRouteImport
+      parentRoute: typeof WeldpassRouteRoute
+    }
     '/weldmail/unified/$labelSlug/compose/': {
       id: '/weldmail/unified/$labelSlug/compose/'
       path: '/compose'
@@ -7749,6 +7801,13 @@ declare module '@tanstack/react-router' {
       path: '/invoices/$id/edit'
       fullPath: '/weldbooks/invoices/$id/edit/'
       preLoaderRoute: typeof WeldbooksInvoicesIdEditIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
+    '/weldbooks/entities/$id/edit/': {
+      id: '/weldbooks/entities/$id/edit/'
+      path: '/entities/$id/edit'
+      fullPath: '/weldbooks/entities/$id/edit/'
+      preLoaderRoute: typeof WeldbooksEntitiesIdEditIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
     '/weldbooks/customers/$id/edit/': {
@@ -8225,6 +8284,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksAccountsIdEditIndexRoute: typeof WeldbooksAccountsIdEditIndexRoute
   WeldbooksBillsIdEditIndexRoute: typeof WeldbooksBillsIdEditIndexRoute
   WeldbooksCustomersIdEditIndexRoute: typeof WeldbooksCustomersIdEditIndexRoute
+  WeldbooksEntitiesIdEditIndexRoute: typeof WeldbooksEntitiesIdEditIndexRoute
   WeldbooksInvoicesIdEditIndexRoute: typeof WeldbooksInvoicesIdEditIndexRoute
 }
 
@@ -8281,6 +8341,7 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksAccountsIdEditIndexRoute: WeldbooksAccountsIdEditIndexRoute,
   WeldbooksBillsIdEditIndexRoute: WeldbooksBillsIdEditIndexRoute,
   WeldbooksCustomersIdEditIndexRoute: WeldbooksCustomersIdEditIndexRoute,
+  WeldbooksEntitiesIdEditIndexRoute: WeldbooksEntitiesIdEditIndexRoute,
   WeldbooksInvoicesIdEditIndexRoute: WeldbooksInvoicesIdEditIndexRoute,
 }
 
@@ -8743,6 +8804,7 @@ interface WeldhrRouteRouteChildren {
   WeldhrEvaluationsIndexRoute: typeof WeldhrEvaluationsIndexRoute
   WeldhrLeaveIndexRoute: typeof WeldhrLeaveIndexRoute
   WeldhrLifecycleIndexRoute: typeof WeldhrLifecycleIndexRoute
+  WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
   WeldhrOrgChartIndexRoute: typeof WeldhrOrgChartIndexRoute
   WeldhrPerformanceIndexRoute: typeof WeldhrPerformanceIndexRoute
   WeldhrPortalIndexRoute: typeof WeldhrPortalIndexRoute
@@ -8761,6 +8823,7 @@ const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
   WeldhrEvaluationsIndexRoute: WeldhrEvaluationsIndexRoute,
   WeldhrLeaveIndexRoute: WeldhrLeaveIndexRoute,
   WeldhrLifecycleIndexRoute: WeldhrLifecycleIndexRoute,
+  WeldhrMeIndexRoute: WeldhrMeIndexRoute,
   WeldhrOrgChartIndexRoute: WeldhrOrgChartIndexRoute,
   WeldhrPerformanceIndexRoute: WeldhrPerformanceIndexRoute,
   WeldhrPortalIndexRoute: WeldhrPortalIndexRoute,
@@ -8934,6 +8997,7 @@ interface WeldpassRouteRouteChildren {
   WeldpassProjectIdSyncIndexRoute: typeof WeldpassProjectIdSyncIndexRoute
   WeldpassPasswordsHealthIndexRoute: typeof WeldpassPasswordsHealthIndexRoute
   WeldpassPasswordsVaultsIndexRoute: typeof WeldpassPasswordsVaultsIndexRoute
+  WeldpassPasswordsVaultsVaultIdIndexRoute: typeof WeldpassPasswordsVaultsVaultIdIndexRoute
 }
 
 const WeldpassRouteRouteChildren: WeldpassRouteRouteChildren = {
@@ -8944,6 +9008,8 @@ const WeldpassRouteRouteChildren: WeldpassRouteRouteChildren = {
   WeldpassProjectIdSyncIndexRoute: WeldpassProjectIdSyncIndexRoute,
   WeldpassPasswordsHealthIndexRoute: WeldpassPasswordsHealthIndexRoute,
   WeldpassPasswordsVaultsIndexRoute: WeldpassPasswordsVaultsIndexRoute,
+  WeldpassPasswordsVaultsVaultIdIndexRoute:
+    WeldpassPasswordsVaultsVaultIdIndexRoute,
 }
 
 const WeldpassRouteRouteWithChildren = WeldpassRouteRoute._addFileChildren(

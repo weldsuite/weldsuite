@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 
 interface FloatingVideoState {
   src: string;
@@ -168,8 +168,29 @@ export function FloatingVideoProvider({ children }: Readonly<{ children: ReactNo
     };
   }, [floatingVideo]);
 
+  const value = useMemo(
+    () => ({
+      floatingVideo,
+      minimize,
+      restore,
+      dismiss,
+      maximizeBack,
+      togglePlayPause,
+      videoRef,
+      smoothTime,
+      duration,
+      isPlaying,
+      pendingRestore,
+      consumePendingRestore,
+    }),
+    [
+      floatingVideo, minimize, restore, dismiss, maximizeBack, togglePlayPause, videoRef,
+      smoothTime, duration, isPlaying, pendingRestore, consumePendingRestore,
+    ]
+  );
+
   return (
-    <FloatingVideoContext.Provider value={{ floatingVideo, minimize, restore, dismiss, maximizeBack, togglePlayPause, videoRef, smoothTime, duration, isPlaying, pendingRestore, consumePendingRestore }}>
+    <FloatingVideoContext.Provider value={value}>
       {children}
     </FloatingVideoContext.Provider>
   );

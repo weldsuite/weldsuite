@@ -217,8 +217,9 @@ function safeWaitUntil(c: ChatContext): (p: Promise<unknown>) => void {
  * (mobile) and `content` (platform/tests) are both accepted for the text.
  */
 function messageInputFromBody(data: Record<string, unknown>) {
-  const content =
-    typeof data.body === 'string' ? data.body : typeof data.content === 'string' ? data.content : '';
+  let content = '';
+  if (typeof data.body === 'string') content = data.body;
+  else if (typeof data.content === 'string') content = data.content;
   return {
     content,
     htmlContent: typeof data.htmlContent === 'string' ? data.htmlContent : undefined,

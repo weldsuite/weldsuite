@@ -309,7 +309,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     subGoals: []
   });
   const [goals, setGoals] = useState<GoalCard[]>(initialGoals);
-  const [_isSaving, setIsSaving] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [showDetailsPanel, setShowDetailsPanel] = useState(false);
   const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
@@ -321,11 +320,9 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const [parentGoalForNewChild, setParentGoalForNewChild] = useState<string | null>(null);
   const [newGoalTitle, setNewGoalTitle] = useState('');
   const [newGoalTarget, setNewGoalTarget] = useState('');
-  const [_activeCommentsTab, _setActiveCommentsTab] = useState<'comments' | 'activity'>('comments');
   const [goalCreationType, setGoalCreationType] = useState<'new' | 'existing'>('existing');
   const [selectedExistingTask, setSelectedExistingTask] = useState<string | null>(null);
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
-  const [_completedGoals, _setCompletedGoals] = useState<Set<string>>(new Set());
   // Seeded with a placeholder so the goal-mode TaskDetailPanel stays mounted
   // from first render in a closed state (translate-x-full). On first open,
   // isOpen goes false → true, which triggers the slide-in transition.
@@ -335,15 +332,12 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     status: 'todo',
     createdAt: new Date(),
   });
-  const [_commentInput, _setCommentInput] = useState('');
-  const [_comments, _setComments] = useState<GoalComment[]>([]);
-  const [commentsHeight, _setCommentsHeight] = useState(250);
+  const commentsHeight: number = 250;
   const [tool, setTool] = useState<'select' | 'pan'>('select');
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
   const panPositionRef = useRef({ x: 0, y: 0 });
-  const _touchRafRef = useRef<number | null>(null);
 
   // Start with { x: 0, y: 0 } to avoid hydration mismatch - will center in useEffect
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
@@ -351,8 +345,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const [zoomIndex, setZoomIndex] = useState(8);
   const [isDragging, setIsDragging] = useState(false);
   const [draggedGoal, setDraggedGoal] = useState<string | null>(null);
-  const [_dragOffset, _setDragOffset] = useState({ x: 0, y: 0 });
-  const [_dragRenderTrigger, setDragRenderTrigger] = useState(0);
   const dragStartMouse = useRef({ x: 0, y: 0 });
   const dragStartGoal = useRef({ x: 0, y: 0 });
   const dragCurrentPosition = useRef({ x: 0, y: 0 });
@@ -360,9 +352,9 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const rafRef = useRef<number | null>(null);
   const hasDraggedRef = useRef(false);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
-  const [selectedTimePeriod, _setSelectedTimePeriod] = useState('all');
+  const selectedTimePeriod: string = 'all';
   const [highlightStatus, setHighlightStatus] = useState<string>('none');
-  const [showConnections, _setShowConnections] = useState(true);
+  const showConnections: boolean = true;
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -515,7 +507,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
 
   // Save function
   const saveGoals = useCallback(async () => {
-    setIsSaving(true);
     try {
       // Convert goals back to GoalCardType for saving (dates as strings)
       const goalsToSave: GoalsData = {
@@ -540,7 +531,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       console.error('Failed to save goals:', error);
       toast.error(st('sweep.weldflow.goalsCanvas.saveFailed'));
     } finally {
-      setIsSaving(false);
     }
   }, [mission, goals, getClient, projectId, st]);
 
@@ -557,7 +547,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   }, [goals, mission, isInitialLoad, saveGoals]);
 
   // Handle comments section resize
-  const _isResizingRef = useRef(false);
   const commentsHeightRef = useRef(commentsHeight);
 
   // Keep ref in sync with state
@@ -672,8 +661,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       const children = goals.filter(g => g.parentId === id);
       const descendants: string[] = [];
       children.forEach(child => {
-        descendants.push(child.id);
-        descendants.push(...getAllDescendants(child.id));
+        descendants.push(
+          child.id,
+          ...getAllDescendants(child.id),
+        );
       });
       return descendants;
     };
@@ -893,7 +884,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     const oldWidth = existingChildren.length > 0
       ? (existingChildren.length * childWidth) + ((existingChildren.length - 1) * horizontalSpacing)
       : 0;
-    const _oldStartX = parentX - (oldWidth / 2);
 
     // Get all sibling parents (goals with the same parent - could be mission's children or same level)
     const siblingParents = goals.filter(g =>
@@ -931,7 +921,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     };
 
     // Calculate the rightmost edge of this parent's children
-    const _parentLeftEdge = startX;
     const parentRightEdge = startX + totalWidth;
 
     // Update parent's subGoals array and reposition all existing children
@@ -1056,15 +1045,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
         dragCurrentPosition.current = { x: goal.x, y: goal.y };
         hasDraggedRef.current = false;
       }
-    } else if (tool === 'pan' || (tool === 'select' && e.shiftKey)) {
-      // Start panning with pan tool or shift key
-      setIsPanning(true);
-      setPanStart({
-        x: e.clientX - panPosition.x,
-        y: e.clientY - panPosition.y
-      });
-    } else if (!goalId) {
-      // Clicked on empty canvas area - start panning
+    } else if (tool === 'pan' || (tool === 'select' && e.shiftKey) || !goalId) {
+      // Pan with the pan tool, shift key, or a click on the empty canvas area
       setIsPanning(true);
       setPanStart({
         x: e.clientX - panPosition.x,
@@ -1141,7 +1123,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     // Throttle re-renders for connection lines using requestAnimationFrame
     if (rafRef.current === null) {
       rafRef.current = requestAnimationFrame(() => {
-        setDragRenderTrigger(prev => prev + 1);
         rafRef.current = null;
       });
     }
@@ -1409,7 +1390,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   // Render goal card - simplified version matching screenshot
   const renderGoalCard = (goal: GoalCard) => {
     const isHighlighted = highlightStatus !== 'none' && goal.status === highlightStatus;
-    const _statusColor = getStatusColor(goal.status);
     const isDraggingThis = isDragging && draggedGoal === goal.id;
 
     return (
@@ -1993,7 +1973,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
           style={{
             transform: `translate(${panPosition.x}px, ${panPosition.y}px) scale(${zoom})`,
             transformOrigin: '0 0',
-            transition: isPanning || isDragging || isInitialLoad ? 'none' : (isZooming ? 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)' : 'none')
+            transition: isZooming && !(isPanning || isDragging || isInitialLoad) ? 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)' : 'none'
           }}
         >
           {/* Grid pattern background */}

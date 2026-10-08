@@ -17,6 +17,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useAddChannelMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { isValidEmail } from '@/components/objects/channel/invite-validation';
 
 interface InviteExternalUserModalProps {
   channelId: string;
@@ -61,6 +62,7 @@ export function InviteExternalUserModal({
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canSubmit = isValidEmail(email) && !!name.trim();
 
   const reset = () => {
     setEmail('');
@@ -71,7 +73,7 @@ export function InviteExternalUserModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !name) return;
+    if (!canSubmit) return;
 
     setError(null);
     setSubmitting(true);
@@ -168,7 +170,7 @@ export function InviteExternalUserModal({
             >
               {ts?.cancel ?? 'Cancel'}
             </Button>
-            <Button type="submit" disabled={submitting || !email || !name}>
+            <Button type="submit" disabled={submitting || !canSubmit}>
               {submitting ? (ts?.submitting ?? 'Sending...') : (ts?.submit ?? 'Send invitation')}
             </Button>
           </DialogFooter>

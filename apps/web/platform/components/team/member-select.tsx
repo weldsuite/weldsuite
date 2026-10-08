@@ -49,7 +49,7 @@ const ASSIGNEE_AVATAR_PALETTE = [
 function assigneeFallbackColor(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+    hash = (hash * 31 + seed.codePointAt(i)!) | 0;
   }
   const idx = Math.abs(hash) % ASSIGNEE_AVATAR_PALETTE.length;
   return ASSIGNEE_AVATAR_PALETTE[idx]!;

@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, type ReactNode } from 'react';
 import type { Note } from './note-editor-dialog';
 import type {
   CustomerDetailContextValue,
@@ -177,9 +177,14 @@ export function CustomerDetailProvider({
   const detailQuery = isContact ? personDetailQuery : companyDetailQuery;
 
   // Derive detail data from queries
-  const queryData = isContact
-    ? (personDetailQuery.data?.data ? personToCustomerDetailData(personDetailQuery.data.data as unknown as PersonDetailRow) : null)
-    : (companyDetailQuery.data?.data as CustomerDetailData | null ?? null);
+  let queryData: CustomerDetailData | null = null;
+  if (isContact) {
+    if (personDetailQuery.data?.data) {
+      queryData = personToCustomerDetailData(personDetailQuery.data.data as unknown as PersonDetailRow);
+    }
+  } else {
+    queryData = companyDetailQuery.data?.data as CustomerDetailData | null ?? null;
+  }
 
   const data = initialData ?? queryData;
 
@@ -214,7 +219,7 @@ export function CustomerDetailProvider({
     await detailQuery.refetch();
   }, [detailQuery]);
 
-  const value: CustomerDetailContextValue = {
+  const value = useMemo((): CustomerDetailContextValue => ({
     data,
     isLoading,
     error,
@@ -232,7 +237,7 @@ export function CustomerDetailProvider({
     returnUrl,
     showHeader,
     showTabs,
-    showSidebar: mode === 'page' ? showSidebar : isExpanded ? true : false,
+    showSidebar: mode === 'page' ? showSidebar : !!isExpanded,
     onCompose,
     onCall,
     onClose,
@@ -249,7 +254,14 @@ export function CustomerDetailProvider({
     showTaskDialog,
     setShowTaskDialog,
     visitorLocation,
-  };
+  }), [
+    data, isLoading, error, navigation, activeTab, setActiveTab, sidebarTab, setSidebarTab,
+    refresh, silentRefresh, mode, entityType, customerId, listId, returnUrl, showHeader,
+    showTabs, showSidebar, isExpanded, onCompose, onCall, onClose, onToggleExpand,
+    countOverrides, setCountOverride, pendingNoteCreate, setPendingNoteCreate, floatingNote,
+    setFloatingNote, showFloatingNoteEditor, setShowFloatingNoteEditor, showTaskDialog,
+    setShowTaskDialog, visitorLocation,
+  ]);
 
   return (
     <CustomerDetailContext.Provider value={value}>

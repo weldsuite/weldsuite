@@ -99,12 +99,20 @@ export interface TeamMemberDetail {
   allocationPercentage?: number;
   hoursPerWeek?: string | null;
   isActive?: boolean;
+  /** INTERNAL, EXTERNAL_GUEST or EMPLOYEE (fixed My HR + WeldChat access, no role). */
+  memberType?: string;
 }
 
 // ─── Adapter Functions ───────────────────────────────────────────────
 
 export function fromTeamMember(member: TeamMember): TeamMemberDetail {
   const isPending = member.status === 'PENDING' || (!member.auth0Id && member.status !== 'ACTIVE');
+  let status: TeamMemberDetail['status'] = 'INACTIVE';
+  if (isPending) {
+    status = 'PENDING';
+  } else if (member.status === 'ACTIVE') {
+    status = 'ACTIVE';
+  }
   return {
     id: member.id,
     name: member.name || 'Unknown',
@@ -112,12 +120,13 @@ export function fromTeamMember(member: TeamMember): TeamMemberDetail {
     avatar: member.picture ?? undefined,
     role: member.workspaceRole || 'MEMBER',
     roleId: member.workspaceRoleId ?? null,
-    status: isPending ? 'PENDING' : (member.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE'),
+    status,
     joinedAt: member.createdAt,
     auth0Id: member.auth0Id,
     userId: member.userId,
     workspaces: member.workspaces,
     hoursPerWeek: member.hoursPerWeek,
+    memberType: member.memberType,
   };
 }
 
@@ -833,9 +842,10 @@ export function TeamMemberDetailsPanel({
             });
             const visibleTabs = allTabs.filter((t) => isCollapsedTabVisible(t.id));
             const fallbackTab = (visibleTabs[0]?.id ?? 'profile') as MemberTab;
-            const effectiveActive: MemberTab = visibleTabs.some((t) => t.id === activeTab)
-              ? (hideMessages && activeTab === 'messages' ? 'profile' : activeTab)
-              : fallbackTab;
+            let effectiveActive: MemberTab = fallbackTab;
+            if (visibleTabs.some((t) => t.id === activeTab)) {
+              effectiveActive = hideMessages && activeTab === 'messages' ? 'profile' : activeTab;
+            }
             return (
               <div className="flex-1 flex flex-col min-h-0">
                 <div className="relative z-10">
@@ -1311,7 +1321,10 @@ function MemberAppLogo({ appCode, alt }: Readonly<{ appCode: string; alt: string
   const isDark = resolvedTheme === 'dark';
   const assets = APP_REGISTRY[appCode];
   const logo = assets?.logo;
-  const src = logo ? (isDark ? logo.iconDark : logo.iconLight) : undefined;
+  let src: string | undefined;
+  if (logo) {
+    src = isDark ? logo.iconDark : logo.iconLight;
+  }
 
   if (src) {
     return (
@@ -1378,6 +1391,7 @@ function PermissionsContent({
   const memberDenies = memberPermsData?.data?.memberDenies ?? NO_KEYS;
   const inheritedPermissions = memberPermsData?.data?.inheritedPermissions ?? rolePermissions;
   const installedAppCodes = memberApps.map((app) => app.appCode);
+  const hasAllAppAccess = activeRole === 'OWNER' || activeRole === 'ADMIN';
 
   const handleSaveOverrides = async (permissions: string[], permissionDenies: string[]) => {
     try {
@@ -1396,6 +1410,19 @@ function PermissionsContent({
     toast.error(t('sweep.settings.appPermissions.saveFailed'));
     return false;
   };
+
+  // An EMPLOYEE member has no role, app assignments or overrides to edit:
+  // their access is the fixed My HR + WeldChat set (server-enforced).
+  if (context === 'settings' && member.memberType === 'EMPLOYEE') {
+    return (
+      <div className="px-4 py-10">
+        <div className="w-[848px] max-w-full mx-auto rounded-lg border border-border p-4">
+          <h3 className="text-sm font-medium text-foreground">{t('sweep.settings.team.employeeAccess.title')}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{t('sweep.settings.team.employeeAccess.description')}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 py-10 space-y-10">
@@ -1488,7 +1515,7 @@ function PermissionsContent({
         <div className="w-[848px] max-w-full mx-auto border-t border-border/70 pt-10">
           <h3 className="text-sm font-medium text-foreground mb-3">App Access</h3>
 
-          {activeRole === 'OWNER' || activeRole === 'ADMIN' ? (
+          {hasAllAppAccess && (
             <>
               <p className="text-xs text-muted-foreground mb-3">
                 Owners and admins automatically have access to every installed app.
@@ -1516,9 +1543,11 @@ function PermissionsContent({
                 ))}
               </div>
             </>
-          ) : memberApps.length === 0 ? (
+          )}
+          {!hasAllAppAccess && memberApps.length === 0 && (
             <p className="text-xs text-muted-foreground">No apps available.</p>
-          ) : (
+          )}
+          {!hasAllAppAccess && memberApps.length > 0 && (
             <div className="grid grid-cols-2 gap-2">
               {memberApps.map((app) => {
                 return (

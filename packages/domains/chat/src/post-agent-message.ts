@@ -110,7 +110,7 @@ export async function postAgentChatMessage(
   ctx: PostAgentChatMessageContext,
   input: PostAgentChatMessageInput,
 ): Promise<typeof schema.chatMessages.$inferSelect> {
-  const { db, env, orgId, channelId, agentId, agentName, agentIcon, invokerUserId } = ctx;
+  const { db, env, channelId, agentId, agentName, agentIcon, invokerUserId } = ctx;
   const { chatMessages, chatChannels } = schema;
   const rt = getPublisher(env);
 

@@ -104,7 +104,7 @@ const app = new Hono<{ Bindings: TelnyxEnv; Variables: Variables }>();
 
 // ---------- Configuration check ----------
 
-app.get('/configured', requirePermission(READ_TELEPHONY), async (c) => {
+app.get('/configured', requirePermission(READ_TELEPHONY), (c) => {
   return success(c, { configured: isTelnyxConfigured(c.env) });
 });
 
@@ -594,7 +594,7 @@ app.post('/addresses', requirePermission(MANAGE_TELEPHONY), zValidator('json', c
 /**
  * GET /telephony/bundles — Telnyx does not use bundles; returns empty array for frontend compat
  */
-app.get('/bundles', requirePermission(READ_TELEPHONY), async (c) => {
+app.get('/bundles', requirePermission(READ_TELEPHONY), (c) => {
   return success(c, { bundles: [] });
 });
 

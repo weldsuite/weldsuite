@@ -47,6 +47,7 @@ Every error response has the same shape: a single `error` object with a machine-
 | 401 | `UNAUTHORIZED` | The API key is missing, malformed, revoked, or expired. |
 | 403 | `FORBIDDEN` | The API key is valid but lacks the scope required for this endpoint, or the workspace plan has no API access. |
 | 404 | `NOT_FOUND` | The requested resource does not exist (or is soft-deleted). |
+| 405 | `METHOD_NOT_ALLOWED` | The resource does not accept this HTTP method. Most WeldBooks resources are read-only through the API, so `POST`, `PUT`, `PATCH` and `DELETE` on them return 405 whatever the key's scopes. See the [WeldBooks overview](/weldbooks). |
 | 409 | `CONFLICT` | The request conflicts with the current state of the resource. |
 | 429 | `RATE_LIMITED` | You exceeded your plan's rate limit. A `Retry-After` header indicates when to retry. |
 | 500 | `INTERNAL_ERROR` | An unexpected server error occurred. Retry with backoff. |

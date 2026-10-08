@@ -125,7 +125,7 @@ for (const f of files) {
 // x.integration.test.ts → x.ts); otherwise to whoever owns what it imports.
 for (const [f, o] of owner) {
   if (o !== 'UNREACHED' || !f.endsWith('.test.ts')) continue;
-  const subject = f.replace(/(.[a-z-]+)?.test.ts$/, '.ts');
+  const subject = f.replace(/(\.[a-z-]+)?\.test\.ts$/, '.ts');
   const viaSubject = owner.get(subject);
   if (viaSubject && viaSubject !== 'UNREACHED') {
     owner.set(f, viaSubject);

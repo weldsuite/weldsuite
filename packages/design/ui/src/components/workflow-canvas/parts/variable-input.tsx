@@ -316,11 +316,11 @@ export function VariableInput({
 }
 
 export function VariableText({ value, className }: Readonly<{ value: string; className?: string }>) {
-  const parts = value.split(/(\{\{[^}]+\}\})/g);
+  const parts = value.split(/(\{\{[^{}]+\}\})/g);
   return (
     <span className={className}>
       {parts.map((part, index) => {
-        if (part.match(/^\{\{[^}]+\}\}$/)) {
+        if (/^\{\{[^}]+\}\}$/.exec(part)) {
           return (
             <code key={index} className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1 rounded text-xs">
               {part}

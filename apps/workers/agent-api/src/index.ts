@@ -63,7 +63,7 @@ export default {
     }
     console.warn(`[agent-api] no consumer registered for queue "${batch.queue}"`);
   },
-  scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+  scheduled: (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     // Hourly: WeldAgent routines.
     if (event.cron === '0 * * * *') {
       ctx.waitUntil(

@@ -51,7 +51,7 @@ export default function TestimonialsSection({
             <Card key={index}>
               <CardContent className="pt-6">
                 <div className="flex mb-4">
-                  {[...Array(testimonial.rating || 5)].map((_, i) => (
+                  {[...new Array(testimonial.rating || 5)].map((_, i) => (
                     <Star key={i} className="h-4 w-4 fill-primary text-primary" />
                   ))}
                 </div>

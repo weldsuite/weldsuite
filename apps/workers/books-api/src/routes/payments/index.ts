@@ -1,21 +1,24 @@
 /**
  * Payment routes — flat /api/payments/* surface backed by `payments`.
  *
- * Ported from apps/api-worker/src/routes/accounting/payments.ts:
  *   - Entity scoping via resolveEntityId (header/query/default).
- *   - Invoice/bill balance settlement (amountPaid/balanceDue/status/paidAt).
- *   - Realized FX gain/loss journal posting when the payment rate differs
- *     from the invoice/bill booking rate.
+ *   - A payment can settle several invoices or bills (`allocations`); the
+ *     single `invoiceId` / `billId` form still works.
+ *   - Recording posts the payment (Dr bank / Cr receivable, or Dr payable /
+ *     Cr bank) together with the documents' new paid amounts and statuses as
+ *     one atomic posting (services/accounting-payments). A realized FX
+ *     difference posts separately.
  *
  * Integrity rules (administratieplicht — do not weaken):
- *   - Creating a payment is blocked when its date falls in a closed period.
- *   - Deleting a payment dated inside a closed period is blocked.
+ *   - Postings are refused inside closed periods and on/before lock dates.
+ *   - Deleting a payment voids it: its entry is reversed (dated today) and the
+ *     documents' paid amounts are restored. Nothing is removed from the ledger.
  *   - Every mutation is written to the accounting audit log.
  *
  * Permissions: banking:read | banking:create | banking:delete.
  */
 
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
@@ -23,28 +26,37 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import { generateId } from '@weldsuite/worker-kit/id';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
-import { calculateFxGainLoss } from '../../services/accounting-currency';
+import { schema } from '@weldsuite/worker-kit/db';
+import { resolveEntityId } from '../../lib/entity-context';
 import {
-  assertPeriodOpen,
   ClosedPeriodError,
+  LockedPeriodError,
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
+import { PostingError } from '../../services/accounting-posting';
+import { recordPayment, voidPayment } from '../../services/accounting-payments';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+const allocationSchema = z.object({
+  invoiceId: z.string().max(30).optional(),
+  billId: z.string().max(30).optional(),
+  amount: z.string(),
+});
 
 const createPaymentSchema = z.object({
   type: z.enum(['received', 'sent']),
   amount: z.string(),
   currency: z.string().length(3).optional(),
   date: z.string(),
-  paymentMethod: z.string().max(20).optional(),
+  /** check | ach | wire | credit_card | debit_card | cash | third_party_network | bank_transfer | direct_debit | ideal | other */
+  paymentMethod: z.string().max(30).optional(),
+  checkNumber: z.string().max(30).optional(),
   reference: z.string().max(255).optional(),
   invoiceId: z.string().optional(),
   billId: z.string().optional(),
-  contactId: z.string().min(1),
+  allocations: z.array(allocationSchema).optional(),
+  contactId: z.string().min(1).optional(),
   bankAccountId: z.string().optional(),
   bankTransactionId: z.string().optional(),
   notes: z.string().optional(),
@@ -78,12 +90,12 @@ app.get('/', requirePermission('banking:read'), async (c) => {
     const totalCount = Number(countRes[0]?.count ?? 0);
     return list(c, rows, cursorPagination(totalCount, page * pageSize < totalCount, null));
   } catch (err) {
-    console.error('[app-api/payments] list failed:', err);
+    console.error('[books-api/payments] list failed:', err);
     return error.internal(c, 'Failed to fetch payments');
   }
 });
 
-// GET /:id
+// GET /:id — includes allocations
 app.get('/:id', requirePermission('banking:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
@@ -91,390 +103,91 @@ app.get('/:id', requirePermission('banking:read'), async (c) => {
     const [payment] = await db.select().from(schema.payments)
       .where(and(eq(schema.payments.id, id), isNull(schema.payments.deletedAt))).limit(1);
     if (!payment) return error.notFound(c, 'Payment', id);
-    return success(c, payment);
+    const allocations = await db.select().from(schema.paymentAllocations)
+      .where(and(eq(schema.paymentAllocations.paymentId, id), isNull(schema.paymentAllocations.deletedAt)));
+    return success(c, { ...payment, allocations });
   } catch (err) {
-    console.error('[app-api/payments] get failed:', err);
+    console.error('[books-api/payments] get failed:', err);
     return error.internal(c, 'Failed to fetch payment');
   }
 });
-
-type CreatePaymentInput = z.infer<typeof createPaymentSchema>;
-
-/**
- * Not-found / wrong-entity response for a document linked to a new payment, or
- * undefined when the document exists and belongs to the payment's entity.
- */
-function linkedDocumentProblem(
-  c: Context<{ Bindings: Env; Variables: Variables }>,
-  label: 'Invoice' | 'Bill',
-  documentId: string,
-  document: { entityId: string } | undefined,
-  entityId: string,
-): Response | undefined {
-  if (!document) return error.notFound(c, label, documentId);
-  if (document.entityId !== entityId) {
-    return error.badRequest(c, `Linked ${label.toLowerCase()} belongs to a different accounting entity`);
-  }
-  return undefined;
-}
-
-/**
- * Validate the invoice / bill linked to a new payment and derive the payment
- * currency from them when the caller did not send one. Returns the error
- * response to send, or the (possibly still undefined) currency.
- */
-async function resolveLinkedDocumentCurrency(
-  c: Context<{ Bindings: Env; Variables: Variables }>,
-  db: Database,
-  data: CreatePaymentInput,
-  entityId: string,
-): Promise<{ response: Response } | { currency: string | undefined }> {
-  const { invoices, bills } = schema;
-  let currency = data.currency;
-
-  if (data.invoiceId) {
-    const [linkedInvoice] = await db
-      .select()
-      .from(invoices)
-      .where(eq(invoices.id, data.invoiceId))
-      .limit(1);
-    const problem = linkedDocumentProblem(c, 'Invoice', data.invoiceId, linkedInvoice, entityId);
-    if (problem) return { response: problem };
-    if (!currency) currency = linkedInvoice.currency ?? undefined;
-  }
-  if (data.billId) {
-    const [linkedBill] = await db
-      .select()
-      .from(bills)
-      .where(eq(bills.id, data.billId))
-      .limit(1);
-    const problem = linkedDocumentProblem(c, 'Bill', data.billId, linkedBill, entityId);
-    if (problem) return { response: problem };
-    if (!currency) currency = linkedBill.currency ?? undefined;
-  }
-  return { currency };
-}
-
-/** New paid/due amounts and status for an invoice or bill after a payment is applied. */
-function computeSettlement(
-  document: { amountPaid: string | null; total: string | null },
-  paymentAmount: number,
-) {
-  const newAmountPaid = Number.parseFloat(document.amountPaid || '0') + paymentAmount;
-  const newBalanceDue = Number.parseFloat(document.total || '0') - newAmountPaid;
-  const isFullyPaid = newBalanceDue <= 0.01;
-  return {
-    isFullyPaid,
-    values: {
-      amountPaid: newAmountPaid.toFixed(2),
-      balanceDue: Math.max(0, newBalanceDue).toFixed(2),
-      status: isFullyPaid ? ('paid' as const) : ('partial' as const),
-      paidAt: isFullyPaid ? new Date() : null,
-      updatedAt: new Date(),
-    },
-  };
-}
-
-/** Apply a payment to its linked invoice and flag the payment as partial when it does not clear it. */
-async function settleInvoice(
-  db: Database,
-  invoiceId: string,
-  entityId: string,
-  paymentId: string,
-  paymentAmount: number,
-): Promise<void> {
-  const { invoices, payments } = schema;
-  const [invoice] = await db.select().from(invoices)
-    .where(and(eq(invoices.id, invoiceId), eq(invoices.entityId, entityId)))
-    .limit(1);
-  if (!invoice) return;
-
-  const { isFullyPaid, values } = computeSettlement(invoice, paymentAmount);
-  await db.update(invoices).set(values)
-    .where(and(eq(invoices.id, invoiceId), eq(invoices.entityId, entityId)));
-
-  // Update payment isPartial
-  if (!isFullyPaid) {
-    await db.update(payments).set({ isPartial: true }).where(eq(payments.id, paymentId));
-  }
-}
-
-/** Apply a payment to its linked bill. */
-async function settleBill(
-  db: Database,
-  billId: string,
-  entityId: string,
-  paymentAmount: number,
-): Promise<void> {
-  const { bills } = schema;
-  const [bill] = await db.select().from(bills)
-    .where(and(eq(bills.id, billId), eq(bills.entityId, entityId)))
-    .limit(1);
-  if (!bill) return;
-
-  await db.update(bills).set(computeSettlement(bill, paymentAmount).values)
-    .where(and(eq(bills.id, billId), eq(bills.entityId, entityId)));
-}
 
 // POST /
 app.post('/', requirePermission('banking:create'), zValidator('json', createPaymentSchema), async (c) => {
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
-  const userId = c.get('userId');
+  const userId = c.get('userId') ?? null;
 
   try {
-    const { payments, invoices, bills } = schema;
-
-    const paymentAmount = Number.parseFloat(data.amount);
-    const paymentId = generateId('pay');
-
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
 
-    // Payments book a financial mutation — blocked inside closed fiscal periods.
-    await assertPeriodOpen(db, entityId, data.date);
+    const amount = Number.parseFloat(data.amount);
+    const allocations = data.allocations
+      ? data.allocations.map((a) => ({ invoiceId: a.invoiceId, billId: a.billId, amount: Number.parseFloat(a.amount) }))
+      : data.invoiceId || data.billId
+        ? [{ invoiceId: data.invoiceId, billId: data.billId, amount }]
+        : [];
 
-    const paymentExchangeRate = data.exchangeRate ?? '1';
-
-    const linked = await resolveLinkedDocumentCurrency(c, db, data, entityId);
-    if ('response' in linked) return linked.response;
-    let currency = linked.currency;
-    if (!currency) {
-      currency = await resolveEntityBaseCurrency(db, entityId);
-    }
-
-    await db.insert(payments).values({
-      id: paymentId,
+    const result = await recordPayment(db, {
       entityId,
       type: data.type,
-      amount: data.amount,
-      currency,
-      exchangeRate: paymentExchangeRate,
+      amount,
+      currency: data.currency ?? null,
+      exchangeRate: data.exchangeRate ?? null,
       date: new Date(data.date),
-      paymentMethod: data.paymentMethod || null,
-      reference: data.reference || null,
-      invoiceId: data.invoiceId || null,
-      billId: data.billId || null,
-      contactId: data.contactId,
-      bankAccountId: data.bankAccountId || null,
-      bankTransactionId: data.bankTransactionId || null,
-      notes: data.notes || null,
-      isPartial: false,
-      createdBy: userId,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    // Update invoice/bill balance if linked
-    if (data.invoiceId) {
-      await settleInvoice(db, data.invoiceId, entityId, paymentId, paymentAmount);
-    }
-    if (data.billId) {
-      await settleBill(db, data.billId, entityId, paymentAmount);
-    }
-
-    // Realized FX gain/loss — post a journal entry for the delta when the payment rate
-    // differs from the invoice/bill rate (foreign-currency settlement).
-    await maybePostFxAdjustment(db, {
-      entityId,
-      paymentId,
-      paymentAmountForeign: paymentAmount,
-      paymentExchangeRate,
-      paymentDate: new Date(data.date),
-      type: data.type,
-      invoiceId: data.invoiceId,
-      billId: data.billId,
-      contactId: data.contactId,
-      createdBy: userId,
+      paymentMethod: data.paymentMethod ?? null,
+      checkNumber: data.checkNumber ?? null,
+      reference: data.reference ?? null,
+      notes: data.notes ?? null,
+      contactId: data.contactId ?? null,
+      bankAccountId: data.bankAccountId ?? null,
+      bankTransactionId: data.bankTransactionId ?? null,
+      allocations,
+      userId,
     });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entityId,
       entityType: 'payment',
-      entityId: paymentId,
+      entityId: result.paymentId,
       action: 'created',
+      changes: { journalEntryId: { old: null, new: result.journalEntryId } },
     });
     publishEntityEvent({
       c,
       entityType: 'payment',
-      entityId: paymentId,
+      entityId: result.paymentId,
       action: 'created',
-      data: { id: paymentId, amount: data.amount, currency, invoiceId: data.invoiceId, billId: data.billId, method: data.paymentMethod },
+      data: {
+        id: result.paymentId,
+        amount: data.amount,
+        currency: result.currency,
+        invoiceId: result.documents.length === 1 && result.documents[0].type === 'invoice' ? result.documents[0].id : undefined,
+        billId: result.documents.length === 1 && result.documents[0].type === 'bill' ? result.documents[0].id : undefined,
+        method: data.paymentMethod,
+      },
     });
 
-    return success(c, { id: paymentId }, 201);
+    return success(c, { id: result.paymentId, journalEntryId: result.journalEntryId }, 201);
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
-    console.error('[app-api/payments] create failed:', err);
+    if (err instanceof ClosedPeriodError || err instanceof LockedPeriodError || err instanceof PostingError) {
+      return error.badRequest(c, err.message);
+    }
+    console.error('[books-api/payments] create failed:', err);
     return error.internal(c, 'Failed to create payment');
   }
 });
 
-/** Booking exchange rate of the invoice (or bill) a payment settles; undefined when there is none. */
-async function loadSettledDocumentRate(
-  db: Database,
-  args: { invoiceId?: string; billId?: string },
-): Promise<number | undefined> {
-  if (args.invoiceId) {
-    const [inv] = await db
-      .select({ rate: schema.invoices.exchangeRate })
-      .from(schema.invoices)
-      .where(eq(schema.invoices.id, args.invoiceId))
-      .limit(1);
-    return inv ? Number.parseFloat(inv.rate ?? '1') : undefined;
-  }
-  if (args.billId) {
-    const [bill] = await db
-      .select({ rate: schema.bills.exchangeRate })
-      .from(schema.bills)
-      .where(eq(schema.bills.id, args.billId))
-      .limit(1);
-    return bill ? Number.parseFloat(bill.rate ?? '1') : undefined;
-  }
-  return undefined;
-}
-
-/**
- * Post a realized FX gain/loss journal entry when the settlement exchange rate
- * differs from the rate the invoice/bill was booked at. The delta clears the
- * residual AR (for received payments) or AP (for sent payments) balance.
- *
- * No-op when the linked document is in base currency or its stored rate matches
- * the payment rate, or when the entity's CoA is missing the FX gain/loss system
- * accounts (which should only happen if seedDefaults was disabled at entity creation).
- */
-async function maybePostFxAdjustment(
-  db: Database,
-  args: {
-    entityId: string;
-    paymentId: string;
-    paymentAmountForeign: number;
-    paymentExchangeRate: string;
-    paymentDate: Date;
-    type: 'received' | 'sent';
-    invoiceId?: string;
-    billId?: string;
-    contactId: string;
-    createdBy?: string;
-  },
-): Promise<void> {
-  const paymentRate = Number.parseFloat(args.paymentExchangeRate);
-  if (!paymentRate || paymentRate === 0) return;
-
-  // Load the settled document to fetch its booking rate.
-  const docRate = await loadSettledDocumentRate(db, args);
-  if (!docRate || docRate === paymentRate) return;
-
-  const delta = calculateFxGainLoss(args.paymentAmountForeign, paymentRate, docRate);
-  if (Math.abs(delta) < 0.01) return;
-
-  // Look up the FX + AR/AP system accounts by metadata.systemRole (seeded by the
-  // jurisdiction adapter). Accounts are entity-scoped.
-  const entityAccounts = await db
-    .select()
-    .from(schema.accounts)
-    .where(and(eq(schema.accounts.entityId, args.entityId), isNull(schema.accounts.deletedAt)));
-
-  const byRole = (role: string) =>
-    entityAccounts.find((a) => (a.metadata as { systemRole?: string } | null)?.systemRole === role);
-
-  const fxGainAccount = byRole('realized_fx_gain');
-  const fxLossAccount = byRole('realized_fx_loss');
-  const arAccount = byRole('accounts_receivable');
-  const apAccount = byRole('accounts_payable');
-
-  const isGain = delta > 0;
-  const absDelta = Math.abs(delta).toFixed(2);
-
-  // Pick the FX account and the settlement-side account based on gain vs loss and type.
-  const fxAccount = isGain ? fxGainAccount : fxLossAccount;
-  const settlementAccount = args.type === 'received' ? arAccount : apAccount;
-  if (!fxAccount || !settlementAccount) return; // missing CoA entries, bail safely
-
-  // Build the entry. Sign convention:
-  //  - Received + gain  → Debit AR, Credit FX Gain   (AR was under-booked)
-  //  - Received + loss  → Debit FX Loss, Credit AR
-  //  - Sent + gain      → Debit AP, Credit FX Gain   (we owed less in base)
-  //  - Sent + loss      → Debit FX Loss, Credit AP
-  const debitAccountId = isGain ? settlementAccount.id : fxAccount.id;
-  const creditAccountId = isGain ? fxAccount.id : settlementAccount.id;
-
-  const { formatted: entryNumber } = await nextEntityNumber(db, args.entityId, 'journal');
-
-  const journalEntryId = generateId('je');
-  const now = new Date();
-  await db.insert(schema.journalEntries).values({
-    id: journalEntryId,
-    entityId: args.entityId,
-    entryNumber,
-    date: args.paymentDate,
-    status: 'posted',
-    description: `FX ${isGain ? 'gain' : 'loss'} on payment ${args.paymentId}`,
-    sourceType: 'payment_fx_adjustment',
-    sourceId: args.paymentId,
-    totalDebit: absDelta,
-    totalCredit: absDelta,
-    isAutomatic: true,
-    createdBy: args.createdBy,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  await db.insert(schema.journalLines).values([
-    {
-      id: generateId('jl'),
-      entityId: args.entityId,
-      journalEntryId,
-      accountId: debitAccountId,
-      description: `FX ${isGain ? 'gain' : 'loss'} adjustment`,
-      debit: absDelta,
-      credit: '0',
-      contactId: args.contactId,
-      sortOrder: 0,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId('jl'),
-      entityId: args.entityId,
-      journalEntryId,
-      accountId: creditAccountId,
-      description: `FX ${isGain ? 'gain' : 'loss'} adjustment`,
-      debit: '0',
-      credit: absDelta,
-      contactId: args.contactId,
-      sortOrder: 1,
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]);
-
-  // Link the adjustment back onto the payment row for traceability.
-  await db
-    .update(schema.payments)
-    .set({ exchangeDifferenceEntryId: journalEntryId, updatedAt: now })
-    .where(eq(schema.payments.id, args.paymentId));
-}
-
-// DELETE /:id
+// DELETE /:id — void: reverse the posting and restore the documents' balances
 app.delete('/:id', requirePermission('banking:delete'), async (c) => {
   const db = c.get('tenantDb');
   const paymentId = c.req.param('id');
   try {
-    const [existing] = await db.select().from(schema.payments)
-      .where(and(eq(schema.payments.id, paymentId), isNull(schema.payments.deletedAt))).limit(1);
-    if (!existing) return error.notFound(c, 'Payment', paymentId);
-
-    // Removing a payment dated inside a closed period would mutate a closed
-    // administration — blocked.
-    await assertPeriodOpen(db, existing.entityId, existing.date ?? new Date());
-
-    await db.update(schema.payments)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(eq(schema.payments.id, paymentId));
+    const payment = await voidPayment(db, paymentId, { userId: c.get('userId') ?? null });
 
     await writeAccountingAudit(c, db, {
-      accountingEntityId: existing.entityId,
+      accountingEntityId: payment.entityId,
       entityType: 'payment',
       entityId: paymentId,
       action: 'deleted',
@@ -484,13 +197,18 @@ app.delete('/:id', requirePermission('banking:delete'), async (c) => {
       entityType: 'payment',
       entityId: paymentId,
       action: 'deleted',
-      data: { id: paymentId, amount: existing.amount || '0', currency: existing.currency, invoiceId: existing.invoiceId, billId: existing.billId },
+      data: { id: paymentId, amount: payment.amount || '0', currency: payment.currency, invoiceId: payment.invoiceId, billId: payment.billId },
     });
 
     return noContent(c);
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
-    console.error('[app-api/payments] delete failed:', err);
+    if (err instanceof PostingError && err.message === 'Payment not found') {
+      return error.notFound(c, 'Payment', paymentId);
+    }
+    if (err instanceof ClosedPeriodError || err instanceof LockedPeriodError || err instanceof PostingError) {
+      return error.badRequest(c, err.message);
+    }
+    console.error('[books-api/payments] delete failed:', err);
     return error.internal(c, 'Failed to delete payment');
   }
 });

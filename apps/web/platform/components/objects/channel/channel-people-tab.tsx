@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Crown, Plus, ShieldCheck, UserMinus, Users } from 'lucide-react';
 import { useUser } from '@clerk/clerk-react';
 import { useCan } from '@weldsuite/permissions/react';
@@ -48,6 +48,12 @@ interface PeopleRow {
 
 const ROLE_ORDER: Record<Role, number> = { owner: 0, admin: 1, member: 2 };
 
+function resolveMemberType(isAgent: boolean, isGuest: boolean): MemberType {
+  if (isAgent) return 'agent';
+  if (isGuest) return 'guest';
+  return 'human';
+}
+
 function RoleIcon({ role }: Readonly<{ role: Role }>) {
   if (role === 'owner') return <Crown className="h-3 w-3 text-yellow-500" />;
   if (role === 'admin') return <ShieldCheck className="h-3 w-3 text-blue-500" />;
@@ -87,7 +93,7 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
         email: m.email,
         picture: m.picture,
         role: (m.role ?? 'member') as Role,
-        memberType: isAgent ? 'agent' : isGuest ? 'guest' : 'human',
+        memberType: resolveMemberType(isAgent, isGuest),
         presence: online ? 'online' : 'offline',
         presenceLabel: presenceMap[m.userId]?.statusText,
         presenceEmoji: presenceMap[m.userId]?.statusEmoji,
@@ -191,6 +197,25 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
         if (isAgent) openAgentProfile(r.userId);
         else openUserProfile(r.userId);
       };
+      let memberBadge: ReactNode;
+      if (isAgent) {
+        memberBadge = (
+          <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground">
+            {st('sweep.entities.agentLabel')}
+          </span>
+        );
+      } else if (r.memberType === 'guest') {
+        memberBadge = (
+          <span
+            className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+            title={guestStrings?.tooltip ?? st('sweep.entities.externalGuestTooltip')}
+          >
+            {guestStrings?.badge ?? st('sweep.entities.guestLabel')}
+          </span>
+        );
+      } else {
+        memberBadge = <RoleIcon role={r.role} />;
+      }
       return (
         <div
           key={r.id}
@@ -216,20 +241,7 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-medium truncate">{r.name}</span>
-              {isAgent ? (
-                <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground">
-                  {st('sweep.entities.agentLabel')}
-                </span>
-              ) : r.memberType === 'guest' ? (
-                <span
-                  className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                  title={guestStrings?.tooltip ?? st('sweep.entities.externalGuestTooltip')}
-                >
-                  {guestStrings?.badge ?? st('sweep.entities.guestLabel')}
-                </span>
-              ) : (
-                <RoleIcon role={r.role} />
-              )}
+              {memberBadge}
             </div>
             {!isAgent && r.presenceLabel && (
               <p className="text-[11px] text-muted-foreground truncate">

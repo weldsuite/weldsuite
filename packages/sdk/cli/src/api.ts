@@ -23,13 +23,13 @@ export function loadConfig(): CliConfig {
   const envUrl = process.env.WELD_API_URL;
 
   if (envKey) {
-    const apiUrl = (envUrl ?? defaultExternalApiUrl()).replace(/\/+$/, '');
+    const apiUrl = (envUrl ?? defaultExternalApiUrl()).replace(/(?<!\/)\/+$/, '');
     return { apiKey: envKey, apiUrl, fromEnv: true };
   }
 
   const stored = readCredentials();
   if (stored) {
-    const apiUrl = (envUrl ?? stored.apiUrl ?? defaultExternalApiUrl()).replace(/\/+$/, '');
+    const apiUrl = (envUrl ?? stored.apiUrl ?? defaultExternalApiUrl()).replace(/(?<!\/)\/+$/, '');
     return { apiKey: stored.apiKey, apiUrl, fromEnv: false };
   }
 
@@ -101,7 +101,7 @@ export async function apiRequest<T>(
         401,
       );
     }
-    throw new ApiError(`${message} ${`(${code}, HTTP ${response.status})`}`, code, response.status);
+    throw new ApiError(`${message} (${code}, HTTP ${response.status})`, code, response.status);
   }
 
   if (response.status === 204 || json === undefined) {

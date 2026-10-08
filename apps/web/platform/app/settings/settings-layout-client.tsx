@@ -190,7 +190,7 @@ export function SettingsLayoutClient({ children, installedAppCodes }: Readonly<S
           user={userInfo}
           currentWorkspace={currentWorkspace}
           workspaces={workspaces}
-          onWorkspaceSwitch={async (id) => switchWorkspace(id)}
+          onWorkspaceSwitch={(id) => switchWorkspace(id)}
           onWorkspaceCreate={() => setShowCreateWorkspaceDialog(true)}
         />
         <CreateWorkspaceDialog open={showCreateWorkspaceDialog} onOpenChange={setShowCreateWorkspaceDialog} />

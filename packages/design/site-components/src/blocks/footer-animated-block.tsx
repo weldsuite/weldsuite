@@ -37,7 +37,7 @@ const FooterAnimatedBlock = () => {
             </p>
             <div className="space-y-1 text-sm font-light tracking-tight lg:text-base">
               <p>Get Support : </p>
-              <a href="#">hi@shadcnblocks.com</a>
+              <a href="mailto:hi@shadcnblocks.com">hi@shadcnblocks.com</a>
             </div>
           </div>
           <div className="grid w-full max-w-xs grid-cols-2 gap-10 text-sm font-light lg:text-base">

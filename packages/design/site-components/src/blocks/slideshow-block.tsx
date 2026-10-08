@@ -72,13 +72,11 @@ export function SlideshowBlock({
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [, setProgress] = useState(0);
 
   const goToNext = useCallback(() => {
     if (isTransitioning) return;
     setIsTransitioning(true);
     setCurrentSlide((prev) => (prev + 1) % slides.length);
-    setProgress(0);
     setTimeout(() => setIsTransitioning(false), 600);
   }, [isTransitioning, slides.length]);
 
@@ -86,7 +84,6 @@ export function SlideshowBlock({
     if (isTransitioning) return;
     setIsTransitioning(true);
     setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
-    setProgress(0);
     setTimeout(() => setIsTransitioning(false), 600);
   }, [isTransitioning, slides.length]);
 
@@ -94,32 +91,20 @@ export function SlideshowBlock({
     if (isTransitioning || index === currentSlide) return;
     setIsTransitioning(true);
     setCurrentSlide(index);
-    setProgress(0);
     setTimeout(() => setIsTransitioning(false), 600);
   }, [isTransitioning, currentSlide]);
 
-  // Autoplay effect with progress
+  // Autoplay effect
   useEffect(() => {
     if (!autoplay || isPaused || slides.length <= 1 || isEditing) {
-      setProgress(0);
       return;
     }
-
-    const progressInterval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          return 0;
-        }
-        return prev + (100 / (autoplaySpeed / 50));
-      });
-    }, 50);
 
     const slideInterval = setInterval(() => {
       goToNext();
     }, autoplaySpeed);
 
     return () => {
-      clearInterval(progressInterval);
       clearInterval(slideInterval);
     };
   }, [autoplay, autoplaySpeed, isPaused, slides.length, goToNext, isEditing]);
@@ -135,18 +120,30 @@ export function SlideshowBlock({
     }
   };
 
+  const getDotsJustifyClass = () => {
+    switch (dotsPosition) {
+      case 'left':
+        return 'justify-start';
+      case 'right':
+        return 'justify-end';
+      default:
+        return 'justify-center';
+    }
+  };
+
   const getTransitionClasses = (index: number) => {
     const isActive = index === currentSlide;
 
     switch (transitionStyle) {
-      case 'slide':
-        return `transition-all duration-600 ease-out ${
-          isActive
-            ? 'translate-x-0 opacity-100 z-10'
-            : index < currentSlide
-              ? '-translate-x-full opacity-0 z-0'
-              : 'translate-x-full opacity-0 z-0'
-        }`;
+      case 'slide': {
+        let slideClasses = 'translate-x-full opacity-0 z-0';
+        if (isActive) {
+          slideClasses = 'translate-x-0 opacity-100 z-10';
+        } else if (index < currentSlide) {
+          slideClasses = '-translate-x-full opacity-0 z-0';
+        }
+        return `transition-all duration-600 ease-out ${slideClasses}`;
+      }
       case 'zoom':
         return `transition-all duration-600 ease-out ${
           isActive
@@ -248,7 +245,7 @@ export function SlideshowBlock({
                       style={{ transitionDelay: index === currentSlide ? '300ms' : '0ms' }}
                     >
                       <a
-                        href={isEditing ? undefined : slide.buttonLink}
+                        href={slide.buttonLink}
                         onClick={(e) => isEditing && e.preventDefault()}
                         className="inline-flex items-center px-8 py-4 bg-white text-gray-900 font-semibold rounded-md hover:bg-gray-100 transition-all shadow-xl hover:shadow-2xl hover:scale-105 active:scale-95 text-base md:text-lg"
                       >
@@ -290,11 +287,7 @@ export function SlideshowBlock({
       {(showDots || showPlayPause) && slides.length > 1 && (
         <div className="absolute bottom-0 left-0 right-0 z-20">
           {/* Controls Container */}
-          <div className={`relative flex items-center px-6 md:px-8 py-4 ${
-            dotsPosition === 'left' ? 'justify-start' :
-            dotsPosition === 'right' ? 'justify-end' :
-            'justify-center'
-          }`}>
+          <div className={`relative flex items-center px-6 md:px-8 py-4 ${getDotsJustifyClass()}`}>
             {/* Dots */}
             {showDots && (
               <div className="flex gap-2.5">

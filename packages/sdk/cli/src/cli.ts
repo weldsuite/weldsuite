@@ -153,7 +153,9 @@ async function main(): Promise<void> {
   await command.run(parseArgs(rest));
 }
 
-main().catch((cause: unknown) => {
+try {
+  await main();
+} catch (cause: unknown) {
   if (cause instanceof CliError) {
     logError(cause.message);
   } else if (cause instanceof Error) {
@@ -162,4 +164,4 @@ main().catch((cause: unknown) => {
     logError(String(cause));
   }
   process.exitCode = 1;
-});
+}

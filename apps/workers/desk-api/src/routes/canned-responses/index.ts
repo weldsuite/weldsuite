@@ -40,7 +40,7 @@ const useCannedResponseSchema = z.object({
  * the literal `{{path}}` rather than becoming "undefined".
  */
 function interpolateVariables(text: string, context: Record<string, unknown>): string {
-  return text.replace(/\{\{([^}]+)\}\}/g, (_, path: string) => {
+  return text.replace(/\{\{([^{}]+)\}\}/g, (_, path: string) => {
     const parts = path.trim().split('.');
     let value: unknown = context;
     for (const part of parts) {

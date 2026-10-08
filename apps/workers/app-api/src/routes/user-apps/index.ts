@@ -960,6 +960,7 @@ app.post('/:id/submit', requirePermission('weldapps:publish'), zValidator('json'
 
     const now = new Date();
     const official = appRow.publisherType === 'weldsuite';
+    const notesPatch = notes ? { reviewNotes: notes } : {};
     const [updated] = await master
       .update(uApps)
       .set({
@@ -967,9 +968,7 @@ app.post('/:id/submit', requirePermission('weldapps:publish'), zValidator('json'
         reviewStatus: official ? 'approved' : 'submitted',
         ...(official
           ? { reviewedBy: c.get('userId'), reviewedAt: now, reviewNotes: notes ?? appRow.reviewNotes }
-          : notes
-            ? { reviewNotes: notes }
-            : {}),
+          : notesPatch),
         updatedAt: now,
       })
       .where(eq(uApps.id, id))

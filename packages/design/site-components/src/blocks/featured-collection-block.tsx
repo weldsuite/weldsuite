@@ -122,7 +122,7 @@ export function FeaturedCollectionBlock({
               asChild
               className="hidden md:inline-flex gap-1"
             >
-              <a href={isEditing ? undefined : viewAllLink} onClick={(e) => isEditing && e.preventDefault()}>
+              <a href={viewAllLink} onClick={(e) => isEditing && e.preventDefault()}>
                 {viewAllText}
                 <ArrowRight className="h-4 w-4" />
               </a>
@@ -182,7 +182,7 @@ export function FeaturedCollectionBlock({
                   {/* Rating */}
                   <div className="flex items-center gap-2">
                     <div className="flex items-center">
-                      {[...Array(5)].map((_, i) => (
+                      {[...new Array(5)].map((_, i) => (
                         <Star
                           key={i}
                           className={cn(
@@ -231,7 +231,7 @@ export function FeaturedCollectionBlock({
               asChild
               className="gap-1"
             >
-              <a href={isEditing ? undefined : viewAllLink} onClick={(e) => isEditing && e.preventDefault()}>
+              <a href={viewAllLink} onClick={(e) => isEditing && e.preventDefault()}>
                 {viewAllText}
                 <ArrowRight className="h-4 w-4" />
               </a>

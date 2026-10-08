@@ -33,6 +33,7 @@ test.describe('WeldFlow · move task to project', () => {
   let seeded: { type: SeedEntityType; id: string }[] = [];
 
   test.beforeAll(() => {
+    // Skipped: Seeds and cleans up through app-api /test-fixtures, so it needs TEST_API_URL, TEST_FIXTURES_TOKEN and TEST_WORKSPACE_ID.
     test.skip(!isTestFixturesConfigured(), 'test-fixtures env vars not set');
   });
 

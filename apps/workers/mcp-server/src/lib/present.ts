@@ -92,7 +92,7 @@ const LABEL_COMPONENT_FIELDS = new Set([
 
 /** Suffixes that mark a value as an identifier rather than content. */
 function isIdentifierField(key: string): boolean {
-  return key === 'id' || /Id$/.test(key) || /_id$/.test(key);
+  return key === 'id' || key.endsWith('Id') || key.endsWith('_id');
 }
 
 function isIsoTimestamp(value: unknown): value is string {
@@ -268,14 +268,16 @@ export function presentList(
     const id = identifiers.find(([key]) => key === 'id')?.[1];
     const ref = id ? ` <!--id=${asText(id)}-->` : '';
 
-    return `${index + 1}. ${heading}${details ? ` — ${details}` : ''}${ref}`;
+    const detailNote = details ? ` — ${details}` : '';
+    return `${index + 1}. ${heading}${detailNote}${ref}`;
   });
 
   const total = pagination?.totalCount;
+  const plural = rows.length === 1 ? '' : 's';
   const header =
     typeof total === 'number' && total !== rows.length
       ? `Showing ${rows.length} of ${total}:`
-      : `${rows.length} result${rows.length === 1 ? '' : 's'}:`;
+      : `${rows.length} result${plural}:`;
 
   const footer = pagination?.hasMore
     ? '\nMore results are available — ask for the next page to continue.'

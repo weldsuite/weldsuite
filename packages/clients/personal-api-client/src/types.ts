@@ -1,3 +1,5 @@
+type DateLike = string | Date | null;
+
 /** Error payload from personal-api: `{ error: { code, message } }`. */
 export interface ApiError {
   code: string;
@@ -46,7 +48,7 @@ export interface MailMessage {
   textBody?: string | null;
   htmlBody?: string | null;
   sentDate: string | Date;
-  receivedDate?: string | Date | null;
+  receivedDate?: DateLike;
   isRead: boolean;
   isStarred?: boolean | null;
   isDraft?: boolean | null;
@@ -157,7 +159,7 @@ export interface MailDraft {
   originalMessageId?: string | null;
   isReply?: boolean | null;
   isForward?: boolean | null;
-  lastAutoSavedAt?: string | Date | null;
+  lastAutoSavedAt?: DateLike;
   createdAt?: string | Date;
   updatedAt?: string | Date;
 }
@@ -230,7 +232,7 @@ export interface CalendarEvent {
   description?: string | null;
   type: string;
   startTime: string | Date;
-  endTime?: string | Date | null;
+  endTime?: DateLike;
   allDay?: boolean | null;
   timezone?: string | null;
   location?: string | null;
@@ -381,7 +383,7 @@ export interface CalendarBooking {
   notes?: string | null;
   guests?: { email: string; name?: string }[] | null;
   timezone?: string | null;
-  cancelledAt?: string | Date | null;
+  cancelledAt?: DateLike;
   cancelReason?: string | null;
   createdAt?: string | Date;
   updatedAt?: string | Date;

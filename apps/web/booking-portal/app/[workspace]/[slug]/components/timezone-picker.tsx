@@ -55,7 +55,7 @@ function getTimezoneOffsetLabel(tz: string): string {
 }
 
 function offsetSortKey(label: string): number {
-  const match = label.match(/UTC([+-])(\d{2}):(\d{2})/);
+  const match = /UTC([+-])(\d{2}):(\d{2})/.exec(label);
   if (!match) return 0;
   const sign = match[1] === '-' ? -1 : 1;
   const hours = match[2] ?? '00';

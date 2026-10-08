@@ -122,18 +122,20 @@ export async function getCustomObjectByEntityKey(
   return row ?? null;
 }
 
-export async function listCustomObjects(
+export function listCustomObjects(
   db: AnyDb,
   opts: { status?: string; externalApiOnly?: boolean } = {},
 ): Promise<CustomObjectRow[]> {
   const conditions = [isNull(objects.deletedAt)];
   if (opts.status) conditions.push(eq(objects.status, opts.status));
   if (opts.externalApiOnly) conditions.push(eq(objects.enableExternalApi, true));
-  return db
-    .select()
-    .from(objects)
-    .where(and(...conditions))
-    .orderBy(asc(objects.sortOrder), asc(objects.labelPlural));
+  return Promise.resolve(
+    db
+      .select()
+      .from(objects)
+      .where(and(...conditions))
+      .orderBy(asc(objects.sortOrder), asc(objects.labelPlural))
+  );
 }
 
 export async function getCustomObjectCounts(

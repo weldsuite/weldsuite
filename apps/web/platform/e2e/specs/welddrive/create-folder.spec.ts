@@ -39,6 +39,7 @@ test.describe('WeldDrive · create folder dialog', () => {
 
     const trigger = page.getByTestId('welddrive-new-folder-btn');
     if (!(await trigger.isVisible().catch(() => false))) {
+      // Skipped: The New Folder button is hidden on narrow (mobile) layouts.
       test.skip(true, 'New Folder button not visible in this layout');
     }
     await trigger.click();
@@ -69,6 +70,7 @@ test.describe('WeldDrive · create folder submit', () => {
     const trigger = page.getByTestId('welddrive-new-folder-btn');
     const triggerVisible = await trigger.isVisible().catch(() => false);
     if (!triggerVisible) {
+      // Skipped: The New Folder button is hidden on narrow (mobile) layouts.
       test.skip(true, 'New Folder button not visible in this layout (mobile)');
     }
 

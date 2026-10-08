@@ -115,6 +115,31 @@ const createIcpDeclarationSchema = z.object({
 });
 const updateIcpDeclarationSchema = createIcpDeclarationSchema.partial();
 
+/**
+ * WeldBooks resources served for reading only. The ledger changes only through
+ * books-api, so every write on these answers 405 (see accounting-read-only.test.ts).
+ * Accounting contacts are not listed: they stay writable.
+ */
+export const READ_ONLY_SEGMENTS: ReadonlySet<string> = new Set([
+  'accounting-documents',
+  'accounting-entities',
+  'accounting-settings',
+  'bank-accounts',
+  'bank-transactions',
+  'bills',
+  'fiscal-periods',
+  'fx-rates',
+  'gl-accounts',
+  'icp-declarations',
+  'invoices',
+  'journal-entries',
+  'payments',
+  'reconciliation-rules',
+  'recurring-invoices',
+  'tax-rates',
+  'vat-returns',
+]);
+
 export interface CrudEntity {
   /** URL + collection segment under /v1. */
   seg: string;
@@ -124,10 +149,12 @@ export interface CrudEntity {
   create: ZodTypeAny | null;
   /** Update body schema, or null for inline. */
   update: ZodTypeAny | null;
+  /** True when the route only serves list + get and answers writes with 405. */
+  readOnly?: boolean;
 }
 
 function e(seg: string, create: ZodTypeAny | null, update: ZodTypeAny | null): CrudEntity {
-  return { seg, scope: seg.replaceAll('-', '_'), create, update };
+  return { seg, scope: seg.replaceAll('-', '_'), create, update, readOnly: READ_ONLY_SEGMENTS.has(seg) };
 }
 
 /** All entities exposing the standard CRUD routes (List/Get/Create/Update/Delete). */

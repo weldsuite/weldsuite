@@ -1,17 +1,39 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { WeldbooksHeader } from './weldbooks-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { PageLoader } from '@/components/page-loader';
 import { EntityEmptyState } from '@/components/accounting/entity-empty-state';
-import { weldbooksApi } from '@/lib/api/weldbooks-client';
+import { setWeldbooksEntityId, weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
+import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { resetEntityScopedAccountingQueries } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface EntityRow {
   id: string;
+}
+
+/**
+ * When the selected entity changes — from the switcher, the create dialog or
+ * the add-entity page — drop every entity-scoped accounting result so the
+ * previous entity's numbers are never shown under the new one. Runs after the
+ * client mirror is updated, so the refetches carry the new entity header.
+ */
+function useResetAccountingDataOnEntityChange() {
+  const { entityId } = useCurrentAccountingEntity();
+  const queryClient = useQueryClient();
+  const previous = useRef(entityId);
+
+  useEffect(() => {
+    if (previous.current === entityId) return;
+    previous.current = entityId;
+    setWeldbooksEntityId(entityId);
+    void resetEntityScopedAccountingQueries(queryClient);
+  }, [entityId, queryClient]);
 }
 
 /**
@@ -26,6 +48,7 @@ export function AccountingLayoutClient({ children }: Readonly<{ children: React.
   const { t } = useI18n();
   const tl = t.accounting.layout;
   const workspaceId = useWorkspaceId();
+  useResetAccountingDataOnEntityChange();
 
   const {
     data: entities,

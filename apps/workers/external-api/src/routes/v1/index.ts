@@ -20,9 +20,9 @@ import {
   fiscalPeriods,
   fxRates,
   vatReturns,
+  icpDeclarations,
   accountingDocuments,
-} from './accounting/crud-routes';
-import icpDeclarations from './icp-declarations';
+} from './accounting/read-only-routes';
 import activities from './activities';
 import appStorage from './app-storage';
 import articles from './articles';
@@ -88,7 +88,7 @@ import workflows from './workflows';
 
 export const v1 = new Hono<HonoEnv>();
 
-v1.get('/', async (c) => {
+v1.get('/', (c) => {
   const session = c.get('apiSession');
   return success(c, {
     version: 'v1',

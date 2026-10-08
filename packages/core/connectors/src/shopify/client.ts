@@ -44,7 +44,7 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_RETRIES = 2;
 
 export function normalizeShopDomain(domain: string): string {
-  const trimmed = domain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  const trimmed = domain.trim().replace(/^https?:\/\//i, '').replace(/(?<!\/)\/+$/, '');
   if (!trimmed) {
     throw new ConnectorApiError({ message: 'Shop domain is required', status: 400, kind: 'permanent' });
   }
@@ -75,7 +75,7 @@ function parseNextPageInfo(linkHeader: string | null): string | null {
   if (!linkHeader) return null;
   const match = linkHeader.split(',').find((part) => part.includes('rel="next"'));
   if (!match) return null;
-  const urlMatch = match.match(/<([^>]+)>/);
+  const urlMatch = /<([^<>]+)>/.exec(match);
   if (!urlMatch?.[1]) return null;
   try {
     return new URL(urlMatch[1]).searchParams.get('page_info');
@@ -176,18 +176,19 @@ export class ShopifyClient implements ConnectorProviderClient {
     return this.listResource<Record<string, unknown>>('customers.json', 'customers', options);
   }
 
+  private listByKey(key: 'products' | 'orders' | 'customers', options: ShopifyListOptions) {
+    if (key === 'products') return this.listProducts(options);
+    if (key === 'orders') return this.listOrders(options);
+    return this.listCustomers(options);
+  }
+
   async hasUpdatesSince(
     resource: ConnectorSyncSettingKey,
     updatedAtMin?: string,
   ): Promise<boolean> {
     if (resource !== 'products' && resource !== 'orders' && resource !== 'customers') return false;
     const options: ShopifyListOptions = { limit: 1, updatedAtMin };
-    const result =
-      resource === 'products'
-        ? await this.listProducts(options)
-        : resource === 'orders'
-          ? await this.listOrders(options)
-          : await this.listCustomers(options);
+    const result = await this.listByKey(resource, options);
     return result.items.length > 0;
   }
 
@@ -287,13 +288,9 @@ export class ShopifyClient implements ConnectorProviderClient {
       updatedAtMin: options.cursor ? undefined : options.modifiedAfter,
     };
     const result =
-      sync.settingKey === 'products'
-        ? await this.listProducts(listOptions)
-        : sync.settingKey === 'orders'
-          ? await this.listOrders(listOptions)
-          : sync.settingKey === 'customers'
-            ? await this.listCustomers(listOptions)
-            : { items: [] as Array<Record<string, unknown>>, nextPageInfo: null };
+      sync.settingKey === 'products' || sync.settingKey === 'orders' || sync.settingKey === 'customers'
+        ? await this.listByKey(sync.settingKey, listOptions)
+        : { items: [] as Array<Record<string, unknown>>, nextPageInfo: null };
     return {
       items: result.items,
       done: !result.nextPageInfo,

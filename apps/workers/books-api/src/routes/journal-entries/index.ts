@@ -3,11 +3,12 @@
  *
  * Integrity rules (administratieplicht — do not weaken):
  *   - Entries are created as drafts; only drafts may be edited or deleted.
- *   - Posting is the only draft→posted transition and applies account balances.
+ *   - Posting is the only draft→posted transition; it applies account balances
+ *     and writes tax-ledger rows in one atomic batch (services/accounting-posting).
  *   - Posted entries are immutable; corrections go through POST /:id/reverse,
  *     which creates a counter-entry and never mutates the original amounts.
- *   - Every state change is blocked inside closed fiscal periods and written
- *     to the accounting audit log.
+ *   - Every state change is blocked inside closed fiscal periods and on/before
+ *     lock dates, and written to the accounting audit log.
  *
  * Permissions: journal:read | journal:create | journal:update | journal:delete.
  */
@@ -22,12 +23,19 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import {
-  assertPeriodOpen,
+  assertPostingAllowed,
   ClosedPeriodError,
+  LockedPeriodError,
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
+import { postDraftJournalEntry, PostingError, reverseJournalEntry } from '../../services/accounting-posting';
+
+function isUserFixable(err: unknown): err is Error {
+  return err instanceof ClosedPeriodError || err instanceof LockedPeriodError || err instanceof PostingError;
+}
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -63,29 +71,6 @@ function sumLines(lines: Array<{ debit?: string; credit?: string }>) {
     totalCredit += Number.parseFloat(line.credit || '0');
   }
   return { totalDebit, totalCredit };
-}
-
-/** Apply each line's net change to its account's running balance. */
-async function applyBalances(
-  db: any,
-  lines: Array<{ accountId: string; debit: string | null; credit: string | null }>,
-  direction: 1 | -1,
-) {
-  const { accounts } = schema;
-  for (const line of lines) {
-    const debit = Number.parseFloat(line.debit || '0');
-    const credit = Number.parseFloat(line.credit || '0');
-    const netChange = (debit - credit) * direction;
-    if (netChange !== 0) {
-      await db
-        .update(accounts)
-        .set({
-          currentBalance: sql`(${accounts.currentBalance}::numeric + ${netChange})::text`,
-          updatedAt: new Date(),
-        })
-        .where(eq(accounts.id, line.accountId));
-    }
-  }
 }
 
 // GET /
@@ -158,14 +143,20 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
 
-    await assertPeriodOpen(db, entityId, data.date);
+    await assertPostingAllowed(db, {
+      entityId,
+      date: data.date,
+      kind: 'general',
+      affectsTax: data.lines.some((l) => Boolean(l.taxRateId)),
+      userId,
+    });
 
     const { formatted: entryNumber } = await nextEntityNumber(db, entityId, 'journal');
     const entryId = generateId('je');
     const now = new Date();
     const currency = await resolveEntityBaseCurrency(db, entityId);
 
-    await db.insert(journalEntries).values({
+    const entryRow = {
       id: entryId,
       entityId,
       entryNumber,
@@ -180,7 +171,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       createdBy: userId,
       createdAt: now,
       updatedAt: now,
-    });
+    };
 
     const lineRecords = data.lines.map((line, idx) => ({
       id: generateId('jl'),
@@ -198,7 +189,11 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
       createdAt: now,
       updatedAt: now,
     }));
-    await db.insert(journalLines).values(lineRecords);
+    // Header and lines land together or not at all (neon-http has no transactions).
+    await atomically(db, (h) => [
+      h.insert(journalEntries).values(entryRow),
+      h.insert(journalLines).values(lineRecords),
+    ]);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entityId,
@@ -210,7 +205,7 @@ app.post('/', requirePermission('journal:create'), zValidator('json', createJour
 
     return success(c, { id: entryId, entryNumber, lines: lineRecords }, 201);
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
     console.error('[app-api/journal-entries] create failed:', err);
     return error.internal(c, 'Failed to create journal entry');
   }
@@ -232,7 +227,9 @@ app.patch('/:id', requirePermission('journal:update'), zValidator('json', update
       );
     }
 
-    if (data.date) await assertPeriodOpen(db, existing.entityId, data.date);
+    if (data.date) {
+      await assertPostingAllowed(db, { entityId: existing.entityId, date: data.date, kind: 'general', affectsTax: false, userId: c.get('userId') ?? null });
+    }
 
     const update: Record<string, unknown> = { updatedAt: new Date() };
     if (data.date !== undefined) update.date = new Date(data.date);
@@ -256,35 +253,23 @@ app.patch('/:id', requirePermission('journal:update'), zValidator('json', update
 
     return success(c, { id });
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
     console.error('[app-api/journal-entries] update failed:', err);
     return error.internal(c, 'Failed to update journal entry');
   }
 });
 
-// POST /:id/post — draft → posted; applies account balances
+// POST /:id/post — draft → posted; applies account balances and the tax ledger atomically
 app.post('/:id/post', requirePermission('journal:update'), async (c) => {
   const db = c.get('tenantDb');
-  const { journalEntries, journalLines } = schema;
   const entryId = c.req.param('id');
 
   try {
-    const [entry] = await db.select().from(journalEntries)
-      .where(and(eq(journalEntries.id, entryId), isNull(journalEntries.deletedAt))).limit(1);
-    if (!entry) return error.notFound(c, 'Journal entry', entryId);
-    if (entry.status !== 'draft') {
-      return error.badRequest(c, 'Can only post draft journal entries');
-    }
+    const [existing] = await db.select({ id: schema.journalEntries.id }).from(schema.journalEntries)
+      .where(and(eq(schema.journalEntries.id, entryId), isNull(schema.journalEntries.deletedAt))).limit(1);
+    if (!existing) return error.notFound(c, 'Journal entry', entryId);
 
-    await assertPeriodOpen(db, entry.entityId, entry.date);
-
-    const lines = await db.select().from(journalLines)
-      .where(and(eq(journalLines.journalEntryId, entryId), isNull(journalLines.deletedAt)));
-
-    await applyBalances(db, lines, 1);
-    await db.update(journalEntries)
-      .set({ status: 'posted', updatedAt: new Date() })
-      .where(eq(journalEntries.id, entryId));
+    const { entry } = await postDraftJournalEntry(db, { entryId, userId: c.get('userId') ?? null });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entry.entityId,
@@ -295,83 +280,35 @@ app.post('/:id/post', requirePermission('journal:update'), async (c) => {
     });
     publishEntityEvent({ c, entityType: 'journal_entry', entityId: entryId, action: 'updated', data: { ...entry, status: 'posted' } as unknown as Record<string, unknown> });
 
-    return success(c, { ...entry, status: 'posted' });
+    return success(c, entry);
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
-    console.error('[app-api/journal-entries] post failed:', err);
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
+    console.error('[books-api/journal-entries] post failed:', err);
     return error.internal(c, 'Failed to post journal entry');
   }
 });
 
-// POST /:id/reverse — posted → reversed via a posted counter-entry
+// POST /:id/reverse — posted → reversed via a posted counter-entry dated today
 app.post('/:id/reverse', requirePermission('journal:create'), async (c) => {
   const db = c.get('tenantDb');
-  const { journalEntries, journalLines } = schema;
+  const { journalEntries } = schema;
   const entryId = c.req.param('id');
-  const userId = c.get('userId');
+  const userId = c.get('userId') ?? null;
 
   try {
     const [entry] = await db.select().from(journalEntries)
       .where(and(eq(journalEntries.id, entryId), isNull(journalEntries.deletedAt))).limit(1);
     if (!entry) return error.notFound(c, 'Journal entry', entryId);
-    if (entry.status !== 'posted') {
-      return error.badRequest(c, 'Can only reverse posted journal entries');
+    if (entry.isAutomatic && entry.sourceType && entry.sourceType !== 'manual' && entry.sourceId) {
+      // A document's entry is reversed through its document (credit note, void payment, reject bill),
+      // otherwise the document and the ledger disagree.
+      return error.badRequest(
+        c,
+        `This entry was posted by a ${entry.sourceType.replace('_', ' ')}. Correct it through that document instead.`,
+      );
     }
 
-    const reversalDate = new Date();
-    await assertPeriodOpen(db, entry.entityId, reversalDate);
-
-    const lines = await db.select().from(journalLines)
-      .where(and(eq(journalLines.journalEntryId, entryId), isNull(journalLines.deletedAt)));
-
-    const { formatted: reversalNumber } = await nextEntityNumber(db, entry.entityId, 'journal');
-    const reversalId = generateId('je');
-    const now = new Date();
-
-    await db.insert(journalEntries).values({
-      id: reversalId,
-      entityId: entry.entityId,
-      entryNumber: reversalNumber,
-      date: reversalDate,
-      status: 'posted',
-      description: `Reversal of ${entry.entryNumber}`,
-      totalDebit: entry.totalCredit,
-      totalCredit: entry.totalDebit,
-      sourceType: entry.sourceType,
-      reversalOfId: entryId,
-      isAutomatic: true,
-      createdBy: userId,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Swap debit/credit; keep the tax fields so the counter-entry carries the
-    // same tax context as the original.
-    const reversalLines = lines.map((line, idx) => ({
-      id: generateId('jl'),
-      entityId: entry.entityId,
-      journalEntryId: reversalId,
-      accountId: line.accountId,
-      description: `Reversal: ${line.description || ''}`,
-      debit: line.credit || '0',
-      credit: line.debit || '0',
-      taxRateId: line.taxRateId,
-      taxAmount: line.taxAmount,
-      contactId: line.contactId,
-      currency: line.currency,
-      sortOrder: idx,
-      createdAt: now,
-      updatedAt: now,
-    }));
-    await db.insert(journalLines).values(reversalLines);
-
-    // The reversal is born posted, so its balance effect must be applied here
-    // (the legacy route skipped this and left balances stale after reversal).
-    await applyBalances(db, reversalLines, 1);
-
-    await db.update(journalEntries)
-      .set({ status: 'reversed', reversedById: reversalId, updatedAt: new Date() })
-      .where(eq(journalEntries.id, entryId));
+    const reversal = await reverseJournalEntry(db, { entryId, date: new Date(), createdBy: userId });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entry.entityId,
@@ -380,15 +317,15 @@ app.post('/:id/reverse', requirePermission('journal:create'), async (c) => {
       action: 'reversed',
       changes: {
         status: { old: 'posted', new: 'reversed' },
-        reversedById: { old: null, new: reversalId },
+        reversedById: { old: null, new: reversal.journalEntryId },
       },
     });
-    publishEntityEvent({ c, entityType: 'journal_entry', entityId: entryId, action: 'updated', data: { id: entryId, status: 'reversed', reversedById: reversalId } });
+    publishEntityEvent({ c, entityType: 'journal_entry', entityId: entryId, action: 'updated', data: { id: entryId, status: 'reversed', reversedById: reversal.journalEntryId } });
 
-    return success(c, { id: reversalId, entryNumber: reversalNumber }, 201);
+    return success(c, { id: reversal.journalEntryId, entryNumber: reversal.entryNumber }, 201);
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
-    console.error('[app-api/journal-entries] reverse failed:', err);
+    if (isUserFixable(err)) return error.badRequest(c, err.message);
+    console.error('[books-api/journal-entries] reverse failed:', err);
     return error.internal(c, 'Failed to reverse journal entry');
   }
 });

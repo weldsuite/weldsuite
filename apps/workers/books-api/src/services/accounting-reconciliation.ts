@@ -11,6 +11,10 @@
 
 import { eq, and, isNull, or } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
+import { reconcileBankTransactionToDocument } from './accounting-bank-match';
+import type { schema as dbSchema } from '@weldsuite/worker-kit/db';
+
+type BankTransactionRow = typeof dbSchema.bankTransactions.$inferSelect;
 
 // ============================================================================
 // Types
@@ -76,12 +80,17 @@ export async function findMatches(
 
 /**
  * Auto-reconcile a batch of unreconciled transactions.
- * Only auto-reconciles when confidence >= 0.8.
+ * Only auto-reconciles invoice / bill matches with confidence >= 0.8; each
+ * one records and posts a payment (services/accounting-bank-match), so an
+ * automatic match settles the document exactly like a manual one. A match
+ * that can't be posted (closed period, lock date, draft document) is left as
+ * a suggestion.
  */
 export async function autoReconcileBatch(
   db: Database,
   schema: any,
   bankAccountId: string,
+  userId: string | null,
 ): Promise<{ reconciledCount: number; results: ReconciliationResult[] }> {
   const { bankTransactions } = schema;
 
@@ -111,29 +120,22 @@ export async function autoReconcileBatch(
       autoReconciled: false,
     };
 
-    // Auto-reconcile if high confidence
-    if (bestMatch && bestMatch.confidence >= 0.8) {
-      const updateData: Record<string, unknown> = {
-        status: 'reconciled',
-        reconciliationType: bestMatch.type === 'rule' ? 'rule' : 'auto',
-        updatedAt: new Date(),
-      };
-
-      if (bestMatch.type === 'invoice') {
-        updateData.reconciledInvoiceId = bestMatch.entityId;
-      } else if (bestMatch.type === 'bill') {
-        updateData.reconciledBillId = bestMatch.entityId;
+    if (bestMatch && bestMatch.confidence >= 0.8 && (bestMatch.type === 'invoice' || bestMatch.type === 'bill')) {
+      try {
+        await reconcileBankTransactionToDocument(db, {
+          txn: txn as BankTransactionRow,
+          type: bestMatch.type,
+          documentId: bestMatch.entityId,
+          reconciliationType: 'auto',
+          userId,
+        });
+        result.autoReconciled = true;
+        result.reconciledEntityType = bestMatch.type;
+        result.reconciledEntityId = bestMatch.entityId;
+        reconciledCount++;
+      } catch (err) {
+        console.warn(`[auto-reconcile] left ${txn.id} as a suggestion:`, err instanceof Error ? err.message : err);
       }
-
-      await db
-        .update(bankTransactions)
-        .set(updateData)
-        .where(eq(bankTransactions.id, txn.id));
-
-      result.autoReconciled = true;
-      result.reconciledEntityType = bestMatch.type;
-      result.reconciledEntityId = bestMatch.entityId;
-      reconciledCount++;
     }
 
     results.push(result);

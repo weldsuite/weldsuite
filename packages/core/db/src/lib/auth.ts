@@ -116,8 +116,8 @@ export const getTenant = cache(async (): Promise<TenantInfo> => {
  * This function is kept for backward compatibility but does nothing.
  * The organizationMembership.created webhook creates/updates local member records.
  */
-export async function autoAcceptPendingInvites(): Promise<{ accepted: number }> {
+export function autoAcceptPendingInvites(): Promise<{ accepted: number }> {
   // No-op: Clerk webhooks handle member syncing
   // See: apps/web/platform/app/api/webhooks/clerk/route.ts
-  return { accepted: 0 };
+  return Promise.resolve({ accepted: 0 });
 }

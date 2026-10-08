@@ -36,7 +36,7 @@ interface LiveRoutineRow {
 }
 
 /** Enabled, undeleted cron routines of active agents (optionally one agent). */
-async function loadLiveRoutines(db: TenantDb, agentId?: string): Promise<LiveRoutineRow[]> {
+function loadLiveRoutines(db: TenantDb, agentId?: string): Promise<LiveRoutineRow[]> {
   const { weldagentRoutines: r, weldagentAgents: a } = schema;
   const conditions = [
     eq(r.enabled, true),
@@ -46,11 +46,13 @@ async function loadLiveRoutines(db: TenantDb, agentId?: string): Promise<LiveRou
     isNull(a.deletedAt),
   ];
   if (agentId) conditions.push(eq(r.agentId, agentId));
-  return db
-    .select({ id: r.id, agentId: r.agentId, nextRunAt: r.nextRunAt })
-    .from(r)
-    .innerJoin(a, eq(a.id, r.agentId))
-    .where(and(...conditions));
+  return Promise.resolve(
+    db
+      .select({ id: r.id, agentId: r.agentId, nextRunAt: r.nextRunAt })
+      .from(r)
+      .innerJoin(a, eq(a.id, r.agentId))
+      .where(and(...conditions))
+  );
 }
 
 function upsertStatement(d1: D1Database, workspaceId: string, row: LiveRoutineRow, now: number) {

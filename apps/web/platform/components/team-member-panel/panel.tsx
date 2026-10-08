@@ -43,6 +43,43 @@ export function TeamMemberPanel({
   const isSelf = !!userId && !!viewerUserId && userId === viewerUserId;
   const profile = profileQuery.data;
 
+  let panelBody: React.ReactNode;
+  if (!userId || profileQuery.isLoading) {
+    panelBody = <div className="p-6 text-sm text-muted-foreground">{t('sweep.shared.loadingEllipsis')}</div>;
+  } else if (!profile) {
+    panelBody = <div className="p-6 text-sm text-muted-foreground">{t('sweep.shared.memberNotFound')}</div>;
+  } else {
+    panelBody = (
+      <>
+        <TeamMemberPanelHeader
+          profile={profile}
+          onClose={() => onOpenChange(false)}
+          isSelf={isSelf}
+        />
+
+        <div className="flex border-b text-sm">
+          <TabButton active={tab === 'overview'} onClick={() => setTab('overview')}>
+            {t('sweep.shared.overview')}
+          </TabButton>
+          <TabButton active={tab === 'notes'} onClick={() => setTab('notes')}>
+            {t('sweep.shared.notes')}
+          </TabButton>
+          {!isSelf && (
+            <TabButton active={tab === 'common'} onClick={() => setTab('common')}>
+              {t('sweep.shared.common')}
+            </TabButton>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {tab === 'overview' && <OverviewTab profile={profile} />}
+          {tab === 'notes' && <NotesTab userId={profile.userId} />}
+          {tab === 'common' && <CommonTab userId={profile.userId} isSelf={isSelf} />}
+        </div>
+      </>
+    );
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-[540px] max-w-full p-0 flex flex-col sm:max-w-[540px]">
@@ -51,39 +88,7 @@ export function TeamMemberPanel({
           <SheetDescription>{t('sweep.shared.teamMemberDetailsDescription')}</SheetDescription>
         </SheetHeader>
 
-        {!userId || profileQuery.isLoading ? (
-          <div className="p-6 text-sm text-muted-foreground">{t('sweep.shared.loadingEllipsis')}</div>
-        ) : !profile ? (
-          <div className="p-6 text-sm text-muted-foreground">{t('sweep.shared.memberNotFound')}</div>
-        ) : (
-          <>
-            <TeamMemberPanelHeader
-              profile={profile}
-              onClose={() => onOpenChange(false)}
-              isSelf={isSelf}
-            />
-
-            <div className="flex border-b text-sm">
-              <TabButton active={tab === 'overview'} onClick={() => setTab('overview')}>
-                {t('sweep.shared.overview')}
-              </TabButton>
-              <TabButton active={tab === 'notes'} onClick={() => setTab('notes')}>
-                {t('sweep.shared.notes')}
-              </TabButton>
-              {!isSelf && (
-                <TabButton active={tab === 'common'} onClick={() => setTab('common')}>
-                  {t('sweep.shared.common')}
-                </TabButton>
-              )}
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              {tab === 'overview' && <OverviewTab profile={profile} />}
-              {tab === 'notes' && <NotesTab userId={profile.userId} />}
-              {tab === 'common' && <CommonTab userId={profile.userId} isSelf={isSelf} />}
-            </div>
-          </>
-        )}
+        {panelBody}
       </SheetContent>
     </Sheet>
   );

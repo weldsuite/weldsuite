@@ -21,15 +21,15 @@ export class TemplateDomainProvider implements IMailDomainProvider {
     if (!config.apiKey) throw new ProviderConfigError(PROVIDER, 'apiKey');
   }
 
-  async provisionDomain(_domain: string, _options?: ProvisionDomainOptions): Promise<ProvisionDomainResult> {
-    throw new Error('TemplateDomainProvider.provisionDomain() not implemented');
+  provisionDomain(_domain: string, _options?: ProvisionDomainOptions): Promise<ProvisionDomainResult> {
+    return Promise.reject(new Error('TemplateDomainProvider.provisionDomain() not implemented'));
   }
 
-  async deprovisionDomain(_domain: string): Promise<void> {
-    throw new Error('TemplateDomainProvider.deprovisionDomain() not implemented');
+  deprovisionDomain(_domain: string): Promise<void> {
+    return Promise.reject(new Error('TemplateDomainProvider.deprovisionDomain() not implemented'));
   }
 
-  async getDnsRecords(_domain: string): Promise<MailDnsRecord[]> {
-    throw new Error('TemplateDomainProvider.getDnsRecords() not implemented');
+  getDnsRecords(_domain: string): Promise<MailDnsRecord[]> {
+    return Promise.reject(new Error('TemplateDomainProvider.getDnsRecords() not implemented'));
   }
 }

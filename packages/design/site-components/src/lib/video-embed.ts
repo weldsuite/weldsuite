@@ -10,8 +10,21 @@ export interface EmbedOptions {
   showControls: boolean;
 }
 
+/** `youtube.com/embed/ID`, `/v/ID`, `/e/ID`, `/<path>/ID` and `…?v=ID` / `…&v=ID`. */
+const YOUTUBE_COM_ID = /youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)([^"&?/\s]{11})/;
+/** `youtu.be/ID` short links. */
+const YOUTU_BE_ID = /youtu\.be\/([^"&?/\s]{11})/;
+
+/** The 11-character video id of whichever YouTube URL form appears first in `url`. */
+function youTubeVideoId(url: string): string | undefined {
+  const long = YOUTUBE_COM_ID.exec(url);
+  const short = YOUTU_BE_ID.exec(url);
+  if (long && short) return (long.index < short.index ? long : short)[1];
+  return (long ?? short)?.[1];
+}
+
 function buildYouTubeUrl(url: string, { autoplay, loop, muted, showControls }: EmbedOptions): string {
-  const videoId = url.match(/(?:youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?/\s]{11})/)?.[1];
+  const videoId = youTubeVideoId(url);
   if (!videoId) return '';
 
   const params = new URLSearchParams();
@@ -28,7 +41,7 @@ function buildYouTubeUrl(url: string, { autoplay, loop, muted, showControls }: E
 }
 
 function buildVimeoUrl(url: string, { autoplay, loop, muted, showControls }: EmbedOptions): string {
-  const videoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
+  const videoId = /vimeo\.com\/(\d+)/.exec(url)?.[1];
   if (!videoId) return '';
 
   const params = new URLSearchParams();

@@ -37,6 +37,11 @@ const SIZES: Record<ButtonSize, { height: number; paddingHorizontal: number; fon
   lg: { height: 52, paddingHorizontal: 20, fontSize: 16, gap: 8 },
 };
 
+function pressedOpacity(disabled: boolean, pressed: boolean): number {
+  if (disabled) return 0.5;
+  return pressed ? 0.85 : 1;
+}
+
 export function Button({
   title,
   children,
@@ -84,7 +89,7 @@ export function Button({
           backgroundColor: bg[variant],
           borderColor: variant === 'outline' ? colors.border : 'transparent',
           borderWidth: variant === 'outline' ? StyleSheet.hairlineWidth * 2 : 0,
-          opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1,
+          opacity: pressedOpacity(isDisabled, pressed),
         },
         fullWidth && styles.fullWidth,
         style,

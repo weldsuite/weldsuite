@@ -11,7 +11,7 @@ export interface ExtractedCustomerInfo {
 }
 
 // Email regex pattern
-const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/;
+const EMAIL_REGEX = /(?<![a-zA-Z0-9._%+-])[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}/;
 
 // Common name patterns (captures words that look like names)
 // This is a simple heuristic - names are hard to detect perfectly
@@ -28,7 +28,7 @@ const NAME_PATTERNS = [
  * Extract email address from a message
  */
 export function extractEmail(message: string): string | undefined {
-  const match = message.match(EMAIL_REGEX);
+  const match = EMAIL_REGEX.exec(message);
   return match ? match[0].toLowerCase() : undefined;
 }
 
@@ -42,7 +42,7 @@ export function extractName(message: string): string | undefined {
 
   // Try each name pattern
   for (const pattern of NAME_PATTERNS) {
-    const match = cleanMessage.match(pattern);
+    const match = pattern.exec(cleanMessage);
     if (match?.[1]) {
       // Validate it doesn't look like a common word
       const potentialName = match[1].trim();

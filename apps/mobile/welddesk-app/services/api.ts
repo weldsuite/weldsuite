@@ -7,7 +7,7 @@
 import { isApiError } from '@weldsuite/api-client/client';
 import type { ApiResponse, Workspace, WorkspaceWithMembership, InstalledApp } from '@weldsuite/mobile-ui/types';
 
-import { appApi, appApiClient, setAppApiTokenGetter, APP_API_URL } from './app-api';
+import { appApi, appApiClient, setAppApiTokenGetter } from './app-api';
 import type {
   DeskConversation,
   DeskConversationFilters,
@@ -17,7 +17,7 @@ import type {
   DeskMessage,
 } from '@/types/desk';
 
-export const API_URL = APP_API_URL;
+export { APP_API_URL as API_URL } from './app-api';
 
 let staticToken: string | null = null;
 let refreshCallback: (() => Promise<string | null>) | null = null;
@@ -69,8 +69,8 @@ class WeldDeskApi {
     // No-op: app-api derives the workspace from the Clerk JWT's active org.
   }
 
-  async getCurrentWorkspace(): Promise<ApiResponse<Workspace>> {
-    return { success: false };
+  getCurrentWorkspace(): Promise<ApiResponse<Workspace>> {
+    return Promise.resolve({ success: false });
   }
 
   async getUserWorkspaces(): Promise<ApiResponse<WorkspaceWithMembership[]>> {

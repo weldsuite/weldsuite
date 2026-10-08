@@ -3,6 +3,8 @@
 import type { StoreData } from '../types';
 import React from 'react';
 
+type HorizontalPosition = 'left' | 'center' | 'right';
+
 interface Block {
   id: string;
   type: string;
@@ -24,9 +26,9 @@ export interface MultirowBlockProps {
   headingSize?: 'h2' | 'h1' | 'h0' | 'hxl';
   imageHeight?: 'small' | 'medium' | 'large';
   desktopImageWidth?: 'small' | 'medium' | 'large';
-  desktopContentPosition?: 'left' | 'center' | 'right';
-  desktopContentAlignment?: 'left' | 'center' | 'right';
-  mobileContentAlignment?: 'left' | 'center' | 'right';
+  desktopContentPosition?: HorizontalPosition;
+  desktopContentAlignment?: HorizontalPosition;
+  mobileContentAlignment?: HorizontalPosition;
   colorScheme?: 'scheme-1' | 'scheme-2' | 'scheme-3';
   containerColorScheme?: 'scheme-1' | 'scheme-2' | 'scheme-3';
 
@@ -113,6 +115,15 @@ export function MultirowBlock({
       case 'scheme-2': return 'bg-gray-100 text-gray-900';
       case 'scheme-3': return 'bg-gray-900 text-white';
       default: return 'bg-white text-gray-900';
+    }
+  };
+
+  // Get button style classes
+  const getButtonStyleClass = (buttonStyle: string) => {
+    switch (buttonStyle) {
+      case 'primary': return 'bg-blue-600 text-white hover:bg-blue-700';
+      case 'secondary': return 'bg-gray-200 text-gray-900 hover:bg-gray-300';
+      default: return 'text-blue-600 hover:text-blue-700 underline';
     }
   };
 
@@ -236,13 +247,7 @@ export function MultirowBlock({
                         )}
                         <a
                           href={finalButtonLink}
-                          className={`inline-block px-6 py-3 rounded-md font-medium transition-colors ${
-                            finalButtonStyle === 'primary'
-                              ? 'bg-blue-600 text-white hover:bg-blue-700'
-                              : finalButtonStyle === 'secondary'
-                              ? 'bg-gray-200 text-gray-900 hover:bg-gray-300'
-                              : 'text-blue-600 hover:text-blue-700 underline'
-                          }`}
+                          className={`inline-block px-6 py-3 rounded-md font-medium transition-colors ${getButtonStyleClass(finalButtonStyle)}`}
                         >
                           {finalButtonLabel}
                         </a>

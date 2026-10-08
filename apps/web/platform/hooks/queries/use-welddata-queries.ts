@@ -23,6 +23,7 @@ import type {
   WelddataList,
 } from '@weldsuite/app-api-client/schemas/welddata';
 import { asText } from '@weldsuite/text';
+import { withQuery } from '@/lib/with-query';
 
 export interface AiModel {
   modelId: string;
@@ -190,7 +191,7 @@ export function useWelddataLeads(listId: string, filters?: Record<string, unknow
         params.set(k, asText(v));
       }
       const q = params.toString();
-      return client.get<ListResponse<WelddataLead>>(`/welddata/lists/${listId}/leads${q ? `?${q}` : ''}`);
+      return client.get<ListResponse<WelddataLead>>(withQuery(`/welddata/lists/${listId}/leads`, q));
     },
     enabled: !!listId && enabled,
   });
@@ -317,7 +318,7 @@ export function useAiModels() {
   // site still gets a well-typed, empty result instead of a network error.
   return useQuery({
     queryKey: welddataKeys.models(),
-    queryFn: async (): Promise<AiModel[]> => [],
+    queryFn: (): Promise<AiModel[]> => Promise.resolve([]),
     staleTime: Infinity,
   });
 }

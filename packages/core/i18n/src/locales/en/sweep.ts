@@ -223,7 +223,7 @@ export const sweep = {
       "panLabel": "PAN",
       "bankAccountLabel": "Bank account",
       "optional": "optional",
-      "vatPlaceholder": "e.g. NL123456789B01",
+      "vatPlaceholder": "As shown on your tax registration",
       "gstinPlaceholder": "e.g. 27AABCU9603R1ZM",
       "createFailed": "Failed to create entity",
       "creating": "Creating…",
@@ -374,7 +374,7 @@ export const sweep = {
       "icpCalculationFailed": "ICP calculation failed",
       "icpFilingFailed": "ICP filing failed",
       "skippedContacts": "Skipped {count} contact(s) without a VAT number",
-      "suppletieCheckFailed": "Suppletie check failed",
+      "suppletieCheckFailed": "Correction check failed",
       "statusCheckFailed": "Status check failed"
     },
     "entitiesList": {
@@ -464,9 +464,7 @@ export const sweep = {
       "download": "Download"
     },
     "forwardMessage": {
-      "couldNotOpenDm": "Could not open DM with {name}",
-      "scheduleOpenTabNote": "Scheduled messages are only sent while WeldSuite stays open in this tab. You can schedule up to {days} days ahead.",
-      "scheduleTooFar": "Pick a time within the next {days} days"
+      "couldNotOpenDm": "Could not open DM with {name}"
     },
     "groupConversation": {
       "defaultName": "Group Chat"
@@ -2309,6 +2307,13 @@ export const sweep = {
       "unknown": "Unknown",
       "guestTooltip": "External guest — only sees channels they're invited to",
       "guest": "Guest",
+      "employeeTooltip": "Employee — only uses My HR and WeldChat",
+      "inviteAsEmployee": "Employee (My HR + chat only)",
+      "employee": "Employee",
+      "employeeAccess": {
+        "title": "Employee member",
+        "description": "Employee members have fixed access: My HR (their own employee record) and WeldChat. They have no role, and app access or permission overrides do not apply. To give them more, remove them and invite them again as a team member."
+      },
       "noTeams": "No teams",
       "resendInvite": "Resend Invite",
       "cancelInvite": "Cancel Invite",

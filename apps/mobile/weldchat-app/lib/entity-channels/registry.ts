@@ -10,7 +10,7 @@
  * Add a new entry here when a new entity provider is added on the server.
  */
 
-import { SquareCheck, FolderOpen, User, Hash } from 'lucide-react-native';
+import { SquareCheck, FolderOpen, User } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 
 export interface EntityTypeInfo {
@@ -39,4 +39,4 @@ export function listEntityTypes(): EntityTypeInfo[] {
 }
 
 /** Fallback icon for an unknown entity type. */
-export const FallbackEntityIcon = Hash;
+export { Hash as FallbackEntityIcon } from 'lucide-react-native';

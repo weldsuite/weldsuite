@@ -89,11 +89,11 @@ const convertToTicketSchema = z.object({
 // the database.
 // ============================================================================
 
-app.get('/config', requirePermission('settings:read'), async (c) => {
+app.get('/config', requirePermission('settings:read'), (c) => {
   return c.json({ error: { code: 'ai_unavailable', message: 'AI is currently unavailable' } }, 503);
 });
 
-app.post('/config', requirePermission('settings:update'), zValidator('json', saveConfigSchema), async (c) => {
+app.post('/config', requirePermission('settings:update'), zValidator('json', saveConfigSchema), (c) => {
   return c.json({ error: { code: 'ai_unavailable', message: 'AI is currently unavailable' } }, 503);
 });
 

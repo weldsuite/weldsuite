@@ -1,6 +1,10 @@
-/** WeldHR dashboard: headcount, today's attendance/leave, lifecycle, coaching follow-ups, recent evaluations, client accounts. */
+/**
+ * WeldHR dashboard: headcount, today's attendance/leave, lifecycle, coaching follow-ups, recent evaluations, client accounts.
+ * Members who can only use My HR (`employees:self`, no HR read permission) are sent to /weldhr/me instead.
+ */
 
-import { Link } from '@tanstack/react-router';
+import { useEffect } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
 import {
   CalendarClock,
   ClipboardList,
@@ -11,13 +15,32 @@ import {
   Users,
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
 import { useHrDashboard } from '@/hooks/queries/use-weldhr-queries';
 import { DashboardPage, KpiCard, KpiGrid, SectionCard, EmptyText, useHrBreadcrumbs } from './components/page-kit';
 import { EmployeeAvatar, ErrorBanner, ScoreBadge, StatusBadge, errorMessage, formatDate } from './components/shared';
 
+/** Any of these opens the back-office dashboard; without one, a member with `employees:self` lands on My HR. */
+const BACK_OFFICE_PERMISSIONS = ['employees:read', 'attendance:read', 'leave:read', 'coaching:read', 'evaluations:read'];
+
 export default function WeldHrDashboardPage() {
+  const { canAny, can, isLoading } = usePermissions();
+  const navigate = useNavigate();
+  const selfServiceOnly = !isLoading && !canAny(...BACK_OFFICE_PERMISSIONS) && can('employees:self');
+
+  useEffect(() => {
+    if (selfServiceOnly) void navigate({ to: '/weldhr/me', replace: true });
+  }, [selfServiceOnly, navigate]);
+
+  // Permissions are still loading, or the redirect above is in flight: do not fire the dashboard query.
+  if (isLoading || selfServiceOnly) return <PageLoader fullScreen={false} />;
+
+  return <DashboardContent />;
+}
+
+function DashboardContent() {
   const t = useTranslations();
   useHrBreadcrumbs();
   const { data, isLoading, error } = useHrDashboard();

@@ -94,6 +94,16 @@ describe('parseOcrJson', () => {
     expect(parsed.total).toBe(12.1);
   });
 
+  it('reads only the first closed fence, whatever the case of its json tag', () => {
+    const parsed = parseOcrJson('Sure {see below}:\n```JSON  {"total":3}\n```\nand {more} prose');
+    expect(parsed).toEqual({ total: 3 });
+    expect(parseOcrJson('``` {"total":4} ``` then ```{"total":5}```')).toEqual({ total: 4 });
+  });
+
+  it('falls back to the whole reply when a fence is never closed', () => {
+    expect(parseOcrJson('```json\n{"total":2}')).toEqual({ total: 2 });
+  });
+
   it('throws when the model returns no JSON', () => {
     expect(() => parseOcrJson('I cannot see an invoice.')).toThrow(/did not return JSON/);
   });

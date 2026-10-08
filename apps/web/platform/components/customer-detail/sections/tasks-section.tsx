@@ -43,6 +43,14 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-settings-queries';
 import type { Member } from '@weldsuite/core-api-client/schemas/members';
 import { useTranslations } from '@weldsuite/i18n/client';
 
+function repeatBadgeLabel(repeat: NonNullable<Task['repeat']>): string {
+  if (repeat.frequency === 'custom' && repeat.interval && repeat.unit) {
+    return `${repeat.interval}${repeat.unit.charAt(0)}`;
+  }
+  if (repeat.frequency === 'biweekly') return '2w';
+  return repeat.frequency.charAt(0).toUpperCase();
+}
+
 export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
   const t = useTranslations();
   const { mode, isExpanded } = useCustomerDetailContext();
@@ -368,9 +376,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
               <Repeat2 className="h-2.5 w-2.5" />
-              {task.repeat.frequency === 'custom' && task.repeat.interval && task.repeat.unit
-                ? `${task.repeat.interval}${task.repeat.unit.charAt(0)}`
-                : task.repeat.frequency === 'biweekly' ? '2w' : task.repeat.frequency.charAt(0).toUpperCase()}
+              {repeatBadgeLabel(task.repeat)}
             </span>
           )}
         </div>

@@ -4,14 +4,7 @@
 
 import { Sparkles } from 'lucide-react-native';
 
-import {
-  FloatingTabBar as SharedFloatingTabBar,
-  FLOATING_TAB_BAR_HEIGHT,
-  FLOATING_TAB_BAR_MARGIN,
-  floatingTabBarBottomInset,
-  floatingTabBarScreenOptions,
-  type FloatingTabBarProps,
-} from '@weldsuite/mobile-ui/components/FloatingTabBar';
+import { FloatingTabBar as SharedFloatingTabBar, type FloatingTabBarProps } from '@weldsuite/mobile-ui/components/FloatingTabBar';
 
 import { BRAND } from '@/lib/brand';
 
@@ -21,7 +14,7 @@ export {
   floatingTabBarBottomInset,
   floatingTabBarScreenOptions,
   type FloatingTabBarProps,
-};
+} from '@weldsuite/mobile-ui/components/FloatingTabBar';
 
 export function FloatingTabBar(props: Readonly<FloatingTabBarProps>) {
   return (

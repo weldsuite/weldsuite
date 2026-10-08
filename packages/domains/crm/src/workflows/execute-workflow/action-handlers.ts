@@ -299,14 +299,14 @@ async function handleQueryData(inputs: Record<string, unknown>, ctx: ActionConte
   return { records: filteredRecords, count: filteredRecords.length };
 }
 
-async function handleSetVariable(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
+function handleSetVariable(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
   const varName = asText(inputs.name || inputs.variableName || '');
   if (!varName) throw new Error('Variable name is required');
   ctx.variables[varName] = inputs.value;
-  return { set: true, name: varName, value: inputs.value };
+  return Promise.resolve({ set: true, name: varName, value: inputs.value });
 }
 
-async function handleLoop(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
+function handleLoop(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
   const items = inputs.items as unknown[];
   const iteratorName = asText(inputs.iteratorName || 'item');
   if (!Array.isArray(items)) throw new Error('Items must be an array');
@@ -317,7 +317,7 @@ async function handleLoop(inputs: Record<string, unknown>, ctx: ActionContext): 
     ctx.variables[`${iteratorName}Index`] = i;
     results.push({ index: i, item: items[i], processed: true });
   }
-  return { items: results, count: results.length };
+  return Promise.resolve({ items: results, count: results.length });
 }
 
 async function handleWebhook(inputs: Record<string, unknown>, _ctx: ActionContext): Promise<unknown> {
@@ -341,7 +341,7 @@ async function handleWebhook(inputs: Record<string, unknown>, _ctx: ActionContex
   return { success: true, status: response.status, response: responseData };
 }
 
-async function handleLog(inputs: Record<string, unknown>): Promise<unknown> {
+function handleLog(inputs: Record<string, unknown>): Promise<unknown> {
   const message = asText(inputs.message || inputs.text || '');
   const level = asText(inputs.level || 'info').toLowerCase();
   switch (level) {
@@ -349,10 +349,10 @@ async function handleLog(inputs: Record<string, unknown>): Promise<unknown> {
     case 'warn': case 'warning': console.warn(`[LOG] ${message}`); break;
     default: console.log(`[LOG] ${message}`);
   }
-  return { logged: true, message };
+  return Promise.resolve({ logged: true, message });
 }
 
-async function handleDelay(inputs: Record<string, unknown>): Promise<unknown> {
+function handleDelay(inputs: Record<string, unknown>): Promise<unknown> {
   // Note: actual sleep is handled by the CF Workflow step.sleep() in the main executor.
   // This handler just returns the duration for the caller to use.
   let durationMs = 1000;
@@ -375,7 +375,7 @@ async function handleDelay(inputs: Record<string, unknown>): Promise<unknown> {
     durationDescription = `${Math.ceil(durationMs / 1000)} second(s)`;
   }
 
-  return { delayed: true, duration: durationDescription, durationMs, __delayMs: durationMs };
+  return Promise.resolve({ delayed: true, duration: durationDescription, durationMs, __delayMs: durationMs });
 }
 
 async function handleHttpRequest(inputs: Record<string, unknown>): Promise<unknown> {
@@ -410,7 +410,7 @@ async function handleHttpRequest(inputs: Record<string, unknown>): Promise<unkno
   }
 }
 
-async function handleTransform(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
+function handleTransform(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
   const transform = asText(inputs.transform || inputs.operation || 'pick');
   const data = inputs.data || ctx.previousResults;
 
@@ -420,26 +420,26 @@ async function handleTransform(inputs: Record<string, unknown>, ctx: ActionConte
       if (!fields || !Array.isArray(fields)) throw new Error('Fields array is required for pick');
       const result: Record<string, unknown> = {};
       for (const field of fields) result[field] = (data as Record<string, unknown>)[field];
-      return result;
+      return Promise.resolve(result);
     }
     case 'map': {
       const sourceArray = inputs.source || data;
       if (!Array.isArray(sourceArray)) throw new Error('Source must be an array for map');
-      return sourceArray.map((item: any) => item[asText(inputs.mapField || 'id')]);
+      return Promise.resolve(sourceArray.map((item: any) => item[asText(inputs.mapField || 'id')]));
     }
     case 'filter': {
       const sourceArray = inputs.source || data;
       if (!Array.isArray(sourceArray)) throw new Error('Source must be an array for filter');
-      return sourceArray.filter((item: any) => item[asText(inputs.filterField || '')] === inputs.filterValue);
+      return Promise.resolve(sourceArray.filter((item: any) => item[asText(inputs.filterField || '')] === inputs.filterValue));
     }
     case 'merge': {
       const objects = inputs.objects as Record<string, unknown>[];
       if (!Array.isArray(objects)) throw new Error('Objects array is required for merge');
-      return Object.assign({}, ...objects);
+      return Promise.resolve(Object.assign({}, ...objects));
     }
-    case 'stringify': return JSON.stringify(data);
-    case 'parse': return typeof data === 'string' ? JSON.parse(data) : data;
-    default: return data;
+    case 'stringify': return Promise.resolve(JSON.stringify(data));
+    case 'parse': return Promise.resolve(typeof data === 'string' ? JSON.parse(data) : data);
+    default: return Promise.resolve(data);
   }
 }
 
@@ -483,20 +483,20 @@ function applyConditionOperator(operator: string, fieldValue: unknown, value: un
   }
 }
 
-async function handleCondition(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
+function handleCondition(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
   const operator = asText(inputs.operator || 'eq');
   const fieldValue = resolveConditionField(inputs.field, inputs, ctx);
   const passed = applyConditionOperator(operator, fieldValue, inputs.value);
-  return { passed, result: fieldValue };
+  return Promise.resolve({ passed, result: fieldValue });
 }
 
-async function handleSendSms(inputs: Record<string, unknown>): Promise<unknown> {
+function handleSendSms(inputs: Record<string, unknown>): Promise<unknown> {
   const to = asText(inputs.to || inputs.phoneNumber || '');
   const body = asText(inputs.body || inputs.message || '');
   if (!to) throw new Error('Phone number is required');
   if (!body) throw new Error('Message body is required');
   // TODO: Integrate with Telnyx SMS API via env.TELNYX_API_KEY
-  return { sent: true, message: 'SMS queued (Telnyx integration pending)', status: 'pending' };
+  return Promise.resolve({ sent: true, message: 'SMS queued (Telnyx integration pending)', status: 'pending' });
 }
 
 // ============================================================================

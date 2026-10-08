@@ -5,6 +5,8 @@ import { toPriceNumber } from '../lib/price';
 import React, { useState, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
 
+type RenderMode = 'live' | 'preview' | 'edit';
+
 // ============================================
 // Product Gallery Block
 // ============================================
@@ -22,7 +24,7 @@ export interface ProductDetailGalleryBlockProps {
   imageRounding?: number;
   images?: ProductImage[];
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -206,7 +208,9 @@ export function ProductDetailGalleryBlock({
           <div className="w-full hidden lg:flex flex-col gap-2">
             {displayImages.map((img: ProductImage, index: number) => (
               <div key={`scroll-image-${index}`} className="aspect-square overflow-hidden" style={{ borderRadius: `${imageRounding}px` }}>
-                <img src={img.src} alt={img.alt} className="block size-full object-cover object-center cursor-pointer hover:scale-[1.02] transition-transform" onClick={() => setCurrentImageIndex(index)} />
+                <button type="button" className="block size-full p-0" onClick={() => setCurrentImageIndex(index)}>
+                  <img src={img.src} alt={img.alt} className="block size-full object-cover object-center cursor-pointer hover:scale-[1.02] transition-transform" />
+                </button>
               </div>
             ))}
           </div>
@@ -240,7 +244,9 @@ export function ProductDetailGalleryBlock({
           {displayImages.map((img: ProductImage, index: number) => (
             <div key={`masonry-${index}`} className={`overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`} style={{ borderRadius: `${imageRounding}px` }}>
               <div className="aspect-[4/5]">
-                <img src={img.src} alt={img.alt} className="block size-full object-cover object-center hover:scale-[1.02] transition-transform" onClick={() => setCurrentImageIndex(index)} />
+                <button type="button" className="block size-full p-0 cursor-pointer" onClick={() => setCurrentImageIndex(index)}>
+                  <img src={img.src} alt={img.alt} className="block size-full object-cover object-center hover:scale-[1.02] transition-transform" />
+                </button>
               </div>
             </div>
           ))}
@@ -275,7 +281,7 @@ export interface ProductDetailTitleBlockProps {
   textColor?: string;
   fontSize?: 'sm' | 'md' | 'lg' | 'xl';
   fontWeight?: 'normal' | 'medium' | 'semibold' | 'bold';
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -321,7 +327,7 @@ export interface ProductDetailPriceBlockProps {
   salePrice?: number;
   currency?: string;
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -381,11 +387,18 @@ export interface ProductDetailVariantSelectorBlockProps {
   label?: string;
   options?: VariantOption[];
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
   };
+}
+
+function getVariantOptionClass(isSelected: boolean, inStock: boolean | undefined): string {
+  if (isSelected) return 'bg-gray-900 text-white border-gray-900';
+  return inStock
+    ? 'border-gray-900 hover:bg-gray-100'
+    : 'border-gray-200 text-gray-400 line-through cursor-not-allowed';
 }
 
 export function ProductDetailVariantSelectorBlock({
@@ -409,13 +422,7 @@ export function ProductDetailVariantSelectorBlock({
             key={option.id}
             onClick={() => option.inStock && setSelectedValue(option.value)}
             disabled={!option.inStock}
-            className={`px-4 py-2 text-sm border rounded-md transition-colors ${
-              selectedValue === option.value
-                ? 'bg-gray-900 text-white border-gray-900'
-                : option.inStock
-                  ? 'border-gray-900 hover:bg-gray-100'
-                  : 'border-gray-200 text-gray-400 line-through cursor-not-allowed'
-            }`}
+            className={`px-4 py-2 text-sm border rounded-md transition-colors ${getVariantOptionClass(selectedValue === option.value, option.inStock)}`}
             style={selectedValue === option.value ? {} : { color: option.inStock ? textColor : undefined }}
           >
             {option.label}
@@ -433,7 +440,7 @@ export function ProductDetailVariantSelectorBlock({
 export interface ProductDetailQuantityBlockProps {
   label?: string;
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -486,7 +493,7 @@ export interface ProductDetailButtonsBlockProps {
   showAddToCart?: boolean;
   showBuyNow?: boolean;
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -531,7 +538,7 @@ export function ProductDetailButtonsBlock({
 export interface ProductDetailDescriptionBlockProps {
   description?: string;
   textColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -566,7 +573,7 @@ export interface ProductDetailAccordionBlockProps {
   items?: AccordionItem[];
   textColor?: string;
   borderColor?: string;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
     selectedProduct?: Product;
@@ -623,7 +630,7 @@ export interface ProductDetailBlockProps {
   backgroundColor?: string;
   textColor?: string;
   showAccordion?: boolean;
-  mode?: 'live' | 'preview' | 'edit';
+  mode?: RenderMode;
   store?: {
     products?: Product[];
   };

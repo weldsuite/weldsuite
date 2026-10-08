@@ -76,7 +76,7 @@ const AVATAR_COLORS = [
 ];
 function generateColor(str: string) {
   let hash = 0;
-  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < str.length; i++) hash = str.codePointAt(i)! + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
@@ -1055,6 +1055,7 @@ export function FloatingComposePanel() {
               ref={textareaRef}
               contentEditable={!isAiGenerating}
               role="textbox"
+              tabIndex={isAiGenerating ? -1 : 0}
               aria-multiline="true"
               suppressContentEditableWarning
               data-placeholder={t.mail.floatingCompose.writePlaceholder}

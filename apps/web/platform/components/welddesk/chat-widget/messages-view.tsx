@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   X,
   ChevronRight,
@@ -109,6 +109,91 @@ export function MessagesView({
   const emptyState = allMessages.length === 0;
   const noSearchResults = searchQuery && messages.length === 0;
 
+  let listContent: ReactNode;
+  if (emptyState) {
+    listContent = (
+      <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+        <div className="w-16 h-16 bg-gray-100 dark:bg-secondary rounded-full flex items-center justify-center mb-4">
+          <MessageSquare size={28} className="text-gray-400 dark:text-muted-foreground" strokeWidth={1.5} />
+        </div>
+        <h3 className="text-gray-900 dark:text-foreground font-semibold text-base mb-2">
+          No conversations yet
+        </h3>
+        <p className="text-gray-500 dark:text-muted-foreground text-sm leading-relaxed mb-6">
+          Start a new conversation with our support team
+        </p>
+        <Button
+          variant="ghost"
+          onClick={onOpenChat}
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg transition-all duration-150 text-sm font-medium hover:bg-blue-700"
+        >
+          <Plus size={16} strokeWidth={2} />
+          New conversation
+        </Button>
+      </div>
+    );
+  } else if (noSearchResults) {
+    listContent = (
+      <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+        <div className="w-16 h-16 bg-gray-100 dark:bg-secondary rounded-full flex items-center justify-center mb-4">
+          <Search size={28} className="text-gray-400 dark:text-muted-foreground" strokeWidth={1.5} />
+        </div>
+        <h3 className="text-gray-900 dark:text-foreground font-semibold text-base mb-2">
+          No results found
+        </h3>
+        <p className="text-gray-500 dark:text-muted-foreground text-sm leading-relaxed">
+          Try searching with different keywords
+        </p>
+      </div>
+    );
+  } else {
+    listContent = (
+      <div style={{ paddingBottom: '16px' }}>
+        {messages.map((message, index) => (
+          <div key={message.id}>
+            {index > 0 && (
+              <div className="border-t border-gray-100 dark:border-border mx-4" />
+            )}
+            <Button
+              variant="ghost"
+              onClick={onOpenChat}
+              className="w-full text-left hover:bg-gray-50 dark:hover:bg-secondary/50 transition-all duration-150 flex items-center justify-between group h-auto"
+              style={{
+                padding: '14px 16px'
+              }}
+            >
+              {/* Content - Simple text layout */}
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-900 dark:text-foreground truncate"
+                  style={{
+                    fontSize: '14px',
+                    lineHeight: '1.5'
+                  }}>
+                  {message.preview}
+                </p>
+                <span className="text-gray-500 dark:text-muted-foreground mt-1 inline-block"
+                  style={{
+                    fontSize: '12px'
+                  }}>
+                  {message.title} · {message.time}
+                </span>
+              </div>
+
+              {/* Arrow */}
+              <ChevronRight
+                size={18}
+                className="text-gray-400 dark:text-muted-foreground flex-shrink-0 ml-3"
+              />
+            </Button>
+            {index === messages.length - 1 && (
+              <div className="border-t border-gray-100 dark:border-border mx-4" />
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div
       className="fixed bottom-[90px] right-5 flex flex-col bg-white dark:bg-background z-[999999] overflow-hidden"
@@ -176,7 +261,6 @@ export function MessagesView({
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setSearchFocused(false)}
-                autoFocus
                 className={cn(
                   "w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-secondary rounded-md text-sm text-gray-900 dark:text-foreground",
                   "placeholder:text-gray-400 dark:placeholder:text-gray-500 transition-all duration-200",
@@ -188,83 +272,7 @@ export function MessagesView({
           </div>
         )}
         
-        {emptyState ? (
-          <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-            <div className="w-16 h-16 bg-gray-100 dark:bg-secondary rounded-full flex items-center justify-center mb-4">
-              <MessageSquare size={28} className="text-gray-400 dark:text-muted-foreground" strokeWidth={1.5} />
-            </div>
-            <h3 className="text-gray-900 dark:text-foreground font-semibold text-base mb-2">
-              No conversations yet
-            </h3>
-            <p className="text-gray-500 dark:text-muted-foreground text-sm leading-relaxed mb-6">
-              Start a new conversation with our support team
-            </p>
-            <Button
-              variant="ghost"
-              onClick={onOpenChat}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg transition-all duration-150 text-sm font-medium hover:bg-blue-700"
-            >
-              <Plus size={16} strokeWidth={2} />
-              New conversation
-            </Button>
-          </div>
-        ) : noSearchResults ? (
-          <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-            <div className="w-16 h-16 bg-gray-100 dark:bg-secondary rounded-full flex items-center justify-center mb-4">
-              <Search size={28} className="text-gray-400 dark:text-muted-foreground" strokeWidth={1.5} />
-            </div>
-            <h3 className="text-gray-900 dark:text-foreground font-semibold text-base mb-2">
-              No results found
-            </h3>
-            <p className="text-gray-500 dark:text-muted-foreground text-sm leading-relaxed">
-              Try searching with different keywords
-            </p>
-          </div>
-        ) : (
-          <div style={{ paddingBottom: '16px' }}>
-            {messages.map((message, index) => (
-              <div key={message.id}>
-                {index > 0 && (
-                  <div className="border-t border-gray-100 dark:border-border mx-4" />
-                )}
-                <Button
-                  variant="ghost"
-                  onClick={onOpenChat}
-                  className="w-full text-left hover:bg-gray-50 dark:hover:bg-secondary/50 transition-all duration-150 flex items-center justify-between group h-auto"
-                  style={{
-                    padding: '14px 16px'
-                  }}
-                >
-                  {/* Content - Simple text layout */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-gray-900 dark:text-foreground truncate"
-                      style={{
-                        fontSize: '14px',
-                        lineHeight: '1.5'
-                      }}>
-                      {message.preview}
-                    </p>
-                    <span className="text-gray-500 dark:text-muted-foreground mt-1 inline-block"
-                      style={{
-                        fontSize: '12px'
-                      }}>
-                      {message.title} · {message.time}
-                    </span>
-                  </div>
-
-                  {/* Arrow */}
-                  <ChevronRight
-                    size={18}
-                    className="text-gray-400 dark:text-muted-foreground flex-shrink-0 ml-3"
-                  />
-                </Button>
-                {index === messages.length - 1 && (
-                  <div className="border-t border-gray-100 dark:border-border mx-4" />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        {listContent}
       </div>
 
       {/* Footer CTA - "Send new message" */}

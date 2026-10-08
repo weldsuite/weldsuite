@@ -134,8 +134,10 @@ export function TreeNode({
   isLast = false,
   className,
 }: Readonly<TreeNodeProps>) {
+  const nodeValue = React.useMemo(() => ({ nodeId, level, isLast }), [nodeId, level, isLast]);
+
   return (
-    <TreeNodeContext.Provider value={{ nodeId, level, isLast }}>
+    <TreeNodeContext.Provider value={nodeValue}>
       <div className={cn("relative", className)} role="treeitem">
         {children}
       </div>

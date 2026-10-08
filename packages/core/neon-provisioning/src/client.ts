@@ -142,9 +142,9 @@ function toNeonApiError(error: unknown): NeonApiError {
  * Neon API Client
  */
 export class NeonClient {
-  private api: NeonApi;
-  private orgId?: string;
-  private defaultRegion: string;
+  private readonly api: NeonApi;
+  private readonly orgId?: string;
+  private readonly defaultRegion: string;
 
   constructor(config: NeonApiConfig) {
     this.orgId = config.orgId;

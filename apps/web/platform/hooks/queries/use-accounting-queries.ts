@@ -1,5 +1,13 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { accountingApi, type ReconciliationRule } from '@/lib/api/domains/weldbooks';
+import { useQuery, useMutation, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
+import {
+  accountingApi,
+  type CreateLockExceptionInput,
+  type CreatePaymentInput,
+  type RecordInvoicePaymentInput,
+  type ReconciliationRule,
+  type UpdateAccountingEntityInput,
+  type UpdateLockDatesInput,
+} from '@/lib/api/domains/weldbooks';
 
 // ============================================================================
 // Query Keys
@@ -9,6 +17,17 @@ export const accountingKeys = {
   all: ['accounting'] as const,
   dashboard: () => [...accountingKeys.all, 'dashboard'] as const,
   settings: () => [...accountingKeys.all, 'settings'] as const,
+  jurisdictions: () => [...accountingKeys.all, 'jurisdictions'] as const,
+
+  /**
+   * Entity rows. Not entity-scoped data: the list is the same whichever entity
+   * is selected, and a detail is keyed by its own id.
+   */
+  entities: {
+    all: [...(['accounting', 'entities'] as const)],
+    detail: (id: string) => [...accountingKeys.entities.all, 'detail', id] as const,
+    lockExceptions: (id: string) => [...accountingKeys.entities.all, 'lock-exceptions', id] as const,
+  },
 
   accounts: {
     all: [...(['accounting', 'accounts'] as const)],
@@ -105,6 +124,24 @@ export const accountingKeys = {
   },
 };
 
+/**
+ * True for an accounting query whose result depends on the selected entity
+ * (the `X-Accounting-Entity-Id` header): everything under `['accounting']`
+ * except the entity rows and the jurisdiction list.
+ */
+export function isEntityScopedAccountingQuery(queryKey: QueryKey): boolean {
+  return queryKey[0] === 'accounting' && queryKey[1] !== 'entities' && queryKey[1] !== 'jurisdictions';
+}
+
+/**
+ * Drop every entity-scoped accounting result after the selected entity
+ * changed, so the previous entity's data is never shown under the new one.
+ * Active queries refetch (with the new header); the rest refetch when used.
+ */
+export function resetEntityScopedAccountingQueries(qc: QueryClient) {
+  return qc.resetQueries({ predicate: (query) => isEntityScopedAccountingQuery(query.queryKey) });
+}
+
 // ============================================================================
 // Dashboard
 // ============================================================================
@@ -124,6 +161,95 @@ export function useAccountingSettings() {
   return useQuery({
     queryKey: accountingKeys.settings(),
     queryFn: () => accountingApi.getSettings(),
+  });
+}
+
+/** Dry run (`true`) counts what would be posted; `false` posts it. */
+export function usePostingCatchUp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (dryRun: boolean) => accountingApi.postingCatchUp(dryRun),
+    onSuccess: (_res, dryRun) => {
+      if (dryRun) return;
+      qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.vatReturns.all });
+      qc.invalidateQueries({ queryKey: ['accounting', 'reports'] });
+      qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+    },
+  });
+}
+
+// ============================================================================
+// Entities + jurisdictions
+// ============================================================================
+
+export function useAccountingJurisdictions(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: accountingKeys.jurisdictions(),
+    queryFn: async () => (await accountingApi.listJurisdictions()).data ?? [],
+    enabled: options.enabled ?? true,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function useAccountingEntity(id: string | null | undefined) {
+  return useQuery({
+    queryKey: accountingKeys.entities.detail(id ?? ''),
+    queryFn: async () => (await accountingApi.getEntity(id!)).data,
+    enabled: !!id,
+  });
+}
+
+export function useUpdateAccountingEntity() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateAccountingEntityInput }) =>
+      accountingApi.updateEntity(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.entities.all });
+    },
+  });
+}
+
+export function useUpdateLockDates() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateLockDatesInput }) =>
+      accountingApi.updateLockDates(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.entities.all });
+    },
+  });
+}
+
+export function useLockExceptions(entityId: string | null | undefined) {
+  return useQuery({
+    queryKey: accountingKeys.entities.lockExceptions(entityId ?? ''),
+    queryFn: async () => (await accountingApi.listLockExceptions(entityId!)).data ?? [],
+    enabled: !!entityId,
+  });
+}
+
+export function useCreateLockException() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ entityId, data }: { entityId: string; data: CreateLockExceptionInput }) =>
+      accountingApi.createLockException(entityId, data),
+    onSuccess: (_res, { entityId }) => {
+      qc.invalidateQueries({ queryKey: accountingKeys.entities.lockExceptions(entityId) });
+    },
+  });
+}
+
+export function useRevokeLockException() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ entityId, exceptionId }: { entityId: string; exceptionId: string }) =>
+      accountingApi.revokeLockException(entityId, exceptionId),
+    onSuccess: (_res, { entityId }) => {
+      qc.invalidateQueries({ queryKey: accountingKeys.entities.lockExceptions(entityId) });
+    },
   });
 }
 // ============================================================================
@@ -255,7 +381,26 @@ export function useSendInvoice() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => accountingApi.sendInvoice(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.invoices.all }); },
+    onSuccess: () => {
+      // Sending a draft finalizes (posts) it first.
+      qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+    },
+  });
+}
+
+/** `cancelled` (never-finalized invoices only) or `uncollectible` (bad-debt write-off). */
+export function useUpdateInvoiceStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'cancelled' | 'uncollectible' }) =>
+      accountingApi.updateInvoiceStatus(id, status),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+    },
   });
 }
 
@@ -273,10 +418,27 @@ export function useFinalizeInvoice() {
 export function useRecordInvoicePayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => accountingApi.recordInvoicePayment(id, data),
+    mutationFn: ({ id, data }: { id: string; data: RecordInvoicePaymentInput }) =>
+      accountingApi.recordInvoicePayment(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
       qc.invalidateQueries({ queryKey: accountingKeys.payments.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
+    },
+  });
+}
+
+/** A payment, optionally allocated over several invoices or bills. */
+export function useCreatePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreatePaymentInput) => accountingApi.createPayment(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.payments.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
       qc.invalidateQueries({ queryKey: accountingKeys.dashboard() });
     },
   });
@@ -324,7 +486,11 @@ export function useApproveBill() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => accountingApi.approveBill(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.bills.all }); },
+    onSuccess: () => {
+      // Approving a bill posts it to the ledger.
+      qc.invalidateQueries({ queryKey: accountingKeys.bills.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.journalEntries.all });
+    },
   });
 }
 

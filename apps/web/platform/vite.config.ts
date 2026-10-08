@@ -5,7 +5,7 @@ import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import path from 'node:path';
 
 function i18nChunkName(normalizedId: string): string | undefined {
-  const i18nMatch = normalizedId.match(/\/packages\/i18n\/src\/locales\/(en|nl|fr)\/([^/]+)\.ts/);
+  const i18nMatch = /\/packages\/i18n\/src\/locales\/(en|nl|fr)\/([^/]+)\.ts/.exec(normalizedId);
   if (!i18nMatch) return undefined;
   const [, locale, ns] = i18nMatch;
   return ns === 'index' ? undefined : `i18n-${locale}-${ns}`;
@@ -101,7 +101,7 @@ export default defineConfig(async () => {
           if (i18nChunk) return i18nChunk;
 
           if (!norm.includes('/node_modules/')) return undefined;
-          const m = norm.match(/\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(@[^/]+\/[^/]+|[^/]+)/);
+          const m = /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(@[^/]+\/[^/]+|[^/]+)/.exec(norm);
           if (!m) return undefined;
           return vendorChunkName(m[1]);
         },

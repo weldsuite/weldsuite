@@ -215,7 +215,7 @@ export function DynamicTicketForm({
       if (!customerName.trim()) newErrors.customerName = t('sweep.welddesk.dynamicTicketForm.requiredError');
       if (!customerEmail.trim()) {
         newErrors.customerEmail = t('sweep.welddesk.dynamicTicketForm.requiredError');
-      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+      } else if (!/^[^\s@]+@[^\s@][^\s@.]*\.[^\s@]+$/.test(customerEmail)) {
         newErrors.customerEmail = t('sweep.welddesk.dynamicTicketForm.invalidEmailError');
       }
     }

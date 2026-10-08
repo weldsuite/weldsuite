@@ -37,7 +37,7 @@ export function textToBlocks(text: string): Block[] {
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trimEnd();
     if (!line.trim()) continue;
-    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
+    const heading = /^(#{1,3})\s+(\S.*)$/.exec(line);
     if (heading?.[1] !== undefined && heading[2] !== undefined) {
       blocks.push({
         type: 'heading',
@@ -47,12 +47,12 @@ export function textToBlocks(text: string): Block[] {
       });
       continue;
     }
-    const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
+    const bullet = /^\s*[-*]\s+(\S.*)$/.exec(line);
     if (bullet?.[1] !== undefined) {
       blocks.push({ type: 'bulletListItem', content: inline(bullet[1]), children: [] });
       continue;
     }
-    const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+    const numbered = /^\s*\d+[.)]\s+(\S.*)$/.exec(line);
     if (numbered?.[1] !== undefined) {
       blocks.push({ type: 'numberedListItem', content: inline(numbered[1]), children: [] });
       continue;

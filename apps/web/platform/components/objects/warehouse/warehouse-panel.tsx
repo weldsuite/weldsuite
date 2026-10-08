@@ -40,26 +40,24 @@ export function WarehousePanel(props: Readonly<ObjectPanelComponentProps>) {
       subtitle={warehouse?.code ?? undefined}
       openHref={warehouse ? `/weldstash/warehouses?open=${warehouse.id}` : undefined}
       tabs={[detailsTab(t.panel.tabDetails), extraTab('stock', t.panel.tabStock, Boxes)]}
-      renderTab={(tabId) =>
-        tabId === 'stock' ? (
-          stockRows.length === 0 ? (
-            <ProseBlock>{t.panel.noStock}</ProseBlock>
-          ) : (
-            <div className="space-y-2">
-              <SectionHeader>{t.panel.tabStock}</SectionHeader>
-              <LineItemList
-                items={stockRows}
-                getKey={(r) => r.id}
-                renderLeft={(r) => (
-                  <span className="truncate">{r.productName ?? r.productId}</span>
-                )}
-                renderRight={(r) => `${r.quantityAvailable} / ${r.quantityOnHand}`}
-              />
-              <p className="px-4 pb-2 text-xs text-muted-foreground">{t.panel.stockLegend}</p>
-            </div>
-          )
-        ) : null
-      }
+      renderTab={(tabId) => {
+        if (tabId !== 'stock') return null;
+        if (stockRows.length === 0) return <ProseBlock>{t.panel.noStock}</ProseBlock>;
+        return (
+          <div className="space-y-2">
+            <SectionHeader>{t.panel.tabStock}</SectionHeader>
+            <LineItemList
+              items={stockRows}
+              getKey={(r) => r.id}
+              renderLeft={(r) => (
+                <span className="truncate">{r.productName ?? r.productId}</span>
+              )}
+              renderRight={(r) => `${r.quantityAvailable} / ${r.quantityOnHand}`}
+            />
+            <p className="px-4 pb-2 text-xs text-muted-foreground">{t.panel.stockLegend}</p>
+          </div>
+        );
+      }}
       statusBadges={
         warehouse && (
           <>

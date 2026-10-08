@@ -344,8 +344,9 @@ export function validateConfig(
  */
 export function createConfig(env: DigipoortEnv, btwNumber: string): DigipoortConfig {
   const rawMode = (env.DIGIPOORT_MODE ?? 'simulated').toLowerCase();
-  const mode: DigipoortMode =
-    rawMode === 'production' ? 'production' : rawMode === 'preprod' ? 'preprod' : 'simulated';
+  let mode: DigipoortMode = 'simulated';
+  if (rawMode === 'production') mode = 'production';
+  else if (rawMode === 'preprod') mode = 'preprod';
   const endpoints =
     mode === 'production' ? DIGIPOORT_PRODUCTION_ENDPOINTS : DIGIPOORT_TEST_ENDPOINTS;
 

@@ -50,7 +50,7 @@ async function setPendingUpload(kv: KVNamespace, token: string, data: PendingUpl
   });
 }
 
-async function getPendingUpload(kv: KVNamespace, token: string): Promise<PendingUpload | null> {
+function getPendingUpload(kv: KVNamespace, token: string): Promise<PendingUpload | null> {
   return kv.get<PendingUpload>(`${UPLOAD_TOKEN_PREFIX}${token}`, 'json');
 }
 

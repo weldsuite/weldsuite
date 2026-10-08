@@ -47,7 +47,7 @@ export function getPersonTheme(seed = 'guest'): PersonTheme {
   // 31-multiplier string hash, wrapped to int32 (Math.imul wraps its operands).
   let h = 0;
   for (let i = 0; i < seed.length; i++) {
-    h = Math.imul(h, 31) + seed.charCodeAt(i);
+    h = Math.imul(h, 31) + seed.codePointAt(i)!;
   }
   h = Math.imul(h, 1);
   return PERSON_THEMES[Math.abs(h) % PERSON_THEMES.length]!;

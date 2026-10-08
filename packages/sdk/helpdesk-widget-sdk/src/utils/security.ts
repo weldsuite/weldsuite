@@ -10,9 +10,9 @@ import { Logger } from './logger';
  * SecurityManager class
  */
 export class SecurityManager {
-  private config: SecurityConfig;
-  private logger: Logger;
-  private allowedOrigins: Set<string>;
+  private readonly config: SecurityConfig;
+  private readonly logger: Logger;
+  private readonly allowedOrigins: Set<string>;
 
   constructor(config: SecurityConfig, logger: Logger) {
     this.config = config;
@@ -214,9 +214,9 @@ export class SecurityManager {
  * Rate limiting utility
  */
 export class RateLimiter {
-  private requests: Map<string, number[]> = new Map();
-  private maxRequests: number;
-  private windowMs: number;
+  private readonly requests: Map<string, number[]> = new Map();
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
 
   constructor(maxRequests: number = 100, windowMs: number = 60000) {
     this.maxRequests = maxRequests;
@@ -264,7 +264,7 @@ export class RateLimiter {
  * Token validation utilities
  */
 export class TokenValidator {
-  private static readonly TOKEN_PATTERN = /^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*$/;
+  private static readonly TOKEN_PATTERN = /^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=][A-Za-z0-9-_.+/=]*$/;
 
   /**
    * Check if string looks like a JWT token
@@ -276,7 +276,7 @@ export class TokenValidator {
   /**
    * Decode JWT payload (without verification)
    */
-  public static decodeJWT(token: string): any | null {
+  public static decodeJWT(token: string): any {
     try {
       const parts = token.split('.');
       if (parts.length !== 3) {

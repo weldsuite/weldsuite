@@ -405,7 +405,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<Weldd
         cacheLead((prev) => ({ ...prev, [lead.id]: welddataLeadFromSavedLead(lead) }));
         openObjectPanel({ type: 'welddata-lead', id: lead.id });
       },
-      onUpdateEntity: async () => ({ success: false }),
+      onUpdateEntity: () => Promise.resolve({ success: false }),
       onDeleteEntity: async (id) => {
         try {
           await removeLead.mutateAsync({ id, listId });

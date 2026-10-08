@@ -82,6 +82,209 @@ interface TasksViewProps {
   initialTasks?: RawApiTask[];
 }
 
+function formatDueLabel(dueDate: Date): string {
+  if (isToday(dueDate)) return 'Today';
+  if (isTomorrow(dueDate)) return 'Tomorrow';
+  return format(dueDate, 'MMM d');
+}
+
+function getStatusLabel(status?: string) {
+  switch (status) {
+    case 'backlog':
+      return 'Backlog';
+    case 'todo':
+      return 'To Do';
+    case 'in_progress':
+      return 'In Progress';
+    case 'in_review':
+      return 'In Review';
+    case 'testing':
+      return 'Testing';
+    case 'done':
+      return 'Done';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return null;
+  }
+}
+
+function getInitials(name: string) {
+  if (!name) return '?';
+  return name.charAt(0).toUpperCase();
+}
+
+type Translate = ReturnType<typeof useTranslations>;
+
+interface TaskItemActions {
+  availableLabels: ProjectLabel[];
+  onOpen: (task: Task) => void;
+  onToggle: (taskId: string) => Promise<void>;
+  onDelete: (taskId: string) => Promise<void>;
+  st: Translate;
+}
+
+function TaskItem({ task, availableLabels, onOpen, onToggle, onDelete, st }: Readonly<{ task: Task } & TaskItemActions>) {
+  const isOverdue = task.dueDate && isPast(task.dueDate) && !isToday(task.dueDate);
+
+  const statusLabel = getStatusLabel(task.status);
+
+  return (
+    <div
+      className="group flex items-center gap-3 py-2.5 px-3 -mx-3 hover:bg-gray-50 dark:hover:bg-background/50 rounded-lg transition-colors cursor-pointer"
+      onClick={() => onOpen(task)}
+    >
+      <Checkbox
+        checked={task.completed}
+        onCheckedChange={(_checked) => {
+          void onToggle(task.id);
+        }}
+        onClick={(e) => e.stopPropagation()}
+        className="h-4 w-4 shadow-none"
+      />
+
+      <div className="flex-1 flex items-center gap-3">
+        {task.number != null && (
+          <TaskNumberBadge number={task.number} className="flex-shrink-0" />
+        )}
+        <span className={cn(
+          "text-sm",
+          task.completed && "line-through text-gray-400"
+        )}>
+          {task.title}
+        </span>
+        {task.labels && task.labels.length > 0 && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {task.labels.map(labelId => {
+              const label = availableLabels.find(l => l.id === labelId);
+              if (!label) return null;
+              return (
+                <span
+                  key={labelId}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium text-white"
+                  style={{ backgroundColor: label.color }}
+                >
+                  {label.name}
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-32">
+        {/* Company - fixed width */}
+        <div className="w-32">
+          {task.linkedCompany && (
+            <Button
+              variant="ghost"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1.5 hover:bg-gray-100 dark:hover:bg-secondary px-2 py-0.5 -mx-2 rounded transition-colors"
+            >
+              <div
+                className="h-3 w-3 rounded-sm"
+                style={{ backgroundColor: task.linkedCompany.color || '#6B7280' }}
+              />
+              <span className="text-xs text-gray-600 dark:text-muted-foreground">
+                {task.linkedCompany.name}
+              </span>
+            </Button>
+          )}
+        </div>
+
+        {/* Status - fixed width */}
+        <div className="w-24">
+          {statusLabel && (
+            <TagLabel tag={statusLabel} />
+          )}
+        </div>
+
+        {/* Due - fixed width */}
+        <div className="w-24">
+          {task.dueDate && (
+            <div className={cn(
+              "flex items-center gap-1 text-xs",
+              isOverdue ? "text-red-600" : "text-gray-500"
+            )}>
+              <Calendar className="h-3 w-3" />
+              {formatDueLabel(task.dueDate)}
+            </div>
+          )}
+        </div>
+
+        {/* Assignee - fixed width */}
+        <div className="w-6">
+          {task.assignee && (
+            <Avatar className="h-6 w-6 rounded-sm">
+              <AvatarImage src={task.assignee.avatarUrl} />
+              <AvatarFallback className="text-[9px] bg-gray-100 dark:bg-secondary rounded-sm">
+                {getInitials(task.assignee.name)}
+              </AvatarFallback>
+            </Avatar>
+          )}
+        </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => e.stopPropagation()}
+              className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <MoreVertical className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem>{st('sweep.weldflow.edit')}</DropdownMenuItem>
+            <DropdownMenuItem>{st('sweep.weldflow.notesView.duplicate')}</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-red-600"
+              onClick={() => onDelete(task.id)}
+            >
+              {st('sweep.weldflow.delete')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
+}
+
+function TaskSection({ title, tasks, count, showDivider = true, itemActions }: Readonly<{
+  title: string;
+  tasks: Task[];
+  count?: number;
+  showDivider?: boolean;
+  itemActions: TaskItemActions;
+}>) {
+  if (tasks.length === 0) return null;
+
+  return (
+    <>
+      <div className="mb-10">
+        {/* Title row */}
+        <h2 className="text-sm font-medium text-gray-600 dark:text-muted-foreground mb-2 flex items-center gap-2">
+          {title}
+          {(count !== undefined || tasks.length > 0) && (
+            <span className="bg-gray-100 dark:bg-secondary rounded-sm text-xs w-5 h-5 flex items-center justify-center">
+              {count ?? tasks.length}
+            </span>
+          )}
+        </h2>
+
+        <div className="space-y-0.5">
+          {tasks.map(task => (
+            <TaskItem key={task.id} task={task} {...itemActions} />
+          ))}
+        </div>
+      </div>
+      {showDivider && <hr className="border-gray-200 dark:border-border mb-8" />}
+    </>
+  );
+}
+
 export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewProps>) {
   const st = useTranslations();
   const { getClient } = useAppApiClient();
@@ -245,194 +448,12 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
     openObjectPanel({ type: 'task', id: task.id });
   };
 
-  const getInitials = (name: string) => {
-    if (!name) return '?';
-    return name.charAt(0).toUpperCase();
-  };
-
-  const TaskItem = ({ task }: Readonly<{ task: Task }>) => {
-    const isOverdue = task.dueDate && isPast(task.dueDate) && !isToday(task.dueDate);
-
-    const getStatusLabel = (status?: string) => {
-      switch (status) {
-        case 'backlog':
-          return 'Backlog';
-        case 'todo':
-          return 'To Do';
-        case 'in_progress':
-          return 'In Progress';
-        case 'in_review':
-          return 'In Review';
-        case 'testing':
-          return 'Testing';
-        case 'done':
-          return 'Done';
-        case 'cancelled':
-          return 'Cancelled';
-        default:
-          return null;
-      }
-    };
-
-    const statusLabel = getStatusLabel(task.status);
-
-    return (
-      <div
-        className="group flex items-center gap-3 py-2.5 px-3 -mx-3 hover:bg-gray-50 dark:hover:bg-background/50 rounded-lg transition-colors cursor-pointer"
-        onClick={() => handleTaskClick(task)}
-      >
-        <Checkbox
-          checked={task.completed}
-          onCheckedChange={(_checked) => {
-            void toggleTask(task.id);
-          }}
-          onClick={(e) => e.stopPropagation()}
-          className="h-4 w-4 shadow-none"
-        />
-
-        <div className="flex-1 flex items-center gap-3">
-          {task.number != null && (
-            <TaskNumberBadge number={task.number} className="flex-shrink-0" />
-          )}
-          <span className={cn(
-            "text-sm",
-            task.completed && "line-through text-gray-400"
-          )}>
-            {task.title}
-          </span>
-          {task.labels && task.labels.length > 0 && (
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {task.labels.map(labelId => {
-                const label = availableLabels.find(l => l.id === labelId);
-                if (!label) return null;
-                return (
-                  <span
-                    key={labelId}
-                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium text-white"
-                    style={{ backgroundColor: label.color }}
-                  >
-                    {label.name}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-32">
-          {/* Company - fixed width */}
-          <div className="w-32">
-            {task.linkedCompany && (
-              <Button
-                variant="ghost"
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center gap-1.5 hover:bg-gray-100 dark:hover:bg-secondary px-2 py-0.5 -mx-2 rounded transition-colors"
-              >
-                <div
-                  className="h-3 w-3 rounded-sm"
-                  style={{ backgroundColor: task.linkedCompany.color || '#6B7280' }}
-                />
-                <span className="text-xs text-gray-600 dark:text-muted-foreground">
-                  {task.linkedCompany.name}
-                </span>
-              </Button>
-            )}
-          </div>
-
-          {/* Status - fixed width */}
-          <div className="w-24">
-            {statusLabel && (
-              <TagLabel tag={statusLabel} />
-            )}
-          </div>
-
-          {/* Due - fixed width */}
-          <div className="w-24">
-            {task.dueDate && (
-              <div className={cn(
-                "flex items-center gap-1 text-xs",
-                isOverdue ? "text-red-600" : "text-gray-500"
-              )}>
-                <Calendar className="h-3 w-3" />
-                {isToday(task.dueDate) ? 'Today' :
-                 isTomorrow(task.dueDate) ? 'Tomorrow' :
-                 format(task.dueDate, 'MMM d')}
-              </div>
-            )}
-          </div>
-
-          {/* Assignee - fixed width */}
-          <div className="w-6">
-            {task.assignee && (
-              <Avatar className="h-6 w-6 rounded-sm">
-                <AvatarImage src={task.assignee.avatarUrl} />
-                <AvatarFallback className="text-[9px] bg-gray-100 dark:bg-secondary rounded-sm">
-                  {getInitials(task.assignee.name)}
-                </AvatarFallback>
-              </Avatar>
-            )}
-          </div>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => e.stopPropagation()}
-                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <MoreVertical className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem>{st('sweep.weldflow.edit')}</DropdownMenuItem>
-              <DropdownMenuItem>{st('sweep.weldflow.notesView.duplicate')}</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600"
-                onClick={() => deleteTask(task.id)}
-              >
-                {st('sweep.weldflow.delete')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-    );
-  };
-
-  // A render helper rather than a component: defined inside the view, a
-  // component would get a new type every render and remount its subtree.
-  const renderTaskSection = ({ title, tasks, count, showDivider = true }: {
-    title: string;
-    tasks: Task[];
-    count?: number;
-    showDivider?: boolean;
-  }) => {
-    if (tasks.length === 0) return null;
-
-    return (
-      <>
-        <div className="mb-10">
-          {/* Title row */}
-          <h2 className="text-sm font-medium text-gray-600 dark:text-muted-foreground mb-2 flex items-center gap-2">
-            {title}
-            {(count !== undefined || tasks.length > 0) && (
-              <span className="bg-gray-100 dark:bg-secondary rounded-sm text-xs w-5 h-5 flex items-center justify-center">
-                {count !== undefined ? count : tasks.length}
-              </span>
-            )}
-          </h2>
-
-          <div className="space-y-0.5">
-            {tasks.map(task => (
-              <TaskItem key={task.id} task={task} />
-            ))}
-          </div>
-        </div>
-        {showDivider && <hr className="border-gray-200 dark:border-border mb-8" />}
-      </>
-    );
+  const itemActions: TaskItemActions = {
+    availableLabels,
+    onOpen: handleTaskClick,
+    onToggle: toggleTask,
+    onDelete: deleteTask,
+    st,
   };
 
   // Stats
@@ -545,53 +566,59 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
               {/* Today tasks */}
               <div className="space-y-0.5 mb-10">
                 {todayTasks.map(task => (
-                  <TaskItem key={task.id} task={task} />
+                  <TaskItem key={task.id} task={task} {...itemActions} />
                 ))}
               </div>
             </>
           )}
           {overdueTasks.length > 0 && (
-            renderTaskSection({
-              title: st('sweep.weldflow.tasksView.overdue'),
-              tasks: overdueTasks,
-              showDivider: false,
-            })
+            <TaskSection
+              title={st('sweep.weldflow.tasksView.overdue')}
+              tasks={overdueTasks}
+              showDivider={false}
+              itemActions={itemActions}
+            />
           )}
           {tomorrowTasks.length > 0 && (
-            renderTaskSection({
-              title: st('sweep.weldflow.tasksView.tomorrow'),
-              tasks: tomorrowTasks,
-              showDivider: false,
-            })
+            <TaskSection
+              title={st('sweep.weldflow.tasksView.tomorrow')}
+              tasks={tomorrowTasks}
+              showDivider={false}
+              itemActions={itemActions}
+            />
           )}
           {thisWeekTasks.length > 0 && (
-            renderTaskSection({
-              title: st('sweep.weldflow.notesView.thisWeek'),
-              tasks: thisWeekTasks,
-              showDivider: false,
-            })
+            <TaskSection
+              title={st('sweep.weldflow.notesView.thisWeek')}
+              tasks={thisWeekTasks}
+              showDivider={false}
+              itemActions={itemActions}
+            />
           )}
           {laterTasks.length > 0 && (
-            renderTaskSection({
-              title: st('sweep.weldflow.tasksView.later'),
-              tasks: laterTasks,
-              showDivider: false,
-            })
+            <TaskSection
+              title={st('sweep.weldflow.tasksView.later')}
+              tasks={laterTasks}
+              showDivider={false}
+              itemActions={itemActions}
+            />
           )}
           {noDateTasks.length > 0 && (
-            renderTaskSection({
-              title: st('sweep.weldflow.tasksView.noDate'),
-              tasks: noDateTasks,
-              showDivider: false,
-            })
+            <TaskSection
+              title={st('sweep.weldflow.tasksView.noDate')}
+              tasks={noDateTasks}
+              showDivider={false}
+              itemActions={itemActions}
+            />
           )}
           {showCompleted && completedTasks.length > 0 && (
-            renderTaskSection({
-              title: st('sweep.weldflow.tasksView.completedTitle'),
-              tasks: completedTasks,
-              count: completedCount,
-              showDivider: false,
-            })
+            <TaskSection
+              title={st('sweep.weldflow.tasksView.completedTitle')}
+              tasks={completedTasks}
+              count={completedCount}
+              showDivider={false}
+              itemActions={itemActions}
+            />
           )}
 
           {filteredTasks.length === 0 && (

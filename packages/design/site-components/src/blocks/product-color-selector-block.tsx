@@ -45,9 +45,8 @@ export function ProductColorSelectorBlock({
             onClick={() => setSelectedColor(colorOption.name)}
             className={cn(
               "w-7 h-7 transition-all",
-              selectedColor === colorOption.name
-                ? "ring-2 ring-inset ring-black"
-                : colorOption.name === 'White' ? "border-2 border-gray-300 hover:border-gray-400" : ""
+              selectedColor === colorOption.name && "ring-2 ring-inset ring-black",
+              selectedColor !== colorOption.name && colorOption.name === 'White' && "border-2 border-gray-300 hover:border-gray-400"
             )}
             style={{
               backgroundColor: colorOption.color,

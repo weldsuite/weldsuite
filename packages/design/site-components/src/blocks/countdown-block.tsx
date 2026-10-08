@@ -45,7 +45,7 @@ export function CountdownBlock({
 
   useEffect(() => {
     const calculateTimeLeft = () => {
-      const difference = new Date(endDate).getTime() - new Date().getTime();
+      const difference = new Date(endDate).getTime() - Date.now();
 
       if (difference > 0) {
         setTimeLeft({

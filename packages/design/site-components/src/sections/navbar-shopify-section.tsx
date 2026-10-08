@@ -166,14 +166,23 @@ export function NavbarShopifySection({
   const currentBgColor = isScrolled && stickyHeader ? stickyBackgroundColor : backgroundColor;
   const currentTextColor = isScrolled && stickyHeader ? stickyTextColor : textColor;
 
-  const breakpointClass = mobileBreakpoint === 'sm' ? 'sm' : mobileBreakpoint === 'lg' ? 'lg' : 'md';
+  let breakpointClass = 'md';
+  if (mobileBreakpoint === 'sm') {
+    breakpointClass = 'sm';
+  } else if (mobileBreakpoint === 'lg') {
+    breakpointClass = 'lg';
+  }
 
   const renderMegamenu = (item: NavMenuItem) => {
     if (!item.children || item.children.length === 0) return null;
 
     const showImage = megamenuShowImages && item.megamenuImage;
-    const columnsClass = megamenuColumns === 2 ? 'grid-cols-2' :
-                         megamenuColumns === 3 ? 'grid-cols-3' : 'grid-cols-4';
+    let columnsClass = 'grid-cols-4';
+    if (megamenuColumns === 2) {
+      columnsClass = 'grid-cols-2';
+    } else if (megamenuColumns === 3) {
+      columnsClass = 'grid-cols-3';
+    }
 
     if (megamenuStyle === 'full-width') {
       return (

@@ -3,6 +3,7 @@
 import type { SectionSettings } from '../types';
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
+import { slideTransitionClasses } from '../lib/slide-transition';
 
 export interface SlideshowContainerBlockProps {
   autoplay?: boolean;
@@ -89,32 +90,7 @@ export function SlideshowContainerBlock({
     };
   }, [autoplay, autoplaySpeed, isPaused, slideCount, goToNext, isEditing]);
 
-  const getTransitionClasses = (index: number) => {
-    const isActive = index === currentSlide;
-
-    switch (transitionStyle) {
-      case 'slide':
-        return `transition-all duration-600 ease-out ${
-          isActive
-            ? 'translate-x-0 opacity-100 z-10'
-            : index < currentSlide
-              ? '-translate-x-full opacity-0 z-0'
-              : 'translate-x-full opacity-0 z-0'
-        }`;
-      case 'zoom':
-        return `transition-all duration-600 ease-out ${
-          isActive
-            ? 'scale-100 opacity-100 z-10'
-            : 'scale-95 opacity-0 z-0'
-        }`;
-      default:
-        return `transition-all duration-600 ease-out ${
-          isActive
-            ? 'opacity-100 z-10'
-            : 'opacity-0 z-0'
-        }`;
-    }
-  };
+  const getTransitionClasses = (index: number) => slideTransitionClasses(transitionStyle, index, currentSlide);
 
   // If no slides, show placeholder in edit mode
   if (slideCount === 0 && isEditing) {

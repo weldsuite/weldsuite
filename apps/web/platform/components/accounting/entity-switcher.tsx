@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
-import { weldbooksApi } from '@/lib/api/weldbooks-client';
+import { resetEntityScopedAccountingQueries } from '@/hooks/queries/use-accounting-queries';
+import { setWeldbooksEntityId, weldbooksApi } from '@/lib/api/weldbooks-client';
 import { CreateEntityDialog } from './create-entity-dialog';
 
 interface EntityRow {
@@ -36,7 +37,22 @@ export function EntitySwitcher() {
   const t = useTranslations();
   const { entityId, setEntityId } = useCurrentAccountingEntity();
   const workspaceId = useWorkspaceId();
+  const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+
+  /**
+   * Switch entity without leaving the previous entity's data on screen: point
+   * the client at the new entity first (so refetches send the new
+   * `X-Accounting-Entity-Id`), then drop every entity-scoped result.
+   * AccountingLayoutClient resets again after the atom settles, which covers
+   * selections made elsewhere (create dialog, add page).
+   */
+  const switchEntity = (id: string) => {
+    if (id === entityId) return;
+    setWeldbooksEntityId(id);
+    setEntityId(id);
+    void resetEntityScopedAccountingQueries(queryClient);
+  };
 
   const { data: entities = [] } = useQuery<EntityRow[]>({
     queryKey: accountingEntitiesQueryKey(workspaceId),
@@ -91,7 +107,7 @@ export function EntitySwitcher() {
           {entities
             .filter((e) => e.isActive !== false)
             .map((e) => (
-              <DropdownMenuItem key={e.id} onClick={() => setEntityId(e.id)}>
+              <DropdownMenuItem key={e.id} onClick={() => switchEntity(e.id)}>
                 <div className="flex items-start gap-2 w-full">
                   {e.id === entityId ? (
                     <Check className="h-4 w-4 mt-0.5 text-primary" />

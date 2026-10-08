@@ -30,7 +30,7 @@ export function SpeakersTabContent({
   onTranscribe,
 }: Readonly<SpeakersTabProps>) {
   const t = useTranslations();
-  const [searchQuery, _setSearchQuery] = useState('');
+  const searchQuery: string = '';
 
   if (speakers.length > 0) {
     const filtered = speakers.filter((speaker) => {

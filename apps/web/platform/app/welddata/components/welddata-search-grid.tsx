@@ -153,8 +153,8 @@ export function WelddataSearchGrid({
         openObjectPanel({ type: 'welddata-lead', id: row.id });
       },
       // Search results are read-only; updates/deletes are not offered.
-      onUpdateEntity: async () => ({ success: false }),
-      onDeleteEntity: async () => ({ success: true }),
+      onUpdateEntity: () => Promise.resolve({ success: false }),
+      onDeleteEntity: () => Promise.resolve({ success: true }),
       onAddToList: async (ids, listId) => {
         const leads = ids
           .map((id) => rowById.get(id))

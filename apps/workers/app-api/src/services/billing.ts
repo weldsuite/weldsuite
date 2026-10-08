@@ -226,11 +226,9 @@ export async function fetchPhoneSubscription(params: {
     const aborted =
       (err instanceof Error && err.name === 'AbortError') ||
       (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError');
-    const message = aborted
-      ? 'Billing worker timed out'
-      : err instanceof Error
-        ? err.message
-        : 'Failed to fetch phone subscription';
+    let message = 'Failed to fetch phone subscription';
+    if (aborted) message = 'Billing worker timed out';
+    else if (err instanceof Error) message = err.message;
     return { ok: false, error: { kind: 'upstream', message } };
   }
 }

@@ -21,6 +21,7 @@ import {
 } from '@/hooks/queries/use-notes-queries';
 import { NoteEditorDialog, type Note as DialogNote } from '@/components/weldcrm/notes/note-editor-dialog';
 import { Button } from '@weldsuite/ui/components/button';
+import { stripTags } from '@/lib/utils';
 
 type EntityKind = 'company' | 'person';
 
@@ -31,12 +32,12 @@ interface NotesTabProps {
 }
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  return stripTags(html).trim();
 }
 
 function getNoteTitle(content: string, untitledLabel: string): string {
   if (!content) return untitledLabel;
-  const heading = content.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+  const heading = /<h[1-3][^>]*>(.*?)<\/h[1-3]>/i.exec(content);
   if (heading?.[1]) {
     const headingText = stripHtml(heading[1]).trim();
     if (headingText) return headingText;
@@ -140,20 +141,25 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
     [deleteMut, activeNoteId, t],
   );
 
+  let notesSummary: string;
+  if (isLoading) {
+    notesSummary = t('sweep.entities.loadingEllipsis');
+  } else if (notes.length === 0) {
+    notesSummary = t('sweep.entities.noNotesYet');
+  } else {
+    notesSummary = t(
+      notes.length === 1
+        ? 'sweep.entities.notesCountSingular'
+        : 'sweep.entities.notesCountPlural',
+      { count: notes.length },
+    );
+  }
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <span className="text-xs uppercase tracking-wide text-muted-foreground">
-          {isLoading
-            ? t('sweep.entities.loadingEllipsis')
-            : notes.length === 0
-              ? t('sweep.entities.noNotesYet')
-              : t(
-                notes.length === 1
-                  ? 'sweep.entities.notesCountSingular'
-                  : 'sweep.entities.notesCountPlural',
-                { count: notes.length },
-              )}
+          {notesSummary}
         </span>
         <Button
           size="sm"

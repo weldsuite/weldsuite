@@ -34,6 +34,13 @@ export async function resolveEntityBaseCurrency(db: Database, entityId: string):
   return entity?.baseCurrency || 'EUR';
 }
 
+const DEFAULT_SEQUENCE_PREFIX: Record<'invoice' | 'bill' | 'creditNote' | 'journal', string> = {
+  invoice: 'INV-',
+  bill: 'BILL-',
+  creditNote: 'CN-',
+  journal: 'JE-',
+};
+
 /**
  * Allocate the next number in a per-entity sequence.
  *
@@ -47,11 +54,7 @@ export async function nextEntityNumber(
   entityId: string,
   sequenceType: 'invoice' | 'bill' | 'creditNote' | 'journal',
 ): Promise<{ value: number; prefix: string; padding: number; formatted: string }> {
-  const defaultPrefix =
-    sequenceType === 'invoice' ? 'INV-'
-    : sequenceType === 'bill' ? 'BILL-'
-    : sequenceType === 'creditNote' ? 'CN-'
-    : 'JE-';
+  const defaultPrefix = DEFAULT_SEQUENCE_PREFIX[sequenceType];
 
   const [row] = await db
     .insert(schema.entityNumberSequences)

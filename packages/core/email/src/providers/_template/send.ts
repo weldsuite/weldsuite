@@ -21,7 +21,7 @@ export class TemplateSendProvider implements IEmailSendProvider {
     if (!config.apiKey) throw new ProviderConfigError(PROVIDER, 'apiKey');
   }
 
-  async send(_options: SendOptions): Promise<SendResult> {
-    throw new Error('TemplateSendProvider.send() not implemented');
+  send(_options: SendOptions): Promise<SendResult> {
+    return Promise.reject(new Error('TemplateSendProvider.send() not implemented'));
   }
 }

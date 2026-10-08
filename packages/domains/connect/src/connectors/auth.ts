@@ -105,7 +105,7 @@ export async function startWooCommerceAppAuth(args: {
     storeUrl = normalizeStoreUrl(args.storeUrl);
   } catch (err) {
     const message =
-      err instanceof ConnectorApiError ? err.message : err instanceof Error ? err.message : 'Store URL is not valid';
+      err instanceof ConnectorApiError || err instanceof Error ? err.message : 'Store URL is not valid';
     return { error: message, status: 400 };
   }
 

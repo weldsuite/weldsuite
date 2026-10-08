@@ -62,7 +62,7 @@ let changedFiles = 0;
 for (const file of files) {
   const before = readFileSync(file, 'utf8');
   const after = before.replace(
-    /((?:from|import|vi\.mock|vi\.importActual)\s*\(?\s*)(['"])(\.{1,2}\/[^'"]+)\2/g,
+    /((?:from|import|vi\.mock|vi\.importActual)\s*(?:\(\s*)?)(['"])(\.{1,2}\/[^'"]+)\2/g,
     (whole, lead, quote, spec) => {
       const abs = path.resolve(path.dirname(file), spec);
       const existsHere = [abs, `${abs}.ts`, path.join(abs, 'index.ts')].some((p) => existsSync(p));
@@ -74,7 +74,8 @@ for (const file of files) {
       const normalized = key === 'db' ? 'db/index' : key;
       if (normalized === 'types') {
         const toTypes = path.relative(path.dirname(file), path.join(src, 'types')).split(path.sep).join('/');
-        return `${lead}${quote}${toTypes.startsWith('.') ? toTypes : `./${toTypes}`}${quote}`;
+        const typesPath = toTypes.startsWith('.') ? toTypes : `./${toTypes}`;
+        return `${lead}${quote}${typesPath}${quote}`;
       }
       const target = MAP.get(normalized);
       if (target) return `${lead}${quote}${target}${quote}`;

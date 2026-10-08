@@ -29,9 +29,9 @@ Workspace
 
 Typical integration flow:
 
-1. `GET /v1/accounting-settings` — read `defaultEntityId`
+1. `GET /v1/accounting-settings` — read `defaultEntityId` (`404` until the workspace has started using WeldBooks)
 2. `GET /v1/accounting-entities` — list entities; confirm `isDefault` and read `jurisdictionCode` / `baseCurrency`
-3. Use that `ent_*` id when creating or listing entity-scoped resources
+3. Use that `ent_*` id to filter entity-scoped resources
 
 Example — list bills for one entity:
 
@@ -42,20 +42,22 @@ curl -G https://api.weldsuite.org/v1/bills \
   -d limit=25
 ```
 
-Example — create a bill on that entity:
+---
 
-```bash {{ title: 'Create a bill' }}
-curl https://api.weldsuite.org/v1/bills \
-  -H "Authorization: Bearer wsk_your_api_key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "entityId": "ent_abc123",
-    "supplierName": "Office Supplies Co",
-    "currency": "EUR"
-  }'
+## Read-only resources
+
+WeldBooks keeps the ledger consistent. Tax is calculated, documents are numbered and posted to the journal, fiscal periods and lock dates are enforced, and every change is written to the audit log. All of that happens in WeldBooks, so the public API reads the books and does not write to them: every WeldBooks resource is **read-only**, except [accounting contacts](/accounting-contacts).
+
+`POST`, `PUT`, `PATCH` and `DELETE` on a read-only resource return `405` with the standard error envelope and an `Allow: GET, HEAD, OPTIONS` header, whatever scopes the key holds:
+
+```json {{ title: '405 Method Not Allowed' }}
+{
+  "error": {
+    "code": "METHOD_NOT_ALLOWED",
+    "message": "The invoices resource is read-only through the public API. Create and change invoices in WeldBooks."
+  }
+}
 ```
-
-The external API **does not** infer `entityId` for you on create. Always pass it explicitly (or read `defaultEntityId` first and inject it in your integration layer).
 
 ---
 
@@ -82,21 +84,21 @@ All WeldBooks list endpoints support cursor [pagination](/pagination):
 
 | Resource | Scopes | `entityId` |
 | --- | --- | --- |
-| [GL accounts](/gl-accounts) | `gl_accounts:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Invoices](/invoices) | `invoices:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Bills](/bills) | `bills:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Journal entries](/journal-entries) | `journal_entries:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Payments](/payments) | `payments:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Bank accounts](/bank-accounts) | `bank_accounts:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Bank transactions](/bank-transactions) | `bank_transactions:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Tax rates](/tax-rates) | `tax_rates:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Recurring invoices](/recurring-invoices) | `recurring_invoices:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Reconciliation rules](/reconciliation-rules) | `reconciliation_rules:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Fiscal periods](/fiscal-periods) | `fiscal_periods:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [FX rates](/fx-rates) | `fx_rates:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [VAT returns](/vat-returns) | `vat_returns:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [Accounting documents](/accounting-documents) | `accounting_documents:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
-| [ICP declarations](/icp-declarations) | `icp_declarations:read` / `:write` | `entityId` on every record; filter lists with `?entityId=` |
+| [GL accounts](/gl-accounts) | `gl_accounts:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Invoices](/invoices) | `invoices:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Bills](/bills) | `bills:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Journal entries](/journal-entries) | `journal_entries:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Payments](/payments) | `payments:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Bank accounts](/bank-accounts) | `bank_accounts:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Bank transactions](/bank-transactions) | `bank_transactions:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Tax rates](/tax-rates) | `tax_rates:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Recurring invoices](/recurring-invoices) | `recurring_invoices:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Reconciliation rules](/reconciliation-rules) | `reconciliation_rules:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Fiscal periods](/fiscal-periods) | `fiscal_periods:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [FX rates](/fx-rates) | `fx_rates:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [VAT returns](/vat-returns) | `vat_returns:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [Accounting documents](/accounting-documents) | `accounting_documents:read` | `entityId` on every record; filter lists with `?entityId=` |
+| [ICP declarations](/icp-declarations) | `icp_declarations:read` | `entityId` on every record; filter lists with `?entityId=` |
 
 ---
 
@@ -104,12 +106,12 @@ All WeldBooks list endpoints support cursor [pagination](/pagination):
 
 | Resource | Scopes | Notes |
 | --- | --- | --- |
-| [Accounting entities](/accounting-entities) | `accounting_entities:read` / `:write` | The entities themselves — root of the hierarchy |
+| [Accounting entities](/accounting-entities) | `accounting_entities:read` | The entities themselves — root of the hierarchy |
 | [Accounting contacts](/accounting-contacts) | `accounting_contacts:read` / `:write` | Shared customers/suppliers; filter with `search`, `role` |
-| [Accounting settings](/accounting-settings) | `accounting_settings:read` / `:write` | Singleton — no list endpoint |
+| [Accounting settings](/accounting-settings) | `accounting_settings:read` | Singleton — no list endpoint |
 
 ---
 
-## First-party vs external API
+## What you can change through the API
 
-These docs cover the **external API** (`api.weldsuite.org/v1`). Standard CRUD is available here. Workflow actions that remain on the first-party app API include bill approval, invoice finalize/send/PDF, bank import/reconcile, VAT calculate/file, and document OCR — each resource page calls these out where relevant.
+These docs cover the **external API** (`api.weldsuite.org/v1`). Reading is available for every WeldBooks resource. [Accounting contacts](/accounting-contacts) are the only resource you can create, update or delete, and only their name and role. Everything that changes the books happens in WeldBooks: creating and posting invoices, bills, payments and journal entries, approvals, bank import and reconciliation, VAT returns, and document OCR.

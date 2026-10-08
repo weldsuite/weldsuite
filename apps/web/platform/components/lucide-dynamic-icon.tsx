@@ -12,7 +12,7 @@ import { Hash } from 'lucide-react';
 function toKebab(name: string): string {
   return name
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .replace(/(?<![A-Z])([A-Z]+)([A-Z][a-z])/g, '$1-$2')
     .toLowerCase();
 }
 
@@ -22,7 +22,7 @@ function lucideKey(name: string): string {
 
 /** True when `name` is a real Lucide icon (PascalCase or kebab-case). */
 export function isKnownLucideIcon(name: string): boolean {
-  return Object.prototype.hasOwnProperty.call(dynamicIconImports, lucideKey(name));
+  return Object.hasOwn(dynamicIconImports, lucideKey(name));
 }
 
 export function LucideDynamicIcon({

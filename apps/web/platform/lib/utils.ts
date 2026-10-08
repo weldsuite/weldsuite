@@ -96,3 +96,5 @@ export function getStatusColor(status: string): string {
   }
   return colors[status] || "bg-gray-100 text-gray-800"
 }
+
+export { stripTags } from "@weldsuite/text"

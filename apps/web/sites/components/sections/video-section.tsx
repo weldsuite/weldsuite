@@ -28,13 +28,26 @@ function embedQuery(
   return `${autoplay ? '?autoplay=1' : ''}${loop ? '&loop=1' : ''}${muted ? muteParam : ''}`;
 }
 
+/** `youtube.com/embed/ID`, `/v/ID`, `/e/ID`, `/<path>/ID` and `…?v=ID` / `…&v=ID`. */
+const YOUTUBE_COM_ID = /youtube\.com\/(?:[^/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)([^"&?/\s]{11})/;
+/** `youtu.be/ID` short links. */
+const YOUTU_BE_ID = /youtu\.be\/([^"&?/\s]{11})/;
+
+/** The 11-character video id of whichever YouTube URL form appears first in `url`. */
+function youTubeVideoId(url: string): string | undefined {
+  const long = YOUTUBE_COM_ID.exec(url);
+  const short = YOUTU_BE_ID.exec(url);
+  if (long && short) return (long.index < short.index ? long : short)[1];
+  return (long ?? short)?.[1];
+}
+
 function getEmbedUrl(url: string, options: EmbedOptions): string {
   if (options.isYouTube) {
-    const videoId = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/)?.[1];
+    const videoId = youTubeVideoId(url);
     return videoId ? `https://www.youtube.com/embed/${videoId}${embedQuery(options, '&mute=1')}` : '';
   }
   if (options.isVimeo) {
-    const videoId = url.match(/vimeo\.com\/(\d+)/)?.[1];
+    const videoId = /vimeo\.com\/(\d+)/.exec(url)?.[1];
     return videoId ? `https://player.vimeo.com/video/${videoId}${embedQuery(options, '&muted=1')}` : '';
   }
   return url;

@@ -90,6 +90,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { secureRandom } from '@/lib/random';
 import { toast } from 'sonner';
 
+type FieldInputType = 'text' | 'number' | 'date' | 'select' | 'textarea';
+
 interface Deal {
   id: string;
   title: string;
@@ -324,12 +326,10 @@ export function PipelineKanban({
   const deleteOpportunityMutation = useDeleteOpportunity();
   const [stages, setStages] = useState<Stage[]>([]);
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
-  const [_activeStageId, setActiveStageId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [_viewMode, _setViewMode] = useState<'kanban' | 'list'>('kanban');
   const [showDealDetails, setShowDealDetails] = useState(false);
   const [showEditDeal, setShowEditDeal] = useState(false);
-  const [selectedDealForEdit, _setSelectedDealForEdit] = useState<Deal | null>(null);
+  const selectedDealForEdit: Deal | null = null;
   const { open: openObjectPanel } = useObjectPanel();
   const [showAddStage, setShowAddStage] = useState(false);
   const [selectedStageForNewDeal, setSelectedStageForNewDeal] = useState<string | null>(null);
@@ -470,7 +470,6 @@ export function PipelineKanban({
 
   
   // Backward compatibility alias
-  const _showAttributeLabels = viewSettings.showAttributeLabels;
   
   const containerRef = useRef<HTMLDivElement>(null);
   const stagesScrollRef = useRef<HTMLDivElement>(null);
@@ -587,18 +586,15 @@ export function PipelineKanban({
     // Check if we're dragging a stage or a deal
     if (activeId.startsWith(SORTABLE_STAGE_PREFIX)) {
       const stageId = activeId.replace(SORTABLE_STAGE_PREFIX, '');
-      setActiveStageId(stageId);
       setActiveDealId(null);
     } else {
       setActiveDealId(activeId);
-      setActiveStageId(null);
     }
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveDealId(null);
-    setActiveStageId(null);
 
     if (!over) return;
 
@@ -736,7 +732,6 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
     setSelectedStageForFormula(null);
   };
 
-  const _totalValue = stages.reduce((sum, stage) => sum + stage.value, 0);
 
   // Filter stages based on search query, active filters and the "Hide
   // stage" toggle (TASK-921) — hidden stages never show on the board.
@@ -789,7 +784,6 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
     });
   }, [stages, searchQuery, activeFilters, hiddenStageIds]);
 
-  const _totalDeals = stages.reduce((sum, stage) => sum + stage.count, 0);
   const _weightedValue = stages.reduce((sum, stage) => {
     if (stage.id === 'CLOSED_LOST') return sum;
     const probability = stage.probability || 0;
@@ -1467,7 +1461,7 @@ function CustomFormulaModal({
 interface CustomFieldDef {
   id: string;
   name: string;
-  type: 'text' | 'number' | 'date' | 'select' | 'textarea';
+  type: FieldInputType;
   required: boolean;
   options?: string[];
 }
@@ -1519,7 +1513,7 @@ function PipelineSettingsModal({
   const [fieldTypeOpen, setFieldTypeOpen] = useState(false);
   const [newField, setNewField] = useState({
     name: '',
-    type: 'text' as 'text' | 'number' | 'date' | 'select' | 'textarea',
+    type: 'text' as FieldInputType,
     required: false,
     options: [] as string[],
   });
@@ -1660,7 +1654,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.autoAdvanceDealsDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.autoAdvanceDeals')}>
                   <input
                     type="checkbox"
                     id="autoAdvance"
@@ -1754,7 +1748,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.showDealProbabilityDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.showDealProbability')}>
                   <input
                     type="checkbox"
                     id="showProbability"
@@ -1776,7 +1770,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.showExpectedCloseDateDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.showExpectedCloseDate')}>
                   <input
                     type="checkbox"
                     id="showExpectedCloseDate"
@@ -1807,7 +1801,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.activityRemindersDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.activityReminders')}>
                   <input
                     type="checkbox"
                     id="activityReminders"
@@ -1829,7 +1823,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.emailNotificationsDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.emailNotifications')}>
                   <input
                     type="checkbox"
                     id="emailNotifications"
@@ -1860,7 +1854,7 @@ function PipelineSettingsModal({
                     {t('sweep.weldcrm.pipelineSettingsModal.slackNotificationsDescription')}
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.slackNotifications')}>
                   <input
                     type="checkbox"
                     id="slackIntegration"
@@ -2006,7 +2000,7 @@ function PipelineSettingsModal({
                               key={type.value}
                               value={type.value}
                               onSelect={(currentValue) => {
-                                setNewField({ ...newField, type: currentValue as 'text' | 'number' | 'date' | 'select' | 'textarea' });
+                                setNewField({ ...newField, type: currentValue as FieldInputType });
                                 setFieldTypeOpen(false);
                               }}
                             >
@@ -2077,7 +2071,7 @@ function PipelineSettingsModal({
                 <Label htmlFor="fieldRequired" className="text-sm font-normal">
                   {t('sweep.weldcrm.pipelineSettingsModal.makeFieldRequired')}
                 </Label>
-                <label className="relative inline-flex items-center cursor-pointer">
+                <label className="relative inline-flex items-center cursor-pointer" aria-label={t('sweep.weldcrm.pipelineSettingsModal.makeFieldRequired')}>
                   <input
                     type="checkbox"
                     id="fieldRequired"

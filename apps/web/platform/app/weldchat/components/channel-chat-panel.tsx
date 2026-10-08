@@ -158,7 +158,7 @@ export function ChannelChatPanel({
 
   // ── Callbacks ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(
-    async (text: string) => {
+    (text: string) => {
       if (!text.trim()) return;
       sendMessageMutate({
         channelId,

@@ -5,10 +5,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const getMock = vi.fn();
 
+const setEntityIdMirror = vi.fn();
+
 vi.mock('@/lib/api/weldbooks-client', () => ({
   weldbooksApi: {
     get: (...args: unknown[]) => getMock(...args),
   },
+  setWeldbooksEntityId: (...args: unknown[]) => setEntityIdMirror(...args),
 }));
 
 vi.mock('@/contexts/workspace-context', () => ({

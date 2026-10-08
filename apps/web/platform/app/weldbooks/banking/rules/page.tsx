@@ -26,6 +26,7 @@ import {
 import { ReconciliationRuleFormDialog } from '@/components/accounting/reconciliation-rule-form-dialog';
 import type { Account, ReconciliationRule } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 function summarizeConditions(rule: ReconciliationRule, condSummary: string, condSummaryPlural: string): string {
   const count = rule.conditions?.length ?? 0;
@@ -50,24 +51,12 @@ function summarizeActions(
   return parts.length ? parts.join(' · ') : '—';
 }
 
-function formatDate(v: string | null | undefined, neverLabel: string): string {
-  if (!v) return neverLabel;
-  try {
-    return new Intl.DateTimeFormat('nl-NL', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    }).format(new Date(v));
-  } catch {
-    return v;
-  }
-}
-
 export default function ReconciliationRulesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editRule, setEditRule] = useState<ReconciliationRule | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { t } = useI18n();
+  const { formatDateTime } = useWeldbooksFormat();
   const tbp = t.accounting.bankingPages;
 
   const { data: rulesRes, isLoading } = useReconciliationRules();
@@ -126,7 +115,7 @@ export default function ReconciliationRulesPage() {
       width: 'w-[130px]',
       render: (r) => (
         <span className="text-sm text-muted-foreground">
-          {formatDate(r.lastMatchedAt, tbp.ruleNever)}
+          {formatDateTime(r.lastMatchedAt, tbp.ruleNever)}
         </span>
       ),
     },

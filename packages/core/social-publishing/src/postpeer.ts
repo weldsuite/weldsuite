@@ -113,7 +113,7 @@ export function toPostPeerSchedule(isoInstant: string): {
   }
   const date = new Date(isoInstant);
   if (Number.isNaN(date.getTime())) {
-    throw new Error(`Invalid scheduled time: ${isoInstant}`);
+    throw new TypeError(`Invalid scheduled time: ${isoInstant}`);
   }
   // '2030-06-01T16:00:00+02:00' -> '2030-06-01T14:00:00.000Z'
   return { scheduledFor: date.toISOString(), timezone: 'UTC' };
@@ -345,7 +345,7 @@ export async function verifyPostPeerSignature(
   // Constant-time compare.
   let diff = 0;
   for (let i = 0; i < expected.length; i++) {
-    diff |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+    diff |= expected.codePointAt(i)! ^ provided.codePointAt(i)!;
   }
   return diff === 0;
 }

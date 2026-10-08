@@ -49,6 +49,9 @@ import type {
   CreateLabelInput,
 } from '@/types/weldflow';
 
+const LIMIT_25 = { limit: 25 } as const;
+const LIMIT_50 = { limit: 50 } as const;
+
 /** app-api base URL. Defaults to the local wrangler dev port (`apps/workers/app-api`). */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
 
@@ -78,7 +81,7 @@ const client = createClientApi({
 });
 
 const weldflow = {
-  listProjects(params: ListProjectsQuery = { limit: 25 }): Promise<ListResponse<Project>> {
+  listProjects(params: ListProjectsQuery = LIMIT_25): Promise<ListResponse<Project>> {
     return client.get<ListResponse<Project>>(
       `/projects${buildQueryString(params as Record<string, unknown>)}`,
     );
@@ -97,7 +100,7 @@ const weldflow = {
 
   listProjectTasks(
     projectId: string,
-    params: ListTasksQuery = { limit: 50 },
+    params: ListTasksQuery = LIMIT_50,
   ): Promise<ListResponse<ProjectTask>> {
     // Project-scoped /api/tasks is offset-paginated (`pageSize`) when there is
     // no `cursor` and keyset-paginated (`limit` + `cursor`) once there is one,
@@ -145,7 +148,7 @@ const weldflow = {
   },
 
   listMyTasks(
-    params: ListMyTasksQuery = { limit: 50 },
+    params: ListMyTasksQuery = LIMIT_50,
   ): Promise<ListResponse<ProjectTaskWithProject>> {
     // /api/my-tasks is offset-paginated (page/pageSize); map the legacy
     // `limit` onto `pageSize`. It has no cursor (`pagination.cursor` is always

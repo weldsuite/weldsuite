@@ -9,7 +9,8 @@
  */
 
 import { Hono } from 'hono';
-import { and, asc, eq, gte, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
+import { BOOKED_STATUSES } from '../../services/accounting-posting';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error } from '@weldsuite/worker-kit/response';
@@ -59,7 +60,7 @@ app.get('/xaf', requirePermission('reports:read'), async (c) => {
       db.select().from(schema.journalEntries)
         .where(and(
           eq(schema.journalEntries.entityId, entityId),
-          eq(schema.journalEntries.status, 'posted'),
+          inArray(schema.journalEntries.status, BOOKED_STATUSES),
           isNull(schema.journalEntries.deletedAt),
           gte(schema.journalEntries.date, start),
           lte(schema.journalEntries.date, end),

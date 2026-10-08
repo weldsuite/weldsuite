@@ -8,6 +8,7 @@ import {
   text,
   jsonb,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 export const journalEntries = pgTable('journal_entries', {
@@ -28,6 +29,11 @@ export const journalEntries = pgTable('journal_entries', {
 
   sourceType: varchar('source_type', { length: 30 }),
   sourceId: varchar('source_id', { length: 30 }),
+  /**
+   * Idempotency key for automatic postings, e.g. `invoice:<id>:issue`. A
+   * document event can post at most once; a retry finds the existing entry.
+   */
+  postingKey: varchar('posting_key', { length: 100 }),
   reversalOfId: varchar('reversal_of_id', { length: 30 }),
   reversedById: varchar('reversed_by_id', { length: 30 }),
   fiscalPeriodId: varchar('fiscal_period_id', { length: 30 }),
@@ -43,6 +49,7 @@ export const journalEntries = pgTable('journal_entries', {
   index('acct_journal_entries_source_type_idx').on(table.sourceType),
   index('acct_journal_entries_source_id_idx').on(table.sourceId),
   index('acct_journal_entries_fiscal_period_idx').on(table.fiscalPeriodId),
+  uniqueIndex('acct_journal_entries_posting_key_uidx').on(table.postingKey),
 ]);
 
 export const journalLines = pgTable('journal_lines', {
@@ -55,6 +62,11 @@ export const journalLines = pgTable('journal_lines', {
   journalEntryId: varchar('journal_entry_id', { length: 30 }).notNull(),
   accountId: varchar('account_id', { length: 30 }).notNull(),
   description: text('description'),
+  /**
+   * Debit and credit are always in the entity's base currency — every report
+   * and account balance sums them. `currency` / `exchangeRate` record the
+   * source document's currency and rate (foreign units per base unit).
+   */
   debit: numeric('debit', { precision: 18, scale: 2 }).default('0'),
   credit: numeric('credit', { precision: 18, scale: 2 }).default('0'),
   taxRateId: varchar('tax_rate_id', { length: 30 }),

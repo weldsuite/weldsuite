@@ -16,7 +16,7 @@
  * burying content behind card chrome.
  */
 
-import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -525,6 +525,180 @@ export function DomainDnsTab({
     }
   }, [pendingDelete, deleteRecord, domainId, td]);
 
+  let emptyDescription = td.noMatchingRecordsDescription;
+  if (records.length === 0) {
+    emptyDescription = hasZone ? td.noDnsRecordsDescription : td.noDnsRecordsNoZone;
+  }
+
+  let listContent: ReactNode;
+  if (isLoading) {
+    listContent = (
+      <div className="space-y-0 divide-y divide-border/60 rounded-md border border-border overflow-hidden">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-9 bg-muted/40 animate-pulse" />
+        ))}
+      </div>
+    );
+  } else if (filtered.length === 0) {
+    listContent = (
+      <div className="py-8 text-center">
+        <p className="text-sm font-medium text-foreground">
+          {records.length === 0 ? td.noDnsRecordsTitle : td.noMatchingRecordsTitle}
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {emptyDescription}
+        </p>
+      </div>
+    );
+  } else {
+    listContent = (
+      <div className="overflow-hidden rounded-md border border-border">
+        {/* Column headers */}
+        <div
+          className={cn(
+            ROW_GRID,
+            'border-b border-border bg-muted/40 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground',
+          )}
+        >
+          <span>{td.type}</span>
+          <span>{td.name}</span>
+          <span>{td.value}</span>
+          <span className="text-right">{td.ttl}</span>
+          <span />
+        </div>
+
+        <div className="divide-y divide-border/60">
+          {filtered.map((record) => {
+            if (editingId === record.id) {
+              return (
+                <div key={record.id} className="p-2.5 bg-muted/10">
+                  <RecordForm
+                    title={td.editRecord}
+                    defaultValues={valuesFromRecord(record)}
+                    onSubmit={(data) => handleUpdate(record.id, data)}
+                    onCancel={() => setEditingId(null)}
+                    isPending={updateRecord.isPending}
+                    submitLabel={td.save}
+                    pendingLabel={td.saving}
+                    td={td}
+                  />
+                </div>
+              );
+            }
+
+            const locks = getDnsRecordLocks(record);
+            const locked = locks.length > 0;
+            // Locks are system-managed — users never lock/unlock from the UI,
+            // they only see the protection and which module owns the record.
+            const systemLock = locks.find((l) => l.source !== 'user');
+            const lockLabel = getLockLabel(systemLock, td);
+            const lockTooltip = locks.map((l) => l.reason).join('\n\n') || td.recordLocked;
+            const hasPriority =
+              record.priority !== null && record.priority !== undefined;
+            const valueLabel = hasPriority
+              ? `${record.priority} ${record.value}`
+              : record.value;
+
+            return (
+              <div
+                key={record.id}
+                className={cn(
+                  ROW_GRID,
+                  'group min-h-[36px] px-2.5 py-1.5 hover:bg-muted/30 transition-colors',
+                )}
+              >
+                <span className="font-mono text-[11px] font-semibold tabular-nums text-foreground">
+                  {record.type}
+                </span>
+
+                <div className="min-w-0 flex items-center gap-1.5">
+                  <span
+                    className="truncate font-mono text-xs font-medium text-foreground"
+                    title={record.name}
+                  >
+                    {record.name}
+                  </span>
+                  {locked && (
+                    <span
+                      className="inline-flex h-[18px] flex-shrink-0 items-center gap-0.5 rounded bg-blue-50 px-1 text-[10px] font-medium leading-none text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                      title={lockTooltip}
+                    >
+                      <Lock className="h-2.5 w-2.5" />
+                      <span className="max-w-[72px] truncate">{lockLabel}</span>
+                    </span>
+                  )}
+                </div>
+
+                <span
+                  className="min-w-0 truncate font-mono text-xs text-foreground/80"
+                  title={
+                    hasPriority
+                      ? `${td.priority} ${record.priority} · ${record.value}`
+                      : record.value
+                  }
+                >
+                  {valueLabel}
+                </span>
+
+                <span
+                  className="text-right text-[11px] tabular-nums text-muted-foreground"
+                  title={getTtlTitle(record.ttl, td.ttlAuto)}
+                >
+                  {formatTtl(record.ttl, td.ttlAuto)}
+                </span>
+
+                <div className="flex items-center justify-end gap-0.5">
+                  {record.syncError && (
+                    <span
+                      role="img"
+                      aria-label={record.syncError}
+                      className="mr-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500"
+                      title={record.syncError}
+                    />
+                  )}
+                  {(canEdit || canDelete) && (
+                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          disabled={locked || updateRecord.isPending}
+                          title={locked ? lockTooltip : td.edit}
+                          aria-label={td.editRecordAriaLabel
+                            .replace('{type}', record.type)
+                            .replace('{name}', record.name)}
+                          onClick={() => openEdit(record)}
+                        >
+                          <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      )}
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          disabled={locked || deleteRecord.isPending}
+                          title={locked ? lockTooltip : td.deleteAction}
+                          aria-label={td.deleteRecordAriaLabel
+                            .replace('{type}', record.type)
+                            .replace('{name}', record.name)}
+                          onClick={() => setPendingDelete(record)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3 p-3">
       {/* Toolbar */}
@@ -576,171 +750,7 @@ export function DomainDnsTab({
       )}
 
       {/* List */}
-      {isLoading ? (
-        <div className="space-y-0 divide-y divide-border/60 rounded-md border border-border overflow-hidden">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-9 bg-muted/40 animate-pulse" />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="py-8 text-center">
-          <p className="text-sm font-medium text-foreground">
-            {records.length === 0 ? td.noDnsRecordsTitle : td.noMatchingRecordsTitle}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {records.length === 0
-              ? hasZone
-                ? td.noDnsRecordsDescription
-                : td.noDnsRecordsNoZone
-              : td.noMatchingRecordsDescription}
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-md border border-border">
-          {/* Column headers */}
-          <div
-            className={cn(
-              ROW_GRID,
-              'border-b border-border bg-muted/40 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground',
-            )}
-          >
-            <span>{td.type}</span>
-            <span>{td.name}</span>
-            <span>{td.value}</span>
-            <span className="text-right">{td.ttl}</span>
-            <span />
-          </div>
-
-          <div className="divide-y divide-border/60">
-            {filtered.map((record) => {
-              if (editingId === record.id) {
-                return (
-                  <div key={record.id} className="p-2.5 bg-muted/10">
-                    <RecordForm
-                      title={td.editRecord}
-                      defaultValues={valuesFromRecord(record)}
-                      onSubmit={(data) => handleUpdate(record.id, data)}
-                      onCancel={() => setEditingId(null)}
-                      isPending={updateRecord.isPending}
-                      submitLabel={td.save}
-                      pendingLabel={td.saving}
-                      td={td}
-                    />
-                  </div>
-                );
-              }
-
-              const locks = getDnsRecordLocks(record);
-              const locked = locks.length > 0;
-              // Locks are system-managed — users never lock/unlock from the UI,
-              // they only see the protection and which module owns the record.
-              const systemLock = locks.find((l) => l.source !== 'user');
-              const lockLabel = getLockLabel(systemLock, td);
-              const lockTooltip = locks.map((l) => l.reason).join('\n\n') || td.recordLocked;
-              const hasPriority =
-                record.priority !== null && record.priority !== undefined;
-              const valueLabel = hasPriority
-                ? `${record.priority} ${record.value}`
-                : record.value;
-
-              return (
-                <div
-                  key={record.id}
-                  className={cn(
-                    ROW_GRID,
-                    'group min-h-[36px] px-2.5 py-1.5 hover:bg-muted/30 transition-colors',
-                  )}
-                >
-                  <span className="font-mono text-[11px] font-semibold tabular-nums text-foreground">
-                    {record.type}
-                  </span>
-
-                  <div className="min-w-0 flex items-center gap-1.5">
-                    <span
-                      className="truncate font-mono text-xs font-medium text-foreground"
-                      title={record.name}
-                    >
-                      {record.name}
-                    </span>
-                    {locked && (
-                      <span
-                        className="inline-flex h-[18px] flex-shrink-0 items-center gap-0.5 rounded bg-blue-50 px-1 text-[10px] font-medium leading-none text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                        title={lockTooltip}
-                      >
-                        <Lock className="h-2.5 w-2.5" />
-                        <span className="max-w-[72px] truncate">{lockLabel}</span>
-                      </span>
-                    )}
-                  </div>
-
-                  <span
-                    className="min-w-0 truncate font-mono text-xs text-foreground/80"
-                    title={
-                      hasPriority
-                        ? `${td.priority} ${record.priority} · ${record.value}`
-                        : record.value
-                    }
-                  >
-                    {valueLabel}
-                  </span>
-
-                  <span
-                    className="text-right text-[11px] tabular-nums text-muted-foreground"
-                    title={getTtlTitle(record.ttl, td.ttlAuto)}
-                  >
-                    {formatTtl(record.ttl, td.ttlAuto)}
-                  </span>
-
-                  <div className="flex items-center justify-end gap-0.5">
-                    {record.syncError && (
-                      <span
-                        role="img"
-                        aria-label={record.syncError}
-                        className="mr-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500"
-                        title={record.syncError}
-                      />
-                    )}
-                    {(canEdit || canDelete) && (
-                      <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                        {canEdit && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            disabled={locked || updateRecord.isPending}
-                            title={locked ? lockTooltip : td.edit}
-                            aria-label={td.editRecordAriaLabel
-                              .replace('{type}', record.type)
-                              .replace('{name}', record.name)}
-                            onClick={() => openEdit(record)}
-                          >
-                            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Button>
-                        )}
-                        {canDelete && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            disabled={locked || deleteRecord.isPending}
-                            title={locked ? lockTooltip : td.deleteAction}
-                            aria-label={td.deleteRecordAriaLabel
-                              .replace('{type}', record.type)
-                              .replace('{name}', record.name)}
-                            onClick={() => setPendingDelete(record)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {listContent}
 
       <ConfirmDialog
         open={!!pendingDelete}

@@ -223,21 +223,18 @@ function mapCheck(name: string, data: {
   renewPrice?: number;
   renewprice?: number;
 }): DomainCheckResult {
+  let renewalPriceCents: number | undefined;
+  if (typeof data.renewPrice === 'number') renewalPriceCents = data.renewPrice;
+  else if (typeof data.renewprice === 'number') renewalPriceCents = data.renewprice;
+  const fallbackReason = data.premium ? 'domain_premium' : 'domain_unavailable';
   return {
     name,
     available: Boolean(data.available),
     premium: Boolean(data.premium),
     priceCents: typeof data.price === 'number' ? data.price : undefined,
-    renewalPriceCents:
-      typeof data.renewPrice === 'number'
-        ? data.renewPrice
-        : typeof data.renewprice === 'number'
-          ? data.renewprice
-          : undefined,
+    renewalPriceCents,
     currency: data.currency,
-    reason: data.available
-      ? undefined
-      : (data.reason ?? (data.premium ? 'domain_premium' : 'domain_unavailable')),
+    reason: data.available ? undefined : (data.reason ?? fallbackReason),
   };
 }
 
@@ -309,7 +306,7 @@ export function toE164a(
 ): string | null {
   if (!phone) return null;
   const trimmed = phone.trim();
-  if (/^\+[0-9]{1,3}\.[0-9]{1,14}$/.test(trimmed)) return trimmed;
+  if (/^\+\d{1,3}\.\d{1,14}$/.test(trimmed)) return trimmed;
 
   const cc = countryCode?.toUpperCase().slice(0, 2);
   const calling = cc ? CALLING_CODES[cc] : undefined;

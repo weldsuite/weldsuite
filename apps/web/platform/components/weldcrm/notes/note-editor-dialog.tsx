@@ -22,7 +22,7 @@ import {
   Pin as PinIcon,
   Maximize2,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, stripTags } from '@/lib/utils';
 import { usePinnedNote } from '@/contexts/pinned-note-context';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -48,13 +48,13 @@ function getCompanyIcon(name?: string) {
 
 // Helper to strip HTML tags
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  return stripTags(html).trim();
 }
 
 // Helper to get note title from content
 function getNoteTitle(content: string): string {
   if (!content) return 'Untitled';
-  const headingMatch = content.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+  const headingMatch = /<h[1-3][^>]*>(.*?)<\/h[1-3]>/i.exec(content);
   if (headingMatch && headingMatch[1]) {
     const title = stripHtml(headingMatch[1]).trim();
     if (title) return title;
@@ -278,11 +278,9 @@ export function NoteEditorDialog({
   const t = useTranslations();
   const pinnedNoteContext = usePinnedNote();
   const [title, setTitle] = useState('');
-  const [_content, setContent] = useState('');
   const contentRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [_lastSaved, setLastSaved] = useState<Date | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string>('');
   const [isMinimized, setIsMinimized] = useState(false);
@@ -340,7 +338,6 @@ export function NoteEditorDialog({
     const noteTitle = getNoteTitle(content);
     const notePreview = getNotePreview(content);
     setTitle(noteTitle === 'Untitled' ? '' : noteTitle);
-    setContent(notePreview);
     lastSavedContentRef.current = content;
 
     const populate = () => {
@@ -377,7 +374,6 @@ export function NoteEditorDialog({
       try {
         await onSave(fullContent);
         lastSavedContentRef.current = fullContent;
-        setLastSaved(new Date());
       } catch (error) {
         console.error('Auto-save failed:', error);
       }

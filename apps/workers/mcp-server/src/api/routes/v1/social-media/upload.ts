@@ -68,7 +68,7 @@ function decodeBase64(contentBase64: string): Uint8Array {
   try {
     const binary = atob(cleaned);
     const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.codePointAt(i)!;
     return bytes;
   } catch {
     throw new SocialMediaUploadError('contentBase64 is not valid base64');

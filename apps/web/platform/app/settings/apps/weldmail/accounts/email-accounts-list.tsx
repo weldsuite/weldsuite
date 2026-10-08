@@ -324,7 +324,7 @@ export function EmailAccountsList({ accounts }: Readonly<EmailAccountsListProps>
     return map;
   }, [allMembers]);
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!deletingAccount) return;
 
     startTransition(async () => {

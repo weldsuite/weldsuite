@@ -7,6 +7,7 @@ import {
   SimpleObjectPanel,
   SectionHeader,
   type ObjectPanelComponentProps,
+  type SimpleObjectPanelProps,
 } from '@/components/objects/_shared/simple-object-panel';
 import { welddataLeadCacheAtom, type WelddataLeadPanelData } from './welddata-lead-data';
 
@@ -14,7 +15,7 @@ import { welddataLeadCacheAtom, type WelddataLeadPanelData } from './welddata-le
 function leadAvatarUrl(lead: WelddataLeadPanelData): string | undefined {
   if (lead.avatarUrl) return lead.avatarUrl;
   if (lead.domain) {
-    const clean = lead.domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const clean = lead.domain.replace(/^https?:\/\//, '').replace(/\/[\s\S]*/, '');
     if (clean) {
       return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(clean)}&sz=64`;
     }
@@ -68,8 +69,9 @@ export function WelddataLeadPanel(props: Readonly<ObjectPanelComponentProps>) {
   const avatarUrl = lead ? leadAvatarUrl(lead) : undefined;
   const initial = (displayName?.trim()[0] ?? '#').toUpperCase();
 
-  const fields = lead
-    ? isCompany
+  let fields: SimpleObjectPanelProps['fields'];
+  if (lead) {
+    fields = isCompany
       ? [
           { label: t('sweep.entities.fieldIndustry'), value: lead.industry },
           { label: t('sweep.entities.fieldWebsite'), value: lead.domain },
@@ -86,8 +88,8 @@ export function WelddataLeadPanel(props: Readonly<ObjectPanelComponentProps>) {
           { label: t('sweep.entities.fieldLocation'), value: lead.location },
           { label: t('sweep.entities.fieldCountry'), value: lead.country },
           { label: t('sweep.entities.fieldCompanySize'), value: lead.companySize },
-        ]
-    : undefined;
+        ];
+  }
 
   return (
     <SimpleObjectPanel

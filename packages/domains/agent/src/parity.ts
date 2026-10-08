@@ -9,6 +9,12 @@ import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
 import type { AgentDb } from './agents';
 import { getAgent, createAgent, updateAgent } from './agents';
 
+type MemoryKind = 'preference' | 'fact' | 'summary' | 'correction';
+
+type ScheduleKind = 'cron' | 'event' | 'connector';
+
+type AgentStatus = 'draft' | 'active' | 'archived';
+
 function now() {
   return new Date();
 }
@@ -23,7 +29,7 @@ function serializeSkill(row: typeof schema.weldagentSkills.$inferSelect) {
     name: row.name,
     description: row.description,
     instructions: row.instructions,
-    status: row.status as 'draft' | 'active' | 'archived',
+    status: row.status as AgentStatus,
     steps: (row.steps ?? []) as Array<Record<string, unknown>>,
     createdBy: row.createdBy,
     sourceAgentId: row.sourceAgentId,
@@ -59,7 +65,7 @@ export async function createSkill(
     description?: string | null;
     instructions: string;
     steps?: Array<Record<string, unknown>>;
-    status?: 'draft' | 'active' | 'archived';
+    status?: AgentStatus;
     createdBy?: string;
     sourceAgentId?: string;
   },
@@ -86,7 +92,7 @@ export async function updateSkill(
     description: string | null;
     instructions: string;
     steps: Array<Record<string, unknown>>;
-    status: 'draft' | 'active' | 'archived';
+    status: AgentStatus;
   }>,
 ) {
   const existing = await getSkill(db, id);
@@ -199,7 +205,7 @@ function serializeRoutine(row: typeof schema.weldagentRoutines.$inferSelect) {
     name: row.name,
     instructions: row.instructions,
     skillId: row.skillId,
-    scheduleKind: row.scheduleKind as 'cron' | 'event' | 'connector',
+    scheduleKind: row.scheduleKind as ScheduleKind,
     cronExpr: row.cronExpr,
     timezone: row.timezone,
     eventKey: row.eventKey,
@@ -263,7 +269,7 @@ export async function createRoutine(
     name: string;
     instructions: string;
     skillId?: string | null;
-    scheduleKind?: 'cron' | 'event' | 'connector';
+    scheduleKind?: ScheduleKind;
     cronExpr?: string | null;
     timezone?: string;
     eventKey?: string | null;
@@ -304,7 +310,7 @@ export async function updateRoutine(
     name: string;
     instructions: string;
     skillId: string | null;
-    scheduleKind: 'cron' | 'event' | 'connector';
+    scheduleKind: ScheduleKind;
     cronExpr: string | null;
     timezone: string;
     eventKey: string | null;
@@ -710,7 +716,7 @@ function serializeMemory(row: typeof schema.weldagentMemories.$inferSelect) {
   return {
     id: row.id,
     agentId: row.agentId,
-    kind: row.kind as 'preference' | 'fact' | 'summary' | 'correction',
+    kind: row.kind as MemoryKind,
     content: row.content,
     source: row.source,
     createdBy: row.createdBy,
@@ -735,7 +741,7 @@ export async function createMemory(
   db: AgentDb,
   input: {
     agentId: string;
-    kind?: 'preference' | 'fact' | 'summary' | 'correction';
+    kind?: MemoryKind;
     content: string;
     source?: string;
     createdBy?: string;
@@ -761,7 +767,7 @@ export async function createMemory(
 export async function updateMemory(
   db: AgentDb,
   id: string,
-  input: { content?: string; kind?: 'preference' | 'fact' | 'summary' | 'correction' },
+  input: { content?: string; kind?: MemoryKind },
 ) {
   const patch: Record<string, unknown> = { updatedAt: now() };
   if (input.content !== undefined) patch.content = input.content.trim();
@@ -906,11 +912,9 @@ export async function installTemplate(
     createdBy?: string;
   },
 ) {
-  const template = input.templateId
-    ? await getTemplate(db, input.templateId)
-    : input.shareToken
-      ? await getTemplateByShareToken(db, input.shareToken)
-      : null;
+  let template: Awaited<ReturnType<typeof getTemplate>> = null;
+  if (input.templateId) template = await getTemplate(db, input.templateId);
+  else if (input.shareToken) template = await getTemplateByShareToken(db, input.shareToken);
   if (!template) return null;
   const payload = template.payload as {
     systemPrompt?: string;
@@ -921,20 +925,20 @@ export async function installTemplate(
     routines?: Array<{
       name: string;
       instructions: string;
-      scheduleKind?: 'cron' | 'event' | 'connector';
+      scheduleKind?: ScheduleKind;
       cronExpr?: string | null;
       timezone?: string;
       eventKey?: string | null;
       connectorConfig?: typeof schema.weldagentRoutines.$inferInsert['connectorConfig'];
       requireApproval?: boolean;
     }>;
-    memories?: Array<{ kind: 'preference' | 'fact' | 'summary' | 'correction'; content: string }>;
+    memories?: Array<{ kind: MemoryKind; content: string }>;
   };
 
   const agent = await createAgent(db, {
       name:
         input.name ??
-        (template.name.replace(/\s*template$/i, '').trim() || 'Imported agent'),
+        (template.name.replace(/template$/i, '').trim() || 'Imported agent'),
       description: template.description,
     systemPrompt: payload.systemPrompt ?? '',
     permissions: payload.permissions ?? ['computer:use', 'browser:use'],

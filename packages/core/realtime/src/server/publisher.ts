@@ -18,7 +18,7 @@ interface ServiceBinding {
  *   await realtime.entityCreated(orgId, 'contact', contact, userId);
  */
 export class RealtimePublisher {
-  constructor(private binding: ServiceBinding) {}
+  constructor(private readonly binding: ServiceBinding) {}
 
   // ============================================
   // Workspace Events → WorkspaceHub DO
@@ -55,7 +55,7 @@ export class RealtimePublisher {
     workspaceId: string,
     topic: string,
     event: string,
-    data: Record<string, unknown> | unknown,
+    data: unknown,
     targetUserId: string,
   ): Promise<void> {
     const payload = {

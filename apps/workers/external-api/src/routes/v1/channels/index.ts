@@ -52,16 +52,17 @@ app.post('/', requireScope('channels:write'), zValidator('json', createChannelSc
   const now = new Date();
   const id = generateId('ch');
   // `slug` is NOT NULL at the DB; derive from `name` when not provided.
-  const slug =
-    typeof body.slug === 'string' && (body.slug as string).length > 0
-      ? (body.slug as string)
-      : typeof body.name === 'string'
-        ? (body.name as string)
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-|-$/g, '')
-            .slice(0, 255) || id
-        : id;
+  let slug = id;
+  if (typeof body.slug === 'string' && (body.slug as string).length > 0) {
+    slug = body.slug as string;
+  } else if (typeof body.name === 'string') {
+    slug =
+      (body.name as string)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 255) || id;
+  }
   const values = { ...body, id, slug, createdAt: now, updatedAt: now };
   const [row] = await db.insert(table).values(values as typeof table.$inferInsert).returning();
   if (!row) return error.internal(c, 'Failed to create channel');

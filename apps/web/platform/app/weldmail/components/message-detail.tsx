@@ -105,14 +105,14 @@ function getAvatarColor(name: string): string {
   ];
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    hash = name.codePointAt(i)! + ((hash << 5) - hash);
   }
   return colors[Math.abs(hash) % colors.length];
 }
 
 // Extract email from "Name <email>" format or return the string if it's just an email
 function extractEmail(sender: string): string {
-  const match = sender.match(/<([^>]+)>/);
+  const match = /<([^<>]+)>/.exec(sender);
   if (match) return match[1];
   // Check if the string itself is an email
   if (sender.includes('@')) return sender;
@@ -121,7 +121,7 @@ function extractEmail(sender: string): string {
 
 // Extract name from "Name <email>" format
 function extractName(sender: string): string {
-  const match = sender.match(/^([^<]+)</);
+  const match = /^([^<]+)</.exec(sender);
   if (match) return match[1].trim();
   // If no angle brackets, check if it's just an email
   if (sender.includes('@')) {
@@ -193,7 +193,7 @@ function getLabelColor(labelName: string, labelData?: MailTypes.Label): string {
   ];
   let hash = 0;
   for (let i = 0; i < labelName.length; i++) {
-    hash = labelName.charCodeAt(i) + ((hash << 5) - hash);
+    hash = labelName.codePointAt(i)! + ((hash << 5) - hash);
   }
   return colors[Math.abs(hash) % colors.length];
 }
@@ -1334,7 +1334,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [isAutoDraft, setIsAutoDraft] = useState(false);
   const [isAgentInline, setIsAgentInline] = useState(false);
-  const [, setShowInlineAiInput] = useState(false);
   const [inlineAiPrompt, setInlineAiPrompt] = useState('');
   const [isInlineAiGenerating, setIsInlineAiGenerating] = useState(false);
   const inlineAiInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1704,7 +1703,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           toast.error(t.mail.messageDetail.failedToMoveToTrash);
         },
       });
-      return;
     } else {
       // Gmail-style: Add "trash" label, remove "inbox" label
       try {
@@ -1885,7 +1883,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setComposeData({ to: '', subject: '', body: '' });
     setAttachedFiles([]);
     setIsAutoDraft(false);
-    setShowInlineAiInput(false);
     setInlineAiPrompt('');
     if (editorRef.current) editorRef.current.innerHTML = '';
   };
@@ -1897,21 +1894,18 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const closeInlineAi = () => {
     setIsAutoDraft(false);
     setIsAgentInline(false);
-    setShowInlineAiInput(false);
     setInlineAiPrompt('');
   };
 
   const openInlineAi = () => {
     setIsAutoDraft(true);
     setIsAgentInline(true);
-    setShowInlineAiInput(true);
     setInlineAiPrompt('');
     setTimeout(() => inlineAiInputRef.current?.focus(), 0);
   };
 
   const insertInlineAi = () => {
     setIsAutoDraft(false);
-    setShowInlineAiInput(false);
     setInlineAiPrompt('');
   };
 
@@ -2127,7 +2121,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     });
     setIsAutoDraft(true);
     setIsAgentInline(false);
-    setShowInlineAiInput(true);
     setInlineAiPrompt('');
     // If compose box was already open, update editor immediately
     if (wasAlreadyReplying && editorRef.current) {

@@ -22,10 +22,11 @@ export const handleTwilioSendSms: ActionHandler = async (inputs, ctx) => {
   if (!sid || !authToken) throw new Error('Twilio Account SID / Auth Token missing');
   if (!from) throw new Error('Twilio "from" number missing (set a default or pass one)');
 
+  const basicCredentials = `${sid}:${authToken}`;
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: 'POST',
     headers: {
-      Authorization: `Basic ${btoa(`${sid}:${authToken}`)}`,
+      Authorization: `Basic ${btoa(basicCredentials)}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: new URLSearchParams({ To: to, From: from, Body: body }),

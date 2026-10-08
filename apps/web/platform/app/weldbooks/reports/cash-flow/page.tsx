@@ -15,31 +15,33 @@ import {
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+
+type Amount = string | number | null;
 
 interface CashFlowMonthRow {
   month: string;
-  inflows: string | number | null;
-  outflows: string | number | null;
-  net: string | number | null;
+  inflows: Amount;
+  outflows: Amount;
+  net: Amount;
 }
 
 interface CashFlowReport {
   months?: CashFlowMonthRow[];
-  totalInflows?: string | number | null;
-  totalOutflows?: string | number | null;
-  netCashFlow?: string | number | null;
+  totalInflows?: Amount;
+  totalOutflows?: Amount;
+  netCashFlow?: Amount;
 }
 
 export default function CashFlowReportPage() {
   const { t } = useI18n();
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatMonth, today } = useWeldbooksFormat();
   const tr = t.accounting.reports;
 
-  const today = new Date();
-  const startOfYear = `${today.getFullYear()}-01-01`;
+  const todayIso = today();
+  const startOfYear = `${todayIso.slice(0, 4)}-01-01`;
   const [from, setFrom] = useState(startOfYear);
-  const [to, setTo] = useState(today.toISOString().slice(0, 10));
+  const [to, setTo] = useState(todayIso);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['accounting', 'reports', 'cash-flow', { from, to }],
@@ -129,7 +131,7 @@ export default function CashFlowReportPage() {
                     runningBalance += net;
                     return (
                       <TableRow key={m.month}>
-                        <TableCell>{m.month}</TableCell>
+                        <TableCell>{/^\d{4}-\d{2}$/.test(m.month) ? formatMonth(`${m.month}-01`) : m.month}</TableCell>
                         <TableCell className="text-right text-green-600">
                           {fmt(m.inflows)}
                         </TableCell>

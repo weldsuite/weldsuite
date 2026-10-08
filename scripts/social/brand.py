@@ -130,7 +130,6 @@ def wrap_text(text: str, font, max_width: int, draw: ImageDraw.ImageDraw) -> lis
 
 
 def downscale(img: Image.Image, size: tuple[int, int], scale: int = 2) -> Image.Image:
-    big = img.resize((size[0] * scale, size[1] * scale), Image.Resampling.LANCZOS)
     # Caller already drew at target size on a supersampled canvas usually;
     # if img is already target size, just return it.
     if img.size == size:

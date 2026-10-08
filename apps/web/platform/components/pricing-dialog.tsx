@@ -589,6 +589,13 @@ function PlanCard({
   buttonText,
   onSelect,
 }: Readonly<PlanCardProps>) {
+  let priceSubtitle = 'Per user/month';
+  if (isContact) {
+    priceSubtitle = 'Billed annually';
+  } else if (isAnnual) {
+    priceSubtitle = 'Per user/month, billed annually';
+  }
+
   return (
     <div
       className={`relative p-[18px] rounded-2xl flex flex-col bg-card ${
@@ -604,9 +611,7 @@ function PlanCard({
 
       {/* Price subtitle */}
       <p className="text-sm text-muted-foreground mb-1">
-        {isContact
-          ? 'Billed annually'
-          : (isAnnual ? 'Per user/month, billed annually' : 'Per user/month')}
+        {priceSubtitle}
       </p>
 
 
@@ -800,7 +805,7 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
     return plan.monthlyPrice > currentPlan.monthlyPrice;
   };
 
-  const handleSelectPlan = async (plan: Billing.BillingPlan) => {
+  const handleSelectPlan = (plan: Billing.BillingPlan) => {
     if (processingPlanId) return;
     if (isPlanCurrent(plan)) return;
 
@@ -937,6 +942,83 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
     setSelectedPlanForCheckout(null);
   };
 
+  let plansContent: React.ReactNode;
+  if (loading) {
+    plansContent = <PageLoader fullScreen={false} />;
+  } else if (error && displayPlans.length === 0) {
+    plansContent = (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
+  } else {
+    plansContent = (
+      <>
+        {/* Feature highlight banner with billing toggle */}
+        {featureHighlight && (
+          <FeatureHighlightBanner
+            featureHighlight={featureHighlight}
+            billingCycle={billingCycle}
+            onToggle={() => setBillingCycle(billingCycle === 'yearly' ? 'monthly' : 'yearly')}
+          />
+        )}
+
+        {/* Error message */}
+        {error && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Downgrade blockers */}
+        {downgradeBlockers.length > 0 && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              <p className="font-medium mb-2">Cannot downgrade - please reduce usage first:</p>
+              <ul className="list-disc list-inside space-y-1">
+                {downgradeBlockers.map((blocker, i) => (
+                  <li key={i}>{blocker}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Plans Grid with decorative lines */}
+        <div className="relative overflow-visible mt-[17px]">
+          <PlanGridDecorations planCount={displayPlans.length} />
+
+          <div className={cn('grid gap-4', getPlanGridColsClass(displayPlans.length))}>
+          {displayPlans.map((plan) => {
+            const isProcessing = processingPlanId === plan.id;
+
+            return (
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                features={getPlanFeatures(plan)}
+                highlighted={isPlanHighlighted(plan)}
+                isCurrent={isPlanCurrent(plan)}
+                isContact={isContactPlan(plan)}
+                isAnnual={billingCycle === 'yearly'}
+                isProcessing={isProcessing}
+                isPending={isPending}
+                showProcessing={isProcessing || (isPending && processingPlanId === plan.id)}
+                buttonText={getButtonText(plan)}
+                onSelect={() => handleSelectPlan(plan)}
+              />
+            );
+          })}
+          </div>
+        </div>
+
+      </>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -971,77 +1053,7 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
               </DialogTitle>
             </DialogHeader>
 
-        {loading ? (
-          <PageLoader fullScreen={false} />
-        ) : error && displayPlans.length === 0 ? (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : (
-          <>
-            {/* Feature highlight banner with billing toggle */}
-            {featureHighlight && (
-              <FeatureHighlightBanner
-                featureHighlight={featureHighlight}
-                billingCycle={billingCycle}
-                onToggle={() => setBillingCycle(billingCycle === 'yearly' ? 'monthly' : 'yearly')}
-              />
-            )}
-
-            {/* Error message */}
-            {error && (
-              <Alert variant="destructive" className="mt-4">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            {/* Downgrade blockers */}
-            {downgradeBlockers.length > 0 && (
-              <Alert variant="destructive" className="mt-4">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <p className="font-medium mb-2">Cannot downgrade - please reduce usage first:</p>
-                  <ul className="list-disc list-inside space-y-1">
-                    {downgradeBlockers.map((blocker, i) => (
-                      <li key={i}>{blocker}</li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {/* Plans Grid with decorative lines */}
-            <div className="relative overflow-visible mt-[17px]">
-              <PlanGridDecorations planCount={displayPlans.length} />
-
-              <div className={cn('grid gap-4', getPlanGridColsClass(displayPlans.length))}>
-              {displayPlans.map((plan) => {
-                const isProcessing = processingPlanId === plan.id;
-
-                return (
-                  <PlanCard
-                    key={plan.id}
-                    plan={plan}
-                    features={getPlanFeatures(plan)}
-                    highlighted={isPlanHighlighted(plan)}
-                    isCurrent={isPlanCurrent(plan)}
-                    isContact={isContactPlan(plan)}
-                    isAnnual={billingCycle === 'yearly'}
-                    isProcessing={isProcessing}
-                    isPending={isPending}
-                    showProcessing={isProcessing || (isPending && processingPlanId === plan.id)}
-                    buttonText={getButtonText(plan)}
-                    onSelect={() => handleSelectPlan(plan)}
-                  />
-                );
-              })}
-              </div>
-            </div>
-
-          </>
-        )}
+        {plansContent}
             </div>
           </ScrollArea>
         )}

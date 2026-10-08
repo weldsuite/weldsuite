@@ -17,7 +17,7 @@ export function useAppApiClient() {
     if (token !== tokenRef.current || !clientRef.current) {
       tokenRef.current = token;
       clientRef.current = createClientApi({
-        getToken: async () => token,
+        getToken: () => Promise.resolve(token),
         baseUrl: APP_API_URL,
       });
     }

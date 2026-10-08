@@ -1,3 +1,5 @@
+type NumericInput = number | string | null | undefined;
+
 const currencyFormatters: Record<string, Intl.NumberFormat> = {};
 
 function formatter(currency: string, locale: string): Intl.NumberFormat {
@@ -14,14 +16,14 @@ function formatter(currency: string, locale: string): Intl.NumberFormat {
 }
 
 /** Parse an app-api decimal string ("123.45") to a number, defaulting to 0. */
-export function toNumber(value: number | string | null | undefined): number {
+export function toNumber(value: NumericInput): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
   const parsed = Number.parseFloat(String(value ?? '0'));
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 export function formatCurrency(
-  amount: number | string | null | undefined,
+  amount: NumericInput,
   currency = 'EUR',
   locale = 'nl-NL',
 ): string {
@@ -33,7 +35,7 @@ export function formatCurrency(
  * to the full format below 1,000 so small balances stay exact.
  */
 export function formatCompactCurrency(
-  amount: number | string | null | undefined,
+  amount: NumericInput,
   currency = 'EUR',
   locale = 'nl-NL',
 ): string {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { 
   onAuthStateChanged, 
@@ -133,7 +133,7 @@ const PUBLIC_PATHS = new Set(['/login', '/signup', '/reset-password', '/verify-e
 function getCsrfToken(): string | null {
   if (typeof document === 'undefined') return null;
   
-  const match = document.cookie.match(/csrf-token=([^;]+)/);
+  const match = /csrf-token=([^;]+)/.exec(document.cookie);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
@@ -563,24 +563,32 @@ export function SecureAuthProvider({ children }: Readonly<{ children: React.Reac
     }
   }, [loading, user, pathname, router]);
 
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      error,
+      csrfToken,
+      signIn,
+      signUp,
+      signOut,
+      signOutAll,
+      socialSignIn,
+      resetPassword,
+      refreshSession,
+      checkSession,
+      generateFingerprint,
+      clearError,
+    }),
+    [
+      user, loading, error, csrfToken, signIn, signUp, signOut, signOutAll, socialSignIn,
+      resetPassword, refreshSession, checkSession, generateFingerprint, clearError,
+    ]
+  );
+
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        error,
-        csrfToken,
-        signIn,
-        signUp,
-        signOut,
-        signOutAll,
-        socialSignIn,
-        resetPassword,
-        refreshSession,
-        checkSession,
-        generateFingerprint,
-        clearError,
-      }}
+      value={value}
     >
       {children}
     </AuthContext.Provider>

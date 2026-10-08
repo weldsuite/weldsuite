@@ -27,9 +27,8 @@ export function detectTicketSuggestion(
 
   try {
     // Match pattern: [CREATE_TICKET | subject: "..." | category: "..." | priority: "..."]
-    const match = message.match(
-      /\[CREATE_TICKET\s*\|\s*subject:\s*"([^"]+)"\s*\|\s*category:\s*"([^"]+)"\s*\|\s*priority:\s*"([^"]+)"\s*\]/i
-    );
+    const match =
+      /\[CREATE_TICKET\s*\|\s*subject:\s*"([^"]+)"\s*\|\s*category:\s*"([^"]+)"\s*\|\s*priority:\s*"([^"]+)"\s*\]/i.exec(message);
 
     if (match) {
       return {
@@ -47,8 +46,9 @@ export function detectTicketSuggestion(
       category: 'general',
       priority: 'medium',
     };
-  } catch (error) {
-    // Fallback on parse error
+  } catch {
+    // Fallback on parse error: a malformed marker still means the AI asked
+    // for a ticket, so create one with default details.
     return {
       shouldCreateTicket: true,
       subject: 'Support Request from Chat',

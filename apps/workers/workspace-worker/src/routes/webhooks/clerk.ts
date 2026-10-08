@@ -289,7 +289,7 @@ async function handleOrganizationCreated(
       // Pass org.slug so the WeldMail domain ({slug}.weldmail.com) gets provisioned
       // too — matching the onboard path. selectedApps is unknown on webhook-only org
       // creations (an edge case now that both UI paths go through /api/onboard).
-      await provisionWorkspaceDatabase(env, masterDb, workspaceId, org.name, initialMember, region, undefined, org.slug);
+      await provisionWorkspaceDatabase(env, masterDb, workspaceId, org.name, { initialMember, region, slug: org.slug });
     } else if (createdViaOnboard) {
       console.log(`[Clerk Webhook] Skipping provisioning — org created via onboard endpoint`);
     }
@@ -437,14 +437,15 @@ interface MembershipTenantIdentity {
  * Don't promote EXTERNAL_GUEST either — guests are deliberately VIEWER
  * with a fixed permissions allowlist; Clerk's org:member role mapping
  * would bump them to MEMBER and quietly turn a guest into a billable
- * employee.
+ * employee. EMPLOYEE members keep their stored role too: their access is a
+ * fixed set (My HR + WeldChat) and the role column stays VIEWER.
  */
 function resolvePreservedRole(
   existing: WorkspaceMemberRow,
   clerkRole: MembershipTenantIdentity['role'],
 ): WorkspaceMemberRow['role'] | MembershipTenantIdentity['role'] {
   if (existing.role === 'OWNER') return 'OWNER';
-  if (existing.memberType === 'EXTERNAL_GUEST') return existing.role;
+  if (existing.memberType === 'EXTERNAL_GUEST' || existing.memberType === 'EMPLOYEE') return existing.role;
   return clerkRole;
 }
 

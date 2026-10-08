@@ -289,12 +289,12 @@ export class AttioSyncAdapter implements CrmSyncAdapter {
 
   // ---------- Data Pushing (not supported for Attio in initial implementation) ----------
 
-  async pushEntity(): Promise<PushResult> {
-    throw new Error('Outbound sync not implemented for Attio');
+  pushEntity(): Promise<PushResult> {
+    return Promise.reject(new Error('Outbound sync not implemented for Attio'));
   }
 
-  async deleteEntity(): Promise<{ success: boolean; error?: string }> {
-    throw new Error('Outbound delete not implemented for Attio');
+  deleteEntity(): Promise<{ success: boolean; error?: string }> {
+    return Promise.reject(new Error('Outbound delete not implemented for Attio'));
   }
 
   // ---------- OAuth ----------
@@ -391,14 +391,14 @@ export class AttioSyncAdapter implements CrmSyncAdapter {
 
   // ---------- Webhooks ----------
 
-  async verifyWebhookSignature(): Promise<boolean> {
+  verifyWebhookSignature(): Promise<boolean> {
     // Attio webhook signatures are verified in the integration-webhook-worker
     // (HMAC-SHA256 over the raw body, see providers/attio/index.ts). This
     // adapter is only used for OAuth + outbound sync, never to receive
     // webhooks — so this must never be called. Throw rather than silently
     // return `true`, which would wave through unsigned payloads if some future
     // caller wired webhooks through the adapter by mistake.
-    throw new Error('Attio webhook verification is delegated to integration-webhook-worker; do not call this on the adapter');
+    return Promise.reject(new Error('Attio webhook verification is delegated to integration-webhook-worker; do not call this on the adapter'));
   }
 
   parseWebhookPayload(body: string): ParsedWebhookPayload {

@@ -7,6 +7,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type FocusEvent,
@@ -76,8 +77,13 @@ export function Popover({ open: openProp, onOpenChange, children }: Readonly<Pop
     [isControlled, onOpenChange],
   );
 
+  const value = useMemo(
+    () => ({ open, setOpen, triggerRef, contentId }),
+    [open, setOpen, triggerRef, contentId],
+  );
+
   return (
-    <PopoverContext.Provider value={{ open, setOpen, triggerRef, contentId }}>
+    <PopoverContext.Provider value={value}>
       {children}
     </PopoverContext.Provider>
   );

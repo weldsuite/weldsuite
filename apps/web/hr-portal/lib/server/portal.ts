@@ -129,7 +129,7 @@ export function streamPortalQueries(slug: string, queries: PortalQuery[]): Dehyd
 }
 
 /** Public-config variant for pages outside the signed-in area (sign-in). */
-export async function hydratePortalConfig(slug: string, config: PortalConfig): Promise<DehydratedState> {
+export function hydratePortalConfig(slug: string, config: PortalConfig): DehydratedState {
   const queryClient = getQueryClient();
   queryClient.setQueryData(portalQueryKey(slug, '/config'), config);
   return dehydrate(queryClient);

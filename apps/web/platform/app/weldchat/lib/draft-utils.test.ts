@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { getDraftDestination, hasDraftContent } from './draft-utils';
+import { dmDisplayName, getDraftDestination, hasDraftContent } from './draft-utils';
+
+describe('dmDisplayName', () => {
+  it('names a DM after the other people in it', () => {
+    expect(
+      dmDisplayName({
+        id: 'ch_1',
+        members: [{ userId: 'me', name: 'Me' }, { userId: 'u2', name: 'Ann' }, { userId: 'u3', name: 'Bob' }],
+        otherMembers: [{ userId: 'u2', name: 'Ann' }, { userId: 'u3', name: 'Bob' }],
+      }),
+    ).toBe('Ann, Bob');
+  });
+
+  it('uses your own name for the DM with yourself', () => {
+    expect(dmDisplayName({ id: 'ch_2', members: [{ userId: 'me', name: 'Gert' }], otherMembers: [] })).toBe('Gert');
+  });
+
+  it('is null when nobody has a name', () => {
+    expect(dmDisplayName({ id: 'ch_3', members: [{ userId: 'me', name: null }], otherMembers: [{ userId: 'u2' }] })).toBeNull();
+  });
+});
 
 describe('hasDraftContent', () => {
   it('is true for text', () => {

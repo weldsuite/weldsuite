@@ -23,39 +23,41 @@ import { accountingApi } from '@/lib/api/domains/weldbooks';
 import type { Account } from '@/lib/api/domains/weldbooks';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+
+type Amount = string | number | null;
 
 interface GeneralLedgerLineRow {
   id: string;
   date: string;
   entryNumber: string | null;
   description: string | null;
-  debit: string | number | null;
-  credit: string | number | null;
-  runningBalance: string | number | null;
+  debit: Amount;
+  credit: Amount;
+  runningBalance: Amount;
 }
 
 interface GeneralLedgerReport {
   account?: { code: string; name: string; type: string; subtype?: string | null };
   lines?: GeneralLedgerLineRow[];
   totals?: {
-    openingBalance: string | number | null;
-    totalDebits: string | number | null;
-    totalCredits: string | number | null;
-    closingBalance: string | number | null;
+    openingBalance: Amount;
+    totalDebits: Amount;
+    totalCredits: Amount;
+    closingBalance: Amount;
   };
 }
 
 export default function GeneralLedgerReportPage() {
   const { t } = useI18n();
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate, today } = useWeldbooksFormat();
   const tr = t.accounting.reports;
 
-  const today = new Date();
-  const startOfYear = `${today.getFullYear()}-01-01`;
+  const todayIso = today();
+  const startOfYear = `${todayIso.slice(0, 4)}-01-01`;
   const [accountId, setAccountId] = useState('');
   const [from, setFrom] = useState(startOfYear);
-  const [to, setTo] = useState(today.toISOString().slice(0, 10));
+  const [to, setTo] = useState(todayIso);
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
@@ -157,7 +159,7 @@ export default function GeneralLedgerReportPage() {
                 <TableBody>
                   {(report.lines ?? []).map((line) => (
                     <TableRow key={line.id}>
-                      <TableCell>{line.date}</TableCell>
+                      <TableCell>{formatDate(line.date)}</TableCell>
                       <TableCell>{line.entryNumber ?? '-'}</TableCell>
                       <TableCell>{line.description ?? '-'}</TableCell>
                       <TableCell className="text-right">

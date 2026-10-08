@@ -179,7 +179,7 @@ function getActionDescription(nodeData: ActionNodeDataExtended, labels: ActionNo
   const config = nodeData.step?.config as ActionConfig | undefined;
   if (!config || Object.keys(config).length === 0) return fallback;
   if (typeof config.description === 'string') return config.description;
-  const describe = Object.prototype.hasOwnProperty.call(ACTION_DESCRIBERS, nodeData.actionType)
+  const describe = Object.hasOwn(ACTION_DESCRIBERS, nodeData.actionType)
     ? ACTION_DESCRIBERS[nodeData.actionType]
     : undefined;
   return describe?.(config, labels) ?? fallback;
@@ -198,6 +198,13 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
   const categoryLabel = actionCategoryLabels[nodeData.actionType] || labels.defaultCategory || 'Action';
   const description = getActionDescription(nodeData, labels);
 
+  let borderClass = 'border-border hover:border-foreground/20';
+  if (selected) {
+    borderClass = 'border-blue-400';
+  } else if (needsConfig) {
+    borderClass = 'border-amber-300 dark:border-amber-700';
+  }
+
   return (
     <div
       className={cn('relative cursor-pointer', nodeData.isLastNode && 'pb-12 -mb-12')}
@@ -210,11 +217,7 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
         <div
           className={cn(
             'bg-white dark:bg-background rounded-xl w-[340px] border transition-all',
-            selected
-              ? 'border-blue-400'
-              : needsConfig
-                ? 'border-amber-300 dark:border-amber-700'
-                : 'border-border hover:border-foreground/20'
+            borderClass
           )}
           onClick={() => nodeData.onSelect?.()}
         >

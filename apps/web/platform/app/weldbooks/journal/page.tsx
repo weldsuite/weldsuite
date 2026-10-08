@@ -4,7 +4,8 @@ import { BookOpen } from 'lucide-react';
 import { EmptyStateIllustration, type ColumnDef, type GroupConfig } from '@/components/entity-list';
 import { WeldbooksEntityList } from '@/components/accounting/weldbooks-entity-list';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { toCalendarDate } from '@/lib/weldbooks/format';
 
 interface JournalEntryRow {
   id: string;
@@ -21,41 +22,34 @@ interface JournalEntryRow {
  * group keeps undated / unparseable entries visible — EntityList drops items
  * that match no group, so they'd otherwise disappear.
  */
+function monthKey(date: string | null): string | null {
+  const iso = toCalendarDate(date);
+  return iso ? iso.slice(0, 7) : null;
+}
+
 function buildMonthGroups(
   entries: JournalEntryRow[],
   ungroupedLabel: string,
+  formatMonth: (value: string | null) => string,
 ): GroupConfig<JournalEntryRow>[] {
   const monthLabels = new Map<string, string>();
   for (const e of entries) {
-    if (!e.date) continue;
-    const d = new Date(e.date);
-    if (Number.isNaN(d.getTime())) continue;
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    if (!monthLabels.has(key)) {
-      monthLabels.set(
-        key,
-        new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(d),
-      );
-    }
+    const key = monthKey(e.date);
+    if (!key) continue;
+    if (!monthLabels.has(key)) monthLabels.set(key, formatMonth(e.date));
   }
   const keys = [...monthLabels.keys()].sort((a, b) => b.localeCompare(a));
   const groups: GroupConfig<JournalEntryRow>[] = keys.map((key, i) => ({
     id: key,
     label: monthLabels.get(key)!,
     sortOrder: i,
-    filter: (e) => {
-      if (!e.date) return false;
-      const d = new Date(e.date);
-      if (Number.isNaN(d.getTime())) return false;
-      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      return k === key;
-    },
+    filter: (e) => monthKey(e.date) === key,
   }));
   groups.push({
     id: 'ungrouped',
     label: ungroupedLabel,
     sortOrder: keys.length,
-    filter: (e) => !e.date || Number.isNaN(new Date(e.date).getTime()),
+    filter: (e) => monthKey(e.date) === null,
   });
   return groups;
 }
@@ -65,7 +59,7 @@ export default function JournalEntriesPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const tjp = t.accounting.journalPage;
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate, formatMonth } = useWeldbooksFormat();
 
   const entries = (data?.data ?? []) as unknown as JournalEntryRow[];
 
@@ -74,7 +68,7 @@ export default function JournalEntriesPage() {
       id: 'date',
       header: tjp.colDate,
       width: 'w-[140px]',
-      render: (e) => <span className="text-muted-foreground">{e.date ?? '—'}</span>,
+      render: (e) => <span className="text-muted-foreground">{formatDate(e.date)}</span>,
     },
     {
       id: 'reference',
@@ -107,7 +101,7 @@ export default function JournalEntriesPage() {
       items={entries}
       isLoading={isLoading}
       columns={columns}
-      groups={buildMonthGroups(entries, tjp.ungrouped)}
+      groups={buildMonthGroups(entries, tjp.ungrouped, formatMonth)}
       onRowClick={(e) => navigate({ to: '/weldbooks/journal/$id', params: { id: e.id } })}
       filters={[]}
       searchFields={['reference', 'description']}

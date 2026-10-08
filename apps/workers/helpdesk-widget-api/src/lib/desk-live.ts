@@ -20,18 +20,19 @@ import { schema, type Database } from '../db';
 import type { Env } from '../index';
 import {
   deskAuthorFromMember,
-  isPublicDeskMessage,
-  toPublicDeskConversation,
   toPublicDeskMessage,
   type DeskAuthorInfo,
   type DeskConversation,
   type DeskMessage,
-  type PublicDeskConversation,
-  type PublicDeskMessage,
+} from '@weldsuite/db/lib/desk';
+
+export type { PublicDeskMessage, PublicDeskConversation } from '@weldsuite/db/lib/desk';
+export {
+  isPublicDeskMessage as isPublicMessage,
+  toPublicDeskConversation as toPublicConversation,
 } from '@weldsuite/db/lib/desk';
 
 export type DeskAuthor = DeskAuthorInfo;
-export type { PublicDeskMessage, PublicDeskConversation };
 
 /** Resolve agent display info (name + avatar) for a set of Clerk user ids. */
 export async function resolveAuthors(
@@ -54,9 +55,7 @@ export async function resolveAuthors(
   return out;
 }
 
-export const isPublicMessage = isPublicDeskMessage;
 export const toPublicMessage = toPublicDeskMessage;
-export const toPublicConversation = toPublicDeskConversation;
 
 /** Push a new visitor message to the conversation room and the agents' inbox. */
 export async function publishVisitorMessage(

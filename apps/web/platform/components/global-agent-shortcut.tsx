@@ -48,14 +48,9 @@ export function GlobalAgentShortcut() {
   // Determine if we should force a new conversation when opening
   useEffect(() => {
     if (showWeldAgent) {
-      // First time opening on this page, or path changed since last open
-      if (!weldAgentLastPath) {
-        // First time opening - create new conversation and reset width
-        setForceNewConversation(true);
-        setWeldAgentWidth(DEFAULT_WELDAGENT_WIDTH);
-        setWeldAgentLastPath(pathname);
-      } else if (weldAgentLastPath !== pathname) {
-        // Path changed - create new conversation and reset width
+      // First time opening on this page, or path changed since last open:
+      // create a new conversation and reset the width
+      if (!weldAgentLastPath || weldAgentLastPath !== pathname) {
         setForceNewConversation(true);
         setWeldAgentWidth(DEFAULT_WELDAGENT_WIDTH);
         setWeldAgentLastPath(pathname);

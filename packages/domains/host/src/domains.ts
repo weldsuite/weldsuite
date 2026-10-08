@@ -17,7 +17,6 @@ import {
   privacyProtectForDomain,
   tldSupportsPrivacyProtect,
   type DomainCheckResult,
-  type DomainContactInput,
 } from '@weldsuite/realtime-registrar';
 import {
   createCloudflareZone,
@@ -33,13 +32,18 @@ import {
 } from '@weldsuite/stripe';
 import {
   isExternalDomainRegistrar,
-  isHiddenUnpaidDomain,
   MAX_CHECKOUT_DOMAINS,
   toPublicDomain,
 } from '@weldsuite/core-api-client/schemas/domains';
 import { asText } from '@weldsuite/text';
 
-export { toPublicDomain, isHiddenUnpaidDomain };
+export {
+  toPublicDomain,
+  isHiddenUnpaidDomain,
+  MAX_CHECKOUT_DOMAINS,
+} from '@weldsuite/core-api-client/schemas/domains';
+/** Re-export contact input type for transfer/register helpers. */
+export type { DomainContactInput } from '@weldsuite/realtime-registrar';
 
 const { hostDomains, hostDnsZones } = schema;
 
@@ -253,6 +257,13 @@ export interface ListDomainsParams {
   sortOrder?: 'asc' | 'desc';
 }
 
+function domainSortColumn(sortBy: ListDomainsParams['sortBy']) {
+  if (sortBy === 'fullDomain') return hostDomains.fullDomain;
+  if (sortBy === 'status') return hostDomains.status;
+  if (sortBy === 'expiresAt') return hostDomains.expiresAt;
+  return hostDomains.createdAt;
+}
+
 export async function listDomains(db: Database, params: ListDomainsParams) {
   const page = params.page ?? 1;
   const pageSize = Math.min(params.pageSize ?? 20, 100);
@@ -266,11 +277,7 @@ export async function listDomains(db: Database, params: ListDomainsParams) {
     conditions.push(eq(hostDomains.status, params.status));
   }
 
-  const sortColumn =
-    params.sortBy === 'fullDomain' ? hostDomains.fullDomain :
-    params.sortBy === 'status' ? hostDomains.status :
-    params.sortBy === 'expiresAt' ? hostDomains.expiresAt :
-    hostDomains.createdAt;
+  const sortColumn = domainSortColumn(params.sortBy);
   const orderBy = params.sortOrder === 'asc' ? asc(sortColumn) : desc(sortColumn);
 
   const [{ count }] = await db
@@ -720,12 +727,9 @@ export async function refreshZoneStatus(
   }
 
   const cfStatus = cfZone.status;
-  const nextZoneStatus: 'active' | 'pending' | 'error' =
-    cfStatus === 'active'
-      ? 'active'
-      : cfStatus === 'pending' || cfStatus === 'initializing'
-        ? 'pending'
-        : 'error';
+  let nextZoneStatus: 'active' | 'pending' | 'error' = 'error';
+  if (cfStatus === 'active') nextZoneStatus = 'active';
+  else if (cfStatus === 'pending' || cfStatus === 'initializing') nextZoneStatus = 'pending';
 
   if (nextZoneStatus !== zone.status) {
     await db
@@ -1063,8 +1067,6 @@ export async function issueAuthCode(
 // ============================================================================
 // Checkout — RTR availability + pricing + Stripe Checkout Session
 // ============================================================================
-
-export { MAX_CHECKOUT_DOMAINS };
 
 export type CheckoutResult =
   | { ok: false; reason: 'unavailable'; domain: string }
@@ -1549,9 +1551,6 @@ export async function pollRenewalProcess(
   }
 }
 
-/** Re-export contact input type for transfer/register helpers. */
-export type { DomainContactInput };
-
 // ============================================================================
 // Completion (post-checkout, called by polling or webhook flow)
 // ============================================================================
@@ -1607,7 +1606,7 @@ type RegistrationStatusSource = {
 };
 
 export function registrationStatusFromDomain(row: RegistrationStatusSource): RegistrationStatusRow {
-  let status: RegistrationStatusRow['status'] = 'pending';
+  let status: RegistrationStatusRow['status'];
   switch (row.registrationStatus) {
     case 'pending_payment':
       status = 'pending';

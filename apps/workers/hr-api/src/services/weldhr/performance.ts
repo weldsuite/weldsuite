@@ -171,7 +171,7 @@ export async function acknowledgeCoachingLog(db: Database, id: string, employeeI
 // Evaluation forms
 // ---------------------------------------------------------------------------
 
-export async function listEvaluationForms(db: Database, includeInactive = true) {
+export function listEvaluationForms(db: Database, includeInactive = true) {
   const conditions: SQL[] = [isNull(ef.deletedAt)];
   if (!includeInactive) conditions.push(eq(ef.isActive, true));
   return db.select().from(ef).where(and(...conditions)).orderBy(asc(ef.name));
@@ -477,6 +477,10 @@ export async function ensureDefaultKpis(db: Database) {
   ]);
 }
 
+function isOnTarget(direction: string, value: number, target: number): boolean {
+  return direction === 'lower_better' ? value <= target : value >= target;
+}
+
 export async function listKpiValues(
   db: Database,
   filters: {
@@ -522,7 +526,7 @@ export async function listKpiValues(
     unit: r.unit,
     direction: r.direction,
     target: r.target,
-    onTarget: r.target === null ? null : r.direction === 'lower_better' ? r.value.value <= r.target : r.value.value >= r.target,
+    onTarget: r.target === null ? null : isOnTarget(r.direction, r.value.value, r.target),
   }));
 }
 

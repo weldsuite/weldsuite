@@ -267,7 +267,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
     }
   }, [deleteNoteMutation, customer.id, t, silentRefresh]);
 
-  const handleToggleFavorite = async (noteId: string) => {
+  const handleToggleFavorite = (noteId: string) => {
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, isPinned: !n.isPinned } : n))
     );
@@ -311,7 +311,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
           <NoteActionsMenu
             isPinned={!!note.isPinned}
             onEdit={() => openEditDialog(note)}
-            onToggleFavorite={() => void handleToggleFavorite(note.id)}
+            onToggleFavorite={() => handleToggleFavorite(note.id)}
             onDelete={() => void handleDelete(note.id)}
           />
         </div>
@@ -358,7 +358,7 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
           <NoteActionsMenu
             isPinned={!!note.isPinned}
             onEdit={() => openEditDialog(note)}
-            onToggleFavorite={() => void handleToggleFavorite(note.id)}
+            onToggleFavorite={() => handleToggleFavorite(note.id)}
             onDelete={() => void handleDelete(note.id)}
           />
         </div>

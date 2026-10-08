@@ -1,7 +1,8 @@
 /**
- * The frame every page of one WeldPass project shares: the breadcrumb trail
- * and the Secrets / Sync / Audit log tabs. The three sections are separate
- * routes, so a tab change is a navigation and each one can be linked to.
+ * The frame every page of one WeldPass project shares: the breadcrumb trail,
+ * the toolbar row with the back button and the Secrets / Sync / Audit log tabs. The three sections are separate
+ * routes, so a tab change is a navigation and each one can be linked to. A
+ * section's own search and buttons join the back button in the toolbar row.
  */
 
 import type { ReactNode } from 'react';
@@ -10,7 +11,7 @@ import { KeyRound, RefreshCw, ScrollText } from 'lucide-react';
 import type { PageTab } from '@weldsuite/ui/components/page-tabs';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldPassProject } from '@/hooks/queries/use-weldpass-queries';
-import { TabsPage, usePassBreadcrumbs } from '../../components/page-kit';
+import { TabsPage, usePassBreadcrumbs, type TabsPageToolbar } from '../../components/page-kit';
 
 export type ProjectSection = 'secrets' | 'sync' | 'audit';
 
@@ -23,10 +24,12 @@ const ROUTES = {
 export function ProjectPage({
   projectId,
   section,
+  toolbar,
   children,
 }: Readonly<{
   projectId: string;
   section: ProjectSection;
+  toolbar?: TabsPageToolbar;
   children: ReactNode;
 }>) {
   const t = useTranslations();
@@ -50,6 +53,8 @@ export function ProjectPage({
 
   return (
     <TabsPage
+      onBack={() => void navigate({ to: '/weldpass' })}
+      toolbar={toolbar}
       tabs={tabs}
       activeTab={section}
       onTabChange={(tabId) =>

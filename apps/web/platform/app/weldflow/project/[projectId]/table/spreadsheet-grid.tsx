@@ -272,7 +272,7 @@ const DROPDOWN_PALETTE = [
 export function getDropdownOptions(col: SpreadsheetColumn | undefined): string[] | null {
   if (col?.fieldType !== 'select') return null;
   const opts = col.options;
-  if (Array.isArray(opts) && opts.length > 0) return opts.map((o) => String(o));
+  if (Array.isArray(opts) && opts.length > 0) return opts.map(String);
   return null;
 }
 
@@ -578,8 +578,6 @@ export function SpreadsheetGrid({
   const [openDropdown, setOpenDropdown] = useState<{ col: number; row: number; x: number; y: number; options: string[] } | null>(null);
   const [colWidths, setColWidths] = useState<Record<number, number>>({});
   const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
-  const [, setResizingCol] = useState<number | null>(null);
-  const [, setResizingRow] = useState<number | null>(null);
   const [editingHeader, setEditingHeader] = useState<number | null>(null);
   const [headerEditValue, setHeaderEditValue] = useState('');
 
@@ -600,7 +598,6 @@ export function SpreadsheetGrid({
   const containerRef = useRef<HTMLDivElement>(null);
   const internalRunsRef = useRef<RichTextRun[]>([]);
   const editingRunsRef = editingRunsExternal || internalRunsRef;
-  const [, setInlineSelection] = useState<{ start: number; end: number } | null>(null);
   const isDraggingRef = useRef(false);
   const resizeStartRef = useRef<{ col: number; startX: number; startWidth: number } | null>(null);
   const rowResizeStartRef = useRef<{ row: number; startY: number; startHeight: number } | null>(null);
@@ -973,14 +970,12 @@ export function SpreadsheetGrid({
         const { col, startWidth } = resizeStartRef.current;
         const newWidth = colWidths[col] ?? startWidth;
         resizeStartRef.current = null;
-        setResizingCol(null);
         if (onUpdateColumn && sortedCols[col]) {
           onUpdateColumn(sortedCols[col].id, { width: newWidth });
         }
       }
       if (rowResizeStartRef.current) {
         rowResizeStartRef.current = null;
-        setResizingRow(null);
       }
     };
     const move = (e: MouseEvent) => {
@@ -1008,7 +1003,6 @@ export function SpreadsheetGrid({
     e.stopPropagation();
     const width = getColWidth(ci);
     resizeStartRef.current = { col: ci, startX: e.clientX, startWidth: width };
-    setResizingCol(ci);
   }, [getColWidth]);
 
   // --- Column header rename ---
@@ -1243,7 +1237,6 @@ export function SpreadsheetGrid({
         onSelectionEndChange(coord);
       }
       onContextMenu(e, 'cell', coord);
-      return;
     }
   }, [onContextMenu, onSelectedCellChange, onSelectionEndChange]);
 
@@ -1257,7 +1250,6 @@ export function SpreadsheetGrid({
 
   const handleSelectionInfo = useCallback(
     (info: { start: number; end: number }) => {
-      setInlineSelection(info);
       onInlineSelectionChange?.(info);
     },
     [onInlineSelectionChange]
@@ -1554,7 +1546,6 @@ export function SpreadsheetGrid({
                       e.preventDefault();
                       e.stopPropagation();
                       rowResizeStartRef.current = { row: ri, startY: e.clientY, startHeight: getRowHeight(ri) };
-                      setResizingRow(ri);
                     }}
                   />
                 </div>

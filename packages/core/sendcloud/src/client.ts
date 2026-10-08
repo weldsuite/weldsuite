@@ -116,7 +116,8 @@ export function createSendcloudClient(
 ): SendcloudClient {
   const fetchImpl = options?.fetch ?? fetch;
   const baseUrl = (options?.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
-  const auth = `Basic ${btoa(`${credentials.publicKey}:${credentials.secretKey}`)}`;
+  const userPass = `${credentials.publicKey}:${credentials.secretKey}`;
+  const auth = `Basic ${btoa(userPass)}`;
 
   async function request(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
@@ -286,7 +287,7 @@ function nextPath(linkHeader: string | null, json: Record<string, unknown>, base
 function parseLinkNext(header: string | null): string | null {
   if (!header) return null;
   for (const part of header.split(',')) {
-    const match = part.trim().match(/<([^>]+)>\s*;\s*rel="?next"?/i);
+    const match = /<([^<>]+)>\s*;\s*rel="?next"?/i.exec(part.trim());
     if (match?.[1]) return match[1];
   }
   return null;

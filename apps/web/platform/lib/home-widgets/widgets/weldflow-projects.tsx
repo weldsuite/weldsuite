@@ -36,7 +36,7 @@ const PROJECT_COLORS = ['bg-blue-500', 'bg-violet-500', 'bg-pink-500', 'bg-emera
 
 function colorFor(id: string): string {
   let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < id.length; i++) hash = id.codePointAt(i)! + ((hash << 5) - hash);
   return PROJECT_COLORS[Math.abs(hash) % PROJECT_COLORS.length];
 }
 

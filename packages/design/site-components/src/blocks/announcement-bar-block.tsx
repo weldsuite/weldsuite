@@ -15,7 +15,7 @@ import {
 function toKebab(name: string): string {
   return name
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .replace(/(?<![A-Z])([A-Z]+)([A-Z][a-z])/g, '$1-$2')
     .toLowerCase();
 }
 
@@ -70,6 +70,10 @@ export interface AnnouncementBarBlockProps {
   mode?: 'live' | 'preview' | 'edit';
 }
 
+function StarIconFallback() {
+  return <Star className="size-4" />;
+}
+
 export function AnnouncementBarBlock({
   features = {
     freeShipping: { enabled: true, text: 'Free shipping over $75' },
@@ -99,7 +103,7 @@ export function AnnouncementBarBlock({
       <DynamicIcon
         name={kebab as never}
         className={iconClass}
-        fallback={() => <Star className={iconClass} />}
+        fallback={StarIconFallback}
       />
     );
   };

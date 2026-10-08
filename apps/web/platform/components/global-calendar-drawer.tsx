@@ -1,5 +1,5 @@
 ﻿
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, type ReactNode } from 'react';
 import { Calendar, Video, Phone, Clock, Search, Loader2, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -244,6 +244,47 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
     onClose();
   };
 
+  let body: ReactNode;
+  if (eventsLoading) {
+    body = (
+      <div className="flex items-center justify-center gap-2 py-12 flex-1">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Loading...</span>
+      </div>
+    );
+  } else if (view === 'day') {
+    body = <PanelDayView events={events} timeFormat={timeFormat} onEventClick={handleEventClick} />;
+  } else if (dayGroups.length === 0) {
+    body = <EmptyEventsState hasSearch={!!searchQuery} />;
+  } else {
+    body = (
+      <div className="flex-1 overflow-y-auto">
+        {dayGroups.map((group) => (
+          <div key={group.date.toISOString()}>
+            {/* Day Header */}
+            <div className="relative flex items-center gap-2 px-3 md:px-4 h-[35px] bg-background border-b border-border/70 sticky top-0 z-[9]">
+              <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
+              <span className="relative text-xs font-medium text-muted-foreground">
+                {group.label}
+              </span>
+            </div>
+
+            {/* Events for this day */}
+            {group.events.map((event) => (
+              <EventListItem
+                key={event.id}
+                event={event}
+                calendar={event.calendarId ? calendarMap.get(event.calendarId) : undefined}
+                timeFormat={timeFormat}
+                onClick={handleEventClick}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <FloatingDrawer
       isOpen={isOpen}
@@ -318,41 +359,7 @@ export function GlobalCalendarDrawer({ isOpen, onClose, width = 400, skipAnimati
 
       {/* Body */}
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-        {eventsLoading ? (
-          <div className="flex items-center justify-center gap-2 py-12 flex-1">
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Loading...</span>
-          </div>
-        ) : view === 'day' ? (
-          <PanelDayView events={events} timeFormat={timeFormat} onEventClick={handleEventClick} />
-        ) : dayGroups.length === 0 ? (
-          <EmptyEventsState hasSearch={!!searchQuery} />
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            {dayGroups.map((group) => (
-              <div key={group.date.toISOString()}>
-                {/* Day Header */}
-                <div className="relative flex items-center gap-2 px-3 md:px-4 h-[35px] bg-background border-b border-border/70 sticky top-0 z-[9]">
-                  <div className="absolute inset-0 bg-muted/50 pointer-events-none" />
-                  <span className="relative text-xs font-medium text-muted-foreground">
-                    {group.label}
-                  </span>
-                </div>
-
-                {/* Events for this day */}
-                {group.events.map((event) => (
-                  <EventListItem
-                    key={event.id}
-                    event={event}
-                    calendar={event.calendarId ? calendarMap.get(event.calendarId) : undefined}
-                    timeFormat={timeFormat}
-                    onClick={handleEventClick}
-                  />
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
+        {body}
       </div>
 
     </FloatingDrawer>

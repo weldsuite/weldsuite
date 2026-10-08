@@ -726,7 +726,6 @@ const PipelinePage = () => {
   }, [selectedFeature?.id, openTaskPanel]);
   // Drag state
   const [activeDealId, setActiveDealId] = useState<string | null>(null);
-  const [, setActiveStageId] = useState<string | null>(null);
   const [draggedFeatureOriginalColumn, setDraggedFeatureOriginalColumn] = useState<{ id: string; column: string } | null>(null);
 
   // Search
@@ -848,11 +847,9 @@ const PipelinePage = () => {
   const handleDragStart = (event: DragStartEvent) => {
     const activeId = event.active.id as string;
     if (activeId.startsWith('sortable-stage-')) {
-      setActiveStageId(activeId.replace('sortable-stage-', ''));
       setActiveDealId(null);
     } else {
       setActiveDealId(activeId);
-      setActiveStageId(null);
       const feature = features.find(f => f.id === activeId);
       if (feature) {
         setDraggedFeatureOriginalColumn({ id: feature.id, column: feature.column });
@@ -863,7 +860,6 @@ const PipelinePage = () => {
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveDealId(null);
-    setActiveStageId(null);
 
     if (!canWrite || !over) { setDraggedFeatureOriginalColumn(null); return; }
 
@@ -1031,7 +1027,7 @@ const PipelinePage = () => {
     await stagesApi.reorder(projectId, ordered.map(s => s.id));
   }, [canWrite, projectId]);
 
-  const handleMoveStageLeft = async (stageId: string) => {
+  const handleMoveStageLeft = (stageId: string) => {
     if (!canWrite) return;
     const idx = columns.findIndex(col => col.id === stageId);
     if (idx <= 0) return;
@@ -1041,7 +1037,7 @@ const PipelinePage = () => {
     void persistStageOrder(next);
   };
 
-  const handleMoveStageRight = async (stageId: string) => {
+  const handleMoveStageRight = (stageId: string) => {
     if (!canWrite) return;
     const idx = columns.findIndex(col => col.id === stageId);
     if (idx >= columns.length - 1) return;

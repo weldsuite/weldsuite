@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 
 interface FloatingCallSegment {
   id: string;
@@ -163,8 +163,28 @@ export function FloatingCallProvider({ children }: Readonly<{ children: ReactNod
     };
   }, [floatingCall]);
 
+  const value = useMemo(
+    () => ({
+      floatingCall,
+      minimize,
+      dismiss,
+      maximizeBack,
+      togglePlayPause,
+      videoRef,
+      smoothTime,
+      duration,
+      isPlaying,
+      pendingRestore,
+      consumePendingRestore,
+    }),
+    [
+      floatingCall, minimize, dismiss, maximizeBack, togglePlayPause, videoRef, smoothTime,
+      duration, isPlaying, pendingRestore, consumePendingRestore,
+    ]
+  );
+
   return (
-    <FloatingCallContext.Provider value={{ floatingCall, minimize, dismiss, maximizeBack, togglePlayPause, videoRef, smoothTime, duration, isPlaying, pendingRestore, consumePendingRestore }}>
+    <FloatingCallContext.Provider value={value}>
       {children}
     </FloatingCallContext.Provider>
   );

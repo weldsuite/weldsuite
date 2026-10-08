@@ -76,6 +76,10 @@ binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
 # ============ TEST ENVIRONMENT ============
+# Daily WeldBooks sweep: overdue invoices, due recurring invoices, ECB rates (src/cron/books-sweep.ts).
+[triggers]
+crons = ["0 3 * * *"]
+
 [env.test]
 logpush = true
 name = "weldsuite-books-api-test"
@@ -107,6 +111,9 @@ service = "weldsuite-realtime-test"
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
+
+[env.test.triggers]
+crons = ["0 3 * * *"]
 
 [env.test.observability]
 enabled = true
@@ -144,6 +151,9 @@ service = "weldsuite-realtime-production"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+[env.production.triggers]
+crons = ["0 3 * * *"]
 
 [env.production.observability]
 enabled = true

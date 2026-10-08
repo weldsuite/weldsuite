@@ -287,7 +287,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
     },
   } satisfies ChartConfig;
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!reportId) {
       router.push('/welddesk/analytics');
       return;
@@ -395,7 +395,7 @@ export default function HelpdeskAnalyticsBuilderPage() {
                           <ChartTooltip
                             cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }}
                             wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent labelFormatter={(value) => String(value)} />}
+                            content={<ChartTooltipContent labelFormatter={String} />}
                           />
                           <Area
                             dataKey="desktop"

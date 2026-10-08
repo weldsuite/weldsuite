@@ -237,7 +237,7 @@ export async function getGatewayToken(
 // ---------------------------------------------------------------------------
 
 function externalApiBase(env: Env): string {
-  return (env.EXTERNAL_API_URL || 'https://api.weldsuite.org').replace(/\/+$/, '');
+  return (env.EXTERNAL_API_URL || 'https://api.weldsuite.org').replace(/(?<!\/)\/+$/, '');
 }
 
 /**
@@ -245,7 +245,7 @@ function externalApiBase(env: Env): string {
  * binding (a same-zone route cannot be reached with a plain fetch from a
  * Worker); falls back to the public URL for local setups without it.
  */
-export async function forwardToExternalApi(
+export function forwardToExternalApi(
   env: Env,
   params: {
     method: string;
@@ -258,7 +258,7 @@ export async function forwardToExternalApi(
   const headers = new Headers(params.headers);
   headers.set('Authorization', `Bearer ${params.token}`);
   const base = new URL(externalApiBase(env));
-  const basePath = base.pathname.replace(/\/+$/, '');
+  const basePath = base.pathname.replace(/(?<!\/)\/+$/, '');
   const target = new URL(`${base.origin}${basePath}${params.pathAndQuery}`);
   // Defence in depth: the gateway route already normalises the path, but never
   // let a forwarded request leave the external-api origin or its /v1/ surface.

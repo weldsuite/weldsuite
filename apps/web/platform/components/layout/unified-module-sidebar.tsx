@@ -19,6 +19,7 @@ import { useHomeSidebarItems } from '@/app/use-home-sidebar-items';
 import { useAgentsSidebarItems } from '@/app/agents/hooks/use-agents-sidebar-items';
 import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconnect-sidebar-items';
 import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sidebar-items';
+import { useWeldbooksSidebarItems } from '@/app/weldbooks/hooks/use-weldbooks-sidebar-items';
 
 interface UnifiedModuleSidebarProps {
   user?: UserInfo;
@@ -84,6 +85,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   const agentsItems = useAgentsSidebarItems(moduleKey === 'agents');
   const weldconnectItems = useWeldconnectSidebarItems(moduleKey === 'weldconnect');
   const weldknowItems = useWeldknowSidebarItems(moduleKey === 'weldknow');
+  const weldbooksItems = useWeldbooksSidebarItems(moduleKey === 'weldbooks');
 
   const config = userAppConfig ?? (moduleKey && !userAppCode ? MODULE_CONFIGS[moduleKey] : null);
   if (!config) return null;
@@ -128,6 +130,10 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
     case 'weldknow':
       menuItems = weldknowItems.menuGroups;
       break;
+    case 'weldbooks':
+      // Tax item gated + labelled by the entity's jurisdiction.
+      menuItems = weldbooksItems.adjust(staticItems);
+      break;
     default:
       menuItems = staticItems;
   }
@@ -155,7 +161,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
     );
 
   // Workspace switching (shared across all modules)
-  const handleWorkspaceSwitch = async (id: string) => switchWorkspace(id);
+  const handleWorkspaceSwitch = (id: string) => Promise.resolve(switchWorkspace(id));
   const handleWorkspaceCreate = () => setShowCreateDialog(true);
 
   return (

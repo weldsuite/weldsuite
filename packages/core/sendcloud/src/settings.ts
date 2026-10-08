@@ -83,13 +83,13 @@ export async function saveSendcloudSettings(
   });
 }
 
-export async function encryptSecret(secret: string, keyring: EncryptionKeyring): Promise<string> {
+export function encryptSecret(secret: string, keyring: EncryptionKeyring): Promise<string> {
   if (keyring.v1 || keyring.v2) return encryptField(secret, keyring);
-  return secret;
+  return Promise.resolve(secret);
 }
 
-export async function decryptSecret(secret: string | undefined, keyring: EncryptionKeyring): Promise<string | null> {
-  if (!secret) return null;
+export function decryptSecret(secret: string | undefined, keyring: EncryptionKeyring): Promise<string | null> {
+  if (!secret) return Promise.resolve(null);
   return maybeDecryptField(secret, keyring);
 }
 

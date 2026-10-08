@@ -219,7 +219,7 @@ export function AppSidebarClient({ installedApps, initialAppOrder = [] }: Readon
     setActiveApp(app || null);
   };
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     setActiveApp(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;

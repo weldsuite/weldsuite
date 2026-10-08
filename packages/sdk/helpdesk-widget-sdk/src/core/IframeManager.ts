@@ -40,8 +40,12 @@ function detectDevice(): DeviceInfo {
   const isDesktop = width > 1024;
   const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
+  let type: DeviceInfo['type'] = 'desktop';
+  if (isMobile) type = 'mobile';
+  else if (isTablet) type = 'tablet';
+
   return {
-    type: isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop',
+    type,
     isMobile,
     isTablet,
     isDesktop,
@@ -63,9 +67,9 @@ interface MessageBrokerInterface {
  * Orchestrates multiple iframes for the widget system
  */
 export class IframeManager {
-  private config: ResolvedConfig;
-  private logger: Logger;
-  private iframes: Map<IframeType, IframeMetadata> = new Map();
+  private readonly config: ResolvedConfig;
+  private readonly logger: Logger;
+  private readonly iframes: Map<IframeType, IframeMetadata> = new Map();
   private rootContainer: HTMLDivElement | null = null;
   private appContainer: HTMLDivElement | null = null;
   private modalContainer: HTMLDivElement | null = null;
@@ -74,9 +78,9 @@ export class IframeManager {
   private messageBroker: MessageBrokerInterface | null = null;
 
   // Bound handlers for proper cleanup
-  private boundHandleResize: () => void;
-  private boundHandleOrientationChange: () => void;
-  private boundHandleVisualViewportResize: () => void;
+  private readonly boundHandleResize: () => void;
+  private readonly boundHandleOrientationChange: () => void;
+  private readonly boundHandleVisualViewportResize: () => void;
 
   // Guard flag to prevent double-binding event listeners
   private eventListenersBound = false;
@@ -217,11 +221,11 @@ export class IframeManager {
   /**
    * Create launcher iframe
    */
-  private async createLauncherIframe(): Promise<void> {
+  private createLauncherIframe(): Promise<void> {
     // Guard: skip if launcher iframe already exists
     if (this.iframes.has(IframeType.LAUNCHER)) {
       this.logger.debug('Launcher iframe already exists, skipping creation');
-      return;
+      return Promise.resolve();
     }
 
     const { iframes } = this.config;
@@ -298,16 +302,17 @@ export class IframeManager {
     };
 
     this.logger.debug('Launcher iframe created');
+    return Promise.resolve();
   }
 
   /**
    * Create widget iframe
    */
-  private async createWidgetIframe(): Promise<void> {
+  private createWidgetIframe(): Promise<void> {
     // Guard: skip if widget iframe already exists
     if (this.iframes.has(IframeType.WIDGET)) {
       this.logger.debug('Widget iframe already exists, skipping creation');
-      return;
+      return Promise.resolve();
     }
 
     const { iframes } = this.config;
@@ -416,13 +421,15 @@ export class IframeManager {
     };
 
     this.logger.debug('Widget iframe created');
+    return Promise.resolve();
   }
 
   /**
    * Create backdrop iframe — disabled, widget stays non-modal so users can interact with the page
    */
-  private async createBackdropIframe(): Promise<void> {
+  private createBackdropIframe(): Promise<void> {
     this.logger.debug('Backdrop disabled, skipping creation');
+    return Promise.resolve();
   }
 
   /**

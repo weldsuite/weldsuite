@@ -171,8 +171,12 @@ export function FeaturedCollectionSection({
   products,
 }: Readonly<FeaturedCollectionSectionProps>) {
   // Use real products if available, otherwise fall back to mock data
-  const sourceProducts = products && products.length > 0 ? products :
-                         (store?.products && store.products.length > 0 ? store.products : mockProducts);
+  let sourceProducts = mockProducts;
+  if (products && products.length > 0) {
+    sourceProducts = products;
+  } else if (store?.products && store.products.length > 0) {
+    sourceProducts = store.products;
+  }
 
   const displayProducts = sourceProducts.slice(0, productsToShow);
 
@@ -318,10 +322,10 @@ export function FeaturedCollectionSection({
                   </h3>
 
                   {/* Rating - Shadcn Style */}
-                  {showRatings && product.rating && (
+                  {showRatings && !!product.rating && (
                     <div className="flex items-center gap-2">
                       <div className="flex items-center">
-                        {[...Array(5)].map((_, i) => (
+                        {[...new Array(5)].map((_, i) => (
                           <Star
                             key={i}
                             className={cn(

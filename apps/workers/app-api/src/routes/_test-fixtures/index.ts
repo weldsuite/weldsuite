@@ -2102,148 +2102,161 @@ testFixturesRoutes.post(
 
 // ─── Targeted teardown ───────────────────────────────────────────────
 
+/**
+ * Targeted teardown per seeded entity type: delete the row (children first
+ * where a foreign key requires it).
+ */
+const ENTITY_DELETERS = new Map<string, (db: Database, id: string) => Promise<void>>([
+  ['company', async (db, id) => {
+    await db.delete(schema.companies).where(eq(schema.companies.id, id));
+  }],
+  ['person', async (db, id) => {
+    await db.delete(schema.people).where(eq(schema.people.id, id));
+  }],
+  ['pipeline', async (db, id) => {
+    await db.delete(schema.crmPipelines).where(eq(schema.crmPipelines.id, id));
+  }],
+  ['lead', async (db, id) => {
+    await db.delete(schema.crmLeads).where(eq(schema.crmLeads.id, id));
+  }],
+  ['list', async (db, id) => {
+    await db.delete(schema.lists).where(eq(schema.lists.id, id));
+  }],
+  ['project', async (db, id) => {
+    await db.delete(schema.projects).where(eq(schema.projects.id, id));
+  }],
+  ['task', async (db, id) => {
+    await db.delete(schema.tasks).where(eq(schema.tasks.id, id));
+  }],
+  ['opportunity', async (db, id) => {
+    await db
+      .delete(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, id));
+  }],
+  ['activity', async (db, id) => {
+    await db
+      .delete(schema.crmActivities)
+      .where(eq(schema.crmActivities.id, id));
+  }],
+  ['sequence', async (db, id) => {
+    await db.delete(schema.workflows).where(eq(schema.workflows.id, id));
+  }],
+  ['workflow', async (db, id) => {
+    await db.delete(schema.workflows).where(eq(schema.workflows.id, id));
+  }],
+  ['variable', async (db, id) => {
+    await db
+      .delete(schema.workflowVariables)
+      .where(eq(schema.workflowVariables.id, id));
+  }],
+  ['ticket', async (db, id) => {
+    await db
+      .delete(schema.helpdeskTickets)
+      .where(eq(schema.helpdeskTickets.id, id));
+  }],
+  ['meeting', async (db, id) => {
+    await db.delete(schema.meetings).where(eq(schema.meetings.id, id));
+  }],
+  ['domain', async (db, id) => {
+    await db.delete(schema.hostDomains).where(eq(schema.hostDomains.id, id));
+  }],
+  ['mailAccount', async (db, id) => {
+    await db
+      .delete(schema.mailAccounts)
+      .where(eq(schema.mailAccounts.id, id));
+  }],
+  ['mailLabel', async (db, id) => {
+    await db.delete(schema.mailLabels).where(eq(schema.mailLabels.id, id));
+  }],
+  ['mailMessage', async (db, id) => {
+    // Drop child attachments first (FK → mail_messages).
+    await db
+      .delete(schema.mailAttachments)
+      .where(eq(schema.mailAttachments.messageId, id));
+    await db.delete(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+  }],
+  ['mailAttachment', async (db, id) => {
+    await db
+      .delete(schema.mailAttachments)
+      .where(eq(schema.mailAttachments.id, id));
+  }],
+  ['product', async (db, id) => {
+    await db.delete(schema.products).where(eq(schema.products.id, id));
+  }],
+  ['weldstash-product', async (db, id) => {
+    await db.delete(schema.products).where(eq(schema.products.id, id));
+  }],
+  ['order', async (db, id) => {
+    await db.delete(schema.orders).where(eq(schema.orders.id, id));
+  }],
+  ['webhook', async (db, id) => {
+    await db
+      .delete(schema.workflowWebhooks)
+      .where(eq(schema.workflowWebhooks.id, id));
+  }],
+  ['execution', async (db, id) => {
+    await db
+      .delete(schema.workflowExecutions)
+      .where(eq(schema.workflowExecutions.id, id));
+  }],
+  ['weldstash-supplier', async (db, id) => {
+    await db.delete(schema.suppliers).where(eq(schema.suppliers.id, id));
+  }],
+  ['weldstash-warehouse', async (db, id) => {
+    await db.delete(schema.warehouses).where(eq(schema.warehouses.id, id));
+  }],
+  ['calendarEvent', async (db, id) => {
+    await db
+      .delete(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.id, id));
+  }],
+  ['bookingPage', async (db, id) => {
+    await db
+      .delete(schema.calendarBookingPages)
+      .where(eq(schema.calendarBookingPages.id, id));
+  }],
+  ['voip-call', async (db, id) => {
+    await db.delete(schema.voipCalls).where(eq(schema.voipCalls.id, id));
+  }],
+  ['customFieldDefinition', async (db, id) => {
+    await db
+      .delete(schema.customFieldDefinitions)
+      .where(eq(schema.customFieldDefinitions.id, id));
+  }],
+  ['objectTemplate', async (db, id) => {
+    await db
+      .delete(schema.objectTemplates)
+      .where(eq(schema.objectTemplates.id, id));
+  }],
+  ['customerStatus', async (db, id) => {
+    await db
+      .delete(schema.crmCustomerStatuses)
+      .where(eq(schema.crmCustomerStatuses.id, id));
+  }],
+  ['chatChannel', async (db, id) => {
+    // Cascade children first to respect the FK to chat_channels.
+    await db.delete(schema.chatMessages).where(eq(schema.chatMessages.channelId, id));
+    await db.delete(schema.chatChannelMembers).where(eq(schema.chatChannelMembers.channelId, id));
+    await db.delete(schema.chatChannels).where(eq(schema.chatChannels.id, id));
+  }],
+  ['chatMessage', async (db, id) => {
+    await db.delete(schema.chatMessages).where(eq(schema.chatMessages.id, id));
+  }],
+  ['chatChannelMember', async (db, id) => {
+    await db.delete(schema.chatChannelMembers).where(eq(schema.chatChannelMembers.id, id));
+  }],
+]);
+
 testFixturesRoutes.delete('/entity/:type/:id', async (c) => {
   const db = c.get('tenantDb');
   const { type, id } = c.req.param();
 
-  switch (type) {
-    case 'company':
-      await db.delete(schema.companies).where(eq(schema.companies.id, id));
-      return success(c, { deleted: true });
-    case 'person':
-      await db.delete(schema.people).where(eq(schema.people.id, id));
-      return success(c, { deleted: true });
-    case 'pipeline':
-      await db.delete(schema.crmPipelines).where(eq(schema.crmPipelines.id, id));
-      return success(c, { deleted: true });
-    case 'lead':
-      await db.delete(schema.crmLeads).where(eq(schema.crmLeads.id, id));
-      return success(c, { deleted: true });
-    case 'list':
-      await db.delete(schema.lists).where(eq(schema.lists.id, id));
-      return success(c, { deleted: true });
-    case 'project':
-      await db.delete(schema.projects).where(eq(schema.projects.id, id));
-      return success(c, { deleted: true });
-    case 'task':
-      await db.delete(schema.tasks).where(eq(schema.tasks.id, id));
-      return success(c, { deleted: true });
-    case 'opportunity':
-      await db
-        .delete(schema.crmOpportunities)
-        .where(eq(schema.crmOpportunities.id, id));
-      return success(c, { deleted: true });
-    case 'activity':
-      await db
-        .delete(schema.crmActivities)
-        .where(eq(schema.crmActivities.id, id));
-      return success(c, { deleted: true });
-    case 'sequence':
-    case 'workflow':
-      await db.delete(schema.workflows).where(eq(schema.workflows.id, id));
-      return success(c, { deleted: true });
-    case 'variable':
-      await db
-        .delete(schema.workflowVariables)
-        .where(eq(schema.workflowVariables.id, id));
-      return success(c, { deleted: true });
-    case 'ticket':
-      await db
-        .delete(schema.helpdeskTickets)
-        .where(eq(schema.helpdeskTickets.id, id));
-      return success(c, { deleted: true });
-    case 'meeting':
-      await db.delete(schema.meetings).where(eq(schema.meetings.id, id));
-      return success(c, { deleted: true });
-    case 'domain':
-      await db.delete(schema.hostDomains).where(eq(schema.hostDomains.id, id));
-      return success(c, { deleted: true });
-    case 'mailAccount':
-      await db
-        .delete(schema.mailAccounts)
-        .where(eq(schema.mailAccounts.id, id));
-      return success(c, { deleted: true });
-    case 'mailLabel':
-      await db.delete(schema.mailLabels).where(eq(schema.mailLabels.id, id));
-      return success(c, { deleted: true });
-    case 'mailMessage':
-      // Drop child attachments first (FK → mail_messages).
-      await db
-        .delete(schema.mailAttachments)
-        .where(eq(schema.mailAttachments.messageId, id));
-      await db.delete(schema.mailMessages).where(eq(schema.mailMessages.id, id));
-      return success(c, { deleted: true });
-    case 'mailAttachment':
-      await db
-        .delete(schema.mailAttachments)
-        .where(eq(schema.mailAttachments.id, id));
-      return success(c, { deleted: true });
-    case 'product':
-    case 'weldstash-product':
-      await db.delete(schema.products).where(eq(schema.products.id, id));
-      return success(c, { deleted: true });
-    case 'order':
-      await db.delete(schema.orders).where(eq(schema.orders.id, id));
-      return success(c, { deleted: true });
-    case 'webhook':
-      await db
-        .delete(schema.workflowWebhooks)
-        .where(eq(schema.workflowWebhooks.id, id));
-      return success(c, { deleted: true });
-    case 'execution':
-      await db
-        .delete(schema.workflowExecutions)
-        .where(eq(schema.workflowExecutions.id, id));
-      return success(c, { deleted: true });
-    case 'weldstash-supplier':
-      await db.delete(schema.suppliers).where(eq(schema.suppliers.id, id));
-      return success(c, { deleted: true });
-    case 'weldstash-warehouse':
-      await db.delete(schema.warehouses).where(eq(schema.warehouses.id, id));
-      return success(c, { deleted: true });
-    case 'calendarEvent':
-      await db
-        .delete(schema.calendarEvents)
-        .where(eq(schema.calendarEvents.id, id));
-      return success(c, { deleted: true });
-    case 'bookingPage':
-      await db
-        .delete(schema.calendarBookingPages)
-        .where(eq(schema.calendarBookingPages.id, id));
-      return success(c, { deleted: true });
-    case 'voip-call':
-      await db.delete(schema.voipCalls).where(eq(schema.voipCalls.id, id));
-      return success(c, { deleted: true });
-    case 'customFieldDefinition':
-      await db
-        .delete(schema.customFieldDefinitions)
-        .where(eq(schema.customFieldDefinitions.id, id));
-      return success(c, { deleted: true });
-    case 'objectTemplate':
-      await db
-        .delete(schema.objectTemplates)
-        .where(eq(schema.objectTemplates.id, id));
-      return success(c, { deleted: true });
-    case 'customerStatus':
-      await db
-        .delete(schema.crmCustomerStatuses)
-        .where(eq(schema.crmCustomerStatuses.id, id));
-      return success(c, { deleted: true });
-    case 'chatChannel':
-      // Cascade children first to respect the FK to chat_channels.
-      await db.delete(schema.chatMessages).where(eq(schema.chatMessages.channelId, id));
-      await db.delete(schema.chatChannelMembers).where(eq(schema.chatChannelMembers.channelId, id));
-      await db.delete(schema.chatChannels).where(eq(schema.chatChannels.id, id));
-      return success(c, { deleted: true });
-    case 'chatMessage':
-      await db.delete(schema.chatMessages).where(eq(schema.chatMessages.id, id));
-      return success(c, { deleted: true });
-    case 'chatChannelMember':
-      await db.delete(schema.chatChannelMembers).where(eq(schema.chatChannelMembers.id, id));
-      return success(c, { deleted: true });
-    default:
-      return error.badRequest(c, `Unknown entity type: ${type}`);
+  const deleteEntity = ENTITY_DELETERS.get(type);
+  if (!deleteEntity) {
+    return error.badRequest(c, `Unknown entity type: ${type}`);
   }
+  await deleteEntity(db, id);
+  return success(c, { deleted: true });
 });
 
 // ─── Onboarding teardown: full workspace destroy ─────────────────────

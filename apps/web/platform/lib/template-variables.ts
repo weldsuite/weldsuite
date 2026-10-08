@@ -27,7 +27,7 @@ export interface VariableValidation {
  * Regular expression to match template variables
  * Matches: {{variableName}} or {{variableName|modifier}}
  */
-const VARIABLE_REGEX = /\{\{([a-zA-Z0-9_]+)(?:\|([a-zA-Z0-9_:/]+))?\}\}/g;
+const VARIABLE_REGEX = /\{\{(\w+)(?:\|([a-zA-Z0-9_:/]+))?\}\}/g;
 
 /**
  * Extract all variables from template content
@@ -81,7 +81,7 @@ export function validateVariableName(name: string): VariableValidation {
   }
 
   // Check for valid characters (alphanumeric and underscore only)
-  if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+  if (!/^\w+$/.test(name)) {
     return {
       isValid: false,
       error: 'Variable name can only contain letters, numbers, and underscores'

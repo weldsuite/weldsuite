@@ -11,6 +11,7 @@ import {
   createHrEmployeeFromMemberSchema,
   createHrEmployeeSchema,
   hrEmployeeSensitiveSchema,
+  listHrAvailableMembersQuerySchema,
   listHrEmployeesQuerySchema,
   updateHrDepartmentSchema,
   updateHrEmployeeSchema,
@@ -24,6 +25,7 @@ import {
   deleteDepartment,
   deleteEmployee,
   getEmployeeDetail,
+  listAvailableMembers,
   listDepartments,
   listEmployees,
   orgChart,
@@ -43,6 +45,14 @@ employeesRoutes.get('/', requirePermission('employees:read'), zValidator('query'
   const result = await listEmployees(db(c), c.req.valid('query'));
   return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
+
+// Literal segment: must stay above GET /:employeeId.
+employeesRoutes.get(
+  '/available-members',
+  requirePermission('employees:create', 'employees:update'),
+  zValidator('query', listHrAvailableMembersQuerySchema),
+  async (c) => success(c, await listAvailableMembers(db(c), c.req.valid('query'))),
+);
 
 employeesRoutes.get('/:employeeId', requirePermission('employees:read'), async (c) => {
   return success(c, await getEmployeeDetail(db(c), param(c, 'employeeId')));

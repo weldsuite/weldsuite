@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 
 // Configure how notifications are displayed when app is in foreground
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
+  handleNotification: () => Promise.resolve({
     shouldShowAlert: false,
     shouldPlaySound: false,
     shouldSetBadge: true,
@@ -99,7 +99,12 @@ export async function registerDeviceToken(
     const deviceId = await getDeviceId();
 
     const isExpoToken = token.startsWith('ExponentPushToken[');
-    const tokenType = isExpoToken ? 'expo' : (Platform.OS === 'android' ? 'fcm' : 'apns');
+    let tokenType = 'apns';
+    if (isExpoToken) {
+      tokenType = 'expo';
+    } else if (Platform.OS === 'android') {
+      tokenType = 'fcm';
+    }
 
     // Matches the app-api `/api/push-tokens` register schema.
     const body = {

@@ -273,10 +273,6 @@ export function useMailSidebarItems(isActive: boolean): {
   const [aiDescription, setAiDescription] = useState('');
   const [aiConfidence, setAiConfidence] = useState(70);
   // Agent Auto-Draft settings
-  const [, setAiAutoDraft] = useState(false);
-  const [, setAiDraftTone] = useState<'professional' | 'friendly' | 'casual'>('professional');
-  const [, setAiDraftLength] = useState<'short' | 'medium' | 'detailed'>('medium');
-  const [, setAiDraftInstructions] = useState('');
 
   // Local state for email accounts
   const [localEmailAccounts, setLocalEmailAccounts] = useState<MailAccountRow[]>([]);
@@ -479,10 +475,6 @@ export function useMailSidebarItems(isActive: boolean): {
     setAiKeywords('');
     setAiDescription('');
     setAiConfidence(70);
-    setAiAutoDraft(false);
-    setAiDraftTone('professional');
-    setAiDraftLength('medium');
-    setAiDraftInstructions('');
     setShowCreateLabelDialog(false);
   };
 

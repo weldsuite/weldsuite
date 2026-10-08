@@ -363,8 +363,6 @@ export function WysiwygEditor({
   const titleRef = externalTitleRef || internalTitleRef;
   const contentRef = externalContentRef || internalContentRef;
 
-  const [_title, setTitle] = useState(initialTitle);
-  const [_content, setContent] = useState(initialContent);
   const [coverImage, setCoverImage] = useState<string | undefined>(externalCoverImage);
   const [showCommandMenu, setShowCommandMenu] = useState(false);
   const [commandMenuPosition, setCommandMenuPosition] = useState({ top: 0, left: 0 });
@@ -519,7 +517,6 @@ export function WysiwygEditor({
 
   const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
     const text = e.currentTarget.textContent || '';
-    setTitle(text);
     setShowTitlePlaceholder(!text);
     onTitleChange?.(text);
   };
@@ -555,7 +552,6 @@ export function WysiwygEditor({
     const hasContent = textContent.trim().length > 0;
     setShowContentPlaceholder(!hasContent);
 
-    setContent(htmlContent);
     checkActiveFormats();
     onContentChange?.(htmlContent);
 
@@ -842,7 +838,6 @@ export function WysiwygEditor({
     }
 
     const htmlContent = contentRef.current.innerHTML;
-    setContent(htmlContent);
     onContentChange?.(htmlContent);
     setShowCommandMenu(false);
     setCommandFilter('');
@@ -896,7 +891,6 @@ export function WysiwygEditor({
     selection.addRange(newRange);
 
     const htmlContent = contentRef.current.innerHTML;
-    setContent(htmlContent);
     onContentChange?.(htmlContent);
     setShowLinkDialog(false);
     setLinkUrl('');
@@ -1141,6 +1135,7 @@ export function WysiwygEditor({
                             : "hover:bg-accent hover:text-accent-foreground"
                         )}
                         role="option"
+                        tabIndex={-1}
                         aria-selected={index === selectedCommandIndex}
                       >
                         <div className="mr-2 h-4 w-4 shrink-0 opacity-70">
@@ -1361,7 +1356,7 @@ export function DefaultToolbar({
   return (
     <div className="flex items-center gap-1 flex-wrap">
       {/* Font Family */}
-      <Popover open={fontFamilyOpen} onOpenChange={(open) => { if (open) saveSelection(); setFontFamilyOpen(open); }}>
+      <Popover open={fontFamilyOpen} onOpenChange={(open) => { if (open) { saveSelection(); } setFontFamilyOpen(open); }}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -1410,7 +1405,7 @@ export function DefaultToolbar({
       </Popover>
 
       {/* Font Size */}
-      <Popover open={fontSizeOpen} onOpenChange={(open) => { if (open) saveSelection(); setFontSizeOpen(open); }}>
+      <Popover open={fontSizeOpen} onOpenChange={(open) => { if (open) { saveSelection(); } setFontSizeOpen(open); }}>
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -1500,7 +1495,7 @@ export function DefaultToolbar({
       <div className="hidden md:block w-px h-5 bg-border mx-1" />
 
       {/* Text Color */}
-      <Popover open={textColorOpen} onOpenChange={(open) => { if (open) saveSelection(); setTextColorOpen(open); }}>
+      <Popover open={textColorOpen} onOpenChange={(open) => { if (open) { saveSelection(); } setTextColorOpen(open); }}>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
@@ -1531,7 +1526,7 @@ export function DefaultToolbar({
           </div>
         </PopoverContent>
       </Popover>
-      <Popover open={highlightColorOpen} onOpenChange={(open) => { if (open) saveSelection(); setHighlightColorOpen(open); }}>
+      <Popover open={highlightColorOpen} onOpenChange={(open) => { if (open) { saveSelection(); } setHighlightColorOpen(open); }}>
         <PopoverTrigger asChild>
           <Button
             variant="ghost"

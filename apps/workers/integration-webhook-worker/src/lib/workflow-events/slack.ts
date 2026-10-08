@@ -13,7 +13,7 @@ function bytesToHex(buf: ArrayBuffer): string {
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let mismatch = 0;
-  for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < a.length; i++) mismatch |= a.codePointAt(i)! ^ b.codePointAt(i)!;
   return mismatch === 0;
 }
 

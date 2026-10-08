@@ -25,7 +25,7 @@ const FIRST_PARTY_ORIGINS = [
 /** Resolve the Access-Control-Allow-Origin value for a request Origin header. */
 export function resolveCorsOrigin(origin: string | undefined): string | null {
   if (!origin) return null;
-  if (/\.welddesk\.org$/.test(origin)) return origin;
+  if (origin.endsWith('.welddesk.org')) return origin;
   if ((FIRST_PARTY_ORIGINS as readonly string[]).includes(origin)) return origin;
   return null;
 }

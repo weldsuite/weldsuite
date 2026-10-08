@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useRouter, useSearchParams } from '@/lib/router';
 import {
   Table,
@@ -138,6 +138,17 @@ export interface EntityDataTableProps<T = unknown> {
   emptyIcon?: string; // Icon name from lucide-react (e.g., "Package", "Users")
   hideControlsBar?: boolean; // Hide the entire controls bar (search, filters, column settings)
   leftControls?: React.ReactNode; // Custom content for the left side of the controls bar
+}
+
+function renderSortIcon(isSorted: boolean, sortOrder: string) {
+  if (!isSorted) {
+    return <ArrowUpDown className="h-3 w-3 opacity-30 hover:opacity-50" />;
+  }
+  return sortOrder === "asc" ? (
+    <ArrowUp className="h-3 w-3 text-primary" />
+  ) : (
+    <ArrowDown className="h-3 w-3 text-primary" />
+  );
 }
 
 export function EntityDataTable<T = unknown>({
@@ -377,7 +388,7 @@ export function EntityDataTable<T = unknown>({
 
   // Handle sort
   const handleSort = (field: string) => {
-    const newSortOrder = sortBy === field ? (sortOrder === "asc" ? "desc" : "asc") : "asc";
+    const newSortOrder = sortBy === field && sortOrder === "asc" ? "desc" : "asc";
 
     setSortBy(field);
     setSortOrder(newSortOrder);
@@ -423,6 +434,65 @@ export function EntityDataTable<T = unknown>({
     Object.values(additionalFilterValues).some((value) => value !== "");
 
   const visibleColumnsArray = columns.filter((col) => visibleColumns[col.key]);
+
+  let tableRows: ReactNode;
+  if (loading && !initialData.length) {
+    // Skeleton loading rows
+    tableRows = Array.from({ length: pagination.pageSize || 10 }).map((_, index) => (
+      <TableRow key={`skeleton-${index}`} className="border-b border-border/30">
+        {visibleColumnsArray.map((col) => (
+          <TableCell key={col.key} className="px-3 py-3">
+            <div className="h-4 bg-muted animate-pulse rounded w-24"></div>
+          </TableCell>
+        ))}
+      </TableRow>
+    ));
+  } else if (data.length === 0) {
+    tableRows = (
+      <TableRow>
+        <TableCell
+          colSpan={visibleColumnsArray.length}
+          className="text-center text-muted-foreground"
+        >
+          <div className="space-y-2 py-8">
+            <EmptyIcon className="h-12 w-12 mx-auto text-muted-foreground/30" />
+            <p className="font-medium">{resolvedEmptyMessage}</p>
+            <p className="text-xs text-muted-foreground">
+              {t('sweep.entities.adjustFiltersOrSearch')}
+            </p>
+          </div>
+        </TableCell>
+      </TableRow>
+    );
+  } else {
+    tableRows = data.map((item, rowIndex) => (
+      <TableRow
+        key={rowIndex}
+        className={`border-b border-border/30 hover:bg-muted/10 transition-colors duration-200 ${onRowClick ? 'cursor-pointer' : ''}`}
+        onClick={() => onRowClick?.(item)}
+      >
+        {visibleColumnsArray.map((col) => {
+          const width = columnWidths[col.key] || (col.width ? Number.parseInt(col.width, 10) : undefined);
+          return (
+            <TableCell
+              key={col.key}
+              className={`px-3 py-3 ${col.className || ""}`}
+              style={{ width: width ? `${width}px` : col.width, minWidth: col.minWidth }}
+            >
+              {col.render(item)}
+            </TableCell>
+          );
+        })}
+      </TableRow>
+    ));
+  }
+
+  let tableMinHeight = "auto";
+  if (loading) {
+    tableMinHeight = "400px";
+  } else if (data.length === 0) {
+    tableMinHeight = "200px";
+  }
 
   return (
     <div className="space-y-4">
@@ -718,7 +788,7 @@ export function EntityDataTable<T = unknown>({
           ref={tableContainerRef}
           className={`rounded-md border border-border/50 overflow-hidden ${isResizing ? "cursor-col-resize select-none" : ""}`}
           style={{
-            minHeight: loading ? "400px" : data.length === 0 ? "200px" : "auto",
+            minHeight: tableMinHeight,
           }}
         >
           <div className={`overflow-x-auto ${isFiltering ? "no-scrollbar-transition" : ""}`}>
@@ -747,15 +817,7 @@ export function EntityDataTable<T = unknown>({
                               disabled={isFiltering}
                             >
                               {col.label}
-                              {sortBy === col.key ? (
-                                sortOrder === "asc" ? (
-                                  <ArrowUp className="h-3 w-3 text-primary" />
-                                ) : (
-                                  <ArrowDown className="h-3 w-3 text-primary" />
-                                )
-                              ) : (
-                                <ArrowUpDown className="h-3 w-3 opacity-30 hover:opacity-50" />
-                              )}
+                              {renderSortIcon(sortBy === col.key, sortOrder)}
                             </Button>
                           ) : (
                             <span>{col.label}</span>
@@ -775,54 +837,7 @@ export function EntityDataTable<T = unknown>({
                 </TableRow>
               </TableHeader>
               <TableBody className="relative">
-                {loading && !initialData.length ? (
-                  // Skeleton loading rows
-                  Array.from({ length: pagination.pageSize || 10 }).map((_, index) => (
-                    <TableRow key={`skeleton-${index}`} className="border-b border-border/30">
-                      {visibleColumnsArray.map((col) => (
-                        <TableCell key={col.key} className="px-3 py-3">
-                          <div className="h-4 bg-muted animate-pulse rounded w-24"></div>
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : data.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={visibleColumnsArray.length}
-                      className="text-center text-muted-foreground"
-                    >
-                      <div className="space-y-2 py-8">
-                        <EmptyIcon className="h-12 w-12 mx-auto text-muted-foreground/30" />
-                        <p className="font-medium">{resolvedEmptyMessage}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {t('sweep.entities.adjustFiltersOrSearch')}
-                        </p>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  data.map((item, rowIndex) => (
-                    <TableRow
-                      key={rowIndex}
-                      className={`border-b border-border/30 hover:bg-muted/10 transition-colors duration-200 ${onRowClick ? 'cursor-pointer' : ''}`}
-                      onClick={() => onRowClick?.(item)}
-                    >
-                      {visibleColumnsArray.map((col) => {
-                        const width = columnWidths[col.key] || (col.width ? Number.parseInt(col.width, 10) : undefined);
-                        return (
-                          <TableCell
-                            key={col.key}
-                            className={`px-3 py-3 ${col.className || ""}`}
-                            style={{ width: width ? `${width}px` : col.width, minWidth: col.minWidth }}
-                          >
-                            {col.render(item)}
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  ))
-                )}
+                {tableRows}
               </TableBody>
             </Table>
           </div>

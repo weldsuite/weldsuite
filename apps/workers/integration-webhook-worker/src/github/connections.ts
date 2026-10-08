@@ -21,11 +21,11 @@ export async function getConnectionByInstallationId(db: TenantDatabase, installa
   return row ?? null;
 }
 
-export async function getDecryptedWebhookSecret(
+export function getDecryptedWebhookSecret(
   connection: { webhookSecret?: string | null },
   encryptionKey: EncryptionKeyring,
 ): Promise<string | null> {
-  if (!connection.webhookSecret) return null;
+  if (!connection.webhookSecret) return Promise.resolve(null);
   return decryptField(connection.webhookSecret, encryptionKey);
 }
 

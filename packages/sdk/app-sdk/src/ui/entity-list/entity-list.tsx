@@ -63,6 +63,14 @@ import {
 import { FilterPills } from './filter-pills';
 import type { ActiveFilter, EntityListProps, RowHandlers } from './types';
 
+function activeSortIcon(direction: 'asc' | 'desc') {
+  return direction === 'asc' ? (
+    <ArrowUp className="wui-elist-icon wui-elist-icon--sm" />
+  ) : (
+    <ArrowDown className="wui-elist-icon wui-elist-icon--sm" />
+  );
+}
+
 export function EntityList<T extends { id: string }>({
   items,
   isLoading,
@@ -437,18 +445,13 @@ export function EntityList<T extends { id: string }>({
           {(headerColumns || columns || []).map((column) => {
             const isSortable = 'sortable' in column && column.sortable && onSort;
             const isActive = sortState?.columnId === column.id;
+            let cellClassName: string | undefined;
+            if ('className' in column) cellClassName = column.className;
+            else if ('headerClassName' in column) cellClassName = column.headerClassName;
             return (
               <div
                 key={column.id}
-                className={cn(
-                  'wui-elist-header__cell',
-                  column.width,
-                  'className' in column
-                    ? column.className
-                    : 'headerClassName' in column
-                      ? column.headerClassName
-                      : undefined,
-                )}
+                className={cn('wui-elist-header__cell', column.width, cellClassName)}
               >
                 {isSortable ? (
                   <button
@@ -461,11 +464,7 @@ export function EntityList<T extends { id: string }>({
                   >
                     {column.header}
                     {isActive ? (
-                      sortState!.direction === 'asc' ? (
-                        <ArrowUp className="wui-elist-icon wui-elist-icon--sm" />
-                      ) : (
-                        <ArrowDown className="wui-elist-icon wui-elist-icon--sm" />
-                      )
+                      activeSortIcon(sortState!.direction)
                     ) : (
                       <ArrowUpDown className="wui-elist-icon wui-elist-icon--sm wui-elist-header__sort-icon" />
                     )}

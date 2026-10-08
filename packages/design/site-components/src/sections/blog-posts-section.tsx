@@ -81,8 +81,12 @@ export function BlogPostsSection({
   posts,
 }: Readonly<BlogPostsSectionProps>) {
   // Use real posts if available, otherwise fall back to mock data
-  const sourcePosts = posts && posts.length > 0 ? posts :
-                      (store?.blogPosts && store.blogPosts.length > 0 ? store.blogPosts : mockPosts);
+  let sourcePosts: BlogPost[] | NonNullable<StoreData['blogPosts']> = mockPosts;
+  if (posts && posts.length > 0) {
+    sourcePosts = posts;
+  } else if (store?.blogPosts && store.blogPosts.length > 0) {
+    sourcePosts = store.blogPosts;
+  }
 
   const displayPosts = sourcePosts.slice(0, postsToShow);
 

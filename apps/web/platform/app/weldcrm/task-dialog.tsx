@@ -984,7 +984,6 @@ export function TaskDialog({
   const [repeatInterval, setRepeatInterval] = useState<number>(1);
   const [repeatUnit, setRepeatUnit] = useState<RepeatUnitValue>('days');
   const [selectedLabels, setSelectedLabels] = useState<string[]>([]);
-  const [, setHasButtonOverflow] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [assigneePopoverOpen, setAssigneePopoverOpen] = useState(false);
   const [isSearchingRecords, setIsSearchingRecords] = useState(false);
@@ -1124,9 +1123,9 @@ export function TaskDialog({
     const items = e.clipboardData?.items;
     if (!items) return;
     const files: File[] = [];
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].kind === 'file') {
-        const file = items[i].getAsFile();
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
         if (file) files.push(file);
       }
     }
@@ -1197,13 +1196,6 @@ export function TaskDialog({
       return () => clearTimeout(timer);
     }
   }, [open, editingTask, defaultRecord, defaultAssignee, defaultStatus, syncDescriptionToDiv]);
-
-  useLayoutEffect(() => {
-    if (buttonContainerRef.current) {
-      const hasOverflow = buttonContainerRef.current.scrollWidth > buttonContainerRef.current.clientWidth;
-      setHasButtonOverflow(hasOverflow);
-    }
-  }, [open, status, priority, assigneeList, dueDate, record, repeat, selectedLabels]);
 
   const resetForm = () => {
     setTitle('');

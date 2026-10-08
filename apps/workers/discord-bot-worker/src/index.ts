@@ -20,6 +20,7 @@ import {
 } from './lib/discord-api';
 
 export { DiscordGateway } from './gateway';
+import { logSafe } from '@weldsuite/text';
 
 interface Env {
   DISCORD_BOT_TOKEN: string;
@@ -398,10 +399,10 @@ async function handleOpenTicket(env: Env, interaction: any): Promise<void> {
 
     if (!ticketRes.ok) {
       const text = await ticketRes.text().catch(() => '');
-      console.error('[Interactions] ticket webhook failed:', ticketRes.status, text.slice(0, 500), {
-        guildId,
-        threadId: thread.id,
-        parentChannelId: channelId,
+      console.error('[Interactions] ticket webhook failed:', ticketRes.status, logSafe(text.slice(0, 500)), {
+        guildId: logSafe(guildId),
+        threadId: logSafe(thread.id),
+        parentChannelId: logSafe(channelId),
       });
 
       let syncHint =
@@ -531,7 +532,7 @@ async function handleWorkflowButton(env: Env, interaction: any, customId: string
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
-      console.error('[Interactions] workflow-respond failed:', res.status, await res.text());
+      console.error('[Interactions] workflow-respond failed:', res.status, logSafe(await res.text()));
     }
   } catch (err) {
     console.error('[Interactions] Failed to forward wf_ button:', err);
@@ -646,7 +647,7 @@ async function handleFormSubmit(env: Env, interaction: any, customId: string): P
     });
 
     if (!res.ok) {
-      console.error('[Interactions] form submit workflow-respond failed:', res.status, await res.text());
+      console.error('[Interactions] form submit workflow-respond failed:', res.status, logSafe(await res.text()));
     }
 
     if (channelId) {

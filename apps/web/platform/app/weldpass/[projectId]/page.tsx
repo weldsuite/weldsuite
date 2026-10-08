@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
-import { Check, Copy, Download, Eye, EyeOff, History, KeyRound, Upload } from 'lucide-react';
+import { Check, Copy, Download, Eye, EyeOff, History, KeyRound, SearchX, Upload } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -73,10 +73,23 @@ export default function WeldPassProjectPage() {
   const deleteSecret = useDeleteWeldPassSecret(projectId, environmentId);
   const exportEnvironment = useExportWeldPassEnvironment(projectId, environmentId);
 
+  const [query, setQuery] = useState('');
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [dialog, setDialog] = useState<Dialog>(null);
   const [autoSync, setAutoSync] = useState<WeldPassAutoSyncOutcome[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
+
+  // The toolbar sits above the tabs, outside the list, so the search is
+  // applied here rather than by the list.
+  const visibleSecrets = useMemo(() => {
+    const all = secrets ?? [];
+    const needle = query.trim().toLowerCase();
+    if (!needle) return all;
+    return all.filter((secret) =>
+      [secret.key, secret.note].some((value) => value?.toLowerCase().includes(needle)),
+    );
+  }, [secrets, query]);
+  const isSearchMiss = visibleSecrets.length === 0 && (secrets?.length ?? 0) > 0;
 
   // Switching environments must not carry revealed values across.
   useEffect(() => {
@@ -204,34 +217,24 @@ export default function WeldPassProjectPage() {
   );
 
   return (
-    <ProjectPage projectId={projectId} section="secrets">
-      {(failure || autoSync.length > 0) && (
-        <div className="space-y-2 border-b px-4 py-3">
-          <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
-          <AutoSyncSummary outcomes={autoSync} onDismiss={() => setAutoSync([])} />
-        </div>
-      )}
-
-      <PanelEntityList<WeldPassSecret>
-        items={secrets ?? []}
-        isLoading={secretsLoading}
-        columns={columns}
-        onRowClick={canUpdate ? (secret) => setDialog({ kind: 'edit', secret }) : undefined}
-        onEdit={canUpdate ? (secret) => setDialog({ kind: 'edit', secret }) : undefined}
-        onDelete={canDelete ? (secret) => setDialog({ kind: 'delete', secret }) : undefined}
-        searchFields={['key', 'note']}
-        searchPlaceholder={t('weldpass.secrets.searchPlaceholder')}
-        // The left of the top bar is hidden on small screens, so the
+    <ProjectPage
+      projectId={projectId}
+      section="secrets"
+      toolbar={{
+        search: query,
+        onSearchChange: setQuery,
+        searchPlaceholder: t('weldpass.secrets.searchPlaceholder'),
+        // The left of the toolbar is hidden on small screens, so the
         // environment switch is repeated on the right there.
-        leftActionButtons={
+        leftActionButtons: (
           <>
             {environmentSelect()}
             {environment?.isProduction && (
               <Badge variant="outline">{t('weldpass.secrets.production')}</Badge>
             )}
           </>
-        }
-        actionButtons={
+        ),
+        actionButtons: (
           <>
             {environmentSelect('md:hidden')}
             {canWrite && (
@@ -258,24 +261,46 @@ export default function WeldPassProjectPage() {
               </Button>
             )}
           </>
+        ),
+        createButton: canWrite
+          ? { label: t('weldpass.secrets.addSecret'), onClick: () => setDialog({ kind: 'create' }) }
+          : undefined,
+      }}
+    >
+      {(failure || autoSync.length > 0) && (
+        <div className="space-y-2 border-b px-4 py-3">
+          <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
+          <AutoSyncSummary outcomes={autoSync} onDismiss={() => setAutoSync([])} />
+        </div>
+      )}
+
+      <PanelEntityList<WeldPassSecret>
+        items={visibleSecrets}
+        isLoading={secretsLoading}
+        columns={columns}
+        hideTopBar
+        onRowClick={canUpdate ? (secret) => setDialog({ kind: 'edit', secret }) : undefined}
+        onEdit={canUpdate ? (secret) => setDialog({ kind: 'edit', secret }) : undefined}
+        onDelete={canDelete ? (secret) => setDialog({ kind: 'delete', secret }) : undefined}
+        emptyState={
+          isSearchMiss
+            ? {
+                icon: emptyIcon(SearchX),
+                title: t('weldpass.secrets.noResultsTitle'),
+                description: t('weldpass.secrets.noResultsDescription'),
+              }
+            : {
+                icon: emptyIcon(KeyRound),
+                title: t('weldpass.secrets.emptyTitle'),
+                description: t('weldpass.secrets.emptyDescription'),
+                action: canWrite
+                  ? {
+                      label: t('weldpass.secrets.importEnv'),
+                      onClick: () => setDialog({ kind: 'import' }),
+                    }
+                  : undefined,
+              }
         }
-        createButton={
-          canWrite
-            ? { label: t('weldpass.secrets.addSecret'), onClick: () => setDialog({ kind: 'create' }) }
-            : undefined
-        }
-        emptyState={{
-          icon: emptyIcon(KeyRound),
-          title: t('weldpass.secrets.emptyTitle'),
-          description: t('weldpass.secrets.emptyDescription'),
-          action: canWrite
-            ? { label: t('weldpass.secrets.importEnv'), onClick: () => setDialog({ kind: 'import' }) }
-            : undefined,
-        }}
-        noResultsState={{
-          title: t('weldpass.secrets.noResultsTitle'),
-          description: t('weldpass.secrets.noResultsDescription'),
-        }}
       />
 
       {dialog?.kind === 'create' && (
@@ -357,7 +382,12 @@ function EnvironmentSelect({
 }>) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger aria-label={label} className={cn('h-8 w-[180px] text-sm', className)}>
+      <SelectTrigger
+        aria-label={label}
+        // The default size sets its own height, which outranks an `h-8` class.
+        size="sm"
+        className={cn('w-[180px] text-sm shadow-none', className)}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

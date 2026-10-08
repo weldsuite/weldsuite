@@ -58,7 +58,7 @@ export interface ListDomainsFilters {
   isPrimary?: boolean;
 }
 
-export async function listDomains(db: Database, filters: ListDomainsFilters) {
+export function listDomains(db: Database, filters: ListDomainsFilters) {
   const conditions: SQL[] = [isNull(mailDomains.deletedAt)!];
   if (filters.isActive !== undefined) conditions.push(eq(mailDomains.isActive, filters.isActive));
   if (filters.isPrimary !== undefined) conditions.push(eq(mailDomains.isPrimary, filters.isPrimary));
@@ -169,7 +169,7 @@ export async function updateDomain(
   if (!existing) throw new MailDomainError('NOT_FOUND', 'Domain not found');
 
   const nextEnabled =
-    data.catchAllEnabled !== undefined ? data.catchAllEnabled : existing.catchAllEnabled;
+    data.catchAllEnabled ?? existing.catchAllEnabled;
   const nextAccountId =
     data.catchAllAccountId !== undefined ? data.catchAllAccountId : existing.catchAllAccountId;
 

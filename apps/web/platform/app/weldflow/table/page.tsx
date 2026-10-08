@@ -402,7 +402,7 @@ const avatarColors = [
 const getAvatarColor = (name: string) => {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    hash = name.codePointAt(i)! + ((hash << 5) - hash);
   }
   return avatarColors[Math.abs(hash) % avatarColors.length];
 };
@@ -914,7 +914,6 @@ export default function TablePage() {
   const [editingCell, setEditingCell] = useState<{ rowId: string; fieldId: string } | null>(null);
   const [editValue, setEditValue] = useState<string>("");
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
-  const [, setResizingColumn] = useState<string | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     const widths: Record<string, number> = {};
     fields.forEach(field => {
@@ -922,7 +921,6 @@ export default function TablePage() {
     });
     return widths;
   });
-  const [, setFieldCalculations] = useState<Record<string, string>>({});
 
   // Refs for synchronized scrolling
   const tableScrollRef = React.useRef<HTMLDivElement>(null);
@@ -939,7 +937,7 @@ export default function TablePage() {
 
         if (finishedKeys.length > 0) {
           setRunningTimers(prev => omitTimers(prev, finishedKeys));
-          for (let i = 0; i < finishedKeys.length; i++) {
+          for (const _key of finishedKeys) {
             toast.success(st('sweep.weldflow.tablePage.timerFinished'));
           }
         }
@@ -1098,7 +1096,6 @@ export default function TablePage() {
   const handleMouseDown = (e: React.MouseEvent, fieldId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setResizingColumn(fieldId);
 
     const startX = e.clientX;
     const startWidth = columnWidths[fieldId] || 150;
@@ -1110,7 +1107,6 @@ export default function TablePage() {
     };
 
     const handleMouseUp = () => {
-      setResizingColumn(null);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
       document.body.style.cursor = 'auto';
@@ -1230,7 +1226,6 @@ export default function TablePage() {
 
   // Apply calculation based on type
   const applyCalculation = (fieldId: string, calculationType: string) => {
-    setFieldCalculations(prev => ({ ...prev, [fieldId]: calculationType }));
     toast.success(st('sweep.weldflow.tablePage.appliedCalculation', { type: calculationType }));
   };
 

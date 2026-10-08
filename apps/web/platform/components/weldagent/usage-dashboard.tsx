@@ -67,6 +67,12 @@ interface UsageDashboardProps {
   userId?: string;
 }
 
+const PROGRESS_STATUS_CLASS: Record<CreditsInfo['status'], string> = {
+  destructive: '[&>div]:bg-destructive',
+  warning: '[&>div]:bg-yellow-500',
+  success: '',
+};
+
 export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
@@ -83,6 +89,12 @@ export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardP
         const client = await getClient();
         const result = await client.get<{ data: CreditsBalanceResponse }>('/credits/balance');
         if (result.data) {
+          let status: CreditsInfo['status'] = 'success';
+          if (result.data.isExhausted) {
+            status = 'destructive';
+          } else if (result.data.isLow) {
+            status = 'warning';
+          }
           setCreditsInfo({
             quota: result.data.monthlyAllocation || 0,
             used: (result.data.monthlyAllocation || 0) - (result.data.currentBalance || 0),
@@ -91,7 +103,7 @@ export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardP
             isExhausted: result.data.isExhausted || false,
             tokensUsed: 0,
             resetDate: result.data.periodEnd || '',
-            status: result.data.isExhausted ? 'destructive' : result.data.isLow ? 'warning' : 'success',
+            status,
           });
         }
         setCreditsError(null);
@@ -105,7 +117,7 @@ export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardP
 
   // Load usage stats
   useEffect(() => {
-    async function loadStats() {
+    function loadStats() {
       setIsLoading(true);
       try {
         // For now, we'll use mock data since we don't have the API endpoint yet
@@ -146,7 +158,7 @@ export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardP
       }
     }
 
-    void loadStats();
+    loadStats();
   }, [period, workspaceId, userId]);
 
   const formatCost = (cents: number) => {
@@ -231,7 +243,7 @@ export function UsageDashboard({ workspaceId, userId }: Readonly<UsageDashboardP
               </div>
               <Progress
                 value={creditsInfo.usagePercentage}
-                className={creditsInfo.status === 'destructive' ? '[&>div]:bg-destructive' : creditsInfo.status === 'warning' ? '[&>div]:bg-yellow-500' : ''}
+                className={PROGRESS_STATUS_CLASS[creditsInfo.status]}
               />
             </div>
 

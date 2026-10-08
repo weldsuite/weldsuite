@@ -22,7 +22,7 @@ export function Button({
 }: ButtonProps) {
   className = clsx(variantStyles[variant], className)
 
-  return typeof props.href === 'undefined' ? (
+  return props.href === undefined ? (
     <button className={className} {...props} />
   ) : (
     <Link className={className} {...props} />

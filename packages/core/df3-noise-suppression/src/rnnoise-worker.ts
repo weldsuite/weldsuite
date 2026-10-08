@@ -39,7 +39,7 @@ async function init(): Promise<void> {
   const m = createRNNWasmModuleSync();
   // The sync build compiles eagerly, but await `ready` if present so we never
   // touch exports before the runtime is bound.
-  if (m.ready) await m.ready;
+  if (m.ready !== undefined) await m.ready;
   mod = m;
   state = m._rnnoise_create(0);
   pcmPtr = m._malloc(RNNOISE_FRAME * 4);

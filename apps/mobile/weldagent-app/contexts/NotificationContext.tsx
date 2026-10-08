@@ -52,15 +52,15 @@ if (!isExpoGo) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- native module absent in Expo Go
     notifUtils = require('@weldsuite/mobile-ui/services/notifications');
     Notifications?.setNotificationHandler({
-      handleNotification: async () => {
+      handleNotification: () => {
         const active = AppState.currentState === 'active';
-        return {
+        return Promise.resolve({
           shouldShowAlert: !active,
           shouldShowBanner: !active,
           shouldShowList: true,
           shouldPlaySound: !active,
           shouldSetBadge: true,
-        };
+        });
       },
     });
   } catch {

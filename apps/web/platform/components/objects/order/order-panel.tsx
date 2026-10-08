@@ -60,32 +60,30 @@ export function OrderPanel(props: Readonly<ObjectPanelComponentProps>) {
         // Count on the tab so an empty order is obvious without opening it.
         { ...extraTab('items', t.panel.tabItems, ListOrdered), count: itemRows.length || undefined },
       ]}
-      renderTab={(tabId) =>
-        tabId === 'items' ? (
-          itemRows.length === 0 ? (
-            <ProseBlock>{t.panel.noItems}</ProseBlock>
-          ) : (
-            <div className="space-y-2">
-              <SectionHeader>{t.panel.tabItems}</SectionHeader>
-              <LineItemList
-                items={itemRows}
-                getKey={(i) => i.id}
-                renderLeft={(i) => (
-                  <span className="truncate">
-                    {i.name}
-                    {i.sku ? <span className="text-muted-foreground"> · {i.sku}</span> : null}
-                    <span className="text-muted-foreground">
-                      {' '}
-                      × {i.quantity}
-                    </span>
+      renderTab={(tabId) => {
+        if (tabId !== 'items') return null;
+        if (itemRows.length === 0) return <ProseBlock>{t.panel.noItems}</ProseBlock>;
+        return (
+          <div className="space-y-2">
+            <SectionHeader>{t.panel.tabItems}</SectionHeader>
+            <LineItemList
+              items={itemRows}
+              getKey={(i) => i.id}
+              renderLeft={(i) => (
+                <span className="truncate">
+                  {i.name}
+                  {i.sku ? <span className="text-muted-foreground"> · {i.sku}</span> : null}
+                  <span className="text-muted-foreground">
+                    {' '}
+                    × {i.quantity}
                   </span>
-                )}
-                renderRight={(i) => formatPanelMoney(i.total, order?.currency) ?? '—'}
-              />
-            </div>
-          )
-        ) : null
-      }
+                </span>
+              )}
+              renderRight={(i) => formatPanelMoney(i.total, order?.currency) ?? '—'}
+            />
+          </div>
+        );
+      }}
       statusBadges={
         order?.status && (
           <Badge variant="outline" className="capitalize">

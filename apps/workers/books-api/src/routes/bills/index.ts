@@ -9,13 +9,16 @@
  *   - Supplier role promotion on first bill for a contact.
  *
  * Integrity rules (administratieplicht — do not weaken):
- *   - Approving a bill is blocked inside closed fiscal periods.
+ *   - Approving a bill posts it (Dr expense + deductible input tax / Cr
+ *     payable) in one atomic posting, refused inside closed periods and on or
+ *     before the purchase lock date. Rejecting an approved bill reverses it.
+ *   - Only drafts may be edited or deleted.
  *   - Every mutation is written to the accounting audit log.
  *
  * Permissions: bills:read | bills:create | bills:update | bills:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, isNull, like, lte, or, sql } from 'drizzle-orm';
@@ -25,17 +28,48 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
 import {
-  assertPeriodOpen,
   ClosedPeriodError,
+  LockedPeriodError,
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
-import { buildTaxTotalsWithRates, loadPlaceOfSupply } from '../../services/accounting-tax-resolve';
+import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
+import { calculateDocumentTax, TaxCalculationError } from '../../services/accounting-tax-resolve';
+import { postBill, PostingError } from '../../services/accounting-document-posting';
+import { reverseJournalEntry } from '../../services/accounting-posting';
 import { lineItemsForBill, normalizeOcrResult } from '../../services/accounting-ocr';
 import { streamDocumentAttachment } from '../../lib/document-attachment';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/** 400 for errors the user can fix (closed period, lock date, posting rules, tax rates). */
+function accountingErrorResponse(c: Context<{ Bindings: Env; Variables: Variables }>, err: unknown): Response | undefined {
+  if (
+    err instanceof ClosedPeriodError ||
+    err instanceof LockedPeriodError ||
+    err instanceof PostingError ||
+    err instanceof TaxCalculationError
+  ) {
+    return error.badRequest(c, err.message);
+  }
+  return undefined;
+}
+
+/** Accepts the shared address shape and the legacy Dutch one (street + houseNumber, province). */
+const addressSchema = z.object({
+  line1: z.string().optional(),
+  line2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  postalCode: z.string().optional(),
+  country: z.string().optional(),
+  county: z.string().optional(),
+  street: z.string().optional(),
+  houseNumber: z.string().optional(),
+  province: z.string().optional(),
+});
 
 const lineItemSchema = z.object({
   description: z.string().min(1),
@@ -43,11 +77,42 @@ const lineItemSchema = z.object({
   unitPrice: z.string(),
   unit: z.string().max(20).optional(),
   discountPercent: z.string().optional().default('0'),
-  taxRateId: z.string().max(30).optional(),
+  taxRateId: z.string().max(30).nullable().optional(),
   taxRate: z.string().optional(),
-  accountId: z.string().max(30).optional(),
+  accountId: z.string().max(30).nullable().optional(),
   sortOrder: z.number().optional(),
 });
+
+type BillLineInput = z.infer<typeof lineItemSchema>;
+
+/** Bill line rows with the server-calculated tax for each line. */
+function buildBillItemRecords(
+  entityId: string,
+  billId: string,
+  items: BillLineInput[],
+  processedItems: Array<{ taxAmount: string; lineTotal: string; lineTotalWithTax: string; taxRateId: string | null; taxRate: string | null }>,
+) {
+  const now = new Date();
+  return items.map((item, idx) => ({
+    id: generateId('bli'),
+    entityId,
+    billId,
+    description: item.description,
+    quantity: item.quantity || '1',
+    unitPrice: item.unitPrice,
+    unit: item.unit || null,
+    discountPercent: item.discountPercent || '0',
+    taxRateId: processedItems[idx].taxRateId,
+    taxRate: processedItems[idx].taxRate,
+    taxAmount: processedItems[idx].taxAmount,
+    lineTotal: processedItems[idx].lineTotal,
+    lineTotalWithTax: processedItems[idx].lineTotalWithTax,
+    accountId: item.accountId || null,
+    sortOrder: item.sortOrder ?? idx,
+    createdAt: now,
+    updatedAt: now,
+  }));
+}
 
 const createBillSchema = z.object({
   /** Optional explicit entity — falls back to header/query/default resolution. */
@@ -64,6 +129,7 @@ const createBillSchema = z.object({
   notes: z.string().optional(),
   internalNotes: z.string().optional(),
   expenseAccountId: z.string().max(30).optional(),
+  vendorAddress: addressSchema.nullable().optional(),
   sourceDocumentId: z.string().max(30).optional(),
   items: z.array(lineItemSchema).default([]),
 });
@@ -219,11 +285,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
     const billNumber = data.billNumber ?? (await nextEntityNumber(db, entityId, 'bill')).formatted;
     const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));
 
-    const place = await loadPlaceOfSupply(db, entityId);
-    const totals = await buildTaxTotalsWithRates(db, data.items, {
-      ...place,
-      direction: 'purchase',
-    });
+    const totals = await calculateDocumentTax(db, { entityId, direction: 'purchase', items: data.items });
     const { processedItems, taxBreakdown, ...billTotals } = totals;
     const billId = generateId('bil');
 
@@ -246,6 +308,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       notes: data.notes || null,
       internalNotes: data.internalNotes || null,
       expenseAccountId: data.expenseAccountId || null,
+      vendorAddress: normalizePostalAddress(data.vendorAddress),
       sourceDocumentId: data.sourceDocumentId || null,
       approvalStatus: 'pending' as const,
       createdBy: userId,
@@ -255,25 +318,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
 
     await db.insert(bills).values(newBill);
 
-    const itemRecords = data.items.map((item, idx) => ({
-      id: generateId('bli'),
-      entityId,
-      billId,
-      description: item.description,
-      quantity: item.quantity || '1',
-      unitPrice: item.unitPrice,
-      unit: item.unit || null,
-      discountPercent: item.discountPercent || '0',
-      taxRateId: item.taxRateId || null,
-      taxRate: item.taxRate || null,
-      taxAmount: processedItems[idx].taxAmount,
-      lineTotal: processedItems[idx].lineTotal,
-      lineTotalWithTax: processedItems[idx].lineTotalWithTax,
-      accountId: item.accountId || null,
-      sortOrder: item.sortOrder ?? idx,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }));
+    const itemRecords = buildBillItemRecords(entityId, billId, data.items, processedItems);
 
     if (itemRecords.length > 0) {
       await db.insert(billItems).values(itemRecords);
@@ -318,6 +363,8 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
 
     return success(c, { ...newBill, items: itemRecords }, 201);
   } catch (err) {
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
     console.error('[app-api/bills] create failed:', err);
     return error.internal(c, 'Failed to create bill');
   }
@@ -358,28 +405,29 @@ app.post('/from-document/:documentId', requirePermission('bills:create'), async 
   }
 });
 
-// PATCH /:id/approve
+// PATCH /:id/approve — approve and post the bill
 app.patch('/:id/approve', requirePermission('bills:update'), async (c) => {
   const db = c.get('tenantDb');
-  const { bills } = schema;
+  const { bills, billItems } = schema;
   const billId = c.req.param('id');
-  const userId = c.get('userId');
+  const userId = c.get('userId') ?? null;
 
   try {
     const [bill] = await db.select().from(bills)
       .where(and(eq(bills.id, billId), isNull(bills.deletedAt))).limit(1);
     if (!bill) return error.notFound(c, 'Bill', billId);
+    if (bill.journalEntryId) {
+      // Already approved and posted — approving again is a no-op.
+      return success(c, bill);
+    }
+    if (bill.status === 'cancelled' || bill.approvalStatus === 'rejected') {
+      return error.badRequest(c, 'A rejected bill cannot be approved. Create a new bill instead.');
+    }
 
-    // Approving books the expense — blocked inside closed fiscal periods.
-    await assertPeriodOpen(db, bill.entityId, bill.issueDate ?? new Date());
+    const items = await db.select().from(billItems)
+      .where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt)));
 
-    await db.update(bills).set({
-      approvalStatus: 'approved',
-      status: 'approved',
-      approvedBy: userId,
-      approvedAt: new Date(),
-      updatedAt: new Date(),
-    }).where(eq(bills.id, billId));
+    const posted = await postBill(db, bill, items, { userId });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: bill.entityId,
@@ -389,6 +437,7 @@ app.patch('/:id/approve', requirePermission('bills:update'), async (c) => {
       changes: {
         approvalStatus: { old: bill.approvalStatus, new: 'approved' },
         status: { old: bill.status, new: 'approved' },
+        journalEntryId: { old: null, new: posted.journalEntryId },
       },
     });
     publishEntityEvent({
@@ -405,36 +454,70 @@ app.patch('/:id/approve', requirePermission('bills:update'), async (c) => {
         contactId: bill.contactId,
       },
     });
+    if (posted.journalEntryId && !posted.alreadyPosted) {
+      publishEntityEvent({
+        c,
+        entityType: 'journal_entry',
+        entityId: posted.journalEntryId,
+        action: 'created',
+        data: { id: posted.journalEntryId, sourceType: 'bill', sourceId: billId },
+      });
+    }
 
-    return success(c, { ...bill, approvalStatus: 'approved', status: 'approved' });
+    return success(c, {
+      ...bill,
+      approvalStatus: 'approved',
+      status: 'approved',
+      approvedBy: userId,
+      journalEntryId: posted.journalEntryId,
+    });
   } catch (err) {
-    if (err instanceof ClosedPeriodError) return error.badRequest(c, err.message);
-    console.error('[app-api/bills] approve failed:', err);
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/bills] approve failed:', err);
     return error.internal(c, 'Failed to approve bill');
   }
 });
 
-// PATCH /:id/reject
+// PATCH /:id/reject — reject a bill; an approved (posted) one is reversed
 app.patch('/:id/reject', requirePermission('bills:update'), zValidator('json', z.object({ reason: z.string().min(1) })), async (c) => {
   const db = c.get('tenantDb');
   const { bills } = schema;
   const billId = c.req.param('id');
   const { reason } = c.req.valid('json');
-  const userId = c.get('userId');
+  const userId = c.get('userId') ?? null;
 
   try {
     const [bill] = await db.select().from(bills)
       .where(and(eq(bills.id, billId), isNull(bills.deletedAt))).limit(1);
     if (!bill) return error.notFound(c, 'Bill', billId);
+    if (Number.parseFloat(bill.amountPaid ?? '0') > 0) {
+      return error.badRequest(c, 'This bill has payments. Void the payments before rejecting it.');
+    }
 
-    await db.update(bills).set({
+    const now = new Date();
+    const rejectedValues = {
       approvalStatus: 'rejected',
       status: 'cancelled',
       rejectedBy: userId,
-      rejectedAt: new Date(),
+      rejectedAt: now,
       rejectionReason: reason,
-      updatedAt: new Date(),
-    }).where(eq(bills.id, billId));
+      updatedAt: now,
+    };
+    let reversalId: string | null = null;
+    if (bill.journalEntryId) {
+      const reversal = await reverseJournalEntry(db, {
+        entryId: bill.journalEntryId,
+        date: now,
+        createdBy: userId,
+        lockKind: 'purchase',
+        description: `Rejected bill ${bill.billNumber ?? billId}`,
+        alsoWrite: (h) => [h.update(bills).set(rejectedValues).where(eq(bills.id, billId))],
+      });
+      reversalId = reversal.journalEntryId;
+    } else {
+      await db.update(bills).set(rejectedValues).where(eq(bills.id, billId));
+    }
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: bill.entityId,
@@ -445,6 +528,7 @@ app.patch('/:id/reject', requirePermission('bills:update'), zValidator('json', z
         approvalStatus: { old: bill.approvalStatus, new: 'rejected' },
         status: { old: bill.status, new: 'cancelled' },
         rejectionReason: { old: bill.rejectionReason, new: reason },
+        ...(reversalId ? { reversalEntryId: { old: null, new: reversalId } } : {}),
       },
     });
     publishEntityEvent({
@@ -464,7 +548,9 @@ app.patch('/:id/reject', requirePermission('bills:update'), zValidator('json', z
 
     return success(c, { ...bill, approvalStatus: 'rejected', status: 'cancelled' });
   } catch (err) {
-    console.error('[app-api/bills] reject failed:', err);
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/bills] reject failed:', err);
     return error.internal(c, 'Failed to reject bill');
   }
 });
@@ -472,7 +558,7 @@ app.patch('/:id/reject', requirePermission('bills:update'), zValidator('json', z
 // PUT /:id (PATCH alias kept for app-api clients) — drafts only
 app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('json', updateBillSchema), async (c) => {
   const db = c.get('tenantDb');
-  const { bills } = schema;
+  const { bills, billItems } = schema;
   const billId = c.req.param('id');
   const data = c.req.valid('json');
 
@@ -487,11 +573,38 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
     if (data.contactName !== undefined) updateData.contactName = data.contactName;
     if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
     if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
+    if (data.currency) updateData.currency = data.currency;
     if (data.externalReference !== undefined) updateData.externalReference = data.externalReference;
     if (data.reference !== undefined) updateData.reference = data.reference;
     if (data.notes !== undefined) updateData.notes = data.notes;
+    if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes;
+    if (data.expenseAccountId !== undefined) updateData.expenseAccountId = data.expenseAccountId || null;
+    if (data.vendorAddress !== undefined) updateData.vendorAddress = normalizePostalAddress(data.vendorAddress);
 
-    await db.update(bills).set(updateData).where(eq(bills.id, billId));
+    let newItems: ReturnType<typeof buildBillItemRecords> | undefined;
+    if (data.items) {
+      const { processedItems, taxBreakdown, ...billTotals } = await calculateDocumentTax(db, {
+        entityId: bill.entityId,
+        direction: 'purchase',
+        items: data.items,
+      });
+      Object.assign(updateData, billTotals, {
+        taxBreakdown,
+        balanceDue: String(Number.parseFloat(billTotals.total) - Number.parseFloat(bill.amountPaid || '0')),
+      });
+      newItems = buildBillItemRecords(bill.entityId, billId, data.items, processedItems);
+    }
+
+    const now = new Date();
+    await atomically(db, (h) => [
+      h.update(bills).set(updateData).where(eq(bills.id, billId)),
+      ...(newItems
+        ? [
+            h.update(billItems).set({ deletedAt: now }).where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt))),
+            ...(newItems.length > 0 ? [h.insert(billItems).values(newItems)] : []),
+          ]
+        : []),
+    ]);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: bill.entityId,
@@ -500,7 +613,7 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
       action: 'updated',
       changes: Object.fromEntries(
         Object.entries(updateData)
-          .filter(([k]) => k !== 'updatedAt')
+          .filter(([k]) => k !== 'updatedAt' && k !== 'taxBreakdown')
           .map(([k, v]) => [k, { old: (bill as Record<string, unknown>)[k], new: v }]),
       ),
     });
@@ -513,15 +626,17 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
         id: billId,
         billNumber: bill.billNumber,
         status: bill.status || 'draft',
-        total: bill.total || '0',
-        currency: bill.currency,
+        total: (updateData.total as string | undefined) ?? bill.total ?? '0',
+        currency: (updateData.currency as string | undefined) ?? bill.currency,
         contactId: data.contactId ?? bill.contactId,
       },
     });
 
-    return success(c, { ...bill, ...updateData });
+    return success(c, { ...bill, ...updateData, ...(newItems ? { items: newItems } : {}) });
   } catch (err) {
-    console.error('[app-api/bills] update failed:', err);
+    const handled = accountingErrorResponse(c, err);
+    if (handled) return handled;
+    console.error('[books-api/bills] update failed:', err);
     return error.internal(c, 'Failed to update bill');
   }
 });

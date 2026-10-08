@@ -4,7 +4,8 @@ import {
   useAccountingBill,
   useUpdateBill,
 } from '@/hooks/queries/use-accounting-queries';
-import { BillForm, type BillFormValues } from '../../components/bill-form';
+import { toast } from 'sonner';
+import { BillForm, type BillPayload } from '../../components/bill-form';
 import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
@@ -31,12 +32,15 @@ export default function EditBillPage() {
     );
   }
 
-  const handleSubmit = (formData: BillFormValues) => {
+  const handleSubmit = (formData: BillPayload) => {
     updateBill.mutate(
-      { id, data: formData as unknown as Record<string, unknown> },
+      { id, data: { ...formData } },
       {
         onSuccess: () => {
           navigate({ to: '/weldbooks/bills/$id', params: { id } });
+        },
+        onError: (err) => {
+          toast.error(tb.saveFailed, { description: err instanceof Error ? err.message : undefined });
         },
       },
     );

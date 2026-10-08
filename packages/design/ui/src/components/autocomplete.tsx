@@ -196,6 +196,13 @@ export function Autocomplete({
     return emptyText
   }
 
+  let triggerLabel = placeholder
+  if (loading) {
+    triggerLabel = "Loading..."
+  } else if (selectedOption) {
+    triggerLabel = selectedOption.label
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -211,11 +218,7 @@ export function Autocomplete({
           disabled={disabled || loading}
         >
           <span className="truncate">
-            {loading
-              ? "Loading..."
-              : selectedOption
-                ? selectedOption.label
-                : placeholder}
+            {triggerLabel}
           </span>
           <div className="ml-2 flex items-center gap-1">
             {clearable && selectedOption && !disabled && (

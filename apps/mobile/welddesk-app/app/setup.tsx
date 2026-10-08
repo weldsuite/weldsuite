@@ -280,7 +280,7 @@ function ProvisioningStep({ onComplete, colors }: Readonly<{
   onComplete: () => void; colors: any;
 }>) {
   const [currentPhase, setCurrentPhase] = useState(0);
-  const [, setPollCount] = useState(0);
+  const pollCountRef = useRef(0);
   const [failed, setFailed] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { t } = useI18n();
@@ -313,18 +313,16 @@ function ProvisioningStep({ onComplete, colors }: Readonly<{
       // Network error — keep polling
     }
 
-    setPollCount((c) => {
-      const next = c + 1;
-      // Simulate phase progression based on poll count
-      if (next >= 6) setCurrentPhase(2);
-      else if (next >= 3) setCurrentPhase(1);
+    pollCountRef.current += 1;
+    const next = pollCountRef.current;
+    // Simulate phase progression based on poll count
+    if (next >= 6) setCurrentPhase(2);
+    else if (next >= 3) setCurrentPhase(1);
 
-      if (next >= 90) {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-        setFailed(true);
-      }
-      return next;
-    });
+    if (next >= 90) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      setFailed(true);
+    }
   }, [onComplete]);
 
   useEffect(() => {
@@ -337,7 +335,7 @@ function ProvisioningStep({ onComplete, colors }: Readonly<{
 
   const handleRetry = () => {
     setFailed(false);
-    setPollCount(0);
+    pollCountRef.current = 0;
     setCurrentPhase(0);
     intervalRef.current = setInterval(poll, 2000);
     void poll();

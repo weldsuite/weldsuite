@@ -255,17 +255,13 @@ async function provisionDatabaseForWorkspace(
     picture: data.initialMember.picture,
   } : { userId: data.clerkUserId };
 
-  const provisionResult = await provisionWorkspaceDatabase(
-    env,
-    masterDb,
-    workspaceId,
-    data.workspaceName,
+  const provisionResult = await provisionWorkspaceDatabase(env, masterDb, workspaceId, data.workspaceName, {
     initialMember,
-    data.region,
-    data.selectedApps,
-    clerkOrgSlug,
-    data.seedSampleData,
-  );
+    region: data.region,
+    selectedApps: data.selectedApps,
+    slug: clerkOrgSlug,
+    seedSampleData: data.seedSampleData,
+  });
 
   if (!provisionResult.ok) {
     await masterDb

@@ -25,6 +25,8 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
 import { asText } from '@weldsuite/text';
 
+type CalendarPermission = 'view' | 'edit' | 'manage';
+
 // ── Calendar (per-user calendar container) ──────────────────────────────
 
 export interface UserCalendar {
@@ -36,7 +38,7 @@ export interface UserCalendar {
   isDefault?: boolean;
   isActive?: boolean;
   isOwn: boolean;
-  permission: 'view' | 'edit' | 'manage';
+  permission: CalendarPermission;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -45,7 +47,7 @@ export interface CalendarShareRecord {
   id: string;
   calendarId: string;
   sharedWithId: string;
-  permission: 'view' | 'edit' | 'manage';
+  permission: CalendarPermission;
   sharedById: string;
   createdAt?: string;
 }
@@ -709,7 +711,7 @@ export function useShareCalendar() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ calendarId, sharedWithId, permission }: { calendarId: string; sharedWithId: string; permission: 'view' | 'edit' | 'manage' }) => {
+    mutationFn: async ({ calendarId, sharedWithId, permission }: { calendarId: string; sharedWithId: string; permission: CalendarPermission }) => {
       const client = await getClient();
       return client.post<{ data: { id: string } }>(`/calendars/${calendarId}/share`, { sharedWithId, permission });
     },

@@ -96,8 +96,10 @@ export function FileListView({
     if (showSource) {
       cols.push({ id: 'source', header: t.welddrive.page.columns.source, width: 'w-[140px]', sortable: true });
     }
-    cols.push({ id: 'fileSize', header: t.welddrive.page.columns.size, width: 'w-[100px]', sortable: true });
-    cols.push({ id: 'createdAt', header: t.welddrive.page.columns.modified, width: 'w-[130px]', sortable: true });
+    cols.push(
+      { id: 'fileSize', header: t.welddrive.page.columns.size, width: 'w-[100px]', sortable: true },
+      { id: 'createdAt', header: t.welddrive.page.columns.modified, width: 'w-[130px]', sortable: true },
+    );
     return cols;
   }, [t, showSource]);
 

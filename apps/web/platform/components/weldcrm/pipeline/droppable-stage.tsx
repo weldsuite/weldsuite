@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
 
@@ -37,8 +37,10 @@ export function DroppableStage({ id, children, containerRef }: Readonly<Droppabl
     }
   }, [isOver, containerRef]);
 
+  const contextValue = useMemo(() => ({ isOver }), [isOver]);
+
   return (
-    <DroppableContext.Provider value={{ isOver }}>
+    <DroppableContext.Provider value={contextValue}>
       <div
         ref={(node) => {
           setNodeRef(node);

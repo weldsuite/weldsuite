@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useWeldmeetApi } from '@/services/app-api';
-import type { MeetingSession } from '@weldsuite/core-api-client/schemas/weldmeet';
+
+// Re-export for convenience.
+export type { MeetingSession } from '@weldsuite/core-api-client/schemas/weldmeet';
 
 /**
  * Joinable session shape: either a freshly started session (start with
@@ -96,6 +98,3 @@ export function useMeetingSession(meetingId: string | undefined): State {
 
   return { session, loading, error, leave };
 }
-
-// Re-export for convenience.
-export type { MeetingSession };

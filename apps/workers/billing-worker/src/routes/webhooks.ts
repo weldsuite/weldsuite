@@ -47,7 +47,7 @@ import type {
   StripeCharge,
   StripeConnectAccount,
 } from '../types/stripe';
-import { asText } from '@weldsuite/text';
+import { asText, logSafe } from '@weldsuite/text';
 
 const {
   workspaces,
@@ -107,7 +107,7 @@ async function saveCheckoutPaymentMethodAsDefault(
     }
     await setCustomerDefaultPaymentMethod(secret, customerId, paymentMethodId);
     console.log(
-      `[Domain Registration] Saved ${paymentMethodId} as default payment method for ${customerId}`,
+      `[Domain Registration] Saved ${logSafe(paymentMethodId)} as default payment method for ${logSafe(customerId)}`,
     );
   } catch (err) {
     console.warn('[Domain Registration] Could not save default payment method:', err);
@@ -201,7 +201,7 @@ webhookRoutes.post('/', async (c) => {
   }
 
   const event: StripeEvent = JSON.parse(rawBody);
-  console.log(`[Stripe Webhook] Received event: ${event.type}`);
+  console.log(`[Stripe Webhook] Received event: ${logSafe(event.type)}`);
 
   const masterDb = getMasterDb(c.env);
 
@@ -252,7 +252,7 @@ webhookRoutes.post('/', async (c) => {
         // any agent-package line items whose workspace flagged them for
         // cancellation — delete them with proration_behavior=none so the new
         // invoice won't include them.
-        await handleInvoiceUpcoming(c.env, masterDb, event.data.object as StripeInvoice);
+        handleInvoiceUpcoming(c.env, masterDb, event.data.object as StripeInvoice);
         break;
 
       case 'invoice.payment_failed':
@@ -294,7 +294,7 @@ webhookRoutes.post('/', async (c) => {
         break;
 
       default:
-        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+        console.log(`[Stripe Webhook] Unhandled event type: ${logSafe(event.type)}`);
     }
 
     return c.json({ received: true });
@@ -410,7 +410,7 @@ async function handleCheckoutCompleted(
     return;
   }
 
-  console.log(`[Stripe Webhook] Updated workspace ${workspaceId} to plan ${planId} with ${purchasedSeats} seats`);
+  console.log(`[Stripe Webhook] Updated workspace ${logSafe(workspaceId)} to plan ${logSafe(planId)} with ${logSafe(purchasedSeats)} seats`);
 
   // Checkout always creates a new subscription. Cancel the previous one
   // (typically the $0 Free sub from signup) so the customer is not left
@@ -946,7 +946,7 @@ async function handleSubscriptionDeleted(
         })
         .where(eq(workspaces.id, workspace.id));
 
-      console.log(`[Stripe Webhook] Created new free subscription ${newSubscription.id} for workspace ${workspace.id}`);
+      console.log(`[Stripe Webhook] Created new free subscription ${logSafe(newSubscription.id)} for workspace ${logSafe(workspace.id)}`);
     } catch (subError) {
       console.error('[Stripe Webhook] Failed to create free subscription after downgrade:', subError);
     }
@@ -1183,7 +1183,7 @@ async function handleInvoicePaid(
   }
 
   // Sync seat limit to Clerk after purchasedSeats update
-  const currentSeats = paidQuantity > 0 ? paidQuantity : 0;
+  const currentSeats = Math.max(paidQuantity, 0);
   await trySyncClerkSeatLimit(env, masterDb, workspace.clerkOrgId, workspace.id, plan, currentSeats, 'invoice.paid');
 }
 
@@ -1841,7 +1841,7 @@ async function handlePriceDeleted(
 // agents subscriptions until they're wound down out-of-band — no-op instead
 // of touching the deleted tables.
 
-async function handleInvoiceUpcoming(
+function handleInvoiceUpcoming(
   _env: Env,
   _masterDb: ReturnType<typeof getMasterDb>,
   invoice: StripeInvoice,
@@ -1975,9 +1975,10 @@ async function handleDomainRegistrationCheckout(
   // need a human look — a live registration can still complete after the
   // webhook errors, and a refund then cannot be clawed back.
   if (counts.failed > 0 || counts.lostToDelete > 0) {
+    const paymentNote = paymentIntentId ? ` payment ${paymentIntentId}` : '';
     console.error(
       `[Domain Registration] ${counts.failed} failed, ${counts.lostToDelete} lost to delete, ${counts.registered} registered for session ${sessionId}` +
-        `${paymentIntentId ? ` payment ${paymentIntentId}` : ''} — payment not refunded, manual review required`,
+        `${paymentNote} — payment not refunded, manual review required`,
     );
   }
 }
@@ -2500,7 +2501,7 @@ async function handleDomainCheckoutFailed(
         ),
       );
 
-    console.log(`[Domain Registration] Soft-deleted ${registrationIds.length} pending rows for session ${session.id} (${reason})`);
+    console.log(`[Domain Registration] Soft-deleted ${registrationIds.length} pending rows for session ${logSafe(session.id)} (${logSafe(reason)})`);
   } catch (err) {
     console.error('[Domain Registration] handleDomainCheckoutFailed failed:', err);
   }

@@ -73,6 +73,7 @@ export async function renderPortalInvoiceHtml(
       contactVatNumber,
       complianceNotices,
       billingAddress: invoice.billingAddress,
+      shippingAddress: invoice.shippingAddress,
       reference: invoice.reference,
       notes: invoice.notes,
       items: items.map((i) => ({

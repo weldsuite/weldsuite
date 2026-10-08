@@ -156,10 +156,17 @@ function buildRequestTarget(
 async function retryWithResolvedName(
   tool: ToolDefinition,
   args: Record<string, unknown>,
-  placeholder: string,
-  field: string,
-  url: URL,
-  send: (target: URL) => Promise<Response>,
+  {
+    placeholder,
+    field,
+    url,
+    send,
+  }: {
+    placeholder: string;
+    field: string;
+    url: URL;
+    send: (target: URL) => Response | Promise<Response>;
+  },
   session: McpSession,
   env: Env,
   executionCtx: ExecutionContext,
@@ -263,7 +270,7 @@ export async function executeTool(
 
   const { url, body } = buildRequestTarget(tool, path, rest);
 
-  const send = async (target: URL): Promise<Response> =>
+  const send = (target: URL): Response | Promise<Response> =>
     apiApp.fetch(
       new Request(target.toString(), {
         method: tool.method,
@@ -287,10 +294,7 @@ export async function executeTool(
       const retried = await retryWithResolvedName(
         tool,
         args,
-        placeholder,
-        field,
-        url,
-        send,
+        { placeholder, field, url, send },
         session,
         env,
         executionCtx,

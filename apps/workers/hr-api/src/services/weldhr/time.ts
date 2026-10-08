@@ -289,11 +289,16 @@ export async function createAttendance(
   return row!;
 }
 
+function nextClockTime(value: string | null | undefined, current: Date | null): Date | null {
+  if (value === undefined) return current;
+  return value ? new Date(value) : null;
+}
+
 export async function updateAttendance(db: Database, id: string, input: AttendanceWrite) {
   const existing = await requireAttendance(db, id);
   const date = input.date ?? existing.date;
-  const clockIn = input.clockIn !== undefined ? (input.clockIn ? new Date(input.clockIn) : null) : existing.clockIn;
-  const clockOut = input.clockOut !== undefined ? (input.clockOut ? new Date(input.clockOut) : null) : existing.clockOut;
+  const clockIn = nextClockTime(input.clockIn, existing.clockIn);
+  const clockOut = nextClockTime(input.clockOut, existing.clockOut);
   const breakMinutes = input.breakMinutes ?? existing.breakMinutes;
   const timesChanged = input.clockIn !== undefined || input.clockOut !== undefined || input.date !== undefined;
   const derived = await derive(
@@ -331,14 +336,19 @@ export async function deleteAttendance(db: Database, id: string) {
   await db.delete(att).where(eq(att.id, id));
 }
 
-export async function approveAttendance(db: Database, ids: string[], approvedBy: string) {
-  if (ids.length === 0) return [];
+export function approveAttendance(
+  db: Database,
+  ids: string[],
+  approvedBy: string,
+): Promise<{ id: string; employeeId: string }[]> {
+  if (ids.length === 0) return Promise.resolve([]);
   const now = new Date();
   return db
     .update(att)
     .set({ approvedAt: now, approvedBy, updatedAt: now })
     .where(and(inArray(att.id, ids), isNull(att.approvedAt)))
-    .returning({ id: att.id, employeeId: att.employeeId });
+    .returning({ id: att.id, employeeId: att.employeeId })
+    .execute();
 }
 
 /** Resolve import/portal employee references: email (case-insensitive) or employee number. */
@@ -412,8 +422,18 @@ export async function importAttendance(
   return result;
 }
 
-/** Portal clock in/out. One open record per day; clocking in twice is a conflict. */
-export async function clock(db: Database, employeeId: string, action: 'in' | 'out', now: Date = new Date()) {
+/**
+ * Self-service clock in/out (workforce portal and My HR). One open record per
+ * day; clocking in twice is a conflict. `createdBy` defaults to the portal
+ * principal; My HR passes the member's user id.
+ */
+export async function clock(
+  db: Database,
+  employeeId: string,
+  action: 'in' | 'out',
+  now: Date = new Date(),
+  createdBy: string = `portal:${employeeId}`,
+) {
   const today = todayIso(now);
   const [open] = await db
     .select()
@@ -427,7 +447,7 @@ export async function clock(db: Database, employeeId: string, action: 'in' | 'ou
     return createAttendance(
       db,
       { employeeId, date: today, clockIn: now.toISOString() },
-      { createdBy: `portal:${employeeId}`, source: 'portal' },
+      { createdBy, source: 'portal' },
     );
   }
   if (!open) throw new HrConflictError('You are not clocked in');

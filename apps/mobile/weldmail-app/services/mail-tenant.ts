@@ -337,7 +337,9 @@ export async function getMessage(id: string): Promise<EmailListItem> {
   try {
     const { data } = await appApi.mailMessages.get(id);
     return data as EmailListItem;
-  } catch (err) {
+  } catch {
+    // Not in the workspace mailbox: the id may belong to a personal mailbox,
+    // so try there; a real miss surfaces as that call's error.
     const { data } = await personalApi.mailMessages.get(id);
     return normalizePersonalMessage(data);
   }
@@ -380,7 +382,7 @@ export async function listLabelsForAccount(account: TenantMailAccount) {
   return data;
 }
 
-export async function sendFromAccount(account: TenantMailAccount, payload: SendMailMessageInput) {
+export function sendFromAccount(account: TenantMailAccount, payload: SendMailMessageInput) {
   if (isPersonalAccount(account) || isPersonalAccountId(account.id)) {
     return personalApi.mailMessages.send({
       accountId: account.id,
@@ -397,7 +399,7 @@ export async function sendFromAccount(account: TenantMailAccount, payload: SendM
   return appApi.mailAccounts.send(account.id, payload);
 }
 
-export async function createDraft(opts: {
+export function createDraft(opts: {
   accountId: string;
   tenantKind?: TenantKind;
   to?: string[];

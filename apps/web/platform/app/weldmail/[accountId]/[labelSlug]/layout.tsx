@@ -16,6 +16,7 @@ import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list'
 import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { useQueryClient } from '@tanstack/react-query';
+import { stripTags } from '@/lib/utils';
 
 const PAGE_SIZE = 25;
 
@@ -104,7 +105,7 @@ export default function LabelLayout({
             latestSender: 'Me',
             latestSenderEmail: '',
             latestDate: new Date(d.updatedAt || d.createdAt),
-            preview: d.body?.replace(/<[^>]*>/g, '').slice(0, 200) ?? '',
+            preview: stripTags(d.body ?? '').slice(0, 200),
             messageCount: 1,
             unreadCount: 0,
             hasAttachments: d.hasAttachments ?? false,

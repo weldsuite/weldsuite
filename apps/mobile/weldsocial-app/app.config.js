@@ -69,9 +69,11 @@ const withEasProject = (config) => {
   };
 };
 
-module.exports = ({ config }) => {
+const appConfig = ({ config }) => {
   config = withAndroidPackagingExcludes(config);
   config = withEasProject(config);
 
   return config;
 };
+
+module.exports = appConfig;

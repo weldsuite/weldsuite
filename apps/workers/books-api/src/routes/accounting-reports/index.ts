@@ -15,7 +15,8 @@
  */
 
 import { Hono } from 'hono';
-import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { BOOKED_STATUSES } from '../../services/accounting-posting';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
@@ -57,7 +58,7 @@ app.get('/profit-loss', requirePermission('reports:read'), async (c) => {
         and(
           eq(journalLines.entityId, entityId),
           isNull(journalLines.deletedAt),
-          eq(journalEntries.status, 'posted'),
+          inArray(journalEntries.status, BOOKED_STATUSES),
           gte(journalEntries.date, new Date(from)),
           lte(journalEntries.date, new Date(to)),
           sql`${accounts.type} in ('revenue', 'expense')`,
@@ -137,7 +138,7 @@ app.get('/balance-sheet', requirePermission('reports:read'), async (c) => {
         and(
           eq(journalLines.entityId, entityId),
           isNull(journalLines.deletedAt),
-          eq(journalEntries.status, 'posted'),
+          inArray(journalEntries.status, BOOKED_STATUSES),
           lte(journalEntries.date, new Date(asOf)),
           sql`${accounts.type} in ('asset', 'liability', 'equity')`,
         ),
@@ -221,7 +222,7 @@ app.get('/trial-balance', requirePermission('reports:read'), async (c) => {
         and(
           eq(journalLines.entityId, entityId),
           isNull(journalLines.deletedAt),
-          eq(journalEntries.status, 'posted'),
+          inArray(journalEntries.status, BOOKED_STATUSES),
           gte(journalEntries.date, new Date(from)),
           lte(journalEntries.date, new Date(to)),
         ),
@@ -420,7 +421,7 @@ app.get('/vat-summary', requirePermission('reports:read'), async (c) => {
         and(
           eq(journalLines.entityId, entityId),
           isNull(journalLines.deletedAt),
-          eq(journalEntries.status, 'posted'),
+          inArray(journalEntries.status, BOOKED_STATUSES),
           gte(journalEntries.date, new Date(from)),
           lte(journalEntries.date, new Date(to)),
           sql`${journalLines.taxRateId} is not null`,
@@ -483,7 +484,7 @@ app.get('/general-ledger', requirePermission('reports:read'), async (c) => {
         and(
           eq(journalLines.entityId, entityId),
           isNull(journalLines.deletedAt),
-          eq(journalEntries.status, 'posted'),
+          inArray(journalEntries.status, BOOKED_STATUSES),
           eq(journalLines.accountId, accountId),
           gte(journalEntries.date, new Date(from)),
           lte(journalEntries.date, new Date(to)),
@@ -512,7 +513,7 @@ app.get('/general-ledger', requirePermission('reports:read'), async (c) => {
         and(
           eq(journalLines.entityId, entityId),
           isNull(journalLines.deletedAt),
-          eq(journalEntries.status, 'posted'),
+          inArray(journalEntries.status, BOOKED_STATUSES),
           eq(journalLines.accountId, accountId),
           gte(journalEntries.date, new Date(from)),
           lte(journalEntries.date, new Date(to)),
@@ -619,7 +620,7 @@ app.get('/revenue-by-customer', requirePermission('reports:read'), async (c) => 
         and(
           eq(journalLines.entityId, entityId),
           isNull(journalLines.deletedAt),
-          eq(journalEntries.status, 'posted'),
+          inArray(journalEntries.status, BOOKED_STATUSES),
           eq(accounts.type, 'revenue'),
           gte(journalEntries.date, new Date(from)),
           lte(journalEntries.date, new Date(to)),
@@ -676,7 +677,7 @@ app.get('/expense-by-category', requirePermission('reports:read'), async (c) => 
         and(
           eq(journalLines.entityId, entityId),
           isNull(journalLines.deletedAt),
-          eq(journalEntries.status, 'posted'),
+          inArray(journalEntries.status, BOOKED_STATUSES),
           eq(accounts.type, 'expense'),
           gte(journalEntries.date, new Date(from)),
           lte(journalEntries.date, new Date(to)),

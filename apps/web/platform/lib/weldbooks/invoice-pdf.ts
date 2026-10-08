@@ -5,23 +5,30 @@
  * No user-facing designer — the layout is code and changes ship as code.
  * Runs in-browser (Vite SPA) today; the pure-function signature means it can
  * move to a Worker unchanged if/when we need server-side generation.
+ *
+ * Paper is US Letter for US (and Canadian) entities and A4 everywhere else.
+ * Every label comes from the caller (translated, with the jurisdiction's
+ * terminology), so nothing here is hard-coded English.
  */
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from 'pdf-lib';
 import type { InvoiceDetail } from '@/lib/api/domains/weldbooks';
+import { formatPostalAddressLines, type PostalAddress } from '@/components/address/postal-address';
+import { normalizeAccountingAddress, type StoredAccountingAddress } from './address';
 
 export interface InvoicePdfEntity {
   name: string;
   legalName?: string | null;
-  taxIdentifiers?: { vatNumber?: string; registrationNumber?: string } | null;
-  address?: {
-    street?: string;
-    houseNumber?: string;
-    postalCode?: string;
-    city?: string;
-    country?: string;
-  } | null;
+  jurisdictionCode?: string | null;
+  taxIdentifiers?: { vatNumber?: string; registrationNumber?: string; einOrSsn?: string } | null;
+  address?: StoredAccountingAddress | null;
   contact?: { email?: string; phone?: string; website?: string } | null;
-  bankDetails?: { iban?: string; bic?: string; bankName?: string } | null;
+  bankDetails?: {
+    iban?: string;
+    bic?: string;
+    bankName?: string;
+    accountNumber?: string;
+    routingNumber?: string;
+  } | null;
   branding?: {
     logoUrl?: string;
     primaryColor?: string;
@@ -34,24 +41,87 @@ export interface InvoicePdfEntity {
   locale?: string | null;
 }
 
-// A4 in points (1 mm ≈ 2.8346 pt).
-const PAGE_WIDTH = 595.28;
-const PAGE_HEIGHT = 841.89;
+/** Translated labels. `continued` and `page` use `{number}` / `{page}` + `{total}` placeholders. */
+export interface InvoicePdfLabels {
+  invoice: string;
+  from: string;
+  billTo: string;
+  shipTo: string;
+  issueDate: string;
+  dueDate: string;
+  reference: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  /** Column header and totals label for tax: "VAT", "GST", "Sales tax". */
+  tax: string;
+  amount: string;
+  subtotal: string;
+  total: string;
+  paid: string;
+  balanceDue: string;
+  continued: string;
+  page: string;
+  bank: string;
+  iban: string;
+  bic: string;
+  accountNumber: string;
+  routingNumber: string;
+  /** Label of the entity's tax ID: "VAT number", "GSTIN", "EIN". */
+  taxId: string;
+  /** Label of the entity's registration number: "KvK number", "PAN", … */
+  registrationId: string;
+}
+
+export interface InvoicePdfOptions {
+  labels: InvoicePdfLabels;
+  /** Formats `YYYY-MM-DD` / ISO values; defaults to the entity locale's long date. */
+  formatDate?: (value: string | null | undefined) => string;
+  /** Country name for an ISO-2 code; defaults to the code. */
+  countryName?: (code: string) => string;
+  /** Overrides the paper size picked from the entity's jurisdiction. */
+  paperSize?: 'a4' | 'letter';
+}
+
+type InvoiceCustomer = {
+  name?: string | null;
+  email?: string | null;
+  address?: StoredAccountingAddress | null;
+} | null;
+
+interface PageSize {
+  width: number;
+  height: number;
+}
+
+const A4: PageSize = { width: 595.28, height: 841.89 };
+const LETTER: PageSize = { width: 612, height: 792 };
+
 const MARGIN_X = 48;
 const MARGIN_TOP = 56;
 const MARGIN_BOTTOM = 64;
-
-// Fixed column layout for the line-items table — relative to margins. Total
-// width fills PAGE_WIDTH - 2*MARGIN_X (~499pt).
-const COL = {
-  description: { x: 0, width: 250 },
-  qty: { x: 260, width: 40, align: 'right' as const },
-  unitPrice: { x: 310, width: 80, align: 'right' as const },
-  tax: { x: 395, width: 40, align: 'right' as const },
-  total: { x: 445, width: 54, align: 'right' as const },
-};
 const ROW_HEIGHT = 18;
 const TABLE_HEADER_HEIGHT = 22;
+
+/** Paper size for an entity: Letter in the US and Canada, A4 elsewhere. */
+export function invoicePaperSize(entity: Pick<InvoicePdfEntity, 'jurisdictionCode' | 'address'>): 'a4' | 'letter' {
+  const code = entity.jurisdictionCode?.toUpperCase();
+  if (code === 'US' || code === 'CA') return 'letter';
+  if (code) return 'a4';
+  const country = normalizeAccountingAddress(entity.address)?.country;
+  return country === 'US' || country === 'CA' ? 'letter' : 'a4';
+}
+
+/** Line-item columns, right-aligned against the table's right edge. */
+function columns(tableWidth: number) {
+  return {
+    description: { x: 0, width: tableWidth - 249 },
+    qty: { x: tableWidth - 239, width: 40 },
+    unitPrice: { x: tableWidth - 189, width: 80 },
+    tax: { x: tableWidth - 104, width: 40 },
+    total: { x: tableWidth - 54, width: 54 },
+  };
+}
 
 function hexToRgb(hex: string | null | undefined, fallback: RGB = rgb(0.1, 0.1, 0.12)): RGB {
   if (!hex) return fallback;
@@ -64,26 +134,42 @@ function hexToRgb(hex: string | null | undefined, fallback: RGB = rgb(0.1, 0.1, 
   return rgb(r, g, b);
 }
 
-function formatCurrency(value: string | null | undefined, currency: string, locale: string): string {
+/** Narrow / thin spaces some locales put in amounts; the PDF fonts can't draw them. */
+const NARROW_SPACES = new RegExp('[' + String.fromCharCode(0x202f, 0x2009) + ']', 'g');
+
+/** Characters the standard (WinAnsi) PDF fonts can draw. */
+const WIN_ANSI = /^[\x20-\x7E\xA0-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]*$/;
+
+function formatCurrency(value: string | number | null | undefined, currency: string | null, locale: string | undefined): string {
   const n = Number(value ?? 0);
+  const amount = Number.isFinite(n) ? n : 0;
+  if (!currency) {
+    return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+  }
   try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(n);
+    const withSymbol = new Intl.NumberFormat(locale, { style: 'currency', currency })
+      .format(amount)
+      .replace(NARROW_SPACES, ' ');
+    if (WIN_ANSI.test(withSymbol)) return withSymbol;
+    // ₹ and other symbols the PDF font can't draw: use the ISO code instead.
+    return new Intl.NumberFormat(locale, { style: 'currency', currency, currencyDisplay: 'code' })
+      .format(amount)
+      .replace(NARROW_SPACES, ' ');
   } catch {
-    return n.toFixed(2) + ' ' + currency;
+    return `${amount.toFixed(2)} ${currency}`;
   }
 }
 
-function formatDate(value: string | null | undefined, locale: string): string {
-  if (!value) return '-';
-  try {
-    return new Date(value).toLocaleDateString(locale, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  } catch {
-    return value;
-  }
+function defaultFormatDate(locale: string | undefined) {
+  return (value: string | null | undefined) => {
+    if (!value) return '-';
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+    const date = match
+      ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+      : new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString(locale, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+  };
 }
 
 async function fetchLogo(url: string | undefined, pdf: PDFDocument) {
@@ -104,6 +190,7 @@ async function fetchLogo(url: string | undefined, pdf: PDFDocument) {
 
 interface DrawContext {
   page: PDFPage;
+  size: PageSize;
   font: PDFFont;
   fontBold: PDFFont;
   accent: RGB;
@@ -111,15 +198,39 @@ interface DrawContext {
   text: RGB;
 }
 
+/** Drop characters the font can't encode instead of failing the whole PDF. */
+function encodable(font: PDFFont, value: string): string {
+  try {
+    font.widthOfTextAtSize(value, 9);
+    return value;
+  } catch {
+    return Array.from(value)
+      .map((ch) => {
+        try {
+          font.widthOfTextAtSize(ch, 9);
+          return ch;
+        } catch {
+          return '?';
+        }
+      })
+      .join('');
+  }
+}
+
 function drawText(
   ctx: DrawContext,
-  value: string,
+  raw: string,
   x: number,
   y: number,
   opts: { size?: number; bold?: boolean; color?: RGB; align?: 'left' | 'right'; width?: number } = {},
 ) {
-  const size = opts.size ?? 9;
   const font = opts.bold ? ctx.fontBold : ctx.font;
+  const value = encodable(font, raw);
+  let size = opts.size ?? 9;
+  // Shrink a header that doesn't fit its column (e.g. "SALES TAX").
+  if (opts.width !== undefined) {
+    while (size > 6 && font.widthOfTextAtSize(value, size) > opts.width) size -= 0.5;
+  }
   const color = opts.color ?? ctx.text;
   let drawX = x;
   if (opts.align === 'right' && opts.width !== undefined) {
@@ -135,7 +246,8 @@ function drawText(
  */
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   if (!text) return [''];
-  const words = text.split(/\s+/);
+  const safe = encodable(font, text);
+  const words = safe.split(/\s+/);
   const lines: string[] = [];
   let current = '';
   for (const word of words) {
@@ -151,11 +263,20 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): 
   return lines.length > 0 ? lines : [''];
 }
 
-type InvoiceCustomer = {
-  name?: string | null;
-  email?: string | null;
-  address?: InvoicePdfEntity['address'];
-} | null;
+function fill(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
+    values[key] !== undefined ? String(values[key]) : match,
+  );
+}
+
+/**
+ * `einOrSsn` printed only when it is written as an EIN (NN-NNNNNNN). Nine
+ * bare digits could be an SSN, which must never appear on an invoice.
+ */
+function printableEin(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return /^\d{2}-\d{7}$/.test(trimmed) ? trimmed : null;
+}
 
 /** Logo (or entity name) on the left, "INVOICE" + number on the right. */
 function drawHeader(
@@ -163,8 +284,10 @@ function drawHeader(
   invoice: InvoiceDetail,
   entity: InvoicePdfEntity,
   logo: PDFImage | null,
+  labels: InvoicePdfLabels,
   y: number,
 ) {
+  const contentWidth = ctx.size.width - 2 * MARGIN_X;
   if (logo) {
     const maxLogoH = 48;
     const scale = Math.min(maxLogoH / logo.height, 160 / logo.width);
@@ -175,22 +298,31 @@ function drawHeader(
     drawText(ctx, entity.name, MARGIN_X, y - 14, { size: 16, bold: true });
   }
 
-  // "INVOICE" + number on the right
-  drawText(ctx, 'INVOICE', MARGIN_X, y - 12, {
+  drawText(ctx, labels.invoice, MARGIN_X, y - 12, {
     size: 22,
     bold: true,
     color: ctx.accent,
     align: 'right',
-    width: PAGE_WIDTH - 2 * MARGIN_X,
+    width: contentWidth,
   });
   if (invoice.invoiceNumber) {
     drawText(ctx, invoice.invoiceNumber, MARGIN_X, y - 34, {
       size: 10,
       color: ctx.muted,
       align: 'right',
-      width: PAGE_WIDTH - 2 * MARGIN_X,
+      width: contentWidth,
     });
   }
+}
+
+interface RenderHelpers {
+  labels: InvoicePdfLabels;
+  formatDate: (value: string | null | undefined) => string;
+  countryName?: (code: string) => string;
+}
+
+function addressLines(address: PostalAddress | null, helpers: RenderHelpers): string[] {
+  return formatPostalAddressLines(address, { countryName: helpers.countryName });
 }
 
 /** Company address block (left) + issue/due/reference dates (right). Returns the next y. */
@@ -198,20 +330,23 @@ function drawFromAndMeta(
   ctx: DrawContext,
   invoice: InvoiceDetail,
   entity: InvoicePdfEntity,
-  locale: string,
+  helpers: RenderHelpers,
   y: number,
 ): number {
+  const { labels } = helpers;
   const muted = ctx.muted;
+  const ids = entity.taxIdentifiers;
+  const taxId = ids?.vatNumber || printableEin(ids?.einOrSsn);
   const fromLines = [
     entity.legalName || entity.name,
-    [entity.address?.street, entity.address?.houseNumber].filter(Boolean).join(' '),
-    [entity.address?.postalCode, entity.address?.city].filter(Boolean).join(' '),
-    entity.address?.country,
+    ...addressLines(normalizeAccountingAddress(entity.address), helpers),
     entity.contact?.email,
-    entity.taxIdentifiers?.vatNumber ? 'VAT: ' + entity.taxIdentifiers.vatNumber : '',
+    entity.contact?.phone,
+    taxId ? `${labels.taxId}: ${taxId}` : '',
+    ids?.registrationNumber ? `${labels.registrationId}: ${ids.registrationNumber}` : '',
   ].filter(Boolean) as string[];
 
-  drawText(ctx, 'FROM', MARGIN_X, y, { size: 8, bold: true, color: muted });
+  drawText(ctx, labels.from, MARGIN_X, y, { size: 8, bold: true, color: muted });
   let fromY = y - 14;
   for (const line of fromLines) {
     drawText(ctx, line, MARGIN_X, fromY, { size: 9 });
@@ -219,60 +354,56 @@ function drawFromAndMeta(
   }
 
   // Right column: dates
-  const metaX = PAGE_WIDTH - MARGIN_X - 180;
-  const metaW = 180;
-  drawText(ctx, 'ISSUE DATE', metaX, y, { size: 8, bold: true, color: muted });
-  drawText(ctx, formatDate(invoice.issueDate, locale), metaX, y, {
-    size: 9,
-    align: 'right',
-    width: metaW,
-  });
-  drawText(ctx, 'DUE DATE', metaX, y - 16, { size: 8, bold: true, color: muted });
-  drawText(ctx, formatDate(invoice.dueDate, locale), metaX, y - 16, {
-    size: 9,
-    align: 'right',
-    width: metaW,
-  });
+  const metaW = 200;
+  const metaX = ctx.size.width - MARGIN_X - metaW;
+  drawText(ctx, labels.issueDate, metaX, y, { size: 8, bold: true, color: muted });
+  drawText(ctx, helpers.formatDate(invoice.issueDate), metaX, y, { size: 9, align: 'right', width: metaW });
+  drawText(ctx, labels.dueDate, metaX, y - 16, { size: 8, bold: true, color: muted });
+  drawText(ctx, helpers.formatDate(invoice.dueDate), metaX, y - 16, { size: 9, align: 'right', width: metaW });
   if (invoice.reference) {
-    drawText(ctx, 'REFERENCE', metaX, y - 32, { size: 8, bold: true, color: muted });
-    drawText(ctx, invoice.reference, metaX, y - 32, {
-      size: 9,
-      align: 'right',
-      width: metaW,
-    });
+    drawText(ctx, labels.reference, metaX, y - 32, { size: 8, bold: true, color: muted });
+    drawText(ctx, invoice.reference, metaX, y - 32, { size: 9, align: 'right', width: metaW });
   }
 
   return Math.min(fromY, y - 48) - 12;
 }
 
-/** "BILL TO" block. Returns the next y. */
+/** "BILL TO" (and "SHIP TO" when the invoice ships elsewhere) blocks. Returns the next y. */
 function drawBillTo(
   ctx: DrawContext,
   invoice: InvoiceDetail,
   customer: InvoiceCustomer | undefined,
+  helpers: RenderHelpers,
   startY: number,
 ): number {
-  let y = startY;
-  drawText(ctx, 'BILL TO', MARGIN_X, y, { size: 8, bold: true, color: ctx.muted });
-  y -= 14;
-  const billLines = [
-    customer?.name ?? invoice.contactName ?? '',
-    customer?.email ?? invoice.contactEmail ?? '',
-    [customer?.address?.street, customer?.address?.houseNumber].filter(Boolean).join(' '),
-    [customer?.address?.postalCode, customer?.address?.city].filter(Boolean).join(' '),
-    customer?.address?.country,
-  ].filter(Boolean) as string[];
-  for (const line of billLines) {
-    drawText(ctx, line, MARGIN_X, y, { size: 9 });
-    y -= 12;
-  }
-  return y;
+  const { labels } = helpers;
+  const billing = normalizeAccountingAddress(invoice.billingAddress) ?? normalizeAccountingAddress(customer?.address);
+  const shipping = normalizeAccountingAddress(invoice.shippingAddress);
+  const name = customer?.name ?? invoice.contactName ?? '';
+  const email = customer?.email ?? invoice.contactEmail ?? '';
+
+  const drawBlock = (title: string, lines: string[], x: number) => {
+    let y = startY;
+    drawText(ctx, title, x, y, { size: 8, bold: true, color: ctx.muted });
+    y -= 14;
+    for (const line of lines) {
+      drawText(ctx, line, x, y, { size: 9 });
+      y -= 12;
+    }
+    return y;
+  };
+
+  const billY = drawBlock(labels.billTo, [name, email, ...addressLines(billing, helpers)].filter(Boolean), MARGIN_X);
+  if (!shipping) return billY;
+  const shipX = MARGIN_X + (ctx.size.width - 2 * MARGIN_X) / 2;
+  const shipY = drawBlock(labels.shipTo, [name, ...addressLines(shipping, helpers)].filter(Boolean), shipX);
+  return Math.min(billY, shipY);
 }
 
 /** Accent bar + column headings of the line-items table. */
-function drawTableHeader(ctx: DrawContext, tableX: number, tableWidth: number, y: number) {
+function drawTableHeader(ctx: DrawContext, labels: InvoicePdfLabels, tableX: number, tableWidth: number, y: number) {
+  const col = columns(tableWidth);
   const headerOpts = { size: 8, bold: true, color: ctx.muted };
-  // Accent bar under header row
   ctx.page.drawRectangle({
     x: tableX,
     y: y - 4,
@@ -280,15 +411,15 @@ function drawTableHeader(ctx: DrawContext, tableX: number, tableWidth: number, y
     height: 1,
     color: ctx.accent,
   });
-  drawText(ctx, 'DESCRIPTION', tableX + COL.description.x, y, headerOpts);
+  drawText(ctx, labels.description.toUpperCase(), tableX + col.description.x, y, headerOpts);
   const rightAligned: Array<[string, { x: number; width: number }]> = [
-    ['QTY', COL.qty],
-    ['UNIT PRICE', COL.unitPrice],
-    ['TAX', COL.tax],
-    ['AMOUNT', COL.total],
+    [labels.quantity, col.qty],
+    [labels.unitPrice, col.unitPrice],
+    [labels.tax.toUpperCase(), col.tax],
+    [labels.amount, col.total],
   ];
-  for (const [label, col] of rightAligned) {
-    drawText(ctx, label, tableX + col.x, y, { ...headerOpts, align: 'right', width: col.width });
+  for (const [label, c] of rightAligned) {
+    drawText(ctx, label.toUpperCase(), tableX + c.x, y, { ...headerOpts, align: 'right', width: c.width });
   }
 }
 
@@ -297,25 +428,35 @@ function drawLineItems(
   pdf: PDFDocument,
   ctx: DrawContext,
   invoice: InvoiceDetail,
-  currency: string,
-  locale: string,
-  tableX: number,
-  tableWidth: number,
-  startY: number,
+  {
+    labels,
+    currency,
+    locale,
+    tableX,
+    tableWidth,
+    startY,
+  }: {
+    labels: InvoicePdfLabels;
+    currency: string | null;
+    locale: string | undefined;
+    tableX: number;
+    tableWidth: number;
+    startY: number;
+  },
 ): number {
+  const col = columns(tableWidth);
   let y = startY;
   const totalsReservedHeight = 120; // approx space for totals + footer
   for (const item of invoice.items ?? []) {
-    const descLines = wrapText(item.description, ctx.font, 9, COL.description.width);
+    const descLines = wrapText(item.description, ctx.font, 9, col.description.width);
     const rowLines = Math.max(1, descLines.length);
     const rowH = rowLines * ROW_HEIGHT;
 
     // Page break if we'd overlap totals band.
     if (y - rowH < MARGIN_BOTTOM + totalsReservedHeight) {
-      ctx.page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-      y = PAGE_HEIGHT - MARGIN_TOP;
-      // Re-draw compact header on continuation pages
-      drawText(ctx, (invoice.invoiceNumber ?? 'Invoice') + ' (continued)', MARGIN_X, y, {
+      ctx.page = pdf.addPage([ctx.size.width, ctx.size.height]);
+      y = ctx.size.height - MARGIN_TOP;
+      drawText(ctx, fill(labels.continued, { number: invoice.invoiceNumber ?? labels.invoice }), MARGIN_X, y, {
         size: 10,
         bold: true,
       });
@@ -324,32 +465,27 @@ function drawLineItems(
 
     let lineY = y;
     for (const line of descLines) {
-      drawText(ctx, line, tableX + COL.description.x, lineY, { size: 9 });
+      drawText(ctx, line, tableX + col.description.x, lineY, { size: 9 });
       lineY -= ROW_HEIGHT;
     }
-    drawText(ctx, item.quantity ?? '1', tableX + COL.qty.x, y, {
+    drawText(ctx, item.quantity ?? '1', tableX + col.qty.x, y, { size: 9, align: 'right', width: col.qty.width });
+    drawText(ctx, formatCurrency(item.unitPrice, currency, locale), tableX + col.unitPrice.x, y, {
       size: 9,
       align: 'right',
-      width: COL.qty.width,
+      width: col.unitPrice.width,
     });
-    drawText(ctx, formatCurrency(item.unitPrice, currency, locale), tableX + COL.unitPrice.x, y, {
+    drawText(ctx, item.taxRate ? Number(item.taxRate) + '%' : '-', tableX + col.tax.x, y, {
       size: 9,
       align: 'right',
-      width: COL.unitPrice.width,
+      width: col.tax.width,
     });
-    drawText(ctx, item.taxRate ? Number(item.taxRate) + '%' : '-', tableX + COL.tax.x, y, {
+    drawText(ctx, formatCurrency(item.lineTotal, currency, locale), tableX + col.total.x, y, {
       size: 9,
       align: 'right',
-      width: COL.tax.width,
-    });
-    drawText(ctx, formatCurrency(item.lineTotal, currency, locale), tableX + COL.total.x, y, {
-      size: 9,
-      align: 'right',
-      width: COL.total.width,
+      width: col.total.width,
     });
 
     y -= rowH;
-    // Row separator
     ctx.page.drawRectangle({
       x: tableX,
       y: y + 4,
@@ -365,13 +501,14 @@ function drawLineItems(
 function drawTotals(
   ctx: DrawContext,
   invoice: InvoiceDetail,
-  currency: string,
-  locale: string,
+  labels: InvoicePdfLabels,
+  currency: string | null,
+  locale: string | undefined,
   startY: number,
 ) {
   let y = startY - 20;
-  const totalsX = PAGE_WIDTH - MARGIN_X - 200;
   const totalsW = 200;
+  const totalsX = ctx.size.width - MARGIN_X - totalsW;
 
   const totalsRow = (label: string, value: string, bold = false, color?: RGB) => {
     drawText(ctx, label, totalsX, y, { size: 9, bold, color: color ?? ctx.muted });
@@ -379,32 +516,52 @@ function drawTotals(
     y -= 16;
   };
 
-  totalsRow('Subtotal', formatCurrency(invoice.subtotal, currency, locale));
-  totalsRow('Tax', formatCurrency(invoice.taxTotal, currency, locale));
+  totalsRow(labels.subtotal, formatCurrency(invoice.subtotal, currency, locale));
+  if (invoice.taxBreakdown && invoice.taxBreakdown.length > 0) {
+    for (const row of invoice.taxBreakdown) {
+      totalsRow(row.taxRateName || labels.tax, formatCurrency(row.taxAmount, currency, locale));
+    }
+  } else {
+    totalsRow(labels.tax, formatCurrency(invoice.taxTotal, currency, locale));
+  }
   y -= 4;
-  // Accent line above grand total
   ctx.page.drawRectangle({ x: totalsX, y: y + 4, width: totalsW, height: 1, color: ctx.accent });
   y -= 4;
-  totalsRow('Total', formatCurrency(invoice.total, currency, locale), true, ctx.text);
+  totalsRow(labels.total, formatCurrency(invoice.total, currency, locale), true, ctx.text);
   if (invoice.amountPaid && Number(invoice.amountPaid) > 0) {
-    totalsRow('Paid', '-' + formatCurrency(invoice.amountPaid, currency, locale));
-    totalsRow('Balance Due', formatCurrency(invoice.balanceDue, currency, locale), true, ctx.accent);
+    totalsRow(labels.paid, '-' + formatCurrency(invoice.amountPaid, currency, locale));
+    totalsRow(labels.balanceDue, formatCurrency(invoice.balanceDue, currency, locale), true, ctx.accent);
   }
 }
 
-/** Footer (payment instructions + bank details + terms + footer text). */
-function drawFooter(ctx: DrawContext, entity: InvoicePdfEntity) {
+function bankLine(entity: InvoicePdfEntity, labels: InvoicePdfLabels): string | null {
   const bank = entity.bankDetails;
+  if (!bank) return null;
+  const parts: string[] = [];
+  if (bank.bankName) parts.push(`${labels.bank}: ${bank.bankName}`);
+  if (bank.iban) {
+    parts.push(`${labels.iban}: ${bank.iban}`);
+    if (bank.bic) parts.push(`${labels.bic}: ${bank.bic}`);
+  } else {
+    if (bank.routingNumber) parts.push(`${labels.routingNumber}: ${bank.routingNumber}`);
+    if (bank.accountNumber) parts.push(`${labels.accountNumber}: ${bank.accountNumber}`);
+  }
+  const hasAccount = !!bank.iban || !!bank.accountNumber;
+  return hasAccount ? parts.join(' · ') : null;
+}
+
+/** Footer (payment instructions + bank details + terms + footer text). */
+function drawFooter(ctx: DrawContext, entity: InvoicePdfEntity, labels: InvoicePdfLabels) {
   const footerBlocks = [
     entity.branding?.paymentInstructions,
-    bank?.iban ? 'Bank: ' + (bank.bankName ?? '') + ' · IBAN: ' + bank.iban + (bank.bic ? ' · BIC: ' + bank.bic : '') : null,
+    bankLine(entity, labels),
     entity.branding?.termsAndConditions,
     entity.branding?.footerText,
   ].filter((b): b is string => !!b && b.trim().length > 0);
 
   let footerY = MARGIN_BOTTOM + footerBlocks.length * 24;
   for (const block of footerBlocks) {
-    const lines = wrapText(block, ctx.font, 8, PAGE_WIDTH - 2 * MARGIN_X);
+    const lines = wrapText(block, ctx.font, 8, ctx.size.width - 2 * MARGIN_X);
     for (const line of lines) {
       drawText(ctx, line, MARGIN_X, footerY, { size: 8, color: ctx.muted });
       footerY -= 11;
@@ -414,14 +571,14 @@ function drawFooter(ctx: DrawContext, entity: InvoicePdfEntity) {
 }
 
 /** Page numbers on every page, bottom-right. */
-function drawPageNumbers(pdf: PDFDocument, ctx: DrawContext) {
+function drawPageNumbers(pdf: PDFDocument, ctx: DrawContext, labels: InvoicePdfLabels) {
   const pages = pdf.getPages();
   const totalPages = pages.length;
   for (let i = 0; i < totalPages; i++) {
-    const label = 'Page ' + (i + 1) + ' of ' + totalPages;
+    const label = encodable(ctx.font, fill(labels.page, { page: i + 1, total: totalPages }));
     const w = ctx.font.widthOfTextAtSize(label, 8);
     pages[i].drawText(label, {
-      x: PAGE_WIDTH - MARGIN_X - w,
+      x: ctx.size.width - MARGIN_X - w,
       y: MARGIN_BOTTOM - 20,
       size: 8,
       font: ctx.font,
@@ -433,6 +590,7 @@ function drawPageNumbers(pdf: PDFDocument, ctx: DrawContext) {
 export async function generateInvoicePdf(
   invoice: InvoiceDetail,
   entity: InvoicePdfEntity,
+  options: InvoicePdfOptions,
   customer?: InvoiceCustomer,
 ): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
@@ -442,42 +600,40 @@ export async function generateInvoicePdf(
   const accent = hexToRgb(entity.branding?.accentColor ?? entity.branding?.primaryColor, rgb(0.23, 0.38, 0.87));
   const muted = rgb(0.45, 0.47, 0.52);
   const text = rgb(0.1, 0.1, 0.12);
-  const currency = invoice.currency ?? entity.baseCurrency ?? 'EUR';
-  const locale = entity.locale ?? 'en-US';
+  const currency = invoice.currency || entity.baseCurrency || null;
+  const locale = entity.locale || undefined;
+  const size = (options.paperSize ?? invoicePaperSize(entity)) === 'letter' ? LETTER : A4;
+  const helpers: RenderHelpers = {
+    labels: options.labels,
+    formatDate: options.formatDate ?? defaultFormatDate(locale),
+    countryName: options.countryName,
+  };
   const logo = await fetchLogo(entity.branding?.logoUrl, pdf);
 
-  const page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-  const ctx: DrawContext = { page, font, fontBold, accent, muted, text };
+  const page = pdf.addPage([size.width, size.height]);
+  const ctx: DrawContext = { page, size, font, fontBold, accent, muted, text };
 
-  // --- Header ---
-  let y = PAGE_HEIGHT - MARGIN_TOP;
-  drawHeader(ctx, invoice, entity, logo, y);
+  let y = size.height - MARGIN_TOP;
+  drawHeader(ctx, invoice, entity, logo, options.labels, y);
   y -= 72;
 
-  // --- Company + meta row ---
-  y = drawFromAndMeta(ctx, invoice, entity, locale, y);
+  y = drawFromAndMeta(ctx, invoice, entity, helpers, y);
 
-  // --- Bill To ---
-  y = drawBillTo(ctx, invoice, customer, y);
+  y = drawBillTo(ctx, invoice, customer, helpers, y);
   y -= 16;
 
-  // --- Line items header ---
   const tableX = MARGIN_X;
-  const tableWidth = PAGE_WIDTH - 2 * MARGIN_X;
-  drawTableHeader(ctx, tableX, tableWidth, y);
+  const tableWidth = size.width - 2 * MARGIN_X;
+  drawTableHeader(ctx, options.labels, tableX, tableWidth, y);
   y -= TABLE_HEADER_HEIGHT;
 
-  // --- Line items rows ---
-  y = drawLineItems(pdf, ctx, invoice, currency, locale, tableX, tableWidth, y);
+  y = drawLineItems(pdf, ctx, invoice, { labels: options.labels, currency, locale, tableX, tableWidth, startY: y });
 
-  // --- Totals (right-aligned) ---
-  drawTotals(ctx, invoice, currency, locale, y);
+  drawTotals(ctx, invoice, options.labels, currency, locale, y);
 
-  // --- Footer (payment instructions + terms + footer text) ---
-  drawFooter(ctx, entity);
+  drawFooter(ctx, entity, options.labels);
 
-  // --- Page numbers (on every page, bottom-right) ---
-  drawPageNumbers(pdf, ctx);
+  drawPageNumbers(pdf, ctx, options.labels);
 
   return await pdf.save();
 }
@@ -490,6 +646,6 @@ export function downloadPdf(bytes: Uint8Array, filename: string) {
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  a.remove();
   URL.revokeObjectURL(url);
 }

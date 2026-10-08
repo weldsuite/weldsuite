@@ -1,5 +1,5 @@
 
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback, type CSSProperties } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -18,7 +18,7 @@ import {
   Maximize,
   Contact,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, stripTags } from '@/lib/utils';
 import { NoteActionsMenu } from './note-actions-menu';
 import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 import {
@@ -38,6 +38,7 @@ import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfi
 import { BlockEditor, StaticFormattingToolbar, type BlockNoteEditorInstance } from '@/components/block-editor/block-editor';
 import type { Block } from '@blocknote/core';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { withQuery } from '@/lib/with-query';
 
 interface Note {
   id: string;
@@ -59,7 +60,7 @@ interface NotesViewProps {
 
 // Helper to strip HTML tags
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  return stripTags(html).trim();
 }
 
 // Helper to get note title from content
@@ -67,7 +68,7 @@ function getNoteTitle(content: string): string {
   if (!content) return 'Untitled';
 
   // Try to find first h1, h2, or h3 using regex
-  const headingMatch = content.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+  const headingMatch = /<h[1-3][^>]*>(.*?)<\/h[1-3]>/i.exec(content);
   if (headingMatch?.[1]) {
     const title = stripHtml(headingMatch[1]).trim();
     if (title) return title;
@@ -288,6 +289,16 @@ function NoteEditorDialog({
     onOpenChange(newOpen);
   };
 
+  let dialogPositionClass = "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]";
+  let dialogStyle: CSSProperties = { width: '890px', maxWidth: '90vw', height: '935px', maxHeight: '90vh', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' };
+  if (isMinimized) {
+    dialogPositionClass = "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0 rounded-xl";
+    dialogStyle = { width: '320px', height: '50px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' };
+  } else if (isPinned) {
+    dialogPositionClass = "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0";
+    dialogStyle = { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' };
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogPortal>
@@ -297,18 +308,9 @@ function NoteEditorDialog({
           className={cn(
             "bg-background fixed z-50 rounded-lg p-0 flex flex-col gap-0 transition-all duration-200",
             isTransitioningToPin ? "opacity-0 pointer-events-none" : "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-            isMinimized
-              ? "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0 rounded-xl"
-              : isPinned
-                ? "bottom-4 right-4 top-auto left-auto translate-x-0 translate-y-0"
-                : "top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%]"
+            dialogPositionClass
           )}
-          style={isMinimized
-            ? { width: '320px', height: '50px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' }
-            : isPinned
-              ? { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' }
-              : { width: '890px', maxWidth: '90vw', height: '935px', maxHeight: '90vh', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' }
-          }
+          style={dialogStyle}
         >
         {isMinimized ? (
           <div className="flex items-center h-full px-4">
@@ -401,10 +403,7 @@ function NoteEditorDialog({
               variant="ghost"
               size="icon"
               onClick={() => {
-                if (isMinimized) {
-                  setStartMinimized(false);
-                  handlePinToGlobal();
-                } else if (isPinned) {
+                if (isPinned && !isMinimized) {
                   setIsPinned(false);
                 } else {
                   setStartMinimized(false);
@@ -464,7 +463,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
       const params = new URLSearchParams(searchParams.toString());
       params.delete('new');
       const query = params.toString();
-      router.replace(`/weldcrm/notes${query ? `?${query}` : ''}`);
+      router.replace(withQuery('/weldcrm/notes', query));
     }
   }, [searchParams, router]);
 

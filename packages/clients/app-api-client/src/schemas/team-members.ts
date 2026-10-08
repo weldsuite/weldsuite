@@ -30,7 +30,9 @@ export const inviteMemberSchema = z.object({
   // INTERNAL (default) → counts as a paid seat, full role.
   // EXTERNAL_GUEST → free, scoped to invited channels only. Requires the
   // `team:invite_external` permission instead of `team:create`.
-  memberType: z.enum(['INTERNAL', 'EXTERNAL_GUEST']).optional(),
+  // EMPLOYEE → paid seat, My HR + WeldChat only (fixed permission set; the
+  // roleId is ignored). Requires `team:create`.
+  memberType: z.enum(['INTERNAL', 'EXTERNAL_GUEST', 'EMPLOYEE']).optional(),
 });
 
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;

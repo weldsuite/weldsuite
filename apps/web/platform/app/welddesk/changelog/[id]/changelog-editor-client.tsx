@@ -546,6 +546,7 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
           onInput={handleTitleInput}
           onKeyDown={handleTitleKeyDown}
           role="textbox"
+          tabIndex={0}
           aria-multiline="false"
           aria-label={tc.untitled}
           dir="ltr"
@@ -572,6 +573,7 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
             onInput={handleContentInput}
             onKeyDown={handleContentKeyDown}
             role="textbox"
+            tabIndex={0}
             aria-multiline="true"
             aria-label={tc.pressForCommands}
             dir="ltr"

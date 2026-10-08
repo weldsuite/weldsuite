@@ -557,7 +557,7 @@ const GanttPage = () => {
     const owners = features
       .filter(f => f.owner?.name)
       .reduce((acc, f) => {
-        if (f.owner && !acc.find(o => o.value === f.owner!.id)) {
+        if (f.owner && !acc.some(o => o.value === f.owner!.id)) {
           acc.push({ value: f.owner.id, label: f.owner.name });
         }
         return acc;
@@ -669,7 +669,7 @@ const GanttPage = () => {
     }
   };
 
-  const handleSaveRename = async () => {
+  const handleSaveRename = () => {
     if (selectedFeature && newName.trim()) {
       // Update local state optimistically
       setFeatures((prev) =>
@@ -1289,7 +1289,7 @@ const GanttPage = () => {
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
-                    void handleSaveRename();
+                    handleSaveRename();
                   }
                 }}
               />

@@ -30,7 +30,7 @@ export interface RangeRef {
 const CELL_REF_RE = /^(\$?)([A-Z]+)(\$?)(\d+)$/;
 
 export function parseRef(ref: string): CellRef | null {
-  const m = ref.toUpperCase().match(CELL_REF_RE);
+  const m = CELL_REF_RE.exec(ref.toUpperCase());
   if (!m) return null;
   return {
     col: colIndex(m[2]),
@@ -999,7 +999,7 @@ export function adjustFormula(formula: string, rowDelta: number, colDelta: numbe
   const expr = formula.substring(1);
 
   // Replace cell references, preserving $ anchors
-  const refRe = /(\$?)([A-Z]+)(\$?)(\d+)/gi;
+  const refRe = /(\$?)(?<![A-Z])([A-Z]+)(\$?)(\d+)/gi;
   const adjusted = expr.replace(refRe, (match, absc, col, absr, row) => {
     const colIdx = colIndex(col.toUpperCase());
     const rowIdx = Number.parseInt(row, 10) - 1;

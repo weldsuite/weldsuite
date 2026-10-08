@@ -9,7 +9,9 @@ import { toast } from 'sonner';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import { VatNotAvailable } from '../components/vat-not-available';
 
 function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'outline' {
   if (status === 'filed' || status === 'accepted') return 'default';
@@ -17,26 +19,11 @@ function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'out
   return 'outline';
 }
 
-const rubriekLabels: Record<string, string> = {
-  r1a: '1a. Leveringen/diensten belast met hoog tarief',
-  r1b: '1b. Omzetbelasting over 1a',
-  r1c: '1c. Leveringen/diensten belast met laag tarief',
-  r1d: '1d. Omzetbelasting over 1c',
-  r1e: '1e. Leveringen/diensten belast met overige tarieven',
-  r1f: '1f. Omzetbelasting over 1e',
-  r2a: '2a. Leveringen/diensten waarbij de omzetbelasting naar u is verlegd',
-  r3a: '3a. Leveringen naar landen buiten de EU',
-  r3b: '3b. Leveringen naar/diensten in landen binnen de EU',
-  r3c: '3c. Installatie/afstandsverkopen binnen de EU',
-  r4a: '4a. Leveringen/diensten uit landen buiten de EU',
-  r4b: '4b. Leveringen/diensten uit landen binnen de EU',
-  r5a: '5a. Verschuldigde omzetbelasting (subtotaal)',
-  r5b: '5b. Voorbelasting',
-  r5c: '5c. Subtotaal (5a - 5b)',
-  r5d: '5d. Vermindering kleineondernemersregeling',
-  r5e: '5e. Schatting vorige aangifte(n)',
-  r5f: '5f. Totaal te betalen / te ontvangen',
-};
+/** NL BTW return boxes, in filing order. Labels come from `accounting.vat.rubriekLabels`. */
+const RUBRIEK_KEYS = [
+  'r1a', 'r1b', 'r1c', 'r1d', 'r1e', 'r1f', 'r2a', 'r3a', 'r3b', 'r3c', 'r4a', 'r4b',
+  'r5a', 'r5b', 'r5c', 'r5d', 'r5e', 'r5f',
+] as const;
 
 export default function VatReturnDetailPage() {
   const { id } = useParams({ strict: false });
@@ -45,7 +32,8 @@ export default function VatReturnDetailPage() {
   const st = useTranslations();
   const tv = t.accounting.vat;
   const tslVat = { ...t.accounting.vat.statuses, ...t.accounting.statusLabels.vatReturn };
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate, formatDateTime } = useWeldbooksFormat();
+  const { features, isResolved, isError: jurisdictionError } = useCurrentJurisdiction();
 
   const qc = useQueryClient();
 
@@ -93,7 +81,11 @@ export default function VatReturnDetailPage() {
     URL.revokeObjectURL(url);
   };
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  if (isLoading || (!isResolved && !jurisdictionError)) return <PageLoader fullScreen={false} />;
+
+  if (!features.vatReturn) {
+    return <VatNotAvailable title={tv.notAvailableTitle} description={tv.notAvailableDescription} />;
+  }
 
   const vr = data?.data;
   if (!vr) {
@@ -101,24 +93,36 @@ export default function VatReturnDetailPage() {
   }
 
   const rubrieken = vr.rubrieken ?? {};
+  const periodTypeName =
+    vr.periodType === 'yearly' || vr.periodType === 'annual'
+      ? tv.periodTypes.annual
+      : (tv.periodTypes as Record<string, string>)[vr.periodType] ?? vr.periodType;
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/weldbooks/vat' })}>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={tv.cancel}
+            onClick={() => navigate({ to: '/weldbooks/vat' })}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
             <h1 className="text-2xl font-semibold">
-              {tv.vatReturnTitle.replace('{period}', vr.periodLabel ?? `${vr.periodStart} — ${vr.periodEnd}`)}
+              {tv.vatReturnTitle.replace(
+                '{period}',
+                vr.periodLabel ?? `${formatDate(vr.periodStart)} — ${formatDate(vr.periodEnd)}`,
+              )}
             </h1>
-            <p className="text-sm text-muted-foreground capitalize">
-              {tv.periodTypeLabel.replace('{type}', vr.periodType)}
+            <p className="text-sm text-muted-foreground">
+              {tv.periodTypeLabel.replace('{type}', periodTypeName)}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant={vatStatusBadgeVariant(vr.status)}>
             {tslVat[vr.status as keyof typeof tslVat] ?? vr.status}
           </Badge>
@@ -162,7 +166,7 @@ export default function VatReturnDetailPage() {
       {vr.suppletieDeadline && (
         <div className="text-sm text-amber-700 flex items-center gap-1">
           <AlertCircle className="h-4 w-4" />
-          {tv.suppletieDeadlineLabel}: {String(vr.suppletieDeadline).slice(0, 10)}
+          {tv.suppletieDeadlineLabel}: {formatDate(vr.suppletieDeadline)}
         </div>
       )}
 
@@ -185,7 +189,8 @@ export default function VatReturnDetailPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-1">
-            {Object.entries(rubriekLabels).map(([key, label]) => {
+            {RUBRIEK_KEYS.map((key) => {
+              const label = tv.rubriekLabels[key];
               const isTotals = key.startsWith('r5');
               return (
                 <div
@@ -216,7 +221,7 @@ export default function VatReturnDetailPage() {
             {vr.filedAt && (
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{tv.filedAt}</span>
-                <span>{vr.filedAt}</span>
+                <span>{formatDateTime(vr.filedAt)}</span>
               </div>
             )}
             {vr.filedBy && (

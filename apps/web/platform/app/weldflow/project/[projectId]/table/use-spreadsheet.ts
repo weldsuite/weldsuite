@@ -213,7 +213,8 @@ function makeMutation<TArgs, TResult = void>(
         console.error('[useSpreadsheet] mutation failed:', err);
       }
     },
-    mutateAsync: async (args) => fn(args),
+    // The executor turns a synchronous throw from fn into a rejection, like an async mutation.
+    mutateAsync: (args) => new Promise((resolve) => resolve(fn(args))),
   };
 }
 

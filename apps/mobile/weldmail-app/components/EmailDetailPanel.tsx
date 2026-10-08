@@ -55,6 +55,8 @@ import {
 import { openAttachment } from '@/utils/open-attachment';
 import { getAttachmentVisual, type AttachmentKind } from '@/utils/attachment-visual';
 
+type ComposeMode = 'reply' | 'replyAll' | 'forward';
+
 // Icon component per attachment kind (see utils/attachment-visual).
 const ATTACHMENT_ICONS: Record<AttachmentKind, React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>> = {
   image: FileImage,
@@ -72,7 +74,7 @@ function getInitialColor(name: string): string {
   const colors = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#6366F1', '#EF4444', '#14B8A6'];
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    hash = name.codePointAt(i)! + ((hash << 5) - hash);
   }
   return colors[Math.abs(hash) % colors.length];
 }
@@ -539,7 +541,7 @@ function ThreadSection({ olderMessages, expandedIds, onToggle, onCompose, colors
   olderMessages: MessageRecord[];
   expandedIds: Set<string>;
   onToggle: (id: string) => void;
-  onCompose: (msg: MessageRecord, mode: 'reply' | 'replyAll' | 'forward') => void;
+  onCompose: (msg: MessageRecord, mode: ComposeMode) => void;
   colors: ThemeColors;
   router: ReturnType<typeof useRouter>;
 }>) {
@@ -568,7 +570,7 @@ function ThreadSection({ olderMessages, expandedIds, onToggle, onCompose, colors
 function ReplyActionBar({ showReplyAll, paddingBottom, onCompose, colors }: Readonly<{
   showReplyAll: boolean;
   paddingBottom: number;
-  onCompose: (mode: 'reply' | 'replyAll' | 'forward') => void;
+  onCompose: (mode: ComposeMode) => void;
   colors: ThemeColors;
 }>) {
   return (
@@ -776,7 +778,7 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
     if (email) setEmail({ ...email, labels: newLabels });
   }, [email]);
 
-  const openComposeForMessage = (msg: any, mode: 'reply' | 'replyAll' | 'forward') => {
+  const openComposeForMessage = (msg: any, mode: ComposeMode) => {
     openComposeOverlay(
       buildComposeParams(
         msg,
@@ -787,7 +789,7 @@ export default function EmailDetailPanel({ emailId, onEmailDeleted, onEmailArchi
     );
   };
 
-  const openCompose = (mode: 'reply' | 'replyAll' | 'forward') => {
+  const openCompose = (mode: ComposeMode) => {
     if (!email) return;
     openComposeForMessage(email, mode);
   };

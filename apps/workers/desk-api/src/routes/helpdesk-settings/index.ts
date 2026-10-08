@@ -372,7 +372,6 @@ app.put('/widget', requirePermission('settings:update'), zValidator('json', widg
 
 app.patch('/widget/enabled', requirePermission('settings:update'), async (c) => {
   const db = c.get('tenantDb');
-  const orgId = c.get('orgId');
   const { helpdeskWidgetSettings } = schema;
   const body = await c.req.json<{ enabled: boolean }>().catch(() => ({ enabled: false }));
   try {

@@ -13,8 +13,8 @@ import type { StepHandler, StepContext, StepResult } from '../../types';
 export const aiAutoReplyHandler: StepHandler = {
   type: 'ai_auto_reply',
 
-  async execute(_ctx: StepContext): Promise<StepResult> {
+  execute(_ctx: StepContext): Promise<StepResult> {
     console.warn('[ai] AI is currently unavailable — skipping ai_auto_reply step, escalating to human');
-    return { success: false, error: 'AI is currently unavailable', escalated: true };
+    return Promise.resolve({ success: false, error: 'AI is currently unavailable', escalated: true });
   },
 };

@@ -74,7 +74,7 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0, isConnected: false, isPermissionGranted: false,
-  requestPermissions: async () => false, openNotificationSettings: async () => {},
+  requestPermissions: () => Promise.resolve(false), openNotificationSettings: () => Promise.resolve(),
   refreshBadgeCount: async () => {}, unregisterDevice: async () => {},
   launchReady: true, openingEmailId: null, prepareWorkspaceSwitch: async () => {},
 });

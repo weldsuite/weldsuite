@@ -127,7 +127,11 @@ const message = {
 
 function mockRoutes(page, env) {
   const sent = []
-  const threadsFor = (slug) => (slug === 'sent' ? sent : slug === 'inbox' ? inbox : [])
+  const threadsFor = (slug) => {
+    if (slug === 'sent') return sent
+    if (slug === 'inbox') return inbox
+    return []
+  }
 
   return mockApi(page, new URL(env.platformBase).origin, [
     ['GET /api/mail-accounts', () => ({ data: [account], pagination: { totalCount: 1, hasMore: false, cursor: null } })],

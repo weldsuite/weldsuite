@@ -135,6 +135,142 @@ const formatPrice = (price: number, currency: string) => {
   }).format(price);
 };
 
+const discountTagPositionClasses: Record<DiscountTagPosition, string> = {
+  'top-left': 'top-2 left-2',
+  'top-right': 'top-2 right-2',
+  'bottom-left': 'bottom-2 left-2',
+  'bottom-right': 'bottom-2 right-2',
+};
+
+const cardFormatClasses: Record<CardFormat, string> = {
+  'portrait': 'aspect-[3/4]',
+  'square': 'aspect-square',
+  'landscape': 'aspect-[4/3]',
+  'wide': 'aspect-[16/9]',
+};
+
+function getProductImage(product: Product | null): string {
+  if (!product) return '';
+  if (product.image) return product.image;
+  if (product.images && product.images.length > 0) return product.images[0]?.url ?? '';
+  return '';
+}
+
+function getProductLink(product: Product | null): string {
+  if (!product) return '#';
+  return product.link || `/products/${product.id}`;
+}
+
+function hasDiscount(product: Product): boolean {
+  return !!(product.compareAtPrice && product.compareAtPrice > product.price) || !!product.salePrice;
+}
+
+function getDiscountPercent(product: Product): string | null {
+  if (product.discountPercent) return product.discountPercent;
+  const originalPrice = product.compareAtPrice || product.price;
+  const salePrice = product.salePrice || product.price;
+  if (originalPrice > salePrice) {
+    const discount = Math.round((1 - salePrice / originalPrice) * 100);
+    return `-${discount}%`;
+  }
+  return null;
+}
+
+interface ProductCardDisplay {
+  mode: NonNullable<ProductListBlockProps['mode']>;
+  cardFormat: CardFormat;
+  imageRounding: number;
+  discountTagPosition: DiscountTagPosition;
+  textColor: string;
+  showWishlist: boolean;
+}
+
+// Product card component to avoid duplication
+function ProductCard({
+  product,
+  mode,
+  cardFormat,
+  imageRounding,
+  discountTagPosition,
+  textColor,
+  showWishlist,
+}: Readonly<{ product: Product } & ProductCardDisplay>) {
+  return (
+    <div className="group">
+      <a
+        href={getProductLink(product)}
+        className="block"
+        onClick={(e) => mode !== 'live' && e.preventDefault()}
+      >
+        <div
+          className={`relative overflow-hidden bg-gray-100 ${cardFormatClasses[cardFormat]} mb-3`}
+          style={{ borderRadius: imageRounding }}
+        >
+          <img
+            src={getProductImage(product)}
+            alt={product.name}
+            className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
+          />
+          {hasDiscount(product) && getDiscountPercent(product) && (
+            <span className={`absolute ${discountTagPositionClasses[discountTagPosition]} bg-red-600 text-white text-xs px-2 py-1 rounded`}>
+              {getDiscountPercent(product)}
+            </span>
+          )}
+          <div className="absolute bottom-0 left-0 right-0 opacity-0 translate-y-full transition-all duration-300 group-hover:opacity-100 group-hover:translate-y-0 hidden lg:block">
+            <button className="w-full text-xs uppercase font-medium py-4 bg-white/90 hover:bg-gray-200 transition-colors">
+              Add to Cart
+            </button>
+          </div>
+        </div>
+      </a>
+      <div className="flex items-start justify-between gap-2 px-1">
+        <a
+          href={getProductLink(product)}
+          className="flex-1"
+          onClick={(e) => mode !== 'live' && e.preventDefault()}
+        >
+          <h3
+            className="text-xs font-normal mb-1 line-clamp-2"
+            style={{ color: textColor }}
+          >
+            {product.name}
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            {hasDiscount(product) ? (
+              <>
+                <span className="text-xs font-semibold text-red-600">
+                  {formatPrice(product.salePrice || product.price, product.currency || 'USD')}
+                </span>
+                <span
+                  className="text-xs line-through opacity-60"
+                  style={{ color: textColor }}
+                >
+                  {formatPrice(product.compareAtPrice || product.price, product.currency || 'USD')}
+                </span>
+              </>
+            ) : (
+              <span
+                className="text-xs font-semibold"
+                style={{ color: textColor }}
+              >
+                {formatPrice(product.price, product.currency || 'USD')}
+              </span>
+            )}
+          </div>
+        </a>
+        {showWishlist && (
+          <button className="p-2 rounded-full hover:bg-gray-100 transition-colors hidden lg:flex">
+            <Heart className="w-4 h-4" style={{ color: textColor }} />
+          </button>
+        )}
+        <button className="p-2 rounded-full hover:bg-gray-100 transition-colors lg:hidden">
+          <ShoppingBag className="w-4 h-4" style={{ color: textColor }} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ProductListBlock({
   title = 'Suggestions just for you',
   titleFont = 'Inter',
@@ -211,20 +347,6 @@ export function ProductListBlock({
     5: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5',
   };
 
-  const discountTagPositionClasses: Record<DiscountTagPosition, string> = {
-    'top-left': 'top-2 left-2',
-    'top-right': 'top-2 right-2',
-    'bottom-left': 'bottom-2 left-2',
-    'bottom-right': 'bottom-2 right-2',
-  };
-
-  const cardFormatClasses: Record<CardFormat, string> = {
-    'portrait': 'aspect-[3/4]',
-    'square': 'aspect-square',
-    'landscape': 'aspect-[4/3]',
-    'wide': 'aspect-[16/9]',
-  };
-
   // Get actual products from store based on productIds, or use default product
   const getProductForSlot = (slot: ProductSlot, index: number): Product => {
     if (slot.productId && store?.products) {
@@ -235,120 +357,23 @@ export function ProductListBlock({
     return DEFAULT_PRODUCTS[index % DEFAULT_PRODUCTS.length]!;
   };
 
-  const getProductImage = (product: Product | null): string => {
-    if (!product) return '';
-    if (product.image) return product.image;
-    if (product.images && product.images.length > 0) return product.images[0]?.url ?? '';
-    return '';
+  const cardDisplay: ProductCardDisplay = {
+    mode,
+    cardFormat,
+    imageRounding,
+    discountTagPosition,
+    textColor,
+    showWishlist,
   };
 
-  const getProductLink = (product: Product | null): string => {
-    if (!product) return '#';
-    return product.link || `/products/${product.id}`;
-  };
-
-  const hasDiscount = (product: Product): boolean => {
-    return !!(product.compareAtPrice && product.compareAtPrice > product.price) || !!product.salePrice;
-  };
-
-  const getDiscountPercent = (product: Product): string | null => {
-    if (product.discountPercent) return product.discountPercent;
-    const originalPrice = product.compareAtPrice || product.price;
-    const salePrice = product.salePrice || product.price;
-    if (originalPrice > salePrice) {
-      const discount = Math.round((1 - salePrice / originalPrice) * 100);
-      return `-${discount}%`;
-    }
-    return null;
-  };
-
-  // Product card component to avoid duplication
-  const ProductCard = ({ slot, index }: { slot: ProductSlot; index: number }) => {
-    const product = getProductForSlot(slot, index);
-    return (
-      <div className="group">
-        <a
-          href={getProductLink(product)}
-          className="block"
-          onClick={(e) => mode !== 'live' && e.preventDefault()}
-        >
-          <div
-            className={`relative overflow-hidden bg-gray-100 ${cardFormatClasses[cardFormat]} mb-3`}
-            style={{ borderRadius: imageRounding }}
-          >
-            <img
-              src={getProductImage(product)}
-              alt={product.name}
-              className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
-            />
-            {hasDiscount(product) && getDiscountPercent(product) && (
-              <span className={`absolute ${discountTagPositionClasses[discountTagPosition]} bg-red-600 text-white text-xs px-2 py-1 rounded`}>
-                {getDiscountPercent(product)}
-              </span>
-            )}
-            <div className="absolute bottom-0 left-0 right-0 opacity-0 translate-y-full transition-all duration-300 group-hover:opacity-100 group-hover:translate-y-0 hidden lg:block">
-              <button className="w-full text-xs uppercase font-medium py-4 bg-white/90 hover:bg-gray-200 transition-colors">
-                Add to Cart
-              </button>
-            </div>
-          </div>
-        </a>
-        <div className="flex items-start justify-between gap-2 px-1">
-          <a
-            href={getProductLink(product)}
-            className="flex-1"
-            onClick={(e) => mode !== 'live' && e.preventDefault()}
-          >
-            <h3
-              className="text-xs font-normal mb-1 line-clamp-2"
-              style={{ color: textColor }}
-            >
-              {product.name}
-            </h3>
-            <div className="flex flex-wrap items-center gap-2">
-              {hasDiscount(product) ? (
-                <>
-                  <span className="text-xs font-semibold text-red-600">
-                    {formatPrice(product.salePrice || product.price, product.currency || 'USD')}
-                  </span>
-                  <span
-                    className="text-xs line-through opacity-60"
-                    style={{ color: textColor }}
-                  >
-                    {formatPrice(product.compareAtPrice || product.price, product.currency || 'USD')}
-                  </span>
-                </>
-              ) : (
-                <span
-                  className="text-xs font-semibold"
-                  style={{ color: textColor }}
-                >
-                  {formatPrice(product.price, product.currency || 'USD')}
-                </span>
-              )}
-            </div>
-          </a>
-          {showWishlist && (
-            <button className="p-2 rounded-full hover:bg-gray-100 transition-colors hidden lg:flex">
-              <Heart className="w-4 h-4" style={{ color: textColor }} />
-            </button>
-          )}
-          <button className="p-2 rounded-full hover:bg-gray-100 transition-colors lg:hidden">
-            <ShoppingBag className="w-4 h-4" style={{ color: textColor }} />
-          </button>
-        </div>
-      </div>
-    );
-  };
+  let sectionClass = "px-5 py-16";
+  if (isFullWidth) {
+    sectionClass = isEditMode ? "w-full py-16 px-5" : "w-screen py-16 px-5";
+  }
 
   return (
     <section
-      className={isFullWidth
-        ? isEditMode
-          ? "w-full py-16 px-5"
-          : "w-screen py-16 px-5"
-        : "px-5 py-16"
-      }
+      className={sectionClass}
       style={{ backgroundColor }}
     >
       <div className={isFullWidth ? "w-full" : "max-w-7xl mx-auto"}>
@@ -411,7 +436,7 @@ export function ProductListBlock({
                 className="flex-shrink-0"
                 style={{ width: getItemWidth() }}
               >
-                <ProductCard slot={slot} index={index} />
+                <ProductCard product={getProductForSlot(slot, index)} {...cardDisplay} />
               </div>
             ))}
           </div>
@@ -422,7 +447,7 @@ export function ProductListBlock({
             style={{ columnGap: cardSpacing, rowGap: cardSpacing * 2 }}
           >
             {productSlots.map((slot, index) => (
-              <ProductCard key={slot.id} slot={slot} index={index} />
+              <ProductCard key={slot.id} product={getProductForSlot(slot, index)} {...cardDisplay} />
             ))}
           </div>
         )}

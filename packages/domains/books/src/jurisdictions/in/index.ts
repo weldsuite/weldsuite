@@ -13,8 +13,8 @@ import { getInInvoiceRequirements } from './invoice-format';
 import { buildInGstReturn } from './gst-return';
 
 /** GSTIN: 2-digit state + PAN(10) + entity + Z + check digit. */
-const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/;
 
 export function normalizeGstin(value: string): string {
   return value.replace(/[\s-]/g, '').toUpperCase();
@@ -22,7 +22,7 @@ export function normalizeGstin(value: string): string {
 
 export function extractStateCodeFromGstin(gstin: string): string | undefined {
   const normalized = normalizeGstin(gstin);
-  const match = normalized.match(/^[0-9]{2}/);
+  const match = /^\d{2}/.exec(normalized);
   return match?.[0];
 }
 
@@ -113,6 +113,22 @@ export const inAdapter: JurisdictionAdapter = {
   name: 'India',
   defaultLocale: 'en-IN',
   defaultCurrency: 'INR',
+  features: {
+    vatReturn: false,
+    icp: false,
+    xafExport: false,
+    smallBusinessScheme: false,
+    gstReturn: true,
+    salesTax: false,
+    form1099: false,
+  },
+  terminology: {
+    tax: 'gst',
+    taxId: 'gstin',
+    registrationId: 'pan',
+    supplier: 'supplier',
+    creditNote: 'credit_note',
+  },
 
   getChartOfAccountsTemplate() {
     return inChartOfAccounts;
@@ -168,15 +184,13 @@ export const inAdapter: JurisdictionAdapter = {
 
     if (!meta || slab === '0' || slab === 'exempt' || slab === 'export' || slab === 'rcm') {
       const code = resolved?.taxCategoryCode ?? 'zero';
+      let reasoning = 'GST zero-rated supply';
+      if (code === 'exempt') reasoning = 'GST exempt supply';
+      else if (code === 'reverse_charge') reasoning = 'GST reverse charge — tax not charged on invoice';
       return {
         taxCategoryCode: code,
         rate: resolved?.rate ?? '0.00',
-        reasoning:
-          code === 'exempt'
-            ? 'GST exempt supply'
-            : code === 'reverse_charge'
-              ? 'GST reverse charge — tax not charged on invoice'
-              : 'GST zero-rated supply',
+        reasoning,
       };
     }
 
@@ -211,7 +225,7 @@ export const inAdapter: JurisdictionAdapter = {
 function normalizeStateCode(value?: string): string | undefined {
   if (!value) return undefined;
   const trimmed = value.trim();
-  if (!/^[0-9]{2}$/.test(trimmed)) return undefined;
+  if (!/^\d{2}$/.test(trimmed)) return undefined;
   return trimmed;
 }
 
@@ -290,12 +304,10 @@ export function expandGstTaxBreakdown(opts: {
   return list.map((c) => {
     const rate = Number.parseFloat(c.rate);
     const taxAmount = opts.taxableAmount * (rate / 100);
-    const label =
-      c.code === 'cgst'
-        ? `CGST ${rate}%`
-        : c.code === 'sgst'
-          ? `SGST ${rate}%`
-          : `IGST ${rate}%`;
+    let labelPrefix = 'IGST';
+    if (c.code === 'cgst') labelPrefix = 'CGST';
+    else if (c.code === 'sgst') labelPrefix = 'SGST';
+    const label = `${labelPrefix} ${rate}%`;
     const outputRole = c.accountRole;
     const accountRole =
       direction === 'purchase'

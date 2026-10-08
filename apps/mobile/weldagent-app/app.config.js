@@ -188,7 +188,7 @@ const withAndroidPackagingExcludes = (config) => {
   });
 };
 
-module.exports = ({ config }) =>
+const appConfig = ({ config }) =>
   withIncreasedGradleMemory(
     withAndroidPackagingExcludes(
       withGoogleSignInUrlScheme(
@@ -198,3 +198,5 @@ module.exports = ({ config }) =>
       ),
     ),
   );
+
+module.exports = appConfig;

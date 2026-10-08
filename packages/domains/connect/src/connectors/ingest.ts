@@ -45,6 +45,8 @@ import {
 } from './moneybird-attachments';
 import { asText } from '@weldsuite/text';
 
+type IngestEntity = 'product' | 'order' | 'person';
+
 export interface IngestCounts {
   created: number;
   modified: number;
@@ -87,7 +89,10 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .sort(([a], [b]) => {
+      if (a < b) return -1;
+      return a > b ? 1 : 0;
+    })
     .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
   return `{${entries.join(',')}}`;
 }
@@ -104,23 +109,25 @@ function emptyCounts(): IngestCounts {
   return { created: 0, modified: 0, skipped: 0, deleted: 0, failed: 0 };
 }
 
-async function loadConnectorFieldMappings(
+function loadConnectorFieldMappings(
   db: Database,
   connectionId: string,
   entityType: string,
 ): Promise<ConnectorFieldMappingRow[]> {
   const fm = schema.integrationFieldMappings;
-  return db
-    .select({
-      externalFieldPath: fm.externalFieldPath,
-      internalFieldPath: fm.internalFieldPath,
-      direction: fm.direction,
-      transformType: fm.transformType,
-      transformConfig: fm.transformConfig,
-      isRequired: fm.isRequired,
-    })
-    .from(fm)
-    .where(and(eq(fm.connectionId, connectionId), eq(fm.entityType, entityType)));
+  return Promise.resolve(
+    db
+      .select({
+        externalFieldPath: fm.externalFieldPath,
+        internalFieldPath: fm.internalFieldPath,
+        direction: fm.direction,
+        transformType: fm.transformType,
+        transformConfig: fm.transformConfig,
+        isRequired: fm.isRequired,
+      })
+      .from(fm)
+      .where(and(eq(fm.connectionId, connectionId), eq(fm.entityType, entityType)))
+  );
 }
 
 function applyMappingsToRecord(
@@ -139,16 +146,17 @@ function applyMappingsToRecord(
 export function sanitiseErrorMessage(err: unknown): string {
   const raw = err instanceof Error ? err.message : asText(err);
   return raw
-    .replace(/\(([^)]*)\)=\([^)]*\)/g, '($1)=(redacted)')
+    // Postgres key details, e.g. `Key (lower(email))=(a@b.com)`: keep the key, drop the value.
+    .replace(/\)=\([^)]*\)/g, ')=(redacted)')
     .replace(/'[^']*'/g, "'redacted'")
     .slice(0, MAX_ERROR_MESSAGE_LENGTH);
 }
 
-function targetFor(entity: 'product' | 'order' | 'person'): {
+function targetFor(entity: IngestEntity): {
   table: PgTable;
   idPrefix: string;
   dedupColumn: string | null;
-  entityType: 'product' | 'order' | 'person';
+  entityType: IngestEntity;
 } {
   switch (entity) {
     case 'product':
@@ -1719,7 +1727,7 @@ async function syncProductListing(
 }
 
 async function ingestCatalogRecords(args: IngestArgs): Promise<IngestResult> {
-  const target = targetFor(args.sync.internalEntity as 'product' | 'order' | 'person');
+  const target = targetFor(args.sync.internalEntity as IngestEntity);
   const customerType = `${args.provider}_customer`;
   const fieldMappings = await loadConnectorFieldMappings(
     args.db,

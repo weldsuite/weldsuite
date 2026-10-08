@@ -105,7 +105,7 @@ type Tree = string | { [k: string]: Tree };
 
 function isBrandOnly(value: string): boolean {
   const trimmed = value.trim();
-  return BRAND_NAMES.some(b => b === trimmed);
+  return BRAND_NAMES.includes(trimmed);
 }
 
 function shouldFlagForReview(value: string): boolean {
@@ -253,11 +253,9 @@ async function main(): Promise<void> {
   }
 
   const sourceNamespaces = listNamespaces(args.from);
-  const targets = args.all
-    ? sourceNamespaces
-    : args.namespace
-      ? [args.namespace]
-      : [];
+  let targets: string[] = [];
+  if (args.all) targets = sourceNamespaces;
+  else if (args.namespace) targets = [args.namespace];
 
   if (targets.length === 0) {
     console.error('Must pass either --namespace <name> or --all.');
@@ -280,7 +278,9 @@ async function main(): Promise<void> {
   console.log(`\n✓ Wrote ${args.to}/index.ts with ${targetNamespaces.length} namespace(s)`);
 }
 
-main().catch(err => {
-  console.error('❌', err.message);
+try {
+  await main();
+} catch (err) {
+  console.error('❌', (err as Error).message);
   process.exit(1);
-});
+}

@@ -261,7 +261,7 @@ app.post('/:id/rematch', requirePermission('invoices:update'), async (c) => {
 });
 
 // POST /:id/create-bill — create bill from OCR result
-app.post('/:id/create-bill', requirePermission('invoices:create'), async (c) => {
+app.post('/:id/create-bill', requirePermission('invoices:create'), (c) => {
   // Redirect to bills/from-document/:documentId (no mutation happens here).
   return error.badRequest(c, 'Use POST /api/bills/from-document/:documentId instead');
 });

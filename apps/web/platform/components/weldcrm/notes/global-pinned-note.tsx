@@ -16,20 +16,20 @@ import {
   Bot,
   Building,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, stripTags } from '@/lib/utils';
 import { usePinnedNote } from '@/contexts/pinned-note-context';
 import { NoteEditorDialog } from './note-editor-dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 // Helper to strip HTML tags
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '').trim();
+  return stripTags(html).trim();
 }
 
 // Helper to get note title from content
 function getNoteTitle(content: string): string {
   if (!content) return 'Untitled';
-  const headingMatch = content.match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+  const headingMatch = /<h[1-3][^>]*>(.*?)<\/h[1-3]>/i.exec(content);
   if (headingMatch && headingMatch[1]) {
     const title = stripHtml(headingMatch[1]).trim();
     if (title) return title;

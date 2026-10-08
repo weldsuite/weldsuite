@@ -18,7 +18,7 @@ export function pemToBuffer(pem: string): ArrayBuffer {
   const binary = atob(lines);
   const buffer = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
-    buffer[i] = binary.charCodeAt(i);
+    buffer[i] = binary.codePointAt(i)!;
   }
   return buffer.buffer;
 }
@@ -33,7 +33,7 @@ export function base64UrlToBuffer(base64url: string): ArrayBuffer {
   const binary = atob(padded);
   const buffer = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
-    buffer[i] = binary.charCodeAt(i);
+    buffer[i] = binary.codePointAt(i)!;
   }
   return buffer.buffer;
 }

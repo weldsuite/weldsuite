@@ -254,11 +254,13 @@ async function publishOrSchedule(
   // now, so a failure to announce it must not be reported to the caller as a
   // failed publish — they would retry a post that has already gone out.
   try {
+    let eventAction: 'scheduled' | 'published' | 'failed' = 'scheduled';
+    if (options.now) eventAction = result.status === 'failed' ? 'failed' : 'published';
     publishEntityEvent({
       c,
       entityType: 'social_post',
       entityId: id,
-      action: options.now ? (result.status === 'failed' ? 'failed' : 'published') : 'scheduled',
+      action: eventAction,
       data: { id, status: result.status, postpeerPostId: result.postpeerPostId },
     });
   } catch (err) {

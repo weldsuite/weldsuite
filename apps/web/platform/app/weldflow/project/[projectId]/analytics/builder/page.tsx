@@ -180,7 +180,7 @@ export default function ProjectAnalyticsBuilderPage() {
     other: { label: "Other", color: "#1d4ed8" },
   } satisfies ChartConfig;
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!reportId) {
       router.push(basePath);
       return;

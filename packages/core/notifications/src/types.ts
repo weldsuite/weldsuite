@@ -8,7 +8,6 @@
 
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import type * as schema from '@weldsuite/db/schema';
-import type { ModulePreferencesMap } from '@weldsuite/db/schema/notification-preferences';
 import type {
   NotificationCategory,
   NotificationType,
@@ -17,16 +16,16 @@ import type {
 import type { EmailBrand, EmailLocale, NotificationEmailProps, TaskAssignedEmailProps } from '@weldsuite/emails';
 import type { SystemEmailEnv } from '@weldsuite/emails/transports/binding';
 
-/** Tenant Drizzle handle — same shape both workers construct from
- *  `@weldsuite/db/schema`. */
-export type Database = NeonHttpDatabase<typeof schema>;
-
+export type { ModulePreferencesMap } from '@weldsuite/db/schema/notification-preferences';
 export type {
-  ModulePreferencesMap,
   NotificationCategory,
   NotificationType,
   NotificationSeverity,
-};
+} from '@weldsuite/db/schema/notifications';
+
+/** Tenant Drizzle handle — same shape both workers construct from
+ *  `@weldsuite/db/schema`. */
+export type Database = NeonHttpDatabase<typeof schema>;
 
 /** Structural shape of the Cloudflare service binding we use to publish
  *  in-app notifications via realtime-worker. */

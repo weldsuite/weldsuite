@@ -224,7 +224,7 @@ function computeAlignmentGuides(
       const lineX = getX(node);
       if (Math.abs(getX(draggedNode) - lineX) < ALIGNMENT_THRESHOLD) {
         guides.push({ x: lineX, type, yStart, yEnd });
-        if (snapX === null) snapX = lineX + snapOffset(draggedNodeWidth);
+        snapX ??= lineX + snapOffset(draggedNodeWidth);
       }
     }
   }
@@ -461,7 +461,7 @@ function WorkflowCanvasInner({
     const needsLayout = positionedNodes.some(
       (n) =>
         n.type !== 'trigger' &&
-        !currentNodes.find((existing) => existing.id === n.id) &&
+        !currentNodes.some((existing) => existing.id === n.id) &&
         (!n.position || (n.position.x === 0 && n.position.y === 0))
     );
 

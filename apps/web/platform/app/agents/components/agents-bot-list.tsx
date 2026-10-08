@@ -82,8 +82,8 @@ export function AgentsBotList() {
     setAgentToDelete(null);
 
     if (selectedId === deletedId) {
-      const remaining = agents.filter((a) => a.id !== deletedId);
-      router.replace(remaining[0] ? `/agents/${remaining[0].id}` : '/agents');
+      const remaining = agents.find((a) => a.id !== deletedId);
+      router.replace(remaining ? `/agents/${remaining.id}` : '/agents');
     }
   };
 

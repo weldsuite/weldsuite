@@ -116,6 +116,8 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<Grid
     );
   }
 
+  const rowNumbersWidth = showRowNumbers ? 46 : 0;
+
   return (
     <CellSelectionProvider entities={filteredEntities}>
     <div
@@ -131,8 +133,8 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<Grid
         className="border-collapse flex-shrink-0 select-none"
         style={{
           tableLayout: 'fixed',
-          width: isSpreadsheet ? `${calculateTableWidth() + (showRowNumbers ? 46 : 0) + 8 * 100}px` : '100%',
-          minWidth: isSpreadsheet ? undefined : `${calculateTableWidth() + (showRowNumbers ? 46 : 0)}px`,
+          width: isSpreadsheet ? `${calculateTableWidth() + rowNumbersWidth + 8 * 100}px` : '100%',
+          minWidth: isSpreadsheet ? undefined : `${calculateTableWidth() + rowNumbersWidth}px`,
         }}
       >
         <GridHeader />

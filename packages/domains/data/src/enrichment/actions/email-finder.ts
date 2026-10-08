@@ -17,13 +17,13 @@ interface EmailFinderConfig {
   provider?: 'findymail' | 'prospeo';
 }
 
-const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+const EMAIL_RE = /(?<![a-z0-9._%+-])[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 
 /** Pull the first email-looking string out of an arbitrary provider payload. */
 function extractEmail(payload: unknown): string | null {
   if (!payload) return null;
   if (typeof payload === 'string') {
-    const m = payload.match(EMAIL_RE);
+    const m = EMAIL_RE.exec(payload);
     return m ? m[0] : null;
   }
   if (typeof payload === 'object') {
@@ -34,7 +34,7 @@ function extractEmail(payload: unknown): string | null {
       if (typeof v === 'string' && EMAIL_RE.test(v)) return v;
     }
     // Otherwise scan the whole structure.
-    const m = JSON.stringify(payload).match(EMAIL_RE);
+    const m = EMAIL_RE.exec(JSON.stringify(payload));
     return m ? m[0] : null;
   }
   return null;
@@ -43,7 +43,7 @@ function extractEmail(payload: unknown): string | null {
 function cleanDomain(domain: string | null | undefined): string {
   return (domain ?? '')
     .replace(/^https?:\/\//, '')
-    .replace(/\/.*$/, '')
+    .replace(/\/[\s\S]*/, '')
     .trim();
 }
 

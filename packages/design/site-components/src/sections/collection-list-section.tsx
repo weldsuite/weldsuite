@@ -93,9 +93,12 @@ export function CollectionListSection({
     image: c.image ?? c.imageUrl ?? c.banner ?? '',
     productCount: c.productCount ?? 0,
   }));
-  const displayCollections = collections && collections.length > 0
-    ? collections
-    : (storeCollections.length > 0 ? storeCollections : mockCollections);
+  let displayCollections = mockCollections;
+  if (collections && collections.length > 0) {
+    displayCollections = collections;
+  } else if (storeCollections.length > 0) {
+    displayCollections = storeCollections;
+  }
   const getAspectRatioClass = () => {
     switch (imageAspectRatio) {
       case 'portrait': return 'aspect-[3/4]';

@@ -53,6 +53,7 @@ test.describe('app-api · WeldMail send / reply / forward', () => {
   const messageIds: string[] = [];
 
   test.beforeAll(async () => {
+    // Skipped: Seeds and cleans up through app-api /test-fixtures, so it needs TEST_API_URL, TEST_FIXTURES_TOKEN and TEST_WORKSPACE_ID.
     test.skip(!isTestFixturesConfigured(), 'test-fixtures env vars not set');
     const boot = await testFixtures.mailSend({ to: ['bootstrap@example.com'], subject: 'boot' });
     accountId = boot.accountId ?? boot.result.accountId;

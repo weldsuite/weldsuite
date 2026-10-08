@@ -5,6 +5,7 @@ import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { calendarKeys } from '@/hooks/queries/use-calendar-queries';
 import { toast } from 'sonner';
+import { withQuery } from '@/lib/with-query';
 
 export interface Task {
   id: string;
@@ -122,7 +123,7 @@ export function useCrmTasks(assignedToId?: string) {
       // CRM page only shows tasks linked to a company/person — never project tasks.
       params.set('crmLinked', 'true');
       const query = params.toString();
-      const res = await client.get<{ data: RawTask[] }>(`/tasks${query ? `?${query}` : ''}`);
+      const res = await client.get<{ data: RawTask[] }>(withQuery('/tasks', query));
       return (res.data ?? []).map(hydrate);
     },
   });
@@ -137,7 +138,7 @@ export function useCreateTask() {
       title: string;
       description?: string;
       status?: Task['status'] | 'in-progress' | 'blocked';
-      priority?: Task['priority'];
+      priority?: NonNullable<Task['priority']>;
       dueDate?: Date;
       /**
        * Pins the task's calendar block to this start (no auto-placement): a task
@@ -152,7 +153,7 @@ export function useCreateTask() {
       /** CRM person link — mutually exclusive with `linkedCompanyId`. */
       personId?: string;
       labels?: string[];
-      repeat?: Task['repeat'];
+      repeat?: NonNullable<Task['repeat']>;
     }) => {
       const client = await getClient();
       try {
@@ -247,9 +248,9 @@ export function useUpdateTask() {
           'status' | 'dueDate' | 'priority' | 'title' | 'description' | 'repeat' | 'labels' | 'duration'
         >
       > & {
-        assignee?: Task['assignee'] | null;
-        assignees?: Task['assignees'] | null;
-        linkedCompany?: Task['linkedCompany'] | null;
+        assignee?: NonNullable<Task['assignee']> | null;
+        assignees?: NonNullable<Task['assignees']> | null;
+        linkedCompany?: NonNullable<Task['linkedCompany']> | null;
         /** CRM person link — mutually exclusive with `linkedCompany`. */
         linkedPerson?: Task['linkedPerson'] | null;
       };

@@ -29,20 +29,25 @@ import {
   priceForModel,
   providerCostUsd,
   creditsForUsage,
-  type ModelPrice,
   type AiUsage,
 } from '@weldsuite/ai';
 import { getMasterDb, type MasterDatabase } from '@weldsuite/worker-kit/db';
+
+// Re-exported for existing importers (ai-billing.test.ts, app-api's mail/ai.ts, …) — the
+// real rate table + math now live in `@weldsuite/ai/billing-rates` (shared
+// with workflow-worker). See file header.
+export {
+  priceForModel,
+  providerCostUsd,
+  creditsForUsage,
+  type ModelPrice,
+  type AiUsage,
+} from '@weldsuite/ai';
 
 /** The bindings {@link resolveAiMetering} reads. Any worker Env with them fits. */
 export interface AiBillingEnv {
   DATABASE_URL_MASTER: string;
 }
-
-// Re-exported for existing importers (ai-billing.test.ts, app-api's mail/ai.ts, …) — the
-// real rate table + math now live in `@weldsuite/ai/billing-rates` (shared
-// with workflow-worker). See file header.
-export { priceForModel, providerCostUsd, creditsForUsage, type ModelPrice, type AiUsage };
 
 // ---------------------------------------------------------------------------
 // Metering

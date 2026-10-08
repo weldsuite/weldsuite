@@ -2,18 +2,20 @@
 
 import React from 'react';
 
+type SpacingSize = 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+
 export interface SectionSettings {
   // Layout
   fullWidth?: boolean;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
 
   // Spacing
-  paddingTop?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
-  paddingBottom?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
-  paddingLeft?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
-  paddingRight?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
-  marginTop?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
-  marginBottom?: 'none' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  paddingTop?: SpacingSize;
+  paddingBottom?: SpacingSize;
+  paddingLeft?: SpacingSize;
+  paddingRight?: SpacingSize;
+  marginTop?: SpacingSize;
+  marginBottom?: SpacingSize;
 
   // Colors
   backgroundColor?: string;

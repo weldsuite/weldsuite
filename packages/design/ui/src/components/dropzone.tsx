@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useDropzone, type DropzoneOptions, type DropzoneState } from 'react-dropzone';
 import { UploadIcon } from 'lucide-react';
 
@@ -62,8 +62,19 @@ export function Dropzone({
     ...rest,
   });
 
+  const contextValue = useMemo(
+    () => ({
+      state,
+      accept,
+      maxFiles,
+      maxSize,
+      src,
+    }),
+    [state, accept, maxFiles, maxSize, src]
+  );
+
   return (
-    <DropzoneContext.Provider value={{ state, accept, maxFiles, maxSize, src }}>
+    <DropzoneContext.Provider value={contextValue}>
       <Button
         type="button"
         variant="outline"

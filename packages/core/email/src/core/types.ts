@@ -190,7 +190,7 @@ export function parseEmailAddress(
   if (typeof input === 'object') {
     return { email: input.email || input.address || 'unknown@unknown.com', name: input.name };
   }
-  const match = input.match(/^"?([^"<]*)"?\s*<([^>]+)>$/);
+  const match = /^"?([^"<]*)(?:"\s*)?<([^>]+)>$/.exec(input);
   if (match) {
     const email = match[2]!.trim();
     const name = match[1]!.trim();

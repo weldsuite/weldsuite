@@ -62,6 +62,44 @@ export function ContactFormModernSection({
       resize: field.type === 'textarea' ? ('none' as const) : undefined,
     };
 
+    let control: React.ReactNode;
+    if (field.type === 'select') {
+      control = (
+        <select
+          id={field.id}
+          name={field.id}
+          required={field.required}
+          style={fieldStyle}
+        >
+          {field.options?.map((option, idx) => (
+            <option key={idx} value={option}>{option}</option>
+          ))}
+        </select>
+      );
+    } else if (field.type === 'textarea') {
+      control = (
+        <textarea
+          id={field.id}
+          name={field.id}
+          required={field.required}
+          rows={5}
+          style={fieldStyle}
+          placeholder={field.placeholder || ''}
+        />
+      );
+    } else {
+      control = (
+        <input
+          type={field.type}
+          id={field.id}
+          name={field.id}
+          required={field.required}
+          style={fieldStyle}
+          placeholder={field.placeholder || ''}
+        />
+      );
+    }
+
     return (
       <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         <label
@@ -74,36 +112,7 @@ export function ContactFormModernSection({
         >
           {field.label}{field.required && <span style={{ color: '#ef4444' }}> *</span>}
         </label>
-        {field.type === 'select' ? (
-          <select
-            id={field.id}
-            name={field.id}
-            required={field.required}
-            style={fieldStyle}
-          >
-            {field.options?.map((option, idx) => (
-              <option key={idx} value={option}>{option}</option>
-            ))}
-          </select>
-        ) : field.type === 'textarea' ? (
-          <textarea
-            id={field.id}
-            name={field.id}
-            required={field.required}
-            rows={5}
-            style={fieldStyle}
-            placeholder={field.placeholder || ''}
-          />
-        ) : (
-          <input
-            type={field.type}
-            id={field.id}
-            name={field.id}
-            required={field.required}
-            style={fieldStyle}
-            placeholder={field.placeholder || ''}
-          />
-        )}
+        {control}
       </div>
     );
   };

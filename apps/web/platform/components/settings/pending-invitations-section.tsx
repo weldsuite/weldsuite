@@ -37,6 +37,14 @@ function getRoleLabel(role: string, st: ReturnType<typeof useTranslations>): str
   }
 }
 
+function getRoleBadgeClass(roleKey: string): string {
+  switch (roleKey) {
+    case 'ADMIN': return 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400';
+    case 'VIEWER': return 'bg-gray-50 text-gray-700 dark:bg-background/30 dark:text-muted-foreground';
+    default: return 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400';
+  }
+}
+
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   return new Date(dateStr).toLocaleDateString(undefined, {
@@ -110,6 +118,14 @@ export function PendingInvitationsSection({
                             {st('sweep.settings.team.guest')}
                           </span>
                         )}
+                        {member.memberType === 'EMPLOYEE' && (
+                          <span
+                            className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+                            title={st('sweep.settings.team.employeeTooltip')}
+                          >
+                            {st('sweep.settings.team.employee')}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </TableCell>
@@ -120,11 +136,7 @@ export function PendingInvitationsSection({
                     <span
                       className={cn(
                         'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none',
-                        roleKey === 'ADMIN'
-                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
-                          : roleKey === 'VIEWER'
-                          ? 'bg-gray-50 text-gray-700 dark:bg-background/30 dark:text-muted-foreground'
-                          : 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400'
+                        getRoleBadgeClass(roleKey)
                       )}
                     >
                       {getRoleLabel(member.role, st)}

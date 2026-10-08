@@ -11,10 +11,9 @@ export function HomePage() {
 
     async function boot() {
       try {
-        let me = (await personalApi.me()).data;
+        const me = (await personalApi.me()).data;
         if (!me.account) {
           await personalApi.onboard();
-          me = (await personalApi.me()).data;
         }
         await personalApi.calendars.ensureDefault();
         if (cancelled) return;

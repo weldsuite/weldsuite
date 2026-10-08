@@ -11,7 +11,7 @@ import { resolveIntegration, integrationBearerToken } from '../integrations';
 import { NonRetryableStepError } from '../errors';
 import { escapeHtml } from '../resolve-inputs';
 import { EMAIL_ADDRESS, postInternalApi } from './helpers';
-import { asText } from '@weldsuite/text';
+import { asText, stripTags } from '@weldsuite/text';
 
 /** `a@b.co` or `Display Name <a@b.co>`: whether the address part is valid. */
 export function isValidRecipient(recipient: string): boolean {
@@ -74,7 +74,7 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
   const rawBody = asText(inputs.body || inputs.html || '');
   const isPlainText = inputs.isHtml === false;
   const html = isPlainText ? escapeHtml(rawBody).replace(/\r?\n/g, '<br>') : rawBody;
-  const text = isPlainText ? rawBody : rawBody.replace(/<[^>]*>/g, '');
+  const text = isPlainText ? rawBody : stripTags(rawBody);
 
   // POST /api/internal/send-email lives on app-api
   // (apps/workers/app-api/src/routes/internal/index.ts).

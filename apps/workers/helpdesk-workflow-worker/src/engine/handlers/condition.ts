@@ -5,7 +5,7 @@ import { asText } from '@weldsuite/text';
 export const conditionHandler: StepHandler = {
   type: 'condition',
 
-  async execute(ctx: StepContext): Promise<StepResult> {
+  execute(ctx: StepContext): Promise<StepResult> {
     const condition = (ctx.inputs.field && ctx.inputs.operator)
       ? ctx.inputs
       : (ctx.stepDef.condition as Record<string, unknown>) || {};
@@ -15,7 +15,7 @@ export const conditionHandler: StepHandler = {
     const value = condition.value;
 
     if (!field || !operator) {
-      return { success: false, error: 'Condition missing field or operator' };
+      return Promise.resolve({ success: false, error: 'Condition missing field or operator' });
     }
 
     // Resolve the actual field value for tracking
@@ -44,12 +44,12 @@ export const conditionHandler: StepHandler = {
       {}, // contactData — not available in step context
     );
 
-    return {
+    return Promise.resolve({
       success: true,
       branch: met ? 'true' : 'false',
       field,
       operator,
       evaluatedValue: fieldValue,
-    };
+    });
   },
 };

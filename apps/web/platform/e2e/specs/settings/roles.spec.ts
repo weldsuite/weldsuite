@@ -36,6 +36,7 @@ test.describe('Settings · roles', () => {
     try {
       await btn.waitFor({ state: 'visible', timeout: 15_000 });
     } catch {
+      // Skipped: Creating roles needs a role-management permission the test user may not have.
       test.skip(true, 'Current user cannot manage roles');
     }
     await btn.click();

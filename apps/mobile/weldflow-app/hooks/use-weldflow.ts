@@ -11,6 +11,9 @@ import type {
 import api from '@/services/app-api';
 import { nextCursorParam, nextPageParam } from '@/lib/pagination';
 
+const LIMIT_25 = { limit: 25 } as const;
+const LIMIT_50 = { limit: 50 } as const;
+
 /** Paging is the hook's job: callers pass filters only. */
 type InfiniteProjectsParams = Omit<ListProjectsQuery, 'cursor'>;
 type InfiniteProjectTasksParams = Omit<ListTasksQuery, 'cursor'>;
@@ -38,7 +41,7 @@ export const qk = {
   labels: () => ['weldflow', 'labels'] as const,
 };
 
-export function useProjects(params: ListProjectsQuery = { limit: 25 }) {
+export function useProjects(params: ListProjectsQuery = LIMIT_25) {
   return useQuery({
     queryKey: qk.projects(params),
     queryFn: () => api.weldflow.listProjects(params),
@@ -64,7 +67,7 @@ export function useProject(projectId: string) {
   });
 }
 
-export function useProjectTasks(projectId: string, params: ListTasksQuery = { limit: 50 }) {
+export function useProjectTasks(projectId: string, params: ListTasksQuery = LIMIT_50) {
   return useQuery({
     queryKey: qk.projectTasks(projectId, params),
     queryFn: () => api.weldflow.listProjectTasks(projectId, params),
@@ -104,7 +107,7 @@ export function useTask(projectId: string, taskId: string) {
   });
 }
 
-export function useMyTasks(params: ListMyTasksQuery = { limit: 50 }) {
+export function useMyTasks(params: ListMyTasksQuery = LIMIT_50) {
   return useQuery({
     queryKey: qk.myTasks(params),
     queryFn: () => api.weldflow.listMyTasks(params),

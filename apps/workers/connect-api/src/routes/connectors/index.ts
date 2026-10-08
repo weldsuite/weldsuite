@@ -91,7 +91,7 @@ function normalizeEnabledSyncs(provider: string, enabled: string[] | undefined):
   return requested.filter((value) => allowed.has(value));
 }
 
-async function testProviderCredentials(
+function testProviderCredentials(
   provider: string,
   credentials: Record<string, string>,
 ): Promise<{ ok: true; storeUrl: string } | { ok: false; message: string }> {

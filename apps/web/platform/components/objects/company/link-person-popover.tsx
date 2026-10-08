@@ -7,7 +7,7 @@
  * shown but disabled to make the constraint obvious.
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -85,6 +85,53 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkP
     setCreateQuery(query);
   };
 
+  let peopleContent: ReactNode;
+  if (peopleQuery.isLoading) {
+    peopleContent = (
+      <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+        {t('sweep.entities.loadingEllipsis')}
+      </div>
+    );
+  } else if (people.length === 0) {
+    peopleContent = (
+      <CommandEmpty>{t('sweep.entities.noPeopleFoundPeriod')}</CommandEmpty>
+    );
+  } else {
+    peopleContent = (
+      <CommandGroup>
+        {people.map((p) => {
+          const already = linkedPersonIds.has(p.id);
+          return (
+            <CommandItem
+              key={p.id}
+              value={p.displayName + (p.email ? ` ${p.email}` : '')}
+              disabled={already || linkMut.isPending}
+              onSelect={() => handlePick(p)}
+              className="flex items-center gap-2"
+            >
+              <Avatar className="h-6 w-6 rounded-md">
+                <AvatarImage
+                  src={p.avatarUrl ?? personGravatar(p.email)}
+                  className="rounded-md object-cover"
+                />
+                <AvatarFallback className="rounded-md text-[10px]">
+                  {personInitial(p)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm truncate">{p.displayName}</div>
+                {p.email && (
+                  <div className="text-xs text-muted-foreground truncate">{p.email}</div>
+                )}
+              </div>
+              {already && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
+            </CommandItem>
+          );
+        })}
+      </CommandGroup>
+    );
+  }
+
   return (
     <>
     <Popover open={open} onOpenChange={setOpen}>
@@ -119,45 +166,7 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkP
                 </CommandItem>
               </CommandGroup>
             )}
-            {peopleQuery.isLoading ? (
-              <div className="px-3 py-6 text-sm text-muted-foreground text-center">
-                {t('sweep.entities.loadingEllipsis')}
-              </div>
-            ) : people.length === 0 ? (
-              <CommandEmpty>{t('sweep.entities.noPeopleFoundPeriod')}</CommandEmpty>
-            ) : (
-              <CommandGroup>
-                {people.map((p) => {
-                  const already = linkedPersonIds.has(p.id);
-                  return (
-                    <CommandItem
-                      key={p.id}
-                      value={p.displayName + (p.email ? ` ${p.email}` : '')}
-                      disabled={already || linkMut.isPending}
-                      onSelect={() => handlePick(p)}
-                      className="flex items-center gap-2"
-                    >
-                      <Avatar className="h-6 w-6 rounded-md">
-                        <AvatarImage
-                          src={p.avatarUrl ?? personGravatar(p.email)}
-                          className="rounded-md object-cover"
-                        />
-                        <AvatarFallback className="rounded-md text-[10px]">
-                          {personInitial(p)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm truncate">{p.displayName}</div>
-                        {p.email && (
-                          <div className="text-xs text-muted-foreground truncate">{p.email}</div>
-                        )}
-                      </div>
-                      {already && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
+            {peopleContent}
           </CommandList>
         </Command>
       </PopoverContent>

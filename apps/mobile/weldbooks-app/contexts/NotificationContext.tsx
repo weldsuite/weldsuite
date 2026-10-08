@@ -16,7 +16,7 @@ interface NotificationContextType {
 const NotificationContext = createContext<NotificationContextType>({
   badgeCount: 0,
   setBadgeCount: () => {},
-  registerForPushNotifications: async () => null,
+  registerForPushNotifications: () => Promise.resolve(null),
 });
 
 export const useNotifications = () => useContext(NotificationContext);
@@ -26,7 +26,7 @@ export const useNotifications = () => useContext(NotificationContext);
 // notifications invisible, so both are set here alongside the legacy field
 // (still accepted, and still what older Android builds read).
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
+  handleNotification: () => Promise.resolve({
     shouldShowAlert: true,
     shouldShowBanner: true,
     shouldShowList: true,

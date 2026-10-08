@@ -26,7 +26,7 @@ import {
  */
 function channelIdFromActionUrl(actionUrl: unknown): string | null {
   if (typeof actionUrl !== 'string') return null;
-  const match = actionUrl.match(/\/weldchat\/(?:dm\/)?([^/?#]+)/);
+  const match = /\/weldchat\/(?:dm\/)?([^/?#]+)/.exec(actionUrl);
   return match?.[1] ?? null;
 }
 
@@ -130,7 +130,7 @@ if (!isExpoGo) {
     // Override the shared mobile-ui silent foreground handler so chat banners
     // remain visible when the app is open but the user is in another channel.
     expoNotifications.setNotificationHandler({
-      handleNotification: async () => ({
+      handleNotification: () => Promise.resolve({
         shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,
@@ -176,10 +176,10 @@ const NotificationContext = createContext<NotificationContextType>({
   isConnected: false,
   isPermissionGranted: false,
   registrationStatus: emptyRegistrationStatus,
-  requestPermissions: async () => false,
-  openNotificationSettings: async () => {},
-  refreshRegistrationStatus: async () => emptyRegistrationStatus,
-  sendTestPush: async () => ({ ok: false, message: 'Unavailable' }),
+  requestPermissions: () => Promise.resolve(false),
+  openNotificationSettings: () => Promise.resolve(),
+  refreshRegistrationStatus: () => Promise.resolve(emptyRegistrationStatus),
+  sendTestPush: () => Promise.resolve({ ok: false, message: 'Unavailable' }),
   unregisterDevice: async () => {},
   prepareWorkspaceSwitch: async () => {},
 });

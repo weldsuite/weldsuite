@@ -147,7 +147,7 @@ export function pointToLineDistance(point: Point, lineStart: Point, lineEnd: Poi
   const dx = point.x - xx;
   const dy = point.y - yy;
 
-  return Math.sqrt(dx * dx + dy * dy);
+  return Math.hypot(dx, dy);
 }
 
 /**
@@ -155,16 +155,13 @@ export function pointToLineDistance(point: Point, lineStart: Point, lineEnd: Poi
  * touches). Used to test if a line-shaped element actually crosses the
  * marquee — bounding-box overlap alone gives false positives for diagonals.
  */
-export function segmentsIntersect(
-  ax: number, ay: number, bx: number, by: number,
-  cx: number, cy: number, dx: number, dy: number
-): boolean {
-  const cross = (px: number, py: number, qx: number, qy: number, rx: number, ry: number) =>
-    (qx - px) * (ry - py) - (qy - py) * (rx - px);
-  const d1 = cross(cx, cy, dx, dy, ax, ay);
-  const d2 = cross(cx, cy, dx, dy, bx, by);
-  const d3 = cross(ax, ay, bx, by, cx, cy);
-  const d4 = cross(ax, ay, bx, by, dx, dy);
+export function segmentsIntersect(a: Point, b: Point, c: Point, d: Point): boolean {
+  const cross = (p: Point, q: Point, r: Point) =>
+    (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
   return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
          ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 }
@@ -180,10 +177,10 @@ interface Bounds {
 function segmentCrossesBounds(a: Point, b: Point, bounds: Bounds): boolean {
   const { minX, maxX, minY, maxY } = bounds;
   return (
-    segmentsIntersect(a.x, a.y, b.x, b.y, minX, minY, maxX, minY) || // top edge
-    segmentsIntersect(a.x, a.y, b.x, b.y, maxX, minY, maxX, maxY) || // right edge
-    segmentsIntersect(a.x, a.y, b.x, b.y, maxX, maxY, minX, maxY) || // bottom edge
-    segmentsIntersect(a.x, a.y, b.x, b.y, minX, maxY, minX, minY)    // left edge
+    segmentsIntersect(a, b, { x: minX, y: minY }, { x: maxX, y: minY }) || // top edge
+    segmentsIntersect(a, b, { x: maxX, y: minY }, { x: maxX, y: maxY }) || // right edge
+    segmentsIntersect(a, b, { x: maxX, y: maxY }, { x: minX, y: maxY }) || // bottom edge
+    segmentsIntersect(a, b, { x: minX, y: maxY }, { x: minX, y: minY })    // left edge
   );
 }
 
@@ -474,7 +471,7 @@ export function getArrowCurvePoints(element: WhiteboardElement) {
 
   const dx = endX - startX;
   const dy = endY - startY;
-  const distance = Math.sqrt(dx * dx + dy * dy);
+  const distance = Math.hypot(dx, dy);
   const curveOffset = Math.min(distance * 0.5, 150);
 
   let cp1x: number, cp1y: number, cp2x: number, cp2y: number;

@@ -39,10 +39,15 @@ function colIndexToLetter(index: number): string {
   let result = '';
   let n = index;
   while (n >= 0) {
-    result = String.fromCharCode(65 + (n % 26)) + result;
+    result = String.fromCodePoint(65 + (n % 26)) + result;
     n = Math.floor(n / 26) - 1;
   }
   return result;
+}
+
+function headerCellLayoutClass(fillViewport: boolean | undefined, index: number): string {
+  if (fillViewport) return 'justify-center px-3';
+  return index === 0 ? 'pl-5 pr-3 gap-3' : 'px-3 gap-1.5';
 }
 
 export function GridHeader() {
@@ -138,9 +143,7 @@ export function GridHeader() {
               className={cn(
                 'group w-full h-full flex items-center transition-colors',
                 openColumnMenu === column.id ? 'bg-muted/50' : 'hover:bg-muted/50',
-                config.fillViewport
-                  ? 'justify-center px-3'
-                  : index === 0 ? 'pl-5 pr-3 gap-3' : 'px-3 gap-1.5'
+                headerCellLayoutClass(config.fillViewport, index)
               )}
               style={{ height: config.fillViewport ? '21px' : '40px' }}
             >

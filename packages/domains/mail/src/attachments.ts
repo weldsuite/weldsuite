@@ -24,7 +24,7 @@ export interface MailAttachmentsEnv {
   STORAGE?: R2Bucket;
 }
 
-export async function listAttachmentsForMessage(db: Database, messageId: string) {
+export function listAttachmentsForMessage(db: Database, messageId: string) {
   return db
     .select()
     .from(mailAttachments)

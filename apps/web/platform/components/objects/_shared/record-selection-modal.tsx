@@ -6,7 +6,7 @@
  * discriminated record; callers branch on `kind`.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -67,7 +67,7 @@ interface ApiPerson {
 
 function getFaviconUrl(domain?: string | null): string | undefined {
   if (!domain) return undefined;
-  const clean = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const clean = domain.replace(/^https?:\/\//, '').replace(/\/[\s\S]*/, '');
   if (!clean?.includes('.')) return undefined;
   return `https://www.google.com/s2/favicons?domain=${clean}&sz=32`;
 }
@@ -85,6 +85,13 @@ function mapPerson(p: ApiPerson, untitledLabel: string): SelectableRecord {
   const displayName =
     p.displayName || [p.firstName, p.lastName].filter(Boolean).join(' ') || p.email || untitledLabel;
   return { id: p.id, kind: 'person', displayName, email: p.email, avatarUrl: p.avatarUrl };
+}
+
+function recordRowStateClass(isAlready: boolean, isMultiChecked: boolean, isHighlighted: boolean): string {
+  if (isAlready) return 'opacity-50 cursor-not-allowed';
+  if (isMultiChecked) return 'bg-primary/5 dark:bg-primary/10';
+  if (isHighlighted) return 'bg-gray-100/70 dark:bg-secondary/60';
+  return 'hover:bg-gray-50 dark:hover:bg-secondary/40';
 }
 
 function getInitial(record: SelectableRecord): string {
@@ -237,18 +244,18 @@ export function RecordSelectionModal({
     }
   }, [selectedIndex]);
 
-  const title =
-    kind === 'company'
-      ? t('sweep.entities.chooseCompany')
-      : kind === 'person'
-        ? t('sweep.entities.choosePerson')
-        : t('sweep.entities.chooseRecord');
-  const placeholder =
-    kind === 'company'
-      ? t('sweep.entities.searchCompaniesPlaceholder')
-      : kind === 'person'
-        ? t('sweep.entities.searchPeoplePlaceholder')
-        : t('sweep.entities.searchCompaniesAndPeoplePlaceholder');
+  let title: string;
+  let placeholder: string;
+  if (kind === 'company') {
+    title = t('sweep.entities.chooseCompany');
+    placeholder = t('sweep.entities.searchCompaniesPlaceholder');
+  } else if (kind === 'person') {
+    title = t('sweep.entities.choosePerson');
+    placeholder = t('sweep.entities.searchPeoplePlaceholder');
+  } else {
+    title = t('sweep.entities.chooseRecord');
+    placeholder = t('sweep.entities.searchCompaniesAndPeoplePlaceholder');
+  }
   const resolvedConfirmLabel = confirmLabel ?? t('sweep.entities.addToList');
   const canCreatePerson = kind !== 'company' && searchQuery.trim().length > 0;
 
@@ -283,6 +290,92 @@ export function RecordSelectionModal({
     </Button>
   ) : null;
 
+  let listContent: ReactNode;
+  if (isLoading) {
+    listContent = (
+      <div className="flex items-center justify-center py-12 gap-3">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">{t('sweep.entities.searchingEllipsis')}</p>
+      </div>
+    );
+  } else if (records.length === 0) {
+    listContent = (
+      <div className="h-full text-center flex flex-col items-center justify-center gap-3 pb-12">
+        <p className="text-sm text-muted-foreground">
+          {searchQuery
+            ? t('sweep.entities.noResultsFoundFor', { query: searchQuery })
+            : t('sweep.entities.noRecordsFound')}
+        </p>
+        {createPersonButton}
+      </div>
+    );
+  } else {
+    listContent = (
+      <div ref={listRef} className="flex flex-col gap-0.5">
+        {records.map((record, index) => {
+          const isAlready = existingIds.includes(record.id);
+          const isChecked = selectedIds.has(record.id);
+          return (
+          <Button
+            key={`${record.kind}-${record.id}`}
+            variant="ghost"
+            disabled={isAlready}
+            className={cn(
+              'group w-full flex items-center gap-2.5 min-w-0 px-4 py-1.5 transition-colors text-left',
+              recordRowStateClass(isAlready, multiSelect && isChecked, keyboardActive && selectedIndex === index),
+            )}
+            onMouseEnter={() => {
+              setKeyboardActive(false);
+              setSelectedIndex(index);
+            }}
+            onClick={() => handleSingleSelect(record)}
+          >
+            {multiSelect && (
+              <Checkbox
+                checked={isAlready || isChecked}
+                className="pointer-events-none flex-shrink-0 rounded-[5px] data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+              />
+            )}
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <Avatar className="h-[22px] w-[22px] rounded-md border border-border flex-shrink-0">
+                <AvatarImage src={record.avatarUrl} />
+                <AvatarFallback className="rounded-md bg-muted text-[10px] font-medium">
+                  {getInitial(record)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="font-medium text-[14px] text-foreground group-hover:text-primary truncate min-w-0">
+                {record.displayName}
+              </span>
+            </div>
+
+            {record.email && (
+              <span className="text-[12px] text-muted-foreground truncate flex-shrink-0 max-w-[40%]">
+                {record.email}
+              </span>
+            )}
+
+            {!kind && (
+              <span
+                className={cn(
+                  'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none flex-shrink-0',
+                  record.kind === 'person'
+                    ? 'bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400'
+                    : 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400',
+                )}
+              >
+                {record.kind === 'person'
+                  ? t('sweep.entities.personLabel')
+                  : t('sweep.entities.companyLabel')}
+              </span>
+            )}
+          </Button>
+          );
+        })}
+        {createPersonButton}
+      </div>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[560px] w-[560px] max-h-[600px] h-[600px] p-0 gap-0 overflow-hidden rounded-xl [&>button]:hidden flex flex-col">
@@ -314,90 +407,7 @@ export function RecordSelectionModal({
         </div>
 
         <div className="flex-1 overflow-y-auto pb-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12 gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{t('sweep.entities.searchingEllipsis')}</p>
-            </div>
-          ) : records.length === 0 ? (
-            <div className="h-full text-center flex flex-col items-center justify-center gap-3 pb-12">
-              <p className="text-sm text-muted-foreground">
-                {searchQuery
-                  ? t('sweep.entities.noResultsFoundFor', { query: searchQuery })
-                  : t('sweep.entities.noRecordsFound')}
-              </p>
-              {createPersonButton}
-            </div>
-          ) : (
-            <div ref={listRef} className="flex flex-col gap-0.5">
-              {records.map((record, index) => {
-                const isAlready = existingIds.includes(record.id);
-                const isChecked = selectedIds.has(record.id);
-                return (
-                <Button
-                  key={`${record.kind}-${record.id}`}
-                  variant="ghost"
-                  disabled={isAlready}
-                  className={cn(
-                    'group w-full flex items-center gap-2.5 min-w-0 px-4 py-1.5 transition-colors text-left',
-                    isAlready
-                      ? 'opacity-50 cursor-not-allowed'
-                      : multiSelect && isChecked
-                        ? 'bg-primary/5 dark:bg-primary/10'
-                        : keyboardActive && selectedIndex === index
-                          ? 'bg-gray-100/70 dark:bg-secondary/60'
-                          : 'hover:bg-gray-50 dark:hover:bg-secondary/40',
-                  )}
-                  onMouseEnter={() => {
-                    setKeyboardActive(false);
-                    setSelectedIndex(index);
-                  }}
-                  onClick={() => handleSingleSelect(record)}
-                >
-                  {multiSelect && (
-                    <Checkbox
-                      checked={isAlready || isChecked}
-                      className="pointer-events-none flex-shrink-0 rounded-[5px] data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                    />
-                  )}
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                    <Avatar className="h-[22px] w-[22px] rounded-md border border-border flex-shrink-0">
-                      <AvatarImage src={record.avatarUrl} />
-                      <AvatarFallback className="rounded-md bg-muted text-[10px] font-medium">
-                        {getInitial(record)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="font-medium text-[14px] text-foreground group-hover:text-primary truncate min-w-0">
-                      {record.displayName}
-                    </span>
-                  </div>
-
-                  {record.email && (
-                    <span className="text-[12px] text-muted-foreground truncate flex-shrink-0 max-w-[40%]">
-                      {record.email}
-                    </span>
-                  )}
-
-                  {!kind && (
-                    <span
-                      className={cn(
-                        'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none flex-shrink-0',
-                        record.kind === 'person'
-                          ? 'bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400'
-                          : 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400',
-                      )}
-                    >
-                      {record.kind === 'person'
-                        ? t('sweep.entities.personLabel')
-                        : t('sweep.entities.companyLabel')}
-                    </span>
-                  )}
-                </Button>
-                );
-              })}
-              {createPersonButton}
-            </div>
-          )}
+          {listContent}
         </div>
 
         {multiSelect && (

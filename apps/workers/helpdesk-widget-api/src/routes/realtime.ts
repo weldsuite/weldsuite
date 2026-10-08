@@ -26,7 +26,7 @@ function base64Url(input: string | ArrayBuffer): string {
   const raw =
     typeof input === 'string'
       ? btoa(unescape(encodeURIComponent(input)))
-      : btoa(String.fromCharCode(...new Uint8Array(input)));
+      : btoa(String.fromCodePoint(...new Uint8Array(input)));
   return raw.replaceAll('=', '').replaceAll('+', '-').replaceAll('/', '_');
 }
 

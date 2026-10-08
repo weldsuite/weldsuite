@@ -58,6 +58,17 @@ describe('external-api · contract', () => {
         expect(res.status).toBe(404);
       });
 
+      if (entity.readOnly) {
+        // WeldBooks resources the ledger depends on: the full write matrix
+        // (every method, every scope, nothing persisted) is in accounting-read-only.test.ts.
+        it('POST → 405, the resource is read-only through the public API', async () => {
+          const { request } = createExternalTestApp({ scopes: [`${scope}:read`, `${scope}:write`], tenantDb: db });
+          const res = await request(`/v1/${seg}`, { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+          expect(res.status).toBe(405);
+        });
+        return;
+      }
+
       it('POST without the write scope → 403 (before validation)', async () => {
         const { request } = createExternalTestApp({ scopes: [`${scope}:read`], tenantDb: db });
         const res = await request(`/v1/${seg}`, { method: 'POST', headers: JSON_HEADERS, body: '{}' });

@@ -3,6 +3,7 @@ import { SmartReplyClient } from './smart-reply-client';
 import { useMailAccounts, useMailMessages } from '@/hooks/queries/use-mail-queries';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { stripTags } from '@/lib/utils';
 
 export default function SmartReplyPage() {
   const { t } = useI18n();
@@ -36,7 +37,7 @@ export default function SmartReplyPage() {
     subject: (msg.subject as string | undefined) ?? t.mail.shared.noSubject,
     preview: (
       (msg.textBody as string | undefined) ??
-      (msg.htmlBody as string | undefined)?.replace(/<[^>]*>/g, '') ??
+      (typeof msg.htmlBody === 'string' ? stripTags(msg.htmlBody) : undefined) ??
       (msg.preview as string | undefined) ??
       ''
     ).substring(0, 200),

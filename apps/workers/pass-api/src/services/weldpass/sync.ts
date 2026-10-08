@@ -92,7 +92,7 @@ const runColumns = {
   finishedAt: runs.finishedAt,
 };
 
-export async function listSyncTargets(
+export function listSyncTargets(
   db: Database,
   projectId: string,
   environmentId?: string,
@@ -268,8 +268,7 @@ export async function pushToTarget(
 
     return { run, target: updatedTarget };
   } catch (err) {
-    const message =
-      err instanceof ProviderError ? err.message : err instanceof Error ? err.message : String(err);
+    const message = err instanceof ProviderError || err instanceof Error ? err.message : String(err);
 
     const run = await finishRun(db, runId, {
       status: 'failed',
@@ -324,7 +323,7 @@ export async function pushAutoTargets(
   return outcomes;
 }
 
-export async function listSyncRuns(
+export function listSyncRuns(
   db: Database,
   projectId: string,
   options: { targetId?: string; limit?: number } = {},

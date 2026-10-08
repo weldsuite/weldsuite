@@ -35,7 +35,7 @@ export const taxRates = pgTable('tax_rates', {
   jurisdictionCode: varchar('jurisdiction_code', { length: 5 }).notNull(),
 
   name: varchar('name', { length: 100 }).notNull(),
-  rate: numeric('rate', { precision: 5, scale: 2 }).notNull(),
+  rate: numeric('rate', { precision: 7, scale: 4 }).notNull(),
   type: varchar('type', { length: 10 }).notNull(),
   taxCategoryCode: varchar('tax_category_code', { length: 30 }).$type<TaxCategoryCode>(),
   isDefault: boolean('is_default').default(false),

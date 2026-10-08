@@ -73,9 +73,9 @@ export function useVirtualBackground(meeting: RealtimeKitClient | null) {
   const initPromiseRef = useRef<Promise<RealtimeKitVideoBackgroundTransformer | null> | null>(null);
   const appliedRef = useRef(false);
 
-  const getTransformer = useCallback(async () => {
-    if (transformerRef.current) return transformerRef.current;
-    if (!meeting) return null;
+  const getTransformer = useCallback((): Promise<RealtimeKitVideoBackgroundTransformer | null> => {
+    if (transformerRef.current) return Promise.resolve(transformerRef.current);
+    if (!meeting) return Promise.resolve(null);
     if (initPromiseRef.current) return initPromiseRef.current;
 
     initPromiseRef.current = (async () => {

@@ -368,15 +368,17 @@ export async function getWorkflowStats(db: Database) {
  * Workflows another workflow can run after ("After another workflow finishes").
  * CRM sequences are left out: they are not WeldConnect workflows.
  */
-export async function listWorkflowsForChaining(db: Database, excludeId?: string) {
+export function listWorkflowsForChaining(db: Database, excludeId?: string) {
   const conditions: any[] = [isNull(workflows.deletedAt), notSequenceWorkflow];
   if (excludeId) conditions.push(sql`${workflows.id} != ${excludeId}`);
 
-  return db
-    .select({ id: workflows.id, name: workflows.name, status: workflows.status })
-    .from(workflows)
-    .where(and(...conditions))
-    .orderBy(workflows.name);
+  return Promise.resolve(
+    db
+      .select({ id: workflows.id, name: workflows.name, status: workflows.status })
+      .from(workflows)
+      .where(and(...conditions))
+      .orderBy(workflows.name),
+  );
 }
 
 export async function getWorkflowMetrics(db: Database, workflowId: string) {

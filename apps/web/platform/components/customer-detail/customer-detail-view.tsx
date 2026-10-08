@@ -167,14 +167,16 @@ function CustomerDetailPageLayout({
 
   const customer = data?.customer;
   const isB2B = (customer?.type ?? '').toLowerCase() === 'b2b';
-  const customerName = customer
-    ? isB2B
-      ? customer.companyName || customer.tradingName || t('sweep.weldcrm.customerDetailContent.customer')
-      : customer.fullName ||
-        `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() ||
-        customer.companyName ||
-        t('sweep.weldcrm.customerDetailContent.customer')
-    : undefined;
+  let customerName: string | undefined;
+  if (customer && isB2B) {
+    customerName = customer.companyName || customer.tradingName || t('sweep.weldcrm.customerDetailContent.customer');
+  } else if (customer) {
+    customerName =
+      customer.fullName ||
+      `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() ||
+      customer.companyName ||
+      t('sweep.weldcrm.customerDetailContent.customer');
+  }
   const showChat = (entityType === 'customer' || entityType === 'contact') && !!customer;
 
   // Chat panel width is always the standard 500px on every load and every

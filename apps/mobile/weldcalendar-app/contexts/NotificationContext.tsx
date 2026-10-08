@@ -31,7 +31,7 @@ function resolveEventDeepLink(data: Record<string, unknown> | undefined): string
       ? data.entityId
       : undefined) ||
     (typeof data.actionUrl === 'string'
-      ? data.actionUrl.match(/[?&]event=([^&#]+)/)?.[1]
+      ? /[?&]event=([^&#]+)/.exec(data.actionUrl)?.[1]
       : undefined);
 
   if (!candidate || !/^[A-Za-z0-9_-]+$/.test(candidate)) return null;
@@ -92,7 +92,7 @@ if (!isExpoGo) {
     notifUtils = require('@weldsuite/mobile-ui/services/notifications');
     // Show banners while foregrounded — shared handler suppresses them by default.
     Notifications?.setNotificationHandler({
-      handleNotification: async () => ({
+      handleNotification: () => Promise.resolve({
         shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,
@@ -120,8 +120,8 @@ const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0,
   isConnected: false,
   isPermissionGranted: false,
-  requestPermissions: async () => false,
-  openNotificationSettings: async () => {},
+  requestPermissions: () => Promise.resolve(false),
+  openNotificationSettings: () => Promise.resolve(),
   refreshBadgeCount: async () => {},
   unregisterDevice: async () => {},
   prepareWorkspaceSwitch: async () => {},

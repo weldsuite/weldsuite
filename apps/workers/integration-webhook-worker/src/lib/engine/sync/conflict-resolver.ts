@@ -14,7 +14,7 @@ export interface ConflictResolution {
 }
 
 export class ConflictResolver {
-  constructor(private strategy: ConflictStrategy) {}
+  constructor(private readonly strategy: ConflictStrategy) {}
 
   /**
    * Determine how to resolve a conflict.

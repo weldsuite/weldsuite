@@ -325,16 +325,14 @@ export class WeldAppBridge {
       return info;
     }
 
-    if (!this.tokenRefreshPromise) {
-      this.tokenRefreshPromise = this.request<WeldTokenInfo>('getToken')
-        .then((info) => {
-          this.tokenInfo = info;
-          return info;
-        })
-        .finally(() => {
-          this.tokenRefreshPromise = null;
-        });
-    }
+    this.tokenRefreshPromise ??= this.request<WeldTokenInfo>('getToken')
+      .then((info) => {
+        this.tokenInfo = info;
+        return info;
+      })
+      .finally(() => {
+        this.tokenRefreshPromise = null;
+      });
     return this.tokenRefreshPromise;
   }
 
@@ -608,9 +606,7 @@ export class WeldAppBridge {
     if (isLocalPreviewInit(message.payload)) {
       this.localDevActive = true;
       this.hostBridgeActive = true;
-      if (!this.memoryStore) {
-        this.memoryStore = new LocalMemoryStore();
-      }
+      this.memoryStore ??= new LocalMemoryStore();
     }
     this.initResolve?.(message.payload);
   }

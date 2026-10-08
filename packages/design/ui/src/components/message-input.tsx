@@ -68,9 +68,7 @@ export function MessageInput({
         <div className="flex items-center justify-between px-3 pb-3">
           {/* Left side actions */}
           <div className="flex items-center gap-1">
-            {actionButtons ? (
-              actionButtons
-            ) : (
+            {actionButtons || (
               <>
                 {showAttachment && (
                   <button

@@ -447,6 +447,11 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
         label: 'Manage WeldHR settings and the workforce portal',
         description: 'Departments, checklist templates, evaluation forms, KPI definitions, leave types, portal branding and who can sign in to the portal.',
       },
+      {
+        key: 'employees:self',
+        label: 'Use My HR',
+        description: 'Their own employee record only: profile, leave, attendance, onboarding tasks, coaching and evaluations. Requires being linked to an employee.',
+      },
     ],
   },
   objectPermissions('attendance', 'Attendance', ['read', 'create', 'update', 'delete', 'approve']),
@@ -526,7 +531,7 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'passwords:use', 'passwords:create', 'passwords:manage',
   // WeldHR — admins run HR, including the sensitive block
   'employees:read', 'employees:create', 'employees:update', 'employees:delete',
-  'employees:sensitive', 'employees:manage',
+  'employees:sensitive', 'employees:manage', 'employees:self',
   'attendance:read', 'attendance:create', 'attendance:update', 'attendance:delete', 'attendance:approve',
   'leave:read', 'leave:create', 'leave:update', 'leave:delete', 'leave:approve',
   'coaching:read', 'coaching:create', 'coaching:update', 'coaching:delete',
@@ -687,6 +692,22 @@ export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {
     permissions: migratePermissionKeys(LEGACY_VIEWER_PERMISSIONS),
   },
 };
+
+/**
+ * The complete access of a workspace member with `memberType = 'EMPLOYEE'`:
+ * My HR (their own employee record), WeldChat, and the workspace basics the
+ * shell and chat need (name/logo, the team directory for mentions). The
+ * resolver uses this instead of the member's role, teams and per-member
+ * extras, so an Employee member can't be widened by accident; to give
+ * someone more, invite them as a team member instead.
+ */
+export const EMPLOYEE_MEMBER_PERMISSIONS: string[] = migratePermissionKeys([
+  'settings:general:read', 'settings:team:read',
+  'employees:self',
+  'weldchat:channels:read', 'weldchat:channels:create',
+  'weldchat:messages:read', 'weldchat:messages:create', 'weldchat:messages:update', 'weldchat:messages:delete',
+  'weldchat:settings:read',
+]);
 
 // ---------------------------------------------------------------------------
 // Flat permission catalog (alternative format, keyed by object key)

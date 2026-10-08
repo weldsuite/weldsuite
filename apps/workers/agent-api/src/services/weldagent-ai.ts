@@ -38,10 +38,10 @@ export interface AutoTitleInput {
  * caller (`routes/weldagent/index.ts`) treats an empty title as "generate a
  * fallback from the first user message" — no AI call is attempted.
  */
-export async function generateConversationTitle(
+export function generateConversationTitle(
   _env: Env,
   _input: AutoTitleInput,
 ): Promise<string> {
   console.warn('[ai] AI is currently unavailable — skipping conversation auto-title');
-  return '';
+  return Promise.resolve('');
 }

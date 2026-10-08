@@ -84,8 +84,9 @@ export function EntityFormLayout({
   const resolvedCancelText = cancelText ?? t('sweep.entities.cancel');
   const resolvedBackButtonText = backButtonText ?? t('sweep.entities.back');
 
-  const backButton = showBackButton ? (
-    backLink ? (
+  let backButton: ReactNode = null;
+  if (showBackButton && backLink) {
+    backButton = (
       <Link href={backLink}>
         <Button
           type="button"
@@ -98,7 +99,9 @@ export function EntityFormLayout({
           <span className="sm:hidden">{t('sweep.entities.back')}</span>
         </Button>
       </Link>
-    ) : (
+    );
+  } else if (showBackButton) {
+    backButton = (
       <Button
         type="button"
         variant="ghost"
@@ -110,8 +113,8 @@ export function EntityFormLayout({
         <span className="hidden sm:inline">{resolvedBackButtonText}</span>
         <span className="sm:hidden">{t('sweep.entities.back')}</span>
       </Button>
-    )
-  ) : null;
+    );
+  }
 
   const formContent = (
     <form onSubmit={onSubmit} className="space-y-8 min-h-full" suppressHydrationWarning>

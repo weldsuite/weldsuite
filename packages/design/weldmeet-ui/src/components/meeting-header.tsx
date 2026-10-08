@@ -69,6 +69,13 @@ export function MeetingHeader({
   const titleEditable = !!onRenameMeeting;
   const isMobile = useIsMobile();
 
+  let titleBorderClass = "border-transparent cursor-default";
+  if (editingTitle) {
+    titleBorderClass = "border-gray-400 dark:border-gray-500";
+  } else if (titleEditable) {
+    titleBorderClass = "border-transparent hover:border-border cursor-text";
+  }
+
   return (
     <div className="flex items-center justify-between px-4 border-b flex-shrink-0 h-[53px]">
       <div className={cn('flex items-center gap-2', isMobile && 'min-w-0 flex-1')}>
@@ -77,8 +84,7 @@ export function MeetingHeader({
             className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
             title={recordingLabels?.startingHint ?? 'Recording is starting'}
           >
-            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-            {recordingLabels?.starting ?? 'Starting…'}
+            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />{recordingLabels?.starting ?? 'Starting…'}
             {typeof recordingStartElapsedSeconds === 'number' && (
               <span className="tabular-nums">{recordingStartElapsedSeconds}s</span>
             )}
@@ -103,7 +109,7 @@ export function MeetingHeader({
           suppressContentEditableWarning
           className={cn(
             "rounded-md px-2 py-0.5 -mx-2 border transition-colors text-[16px] font-semibold outline-none",
-            editingTitle ? "border-gray-400 dark:border-gray-500" : titleEditable ? "border-transparent hover:border-border cursor-text" : "border-transparent cursor-default",
+            titleBorderClass,
             // Mobile: keep the title on one line so it can't push the action
             // buttons off-screen — desktop layout is unchanged.
             !editingTitle && isMobile && "truncate min-w-0",

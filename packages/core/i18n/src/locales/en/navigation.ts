@@ -107,6 +107,7 @@ export const navigation = {
         projects: 'Projects',
       },
       weldhr: {
+        myHr: 'My HR',
         dashboard: 'Dashboard',
         employees: 'Employees',
         clients: 'Client accounts',
@@ -194,6 +195,13 @@ export const navigation = {
         agedPayables: 'Aged Payables',
         entities: 'Entities',
         settings: 'Settings',
+        vendors: 'Vendors',
+        creditMemos: 'Credit Memos',
+        taxNav: {
+          vat: 'VAT Returns',
+          gst: 'GST Returns',
+          sales_tax: 'Sales Tax',
+        },
       },
       agents: {
         allAgents: 'All Agents',

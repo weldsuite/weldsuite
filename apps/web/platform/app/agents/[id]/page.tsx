@@ -276,8 +276,8 @@ export default function AgentDetailPage() {
     try {
       await deleteAgent.mutateAsync(id);
       setDeleteOpen(false);
-      const remaining = agents.filter((a) => a.id !== id);
-      router.replace(remaining[0] ? `/agents/${remaining[0].id}` : '/agents');
+      const remaining = agents.find((a) => a.id !== id);
+      router.replace(remaining ? `/agents/${remaining.id}` : '/agents');
     } catch (err) {
       toast.error(errorMessage(err, fb.deleteFailed));
     }

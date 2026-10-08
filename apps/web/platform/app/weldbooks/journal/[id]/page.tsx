@@ -17,7 +17,7 @@ import {
   usePostJournalEntry,
 } from '@/hooks/queries/use-accounting-queries';
 import { useI18n } from '@/lib/i18n/provider';
-import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 
 function journalStatusBadgeVariant(status: string): 'default' | 'destructive' | 'outline' {
   if (status === 'posted') return 'default';
@@ -33,7 +33,7 @@ export default function JournalEntryDetailPage() {
   const { t } = useI18n();
   const tj = t.accounting.journalEntry;
   const tsl = t.accounting.statusLabels.journalEntry;
-  const { formatMoney: fmt } = useCurrentEntityCurrency();
+  const { formatMoney: fmt, formatDate } = useWeldbooksFormat();
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -61,7 +61,7 @@ export default function JournalEntryDetailPage() {
             <h1 className="text-2xl font-semibold">
               {entry.entryNumber ?? tsl.fallback}
             </h1>
-            <p className="text-sm text-muted-foreground">{entry.date}</p>
+            <p className="text-sm text-muted-foreground">{formatDate(entry.date)}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

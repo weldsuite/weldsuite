@@ -114,38 +114,48 @@ function EditableField({
     );
   }
 
+  let statusIcon: ReactNode;
+  if (field.icon) {
+    statusIcon = field.icon;
+  } else if (!field.editable && field.value) {
+    statusIcon = <Check className="h-4 w-4 text-green-500 flex-shrink-0" />;
+  } else {
+    statusIcon = <Circle className="h-4 w-4 text-muted-foreground flex-shrink-0" />;
+  }
+
+  let valueContent: ReactNode;
+  if (field.editable && !displayValue) {
+    valueContent = (
+      <span
+        className="text-sm text-primary ml-auto cursor-pointer hover:underline"
+        onClick={handleClick}
+      >
+        {t('sweep.weldcrm.personDetailSidebar.add')}
+      </span>
+    );
+  } else if (field.editable && displayValue) {
+    valueContent = (
+      <span
+        className="text-sm text-foreground ml-auto truncate max-w-[180px] cursor-pointer hover:text-primary"
+        onClick={handleClick}
+        title={t('sweep.weldcrm.personDetailSidebar.clickToEdit')}
+      >
+        {displayValue}
+      </span>
+    );
+  } else {
+    valueContent = (
+      <span className="text-sm text-foreground ml-auto truncate max-w-[180px]">
+        {displayValue || '-'}
+      </span>
+    );
+  }
+
   return (
     <div className="flex items-center gap-3">
-      {field.icon ? (
-        field.icon
-      ) : field.editable ? (
-        <Circle className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-      ) : field.value ? (
-        <Check className="h-4 w-4 text-green-500 flex-shrink-0" />
-      ) : (
-        <Circle className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-      )}
+      {statusIcon}
       <span className="text-sm text-muted-foreground">{field.label}</span>
-      {field.editable && !displayValue ? (
-        <span
-          className="text-sm text-primary ml-auto cursor-pointer hover:underline"
-          onClick={handleClick}
-        >
-          {t('sweep.weldcrm.personDetailSidebar.add')}
-        </span>
-      ) : field.editable && displayValue ? (
-        <span
-          className="text-sm text-foreground ml-auto truncate max-w-[180px] cursor-pointer hover:text-primary"
-          onClick={handleClick}
-          title={t('sweep.weldcrm.personDetailSidebar.clickToEdit')}
-        >
-          {displayValue}
-        </span>
-      ) : (
-        <span className="text-sm text-foreground ml-auto truncate max-w-[180px]">
-          {displayValue || '-'}
-        </span>
-      )}
+      {valueContent}
     </div>
   );
 }

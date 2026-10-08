@@ -7,7 +7,7 @@ import { Star } from 'lucide-react';
 function toKebab(name: string): string {
   return name
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .replace(/(?<![A-Z])([A-Z]+)([A-Z][a-z])/g, '$1-$2')
     .toLowerCase();
 }
 
@@ -58,6 +58,23 @@ const DEFAULT_ITEMS: TrustItem[] = [
   },
 ];
 
+function getGridColumnsClass(itemCount: number): string {
+  if (itemCount === 1) return 'grid-cols-1';
+  if (itemCount === 2) return 'grid-cols-2';
+  if (itemCount === 3) return 'grid-cols-3';
+  return 'grid-cols-2 md:grid-cols-4';
+}
+
+function getJustifyItemsClass(alignment: TrustStripBlockProps['alignment']): string {
+  if (alignment === 'left') return 'justify-items-start';
+  if (alignment === 'right') return 'justify-items-end';
+  return 'justify-items-center';
+}
+
+function StarIconFallback() {
+  return <Star className="size-5" />;
+}
+
 export function TrustStripBlock({
   items = DEFAULT_ITEMS,
   backgroundColor = '#fafafa',
@@ -79,7 +96,7 @@ export function TrustStripBlock({
       <DynamicIcon
         name={kebab as never}
         className="size-5"
-        fallback={() => <Star className="size-5" />}
+        fallback={StarIconFallback}
       />
     );
   };
@@ -91,16 +108,7 @@ export function TrustStripBlock({
     >
       <div className="max-w-7xl mx-auto px-4">
         <div
-          className={`grid ${
-            items.length === 1 ? 'grid-cols-1' :
-            items.length === 2 ? 'grid-cols-2' :
-            items.length === 3 ? 'grid-cols-3' :
-            'grid-cols-2 md:grid-cols-4'
-          } ${
-            alignment === 'left' ? 'justify-items-start' :
-            alignment === 'right' ? 'justify-items-end' :
-            'justify-items-center'
-          }`}
+          className={`grid ${getGridColumnsClass(items.length)} ${getJustifyItemsClass(alignment)}`}
           style={{ gap: itemGap }}
         >
           {items.map((item, index) => (

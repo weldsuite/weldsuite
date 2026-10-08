@@ -56,7 +56,7 @@ describe('useCurrentEntityCurrency', () => {
     expect(result.current.formatMoney(1500)).not.toMatch(/€/);
   });
 
-  it('falls back to EUR when no entity is loaded', async () => {
+  it('does not assume a currency when no entity is loaded', async () => {
     entityIdRef.current = null;
     getMock.mockResolvedValue({ data: [] });
 
@@ -65,7 +65,22 @@ describe('useCurrentEntityCurrency', () => {
     await waitFor(() => {
       expect(getMock).toHaveBeenCalled();
     });
-    expect(result.current.currency).toBe('EUR');
-    expect(result.current.formatMoney(10)).toMatch(/€/);
+    expect(result.current.currency).toBe('');
+    expect(result.current.entityCurrency).toBeNull();
+    expect(result.current.formatMoney(10)).not.toMatch(/€|\$/);
+  });
+
+  it('formats a US entity in USD with en-US', async () => {
+    entityIdRef.current = 'ent_us';
+    getMock.mockResolvedValue({
+      data: [{ id: 'ent_us', baseCurrency: 'USD', locale: 'en-US', jurisdictionCode: 'US' }],
+    });
+
+    const { result } = renderHook(() => useCurrentEntityCurrency(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.currency).toBe('USD');
+    });
+    expect(result.current.formatMoney(1234.5)).toBe('$1,234.50');
   });
 });

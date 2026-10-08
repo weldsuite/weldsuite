@@ -5,6 +5,13 @@
  * country seeds a localized chart of accounts, standard tax rates (with
  * rubriek metadata for the BTW return), and per-entity number sequences.
  * Unsupported jurisdictions are rejected — see services/jurisdictions/.
+ * Tax identifiers are checked with the adapter's `validateTaxIdentifier`,
+ * and addresses are stored in the shared `PostalAddress` shape (either
+ * shape is accepted on input).
+ *
+ * Lock dates (`PATCH /:id/lock-dates`) and their logged, time-limited
+ * per-user exceptions (`/:id/lock-exceptions`) are set here; the posting
+ * service enforces them.
  *
  * Permissions: entities:read | entities:create | entities:update | entities:delete.
  */
@@ -12,15 +19,16 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, lte, or } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { getAdapter, hasAdapter, listJurisdictions } from '@weldsuite/books-domain/jurisdictions/registry';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
+import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import {
   extractStateCodeFromGstin,
   validateGstin,
@@ -34,6 +42,57 @@ type TaxIdentifiers = {
   einOrSsn?: string;
   other?: Record<string, string>;
 };
+
+const VALIDATED_TAX_IDS = ['vatNumber', 'registrationNumber'] as const;
+type ValidatedTaxId = (typeof VALIDATED_TAX_IDS)[number];
+
+/**
+ * Check the tax identifiers a request touched with the jurisdiction adapter
+ * and store them in the adapter's canonical format. A blank value clears the
+ * identifier. Untouched identifiers are left alone, so a stale value saved
+ * before validation existed doesn't block an unrelated edit.
+ */
+function validateTaxIdentifiersWithAdapter(
+  jurisdictionCode: string,
+  taxIdentifiers: TaxIdentifiers | null | undefined,
+  touched: ReadonlySet<ValidatedTaxId>,
+): { error?: string; taxIdentifiers?: TaxIdentifiers } {
+  if (!taxIdentifiers || touched.size === 0) return { taxIdentifiers: taxIdentifiers ?? undefined };
+  const adapter = getAdapter(jurisdictionCode);
+  const next: TaxIdentifiers = { ...taxIdentifiers };
+  for (const field of VALIDATED_TAX_IDS) {
+    if (!touched.has(field)) continue;
+    const value = next[field];
+    if (value === undefined) continue;
+    if (value.trim() === '') {
+      delete next[field];
+      continue;
+    }
+    const check = adapter.validateTaxIdentifier(field, value);
+    if (!check.valid) {
+      return { error: check.error ?? `Invalid ${field}` };
+    }
+    next[field] = check.formatted ?? value.trim();
+  }
+  return { taxIdentifiers: next };
+}
+
+/** Which validated tax identifiers a create/update body sets. */
+function touchedTaxIdentifiers(
+  taxIdentifiers: Partial<Record<ValidatedTaxId, string>> | undefined,
+  vatAlias: string | undefined,
+): Set<ValidatedTaxId> {
+  const touched = new Set<ValidatedTaxId>();
+  for (const field of VALIDATED_TAX_IDS) {
+    if (taxIdentifiers?.[field] !== undefined) touched.add(field);
+  }
+  if (vatAlias !== undefined) touched.add('vatNumber');
+  return touched;
+}
+
+function unsupportedJurisdictionMessage(code: string): string {
+  return `Jurisdiction '${code}' is not supported. Supported: ${listJurisdictions().map((j) => j.code).join(', ')}`;
+}
 
 /**
  * Validate/normalize India GSTIN and derive jurisdictionSettings.stateCode.
@@ -81,13 +140,22 @@ function applyIndiaTaxIdentifiers(opts: {
   };
 }
 
+/**
+ * Either address shape: the shared `PostalAddress` (line1, line2, city,
+ * state, postalCode, country, county) or the legacy Dutch one (street +
+ * houseNumber, province). Stored normalized to the shared shape.
+ */
 const addressSchema = z.object({
-  street: z.string().optional(),
-  houseNumber: z.string().optional(),
-  postalCode: z.string().optional(),
-  city: z.string().optional(),
-  province: z.string().optional(),
-  country: z.string().optional(),
+  line1: z.string().max(255),
+  line2: z.string().max(255),
+  city: z.string().max(100),
+  state: z.string().max(100),
+  postalCode: z.string().max(20),
+  country: z.string().max(100),
+  county: z.string().max(100),
+  street: z.string().max(255),
+  houseNumber: z.string().max(20),
+  province: z.string().max(100),
 }).partial();
 
 const taxIdentifiersSchema = z.object({
@@ -133,7 +201,7 @@ const createEntitySchema = z.object({
   locale: z.string().max(10).optional(),
   timezone: z.string().max(50).optional(),
   taxIdentifiers: taxIdentifiersSchema.optional(),
-  address: addressSchema.optional(),
+  address: addressSchema.nullable().optional(),
   contact: contactSchema.optional(),
   bankDetails: bankDetailsSchema.optional(),
   branding: brandingSchema.optional(),
@@ -164,7 +232,7 @@ app.get('/', requirePermission('entities:read'), async (c) => {
 });
 
 // GET /jurisdictions — supported jurisdiction adapters
-app.get('/jurisdictions', requirePermission('entities:read'), async (c) => {
+app.get('/jurisdictions', requirePermission('entities:read'), (c) => {
   return success(c, listJurisdictions());
 });
 
@@ -195,10 +263,7 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     return error.badRequest(c, 'jurisdictionCode is required');
   }
   if (!hasAdapter(jurisdictionCode)) {
-    return error.badRequest(
-      c,
-      `Jurisdiction '${jurisdictionCode}' is not supported. Supported: ${listJurisdictions().map((j) => j.code).join(', ')}`,
-    );
+    return error.badRequest(c, unsupportedJurisdictionMessage(jurisdictionCode));
   }
 
   const adapter = getAdapter(jurisdictionCode);
@@ -217,7 +282,16 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     return error.badRequest(c, india.error);
   }
 
-  const taxIdentifiers = india.taxIdentifiers;
+  const checked = validateTaxIdentifiersWithAdapter(
+    jurisdictionCode,
+    india.taxIdentifiers,
+    touchedTaxIdentifiers(data.taxIdentifiers, data.vatNumber),
+  );
+  if (checked.error) {
+    return error.badRequest(c, checked.error);
+  }
+
+  const taxIdentifiers = checked.taxIdentifiers;
   const jurisdictionSettings = india.jurisdictionSettings;
   const timezone = india.timezone;
   const locale = data.locale ?? adapter.defaultLocale;
@@ -237,7 +311,7 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
       locale,
       timezone,
       taxIdentifiers,
-      address: data.address,
+      address: normalizePostalAddress(data.address),
       contact: data.contact,
       bankDetails: data.bankDetails,
       branding: data.branding,
@@ -373,13 +447,17 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       jurisdictionAlias ??
       existing.jurisdictionCode
     ).toUpperCase();
+    if ((data.jurisdictionCode || jurisdictionAlias) && !hasAdapter(nextJurisdiction)) {
+      return error.badRequest(c, unsupportedJurisdictionMessage(nextJurisdiction));
+    }
 
+    const mergedWithoutAlias = data.taxIdentifiers
+      ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
+      : existing.taxIdentifiers;
     const mergedTaxIdentifiers =
       vatAlias !== undefined
         ? { ...existing.taxIdentifiers, ...data.taxIdentifiers, vatNumber: vatAlias }
-        : data.taxIdentifiers
-          ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
-          : existing.taxIdentifiers;
+        : mergedWithoutAlias;
 
     const india = applyIndiaTaxIdentifiers({
       jurisdictionCode: nextJurisdiction,
@@ -391,6 +469,17 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       return error.badRequest(c, india.error);
     }
 
+    const checked = hasAdapter(nextJurisdiction)
+      ? validateTaxIdentifiersWithAdapter(
+          nextJurisdiction,
+          india.taxIdentifiers,
+          touchedTaxIdentifiers(data.taxIdentifiers, vatAlias),
+        )
+      : { taxIdentifiers: india.taxIdentifiers };
+    if (checked.error) {
+      return error.badRequest(c, checked.error);
+    }
+
     const patch: Record<string, unknown> = {
       ...data,
       updatedAt: new Date(),
@@ -399,7 +488,10 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       patch.jurisdictionCode = nextJurisdiction;
     }
     if (vatAlias !== undefined || data.taxIdentifiers) {
-      patch.taxIdentifiers = india.taxIdentifiers;
+      patch.taxIdentifiers = checked.taxIdentifiers;
+    }
+    if (data.address !== undefined) {
+      patch.address = normalizePostalAddress(data.address);
     }
     if (nextJurisdiction === 'IN') {
       patch.jurisdictionSettings = india.jurisdictionSettings ?? existing.jurisdictionSettings;
@@ -470,5 +562,332 @@ app.delete('/:id', requirePermission('entities:delete'), async (c) => {
     return error.internal(c, 'Failed to delete entity');
   }
 });
+
+// ---------------------------------------------------------------------------
+// Lock dates
+//
+// Postings dated on or before a lock date are refused by the posting service:
+// sales (invoices, credit notes), purchase (bills), tax (anything carrying
+// tax), period (everything) and hard. The first four can be bypassed by a
+// logged, time-limited exception; the hard lock has none and only moves
+// forward.
+// ---------------------------------------------------------------------------
+
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use the YYYY-MM-DD format')
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value);
+  }, 'Not a valid date');
+
+const lockDatesSchema = z.object({
+  salesLockDate: isoDate.nullable().optional(),
+  purchaseLockDate: isoDate.nullable().optional(),
+  taxLockDate: isoDate.nullable().optional(),
+  periodLockDate: isoDate.nullable().optional(),
+  /** Nullable only so a clear attempt gets the "only moves forward" answer. */
+  hardLockDate: isoDate.nullable().optional(),
+});
+
+const LOCK_DATE_FIELDS = [
+  'salesLockDate',
+  'purchaseLockDate',
+  'taxLockDate',
+  'periodLockDate',
+  'hardLockDate',
+] as const;
+
+const HARD_LOCK_FORWARD_ONLY = 'The hard lock date can only move forward';
+
+/** Today's date (YYYY-MM-DD) in the entity's time zone, UTC when it has none. */
+function todayInTimeZone(timeZone: string | null | undefined): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timeZone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+async function findActiveEntity(db: Database, id: string) {
+  const [entity] = await db
+    .select()
+    .from(schema.entities)
+    .where(and(eq(schema.entities.id, id), isNull(schema.entities.deletedAt)))
+    .limit(1);
+  return entity ?? null;
+}
+
+// PATCH /:id/lock-dates
+app.patch(
+  '/:id/lock-dates',
+  requirePermission('entities:update'),
+  zValidator('json', lockDatesSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+
+    try {
+      const existing = await findActiveEntity(db, id);
+      if (!existing) return error.notFound(c, 'Entity', id);
+
+      const hardLockDate = body.hardLockDate;
+      if (hardLockDate !== undefined) {
+        // Dates compare correctly as YYYY-MM-DD strings.
+        if (hardLockDate === null) {
+          if (existing.hardLockDate) return error.badRequest(c, HARD_LOCK_FORWARD_ONLY);
+        } else {
+          if (existing.hardLockDate && hardLockDate < existing.hardLockDate) {
+            return error.badRequest(c, HARD_LOCK_FORWARD_ONLY);
+          }
+          // Irreversible, so it can't reach past today: that would freeze
+          // the books for days nobody has finished yet.
+          if (hardLockDate > todayInTimeZone(existing.timezone)) {
+            return error.badRequest(c, "The hard lock date can't be in the future");
+          }
+        }
+      }
+
+      const patch: Partial<typeof schema.entities.$inferInsert> = {};
+      for (const field of LOCK_DATE_FIELDS) {
+        const value = body[field];
+        if (value === undefined) continue;
+        if (field === 'hardLockDate' && value === null) continue; // nothing set, nothing to clear
+        patch[field] = value;
+      }
+
+      const changes = Object.fromEntries(
+        Object.entries(patch)
+          .filter(([field, value]) => (existing as Record<string, unknown>)[field] !== value)
+          .map(([field, value]) => [field, { old: (existing as Record<string, unknown>)[field], new: value }]),
+      );
+      if (Object.keys(changes).length === 0) return success(c, existing);
+
+      // The hard-lock guard is repeated in the WHERE clause so two concurrent
+      // requests can't move it backwards between the read above and this write.
+      const conditions = [eq(schema.entities.id, id), isNull(schema.entities.deletedAt)];
+      if (typeof patch.hardLockDate === 'string') {
+        conditions.push(
+          or(isNull(schema.entities.hardLockDate), lte(schema.entities.hardLockDate, patch.hardLockDate))!,
+        );
+      }
+      const [updated] = await db
+        .update(schema.entities)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(and(...conditions))
+        .returning();
+      if (!updated) return error.badRequest(c, HARD_LOCK_FORWARD_ONLY);
+
+      await writeAccountingAudit(c, db, {
+        accountingEntityId: id,
+        entityType: 'accounting_entity',
+        entityId: id,
+        action: 'lock_dates_updated',
+        changes,
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'accounting_entity',
+        entityId: id,
+        action: 'updated',
+        data: {
+          id,
+          name: updated.name,
+          salesLockDate: updated.salesLockDate,
+          purchaseLockDate: updated.purchaseLockDate,
+          taxLockDate: updated.taxLockDate,
+          periodLockDate: updated.periodLockDate,
+          hardLockDate: updated.hardLockDate,
+        },
+      });
+
+      return success(c, updated);
+    } catch (err) {
+      console.error('[books-api/accounting-entities] lock dates failed:', err);
+      return error.internal(c, 'Failed to update lock dates');
+    }
+  },
+);
+
+/** Longest an exception may run: it is a door left open, not a new lock date. */
+const MAX_EXCEPTION_DAYS = 30;
+
+const createLockExceptionSchema = z.object({
+  lockType: z.enum(['sales', 'purchase', 'tax', 'period']),
+  /** The member the exception is for; null or omitted = every member. */
+  userId: z.string().min(1).max(255).nullable().optional(),
+  endsAt: z.string().datetime({ offset: true }),
+  reason: z.string().trim().min(3).max(2000),
+});
+
+// GET /:id/lock-exceptions — every exception, newest first, revoked ones included
+app.get('/:id/lock-exceptions', requirePermission('entities:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const entity = await findActiveEntity(db, id);
+    if (!entity) return error.notFound(c, 'Entity', id);
+
+    const rows = await db
+      .select()
+      .from(schema.lockDateExceptions)
+      .where(eq(schema.lockDateExceptions.entityId, id))
+      .orderBy(desc(schema.lockDateExceptions.createdAt), desc(schema.lockDateExceptions.id));
+    return success(c, rows);
+  } catch (err) {
+    console.error('[books-api/accounting-entities] list lock exceptions failed:', err);
+    return error.internal(c, 'Failed to fetch lock date exceptions');
+  }
+});
+
+// POST /:id/lock-exceptions
+app.post(
+  '/:id/lock-exceptions',
+  requirePermission('entities:update'),
+  zValidator('json', createLockExceptionSchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const body = c.req.valid('json');
+
+    const now = new Date();
+    const endsAt = new Date(body.endsAt);
+    if (endsAt.getTime() <= now.getTime()) {
+      return error.badRequest(c, 'endsAt must be in the future');
+    }
+    if (endsAt.getTime() > now.getTime() + MAX_EXCEPTION_DAYS * 24 * 60 * 60 * 1000) {
+      return error.badRequest(c, `endsAt can be at most ${MAX_EXCEPTION_DAYS} days ahead`);
+    }
+
+    try {
+      const entity = await findActiveEntity(db, id);
+      if (!entity) return error.notFound(c, 'Entity', id);
+
+      const [exception] = await db
+        .insert(schema.lockDateExceptions)
+        .values({
+          id: generateId('lde'),
+          createdAt: now,
+          entityId: id,
+          lockType: body.lockType,
+          userId: body.userId ?? null,
+          endsAt,
+          reason: body.reason,
+          createdBy: c.get('userId') ?? null,
+        })
+        .returning();
+      if (!exception) return error.internal(c, 'Failed to create lock date exception');
+
+      await writeAccountingAudit(c, db, {
+        accountingEntityId: id,
+        entityType: 'lock_date_exception',
+        entityId: exception.id,
+        action: 'created',
+        changes: {
+          lockType: { old: null, new: exception.lockType },
+          userId: { old: null, new: exception.userId },
+          endsAt: { old: null, new: exception.endsAt },
+          reason: { old: null, new: exception.reason },
+        },
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'accounting_entity',
+        entityId: id,
+        action: 'updated',
+        data: {
+          id,
+          lockDateException: {
+            id: exception.id,
+            lockType: exception.lockType,
+            userId: exception.userId,
+            endsAt: exception.endsAt,
+            status: 'created',
+          },
+        },
+      });
+
+      return success(c, exception, 201);
+    } catch (err) {
+      console.error('[books-api/accounting-entities] create lock exception failed:', err);
+      return error.internal(c, 'Failed to create lock date exception');
+    }
+  },
+);
+
+// POST /:id/lock-exceptions/:exceptionId/revoke
+app.post(
+  '/:id/lock-exceptions/:exceptionId/revoke',
+  requirePermission('entities:update'),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const exceptionId = c.req.param('exceptionId');
+
+    try {
+      const [existing] = await db
+        .select()
+        .from(schema.lockDateExceptions)
+        .where(and(eq(schema.lockDateExceptions.id, exceptionId), eq(schema.lockDateExceptions.entityId, id)))
+        .limit(1);
+      if (!existing) return error.notFound(c, 'Lock date exception', exceptionId);
+      // Already revoked: nothing changes, the first revocation stays on record.
+      if (existing.revokedAt) return success(c, existing);
+
+      const revokedBy = c.get('userId') ?? null;
+      const [revoked] = await db
+        .update(schema.lockDateExceptions)
+        .set({ revokedAt: new Date(), revokedBy })
+        .where(and(eq(schema.lockDateExceptions.id, exceptionId), isNull(schema.lockDateExceptions.revokedAt)))
+        .returning();
+      // Lost a race with another revoke: return the row as it now stands.
+      if (!revoked) {
+        const [current] = await db
+          .select()
+          .from(schema.lockDateExceptions)
+          .where(eq(schema.lockDateExceptions.id, exceptionId))
+          .limit(1);
+        return success(c, current ?? existing);
+      }
+
+      await writeAccountingAudit(c, db, {
+        accountingEntityId: id,
+        entityType: 'lock_date_exception',
+        entityId: exceptionId,
+        action: 'revoked',
+        changes: { revokedAt: { old: null, new: revoked.revokedAt } },
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'accounting_entity',
+        entityId: id,
+        action: 'updated',
+        data: {
+          id,
+          lockDateException: {
+            id: revoked.id,
+            lockType: revoked.lockType,
+            userId: revoked.userId,
+            endsAt: revoked.endsAt,
+            status: 'revoked',
+          },
+        },
+      });
+
+      return success(c, revoked);
+    } catch (err) {
+      console.error('[books-api/accounting-entities] revoke lock exception failed:', err);
+      return error.internal(c, 'Failed to revoke lock date exception');
+    }
+  },
+);
 
 export const accountingEntitiesRoutes = app;

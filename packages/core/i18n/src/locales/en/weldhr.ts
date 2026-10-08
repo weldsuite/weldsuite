@@ -6,11 +6,13 @@
  *   weldhr-time.ts         on/offboarding, attendance, shifts, leave
  *   weldhr-performance.ts  coaching, evaluations, KPIs, milestones
  *   weldhr-admin.ts        settings and the workforce portal
+ *   weldhr-self.ts         My HR, the employee self-service page
  * Shared labels (status chips, pickers, generic actions) live here.
  */
 import { weldhrAdmin } from './weldhr-admin';
 import { weldhrPeople } from './weldhr-people';
 import { weldhrPerformance } from './weldhr-performance';
+import { weldhrSelf } from './weldhr-self';
 import { weldhrTime } from './weldhr-time';
 
 export const weldhr = {
@@ -158,4 +160,5 @@ export const weldhr = {
   ...weldhrTime,
   ...weldhrPerformance,
   ...weldhrAdmin,
+  ...weldhrSelf,
 };

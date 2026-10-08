@@ -280,15 +280,15 @@ app.post(
       }
 
       const { agentIds, agentReplyPolicy, agentMaxHops, ...channelFields } = data;
-      const metadata =
-        agentReplyPolicy || agentMaxHops
-          ? mergeAgentRoomPolicy(null, {
-              ...(agentReplyPolicy ? { agentReplyPolicy } : {}),
-              ...(agentMaxHops ? { agentMaxHops } : {}),
-            })
-          : agentIds && agentIds.length > 0
-            ? mergeAgentRoomPolicy(null, { agentReplyPolicy: 'mentions' })
-            : undefined;
+      let metadata: ReturnType<typeof mergeAgentRoomPolicy> | undefined;
+      if (agentReplyPolicy || agentMaxHops) {
+        metadata = mergeAgentRoomPolicy(null, {
+          ...(agentReplyPolicy ? { agentReplyPolicy } : {}),
+          ...(agentMaxHops ? { agentMaxHops } : {}),
+        });
+      } else if (agentIds && agentIds.length > 0) {
+        metadata = mergeAgentRoomPolicy(null, { agentReplyPolicy: 'mentions' });
+      }
 
       const { channel, memberUserIds } = await createChannel(db, userId, {
         ...channelFields,

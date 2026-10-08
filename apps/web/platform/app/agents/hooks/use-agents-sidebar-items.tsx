@@ -27,7 +27,7 @@ function iconColorForAgent(agent: { id: string; name: string; isSystem: boolean 
   const seed = agent.id || agent.name;
   let hash = 0;
   // Math.imul(x, 1) wraps to a signed 32-bit integer, like the old `| 0`.
-  for (let i = 0; i < seed.length; i++) hash = Math.imul(Math.imul(hash, 31) + seed.charCodeAt(i), 1);
+  for (let i = 0; i < seed.length; i++) hash = Math.imul(Math.imul(hash, 31) + seed.codePointAt(i)!, 1);
   return AGENT_ICON_PALETTES[Math.abs(hash) % AGENT_ICON_PALETTES.length];
 }
 

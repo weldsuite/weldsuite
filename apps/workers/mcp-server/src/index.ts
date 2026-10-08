@@ -98,7 +98,7 @@ app.all('/mcp', authMiddleware, rateLimitMiddleware, async (c) => {
   // the first request from a client is `initialize`. Subsequent requests
   // (tools/list, tools/call) hit an un-initialized server and get rejected.
   // Pre-set the initialized flag so non-initialize requests work.
-  let parsedBody: unknown | undefined;
+  let parsedBody: unknown;
   if (c.req.method === 'POST') {
     parsedBody = await c.req.json();
     const method = Array.isArray(parsedBody)

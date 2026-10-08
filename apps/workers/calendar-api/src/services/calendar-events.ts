@@ -22,58 +22,62 @@ export type CalendarEventRow = typeof schema.calendarEvents.$inferSelect;
  * ascending. Un-paginated by design — the calendar grid renders a whole
  * window at once (legacy `GET /calendar/events/range`).
  */
-export async function listEventsInRange(
+export function listEventsInRange(
   db: Database,
   params: { calendarIds: string[]; startDate: Date; endDate: Date },
 ): Promise<CalendarEventRow[]> {
   const { calendarEvents } = schema;
-  if (params.calendarIds.length === 0) return [];
+  if (params.calendarIds.length === 0) return Promise.resolve([]);
 
-  return db
-    .select()
-    .from(calendarEvents)
-    .where(
-      and(
-        isNull(calendarEvents.deletedAt),
-        inArray(calendarEvents.calendarId, params.calendarIds),
-        // Overlap, not "starts inside": multi-day events that began before the
-        // window still belong on the grid.
-        gte(sql`coalesce(${calendarEvents.endTime}, ${calendarEvents.startTime})`, params.startDate),
-        lte(calendarEvents.startTime, params.endDate),
-      ),
-    )
-    .orderBy(asc(calendarEvents.startTime));
+  return Promise.resolve(
+    db
+      .select()
+      .from(calendarEvents)
+      .where(
+        and(
+          isNull(calendarEvents.deletedAt),
+          inArray(calendarEvents.calendarId, params.calendarIds),
+          // Overlap, not "starts inside": multi-day events that began before the
+          // window still belong on the grid.
+          gte(sql`coalesce(${calendarEvents.endTime}, ${calendarEvents.startTime})`, params.startDate),
+          lte(calendarEvents.startTime, params.endDate),
+        ),
+      )
+      .orderBy(asc(calendarEvents.startTime)),
+  );
 }
 
 /**
  * Confirmed events starting in the next `days` days, ascending, capped at
  * `limit` (legacy `GET /calendar/events/upcoming`).
  */
-export async function listUpcomingEvents(
+export function listUpcomingEvents(
   db: Database,
   params: { calendarIds: string[]; days: number; limit: number },
 ): Promise<CalendarEventRow[]> {
   const { calendarEvents } = schema;
-  if (params.calendarIds.length === 0) return [];
+  if (params.calendarIds.length === 0) return Promise.resolve([]);
 
   const now = new Date();
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + params.days);
 
-  return db
-    .select()
-    .from(calendarEvents)
-    .where(
-      and(
-        isNull(calendarEvents.deletedAt),
-        inArray(calendarEvents.calendarId, params.calendarIds),
-        gte(calendarEvents.startTime, now),
-        lte(calendarEvents.startTime, endDate),
-        eq(calendarEvents.status, 'confirmed'),
-      ),
-    )
-    .orderBy(asc(calendarEvents.startTime))
-    .limit(params.limit);
+  return Promise.resolve(
+    db
+      .select()
+      .from(calendarEvents)
+      .where(
+        and(
+          isNull(calendarEvents.deletedAt),
+          inArray(calendarEvents.calendarId, params.calendarIds),
+          gte(calendarEvents.startTime, now),
+          lte(calendarEvents.startTime, endDate),
+          eq(calendarEvents.status, 'confirmed'),
+        ),
+      )
+      .orderBy(asc(calendarEvents.startTime))
+      .limit(params.limit),
+  );
 }
 
 /**

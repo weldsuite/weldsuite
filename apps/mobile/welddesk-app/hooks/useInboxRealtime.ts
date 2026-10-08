@@ -22,14 +22,17 @@ import type { ConnectionState as RTConnectionState, WorkspaceEvent } from '@weld
 import {
   INBOX_HUB_TOPICS,
   dispatchInboxRealtimeEvent,
-  type InboxConversation,
-  type InboxNewMessageEvent,
   type InboxRealtimeHandlers,
 } from './inbox-realtime-dispatch';
 
+export {
+  type InboxConversation,
+  type InboxNewMessageEvent,
+  dispatchInboxRealtimeEvent,
+  INBOX_HUB_TOPICS,
+} from './inbox-realtime-dispatch';
+
 export type ConnectionState = RTConnectionState;
-export type { InboxConversation, InboxNewMessageEvent };
-export { dispatchInboxRealtimeEvent, INBOX_HUB_TOPICS };
 
 interface UseInboxRealtimeOptions extends InboxRealtimeHandlers {
   agentId: string;
@@ -90,8 +93,9 @@ export function useInboxRealtime(options: UseInboxRealtimeOptions): UseInboxReal
     };
   }, [client, autoConnect]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(() => {
     setError(null);
+    return Promise.resolve();
   }, []);
 
   const disconnect = useCallback(async () => {}, []);

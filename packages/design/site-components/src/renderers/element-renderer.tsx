@@ -90,6 +90,22 @@ export function ElementRenderer({
     }
   };
 
+  // In the editor, non-interactive elements are selectable by mouse and keyboard.
+  const selectableProps = isEditing && onSelect
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick: handleClick,
+        onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            onSelect();
+          }
+        },
+      }
+    : {};
+
   const renderElement = () => {
     switch (type) {
       case 'heading': {
@@ -110,7 +126,7 @@ export function ElementRenderer({
           <p
             style={styles}
             className={wrapperClasses}
-            onClick={handleClick}
+            {...selectableProps}
           >
             {content?.text || 'Paragraph text'}
           </p>
@@ -141,10 +157,10 @@ export function ElementRenderer({
       case 'link':
         return (
           <a
-            href={isEditing ? '#' : (content?.url || '#')}
+            href={content?.url || '#'}
             style={styles}
             className={cn(wrapperClasses, "hover:underline")}
-            onClick={isEditing ? handleClick : undefined}
+            onClick={isEditing ? (e) => { e.preventDefault(); handleClick(e); } : undefined}
           >
             {content?.text || 'Link'}
           </a>
@@ -257,7 +273,7 @@ export function ElementRenderer({
           <hr
             style={styles}
             className={cn(wrapperClasses, "border-t")}
-            onClick={handleClick}
+            {...selectableProps}
           />
         );
 

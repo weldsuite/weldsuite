@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useReducer } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from '@tanstack/react-router';
 import { useAuth } from '@clerk/clerk-react';
@@ -77,10 +77,10 @@ function usePanelWidth(pathname: string): number {
 }
 
 /** Re-render the widget whenever the participant list or self media changes. */
-function useMeetingRenderTick(meeting: RealtimeKitClient | null, forceUpdate: (fn: (n: number) => number) => void) {
+function useMeetingRenderTick(meeting: RealtimeKitClient | null, forceUpdate: () => void) {
   useEffect(() => {
     if (!meeting) return;
-    const tick = () => forceUpdate(n => n + 1);
+    const tick = () => forceUpdate();
     meeting.participants?.joined?.on?.('participantJoined', tick);
     meeting.participants?.joined?.on?.('participantLeft', tick);
     // Remote mic / camera changes too (e.g. the host muting the focused peer),
@@ -779,7 +779,7 @@ export function MeetingPiPWidget() {
   const pipVideoRef = useRef<HTMLVideoElement | null>(null);
   const pipActiveRef = useRef(false);
   const hasAnimatedRef = useRef(false);
-  const [, forceUpdate] = useState(0);
+  const [, forceUpdate] = useReducer((n: number) => n + 1, 0);
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   const panelWidth = usePanelWidth(pathname);
 

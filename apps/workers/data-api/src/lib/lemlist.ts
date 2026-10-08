@@ -51,7 +51,8 @@ export class LemlistNotConfiguredError extends Error {
 
 function authHeader(apiKey: string): string {
   // Basic auth with a blank username and the API key as the password.
-  return `Basic ${btoa(`:${apiKey}`)}`;
+  const credentials = `:${apiKey}`;
+  return `Basic ${btoa(credentials)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +173,7 @@ function currentExperience(row: Record<string, unknown>): Record<string, unknown
  * a small favicon is better than a blank avatar. */
 function faviconFor(domain: string | null): string | null {
   if (!domain) return null;
-  const clean = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const clean = domain.replace(/^https?:\/\//, '').replace(/\/[\s\S]*/, '');
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(clean)}&sz=64`;
 }
 

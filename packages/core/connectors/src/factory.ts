@@ -41,7 +41,7 @@ export function createConnectorProviderClient(
     const fromAccount = (fallbackAccountId || '')
       .replace(/^https?:\/\//i, '')
       .replace(/\.picqer\.com.*$/i, '')
-      .replace(/\/+$/, '');
+      .replace(/(?<!\/)\/+$/, '');
     return new PicqerClient({
       subdomain: fromCreds || fromAccount || '',
       apiKey: credentials.apiKey || '',

@@ -464,9 +464,7 @@ export const sweep = {
       "download": "Downloaden"
     },
     "forwardMessage": {
-      "couldNotOpenDm": "Kon geen direct bericht openen met {name}",
-      "scheduleOpenTabNote": "Geplande berichten worden alleen verstuurd zolang WeldSuite open blijft in dit tabblad. Je kunt maximaal {days} dagen vooruit plannen.",
-      "scheduleTooFar": "Kies een tijdstip binnen de komende {days} dagen"
+      "couldNotOpenDm": "Kon geen direct bericht openen met {name}"
     },
     "groupConversation": {
       "defaultName": "Groepschat"
@@ -2309,6 +2307,13 @@ export const sweep = {
       "unknown": "Onbekend",
       "guestTooltip": "Externe gast — ziet alleen kanalen waarvoor deze is uitgenodigd",
       "guest": "Gast",
+      "employeeTooltip": "Medewerker — gebruikt alleen Mijn HR en WeldChat",
+      "inviteAsEmployee": "Medewerker (alleen Mijn HR + chat)",
+      "employee": "Medewerker",
+      "employeeAccess": {
+        "title": "Medewerker-lid",
+        "description": "Medewerker-leden hebben vaste toegang: Mijn HR (hun eigen medewerkerrecord) en WeldChat. Ze hebben geen rol, en app-toegang of uitzonderingen op rechten zijn niet van toepassing. Wil je ze meer geven, verwijder ze dan en nodig ze opnieuw uit als teamlid."
+      },
       "noTeams": "Geen teams",
       "resendInvite": "Uitnodiging opnieuw verzenden",
       "cancelInvite": "Uitnodiging annuleren",

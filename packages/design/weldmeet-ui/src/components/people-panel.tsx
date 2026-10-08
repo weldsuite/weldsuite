@@ -16,7 +16,7 @@ const PERSON_THEMES = [
 function hashString(input: string): number {
   let h = 0;
   for (let i = 0; i < input.length; i++) {
-    h = ((h << 5) - h) + input.charCodeAt(i);
+    h = ((h << 5) - h) + input.codePointAt(i)!;
     h |= 0;
   }
   return Math.abs(h);
@@ -87,7 +87,7 @@ export function PeoplePanel({
     };
   }, [meeting]);
 
-  const handleAdmit = useCallback(async (id: string) => {
+  const handleAdmit = useCallback((id: string) => {
     try { meeting?.participants?.acceptWaitingRoomRequest(id); } catch { /* ignore */ }
   }, [meeting]);
 

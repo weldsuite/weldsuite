@@ -55,6 +55,7 @@ export async function run(args: ParsedArgs): Promise<void> {
     },
   });
 
-  success(`Created app ${bold(manifest.name)} (${manifest.code})${app?.id ? ` — id ${app.id}` : ''}`);
+  const idNote = app?.id ? ` — id ${app.id}` : '';
+  success(`Created app ${bold(manifest.name)} (${manifest.code})${idNote}`);
   info(`Start a live preview with ${cyan('weld app dev')} or deploy with ${cyan('weld app deploy')}.`);
 }

@@ -75,7 +75,7 @@ export function ScheduledClient() {
   };
 
   const getStatusColor = (scheduledFor: string) => {
-    const hoursUntil = (new Date(scheduledFor).getTime() - new Date().getTime()) / (1000 * 60 * 60);
+    const hoursUntil = (new Date(scheduledFor).getTime() - Date.now()) / (1000 * 60 * 60);
     if (hoursUntil < 1) return 'text-red-500 dark:text-red-400';
     if (hoursUntil < 24) return 'text-yellow-500 dark:text-yellow-400';
     return 'text-green-500 dark:text-green-400';

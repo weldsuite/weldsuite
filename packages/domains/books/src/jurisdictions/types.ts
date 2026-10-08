@@ -29,6 +29,8 @@ export type SystemAccountRole =
   | 'tax_input_sgst'
   | 'tax_input_igst'
   | 'sales_revenue'
+  | 'general_expense'
+  | 'bad_debt_expense'
   | 'retained_earnings'
   | 'realized_fx_gain'
   | 'realized_fx_loss'
@@ -70,7 +72,9 @@ export interface InvoiceLabels {
   invoiceNumber: string;
   date: string;
   dueDate: string;
+  from: string;
   billTo: string;
+  shipTo: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -158,6 +162,10 @@ export interface TaxReturnLine {
   taxCategoryCode: string;
   taxableAmount: number;
   taxAmount: number;
+  /** sales = charged to customers, purchase = paid or self-assessed. Rows from the tax ledger always carry it. */
+  direction?: 'sales' | 'purchase';
+  /** Purchase tax the buyer accounts for itself (reverse charge, imports). */
+  selfAssessed?: boolean;
   jurisdictionMetadata?: Record<string, unknown>;
 }
 
@@ -167,6 +175,40 @@ export interface TaxReturnArtifact {
   content: string;
   /** Structured snapshot of what the content encodes — for UI display / audit. */
   summary: Record<string, number>;
+}
+
+/**
+ * Which jurisdiction-specific modules an entity gets. Routes, navigation and
+ * pages gate on these flags instead of comparing jurisdiction codes.
+ */
+export interface JurisdictionFeatures {
+  /** Dutch BTW return (rubrieken), filed through Digipoort. */
+  vatReturn: boolean;
+  /** EU ICP listing of intra-community supplies. */
+  icp: boolean;
+  /** Dutch XAF audit file export. */
+  xafExport: boolean;
+  /** Small-business VAT exemption (NL KOR). */
+  smallBusinessScheme: boolean;
+  /** India GST return. */
+  gstReturn: boolean;
+  /** US sales tax: agencies, per-state returns. */
+  salesTax: boolean;
+  /** US 1099 information returns. */
+  form1099: boolean;
+}
+
+/**
+ * Words that differ per jurisdiction, as codes the UI translates (en/nl/…):
+ * a US user sees "Sales tax", "EIN", "Vendor" and "Credit memo" where a Dutch
+ * user sees "BTW", "BTW-nummer", "Leverancier" and "Creditnota".
+ */
+export interface JurisdictionTerminology {
+  tax: 'vat' | 'gst' | 'sales_tax';
+  taxId: 'vat_number' | 'gstin' | 'ein';
+  registrationId: 'kvk' | 'pan' | 'company_number' | 'state_id';
+  supplier: 'supplier' | 'vendor';
+  creditNote: 'credit_note' | 'credit_memo';
 }
 
 /**
@@ -181,6 +223,8 @@ export interface JurisdictionAdapter {
   readonly name: string;
   readonly defaultLocale: string;
   readonly defaultCurrency: string;
+  readonly features: JurisdictionFeatures;
+  readonly terminology: JurisdictionTerminology;
 
   getChartOfAccountsTemplate(): ChartOfAccountsTemplateRow[];
 

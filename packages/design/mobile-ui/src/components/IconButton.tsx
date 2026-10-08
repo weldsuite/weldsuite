@@ -26,6 +26,11 @@ export interface IconButtonProps extends Omit<PressableProps, 'style' | 'childre
 
 const DIMENSIONS: Record<IconButtonSize, number> = { sm: 32, md: 40, lg: 48 };
 
+function pressedOpacity(disabled: boolean, pressed: boolean): number {
+  if (disabled) return 0.5;
+  return pressed ? 0.85 : 1;
+}
+
 export function IconButton({
   icon,
   variant = 'ghost',
@@ -59,7 +64,7 @@ export function IconButton({
           backgroundColor: pressed && variant === 'ghost' ? colors.pressed : backgroundColor,
           borderColor: colors.border,
           borderWidth,
-          opacity: isDisabled ? 0.5 : pressed && variant !== 'ghost' ? 0.85 : 1,
+          opacity: pressedOpacity(isDisabled, pressed && variant !== 'ghost'),
         },
         style,
       ]}

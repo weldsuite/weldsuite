@@ -452,7 +452,6 @@ export default function TasksScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [, setTotal] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [showCompleted, ] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -478,7 +477,6 @@ export default function TasksScreen() {
 
       if (response.success && response.data) {
         setTasks((response.data.items ?? []) as Task[]);
-        setTotal(response.data.meta?.total ?? 0);
       }
     } catch (error) {
       console.error('Error loading tasks:', error);
@@ -568,8 +566,6 @@ export default function TasksScreen() {
   ];
 
   // Stats
-  const _totalTasks = tasks.filter(t => !t.completed).length;
-  const _completedCount = tasks.filter(t => t.completed).length;
 
   if (loading && !refreshing) {
     return (

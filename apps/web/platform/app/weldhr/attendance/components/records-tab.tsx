@@ -203,26 +203,29 @@ export function RecordsTab() {
       id: 'approved',
       header: t('weldhr.attendance.records.table.approved'),
       width: 'w-[130px]',
-      render: (r) =>
-        r.approvedAt ? (
-          <Badge variant="default">{r.approvedByName ?? '✓'}</Badge>
-        ) : canApprove ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs"
-            onClick={(e) => {
-              e.stopPropagation();
-              void approveOne(r.id);
-            }}
-            disabled={approve.isPending}
-          >
-            <Check className="mr-1 h-3.5 w-3.5" />
-            {t('weldhr.leave.requests.approve')}
-          </Button>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        ),
+      render: (r) => {
+        if (r.approvedAt) {
+          return <Badge variant="default">{r.approvedByName ?? '✓'}</Badge>;
+        }
+        if (canApprove) {
+          return (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                void approveOne(r.id);
+              }}
+              disabled={approve.isPending}
+            >
+              <Check className="mr-1 h-3.5 w-3.5" />
+              {t('weldhr.leave.requests.approve')}
+            </Button>
+          );
+        }
+        return <span className="text-muted-foreground">—</span>;
+      },
     },
   ];
 

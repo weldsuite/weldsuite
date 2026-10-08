@@ -98,7 +98,7 @@ function resolveStringInput(
   if (!(value.includes('{{') && value.includes('}}'))) return value;
 
   const escapeValue = options?.escapeHtmlKeys?.includes(key) ? escapeHtml : identity;
-  let resolved: unknown = value.replaceAll(/\{\{([^}]+)\}\}/g, (match, path) => {
+  let resolved: unknown = value.replaceAll(/\{\{([^{}]+)\}\}/g, (match, path) => {
     const result = lookupTemplatePath(String(path).trim(), scope);
     if (result !== undefined) return escapeValue(stringifyForTemplate(result));
     console.warn(`Unresolved template: ${match}`);
@@ -106,7 +106,7 @@ function resolveStringInput(
   });
 
   // If the entire value was a single expression, preserve original type.
-  if (/^\{\{[^}]+\}\}$/.test(value)) {
+  if (/^\{\{[^{}]+\}\}$/.test(value)) {
     const result = lookupTemplatePath(value.slice(2, -2).trim(), scope);
     if (result !== undefined) resolved = typeof result === 'string' ? escapeValue(result) : result;
   }

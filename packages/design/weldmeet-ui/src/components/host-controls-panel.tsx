@@ -64,10 +64,10 @@ const SETTING_SWITCH_CLASS = [
   '[&_[data-slot=switch-thumb][data-state=unchecked]]:!translate-x-[4px]',
 ].join(' ');
 
-export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Readonly<HostControlsPanelProps>) {
-  const SettingRow = ({ icon: Icon, label, description, checked, onCheckedChange, disabled }: {
-    icon: LucideIcon; label: string; description?: string; checked: boolean; onCheckedChange: (v: boolean) => void; disabled?: boolean;
-  }) => (
+function SettingRow({ icon: Icon, label, description, checked, onCheckedChange, disabled, readOnly }: Readonly<{
+  icon: LucideIcon; label: string; description?: string; checked: boolean; onCheckedChange: (v: boolean) => void; disabled?: boolean; readOnly?: boolean;
+}>) {
+  return (
     <div className="flex items-center gap-3 py-2.5">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted border">
         <Icon className="h-4 w-4 text-muted-foreground" />
@@ -84,13 +84,16 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
       />
     </div>
   );
+}
 
+export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Readonly<HostControlsPanelProps>) {
   const hostManaged = controls.hostManagement;
 
   return (
     <div className="py-2">
       <div className="px-4 mb-1">
         <SettingRow
+          readOnly={readOnly}
           icon={Shield}
           label="Host management"
           description="Restrict what participants can enable in this meeting."
@@ -104,6 +107,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
       <div className="px-5 pt-2 pb-1"><p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Participant permissions</p></div>
       <div className="px-4">
         <SettingRow
+          readOnly={readOnly}
           icon={MonitorOff}
           label="Share their screen"
           checked={controls.allowScreenShare}
@@ -111,6 +115,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
           disabled={!hostManaged}
         />
         <SettingRow
+          readOnly={readOnly}
           icon={Mic}
           label="Turn on their microphone"
           description="Mutes all when turned off."
@@ -122,6 +127,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
           disabled={!hostManaged}
         />
         <SettingRow
+          readOnly={readOnly}
           icon={VideoIcon}
           label="Turn on their video"
           description="Disables all cameras when turned off."
@@ -133,6 +139,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
           disabled={!hostManaged}
         />
         <SettingRow
+          readOnly={readOnly}
           icon={Hand}
           label="Raise hand"
           checked={controls.allowHandRaise}
@@ -140,6 +147,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
           disabled={!hostManaged}
         />
         <SettingRow
+          readOnly={readOnly}
           icon={MessageSquare}
           label="Send reactions"
           checked={controls.allowReactions}
@@ -147,6 +155,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
           disabled={!hostManaged}
         />
         <SettingRow
+          readOnly={readOnly}
           icon={ImageIcon}
           label="Use virtual backgrounds"
           checked={controls.allowVirtualBackgrounds}
@@ -160,6 +169,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
       <div className="px-5 pt-2 pb-1"><p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Recording</p></div>
       <div className="px-4">
         <SettingRow
+          readOnly={readOnly}
           icon={Circle}
           label="Auto-record meeting"
           description="Records on the server as soon as the first person joins. Transcript and summary are offered separately."
@@ -167,6 +177,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
           onCheckedChange={(v) => onChange({ autoRecord: v })}
         />
         <SettingRow
+          readOnly={readOnly}
           icon={Circle}
           label="Allow participants to record"
           description="Only the host can record when off."
@@ -180,6 +191,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
       <div className="px-5 pt-2 pb-1"><p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Meeting access</p></div>
       <div className="px-4 pb-2">
         <SettingRow
+          readOnly={readOnly}
           icon={DoorOpen}
           label="Waiting room"
           description="Participants must be admitted before joining."
@@ -187,6 +199,7 @@ export function HostControlsPanel({ meeting, controls, onChange, readOnly }: Rea
           onCheckedChange={(v) => onChange({ waitingRoom: v })}
         />
         <SettingRow
+          readOnly={readOnly}
           icon={Users}
           label="Host must join first"
           checked={controls.hostMustJoinFirst}

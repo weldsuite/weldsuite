@@ -145,6 +145,15 @@ BEGIN
   END LOOP;
 END $$`;
 
+/** Optional inputs `provisionForWorkspace` threads into the warm-slot and entry-tier paths. */
+interface TierProvisionOptions {
+  latestSchemaVersion?: string;
+  initialMember?: InitialMember;
+  selectedApps?: string[];
+  slug?: string;
+  seedSampleData?: boolean;
+}
+
 export interface ProvisioningResult {
   success: boolean;
   workspaceId: string;
@@ -168,9 +177,9 @@ export interface ProvisioningResult {
  * Database Provisioning Service
  */
 export class DatabaseProvisioningService {
-  private neonClient: NeonClient;
-  private defaultRegion: string;
-  private env: ProvisioningEnv;
+  private readonly neonClient: NeonClient;
+  private readonly defaultRegion: string;
+  private readonly env: ProvisioningEnv;
 
   constructor(env: ProvisioningEnv) {
     this.neonClient = createNeonClient(env);
@@ -346,11 +355,13 @@ export class DatabaseProvisioningService {
     claimed: DatabasePool,
     workspaceId: string,
     workspaceName: string,
-    latestSchemaVersion?: string,
-    initialMember?: InitialMember,
-    selectedApps?: string[],
-    slug?: string,
-    seedSampleData?: boolean,
+    {
+      latestSchemaVersion,
+      initialMember,
+      selectedApps,
+      slug,
+      seedSampleData,
+    }: TierProvisionOptions,
   ): Promise<ProvisioningResult> {
     const region = claimed.region || this.defaultRegion;
 
@@ -561,19 +572,18 @@ export class DatabaseProvisioningService {
     // is deliberately NO dedicated-project fallback: if the shared path fails
     // the workspace is marked 'failed' and the user retries via onboarding.
     if (planSlug === 'free' || planSlug === 'business') {
-      return this.provisionEntryTier(
-        masterDb, workspaceId, workspaceName, initialMember, selectedApps, slug, latestSchemaVersion, seedSampleData,
-      );
+      return this.provisionEntryTier(masterDb, workspaceId, workspaceName, {
+        latestSchemaVersion, initialMember, selectedApps, slug, seedSampleData,
+      });
     }
 
     // Paid: claim a warm pre-migrated dedicated project from the pool first.
     if (latestSchemaVersion) {
       const warmDedicated = await this.claimFromPool(masterDb, workspaceId, 'dedicated', this.defaultRegion);
       if (warmDedicated) {
-        return this.activateWarmSlot(
-          masterDb, warmDedicated, workspaceId, workspaceName, latestSchemaVersion,
-          initialMember, selectedApps, slug, seedSampleData,
-        );
+        return this.activateWarmSlot(masterDb, warmDedicated, workspaceId, workspaceName, {
+          latestSchemaVersion, initialMember, selectedApps, slug, seedSampleData,
+        });
       }
     }
 
@@ -635,19 +645,13 @@ export class DatabaseProvisioningService {
     masterDb: any,
     workspaceId: string,
     workspaceName: string,
-    initialMember?: InitialMember,
-    selectedApps?: string[],
-    slug?: string,
-    latestSchemaVersion?: string,
-    seedSampleData?: boolean,
+    options: TierProvisionOptions,
   ): Promise<ProvisioningResult> {
+    const { latestSchemaVersion, initialMember, selectedApps, slug, seedSampleData } = options;
     if (latestSchemaVersion) {
       const warmShared = await this.claimFromPool(masterDb, workspaceId, 'shared', this.defaultRegion);
       if (warmShared) {
-        return this.activateWarmSlot(
-          masterDb, warmShared, workspaceId, workspaceName, latestSchemaVersion,
-          initialMember, selectedApps, slug, seedSampleData,
-        );
+        return this.activateWarmSlot(masterDb, warmShared, workspaceId, workspaceName, options);
       }
     }
     return this.provisionSharedDatabase(

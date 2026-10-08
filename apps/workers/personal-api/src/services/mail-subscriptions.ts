@@ -26,7 +26,7 @@ const SCAN_WINDOW_DAYS = 180;
 const SCAN_MESSAGE_LIMIT = 2000;
 const RAW_HEADER_BYTES = 32_000;
 
-export async function listSubscriptions(
+export function listSubscriptions(
   db: PersonalDatabase,
   input: { personalAccountId: string; accountId: string; status?: 'active' | 'unsubscribed' },
 ): Promise<PersonalMailSubscriptionRow[]> {

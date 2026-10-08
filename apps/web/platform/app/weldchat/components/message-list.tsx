@@ -24,6 +24,7 @@ import type { RoomClient } from '@weldsuite/realtime/client';
 import { useChatContext } from './chat-context';
 import { isSystemNotice } from '../lib/system-notice';
 import { flashMessageWhenMounted } from '../lib/jump-to-message';
+import { firstUnreadMessageId, type UnreadMarker } from '../lib/unread-divider';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
 
@@ -76,6 +77,8 @@ interface MessageListProps {
   targetMessageId?: string;
   /** Called once the deep link has been handled (jumped to, or reported as not found): clear it from the URL. */
   onTargetHandled?: () => void;
+  /** Where this visit's "New messages" line goes (from opening the channel); channel view only. */
+  unreadMarker?: UnreadMarker | null;
 }
 
 export function MessageList({
@@ -85,6 +88,7 @@ export function MessageList({
   isDm,
   targetMessageId,
   onTargetHandled,
+  unreadMarker,
 }: Readonly<MessageListProps>) {
   const t = getTranslations('weldchat');
   const { userId: currentUserId } = useAuth();
@@ -235,6 +239,12 @@ export function MessageList({
     return null;
   }, [messages, hasActiveCall]);
 
+  // The first message that was unread when the channel opened gets the "New messages" line.
+  const firstUnreadId = useMemo(
+    () => (parentId ? null : firstUnreadMessageId(messages, unreadMarker, currentUserId)),
+    [parentId, messages, unreadMarker, currentUserId],
+  );
+
   // --- Auto-scroll logic ---
   // Defaults to false = "pin to bottom". Only set to true when user scrolls up.
   const userScrolledUpRef = useRef(false);
@@ -341,6 +351,22 @@ export function MessageList({
     onTargetHandled?.();
   }, [jumpEnabled, targetMessageId, isLoading, isError, jumpTarget, jumpTargetFailed, channelId, allMessages, isFetchingNextPage, hasNextPage, fetchNextPage, openThread, notFoundText, onTargetHandled, holdPosition]);
 
+  // --- "New messages" line ---
+  // The list opens at the bottom. When the line sits above the view, start
+  // there instead (once per visit), unless a message link is being followed.
+  const unreadScrolledRef = useRef(false);
+  useEffect(() => {
+    if (!firstUnreadId || unreadScrolledRef.current || targetMessageId) return;
+    const container = scrollContainerRef.current;
+    const line = container?.querySelector<HTMLElement>('[data-chat-divider="unread"]');
+    if (!container || !line) return;
+    unreadScrolledRef.current = true;
+    const offset = line.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    if (offset >= 0) return;
+    holdPosition();
+    container.scrollTop += offset - 8;
+  }, [firstUnreadId, targetMessageId, holdPosition]);
+
   if (isLoading)
     return (
       <div className="flex-1 p-4">
@@ -421,9 +447,11 @@ export function MessageList({
 
           // Compact (no avatar/name) only if same author, same date, within 5 min, and valid
           // timestamps. A message that quotes another one keeps its header so the quote shows.
+          const startsUnread = message.id === firstUnreadId;
           const isCompact =
             !!prevMessage &&
             !replyToMessage &&
+            !startsUnread &&
             prevMessage.authorId === message.authorId &&
             !isSystemNotice(prevMessage) &&
             !showDate &&
@@ -444,6 +472,19 @@ export function MessageList({
                     })}
                   </span>
                   <div className="flex-1 border-t" />
+                </div>
+              )}
+              {startsUnread && (
+                <div
+                  data-chat-divider="unread"
+                  role="separator"
+                  aria-label={t.unreadSeparator}
+                  className="flex items-center gap-2 my-2 px-2 md:px-4"
+                >
+                  <div className="flex-1 border-t border-red-500 dark:border-red-400" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-red-500 dark:text-red-400">
+                    {t.unreadSeparator}
+                  </span>
                 </div>
               )}
               <MessageItem

@@ -75,10 +75,10 @@ export function InvitePeopleDialog({ channelId, open, onOpenChange }: Readonly<I
   const hasAnyTab = tabs.length > 0;
   // The header names only what the dialog can actually do: public channels have
   // no Members tab, and Guest needs `team:invite_external`.
-  const description =
-    tabs.length > 1
-      ? st('sweep.weldchat.invitePeople.descriptionBoth')
-      : st(tabs[0] === 'guest' ? 'sweep.weldchat.invitePeople.descriptionGuest' : 'sweep.weldchat.invitePeople.descriptionMembers');
+  const singleTabDescription = tabs[0] === 'guest'
+    ? 'sweep.weldchat.invitePeople.descriptionGuest'
+    : 'sweep.weldchat.invitePeople.descriptionMembers';
+  const description = st(tabs.length > 1 ? 'sweep.weldchat.invitePeople.descriptionBoth' : singleTabDescription);
 
   const handleOpenChange = (next: boolean) => {
     onOpenChange(next);
@@ -174,6 +174,27 @@ function MembersTab({ channelId, onDone }: Readonly<{ channelId: string; onDone:
     );
   };
 
+  let pickerLabel: string;
+  if (selected.size === 0) {
+    pickerLabel = st('sweep.entities.selectPeople');
+  } else {
+    pickerLabel = st(
+      selected.size === 1
+        ? 'sweep.entities.peopleSelectedSingular'
+        : 'sweep.entities.peopleSelectedPlural',
+      { count: selected.size },
+    );
+  }
+
+  let emptyLabel: string;
+  if (isLoading) {
+    emptyLabel = st('sweep.entities.loadingEllipsis');
+  } else if (inviteable.length === 0) {
+    emptyLabel = st('sweep.entities.everyoneAlreadyInChannel');
+  } else {
+    emptyLabel = st('sweep.entities.noMatch');
+  }
+
   return (
     <div className="space-y-3">
       <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
@@ -184,14 +205,7 @@ function MembersTab({ channelId, onDone }: Readonly<{ channelId: string; onDone:
             className="w-full justify-between font-normal"
           >
             <span className={selected.size === 0 ? 'text-muted-foreground' : ''}>
-              {selected.size === 0
-                ? st('sweep.entities.selectPeople')
-                : st(
-                    selected.size === 1
-                      ? 'sweep.entities.peopleSelectedSingular'
-                      : 'sweep.entities.peopleSelectedPlural',
-                    { count: selected.size },
-                  )}
+              {pickerLabel}
             </span>
             <ChevronDown className="h-4 w-4 opacity-50" />
           </Button>
@@ -201,11 +215,7 @@ function MembersTab({ channelId, onDone }: Readonly<{ channelId: string; onDone:
             <CommandInput placeholder={st('sweep.entities.searchPeoplePlaceholder')} />
             <CommandList className="max-h-[280px]">
               <CommandEmpty>
-                {isLoading
-                  ? st('sweep.entities.loadingEllipsis')
-                  : inviteable.length === 0
-                    ? st('sweep.entities.everyoneAlreadyInChannel')
-                    : st('sweep.entities.noMatch')}
+                {emptyLabel}
               </CommandEmpty>
               {inviteable.map((m) => {
                 const isSelected = selected.has(m.userId);

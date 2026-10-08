@@ -527,7 +527,7 @@ html.dark {
 .wui-dl__detail {
   margin: 0;
   min-width: 0;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .wui-code {
