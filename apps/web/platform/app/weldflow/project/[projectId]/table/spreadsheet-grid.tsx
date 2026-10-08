@@ -598,7 +598,6 @@ export function SpreadsheetGrid({
   const containerRef = useRef<HTMLDivElement>(null);
   const internalRunsRef = useRef<RichTextRun[]>([]);
   const editingRunsRef = editingRunsExternal || internalRunsRef;
-  const [, setInlineSelection] = useState<{ start: number; end: number } | null>(null);
   const isDraggingRef = useRef(false);
   const resizeStartRef = useRef<{ col: number; startX: number; startWidth: number } | null>(null);
   const rowResizeStartRef = useRef<{ row: number; startY: number; startHeight: number } | null>(null);
@@ -1252,7 +1251,6 @@ export function SpreadsheetGrid({
 
   const handleSelectionInfo = useCallback(
     (info: { start: number; end: number }) => {
-      setInlineSelection(info);
       onInlineSelectionChange?.(info);
     },
     [onInlineSelectionChange]

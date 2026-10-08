@@ -68,7 +68,6 @@ export function FAQView({
 }: Readonly<FAQViewProps>) {
   const [activeTab] = useState('help');
   const [searchQuery, setSearchQuery] = useState('');
-  const [, setSearchFocused] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<FAQItem | null>(null);
   const [selectedCollection, setSelectedCollection] = useState<HelpCollection | null>(null);
   const [selectedHelpArticle, setSelectedHelpArticle] = useState<HelpArticle | null>(null);
@@ -500,8 +499,6 @@ export function FAQView({
             placeholder="Search for help..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
             className={cn(
               "w-full pl-9 pr-3 py-2 bg-gray-100 dark:bg-secondary rounded-md text-sm text-gray-900 dark:text-foreground",
               "placeholder:text-gray-400 dark:placeholder:text-gray-500 transition-all duration-200",

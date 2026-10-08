@@ -12,7 +12,7 @@
  */
 
 import RealtimeKitClient from '@cloudflare/realtimekit';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 import {
@@ -289,14 +289,14 @@ export default function GuestJoinClient() {
 
   // ── Re-render when RTK self media state flips (waitlisted view) ──
 
-  const [, setRtkSelfVersion] = useState(0);
+  const [rtkSelfVersion, bumpRtkSelfVersion] = useReducer((v: number) => v + 1, 0);
   useEffect(() => {
     if (!rtkClient) return;
     // Listener only bumps the version so the videoRef effect re-attaches on
     // fresh track creation. The toggle handlers own previewAudioEnabled /
     // previewVideoEnabled directly so the button state never lags behind a
     // user click (and isn't overwritten by a possibly-stale audioUpdate event).
-    const bump = () => setRtkSelfVersion(v => v + 1);
+    const bump = () => bumpRtkSelfVersion();
     rtkClient.self?.on?.('audioUpdate', bump);
     rtkClient.self?.on?.('videoUpdate', bump);
     // One-time sync at mount in case RTK's actual state differs from what we
@@ -475,7 +475,7 @@ export default function GuestJoinClient() {
     } else {
       el.srcObject = null;
     }
-  }, [previewStream, previewVideoEnabled, state, rtkClient]);
+  }, [previewStream, previewVideoEnabled, state, rtkClient, rtkSelfVersion]);
 
   const togglePreviewAudio = useCallback(() => {
     if (rtkClient?.self) {
