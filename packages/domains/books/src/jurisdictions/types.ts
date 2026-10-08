@@ -226,6 +226,9 @@ export interface TaxReturnLine {
   marketplaceFacilitated?: boolean;
   sourceType?: string;
   sourceId?: string | null;
+  /** tax_lines.source_line_id: the rows of one document line share it, so its gross is counted once. */
+  sourceLineId?: string | null;
+  certificateId?: string | null;
   taxDate?: string;
 }
 

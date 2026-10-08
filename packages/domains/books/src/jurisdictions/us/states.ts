@@ -44,6 +44,27 @@ export interface VendorDiscountRule {
   note?: string;
 }
 
+/**
+ * When a certificate without an explicit expiry date stops being valid.
+ * `calendar_year_end`: 31 December of the issue year. `months_from_issue`: that
+ * many months after the issue date. `months_from_last_purchase`: valid while
+ * the buyer buys at least this often (SST blanket certificates).
+ */
+export type CertificateExpiryRule =
+  | { kind: 'calendar_year_end' }
+  | { kind: 'months_from_issue'; months: number }
+  | { kind: 'months_from_last_purchase'; months: number };
+
+export interface CertificateValidityRule {
+  /** Exempt reasons the rule covers; every reason when omitted. */
+  reasons?: string[];
+  /** Certificate forms the rule covers (`state_form`, `sst_f0003`, ...); every form when omitted. */
+  forms?: string[];
+  blanketOnly?: boolean;
+  expiry: CertificateExpiryRule;
+  note?: string;
+}
+
 export interface UsStateInfo {
   code: UsStateCode;
   name: string;
@@ -76,6 +97,12 @@ export interface UsStateInfo {
   >;
   /** Name of the tax when it isn't called sales tax. */
   taxName?: string;
+  /**
+   * Validity rules for certificates that carry no expiry date, on top of the
+   * SST blanket rule every SST state gets (see `getCertificateRules`). A
+   * certificate's own `expiresOn` always wins.
+   */
+  certificateRules?: CertificateValidityRule[];
 }
 
 const SST_INVOICE: SalesTaxRounding = { level: 'invoice', scope: 'per_jurisdiction' };
@@ -155,6 +182,14 @@ export const US_STATES: readonly UsStateInfo[] = [
   state('FL', 'Florida', '12', {
     portalUrl: 'https://floridarevenue.com',
     vendorDiscount: { percent: 2.5, capPerReturn: 30, note: '2.5% of the first $1,200 of tax per return; e-filed and paid on time' },
+    certificateRules: [
+      {
+        reasons: ['resale'],
+        forms: ['state_form', 'other'],
+        expiry: { kind: 'calendar_year_end' },
+        note: 'The annual resale certificate (DR-13) expires every 31 December',
+      },
+    ],
   }),
   state('GA', 'Georgia', '13', {
     sst: 'full',
@@ -357,6 +392,14 @@ export const US_STATES: readonly UsStateInfo[] = [
     portalUrl: 'https://secure.dor.wa.gov',
     cashBasisAllowed: true,
     defaultDueDay: 25,
+    certificateRules: [
+      {
+        reasons: ['resale'],
+        forms: ['state_form', 'other'],
+        expiry: { kind: 'months_from_issue', months: 48 },
+        note: 'A reseller permit is valid 48 months (24 for contractors and new businesses; enter the expiry date for those)',
+      },
+    ],
   }),
   state('WV', 'West Virginia', '54', {
     sst: 'full',
@@ -404,4 +447,45 @@ export function isUsAddressStateCode(code: string | null | undefined): boolean {
 /** States that levy a sales tax a seller can register for (state or local). */
 export function salesTaxStates(): UsStateInfo[] {
   return US_STATES.filter((s) => s.hasStateSalesTax || s.hasLocalSalesTax);
+}
+
+/** SST blanket certificates (form F0003) stay valid while purchases are at most 12 months apart. */
+const SST_BLANKET_RULE: CertificateValidityRule = {
+  forms: ['sst_f0003'],
+  blanketOnly: true,
+  expiry: { kind: 'months_from_last_purchase', months: 12 },
+  note: 'An SST blanket certificate is valid while purchases are no more than 12 months apart',
+};
+
+/** The state's own certificate rules plus the SST blanket rule for SST members. */
+export function getCertificateRules(code: string | null | undefined): CertificateValidityRule[] {
+  const info = getUsState(code);
+  if (!info) return [];
+  const rules = info.certificateRules ?? [];
+  return info.sst === 'none' ? rules : [...rules, SST_BLANKET_RULE];
+}
+
+export type ShippingTaxability = 'taxable' | 'exempt_if_separate' | 'follows_goods';
+
+/**
+ * How a state treats a separately stated delivery charge (research
+ * sales-tax.md §5.3). Seeds the taxability rules of a new agency; the engines
+ * read the agency's rules, not this table. Confirm against the state's
+ * guidance before relying on it.
+ */
+const SHIPPING_TAXABLE_STATES = new Set([
+  'AR', 'CT', 'GA', 'IN', 'KY', 'LA', 'MN', 'NJ', 'NY', 'NC', 'OH', 'PA', 'TN', 'TX', 'WA', 'WI',
+]);
+const SHIPPING_EXEMPT_STATES = new Set(['AZ', 'IA', 'KS', 'MD', 'MI', 'MO', 'NV', 'OK', 'UT', 'VA']);
+
+export function shippingTaxability(code: string | null | undefined): {
+  shipping: ShippingTaxability;
+  handling: ShippingTaxability;
+} {
+  const upper = (code ?? '').trim().toUpperCase();
+  if (SHIPPING_TAXABLE_STATES.has(upper)) return { shipping: 'taxable', handling: 'taxable' };
+  // California: common-carrier delivery is exempt when stated separately, handling is taxable.
+  if (upper === 'CA') return { shipping: 'exempt_if_separate', handling: 'taxable' };
+  if (SHIPPING_EXEMPT_STATES.has(upper)) return { shipping: 'exempt_if_separate', handling: 'follows_goods' };
+  return { shipping: 'follows_goods', handling: 'follows_goods' };
 }

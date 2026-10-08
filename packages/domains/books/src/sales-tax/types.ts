@@ -47,6 +47,8 @@ export interface ExemptionCertificateRef {
   /** Single-purchase certificate: the invoice it covers. */
   invoiceId?: string | null;
   status: 'valid' | 'expired' | 'pending' | 'revoked';
+  /** Tax date of the last sale made on this certificate; the SST blanket rule (12 months between purchases) reads it. */
+  lastUsedOn?: string | null;
 }
 
 /** An agency the entity is registered with (or monitors). Tax is charged only while `registered`. */
@@ -143,6 +145,17 @@ export type SalesTaxWarning =
   | 'certificate_missing'
   | 'marketplace_facilitated'
   | 'zone_not_found'
+  /** Use tax accrued in a state where the entity has no active registration (no agency on the details). */
+  | 'no_use_tax_registration'
+  /** The registered agency has no rate in force for the address (nothing was calculated). */
+  | 'rates_not_configured'
+  /** A hand-set tax had no jurisdiction to ride on. */
+  | 'override_not_applied'
+  /** Provider engines: the rates are today's, the provider can't date a calculation this far back. */
+  | 'provider_rate_date_ignored'
+  | 'provider_not_supported'
+  /** The provider has no nexus where WeldBooks has a registration. */
+  | 'provider_nexus_missing'
   | (string & {});
 
 export interface SalesTaxResult {
