@@ -176,6 +176,7 @@ const ACTION_DESCRIBERS: Record<string, (config: ActionConfig, labels: ActionNod
 function getActionDescription(nodeData: ActionNodeDataExtended, labels: ActionNodeLabels): string {
   const fallback = labels.noDescription || 'Not configured';
   if (nodeData.step?.description) return nodeData.step.description;
+  if (nodeData.step?.summary) return nodeData.step.summary;
   const config = nodeData.step?.config as ActionConfig | undefined;
   if (!config || Object.keys(config).length === 0) return fallback;
   if (typeof config.description === 'string') return config.description;

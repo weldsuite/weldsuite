@@ -97,7 +97,8 @@ import { TestRunDialog, type TestRunRequest } from './components/test-run-dialog
 import { isValidCronExpression, nextCronRun } from './lib/cron';
 import { findUnknownVariables, getStepFormatIssues, isInsideLoop, isNestedWaitingStep } from './lib/step-issues';
 import { TriggerRecordFieldsProvider } from './lib/editor-field-context';
-import { getConfigSummary, summarizeTrigger, type NodeSummaryLabels } from './lib/node-summary';
+import { withActionDefaults } from './lib/action-defaults';
+import { getConfigSummary, summarizeStep, summarizeTrigger, type NodeSummaryLabels } from './lib/node-summary';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
 import {
@@ -3752,7 +3753,7 @@ export function WorkflowEditorClient({
       id: `step-${Date.now()}`,
       type: actionType,
       name: actions[actionType]?.name || actionType,
-      config: {},
+      config: withActionDefaults(actionType),
       order: workflow.steps.length,
       position: undefined, // Let flow editor auto-position
     };
@@ -3979,8 +3980,11 @@ export function WorkflowEditorClient({
   const sortedSteps: WorkflowStep[] = useMemo(
     () => [...workflow.steps]
       .sort((a, b) => ((a.order as number | undefined) || 0) - ((b.order as number | undefined) || 0))
-      .map(asWorkflowStep),
-    [workflow.steps],
+      .map((step) => ({
+        ...asWorkflowStep(step),
+        summary: summarizeStep({ type: step.type || '', config: step.config }, nodeSummaryLabels),
+      })),
+    [workflow.steps, nodeSummaryLabels],
   );
   // A string, so the memoised trigger below only changes when the text does.
   const triggerSummary = useMemo(

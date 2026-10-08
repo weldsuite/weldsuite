@@ -20,6 +20,12 @@ export interface WorkflowStep {
   type: string;
   name: string;
   description?: string;
+  /**
+   * One-line, already-translated summary of the step's configuration, computed
+   * by the host (e.g. "To: a@b.co"). The node shows it under the title in place
+   * of the generic fallback; the user's own `description` still wins.
+   */
+  summary?: string;
   order?: number;
   config: Record<string, unknown>;
   inputs: Record<string, unknown>;

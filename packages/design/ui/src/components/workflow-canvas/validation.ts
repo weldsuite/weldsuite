@@ -68,10 +68,9 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
   ],
 
   // --- Integration ---------------------------------------------------------
-  http_request: [
-    { labelKey: 'url', isMissing: (c) => isBlank(c.url) },
-    { labelKey: 'method', isMissing: (c) => isBlank(c.method) },
-  ],
+  // `method` is not required: the form pre-selects GET and the engine sends GET
+  // when none is stored, so a step without one is complete.
+  http_request: [{ labelKey: 'url', isMissing: (c) => isBlank(c.url) }],
 
   // --- Data ----------------------------------------------------------------
   create_customer: [{ labelKey: 'customerName', isMissing: (c) => isBlank(c.name) }],
