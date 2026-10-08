@@ -121,6 +121,10 @@ describe('sales: Texas (origin-sourced)', () => {
       { code: '2201', name: 'Sales Tax Payable – Texas Comptroller of Public Accounts', debit: 0, credit: 86.63, classId: null, locationId: null },
       { code: '4000', name: 'Sales revenue', debit: 0, credit: 1050, classId: null, locationId: null },
     ]);
+
+    // The agency shows what is owed as a positive amount.
+    const agency = await books.api('/api/sales-tax-agencies', salesTaxAgenciesRoutes, `/${books.agencies.tx}`);
+    expect(agency.data.liabilityAccount).toMatchObject({ code: '2201', balance: '86.63' });
   });
 
   it('writes one tax-ledger row per jurisdiction and line, with the source line and the US columns', async () => {

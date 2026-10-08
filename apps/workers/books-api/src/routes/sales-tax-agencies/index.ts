@@ -96,7 +96,10 @@ async function withAccounts<T extends { liabilityAccountId: string | null; useTa
           .from(schema.accounts)
           .where(inArray(schema.accounts.id, ids))
       : [];
-  const byId = new Map(accounts.map((a) => [a.id, a]));
+  // Ledger balances are debit minus credit; a payable reads as what is owed (credit positive).
+  const byId = new Map(
+    accounts.map((a) => [a.id, { ...a, balance: (-Number.parseFloat(a.balance ?? '0') || 0).toFixed(2) }]),
+  );
   return rows.map((row) => ({
     ...row,
     liabilityAccount: (row.liabilityAccountId && byId.get(row.liabilityAccountId)) || null,
