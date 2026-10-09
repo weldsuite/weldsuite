@@ -13,6 +13,8 @@
     "./nl": "./src/nl/index.ts",
     "./nl/*": "./src/nl/*.ts",
     "./us": "./src/us/index.ts",
+    "./us/states": "./src/us/states/index.ts",
+    "./us/states/*": "./src/us/states/*.ts",
     "./us/*": "./src/us/*.ts",
     "./sepa": "./src/sepa.ts",
     "./nacha": "./src/nacha.ts",

@@ -20,6 +20,7 @@ import { useAgentsSidebarItems } from '@/app/agents/hooks/use-agents-sidebar-ite
 import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconnect-sidebar-items';
 import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sidebar-items';
 import { useWeldbooksSidebarItems } from '@/app/weldbooks/hooks/use-weldbooks-sidebar-items';
+import { useWeldhrSidebarItems } from '@/app/weldhr/payroll/lib/use-weldhr-sidebar-items';
 import { resolveAppCode } from '@/lib/apps/app-registry';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 
@@ -89,6 +90,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   const weldconnectItems = useWeldconnectSidebarItems(moduleKey === 'weldconnect');
   const weldknowItems = useWeldknowSidebarItems(moduleKey === 'weldknow');
   const weldbooksItems = useWeldbooksSidebarItems(moduleKey === 'weldbooks');
+  const weldhrItems = useWeldhrSidebarItems(moduleKey === 'weldhr');
 
   const config = userAppConfig ?? (moduleKey && !userAppCode ? MODULE_CONFIGS[moduleKey] : null);
   if (!config) return null;
@@ -136,6 +138,10 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
     case 'weldbooks':
       // Tax item gated + labelled by the entity's jurisdiction.
       menuItems = weldbooksItems.adjust(staticItems);
+      break;
+    case 'weldhr':
+      // Payroll items follow the weldhr-payroll flag.
+      menuItems = weldhrItems.adjust(staticItems);
       break;
     default:
       menuItems = staticItems;

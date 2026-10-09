@@ -116,10 +116,16 @@ export const navigation = {
         leave: 'Leave',
         declarations: 'Declarations',
         portal: 'Workforce portal',
+        payroll: 'Overview',
+        payRuns: 'Pay runs',
+        payrollEmployees: 'Payroll employees',
+        filings: 'Filings',
+        payrollSettings: 'Payroll settings',
         groups: {
           people: 'People',
           time: 'Time',
           expenses: 'Expenses',
+          payroll: 'Payroll',
         },
       },
       weldhost: {

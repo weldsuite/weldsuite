@@ -107,6 +107,7 @@ import { Route as WeldmailInboxIndexRouteImport } from './routes/weldmail/inbox/
 import { Route as WeldmailDomainsIndexRouteImport } from './routes/weldmail/domains/index'
 import { Route as WeldhrSettingsIndexRouteImport } from './routes/weldhr/settings/index'
 import { Route as WeldhrPortalIndexRouteImport } from './routes/weldhr/portal/index'
+import { Route as WeldhrPayrollIndexRouteImport } from './routes/weldhr/payroll/index'
 import { Route as WeldhrMeIndexRouteImport } from './routes/weldhr/me/index'
 import { Route as WeldhrLeaveIndexRouteImport } from './routes/weldhr/leave/index'
 import { Route as WeldhrEmployeesIndexRouteImport } from './routes/weldhr/employees/index'
@@ -269,6 +270,10 @@ import { Route as WeldmailAiSummaryIndexRouteImport } from './routes/weldmail/ai
 import { Route as WeldmailAiSmartReplyIndexRouteImport } from './routes/weldmail/ai/smart-reply/index'
 import { Route as WeldmailAccountIdLabelSlugIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/index'
 import { Route as WeldknowPagePageIdIndexRouteImport } from './routes/weldknow/page/$pageId/index'
+import { Route as WeldhrPayrollSettingsIndexRouteImport } from './routes/weldhr/payroll/settings/index'
+import { Route as WeldhrPayrollRunsIndexRouteImport } from './routes/weldhr/payroll/runs/index'
+import { Route as WeldhrPayrollFilingsIndexRouteImport } from './routes/weldhr/payroll/filings/index'
+import { Route as WeldhrPayrollEmployeesIndexRouteImport } from './routes/weldhr/payroll/employees/index'
 import { Route as WeldhrEmployeesEmployeeIdIndexRouteImport } from './routes/weldhr/employees/$employeeId/index'
 import { Route as WeldhostDomainsSearchIndexRouteImport } from './routes/weldhost/domains/search/index'
 import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldhost/domains/register/index'
@@ -387,6 +392,7 @@ import { Route as WeldmailUnifiedLabelSlugComposeIndexRouteImport } from './rout
 import { Route as WeldmailUnifiedLabelSlugMessageIdIndexRouteImport } from './routes/weldmail/unified/$labelSlug/$messageId/index'
 import { Route as WeldmailAccountIdLabelSlugComposeIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/compose/index'
 import { Route as WeldmailAccountIdLabelSlugMessageIdIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/$messageId/index'
+import { Route as WeldhrPayrollRunsRunIdIndexRouteImport } from './routes/weldhr/payroll/runs/$runId/index'
 import { Route as WeldhostDomainsPurchaseSuccessIndexRouteImport } from './routes/weldhost/domains/purchase/success/index'
 import { Route as WeldhostDomainsPurchaseCancelIndexRouteImport } from './routes/weldhost/domains/purchase/cancel/index'
 import { Route as WeldflowSpaceSpaceIdModuleTypeIndexRouteImport } from './routes/weldflow/space/$spaceId/$moduleType/index'
@@ -951,6 +957,11 @@ const WeldhrSettingsIndexRoute = WeldhrSettingsIndexRouteImport.update({
 const WeldhrPortalIndexRoute = WeldhrPortalIndexRouteImport.update({
   id: '/portal/',
   path: '/portal/',
+  getParentRoute: () => WeldhrRouteRoute,
+} as any)
+const WeldhrPayrollIndexRoute = WeldhrPayrollIndexRouteImport.update({
+  id: '/payroll/',
+  path: '/payroll/',
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
 const WeldhrMeIndexRoute = WeldhrMeIndexRouteImport.update({
@@ -1806,6 +1817,29 @@ const WeldknowPagePageIdIndexRoute = WeldknowPagePageIdIndexRouteImport.update({
   path: '/page/$pageId/',
   getParentRoute: () => WeldknowRouteRoute,
 } as any)
+const WeldhrPayrollSettingsIndexRoute =
+  WeldhrPayrollSettingsIndexRouteImport.update({
+    id: '/payroll/settings/',
+    path: '/payroll/settings/',
+    getParentRoute: () => WeldhrRouteRoute,
+  } as any)
+const WeldhrPayrollRunsIndexRoute = WeldhrPayrollRunsIndexRouteImport.update({
+  id: '/payroll/runs/',
+  path: '/payroll/runs/',
+  getParentRoute: () => WeldhrRouteRoute,
+} as any)
+const WeldhrPayrollFilingsIndexRoute =
+  WeldhrPayrollFilingsIndexRouteImport.update({
+    id: '/payroll/filings/',
+    path: '/payroll/filings/',
+    getParentRoute: () => WeldhrRouteRoute,
+  } as any)
+const WeldhrPayrollEmployeesIndexRoute =
+  WeldhrPayrollEmployeesIndexRouteImport.update({
+    id: '/payroll/employees/',
+    path: '/payroll/employees/',
+    getParentRoute: () => WeldhrRouteRoute,
+  } as any)
 const WeldhrEmployeesEmployeeIdIndexRoute =
   WeldhrEmployeesEmployeeIdIndexRouteImport.update({
     id: '/employees/$employeeId/',
@@ -2500,6 +2534,12 @@ const WeldmailAccountIdLabelSlugMessageIdIndexRoute =
     path: '/$messageId/',
     getParentRoute: () => WeldmailAccountIdLabelSlugRouteRoute,
   } as any)
+const WeldhrPayrollRunsRunIdIndexRoute =
+  WeldhrPayrollRunsRunIdIndexRouteImport.update({
+    id: '/payroll/runs/$runId/',
+    path: '/payroll/runs/$runId/',
+    getParentRoute: () => WeldhrRouteRoute,
+  } as any)
 const WeldhostDomainsPurchaseSuccessIndexRoute =
   WeldhostDomainsPurchaseSuccessIndexRouteImport.update({
     id: '/domains/purchase/success/',
@@ -3165,6 +3205,7 @@ export interface FileRoutesByFullPath {
   '/weldhr/employees/': typeof WeldhrEmployeesIndexRoute
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/me/': typeof WeldhrMeIndexRoute
+  '/weldhr/payroll/': typeof WeldhrPayrollIndexRoute
   '/weldhr/portal/': typeof WeldhrPortalIndexRoute
   '/weldhr/settings/': typeof WeldhrSettingsIndexRoute
   '/weldmail/domains/': typeof WeldmailDomainsIndexRoute
@@ -3300,6 +3341,10 @@ export interface FileRoutesByFullPath {
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search/': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId/': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/payroll/employees/': typeof WeldhrPayrollEmployeesIndexRoute
+  '/weldhr/payroll/filings/': typeof WeldhrPayrollFilingsIndexRoute
+  '/weldhr/payroll/runs/': typeof WeldhrPayrollRunsIndexRoute
+  '/weldhr/payroll/settings/': typeof WeldhrPayrollSettingsIndexRoute
   '/weldknow/page/$pageId/': typeof WeldknowPagePageIdIndexRoute
   '/weldmail/$accountId/$labelSlug/': typeof WeldmailAccountIdLabelSlugIndexRoute
   '/weldmail/ai/smart-reply/': typeof WeldmailAiSmartReplyIndexRoute
@@ -3372,6 +3417,7 @@ export interface FileRoutesByFullPath {
   '/weldflow/space/$spaceId/$moduleType/': typeof WeldflowSpaceSpaceIdModuleTypeIndexRoute
   '/weldhost/domains/purchase/cancel/': typeof WeldhostDomainsPurchaseCancelIndexRoute
   '/weldhost/domains/purchase/success/': typeof WeldhostDomainsPurchaseSuccessIndexRoute
+  '/weldhr/payroll/runs/$runId/': typeof WeldhrPayrollRunsRunIdIndexRoute
   '/weldmail/$accountId/$labelSlug/$messageId/': typeof WeldmailAccountIdLabelSlugMessageIdIndexRoute
   '/weldmail/$accountId/$labelSlug/compose/': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId/': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
@@ -3581,6 +3627,7 @@ export interface FileRoutesByTo {
   '/weldhr/employees': typeof WeldhrEmployeesIndexRoute
   '/weldhr/leave': typeof WeldhrLeaveIndexRoute
   '/weldhr/me': typeof WeldhrMeIndexRoute
+  '/weldhr/payroll': typeof WeldhrPayrollIndexRoute
   '/weldhr/portal': typeof WeldhrPortalIndexRoute
   '/weldhr/settings': typeof WeldhrSettingsIndexRoute
   '/weldmail/domains': typeof WeldmailDomainsIndexRoute
@@ -3714,6 +3761,10 @@ export interface FileRoutesByTo {
   '/weldhost/domains/register': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/payroll/employees': typeof WeldhrPayrollEmployeesIndexRoute
+  '/weldhr/payroll/filings': typeof WeldhrPayrollFilingsIndexRoute
+  '/weldhr/payroll/runs': typeof WeldhrPayrollRunsIndexRoute
+  '/weldhr/payroll/settings': typeof WeldhrPayrollSettingsIndexRoute
   '/weldknow/page/$pageId': typeof WeldknowPagePageIdIndexRoute
   '/weldmail/$accountId/$labelSlug': typeof WeldmailAccountIdLabelSlugIndexRoute
   '/weldmail/ai/smart-reply': typeof WeldmailAiSmartReplyIndexRoute
@@ -3786,6 +3837,7 @@ export interface FileRoutesByTo {
   '/weldflow/space/$spaceId/$moduleType': typeof WeldflowSpaceSpaceIdModuleTypeIndexRoute
   '/weldhost/domains/purchase/cancel': typeof WeldhostDomainsPurchaseCancelIndexRoute
   '/weldhost/domains/purchase/success': typeof WeldhostDomainsPurchaseSuccessIndexRoute
+  '/weldhr/payroll/runs/$runId': typeof WeldhrPayrollRunsRunIdIndexRoute
   '/weldmail/$accountId/$labelSlug/$messageId': typeof WeldmailAccountIdLabelSlugMessageIdIndexRoute
   '/weldmail/$accountId/$labelSlug/compose': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
@@ -4033,6 +4085,7 @@ export interface FileRoutesById {
   '/weldhr/employees/': typeof WeldhrEmployeesIndexRoute
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/me/': typeof WeldhrMeIndexRoute
+  '/weldhr/payroll/': typeof WeldhrPayrollIndexRoute
   '/weldhr/portal/': typeof WeldhrPortalIndexRoute
   '/weldhr/settings/': typeof WeldhrSettingsIndexRoute
   '/weldmail/domains/': typeof WeldmailDomainsIndexRoute
@@ -4168,6 +4221,10 @@ export interface FileRoutesById {
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search/': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId/': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/payroll/employees/': typeof WeldhrPayrollEmployeesIndexRoute
+  '/weldhr/payroll/filings/': typeof WeldhrPayrollFilingsIndexRoute
+  '/weldhr/payroll/runs/': typeof WeldhrPayrollRunsIndexRoute
+  '/weldhr/payroll/settings/': typeof WeldhrPayrollSettingsIndexRoute
   '/weldknow/page/$pageId/': typeof WeldknowPagePageIdIndexRoute
   '/weldmail/$accountId/$labelSlug/': typeof WeldmailAccountIdLabelSlugIndexRoute
   '/weldmail/ai/smart-reply/': typeof WeldmailAiSmartReplyIndexRoute
@@ -4240,6 +4297,7 @@ export interface FileRoutesById {
   '/weldflow/space/$spaceId/$moduleType/': typeof WeldflowSpaceSpaceIdModuleTypeIndexRoute
   '/weldhost/domains/purchase/cancel/': typeof WeldhostDomainsPurchaseCancelIndexRoute
   '/weldhost/domains/purchase/success/': typeof WeldhostDomainsPurchaseSuccessIndexRoute
+  '/weldhr/payroll/runs/$runId/': typeof WeldhrPayrollRunsRunIdIndexRoute
   '/weldmail/$accountId/$labelSlug/$messageId/': typeof WeldmailAccountIdLabelSlugMessageIdIndexRoute
   '/weldmail/$accountId/$labelSlug/compose/': typeof WeldmailAccountIdLabelSlugComposeIndexRoute
   '/weldmail/unified/$labelSlug/$messageId/': typeof WeldmailUnifiedLabelSlugMessageIdIndexRoute
@@ -4487,6 +4545,7 @@ export interface FileRouteTypes {
     | '/weldhr/employees/'
     | '/weldhr/leave/'
     | '/weldhr/me/'
+    | '/weldhr/payroll/'
     | '/weldhr/portal/'
     | '/weldhr/settings/'
     | '/weldmail/domains/'
@@ -4622,6 +4681,10 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register/'
     | '/weldhost/domains/search/'
     | '/weldhr/employees/$employeeId/'
+    | '/weldhr/payroll/employees/'
+    | '/weldhr/payroll/filings/'
+    | '/weldhr/payroll/runs/'
+    | '/weldhr/payroll/settings/'
     | '/weldknow/page/$pageId/'
     | '/weldmail/$accountId/$labelSlug/'
     | '/weldmail/ai/smart-reply/'
@@ -4694,6 +4757,7 @@ export interface FileRouteTypes {
     | '/weldflow/space/$spaceId/$moduleType/'
     | '/weldhost/domains/purchase/cancel/'
     | '/weldhost/domains/purchase/success/'
+    | '/weldhr/payroll/runs/$runId/'
     | '/weldmail/$accountId/$labelSlug/$messageId/'
     | '/weldmail/$accountId/$labelSlug/compose/'
     | '/weldmail/unified/$labelSlug/$messageId/'
@@ -4903,6 +4967,7 @@ export interface FileRouteTypes {
     | '/weldhr/employees'
     | '/weldhr/leave'
     | '/weldhr/me'
+    | '/weldhr/payroll'
     | '/weldhr/portal'
     | '/weldhr/settings'
     | '/weldmail/domains'
@@ -5036,6 +5101,10 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register'
     | '/weldhost/domains/search'
     | '/weldhr/employees/$employeeId'
+    | '/weldhr/payroll/employees'
+    | '/weldhr/payroll/filings'
+    | '/weldhr/payroll/runs'
+    | '/weldhr/payroll/settings'
     | '/weldknow/page/$pageId'
     | '/weldmail/$accountId/$labelSlug'
     | '/weldmail/ai/smart-reply'
@@ -5108,6 +5177,7 @@ export interface FileRouteTypes {
     | '/weldflow/space/$spaceId/$moduleType'
     | '/weldhost/domains/purchase/cancel'
     | '/weldhost/domains/purchase/success'
+    | '/weldhr/payroll/runs/$runId'
     | '/weldmail/$accountId/$labelSlug/$messageId'
     | '/weldmail/$accountId/$labelSlug/compose'
     | '/weldmail/unified/$labelSlug/$messageId'
@@ -5354,6 +5424,7 @@ export interface FileRouteTypes {
     | '/weldhr/employees/'
     | '/weldhr/leave/'
     | '/weldhr/me/'
+    | '/weldhr/payroll/'
     | '/weldhr/portal/'
     | '/weldhr/settings/'
     | '/weldmail/domains/'
@@ -5489,6 +5560,10 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register/'
     | '/weldhost/domains/search/'
     | '/weldhr/employees/$employeeId/'
+    | '/weldhr/payroll/employees/'
+    | '/weldhr/payroll/filings/'
+    | '/weldhr/payroll/runs/'
+    | '/weldhr/payroll/settings/'
     | '/weldknow/page/$pageId/'
     | '/weldmail/$accountId/$labelSlug/'
     | '/weldmail/ai/smart-reply/'
@@ -5561,6 +5636,7 @@ export interface FileRouteTypes {
     | '/weldflow/space/$spaceId/$moduleType/'
     | '/weldhost/domains/purchase/cancel/'
     | '/weldhost/domains/purchase/success/'
+    | '/weldhr/payroll/runs/$runId/'
     | '/weldmail/$accountId/$labelSlug/$messageId/'
     | '/weldmail/$accountId/$labelSlug/compose/'
     | '/weldmail/unified/$labelSlug/$messageId/'
@@ -6320,6 +6396,13 @@ declare module '@tanstack/react-router' {
       path: '/portal'
       fullPath: '/weldhr/portal/'
       preLoaderRoute: typeof WeldhrPortalIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
+    '/weldhr/payroll/': {
+      id: '/weldhr/payroll/'
+      path: '/payroll'
+      fullPath: '/weldhr/payroll/'
+      preLoaderRoute: typeof WeldhrPayrollIndexRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
     '/weldhr/me/': {
@@ -7456,6 +7539,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldknowPagePageIdIndexRouteImport
       parentRoute: typeof WeldknowRouteRoute
     }
+    '/weldhr/payroll/settings/': {
+      id: '/weldhr/payroll/settings/'
+      path: '/payroll/settings'
+      fullPath: '/weldhr/payroll/settings/'
+      preLoaderRoute: typeof WeldhrPayrollSettingsIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
+    '/weldhr/payroll/runs/': {
+      id: '/weldhr/payroll/runs/'
+      path: '/payroll/runs'
+      fullPath: '/weldhr/payroll/runs/'
+      preLoaderRoute: typeof WeldhrPayrollRunsIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
+    '/weldhr/payroll/filings/': {
+      id: '/weldhr/payroll/filings/'
+      path: '/payroll/filings'
+      fullPath: '/weldhr/payroll/filings/'
+      preLoaderRoute: typeof WeldhrPayrollFilingsIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
+    '/weldhr/payroll/employees/': {
+      id: '/weldhr/payroll/employees/'
+      path: '/payroll/employees'
+      fullPath: '/weldhr/payroll/employees/'
+      preLoaderRoute: typeof WeldhrPayrollEmployeesIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
     '/weldhr/employees/$employeeId/': {
       id: '/weldhr/employees/$employeeId/'
       path: '/employees/$employeeId'
@@ -8281,6 +8392,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldmail/$accountId/$labelSlug/$messageId/'
       preLoaderRoute: typeof WeldmailAccountIdLabelSlugMessageIdIndexRouteImport
       parentRoute: typeof WeldmailAccountIdLabelSlugRouteRoute
+    }
+    '/weldhr/payroll/runs/$runId/': {
+      id: '/weldhr/payroll/runs/$runId/'
+      path: '/payroll/runs/$runId'
+      fullPath: '/weldhr/payroll/runs/$runId/'
+      preLoaderRoute: typeof WeldhrPayrollRunsRunIdIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
     }
     '/weldhost/domains/purchase/success/': {
       id: '/weldhost/domains/purchase/success/'
@@ -9714,9 +9832,15 @@ interface WeldhrRouteRouteChildren {
   WeldhrEmployeesIndexRoute: typeof WeldhrEmployeesIndexRoute
   WeldhrLeaveIndexRoute: typeof WeldhrLeaveIndexRoute
   WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
+  WeldhrPayrollIndexRoute: typeof WeldhrPayrollIndexRoute
   WeldhrPortalIndexRoute: typeof WeldhrPortalIndexRoute
   WeldhrSettingsIndexRoute: typeof WeldhrSettingsIndexRoute
   WeldhrEmployeesEmployeeIdIndexRoute: typeof WeldhrEmployeesEmployeeIdIndexRoute
+  WeldhrPayrollEmployeesIndexRoute: typeof WeldhrPayrollEmployeesIndexRoute
+  WeldhrPayrollFilingsIndexRoute: typeof WeldhrPayrollFilingsIndexRoute
+  WeldhrPayrollRunsIndexRoute: typeof WeldhrPayrollRunsIndexRoute
+  WeldhrPayrollSettingsIndexRoute: typeof WeldhrPayrollSettingsIndexRoute
+  WeldhrPayrollRunsRunIdIndexRoute: typeof WeldhrPayrollRunsRunIdIndexRoute
 }
 
 const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
@@ -9727,9 +9851,15 @@ const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
   WeldhrEmployeesIndexRoute: WeldhrEmployeesIndexRoute,
   WeldhrLeaveIndexRoute: WeldhrLeaveIndexRoute,
   WeldhrMeIndexRoute: WeldhrMeIndexRoute,
+  WeldhrPayrollIndexRoute: WeldhrPayrollIndexRoute,
   WeldhrPortalIndexRoute: WeldhrPortalIndexRoute,
   WeldhrSettingsIndexRoute: WeldhrSettingsIndexRoute,
   WeldhrEmployeesEmployeeIdIndexRoute: WeldhrEmployeesEmployeeIdIndexRoute,
+  WeldhrPayrollEmployeesIndexRoute: WeldhrPayrollEmployeesIndexRoute,
+  WeldhrPayrollFilingsIndexRoute: WeldhrPayrollFilingsIndexRoute,
+  WeldhrPayrollRunsIndexRoute: WeldhrPayrollRunsIndexRoute,
+  WeldhrPayrollSettingsIndexRoute: WeldhrPayrollSettingsIndexRoute,
+  WeldhrPayrollRunsRunIdIndexRoute: WeldhrPayrollRunsRunIdIndexRoute,
 }
 
 const WeldhrRouteRouteWithChildren = WeldhrRouteRoute._addFileChildren(

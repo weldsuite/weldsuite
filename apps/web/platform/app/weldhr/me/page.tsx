@@ -1,6 +1,6 @@
 /**
  * My HR: the signed-in member's own WeldHR employee record. Overview, leave,
- * expense declarations, attendance, onboarding tasks, coaching and evaluations,
+ * expense declarations, attendance, payroll (payslips and tax forms, with the weldhr-payroll flag), onboarding tasks, coaching and evaluations,
  * and goals. Every endpoint resolves the employee from the session, so this
  * page never takes an employee id. Members who are not linked to an employee
  * (or whose record is terminated) get a "not set up yet" state instead of tabs.
@@ -13,6 +13,7 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrSelf } from '@weldsuite/app-api-client/domains/weldhr';
 import { PageLoader } from '@/components/page-loader';
 import { useMyHr, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
+import { useHrPayrollFlag, useMyPayrollDetails, useMyPayslips } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { DetailHeader, DetailPage, DetailTabs, emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
 import { EmployeeAvatar, ErrorBanner, StatusBadge, errorMessage } from '../components/shared';
 import { MyAttendanceTab } from './components/attendance-tab';
@@ -20,6 +21,7 @@ import { MyDeclarationsTab } from './components/declarations-tab';
 import { MyGoalsTab } from './components/goals-tab';
 import { MyLeaveTab } from './components/leave-tab';
 import { MyOverviewTab } from './components/overview-tab';
+import { MyPayrollTab, unsignedElections } from './components/payroll-tab';
 import { MyReviewsTab } from './components/reviews-tab';
 import { isMeTabId, type MeTabId } from './components/shared';
 import { MyTasksTab } from './components/tasks-tab';
@@ -80,8 +82,16 @@ function MyHrContent({
   const navigate = useNavigate();
   // Same query the Overview tab runs; here it only feeds the tab counters.
   const { data: overview } = useMyHrOverview();
+  // Payroll shows up once the flag is on and the employee is on payroll (or already has payslips).
+  const payrollFlag = useHrPayrollFlag();
+  const { data: payrollDetails } = useMyPayrollDetails({ enabled: payrollFlag.enabled });
+  const { data: myPayslips } = useMyPayslips({ enabled: payrollFlag.enabled });
+  const showPayroll = payrollFlag.enabled && (Boolean(payrollDetails?.country) || (myPayslips?.length ?? 0) > 0);
+  const payrollTodo = payrollDetails ? payrollDetails.missing.length + unsignedElections(payrollDetails).length : 0;
 
-  const activeTab: MeTabId = isMeTabId(search.tab) ? search.tab : 'overview';
+  const requestedTab: MeTabId = isMeTabId(search.tab) ? search.tab : 'overview';
+  // A link to ?tab=payroll without payroll access shows the overview.
+  const activeTab: MeTabId = requestedTab === 'payroll' && !showPayroll ? 'overview' : requestedTab;
 
   function setTab(tab: MeTabId) {
     void navigate({ to: '/weldhr/me', search: { tab }, replace: true });
@@ -93,6 +103,7 @@ function MyHrContent({
     { id: 'leave', label: t('weldhr.me.tabs.leave') },
     { id: 'declarations', label: t('weldhr.me.tabs.declarations') },
     { id: 'attendance', label: t('weldhr.me.tabs.attendance') },
+    ...(showPayroll ? [{ id: 'payroll' as const, label: t('weldhr.payroll.me.tab'), count: payrollTodo }] : []),
     { id: 'tasks', label: t('weldhr.me.tabs.tasks'), count: overview?.openTasks },
     { id: 'reviews', label: t('weldhr.me.tabs.reviews'), count: toAcknowledge },
     { id: 'goals', label: t('weldhr.me.tabs.goals') },
@@ -128,6 +139,7 @@ function MyHrContent({
       {activeTab === 'leave' && <MyLeaveTab canRequest={features.leaveRequests} />}
       {activeTab === 'declarations' && <MyDeclarationsTab canSubmit={features.declarations} />}
       {activeTab === 'attendance' && <MyAttendanceTab />}
+      {activeTab === 'payroll' && <MyPayrollTab employeeName={employee.displayName} />}
       {activeTab === 'tasks' && <MyTasksTab />}
       {activeTab === 'reviews' && <MyReviewsTab />}
       {activeTab === 'goals' && <MyGoalsTab />}
