@@ -20,7 +20,7 @@
  *      RealtimeKit + api-worker flow that isn't available in test.
  *
  * The in-call surfaces that are purely context-driven (IncomingCallToast,
- * SwitchCallDialog, ActiveCallBanner, the connected room controls) can't be
+ * CallSwitchDialog, ActiveCallBanner, the connected room controls) can't be
  * reached without that live backend, so they're intentionally out of scope here
  * — their stable `data-testid`s are in place for a future RealtimeKit-mocked
  * pass.

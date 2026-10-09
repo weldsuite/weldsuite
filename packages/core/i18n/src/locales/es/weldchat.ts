@@ -794,8 +794,8 @@ export const weldchat = {
     switchCallDialog: {
       title: '¿Salir de la llamada actual?',
       description: 'Ya estás en una llamada. ¿Quieres salir e iniciar una nueva?',
-      stayInCall: 'Permanecer en la llamada',
-      leaveAndCall: 'Salir y llamar',
+      stay: 'Quedarse',
+      leaveAndJoin: 'Salir y unirse',
     },
     dropZone: {
       uploadFile: 'Subir un archivo',

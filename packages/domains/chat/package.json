@@ -7,6 +7,7 @@
   "exports": {
     "./agent-room-policy": "./src/agent-room-policy.ts",
     "./call-lifecycle": "./src/call-lifecycle.ts",
+    "./call-participants": "./src/call-participants.ts",
     "./channel-access": "./src/channel-access.ts",
     "./channel-members": "./src/channel-members.ts",
     "./create-channel": "./src/create-channel.ts",

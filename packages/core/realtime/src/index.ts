@@ -9,6 +9,7 @@ export type {
   Attachment,
   WorkspaceClientMessage,
   WorkspaceServerMessage,
+  CallSupersededEvent,
   ConversationClientMessage,
   ConversationServerMessage,
   ChatClientMessage,

@@ -66,6 +66,7 @@ export const weldmeet = {
       reconnecting: 'Verbinding verbroken. Opnieuw verbinden…',
       reconnected: 'Je bent weer in de vergadering',
       lost: 'Opnieuw verbinden met de vergadering is niet gelukt. Neem opnieuw deel om verder te gaan.',
+      supersededByOtherCall: 'Je hebt dit gesprek verlaten omdat je aan een ander gesprek of een andere vergadering bent begonnen.',
     },
     recording: {
       started: 'Opname gestart. Alle deelnemers worden op de hoogte gebracht.',

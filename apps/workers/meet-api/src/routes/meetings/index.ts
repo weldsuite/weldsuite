@@ -63,6 +63,7 @@ import {
 } from '../../services/weldmeet/session-recording';
 import { reconcileRecordingFromRtk } from '../../services/weldmeet/recording-reconcile';
 import { startInstantMeeting } from '../../services/weldmeet/start-instant';
+import { leaveOtherLiveCalls } from '../../services/weldmeet/leave-other-live-calls';
 import { generateJoinCode } from '../../services/weldmeet/join-code';
 import { publishMeetingUpdated } from '../../services/realtime/weldmeet-publisher';
 import { resolveParticipantLink } from '../../lib/participant-resolver';
@@ -535,6 +536,7 @@ app.post(
 
     const userId = c.get('userId');
     const input = c.req.valid('json');
+    const requestStartedAt = Date.now();
 
     try {
       const db = c.get('tenantDb');
@@ -558,6 +560,12 @@ app.post(
       });
 
       console.log('[app-api/meetings] start-instant timings', result.timings);
+
+      // The instant meeting is created and joined. One live call at a time:
+      // leave every other meeting session / chat call, after the response.
+      c.executionCtx.waitUntil(
+        leaveOtherLiveCalls(db, c.env, orgId, userId, result.sessionId, requestStartedAt),
+      );
 
       publishEntityEvent({
         c,
