@@ -133,6 +133,19 @@ export interface NlPayslipInput extends PayslipInputBase {
      * annualises the current period wage, as the Handboek prescribes.
      */
     previousYearAnnualWageCents: Cents | null;
+    /**
+     * Additive (NL engine): reserved holiday allowance not yet paid at the start
+     * of this tax year (last year's closing `NL_YTD_KEYS.holidayAllowanceBalance`).
+     * Read only while this year's ytd has no opening balance yet. Omitted = 0.
+     */
+    holidayAllowanceOpeningBalanceCents?: Cents | null;
+    /**
+     * Additive (NL engine): days per week the employee usually works. 5 or more
+     * makes a partial first or last month a day-table period (Handboek §5.1.1);
+     * fewer is the part-timer rule (the month stays the period). Omitted: 5 when
+     * the contract hours are 36 or more, otherwise 4.
+     */
+    usualWorkDaysPerWeek?: number | null;
   };
 }
 
@@ -180,6 +193,8 @@ export interface UsPayslipInput extends PayslipInputBase {
     stateCertificates: Record<string, UsStateCertificateInput>;
     exemptFica: boolean;
     exemptFuta: boolean;
+    /** Exempt from state unemployment insurance (e.g. a corporate officer where the state allows it). Omitted = same as `exemptFuta`. */
+    exemptSui?: boolean;
     statutoryEmployee: boolean;
     retirementPlan: boolean;
   };
@@ -263,11 +278,37 @@ export interface NlFilingData {
     pensionEmployee: Cents;
     /** Tax-free allowances under the WKR targeted exemptions (travel, home working, 30%). */
     taxFreeAllowances: Cents;
+    /** Additive (NL engine): loon in geld, loonstaat column 3 (`LnInGld`). */
+    cashWage?: Cents;
+    /** Additive (NL engine): loon anders dan in geld, column 4 (`WrdLn`): car value minus contribution. */
+    inKindWage?: Cents;
+    /** Additive (NL engine): loon uit overwerk (`LnOwrk`). */
+    overtimeWage?: Cents;
+    /** Additive (NL engine): tax-free per-km travel allowance (`Reisk`). */
+    travelAllowanceTaxFree?: Cents;
+    /** Additive (NL engine): contractloon for the month (`Ctrctln`). */
+    contractWage?: Cents;
+    /**
+     * Additive (NL engine): transitievergoeding paid this period. It is loon uit
+     * vroegere dienstbetrekking taxed with the green table and reported in its own
+     * income relationship (SrtIV 62). The fields below are the parts of the totals
+     * above that belong to it (all included in loonLbPh, loonZvw, wageTax and the Zvw amounts).
+     */
+    transitionPayment?: Cents;
+    transitionPaymentWageTax?: Cents;
+    transitionPaymentLoonZvw?: Cents;
+    transitionPaymentZvw?: Cents;
   };
   /** Verloonde uren (hours paid) this period. */
   hoursPaid: number;
-  /** Social-insurance days (SV-dagen). */
+  /** Social-insurance days (SV-dagen). Not a rubriek of the 2026 return; kept for UWV-style reporting. */
   svDays: number;
+  /** Additive (NL engine): aantal contracturen per week (`AantCtrcturenPWk`). */
+  contractHoursPerWeek?: number | null;
+  /** Additive (NL engine): the employee is a DGA not insured for the employee insurances (inkomenscode 17). */
+  isDga?: boolean;
+  /** Additive (NL engine): code incidentele inkomstenvermindering (`CdIncInkVerm`): O unpaid leave, Z sickness. */
+  incidentalIncomeReduction?: 'K' | 'O' | 'S' | 'Z' | null;
 }
 
 /** One US payslip's contribution to the federal and state filings. Cents. */
@@ -298,6 +339,21 @@ export interface UsFilingData {
     box12: Record<string, Cents>;
     /** W-2 box 10 dependent care. */
     dependentCare: Cents;
+    /**
+     * Additive (US engine): the part of `futaGrossWages` exempt from FUTA (Form 940 line 4:
+     * Section 125 benefits, HSA, excluded dependent care; everything when the employee is
+     * FUTA-exempt). `futaWages` is the taxable part after the $7,000 base (line 7).
+     */
+    futaExemptWages?: Cents;
+    /** Additive: the state whose unemployment law covers these wages (Schedule A (Form 940) credit reduction). */
+    futaState?: string | null;
+    /** Additive: FUTA credit reduction included in `futaTax` (Schedule A), cents. */
+    futaCreditReduction?: Cents;
+    /** Additive: supplemental wages (bonus, commission) included in `fitWages` before pre-tax deductions. */
+    supplementalWages?: Cents;
+    /** Additive: W-2 box 13 checkboxes. */
+    statutoryEmployee?: boolean;
+    retirementPlan?: boolean;
   };
   /** Per state code. */
   states: Record<
