@@ -98,8 +98,8 @@ function DataSnapshot({ data }: { data: Record<string, unknown> }) {
 export function AuditTimelineSkeleton({ count = 3 }: Readonly<{ count?: number }>) {
   return (
     <div className="space-y-0">
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="flex gap-3 py-2 pl-0 pr-2">
+      {Array.from({ length: count }, (_, i) => `skeleton-${i}`).map((rowKey) => (
+        <div key={rowKey} className="flex gap-3 py-2 pl-0 pr-2">
           <Skeleton className="h-5 w-5 shrink-0 rounded-[6px]" />
           <div className="flex-1 space-y-1.5 pt-0.5">
             <Skeleton className="h-3.5 w-3/4" />

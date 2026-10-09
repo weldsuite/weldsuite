@@ -39,6 +39,10 @@ interface ColorPickerContextValue {
 
 const ColorPickerContext = createContext<ColorPickerContextValue | undefined>(undefined);
 
+// Channel names double as stable React keys for the per-channel inputs.
+const RGB_CHANNELS = ['r', 'g', 'b'] as const;
+const HSL_CHANNELS = ['h', 's', 'l'] as const;
+
 export const useColorPicker = () => {
   const context = useContext(ColorPickerContext);
 
@@ -392,17 +396,17 @@ export const ColorPickerFormat = ({ className, ...props }: ColorPickerFormatProp
         className={cn('-space-x-px flex items-center rounded-md shadow-sm', className)}
         {...props}
       >
-        {rgb.map((value, index) => (
+        {RGB_CHANNELS.map((channel, index) => (
           <Input
             className={cn(
               'h-8 rounded-r-none bg-secondary px-2 text-xs shadow-none',
               index && 'rounded-l-none',
               className,
             )}
-            key={index}
+            key={channel}
             readOnly
             type="text"
-            value={value}
+            value={rgb[index]}
           />
         ))}
         <PercentageInput value={alpha} />
@@ -440,17 +444,17 @@ export const ColorPickerFormat = ({ className, ...props }: ColorPickerFormatProp
         className={cn('-space-x-px flex items-center rounded-md shadow-sm', className)}
         {...props}
       >
-        {hsl.map((value, index) => (
+        {HSL_CHANNELS.map((channel, index) => (
           <Input
             className={cn(
               'h-8 rounded-r-none bg-secondary px-2 text-xs shadow-none',
               index && 'rounded-l-none',
               className,
             )}
-            key={index}
+            key={channel}
             readOnly
             type="text"
-            value={value}
+            value={hsl[index]}
           />
         ))}
         <PercentageInput value={alpha} />

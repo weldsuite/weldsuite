@@ -3,6 +3,7 @@
 import type { StoreData } from '../types';
 import React from 'react';
 import { Menu, X, ShoppingCart, Search, User, ChevronDown, ChevronRight } from 'lucide-react';
+import { keyedBy, tupleKey } from '../lib/keyed';
 
 interface MegamenuItem {
   label: string;
@@ -212,9 +213,9 @@ export function NavbarShopifySection({
               {/* Menu Items */}
               <div className={showImage ? 'col-span-3' : 'col-span-4'}>
                 <div className={`grid ${showImage ? 'grid-cols-3' : columnsClass} gap-6`}>
-                  {item.children.map((child, idx) => (
+                  {keyedBy(item.children, (c) => tupleKey(c.label, c.href)).map(({ item: child, key: childKey }) => (
                     <a
-                      key={idx}
+                      key={childKey}
                       href={child.href}
                       className="group/item block p-3 rounded-lg hover:bg-gray-50 transition-colors"
                     >
@@ -269,9 +270,9 @@ export function NavbarShopifySection({
         }}
       >
         <div className="py-3">
-          {item.children.map((child, idx) => (
+          {keyedBy(item.children, (c) => tupleKey(c.label, c.href)).map(({ item: child, key: childKey }) => (
             <a
-              key={idx}
+              key={childKey}
               href={child.href}
               className="block px-4 py-2 hover:bg-gray-50 transition-colors"
             >
@@ -298,8 +299,8 @@ export function NavbarShopifySection({
 
   const renderDesktopNav = () => (
     <div className={`hidden ${breakpointClass}:flex items-center gap-8`}>
-      {menuItems.map((item, idx) => (
-        <div key={idx} className="relative group">
+      {keyedBy(menuItems, (i) => tupleKey(i.label, i.href)).map(({ item, key: itemKey }) => (
+        <div key={itemKey} className="relative group">
           {item.children && item.children.length > 0 ? (
             <>
               <button
@@ -315,9 +316,9 @@ export function NavbarShopifySection({
                   className="absolute left-0 top-full mt-1 min-w-[200px] rounded-lg shadow-lg border z-50 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 py-2"
                   style={{ backgroundColor: megamenuBackgroundColor, borderColor }}
                 >
-                  {item.children.map((child, childIdx) => (
+                  {keyedBy(item.children, (c) => tupleKey(c.label, c.href)).map(({ item: child, key: childKey }) => (
                     <a
-                      key={childIdx}
+                      key={childKey}
                       href={child.href}
                       className="block px-4 py-2 hover:bg-gray-50 transition-colors"
                       style={{ color: megamenuTextColor }}
@@ -371,8 +372,8 @@ export function NavbarShopifySection({
             </div>
 
             <nav className="py-4">
-              {menuItems.map((item, idx) => (
-                <div key={idx}>
+              {keyedBy(menuItems, (i) => tupleKey(i.label, i.href)).map(({ item, key: itemKey }) => (
+                <div key={itemKey}>
                   {item.children && item.children.length > 0 ? (
                     <div>
                       <button
@@ -387,9 +388,9 @@ export function NavbarShopifySection({
                       </button>
                       {activeMenu === item.label && (
                         <div className="bg-gray-50 py-2">
-                          {item.children.map((child, childIdx) => (
+                          {keyedBy(item.children, (c) => tupleKey(c.label, c.href)).map(({ item: child, key: childKey }) => (
                             <a
-                              key={childIdx}
+                              key={childKey}
                               href={child.href}
                               className="block px-8 py-2 text-sm"
                               style={{ color: textColor }}
@@ -440,8 +441,8 @@ export function NavbarShopifySection({
         style={{ backgroundColor, borderColor }}
       >
         <nav className="py-2">
-          {menuItems.map((item, idx) => (
-            <div key={idx}>
+          {keyedBy(menuItems, (i) => tupleKey(i.label, i.href)).map(({ item, key: itemKey }) => (
+            <div key={itemKey}>
               {item.children && item.children.length > 0 ? (
                 <div>
                   <button
@@ -456,9 +457,9 @@ export function NavbarShopifySection({
                   </button>
                   {activeMenu === item.label && (
                     <div className="bg-gray-50 py-2">
-                      {item.children.map((child, childIdx) => (
+                      {keyedBy(item.children, (c) => tupleKey(c.label, c.href)).map(({ item: child, key: childKey }) => (
                         <a
-                          key={childIdx}
+                          key={childKey}
                           href={child.href}
                           className="block px-8 py-2 text-sm"
                           style={{ color: textColor }}
@@ -578,8 +579,8 @@ export function NavbarShopifySection({
             <>
               {/* Left Nav */}
               <div className={`hidden ${breakpointClass}:flex items-center gap-6`}>
-                {menuItems.slice(0, Math.ceil(menuItems.length / 2)).map((item, idx) => (
-                  <div key={idx} className="relative group">
+                {keyedBy(menuItems.slice(0, Math.ceil(menuItems.length / 2)), (i) => tupleKey(i.label, i.href)).map(({ item, key: itemKey }) => (
+                  <div key={itemKey} className="relative group">
                     {item.children && item.children.length > 0 ? (
                       <>
                         <button
@@ -621,8 +622,8 @@ export function NavbarShopifySection({
 
               {/* Right Nav */}
               <div className={`hidden ${breakpointClass}:flex items-center gap-6`}>
-                {menuItems.slice(Math.ceil(menuItems.length / 2)).map((item, idx) => (
-                  <div key={idx} className="relative group">
+                {keyedBy(menuItems.slice(Math.ceil(menuItems.length / 2)), (i) => tupleKey(i.label, i.href)).map(({ item, key: itemKey }) => (
+                  <div key={itemKey} className="relative group">
                     {item.children && item.children.length > 0 ? (
                       <>
                         <button
