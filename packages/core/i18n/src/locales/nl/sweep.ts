@@ -1442,6 +1442,7 @@ export const sweep = {
     "deletePersonFailed": "Persoon verwijderen mislukt",
     "deleteTask": "Taak verwijderen",
     "deleteTaskFailed": "Taak verwijderen mislukt",
+    "deleteTaskConfirmDescription": "Deze taak wordt verwijderd. Dit kan niet ongedaan worden gemaakt.",
     "deletedCompany": "(verwijderd bedrijf)",
     "deletedFile": "{fileName} verwijderd",
     "deletedPerson": "(verwijderde persoon)",
@@ -3157,6 +3158,14 @@ export const sweep = {
     },
     "whiteboardListPage": {
       "copyName": "{name} (kopie)",
+      "backToList": "Terug naar whiteboards",
+      "deleteConfirmDescription": "\"{name}\" wordt verwijderd. Dit kan niet ongedaan worden gemaakt.",
+      "deleteConfirmTitle": "Whiteboard verwijderen?",
+      "nameInvalid": "Voer een naam in",
+      "nameLabel": "Naam van whiteboard",
+      "rename": "Hernoemen",
+      "renameFailedToast": "Whiteboard hernoemen mislukt",
+      "renamedToast": "Whiteboard hernoemd",
       "create": "Aanmaken",
       "createFailedToast": "Aanmaken van whiteboard mislukt",
       "created": "Aangemaakt",
@@ -3254,6 +3263,8 @@ export const sweep = {
       "role": "Rol",
       "save": "Opslaan",
       "searchMembersPlaceholder": "Leden zoeken...",
+      "taskCount": "{count} taken",
+      "taskCountSingular": "1 taak",
       "underloaded": "Onderbelast",
       "workload": "Werklast"
     }

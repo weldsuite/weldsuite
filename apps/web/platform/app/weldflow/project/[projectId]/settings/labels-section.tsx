@@ -146,7 +146,9 @@ export function LabelsSection({ projectId, isAdmin }: Readonly<LabelsSectionProp
 
   const startAdd = () => {
     setAdding(true);
-    setNewLabel({ id: '', name: '', color: DEFAULT_COLOR });
+    // Rotate the starting color so new labels aren't all the same red.
+    const color = coloredSquareColors[labels.length % coloredSquareColors.length]?.value ?? DEFAULT_COLOR;
+    setNewLabel({ id: '', name: '', color });
   };
 
   const cancelAdd = () => {

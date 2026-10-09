@@ -24,6 +24,7 @@ import { EntityDetailPanel, type EntityField, type Comment, type ActivityItem } 
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { formatTaskNumber } from '@/lib/task-number';
+import { formatHoursDecimalAsHm } from '@/lib/format-hours';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { format, formatDistance ,
   startOfDay,
@@ -113,7 +114,9 @@ function transformApiData(data: Projects.WorkloadOverview | null): { members: Te
 
         // Calculate hours per day based on estimated hours and duration
         const durationDays = Math.max(1, Math.ceil((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60 * 24)));
-        const hoursPerDay = task.estimatedHours ? task.estimatedHours / durationDays : 2;
+        // The API returns numeric columns as strings ("0.50"), so coerce before dividing.
+        const estimatedHours = Number(task.estimatedHours) || 0;
+        const hoursPerDay = estimatedHours > 0 ? estimatedHours / durationDays : 2;
 
         tasks.push({
           id: task.id,
@@ -226,6 +229,7 @@ const TeamMemberSidebarItem = memo(({
   isExpanded: boolean;
   onToggle: () => void;
 }>) => {
+  const st = useTranslations();
   const avgWorkload = useMemo(() => {
     const today = new Date();
     const workload = calculateDailyWorkload(member.id, tasks, today);
@@ -264,9 +268,13 @@ const TeamMemberSidebarItem = memo(({
           "block text-xs font-medium",
           workloadTextClass(avgWorkload, member.hoursPerDay)
         )}>
-          {avgWorkload.toFixed(1)}h / {member.hoursPerDay}h
+          {formatHoursDecimalAsHm(avgWorkload)} / {member.hoursPerDay}h
         </span>
-        <span className="block text-xs text-muted-foreground">{memberTasks.length} tasks</span>
+        <span className="block text-xs text-muted-foreground">
+          {memberTasks.length === 1
+            ? st('sweep.weldflow.workloadView.taskCountSingular')
+            : st('sweep.weldflow.workloadView.taskCount', { count: memberTasks.length })}
+        </span>
       </span>
     </button>
   );
@@ -495,13 +503,13 @@ const WorkloadAreaChart = memo(({
         if (status === 'overloaded') {
           capacityDelta = (
             <span className="text-[11px] font-medium text-red-600 dark:text-red-400 tabular-nums">
-              +{overHours.toFixed(1)}h over
+              +{formatHoursDecimalAsHm(overHours)} over
             </span>
           );
         } else if (status === 'available' || status === 'near') {
           capacityDelta = (
             <span className="text-[11px] text-muted-foreground tabular-nums">
-              {(-overHours).toFixed(1)}h left
+              {formatHoursDecimalAsHm(-overHours)} left
             </span>
           );
         }
@@ -537,7 +545,7 @@ const WorkloadAreaChart = memo(({
                     "text-sm font-semibold tabular-nums",
                     status === 'overloaded' ? "text-red-600 dark:text-red-400" : "text-foreground"
                   )}>
-                    {hoveredWorkload.hours.toFixed(1)}h
+                    {formatHoursDecimalAsHm(hoveredWorkload.hours)}
                   </span>
                   <span className="text-xs text-muted-foreground tabular-nums">
                     / {member.hoursPerDay}h
@@ -562,7 +570,7 @@ const WorkloadAreaChart = memo(({
                       {hoveredWorkload.tasks.length} Task{hoveredWorkload.tasks.length !== 1 ? 's' : ''}
                     </span>
                     <span className="text-[11px] text-muted-foreground tabular-nums">
-                      {totalTaskHours.toFixed(1)}h total
+                      {formatHoursDecimalAsHm(totalTaskHours)} total
                     </span>
                   </div>
                   <div className="space-y-0.5">
@@ -583,7 +591,7 @@ const WorkloadAreaChart = memo(({
                           </div>
                         </div>
                         <span className="text-xs font-medium text-muted-foreground tabular-nums shrink-0">
-                          {task.hoursPerDay.toFixed(1)}h
+                          {formatHoursDecimalAsHm(task.hoursPerDay)}
                         </span>
                       </div>
                     ))}
@@ -1213,7 +1221,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                       "text-xs font-medium",
                       workloadTextClass(avgWorkload, member.hoursPerDay)
                     )}>
-                      {avgWorkload.toFixed(1)}h / {member.hoursPerDay}h
+                      {formatHoursDecimalAsHm(avgWorkload)} / {member.hoursPerDay}h
                     </span>
                   </button>
                   {/* Workload area chart row */}

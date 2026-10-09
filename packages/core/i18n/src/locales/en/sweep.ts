@@ -1442,6 +1442,7 @@ export const sweep = {
     "deletePersonFailed": "Failed to delete person",
     "deleteTask": "Delete task",
     "deleteTaskFailed": "Failed to delete task",
+    "deleteTaskConfirmDescription": "This task will be deleted. This can't be undone.",
     "deletedCompany": "(deleted company)",
     "deletedFile": "Deleted {fileName}",
     "deletedPerson": "(deleted person)",
@@ -3157,6 +3158,14 @@ export const sweep = {
     },
     "whiteboardListPage": {
       "copyName": "{name} (copy)",
+      "backToList": "Back to whiteboards",
+      "deleteConfirmDescription": "\"{name}\" will be deleted. This can't be undone.",
+      "deleteConfirmTitle": "Delete whiteboard?",
+      "nameInvalid": "Enter a name",
+      "nameLabel": "Whiteboard name",
+      "rename": "Rename",
+      "renameFailedToast": "Failed to rename whiteboard",
+      "renamedToast": "Whiteboard renamed",
       "create": "Create",
       "createFailedToast": "Failed to create whiteboard",
       "created": "Created",
@@ -3254,6 +3263,8 @@ export const sweep = {
       "role": "Role",
       "save": "Save",
       "searchMembersPlaceholder": "Search members...",
+      "taskCount": "{count} tasks",
+      "taskCountSingular": "1 task",
       "underloaded": "Underloaded",
       "workload": "Workload"
     }

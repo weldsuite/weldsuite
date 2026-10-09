@@ -43,6 +43,8 @@ import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/
 import { PageLoader } from '@/components/page-loader';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { getTranslations } from '@/lib/i18n';
+import { formatTaskNumber, taskNumberMatches } from '@/lib/task-number';
+import { formatHoursDecimalAsHm, formatHoursMinutes } from '@/lib/format-hours';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
   TimerAlreadyRunningError,
@@ -83,6 +85,9 @@ interface TimeEntry {
 interface ProjectTask {
   id: string;
   title: string;
+  /** Workspace-wide task number, shown so same-titled tasks can be told apart. */
+  number?: number | null;
+  status?: string;
 }
 
 // Raw shapes as returned by the app-api time-entries / tasks endpoints
@@ -106,6 +111,8 @@ interface RawTimeEntry {
 interface RawProjectTask {
   id: string;
   title: string;
+  number?: number | null;
+  status?: string;
 }
 
 interface ProjectMember {
@@ -189,7 +196,23 @@ function formatDurationLabel(total: number): string {
 
 function filterTasksByQuery(tasks: ProjectTask[], query: string): ProjectTask[] {
   if (!query.trim()) return tasks;
-  return tasks.filter((task) => task.title.toLowerCase().includes(query.toLowerCase()));
+  return tasks.filter(
+    (task) =>
+      task.title.toLowerCase().includes(query.toLowerCase()) || taskNumberMatches(task.number, query),
+  );
+}
+
+/** Task row in the Log time / Start timer pickers: number + title + status. */
+function TaskPickerLabel({ task }: Readonly<{ task: ProjectTask }>) {
+  const number = formatTaskNumber(task.number);
+  const status = task.status ? task.status.replace(/_/g, ' ') : null;
+  return (
+    <>
+      {number && <span className="mr-1.5 flex-shrink-0 font-mono text-xs text-muted-foreground">{number}</span>}
+      <span className="truncate">{task.title}</span>
+      {status && <span className="ml-2 flex-shrink-0 text-xs capitalize text-muted-foreground">{status}</span>}
+    </>
+  );
 }
 
 /** Ref callback that focuses an element as it mounts (stable identity, runs once per mount). */
@@ -466,7 +489,7 @@ function DeleteEntryDescription({ entry }: Readonly<{ entry: TimeEntry }>) {
     <>
       {st('sweep.weldflow.timesheetPage.deleteTimeEntryWillRemove')}{' '}
       <span className="font-medium">
-        {(entry.duration / 60).toFixed(2)}h
+        {formatHoursMinutes(entry.duration)}
       </span>
       {deleteTargetLabel}
       {' '}({format(entry.date, 'EEE, MMM d')}). {st('sweep.weldflow.timesheetPage.actionCannotBeUndone')}
@@ -478,7 +501,7 @@ function renderCellContent(hours: number, isHovered: boolean) {
   if (hours > 0) {
     return (
       <span className="text-[13px] font-medium tabular-nums text-[#111] dark:text-[#eee]">
-        {hours.toFixed(1)}h
+        {formatHoursDecimalAsHm(hours)}
       </span>
     );
   }
@@ -640,7 +663,7 @@ function TimesheetWeekView({
                       <div className="min-w-0">
                         <div className="text-[13px] font-medium truncate">{task.name}</div>
                         <div className="text-[11px] text-muted-foreground">
-                          {format(day.date, 'EEE, MMM d')} · {hours.toFixed(1)}h total
+                          {format(day.date, 'EEE, MMM d')} · {formatHoursDecimalAsHm(hours)} total
                         </div>
                       </div>
                       <Button
@@ -659,7 +682,7 @@ function TimesheetWeekView({
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-[13px] font-semibold tabular-nums">
-                                {(entry.duration / 60).toFixed(2)}h
+                                {formatHoursMinutes(entry.duration)}
                               </span>
                               {entry.billable && (
                                 <DollarSign className="h-3 w-3 text-emerald-600" />
@@ -715,7 +738,7 @@ function TimesheetWeekView({
             })}
             <div className="px-2 py-3 flex items-center justify-center border-l border-[#e5e5e5] dark:border-[#222] bg-white dark:bg-[#111]">
               <span className="text-[13px] font-semibold text-[#111] dark:text-[#eee] tabular-nums">
-                {getTotalHoursForTask(task.id, task.name).toFixed(1)}h
+                {formatHoursDecimalAsHm(getTotalHoursForTask(task.id, task.name))}
               </span>
             </div>
           </div>
@@ -826,7 +849,7 @@ function TimesheetMonthView({
                           ? "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
                           : "text-[#666] dark:text-[#888] bg-[#f0f0f0] dark:bg-[#222]"
                       )}>
-                        {totalHours.toFixed(1)}h
+                        {formatHoursDecimalAsHm(totalHours)}
                       </span>
                     )}
                   </div>
@@ -843,7 +866,7 @@ function TimesheetMonthView({
                             : "bg-[#f5f5f5] dark:bg-[#1a1a1a] text-[#666] dark:text-[#888]"
                         )}
                       >
-                        <span className="font-medium">{(entry.duration / 60).toFixed(1)}h</span>
+                        <span className="font-medium">{formatHoursMinutes(entry.duration)}</span>
                         <span className="ml-1">{entry.taskName}</span>
                       </div>
                     ))}
@@ -928,7 +951,7 @@ function TimesheetMonthView({
                         ? "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
                         : "text-[#666] dark:text-[#888] bg-[#f0f0f0] dark:bg-[#222]"
                     )}>
-                      {totalHours.toFixed(1)}h
+                      {formatHoursDecimalAsHm(totalHours)}
                     </span>
                   )}
                   <Plus className="h-4 w-4 text-[#ccc] dark:text-[#555]" />
@@ -947,7 +970,7 @@ function TimesheetMonthView({
                           : "bg-[#f5f5f5] dark:bg-[#1a1a1a] text-[#666] dark:text-[#888]"
                       )}
                     >
-                      <span className="font-medium">{(entry.duration / 60).toFixed(1)}h</span>
+                      <span className="font-medium">{formatHoursMinutes(entry.duration)}</span>
                       <span className="ml-1.5">{entry.taskName}</span>
                     </div>
                   ))}
@@ -983,12 +1006,12 @@ function TimesheetWeekFooter({
           const dayTotal = getTotalHoursForDate(day.date);
           return (
             <div key={day.date.getTime()} className="pl-4 pr-2 py-2 text-sm text-gray-500 dark:text-muted-foreground text-left border-l border-[#e5e5e5] dark:border-[#222]">
-              <span className="font-medium">{dayTotal > 0 ? `${dayTotal.toFixed(1)}h` : '—'}</span>
+              <span className="font-medium">{dayTotal > 0 ? formatHoursDecimalAsHm(dayTotal) : '—'}</span>
             </div>
           );
         })}
         <div className="px-2 py-2 text-sm font-medium text-gray-700 dark:text-muted-foreground text-center border-l border-[#e5e5e5] dark:border-[#222]">
-          {weeklyTotal.toFixed(1)}h
+          {formatHoursDecimalAsHm(weeklyTotal)}
         </div>
       </div>
     </div>
@@ -1129,6 +1152,7 @@ function AddEntryDialog({
   handleAddEntry: () => void;
 }>) {
   const st = useTranslations();
+  const tt = getTranslations('projects').projectTimesheets;
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState<Date | undefined>(undefined);
   const [taskSelectorOpen, setTaskSelectorOpen] = useState(false);
@@ -1200,7 +1224,7 @@ function AddEntryDialog({
                   !newEntryTaskName && 'text-gray-400',
                 )}
               >
-                {newEntryTaskName || 'Link a task (optional)...'}
+                {newEntryTaskName || tt.linkTaskOptional}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-[280px] p-0" align="start">
@@ -1235,7 +1259,7 @@ function AddEntryDialog({
                         newEntryTaskId === task.id && 'bg-accent text-accent-foreground',
                       )}
                     >
-                      <span className="truncate">{task.title}</span>
+                      <TaskPickerLabel task={task} />
                       {newEntryTaskId === task.id && (
                         <Check className="ml-auto h-4 w-4 flex-shrink-0" />
                       )}
@@ -1414,6 +1438,9 @@ function StartTimerDialog({
   startTimer: () => void;
 }>) {
   const st = useTranslations();
+  const tt = getTranslations('projects').projectTimesheets;
+  // A timer needs something to say what it is for: a linked task or a description.
+  const canStartTimer = Boolean(timerTaskName || timerTaskId || timerDescription.trim());
   const [timerTaskSelectorOpen, setTimerTaskSelectorOpen] = useState(false);
   const [timerTaskSearchQuery, setTimerTaskSearchQuery] = useState('');
   const filteredTimerTasks = useMemo(
@@ -1449,7 +1476,7 @@ function StartTimerDialog({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if ((timerTaskName || timerTaskId)) startTimer();
+                if (canStartTimer) startTimer();
               }
             }}
             placeholder={st('sweep.weldflow.timesheetPage.addDescriptionPlaceholder')}
@@ -1511,7 +1538,7 @@ function StartTimerDialog({
                           timerTaskId === task.id && "bg-accent text-accent-foreground"
                         )}
                       >
-                        <span className="truncate">{task.title}</span>
+                        <TaskPickerLabel task={task} />
                         {timerTaskId === task.id && (
                           <Check className="ml-auto h-4 w-4 flex-shrink-0" />
                         )}
@@ -1545,14 +1572,22 @@ function StartTimerDialog({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            <Button
-              size="sm"
-              onClick={startTimer}
-              disabled={!timerTaskName && !timerTaskId}
-              className="h-7 text-xs px-3 bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {st('sweep.weldflow.timesheetPage.startTimer')}
-            </Button>
+            <span title={canStartTimer ? undefined : tt.timerNeedsTaskOrDescription}>
+              <Button
+                size="sm"
+                onClick={startTimer}
+                disabled={!canStartTimer}
+                aria-describedby={canStartTimer ? undefined : 'start-timer-hint'}
+                className="h-7 text-xs px-3 bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {st('sweep.weldflow.timesheetPage.startTimer')}
+              </Button>
+            </span>
+            {!canStartTimer && (
+              <span id="start-timer-hint" className="sr-only">
+                {tt.timerNeedsTaskOrDescription}
+              </span>
+            )}
           </div>
         </div>
       </DialogContent>
@@ -1720,6 +1755,8 @@ export default function TimesheetPage() {
         setTasks(((tasksResult.data || []) as RawProjectTask[]).map((task) => ({
           id: task.id,
           title: task.title,
+          number: task.number ?? null,
+          status: task.status,
         })));
       }
 
@@ -1956,8 +1993,8 @@ export default function TimesheetPage() {
   // Start timer after dialog confirmation. The server owns the timer, so a
   // 409 here means one is already running (possibly started on another device).
   const startTimer = async () => {
-    if (!timerTaskName && !timerTaskId) {
-      toast.error(st('sweep.weldflow.timesheetPage.pleaseSelectTask'));
+    if (!timerTaskName && !timerTaskId && !timerDescription.trim()) {
+      toast.error(tt.timerNeedsTaskOrDescription);
       return;
     }
     try {
@@ -1997,7 +2034,7 @@ export default function TimesheetPage() {
         }
       }
 
-      toast.success(st('sweep.weldflow.timesheetPage.loggedHours', { hours: Math.round((durationMinutes / 60) * 10) / 10 }));
+      toast.success(tt.loggedDuration.replace('{duration}', formatHoursMinutes(durationMinutes)));
       resetTimerFields();
       loadData();
     } catch {
