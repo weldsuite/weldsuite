@@ -251,8 +251,8 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
         <div className="rounded-lg border border-gray-200 dark:border-border p-3.5">
           <h3 className="text-xs font-medium text-gray-500 dark:text-muted-foreground uppercase tracking-wider mb-2.5">{t('sweep.weldcrm.meetingDetailsTab.tags')}</h3>
           <div className="flex flex-wrap gap-1.5">
-            {call.tags.map((tag, i) => (
-              <span key={i} className="text-xs px-2 py-1 rounded-md bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground">
+            {call.tags.map((tag) => (
+              <span key={tag} className="text-xs px-2 py-1 rounded-md bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground">
                 {tag}
               </span>
             ))}

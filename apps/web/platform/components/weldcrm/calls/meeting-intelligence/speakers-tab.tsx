@@ -79,7 +79,7 @@ export function SpeakersTabContent({
                 {/* Timeline bar */}
                 <div className="h-6 flex items-center relative">
                   <div className="w-full h-1.5 bg-gray-100 dark:bg-secondary rounded-full pointer-events-none" />
-                  {transcriptionTotalDuration > 0 && speaker.segments.map((seg, i) => {
+                  {transcriptionTotalDuration > 0 && speaker.segments.map((seg) => {
                     const left = (seg.start / transcriptionTotalDuration) * 100;
                     const width = Math.max(0.4, ((seg.end - seg.start) / transcriptionTotalDuration) * 100);
                     const segDuration = seg.end - seg.start;
@@ -91,7 +91,7 @@ export function SpeakersTabContent({
                     const showProgress = smoothTime > 0;
                     return (
                       <div
-                        key={i}
+                        key={`${seg.start}-${seg.end}`}
                         className="absolute cursor-pointer transition-[height] duration-150 ease-out group/seg h-1.5 hover:h-3.5 rounded-full"
                         style={{ left: `${left}%`, width: `${width}%`, top: '50%', transform: 'translateY(-50%)' }}
                         onClick={(e) => {

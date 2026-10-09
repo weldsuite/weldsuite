@@ -320,12 +320,12 @@ export function VideoPlayer({
                 <div className="w-full h-1 bg-white/25 rounded-full absolute" />
 
                 {/* Speaker color segments */}
-                {duration > 0 && flattenedTimeline.map((seg, i) => {
+                {duration > 0 && flattenedTimeline.map((seg) => {
                   const left = (seg.start / duration) * 100;
                   const w = Math.max(0.3, ((seg.end - seg.start) / duration) * 100);
                   return (
                     <div
-                      key={`seg-${i}`}
+                      key={`seg-${seg.speakerId}-${seg.start}`}
                       className="absolute rounded-full pointer-events-none"
                       style={{
                         left: `${left}%`,

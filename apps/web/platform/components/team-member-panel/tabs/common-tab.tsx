@@ -288,6 +288,12 @@ function DmAvatar({ name, picture }: Readonly<{ name: string; picture?: string }
   );
 }
 
+/** A group DM shows two overlapping avatars: the first member in front, the second behind. */
+const GROUP_DM_AVATAR_SLOTS = [
+  { slot: 'front', position: 'top-0 left-0 z-10' },
+  { slot: 'back', position: 'bottom-0 right-0' },
+] as const;
+
 function GroupDmAvatar({ name }: Readonly<{ name: string }>) {
   const parts = name.split(/[,&]+/).map((s) => s.trim()).filter(Boolean);
   const visible = parts.slice(0, 2);
@@ -295,16 +301,13 @@ function GroupDmAvatar({ name }: Readonly<{ name: string }>) {
   else if (visible.length === 1) visible.push(visible[0]!);
   return (
     <div className="relative h-5 w-5 flex-shrink-0">
-      {visible.map((label, i) => (
+      {GROUP_DM_AVATAR_SLOTS.map(({ slot, position }, i) => (
         <Avatar
-          key={i}
-          className={cn(
-            'h-[13px] w-[13px] absolute !rounded-[4px] border border-background',
-            i === 0 ? 'top-0 left-0 z-10' : 'bottom-0 right-0',
-          )}
+          key={slot}
+          className={cn('h-[13px] w-[13px] absolute !rounded-[4px] border border-background', position)}
         >
           <AvatarFallback className="text-[7px] !rounded-[4px]">
-            {(label[0] || '?').toUpperCase()}
+            {(visible[i]?.[0] || '?').toUpperCase()}
           </AvatarFallback>
         </Avatar>
       ))}

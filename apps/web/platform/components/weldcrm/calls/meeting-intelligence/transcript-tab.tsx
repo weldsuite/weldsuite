@@ -87,9 +87,13 @@ export function TranscriptTabContent({
     const regex = new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)})`, 'gi');
     const parts = text.split(regex);
     if (parts.length === 1) return text;
-    return parts.map((part, i) =>
-      regex.test(part) ? <mark key={i} className="bg-yellow-200 dark:bg-yellow-800/60 text-inherit rounded-sm px-0.5">{part}</mark> : part
-    );
+    // Key each match by its offset in the text.
+    let offset = 0;
+    return parts.map((part) => {
+      const at = offset;
+      offset += part.length;
+      return regex.test(part) ? <mark key={at} className="bg-yellow-200 dark:bg-yellow-800/60 text-inherit rounded-sm px-0.5">{part}</mark> : part;
+    });
   }, [searchQuery]);
 
   if (isLoading) {
@@ -165,7 +169,7 @@ export function TranscriptTabContent({
                   )}>
                     {segment.words.map((word, wordIdx) => (
                       <WordSpan
-                        key={wordIdx}
+                        key={`${word.start}-${word.text}`}
                         word={word}
                         isActive={isActive && wordIdx === activeWordIndex}
                         isSearchMatch={!!searchQuery && word.text.toLowerCase().includes(searchQuery.toLowerCase())}

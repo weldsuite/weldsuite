@@ -1510,21 +1510,28 @@ function findNextSiblingIndex(subtasks: SubtaskItem[], i: number): number {
 // ancestor's subtree that contain row i). A later sibling of the
 // ancestor would only appear AFTER the ancestor's entire subtree
 // closes, i.e. after row i.
-function findAncestorContinuations(subtasks: SubtaskItem[], nextSiblingAt: number[], i: number): boolean[] {
+function findAncestorContinuations(
+  subtasks: SubtaskItem[],
+  nextSiblingAt: number[],
+  i: number,
+): AncestorContinuation[] {
   const d = subtasks[i].depth ?? 0;
-  const arr: boolean[] = new Array(d).fill(false);
+  const arr: AncestorContinuation[] = [];
   for (let c = 0; c < d; c++) {
     let j = i - 1;
     while (j >= 0 && (subtasks[j].depth ?? 0) !== c) j--;
-    arr[c] = j >= 0 && nextSiblingAt[j] !== -1;
+    arr.push({ depth: c, show: j >= 0 && nextSiblingAt[j] !== -1 });
   }
   return arr;
 }
 
+/** Whether the guide column at `depth` draws a line through a row. */
+type AncestorContinuation = { depth: number; show: boolean };
+
 /** Per-row guide-line data for the subtask tree (see the render comment for what each array means). */
 function computeSubtaskTreeGuides(subtasks: SubtaskItem[]): {
   nextSiblingAt: number[];
-  ancestorContinuations: boolean[][];
+  ancestorContinuations: AncestorContinuation[][];
   hasChildBelow: boolean[];
 } {
   const nextSiblingAt = subtasks.map((_, i) => findNextSiblingIndex(subtasks, i));
@@ -1678,7 +1685,7 @@ export function SubtasksSection({
             sibling in its group. Controls whether row i's OWN column draws
             the lower half of the vertical line (the bit heading down to
             the next sibling's elbow).
-          - `ancestorContinuations[i][c]`: whether the column at depth c
+          - `ancestorContinuations[i][c].show`: whether the column at depth c
             should draw a full-height vertical line through row i. True iff
             row i's ancestor at depth c is NOT the last sibling in its own
             group — meaning the tree at depth c still has unfinished
@@ -1738,8 +1745,8 @@ export function SubtasksSection({
                         if its ancestor has more siblings below, so the tree
                         trunk "threads through" descendants back to its later
                         siblings. */}
-                    {continuations.map((show, c) => (
-                      <div key={c} style={{ width: 18, flexShrink: 0, position: 'relative' }}>
+                    {continuations.map(({ depth, show }) => (
+                      <div key={depth} style={{ width: 18, flexShrink: 0, position: 'relative' }}>
                         {show && (
                           <div
                             style={{ position: 'absolute', left: 6, top: 0, bottom: 0, width: 1, backgroundColor: DEFAULT }}

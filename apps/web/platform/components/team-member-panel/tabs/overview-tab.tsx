@@ -208,8 +208,8 @@ export function OverviewTab({ profile }: Readonly<OverviewTabProps>) {
         <div className="pt-6">
           <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('sweep.shared.links')}</h4>
           <ul className="space-y-1 text-sm">
-            {profile.links.map((link, i) => (
-              <li key={i}>
+            {profile.links.map((link) => (
+              <li key={link.url}>
                 <a
                   href={link.url}
                   target="_blank"
