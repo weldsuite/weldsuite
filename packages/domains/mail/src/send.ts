@@ -104,7 +104,7 @@ export interface SendResult {
  * Send a composed message from an account, persist the SENT copy, return
  * the new internal `messageId`. Used by the account-level compose endpoint.
  *
- * `waitUntil` is taken explicitly (rather than reading from a Hono context)
+ * `opts.waitUntil` is passed explicitly (rather than reading from a Hono context)
  * so this helper can also be called from a workflow or queue consumer.
  * When `waitUntil` is unavailable the contact upsert runs inline — slower
  * but correct.
@@ -123,6 +123,11 @@ export interface SendResult {
  */
 export interface SendOptions {
   dryRun?: boolean;
+  /**
+   * Runs the recipient-contact upsert in the background. Without it the
+   * upsert runs inline, which is slower but still correct.
+   */
+  waitUntil?: ExecutionContext['waitUntil'];
   /**
    * Attachments the server supplies itself (a forwarded message's files, a
    * generated `.eml`) rather than ones the client uploaded. They are sent,
@@ -474,7 +479,6 @@ export async function sendAndPersist(
   caller: MailCaller,
   accountId: string,
   data: SendComposeInput,
-  waitUntil?: ExecutionContext['waitUntil'],
   opts?: SendOptions,
 ): Promise<SendResult> {
   if (!opts?.dryRun && !env.SEND_EMAIL) {
@@ -574,7 +578,7 @@ export async function sendAndPersist(
   // ---- Background: upsert recipients into contacts ---------------------
   // Skipped under dry-run so test sends don't create real `people` rows that
   // /reset can't find (they carry no test marker).
-  if (!opts?.dryRun) await upsertRecipientContacts(env, db, orgId, data, waitUntil);
+  if (!opts?.dryRun) await upsertRecipientContacts(env, db, orgId, data, opts?.waitUntil);
 
   return {
     messageId,
@@ -783,7 +787,6 @@ export async function forwardAndPersist(
   caller: MailCaller,
   originalMessageId: string,
   data: ForwardInput,
-  waitUntil?: ExecutionContext['waitUntil'],
   opts?: SendOptions,
 ): Promise<SendResult & { forwardedFrom: string }> {
   const [original] = await db
@@ -867,7 +870,6 @@ export async function forwardAndPersist(
       attachments: data.attachments,
       idempotencyKey: data.idempotencyKey,
     },
-    waitUntil,
     { ...opts, extraAttachments },
   );
   return { ...result, forwardedFrom: originalMessageId };
@@ -884,7 +886,6 @@ export async function replyAndPersist(
   caller: MailCaller,
   originalMessageId: string,
   data: ReplyInput,
-  waitUntil?: ExecutionContext['waitUntil'],
   opts?: SendOptions,
 ): Promise<SendResult & { repliedTo: string }> {
   const [original] = await db
@@ -941,7 +942,6 @@ export async function replyAndPersist(
       attachments: data.attachments,
       idempotencyKey: data.idempotencyKey,
     },
-    waitUntil,
     opts,
   );
   return { ...result, repliedTo: originalMessageId };
@@ -963,7 +963,6 @@ export async function sendDraftAndPersist(
   caller: MailCaller,
   draftId: string,
   extra: { attachments?: SendAttachmentInput[]; idempotencyKey?: string },
-  waitUntil?: ExecutionContext['waitUntil'],
   opts?: SendOptions,
 ): Promise<SendResult & { draftId: string }> {
   const draft = await getDraft(db, draftId);
@@ -997,7 +996,6 @@ export async function sendDraftAndPersist(
       attachments: extra.attachments,
       idempotencyKey: extra.idempotencyKey,
     },
-    waitUntil,
     opts,
   );
 

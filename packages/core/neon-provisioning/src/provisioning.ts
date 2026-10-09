@@ -527,20 +527,18 @@ export class DatabaseProvisioningService {
    * @param workspaceId - Internal workspace ID
    * @param workspaceName - Workspace display name
    * @param planSlug - Plan slug (free, business, scale, enterprise)
-   * @param initialMember - Initial member to insert after migration (typically the creator)
-   * @param latestSchemaVersion - Latest migration tag for pool schema version matching
+   * @param options - `initialMember` to insert after migration (typically the
+   *   creator), `latestSchemaVersion` for pool schema version matching, and the
+   *   workspace's selected apps, slug and sample-data choice
    */
   async provisionForWorkspace(
     masterDb: any,
     workspaceId: string,
     workspaceName: string,
     planSlug: string,
-    initialMember?: InitialMember,
-    selectedApps?: string[],
-    slug?: string,
-    latestSchemaVersion?: string,
-    seedSampleData?: boolean,
+    options: TierProvisionOptions = {},
   ): Promise<ProvisioningResult> {
+    const { initialMember, selectedApps, slug, latestSchemaVersion, seedSampleData } = options;
     // Check if workspace already has a database
     const [workspace] = await masterDb
       .select()
