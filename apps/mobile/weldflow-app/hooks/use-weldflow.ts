@@ -49,7 +49,7 @@ export function useProjects(params: ListProjectsQuery = LIMIT_25) {
 }
 
 /** Keyset-paged projects (`GET /api/projects`, cursor = id of the last row). */
-export function useInfiniteProjects(params: InfiniteProjectsParams = { limit: 25 }) {
+export function useInfiniteProjects(params: InfiniteProjectsParams = LIMIT_25) {
   return useInfiniteQuery({
     queryKey: qk.projectsInfinite(params),
     queryFn: ({ pageParam }) =>
@@ -78,7 +78,7 @@ export function useProjectTasks(projectId: string, params: ListTasksQuery = LIMI
 /** Top-level tasks of a project, keyset-paged from the second page on. */
 export function useInfiniteProjectTasks(
   projectId: string,
-  params: InfiniteProjectTasksParams = { limit: 50 },
+  params: InfiniteProjectTasksParams = LIMIT_50,
 ) {
   return useInfiniteQuery({
     queryKey: qk.projectTasksInfinite(projectId, params),
@@ -115,7 +115,7 @@ export function useMyTasks(params: ListMyTasksQuery = LIMIT_50) {
 }
 
 /** Offset-paged my tasks (`GET /api/my-tasks`, `page` 1, 2, ...). */
-export function useInfiniteMyTasks(params: InfiniteMyTasksParams = { limit: 50 }) {
+export function useInfiniteMyTasks(params: InfiniteMyTasksParams = LIMIT_50) {
   return useInfiniteQuery({
     queryKey: qk.myTasksInfinite(params),
     queryFn: ({ pageParam }) => api.weldflow.listMyTasks({ ...params, page: pageParam }),

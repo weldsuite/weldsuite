@@ -14,11 +14,11 @@
 import { eq, and, isNull } from 'drizzle-orm';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import * as schema from '@weldsuite/db/schema';
-import type { Database } from '../../../db';
+import type { TenantDatabase } from '../../../db';
 import { generateId } from '../../id';
 
 export interface UpsertByMappingArgs {
-  db: Database;
+  db: TenantDatabase;
   connectionId: string;
   /** Mapping key — the external object type, e.g. 'company' | 'person' | 'customer'. */
   externalEntityType: string;

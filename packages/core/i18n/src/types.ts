@@ -142,9 +142,3 @@ export type TranslationSection<
   NS extends keyof TranslationNamespaces,
   Section extends keyof TranslationNamespaces[NS]
 > = TranslationNamespaces[NS][Section];
-
-/**
- * Complete translations object (all namespaces)
- * Rarely needed - prefer specific namespace types
- */
-export type AllTranslations = TranslationNamespaces;

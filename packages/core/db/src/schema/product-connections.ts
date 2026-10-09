@@ -51,5 +51,3 @@ export type NewProductConnection = typeof productConnections.$inferInsert;
 
 // Backwards compatibility
 export { productConnections as commerceProductConnections };
-export type CommerceProductConnection = ProductConnection;
-export type NewCommerceProductConnection = NewProductConnection;
