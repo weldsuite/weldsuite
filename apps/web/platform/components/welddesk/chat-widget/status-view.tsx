@@ -369,7 +369,7 @@ export function StatusView({
                   >
                     {service.dailyStatus.slice(0, 50).map((status, dayIndex) => (
                       <div
-                        key={dayIndex}
+                        key={getDayLabel(dayIndex * 2)}
                         aria-label={`${getDayLabel(dayIndex * 2)}: ${getStatusText(status)}`}
                         style={{
                           width: '5px',

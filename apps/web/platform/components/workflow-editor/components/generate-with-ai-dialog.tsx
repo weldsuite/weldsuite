@@ -44,6 +44,20 @@ function classifyError(err: unknown): ErrorKind {
   return 'generic';
 }
 
+/**
+ * Pair each warning with a React key. Review can repeat the same text (one per
+ * offending step), so a repeat gets a `#n` suffix instead of falling back to
+ * the array index.
+ */
+function keyedWarnings(warnings: readonly string[]): { warning: string; key: string }[] {
+  const seen = new Map<string, number>();
+  return warnings.map((warning) => {
+    const count = (seen.get(warning) ?? 0) + 1;
+    seen.set(warning, count);
+    return { warning, key: count === 1 ? warning : `${warning}#${count}` };
+  });
+}
+
 interface GenerateWithAiDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -122,8 +136,8 @@ export function GenerateWithAiDialog({ open, onOpenChange, onApply }: Readonly<G
                 <AlertTitle className="text-amber-800 dark:text-amber-300">{tg.warningsIntro}</AlertTitle>
                 <AlertDescription>
                   <ul className="list-disc pl-4 space-y-0.5 text-amber-700 dark:text-amber-400">
-                    {result.warnings.map((warning, i) => (
-                      <li key={i}>{warning}</li>
+                    {keyedWarnings(result.warnings).map(({ warning, key }) => (
+                      <li key={key}>{warning}</li>
                     ))}
                   </ul>
                 </AlertDescription>

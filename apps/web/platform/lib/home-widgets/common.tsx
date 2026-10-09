@@ -29,6 +29,11 @@ export function DemoBadge() {
  *   - `chart` : tall block                (analytics, calendar-week)
  *   - `kanban`: 4 column groups           (pipeline)
  */
+/** Keys for `count` interchangeable placeholder rows. */
+function skeletonKeys(count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `skeleton-${i}`);
+}
+
 export function SkeletonRows({ count = 5, variant = 'list' }: Readonly<{ count?: number; variant?: 'list' | 'table' | 'chart' | 'kanban' }>) {
   if (variant === 'chart') {
     return <div className="h-[220px] animate-pulse rounded-md bg-muted/60" />;
@@ -36,8 +41,8 @@ export function SkeletonRows({ count = 5, variant = 'list' }: Readonly<{ count?:
   if (variant === 'kanban') {
     return (
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="space-y-2">
+        {skeletonKeys(4).map((columnKey) => (
+          <div key={columnKey} className="space-y-2">
             <div className="h-3 w-20 animate-pulse rounded bg-muted/60" />
             <div className="h-14 animate-pulse rounded-md bg-muted/60" />
             <div className="h-14 animate-pulse rounded-md bg-muted/60" />
@@ -49,8 +54,8 @@ export function SkeletonRows({ count = 5, variant = 'list' }: Readonly<{ count?:
   if (variant === 'table') {
     return (
       <div className="divide-y divide-border">
-        {Array.from({ length: count }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 py-2.5">
+        {skeletonKeys(count).map((rowKey) => (
+          <div key={rowKey} className="flex items-center gap-3 py-2.5">
             <div className="h-4 w-4 shrink-0 animate-pulse rounded bg-muted/60" />
             <div className="h-4 flex-1 animate-pulse rounded bg-muted/60" />
             <div className="h-4 w-16 animate-pulse rounded bg-muted/60" />
@@ -63,8 +68,8 @@ export function SkeletonRows({ count = 5, variant = 'list' }: Readonly<{ count?:
   // list
   return (
     <div className="divide-y divide-border">
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="flex items-start gap-3 py-2.5">
+      {skeletonKeys(count).map((rowKey) => (
+        <div key={rowKey} className="flex items-start gap-3 py-2.5">
           <div className="h-7 w-7 shrink-0 animate-pulse rounded-md bg-muted/60" />
           <div className="flex-1 space-y-1.5">
             <div className="h-3.5 w-3/4 animate-pulse rounded bg-muted/60" />
