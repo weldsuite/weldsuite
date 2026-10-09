@@ -411,7 +411,8 @@ type CellValue = Row['data'][string];
 type CellRenderer = (field: Field, value: CellValue) => React.ReactNode;
 
 const MONO_CELL_STYLE: React.CSSProperties = { fontSize: '14px', fontFamily: 'monospace' };
-const LINK_CELL_STYLE: React.CSSProperties = { fontSize: '14px', color: '#3b82f6', textDecoration: 'none' };
+// Links sit above the cell's overlay edit button (see CellWrapper `interactiveContent`).
+const LINK_CELL_STYLE: React.CSSProperties = { position: 'relative', zIndex: 1, fontSize: '14px', color: '#3b82f6', textDecoration: 'none' };
 
 const renderDurationCell: CellRenderer = (_field, value) => (
   <span style={MONO_CELL_STYLE}>{value || "00:00:00"}</span>
@@ -419,7 +420,7 @@ const renderDurationCell: CellRenderer = (_field, value) => (
 
 const renderCompanyCell = (value: CellValue) => (
   <>
-    <div style={{
+    <span style={{
       width: '16px',
       height: '16px',
       borderRadius: '4px',
@@ -433,7 +434,7 @@ const renderCompanyCell = (value: CellValue) => (
       flexShrink: 0
     }}>
       {value.initials}
-    </div>
+    </span>
     <span style={{ fontSize: '14px', color: '#111827' }}>{value.name}</span>
   </>
 );
@@ -586,7 +587,7 @@ const renderPersonCell: CellRenderer = (_field, value) => {
   if (!value?.name) return "";
   return (
     <>
-      <div style={{
+      <span style={{
         width: '16px',
         height: '16px',
         borderRadius: '4px',
@@ -600,7 +601,7 @@ const renderPersonCell: CellRenderer = (_field, value) => {
         flexShrink: 0
       }}>
         {value.name?.charAt(0).toUpperCase() || "?"}
-      </div>
+      </span>
       <span style={{ fontSize: '14px', color: '#111827' }}>{value.name}</span>
     </>
   );
@@ -609,7 +610,7 @@ const renderPersonCell: CellRenderer = (_field, value) => {
 const renderCollaboratorAvatar = (person: string | { name?: string }, index: number) => {
   const personName = typeof person === 'string' ? person : (person.name || '');
   return (
-    <div
+    <span
       key={personName}
       style={{
         width: '20px',
@@ -628,23 +629,23 @@ const renderCollaboratorAvatar = (person: string | { name?: string }, index: num
       }}
     >
       {personName.charAt(0).toUpperCase() || "?"}
-    </div>
+    </span>
   );
 };
 
 const renderCollaboratorsCell: CellRenderer = (_field, value) => {
   if (!value || value.length === 0) return "";
   return (
-    <div style={{ display: 'flex', alignItems: 'center' }}>
-      <div style={{ display: 'flex', marginLeft: '-2px' }}>
+    <span style={{ display: 'flex', alignItems: 'center' }}>
+      <span style={{ display: 'flex', marginLeft: '-2px' }}>
         {value.slice(0, 3).map(renderCollaboratorAvatar)}
-      </div>
+      </span>
       {value.length > 3 && (
         <span style={{ marginLeft: '4px', fontSize: '12px', color: '#6b7280' }}>
           +{value.length - 3}
         </span>
       )}
-    </div>
+    </span>
   );
 };
 
@@ -799,36 +800,34 @@ const getEditInputType = (type: FieldType): "number" | "email" | "text" => {
   return "text";
 };
 
+// Field types whose cells render an external link.
+const LINK_FIELD_TYPES = new Set<FieldType>(["linkedin", "domain"]);
+
+const isEmptyValue = (value: unknown) => value === undefined || value === null || value === "";
+
 // Stable callback ref: focuses the inline cell editor once when it mounts
 const focusOnMount = (el: HTMLInputElement | null) => {
   el?.focus();
 };
 
-// Cell wrapper component that enforces 40px height
-const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: (e: React.SyntheticEvent<HTMLDivElement>) => void; style?: React.CSSProperties }> = ({ children, onClick, style }) => (
-  <div
-    role={onClick ? 'button' : undefined}
-    tabIndex={onClick ? 0 : undefined}
-    onClick={onClick}
-    onKeyDown={onClick ? (e) => {
-      if (e.target !== e.currentTarget) return;
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onClick(e);
-      }
-    } : undefined}
-    style={{
-      height: '40px',
-      width: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      overflow: 'hidden',
-      padding: '0 12px',
-      cursor: onClick ? 'pointer' : 'default',
-      ...style
-    }}
-  >
-    <div style={{
+// Cell wrapper component that enforces 40px height. With `onClick` the whole cell
+// is a native button (so it is keyboard reachable); `label` names it when the
+// cell has no visible text. Content that is itself interactive (links) can't sit
+// inside a button, so `interactiveContent` renders the button as an overlay
+// behind the content instead, and `label` must name it.
+const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: () => void; label?: string; interactiveContent?: boolean; style?: React.CSSProperties }> = ({ children, onClick, label, interactiveContent, style }) => {
+  const boxStyle: React.CSSProperties = {
+    height: '40px',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    overflow: 'hidden',
+    padding: '0 12px',
+    cursor: onClick ? 'pointer' : 'default',
+    ...style
+  };
+  const content = (
+    <span style={{
       overflow: 'hidden',
       textOverflow: 'ellipsis',
       whiteSpace: 'nowrap',
@@ -838,9 +837,35 @@ const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: (e: React.Syn
       gap: '4px'
     }}>
       {children}
-    </div>
-  </div>
-);
+    </span>
+  );
+  if (onClick && interactiveContent) {
+    return (
+      <div style={{ ...boxStyle, position: 'relative' }}>
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={label}
+          style={{ position: 'absolute', inset: 0, background: 'transparent', border: 0, cursor: 'pointer' }}
+        />
+        {content}
+      </div>
+    );
+  }
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        style={{ ...boxStyle, textAlign: 'left', background: 'transparent', border: 0, font: 'inherit', color: 'inherit' }}
+      >
+        {content}
+      </button>
+    );
+  }
+  return <div style={boxStyle}>{content}</div>;
+};
 
 export default function TablePage() {
   const st = useTranslations();
@@ -1102,27 +1127,29 @@ export default function TablePage() {
     ));
   };
 
-  const handleMouseDown = (e: React.MouseEvent, fieldId: string) => {
+  const handleResizePointerDown = (e: React.PointerEvent, fieldId: string) => {
     e.preventDefault();
     e.stopPropagation();
 
     const startX = e.clientX;
     const startWidth = columnWidths[fieldId] || 150;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const newWidth = Math.max(50, startWidth + deltaX);
       setColumnWidths(prev => ({ ...prev, [fieldId]: newWidth }));
     };
 
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+    const handlePointerUp = () => {
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
       document.body.style.cursor = 'auto';
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerUp);
     document.body.style.cursor = 'col-resize';
   };
 
@@ -1382,33 +1409,38 @@ export default function TablePage() {
         </CellWrapper>
       );
     }
+    const hasLinks = LINK_FIELD_TYPES.has(field.type);
     return (
-      <CellWrapper onClick={() => handleCellEdit(row.id, field.id, row.data[field.id])}>
+      <CellWrapper
+        onClick={() => handleCellEdit(row.id, field.id, row.data[field.id])}
+        label={hasLinks || isEmptyValue(row.data[field.id]) ? field.name : undefined}
+        interactiveContent={hasLinks}
+      >
         {renderCellContent(field, row.data[field.id], row.data)}
       </CellWrapper>
     );
   };
 
   const renderCheckboxCell = (row: Row, field: Field) => (
-    <CellWrapper
-      onClick={(e) => {
-        // Don't open dialog when clicking the checkbox itself
-        if ((e.target as HTMLElement).closest('[role="checkbox"]')) {
-          return;
-        }
-        setCheckboxLabelDialog({
-          open: true,
-          fieldId: field.id,
-          checkedLabel: field.checkedLabel || "Checked",
-          uncheckedLabel: field.uncheckedLabel || "Unchecked",
-        });
-      }}
-      style={{ cursor: 'pointer' }}
-    >
+    <CellWrapper style={{ position: 'relative', cursor: 'pointer' }}>
+      {/* Cell click target (opens the label dialog); the checkbox sits above it */}
+      <button
+        type="button"
+        aria-label={st('sweep.weldflow.tablePage.editCheckboxLabels')}
+        onClick={() => {
+          setCheckboxLabelDialog({
+            open: true,
+            fieldId: field.id,
+            checkedLabel: field.checkedLabel || "Checked",
+            uncheckedLabel: field.uncheckedLabel || "Unchecked",
+          });
+        }}
+        style={{ position: 'absolute', inset: 0, background: 'transparent', border: 0, cursor: 'pointer' }}
+      />
       <Checkbox
         checked={row.data[field.id] === true}
         onCheckedChange={(checked) => updateRowValue(row.id, field.id, checked)}
-        className="mr-2"
+        className="relative z-[1] mr-2"
       />
       <span style={{ fontSize: '14px', color: '#6b7280' }}>
         {row.data[field.id] === true
@@ -2470,9 +2502,8 @@ export default function TablePage() {
                     </PopoverContent>
                   </Popover>
                   <div
-                    className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-gray-400 bg-transparent transition-colors"
-                    role="presentation"
-                    onMouseDown={(e) => handleMouseDown(e, field.id)}
+                    className="absolute right-0 top-0 w-1 h-full cursor-col-resize touch-none hover:bg-gray-400 bg-transparent transition-colors"
+                    onPointerDown={(e) => handleResizePointerDown(e, field.id)}
                   />
                 </th>
               ))}
