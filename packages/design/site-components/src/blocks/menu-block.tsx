@@ -1,5 +1,5 @@
 import React from 'react';
-import { keyedBy } from '../lib/keyed';
+import { keyedBy, tupleKey } from '../lib/keyed';
 
 export interface MenuItem {
   label: string;
@@ -43,7 +43,7 @@ export function MenuBlock({
 
   return (
     <nav className={orientationClass}>
-      {keyedBy(items, (i) => i.url + i.label).map(({ item, key }, index) => (
+      {keyedBy(items, (i) => tupleKey(i.url, i.label)).map(({ item, key }, index) => (
         <div key={key} className="relative group">
           <a
             href={item.url}
@@ -63,7 +63,7 @@ export function MenuBlock({
               onMouseEnter={() => setOpenDropdown(index)}
               onMouseLeave={() => setOpenDropdown(null)}
             >
-              {keyedBy(item.children, (c) => c.url + c.label).map(({ item: child, key: childKey }) => (
+              {keyedBy(item.children, (c) => tupleKey(c.url, c.label)).map(({ item: child, key: childKey }) => (
                 <a
                   key={childKey}
                   href={child.url}

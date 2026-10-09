@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Facebook, Twitter, Instagram, Youtube, Linkedin, Mail, Globe, ChevronDown } from 'lucide-react';
-import { keyedBy } from '../lib/keyed';
+import { keyedBy, tupleKey } from '../lib/keyed';
 
 type HorizontalPosition = 'left' | 'center' | 'right';
 
@@ -166,7 +166,7 @@ function FooterColumnsGrid({ columns, isMobileView, isEditing, textColor }: Read
             {column.title}
           </h3>
           <ul className="space-y-3">
-            {keyedBy(column.links ?? [], (l) => `${l.url ?? ''}|${l.label ?? ''}`).map(({ item: link, key }) => (
+            {keyedBy(column.links ?? [], (l) => tupleKey(l.url, l.label)).map(({ item: link, key }) => (
               <li key={key}>
                 <a
                   href={link.url}
@@ -193,12 +193,12 @@ interface SocialIconLinksProps {
 function SocialIconLinks({ links, isEditing }: Readonly<SocialIconLinksProps>) {
   return (
     <div className="flex gap-4">
-      {links.map((social) => {
+      {keyedBy(links, (l) => tupleKey(l.platform, l.url)).map(({ item: social, key }) => {
         const Icon = socialIcons[social.platform];
         if (!Icon) return null;
         return (
           <a
-            key={social.platform}
+            key={key}
             href={social.url}
             onClick={(e) => isEditing && e.preventDefault()}
             className={`hover:opacity-70 transition-opacity ${isEditing ? 'pointer-events-none' : ''}`}
