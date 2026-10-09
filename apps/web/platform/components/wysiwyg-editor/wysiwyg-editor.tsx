@@ -1126,24 +1126,24 @@ export function WysiwygEditor({
                 <div className="overflow-hidden p-1">
                   <div className="overflow-y-auto max-h-[300px] overflow-x-hidden [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border/40 hover:[&::-webkit-scrollbar-thumb]:bg-border/70 [&::-webkit-scrollbar-track]:bg-transparent">
                     {filteredCommands.map((command, index) => (
-                      <div
+                      <button
+                        type="button"
                         key={command.id}
                         onClick={() => command.action()}
                         className={cn(
-                          "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+                          "relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors",
                           index === selectedCommandIndex
                             ? "bg-accent text-accent-foreground"
                             : "hover:bg-accent hover:text-accent-foreground"
                         )}
-                        role="option"
                         tabIndex={-1}
-                        aria-selected={index === selectedCommandIndex}
+                        aria-current={index === selectedCommandIndex ? 'true' : undefined}
                       >
-                        <div className="mr-2 h-4 w-4 shrink-0 opacity-70">
+                        <span className="mr-2 h-4 w-4 shrink-0 opacity-70">
                           {command.icon}
-                        </div>
+                        </span>
                         <span className="flex-1 truncate">{command.label}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>

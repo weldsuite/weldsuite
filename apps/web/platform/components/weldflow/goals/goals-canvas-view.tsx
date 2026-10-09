@@ -43,7 +43,6 @@ import { TagLabel } from '@/components/weldflow/tag-label';
 import { TaskDetailPanel } from '@/components/task-detail';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 // Fixed zoom stops. Module scope so the array identity is stable across renders.
 const zoomLevels = [0.025, 0.05, 0.1, 0.15, 0.25, 0.33, 0.5, 0.75, 1, 1.5, 2, 3, 4, 5];
@@ -236,6 +235,14 @@ function zoomPanAroundCenter(
     x: centerX - (centerX - prev.x) * scaleRatio,
     y: centerY - (centerY - prev.y) * scaleRatio,
   };
+}
+
+/**
+ * Touch gestures (pan/pinch) are handled by the touch handlers; the pointer
+ * handlers only drive mouse and pen input.
+ */
+function isTouchPointer(e: React.PointerEvent): boolean {
+  return e.pointerType === 'touch';
 }
 
 function isTypingTarget(target: HTMLElement): boolean {
@@ -1029,14 +1036,18 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     setParentGoalForNewChild(null);
   };
 
-  // Handle mouse down
-  const handleMouseDown = (e: React.MouseEvent, goalId?: string) => {
+  // Handle pointer down
+  const handlePointerDown = (e: React.PointerEvent, goalId?: string) => {
+    if (isTouchPointer(e)) return;
 
     if (tool === 'select' && goalId) {
       // Start dragging a goal in select mode
       const goal = goals.find(g => g.id === goalId);
       if (goal) {
         e.preventDefault();
+        // Pointer events do not suppress the browser's text selection the way
+        // mousedown's preventDefault does, so block it for the length of the drag.
+        document.body.style.userSelect = 'none';
         setIsDragging(true);
         setDraggedGoal(goalId);
         // Store the initial mouse position and goal position
@@ -1058,7 +1069,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   };
 
   // Handle panning mouse movement
-  const handlePanMove = (e: React.MouseEvent) => {
+  const handlePanMove = (e: React.PointerEvent) => {
     // Update ref immediately for smooth visual feedback
     panPositionRef.current = {
       x: e.clientX - panStart.x,
@@ -1073,7 +1084,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   };
 
   // Handle goal dragging mouse movement
-  const handleGoalDragMove = (e: React.MouseEvent, draggedElement: HTMLDivElement, draggedGoalId: string) => {
+  const handleGoalDragMove = (e: React.PointerEvent, draggedElement: HTMLDivElement, draggedGoalId: string) => {
     // Calculate the mouse movement delta
     const deltaX = (e.clientX - dragStartMouse.current.x) / zoom;
     const deltaY = (e.clientY - dragStartMouse.current.y) / zoom;
@@ -1129,8 +1140,9 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }
   };
 
-  // Handle mouse move
-  const handleMouseMove = (e: React.MouseEvent) => {
+  // Handle pointer move
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (isTouchPointer(e)) return;
     if (isPanning) {
       handlePanMove(e);
     } else if (isDragging && draggedGoal && draggedElementRef.current) {
@@ -1138,8 +1150,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }
   };
 
-  // Handle mouse up
-  const handleMouseUp = () => {
+  // Handle pointer up / leave
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (isTouchPointer(e)) return;
+    document.body.style.userSelect = '';
     // If we were dragging and actually moved, update the final position
     if (isDragging && draggedGoal && draggedElementRef.current) {
       // Reset transform
@@ -1435,24 +1449,26 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
           pointerEvents: isDragging && !isDraggingThis ? 'none' : 'auto',
           willChange: isDraggingThis ? 'transform' : 'auto'
         }}
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          e.stopPropagation();
-          // Only open panel if user didn't drag
-          if (!hasDraggedRef.current) openGoalPanel();
-        }}
-        onKeyDown={activateOnKey(() => openGoalPanel())}
-        onMouseDown={(e) => {
+        onPointerDown={(e) => {
           if (tool === 'select') {
             e.stopPropagation();
             e.preventDefault();
-            handleMouseDown(e, goal.id);
+            handlePointerDown(e, goal.id);
           }
         }}
         onMouseEnter={() => setHoveredGoal(goal.id)}
         onMouseLeave={() => setHoveredGoal(null)}
       >
+        <button
+          type="button"
+          aria-label={goal.title}
+          onClick={(e) => {
+            e.stopPropagation();
+            // Only open panel if user didn't drag
+            if (!hasDraggedRef.current) openGoalPanel();
+          }}
+          className="absolute inset-0 rounded-lg cursor-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
         {/* Card Header */}
         <div className="px-4 py-3 border-b border-gray-100 dark:border-border flex-shrink-0">
           <div className="flex items-center justify-between gap-2">
@@ -1469,7 +1485,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                     <Button
                       variant="ghost"
                       className={cn(
-                        "h-6 w-6 rounded flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary transition-all",
+                        "relative z-[1] h-6 w-6 rounded flex items-center justify-center hover:bg-gray-100 dark:hover:bg-secondary transition-all",
                         hoveredGoal === goal.id ? "opacity-100" : "opacity-0"
                       )}
                       onClick={(e) => e.stopPropagation()}
@@ -1965,10 +1981,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
           style={{
             cursor: isPanning ? 'grabbing' : 'grab'
           }}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
           onWheel={handleWheel}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
