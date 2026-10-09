@@ -25,7 +25,7 @@ import {
 import { formatDistanceToNow } from 'date-fns';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { cn } from '@/lib/utils';
-import { activateOnKey } from '@/lib/activate-on-key';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import type { SectionProps } from '../types';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -204,7 +204,7 @@ function RecordingActionsMenu({
   t: TranslateFn;
 }>) {
   return (
-    <div className="w-[40px] flex justify-end flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+    <div className="relative z-[1] w-[40px] flex justify-end flex-shrink-0">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -375,12 +375,9 @@ export function MeetingsSection(_props: Readonly<SectionProps>) {
     return (
       <div
         key={recording.id}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/50"
-        onClick={openRecording}
-        onKeyDown={activateOnKey(openRecording)}
+        className="relative flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/50"
       >
+        <RowOverlayButton label={recording.title} onClick={openRecording} />
         {/* Title */}
         <RecordingTitleCell recording={recording} />
 
