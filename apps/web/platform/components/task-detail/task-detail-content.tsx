@@ -456,13 +456,18 @@ function formatFileSize(bytes: number): string {
 function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }>) {
   const t = useTranslations();
   const priorityLabels = useTaskPriorityLabels(t);
+  const [open, setOpen] = useState(false);
+  const pick = (priority: Task['priority']) => {
+    setOpen(false);
+    onUpdate(task.id, { priority });
+  };
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 w-32 flex-shrink-0">
         <Flag className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">{t('sweep.shared.priority')}</span>
       </div>
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
             {task.priority ? (
@@ -482,7 +487,7 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
             <Button
               variant="ghost"
               key={key}
-              onClick={() => onUpdate(task.id, { priority: key as Task['priority'] })}
+              onClick={() => pick(key as Task['priority'])}
               className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
             >
               <span>{priorityLabels[key as keyof typeof priorityLabels]}</span>
@@ -494,7 +499,7 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
               <div className="h-px bg-border my-1" />
               <Button
                 variant="ghost"
-                onClick={() => onUpdate(task.id, { priority: undefined })}
+                onClick={() => pick(undefined)}
                 className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
               >
                 <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
@@ -786,6 +791,7 @@ export function TaskDetailContent({
   const t = useTranslations();
   const statusLabels = useTaskStatusLabels(t);
   const repeatLabels = useTaskRepeatLabels(t);
+  const [statusOpen, setStatusOpen] = useState(false);
   const {
     isFieldVisible: isFieldVisibleBase,
     fields,
@@ -931,7 +937,7 @@ export function TaskDetailContent({
               <CircleDot className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{t('sweep.shared.status')}</span>
             </div>
-            <Popover>
+            <Popover open={statusOpen} onOpenChange={setStatusOpen}>
               <PopoverTrigger asChild>
                 <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
                   <span className={cn(
@@ -947,7 +953,10 @@ export function TaskDetailContent({
                   <Button
                     variant="ghost"
                     key={key}
-                    onClick={() => onUpdate(task.id, { status: key as Task['status'] })}
+                    onClick={() => {
+                      setStatusOpen(false);
+                      onUpdate(task.id, { status: key as Task['status'] });
+                    }}
                     className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
                   >
                     <span>{statusLabels[key as keyof typeof statusLabels]}</span>
@@ -1551,6 +1560,7 @@ export function TaskDetailContent({
           <EntityAuditPanel
             entityType={projectId ? 'project_task' : 'personal_task'}
             entityId={taskId}
+            alwaysShowChanges
           />
         </div>
       )}

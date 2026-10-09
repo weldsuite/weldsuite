@@ -1532,6 +1532,7 @@ export const projects = {
       nextRecurringCreated: 'Next recurring task created',
       failedToUpdateTask: 'Failed to update task',
       failedToCompleteTask: 'Failed to complete task',
+      completeSubtasksFirst: 'Complete the open subtasks first',
       taskDeleted: 'Task deleted',
       failedToDeleteTask: 'Failed to delete task',
       failedToReorderTasks: 'Failed to reorder tasks',

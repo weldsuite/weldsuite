@@ -706,11 +706,6 @@ export function TasksClient({
   const { canWrite } = isEntityMode ? { canWrite: true } : rawPermCtx;
   const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
   const [projectStages, setProjectStages] = useState<Array<{ id: string; name: string; color: string; systemStatus: string }>>([]);
-  // Parents the user checked while at least one subtask was still open. They
-  // render as completed (strikethrough, checkbox on) but stay in their current
-  // status group until every subtask is done — at which point we persist the
-  // real `done` status and drop them from this set.
-  const [pendingParentCompletionIds, setPendingParentCompletionIds] = useState<Set<string>>(new Set());
 
   // Drag-and-drop state
   const dndSensors = useSensors(
@@ -993,17 +988,6 @@ export function TasksClient({
   const handleCheckboxToggle = useCallback(async (taskId: string, currentStatus: Task['status']) => {
     if (!canWrite) return;
 
-    // Unchecking a pending-complete parent — just drop it from the set,
-    // don't touch the server (status was never changed).
-    if (pendingParentCompletionIds.has(taskId)) {
-      setPendingParentCompletionIds(prev => {
-        const next = new Set(prev);
-        next.delete(taskId);
-        return next;
-      });
-      return;
-    }
-
     // Look for the task in the main list first, then in any expanded parent's
     // inlineSubtasks (subtasks may only exist there).
     const { task, subtaskParentId } = findTaskWithParent(tasks, inlineSubtasks, taskId);
@@ -1037,26 +1021,20 @@ export function TasksClient({
       return;
     }
 
-    // Parent with at least one open subtask: mark as pending-complete locally,
-    // don't persist the status change yet. When every subtask is done the
-    // `pendingParentCompletionIds` effect promotes it to a real 'done' status.
-    const hasSubtasks = (task.subtaskCount ?? 0) > 0;
-    const subtasksForTask = inlineSubtasks[task.id] || [];
-    const allSubtasksDone =
-      hasSubtasks && subtasksForTask.length > 0 && subtasksForTask.every(s => s.status === 'done');
-    if (hasSubtasks && !allSubtasksDone) {
-      setPendingParentCompletionIds(prev => {
-        if (prev.has(task!.id)) return prev;
-        const next = new Set(prev);
-        next.add(task!.id);
-        return next;
-      });
+    // A parent can't be completed while subtasks are still open. Say so instead
+    // of ticking a box that is never saved. Prefer the loaded subtask rows
+    // (they follow local edits); fall back to the server counts for a
+    // collapsed parent whose subtasks haven't been fetched yet.
+    const loadedSubtasks = inlineSubtasks[task.id];
+    const openSubtaskCount = loadedSubtasks && loadedSubtasks.length > 0
+      ? loadedSubtasks.filter(s => s.status !== 'done' && s.status !== 'cancelled').length
+      : Math.max(0, (task.subtaskCount ?? 0) - (task.completedSubtaskCount ?? 0));
+    if (openSubtaskCount > 0) {
+      toast.error(t.projects.tasks.completeSubtasksFirst);
       return;
     }
 
-    // If this is a subtask, persist immediately (no flash animation) so the
-    // parent's pendingParentCompletionIds effect can fire as soon as the last
-    // subtask is done.
+    // If this is a subtask, persist immediately (no flash animation).
     if (subtaskParentId) {
       patchTaskStatus('done');
       void tasksApi.toggle(projectId, taskId, task.status).then((result) => {
@@ -1110,39 +1088,7 @@ export function TasksClient({
     if (result.success && result.data?.nextTaskId) {
       await prependNextRecurringTask(result.data.nextTaskId);
     }
-  }, [canWrite, tasks, projectId, pendingParentCompletionIds, inlineSubtasks, prependNextRecurringTask, stageIdForStatus, t.projects.tasks.failedToUpdateTask]);
-
-  // When a pending-complete parent has all its subtasks finished, promote it
-  // to a real 'done' status via the API. This moves it into the Done group.
-  useEffect(() => {
-    if (pendingParentCompletionIds.size === 0) return;
-    for (const parentId of pendingParentCompletionIds) {
-      const subtasks = inlineSubtasks[parentId];
-      if (!subtasks || subtasks.length === 0) continue;
-      const allDone = subtasks.every(s => s.status === 'done');
-      if (!allDone) continue;
-      const parent = tasks.find(t => t.id === parentId);
-      if (!parent || parent.status === 'done') continue;
-
-      // Persist and flush local state. No flash animation — the parent was
-      // already visually "done"; we're just swapping its section.
-      setPendingParentCompletionIds(prev => {
-        const next = new Set(prev);
-        next.delete(parentId);
-        return next;
-      });
-      void tasksApi.toggle(projectId, parentId, parent.status).then((result) => {
-        if (result.success) {
-          setTasks(prev => prev.map(t => t.id === parentId
-            ? { ...t, status: 'done' as Task['status'], stageId: stageIdForStatus(t, 'done') }
-            : t
-          ));
-        } else {
-          toast.error(t.projects.tasks.failedToCompleteTask);
-        }
-      });
-    }
-  }, [pendingParentCompletionIds, inlineSubtasks, tasks, projectId, stageIdForStatus, t.projects.tasks.failedToCompleteTask]);
+  }, [canWrite, tasks, projectId, inlineSubtasks, prependNextRecurringTask, stageIdForStatus, t.projects.tasks.failedToUpdateTask, t.projects.tasks.completeSubtasksFirst]);
 
   const deleteTask = useCallback((taskId: string) => {
     // The task may be a subtask that only lives in inlineSubtasks; resolve it
@@ -1534,9 +1480,7 @@ export function TasksClient({
     const hasSubtasks = (task.subtaskCount ?? 0) > 0;
     const isExpanded = expandedTaskIds.has(task.id);
     const isCompleting = completingTaskIds.has(task.id);
-    const isPendingComplete = pendingParentCompletionIds.has(task.id);
-    // Visually-done = actually done OR pending (parent waiting on subtasks).
-    const isVisuallyDone = task.status === 'done' || isPendingComplete;
+    const isVisuallyDone = task.status === 'done';
 
     return (
       <div
@@ -1862,7 +1806,7 @@ export function TasksClient({
         </div>
       </div>
     );
-  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, pendingParentCompletionIds, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig]);
+  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig]);
 
   // Subtask container — keeps the rows mounted and toggles visibility via
   // `hidden`. Unmounting/remounting dozens of nested rows on every click is

@@ -48,7 +48,6 @@ import {
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
-import { useAppApi } from '@/lib/api/use-app-api';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
 import type { UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
@@ -59,6 +58,7 @@ import {
   useCreateSubtask,
   useDeleteTask,
   useDeleteTaskComment,
+  useDuplicateTask,
   useProjectLabels,
   useProjectMembers,
   useProjectTasksForDeps,
@@ -232,7 +232,6 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const { id, isOpen, onClose } = props;
   const { userId } = useAuth();
   const { open: openPanel } = useObjectPanel();
-  const appApi = useAppApi();
 
   // Coordinate with the legacy WeldAgent and other detail panels — when this
   // panel opens, the WeldAgent drawer dismisses; when another detail panel
@@ -488,29 +487,34 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
    * Mirrors the legacy panel's behaviour: the original is kept open, a toast
    * confirms, list views invalidate so the copy shows up immediately.
    */
+  const duplicateMutation = useDuplicateTask();
   const handleDuplicate = useCallback(async () => {
     if (!apiTask) return;
     try {
-      const res = await appApi.tasks.create({
+      await duplicateMutation.mutateAsync({
         title: t('sweep.entities.taskCopyTitle', { title: apiTask.title }),
         description: apiTask.description ?? undefined,
         status: apiTask.status ?? 'todo',
         priority: apiTask.priority ?? undefined,
+        ...(apiTask.type ? { type: apiTask.type } : {}),
         ...(apiTask.projectId ? { projectId: apiTask.projectId } : {}),
+        ...(apiTask.stageId ? { stageId: apiTask.stageId } : {}),
         ...(apiTask.parentTaskId ? { parentTaskId: apiTask.parentTaskId } : {}),
         ...(apiTask.assigneeId ? { assigneeId: apiTask.assigneeId } : {}),
+        ...(apiTask.assigneeIds?.length ? { assigneeIds: apiTask.assigneeIds } : {}),
         ...(apiTask.dueDate ? { dueDate: apiTask.dueDate } : {}),
         ...(apiTask.startDate ? { startDate: apiTask.startDate } : {}),
+        ...(apiTask.storyPoints == null ? {} : { storyPoints: apiTask.storyPoints }),
+        ...(apiTask.estimatedHours == null ? {} : { estimatedHours: String(apiTask.estimatedHours) }),
         ...(apiTask.labels ? { labels: apiTask.labels } : {}),
         ...(apiTask.tags ? { tags: apiTask.tags } : {}),
+        ...(apiTask.repeat ? { repeat: apiTask.repeat } : {}),
       });
-      if (res.data?.id) {
-        toast.success(t('sweep.entities.taskDuplicated'));
-      }
+      toast.success(t('sweep.entities.taskDuplicated'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('sweep.entities.duplicateTaskFailed'));
     }
-  }, [apiTask, appApi, t]);
+  }, [apiTask, duplicateMutation, t]);
 
   /**
    * Edit — the legacy panel handed control back to a per-page TaskDialog. The
