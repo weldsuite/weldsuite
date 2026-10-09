@@ -666,10 +666,10 @@ async function handleMembershipUpdated(
         .update(workspaceMembers)
         .set({ role: preservedRole, name, picture, clerkMembershipId: membership.id, updatedAt: new Date() })
         .where(eq(workspaceMembers.id, existing.id));
-      // TODO: if a future Clerk metadata flow propagates a custom `roleId`,
-      // call applyRoleChangeToChannels(tenantDb, userId, oldRoleId, newRoleId)
-      // here so weldchat membership stays in sync. Today only the system
-      // tier syncs via webhook, so no action is needed.
+      // Only the system tier syncs via this webhook, so weldchat channel
+      // membership needs no update here. Should a Clerk metadata flow ever
+      // propagate a custom `roleId`, call
+      // applyRoleChangeToChannels(tenantDb, userId, oldRoleId, newRoleId) here.
     } else {
       await handleMembershipCreated(env, masterDb, membership);
     }
