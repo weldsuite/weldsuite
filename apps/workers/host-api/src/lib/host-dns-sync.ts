@@ -9,7 +9,7 @@
  * Ported from `apps/api-worker/src/lib/host-dns-sync.ts`.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
@@ -187,18 +187,15 @@ async function pruneStaleRecords(
   seenExtIds: Set<string>,
 ): Promise<number> {
   const { hostDnsRecords } = schema;
-  let removed = 0;
-  for (const row of existing) {
-    if (row.externalRecordId && !seenExtIds.has(row.externalRecordId)) {
-      await db.delete(hostDnsRecords).where(eq(hostDnsRecords.id, row.id));
-      removed++;
-    }
-  }
-  for (const row of existingWithoutExtId) {
-    await db.delete(hostDnsRecords).where(eq(hostDnsRecords.id, row.id));
-    removed++;
-  }
-  return removed;
+  const staleIds = [
+    ...existing
+      .filter((row) => row.externalRecordId && !seenExtIds.has(row.externalRecordId))
+      .map((row) => row.id),
+    ...existingWithoutExtId.map((row) => row.id),
+  ];
+  if (staleIds.length === 0) return 0;
+  await db.delete(hostDnsRecords).where(inArray(hostDnsRecords.id, staleIds));
+  return staleIds.length;
 }
 
 /** Reconcile system locks (WeldMail deps etc.); failures are logged, not thrown. */
