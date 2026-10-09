@@ -482,7 +482,9 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('attendance', 'Attendance', ['read', 'create', 'update', 'delete', 'approve']),
   objectPermissions('leave', 'Leave', ['read', 'create', 'update', 'delete', 'approve']),
   objectPermissions('declarations', 'Expense declarations', ['read', 'create', 'update', 'delete', 'approve']),
-  objectPermissions('absences', 'Sickness absence'),
+  // Sick reports are kept apart from leave: who is ill is not for everyone who
+  // approves holidays. Employees report for themselves through employees:self.
+  objectPermissions('absences', 'Sick reports'),
   objectPermissions('coaching', 'Coaching logs'),
   objectPermissions('evaluations', 'Evaluations and KPIs'),
   // ── WeldObjects (user-defined custom objects) ─────────────────────────

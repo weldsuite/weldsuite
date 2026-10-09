@@ -141,6 +141,8 @@ const STATUS_TONE: Record<string, Tone> = {
   approved: 'default',
   rejected: 'destructive',
   cancelled: 'secondary',
+  // sick reports (`completed` is shared with checklists below)
+  ongoing: 'outline',
   // declarations (shares pending / approved / rejected / cancelled with leave)
   paid: 'secondary',
   // coaching / evaluations

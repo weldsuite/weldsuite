@@ -52,8 +52,8 @@ describe('AppAccessGuard · EMPLOYEE members', () => {
     expect(replace).toHaveBeenLastCalledWith('/weldhr/me');
   });
 
-  it('keeps them on My HR, WeldChat and their own settings', () => {
-    for (const path of ['/weldhr/me', '/weldchat', '/weldchat/c/general', '/settings', '/settings/notifications']) {
+  it('keeps them on My HR, reporting sick, WeldChat and their own settings', () => {
+    for (const path of ['/weldhr/me', '/weldhr/absenteeism', '/weldchat', '/weldchat/c/general', '/settings', '/settings/notifications']) {
       renderAt(path);
     }
     expect(replace).not.toHaveBeenCalled();
