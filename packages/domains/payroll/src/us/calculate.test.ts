@@ -168,7 +168,7 @@ describe('pre-tax deductions and employer benefits', () => {
     expect(line(r, 'us.401k_employer_match')?.amountCents).toBe(18_000);
     expect(r.employerCostCents).toBe(600_000 + r.employerTaxesCents + 18_000 + 40_000);
     expect(r.employeeDeductionsCents).toBe(60_000 + 20_000 + 10_000);
-    expect(r.filingData.kind === 'us' && r.filingData.states.ZZ.stateWages).toBe(510_000);
+    expect(r.filingData.kind === 'us' && r.filingData.states.ZZ!.stateWages).toBe(510_000);
   });
 
   it('caps elective deferrals at the §402(g) limit for the age on 31 December (pre-tax first, then Roth)', () => {
@@ -237,7 +237,7 @@ describe('FICA and FUTA with year-to-date', () => {
     expect(line(r, 'us.futa')).toBeUndefined();
     expect(r.filingData.kind === 'us' && r.filingData.federal).toMatchObject({ ssWages: 0, futaGrossWages: 600_000, futaExemptWages: 600_000 });
     // SUI exemption follows FUTA unless set separately.
-    expect(r.filingData.kind === 'us' && r.filingData.states.ZZ.suiWages).toBe(0);
+    expect(r.filingData.kind === 'us' && r.filingData.states.ZZ!.suiWages).toBe(0);
   });
 });
 
@@ -379,8 +379,8 @@ describe('labels', () => {
     const federal = r.lines.filter((l) => l.jurisdiction !== 'CA');
     for (const l of federal) {
       expect(US_PAYSLIP_LABELS[l.labelKey], l.labelKey).toBeDefined();
-      expect(US_PAYSLIP_LABELS[l.labelKey].en.length).toBeGreaterThan(0);
-      expect(US_PAYSLIP_LABELS[l.labelKey].nl.length).toBeGreaterThan(0);
+      expect(US_PAYSLIP_LABELS[l.labelKey]!.en.length).toBeGreaterThan(0);
+      expect(US_PAYSLIP_LABELS[l.labelKey]!.nl.length).toBeGreaterThan(0);
     }
     expect(usPayslipLabels()['us.salary']).toEqual(US_PAYSLIP_LABELS['us.salary']);
   });
@@ -395,8 +395,8 @@ describe('labels', () => {
       expect(stateLines.length, workState).toBeGreaterThan(0);
       for (const l of stateLines) {
         expect(labels[l.labelKey], l.labelKey).toBeDefined();
-        expect(labels[l.labelKey].en.length).toBeGreaterThan(0);
-        expect(labels[l.labelKey].nl.length).toBeGreaterThan(0);
+        expect(labels[l.labelKey]!.en.length).toBeGreaterThan(0);
+        expect(labels[l.labelKey]!.nl.length).toBeGreaterThan(0);
       }
     }
     expect(labels['us.state_income_tax.CA']?.en).toMatch(/California/);

@@ -119,7 +119,7 @@ const EXEMPTION_CREDIT: Record<CaPeriod, number[]> = {
 const RATES = [1.1, 2.2, 4.4, 6.6, 8.8, 10.23, 11.33, 12.43, 13.53, 14.63];
 
 function table(rows: [over: number, base: number][]): ScheduleRow[] {
-  return rows.map(([over, base], i) => ({ over: d(over), baseCents: d(base), ratePercent: RATES[i] }));
+  return rows.map(([over, base], i) => ({ over: d(over), baseCents: d(base), ratePercent: RATES[i]! }));
 }
 
 /** Tables 5–28: taxable income over, tax on the lower brackets. */
@@ -163,7 +163,7 @@ const TAX_TABLES: Record<CaPeriod, Record<CaStatus, ScheduleRow[]>> = {
 
 function perAllowance(values: number[], count: number): Cents {
   if (count <= 0) return 0;
-  return count <= values.length ? d(values[count - 1]) : count * d(values[0]);
+  return count <= values.length ? d(values[count - 1]!) : count * d(values[0]!);
 }
 
 function caStatus(raw: string | null | undefined): CaStatus {

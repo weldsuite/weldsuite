@@ -42,7 +42,7 @@ describe('buildNachaFile', () => {
   });
 
   it('fills the file header', () => {
-    const header = recordsOf(buildNachaFile(file()).content)[0];
+    const header = recordsOf(buildNachaFile(file()).content)[0]!;
     expect(header.slice(0, 3)).toBe('101');
     expect(header.slice(3, 13)).toBe(' 011000015');
     expect(header.slice(13, 23)).toBe('1123456789');
@@ -54,7 +54,7 @@ describe('buildNachaFile', () => {
   });
 
   it('writes a PPD credit batch with service class 220 and the PAYROLL description', () => {
-    const batch = recordsOf(buildNachaFile(file({ entryDescription: 'SALARY' })).content)[1];
+    const batch = recordsOf(buildNachaFile(file({ entryDescription: 'SALARY' })).content)[1]!;
     expect(batch.slice(0, 4)).toBe('5220');
     expect(batch.slice(4, 20)).toBe('ACME WIDGETS INC');
     expect(batch.slice(40, 50)).toBe('1123456789');
@@ -67,22 +67,22 @@ describe('buildNachaFile', () => {
 
   it('writes entry details with transaction codes, amounts and ascending trace numbers', () => {
     const entries = recordsOf(buildNachaFile(file()).content).slice(2, 5);
-    expect(entries[0].slice(0, 3)).toBe('622');
-    expect(entries[0].slice(3, 12)).toBe('021000021');
-    expect(entries[0].slice(12, 29)).toBe('123456789        ');
-    expect(entries[0].slice(29, 39)).toBe('0000154321');
-    expect(entries[0].slice(39, 54)).toBe('EMP-001        ');
-    expect(entries[0].slice(54, 76)).toBe('JOSE ALVAREZ          ');
-    expect(entries[0].slice(78, 79)).toBe('0');
-    expect(entries[1].slice(0, 3)).toBe('632');
-    expect(entries[1].slice(12, 29)).toBe('9876-5432        ');
+    expect(entries[0]!.slice(0, 3)).toBe('622');
+    expect(entries[0]!.slice(3, 12)).toBe('021000021');
+    expect(entries[0]!.slice(12, 29)).toBe('123456789        ');
+    expect(entries[0]!.slice(29, 39)).toBe('0000154321');
+    expect(entries[0]!.slice(39, 54)).toBe('EMP-001        ');
+    expect(entries[0]!.slice(54, 76)).toBe('JOSE ALVAREZ          ');
+    expect(entries[0]!.slice(78, 79)).toBe('0');
+    expect(entries[1]!.slice(0, 3)).toBe('632');
+    expect(entries[1]!.slice(12, 29)).toBe('9876-5432        ');
     expect(entries.map((e) => e.slice(79, 94))).toEqual(['011000010000001', '011000010000002', '011000010000003']);
   });
 
   it('totals the batch and the file: counts, entry hash and amounts', () => {
     const records = recordsOf(buildNachaFile(file()).content);
     const batchControl = records[5];
-    const fileControl = records[6];
+    const fileControl = records[6]!;
     // Entry hash: 02100002 + 12100024 + 01100001 = 15300027.
     expect(batchControl).toBe(`822000000300153000270000000000000000003544201123456789${' '.repeat(25)}011000010000001`);
     expect(fileControl.slice(0, 55)).toBe('9000001000001000000030015300027000000000000000000354420');
@@ -92,15 +92,15 @@ describe('buildNachaFile', () => {
   it('adds one offsetting debit for a balanced file (service class 200, code 27)', () => {
     const f = buildNachaFile(file({ balancedOffset: { routingNumber: '026009593', accountNumber: '000123', accountType: 'checking' } }));
     const records = recordsOf(f.content);
-    expect(records[1].slice(1, 4)).toBe('200');
-    const offset = records[5];
+    expect(records[1]!.slice(1, 4)).toBe('200');
+    const offset = records[5]!;
     expect(offset.slice(0, 3)).toBe('627');
     expect(offset.slice(29, 39)).toBe('0000354420');
     expect(offset.slice(54, 76)).toBe('ACME WIDGETS INC      ');
-    const control = records[6];
+    const control = records[6]!;
     // Hash + 02600959 = 17900986; debit = credit.
     expect(control.slice(0, 44)).toBe('82000000040017900986000000354420000000354420');
-    expect(records[7].slice(0, 13)).toBe('9000001000001');
+    expect(records[7]!.slice(0, 13)).toBe('9000001000001');
   });
 
   it('keeps only the rightmost 10 digits of an overflowing entry hash', () => {
@@ -139,7 +139,7 @@ describe('buildNachaFile', () => {
     ]);
     const entries = recordsOf(f.content).filter((r) => r.startsWith('6'));
     expect(entries).toHaveLength(1);
-    expect(entries[0].slice(12, 29)).toBe('123456           ');
+    expect(entries[0]!.slice(12, 29)).toBe('123456           ');
   });
 
   it('flags an invalid ODFI routing number', () => {

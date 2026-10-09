@@ -153,8 +153,8 @@ describe('Form 941', () => {
     );
     const r = form941({ employer, taxYear: 2026, quarter: 1, payslips: odd });
     expect(r.summary.line7).toBe(2);
-    expect(r.summary.line12).toBe(r.summary.line5e + 2);
-    expect(r.summary.line16_month1 + r.summary.line16_month2 + r.summary.line16_month3).toBe(r.summary.line12);
+    expect(r.summary.line12).toBe(r.summary.line5e! + 2);
+    expect(r.summary.line16_month1! + r.summary.line16_month2! + r.summary.line16_month3!).toBe(r.summary.line12);
     expect(r.summary.line16_box).toBe(1); // under $2,500: de minimis
   });
 
@@ -283,13 +283,13 @@ describe('state reports', () => {
     expect(r.summary).toEqual({ employees: 2, gross: 1_600_000, stateWages: 1_600_000, stateTax: 80_000 });
     expect(r.amountDueCents).toBe(80_000);
     expect(r.dueDate).toBe('2026-11-02');
-    expect(r.files?.[0].content.split('\n')[1]).toBe('e1,Alice Adams,123-45-6789,12000.00,12000.00,600.00');
+    expect(r.files?.[0]?.content.split('\n')[1]).toBe('e1,Alice Adams,123-45-6789,12000.00,12000.00,600.00');
     expect(JSON.stringify(r.document)).not.toContain('123-45-6789');
   });
 
   it('builds the unemployment wage report', () => {
     const r = stateUnemploymentReport({ employer, state: 'ca', taxYear: 2026, quarter: 3, employees });
     expect(r.summary).toEqual({ employees: 2, grossWages: 1_600_000, taxableWages: 1_600_000, excessWages: 0, employeeContributions: 0, employerContributions: 10_200 });
-    expect(r.files?.[0].fileName).toBe('ca-unemployment-2026-q3.csv');
+    expect(r.files?.[0]?.fileName).toBe('ca-unemployment-2026-q3.csv');
   });
 });

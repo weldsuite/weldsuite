@@ -180,7 +180,7 @@ export function computeOvertime(input: OvertimeInput): OvertimeResult {
     const b = bucket(weekStart);
     b.carryKeys.push(key);
     const dayIndex = DAY_FIELDS.indexOf(field);
-    if (dayIndex >= 0) b.dayHours[dayIndex] += value / 100;
+    if (dayIndex >= 0) b.dayHours[dayIndex]! += value / 100;
     else if (field === 'pay') b.straightPayCents += value;
     else if (field === 'premium') {
       // Holds the premium part (hourly) or the full manual pay (salaried); only one is read below.
@@ -195,7 +195,7 @@ export function computeOvertime(input: OvertimeInput): OvertimeResult {
     const weekStart = workweekStart(e.date, input.workweekStartDay);
     const b = bucket(weekStart);
     const day = (weekday(e.date) - input.workweekStartDay + 7) % 7;
-    b.dayHours[day] += e.hours;
+    b.dayHours[day]! += e.hours;
     b.straightPayCents += e.hours * e.rateCents;
     if (e.multiplier !== null) {
       b.manualPremiumCents += e.hours * e.rateCents * Math.max(0, e.multiplier - 1);
@@ -216,7 +216,7 @@ export function computeOvertime(input: OvertimeInput): OvertimeResult {
     if (weekEnd > input.periodEnd) {
       // Not settled yet: carry everything (earlier carry included) to the next period.
       b.dayHours.forEach((h, i) => {
-        if (h > 0) carryOut[carryKey(b.weekStart, DAY_FIELDS[i])] = Math.round(h * 100);
+        if (h > 0) carryOut[carryKey(b.weekStart, DAY_FIELDS[i]!)] = Math.round(h * 100);
       });
       if (!salaried && b.straightPayCents > 0) carryOut[carryKey(b.weekStart, 'pay')] = roundHalfAwayFromZero(b.straightPayCents);
       const credit = salaried ? b.manualFullCents : b.manualPremiumCents;

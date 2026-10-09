@@ -43,11 +43,11 @@ describe('Pub 15-T (2026) annual percentage method tables', () => {
       for (const status of ['single', 'married_jointly', 'head_of_household'] as W4FilingStatus[]) {
         const rows = schedule[status];
         for (let i = 1; i < rows.length; i += 1) {
-          const expected = rows[i - 1].baseCents + ((rows[i].atLeastCents - rows[i - 1].atLeastCents) * rows[i - 1].ratePercent) / 100;
+          const expected = rows[i - 1]!.baseCents + ((rows[i]!.atLeastCents - rows[i - 1]!.atLeastCents) * rows[i - 1]!.ratePercent) / 100;
           // Column C is rounded to the cent, and the IRS derived it from column A amounts before
           // rounding them to whole dollars (Step 2 single: $108,937.50 is printed as $108,938), so
           // a row may differ by up to the previous rate × $0.50. The engine uses the published values.
-          expect(Math.abs(rows[i].baseCents - expected)).toBeLessThanOrEqual(Math.ceil(rows[i - 1].ratePercent * 0.5) + 1);
+          expect(Math.abs(rows[i]!.baseCents - expected)).toBeLessThanOrEqual(Math.ceil(rows[i - 1]!.ratePercent * 0.5) + 1);
         }
       }
     }

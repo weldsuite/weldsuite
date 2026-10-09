@@ -254,7 +254,7 @@ interface IkvFigures {
   periods: Array<{ start: string; ww: boolean; wao: boolean; zw: boolean }>;
   f: NlFilingData;
   /** Overrides for the transitievergoeding IKV. */
-  amounts: Record<string, number>;
+  amounts: Record<WgField, number>;
 }
 
 const WG_FIELDS = [

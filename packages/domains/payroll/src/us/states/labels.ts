@@ -66,7 +66,7 @@ const EMPLOYEE_SUI_OVERRIDES: Record<string, Label> = {
 function build(): Record<string, Label> {
   const labels: Record<string, Label> = {};
   for (const state of INCOME_TAX_STATES) {
-    const name = STATE_NAMES[state];
+    const name = STATE_NAMES[state]!;
     labels[`us.state_income_tax.${state}`] = { en: `${name.en} income tax`, nl: `Inkomstenbelasting ${name.nl}` };
   }
   for (const [state, name] of Object.entries(STATE_NAMES)) {
@@ -76,7 +76,7 @@ function build(): Record<string, Label> {
     };
   }
   for (const state of EMPLOYEE_SUI_STATES) {
-    const name = STATE_NAMES[state];
+    const name = STATE_NAMES[state]!;
     labels[`us.state_sui_employee.${state}`] = EMPLOYEE_SUI_OVERRIDES[state] ?? {
       en: `${name.en} unemployment insurance (employee)`,
       nl: `Werkloosheidsverzekering ${name.nl} (werknemer)`,

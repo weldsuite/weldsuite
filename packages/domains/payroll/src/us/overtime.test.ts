@@ -57,7 +57,7 @@ describe('FLSA workweeks', () => {
       ytd: {},
     });
     // (40 × 20 + 10 × 30) / 50 = 22.00; premium 10 × 11.00.
-    expect(r.weeks[0].regularRateCents).toBe(2_200);
+    expect(r.weeks[0]!.regularRateCents).toBe(2_200);
     expect(r.qualifiedOvertimeCents).toBe(11_000);
   });
 

@@ -77,7 +77,7 @@ export function nraAdditionCents(rules: FederalRules, w4: UsW4Input, periodsPerY
   const perPeriod = table[periods];
   if (perPeriod !== undefined) return perPeriod;
   // Not a listed payroll period: spread the annual amount.
-  return roundHalfAwayFromZero(table[1] / periods);
+  return roundHalfAwayFromZero(table[1]! / periods);
 }
 
 export interface WithholdingWorksheet {

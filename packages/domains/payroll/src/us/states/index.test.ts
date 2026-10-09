@@ -35,8 +35,8 @@ describe('state module registry', () => {
       if (r.sui.employeeCents > 0) keys.push(stateSuiEmployeeLabelKey(code));
       for (const key of keys) {
         expect(STATE_PAYSLIP_LABELS[key], `${code}: ${key}`).toBeDefined();
-        expect(STATE_PAYSLIP_LABELS[key].en.length).toBeGreaterThan(0);
-        expect(STATE_PAYSLIP_LABELS[key].nl.length).toBeGreaterThan(0);
+        expect(STATE_PAYSLIP_LABELS[key]!.en.length).toBeGreaterThan(0);
+        expect(STATE_PAYSLIP_LABELS[key]!.nl.length).toBeGreaterThan(0);
       }
     }
     expect(STATE_PAYSLIP_LABELS['us.state_income_tax.CA']).toEqual({ en: 'California income tax', nl: 'Inkomstenbelasting Californië' });

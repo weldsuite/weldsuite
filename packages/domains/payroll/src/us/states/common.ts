@@ -35,7 +35,7 @@ export class YtdWriter {
 
   add(name: string, cents: Cents): void {
     const key = ytdKey(this.state, name);
-    const base = key in this.updates ? this.updates[key] : (this.input.ytd[key] ?? 0);
+    const base = key in this.updates ? this.updates[key]! : (this.input.ytd[key] ?? 0);
     this.updates[key] = base + cents;
   }
 }
@@ -173,10 +173,10 @@ export function progressiveTax(amount: Cents, brackets: readonly { over: Cents; 
   if (amount <= 0) return 0;
   let tax = 0;
   for (let i = 0; i < brackets.length; i += 1) {
-    const lower = brackets[i].over;
-    const upper = i + 1 < brackets.length ? brackets[i + 1].over : Number.POSITIVE_INFINITY;
+    const lower = brackets[i]!.over;
+    const upper = i + 1 < brackets.length ? brackets[i + 1]!.over : Number.POSITIVE_INFINITY;
     if (amount <= lower) break;
-    tax += ((Math.min(amount, upper) - lower) * brackets[i].ratePercent) / 100;
+    tax += ((Math.min(amount, upper) - lower) * brackets[i]!.ratePercent) / 100;
   }
   return tax;
 }

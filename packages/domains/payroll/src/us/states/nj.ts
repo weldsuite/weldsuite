@@ -159,7 +159,7 @@ const RAW: Record<NjRate, Record<PeriodType, RawTable>> = {
 };
 
 function table(rate: NjRate, period: PeriodType): ScheduleRow[] {
-  return RAW[rate][period].map(([over, base], i) => ({ over: d(over), baseCents: d(base), ratePercent: RATES[rate][i] }));
+  return RAW[rate][period].map(([over, base], i) => ({ over: d(over), baseCents: d(base), ratePercent: RATES[rate][i]! }));
 }
 
 const RATE_TABLES = ['A', 'B', 'C', 'D', 'E'] as const;

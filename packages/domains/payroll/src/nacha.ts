@@ -83,7 +83,7 @@ export function isValidRoutingNumber(routingNumber: string): boolean {
   const knownPrefix = (prefix >= 1 && prefix <= 12) || (prefix >= 21 && prefix <= 32) || (prefix >= 61 && prefix <= 72) || prefix === 80;
   if (!knownPrefix) return false;
   const d = routingNumber.split('').map(Number);
-  const sum = 3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7]) + (d[2] + d[5] + d[8]);
+  const sum = 3 * (d[0]! + d[3]! + d[6]!) + 7 * (d[1]! + d[4]! + d[7]!) + (d[2]! + d[5]! + d[8]!);
   return sum % 10 === 0;
 }
 

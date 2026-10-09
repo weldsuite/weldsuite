@@ -43,7 +43,7 @@ describe('states without a wage income tax', () => {
   it('Nevada adds the 0.05% Career Enhancement Program, except at the 5.4% rate', () => {
     const r = run(NV_MODULE, { periodsPerYear: 12, regularWagesCents: 500000, suiRatePercent: 2.95 });
     expect(r.programs).toEqual([{ code: 'nv_cep', labelKey: 'us.state_program.nv_cep', wagesCents: 500000, employeeCents: 0, employerCents: 250 }]);
-    expect(run(NV_MODULE, { periodsPerYear: 12, regularWagesCents: 500000, suiRatePercent: 5.4 }).programs[0].employerCents).toBe(0);
+    expect(run(NV_MODULE, { periodsPerYear: 12, regularWagesCents: 500000, suiRatePercent: 5.4 }).programs[0]!.employerCents).toBe(0);
   });
 
   it('South Dakota adds the 0.55% investment fee, and the 0.08% administrative fee once experience rated', () => {

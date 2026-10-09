@@ -154,8 +154,8 @@ function reconcile(values: number[], target: number): number[] {
   let diff = target - sumBy(out, (v) => v);
   for (let i = out.length - 1; i >= 0 && diff !== 0; i -= 1) {
     if (out[i] === 0 && i > 0) continue;
-    const next = Math.max(0, out[i] + diff);
-    diff -= next - out[i];
+    const next = Math.max(0, out[i]! + diff);
+    diff -= next - out[i]!;
     out[i] = next;
   }
   return out;
@@ -261,7 +261,7 @@ export function form941(input: {
   const daily = new Map<string, number>();
   for (const p of slips) {
     const m = Number(p.payDate.slice(5, 7)) - (quarter - 1) * 3 - 1;
-    months[m] += liability941(p);
+    months[m]! += liability941(p);
     daily.set(p.payDate, (daily.get(p.payDate) ?? 0) + liability941(p));
   }
   const monthly = reconcile(months, line12);
@@ -294,16 +294,16 @@ export function form941(input: {
     line14,
     line15,
     line16_box: line16Box,
-    line16_month1: monthly[0],
-    line16_month2: monthly[1],
-    line16_month3: monthly[2],
-    line16_total: monthly[0] + monthly[1] + monthly[2],
+    line16_month1: monthly[0]!,
+    line16_month2: monthly[1]!,
+    line16_month3: monthly[2]!,
+    line16_total: monthly[0]! + monthly[1]! + monthly[2]!,
   };
   const scheduleB: string[][] = [];
   days.forEach((d, i) => {
     const m = Number(d.slice(5, 7)) - (quarter - 1) * 3;
-    summary[`scheduleB_m${m}_d${Number(d.slice(8, 10))}`] = dailyValues[i];
-    scheduleB.push([d, usd(dailyValues[i])]);
+    summary[`scheduleB_m${m}_d${Number(d.slice(8, 10))}`] = dailyValues[i]!;
+    scheduleB.push([d, usd(dailyValues[i]!)]);
   });
 
   const dueDate = quarterlyReturnDueDate(taxYear, quarter);
@@ -342,10 +342,10 @@ export function form941(input: {
           ? [field('16', 'Line 12 is less than $2,500 (or the prior quarter’s was): no deposit record is required.')]
           : line16Box === 2
             ? [
-                field('16 Monthly schedule depositor — Month 1', usd(monthly[0])),
-                field('Month 2', usd(monthly[1])),
-                field('Month 3', usd(monthly[2])),
-                field('Total liability for quarter', usd(monthly[0] + monthly[1] + monthly[2]), true),
+                field('16 Monthly schedule depositor — Month 1', usd(monthly[0]!)),
+                field('Month 2', usd(monthly[1]!)),
+                field('Month 3', usd(monthly[2]!)),
+                field('Total liability for quarter', usd(monthly[0]! + monthly[1]! + monthly[2]!), true),
               ]
             : [field('16 Semiweekly schedule depositor', 'Complete Schedule B (Form 941) with the daily liabilities below.')],
     },
@@ -426,7 +426,7 @@ export function form940(input: {
   const scheduleA = new Map<string, number>();
   for (const p of slips) {
     const st = p.filingData.federal.futaState;
-    if (!st || !(reductionRates[st] > 0)) continue;
+    if (!st || !((reductionRates[st] ?? 0) > 0)) continue;
     const s = p.filingData.states[st];
     if (s && s.suiGrossWages === 0) continue;
     scheduleA.set(st, (scheduleA.get(st) ?? 0) + p.filingData.federal.futaWages);
@@ -434,9 +434,9 @@ export function form940(input: {
   const scheduleARows: string[][] = [];
   let line11 = 0;
   for (const [st, wages] of [...scheduleA.entries()].sort()) {
-    const reduction = rate(wages, reductionRates[st] / 100);
+    const reduction = rate(wages, reductionRates[st]! / 100);
     line11 += reduction;
-    scheduleARows.push([st, usd(wages), `${(reductionRates[st] / 100).toFixed(3)}`, usd(reduction)]);
+    scheduleARows.push([st, usd(wages), `${(reductionRates[st]! / 100).toFixed(3)}`, usd(reduction)]);
   }
   const line12 = line8 + line9 + line10 + line11;
   const line13 = input.depositsCents ?? line12;
@@ -448,9 +448,9 @@ export function form940(input: {
   for (const p of slips) {
     const q = Math.floor((Number(p.payDate.slice(5, 7)) - 1) / 3);
     const f = p.filingData.federal;
-    quarters[q] += f.futaTax - (f.futaCreditReduction ?? 0);
+    quarters[q]! += f.futaTax - (f.futaCreditReduction ?? 0);
   }
-  quarters[3] += line11;
+  quarters[3]! += line11;
   const part5 = line12 > 50_000 ? reconcile(quarters, line12) : [0, 0, 0, 0];
 
   const summary: Record<string, number> = {
@@ -469,15 +469,15 @@ export function form940(input: {
     line13,
     line14,
     line15,
-    line16a: part5[0],
-    line16b: part5[1],
-    line16c: part5[2],
-    line16d: part5[3],
+    line16a: part5[0]!,
+    line16b: part5[1]!,
+    line16c: part5[2]!,
+    line16d: part5[3]!,
     line17: sumBy(part5, (v) => v),
   };
   for (const [st, wages] of scheduleA) {
     summary[`scheduleA_${st}_wages`] = wages;
-    summary[`scheduleA_${st}_reduction`] = rate(wages, reductionRates[st] / 100);
+    summary[`scheduleA_${st}_reduction`] = rate(wages, reductionRates[st]! / 100);
   }
 
   const dueDate = annualReturnDueDate(taxYear);
@@ -487,7 +487,7 @@ export function form940(input: {
       kind: 'fields',
       title: 'Part 1: About your return',
       fields: [
-        field('1a One state only', stateList.length === 1 ? stateList[0] : ''),
+        field('1a One state only', stateList.length === 1 ? stateList[0]! : ''),
         field('1b More than one state (Schedule A required)', stateList.length > 1 ? `Yes: ${stateList.join(', ')}` : 'No'),
         field('2 Wages paid in a credit reduction state (Schedule A required)', line11 > 0 ? 'Yes' : 'No'),
       ],
@@ -666,8 +666,8 @@ export function formW2(input: {
   for (const [code, cents] of codes) summary[`box12_${code}`] = cents;
   const stateCodes = Object.keys(t.states).sort();
   for (const st of stateCodes) {
-    summary[`box16_${st}`] = t.states[st].wages;
-    summary[`box17_${st}`] = t.states[st].tax;
+    summary[`box16_${st}`] = t.states[st]!.wages;
+    summary[`box17_${st}`] = t.states[st]!.tax;
   }
 
   const dueDate = annualReturnDueDate(taxYear);
@@ -719,7 +719,7 @@ export function formW2(input: {
       title: 'State',
       columns: ['15 State', 'Employer’s state ID number', '16 State wages, tips, etc.', '17 State income tax'],
       alignRight: [2, 3],
-      rows: stateCodes.map((st) => [st, employer.states[st]?.withholdingAccountNumber ?? '', usd(t.states[st].wages), usd(t.states[st].tax)]),
+      rows: stateCodes.map((st) => [st, employer.states[st]?.withholdingAccountNumber ?? '', usd(t.states[st]!.wages), usd(t.states[st]!.tax)]),
     },
   ];
   const notes: string[] = [];
@@ -778,8 +778,8 @@ export function formW3(input: {
     box14: 0,
   };
   for (const st of stateCodes) {
-    summary[`box16_${st}`] = t.states[st].wages;
-    summary[`box17_${st}`] = t.states[st].tax;
+    summary[`box16_${st}`] = t.states[st]!.wages;
+    summary[`box17_${st}`] = t.states[st]!.tax;
   }
   const dueDate = annualReturnDueDate(taxYear);
   return {
@@ -822,7 +822,7 @@ export function formW3(input: {
           title: 'State totals',
           columns: ['15 State', 'Employer’s state ID number', '16 State wages', '17 State income tax'],
           alignRight: [2, 3],
-          rows: stateCodes.map((st) => [st, employer.states[st]?.withholdingAccountNumber ?? '', usd(t.states[st].wages), usd(t.states[st].tax)]),
+          rows: stateCodes.map((st) => [st, employer.states[st]?.withholdingAccountNumber ?? '', usd(t.states[st]!.wages), usd(t.states[st]!.tax)]),
         },
         {
           kind: 'text',
@@ -865,12 +865,12 @@ function stateRows(
     rows.push({
       employee: e.employee,
       gross: sumBy(slips, (p) => p.filingData.federal.futaGrossWages),
-      stateWages: sumBy(slips, (p) => p.filingData.states[state].stateWages),
-      tax: sumBy(slips, (p) => p.filingData.states[state].stateIncomeTax),
-      suiGross: sumBy(slips, (p) => p.filingData.states[state].suiGrossWages),
-      suiTaxable: sumBy(slips, (p) => p.filingData.states[state].suiWages),
-      suiEmployee: sumBy(slips, (p) => p.filingData.states[state].suiEmployeeTax),
-      suiEmployer: sumBy(slips, (p) => p.filingData.states[state].suiEmployerTax),
+      stateWages: sumBy(slips, (p) => p.filingData.states[state]!.stateWages),
+      tax: sumBy(slips, (p) => p.filingData.states[state]!.stateIncomeTax),
+      suiGross: sumBy(slips, (p) => p.filingData.states[state]!.suiGrossWages),
+      suiTaxable: sumBy(slips, (p) => p.filingData.states[state]!.suiWages),
+      suiEmployee: sumBy(slips, (p) => p.filingData.states[state]!.suiEmployeeTax),
+      suiEmployer: sumBy(slips, (p) => p.filingData.states[state]!.suiEmployerTax),
     });
   }
   return rows.sort((a, b) => (a.employee.name < b.employee.name ? -1 : a.employee.name > b.employee.name ? 1 : 0));
