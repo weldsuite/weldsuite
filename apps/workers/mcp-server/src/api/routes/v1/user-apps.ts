@@ -98,7 +98,7 @@ function contentTypeFor(path: string): string {
  * the path is unsafe or empty.
  */
 function sanitizeBundlePath(raw: string): string | null {
-  const path = raw.replace(/\\/g, '/').replace(/^\.?\/+/, '');
+  const path = raw.replaceAll('\\', '/').replace(/^\.?\/+/, '');
   if (!path || path.length > 255) return null;
   const segments = path.split('/');
   if (segments.some((s) => s === '' || s === '.' || s === '..')) return null;
