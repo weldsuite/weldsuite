@@ -341,11 +341,9 @@ function SendEmailForm({
   // where the host adds contact variables (CRM sequences). Elsewhere, greet the
   // trigger record's first name when it has one, or nobody.
   const recordFields = useTriggerRecordFields();
-  const greeting = extraVariableGroups?.length
-    ? '{{contact.firstName}}'
-    : recordFields?.some((field) => field.path === 'firstName')
-      ? '{{trigger.record.firstName}}'
-      : '';
+  let greeting = '';
+  if (extraVariableGroups?.length) greeting = '{{contact.firstName}}';
+  else if (recordFields?.some((field) => field.path === 'firstName')) greeting = '{{trigger.record.firstName}}';
   const bodyPlaceholder = (text: string) =>
     greeting ? text.replace('{{contact.firstName}}', greeting) : text.replace(' {{contact.firstName}}', '');
 
@@ -2354,6 +2352,14 @@ function GoogleCalendarCreateEventForm({
 const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low', 'none'] as const;
 const TASK_DUE_DATE_QUICK_PICKS = ['today', 'tomorrow', 'in 3 days', 'in 1 week'] as const;
 
+/** Translation key under `dueDateIn` for each quick pick. */
+const TASK_DUE_DATE_QUICK_PICK_LABELS = {
+  today: 'today',
+  tomorrow: 'tomorrow',
+  'in 3 days': 'in3Days',
+  'in 1 week': 'in1Week',
+} as const satisfies Record<(typeof TASK_DUE_DATE_QUICK_PICKS)[number], string>;
+
 /**
  * create_task (WeldFlow). Runs as the workflow owner, who needs both
  * `tasks:create` and write access to the chosen project (checked at run
@@ -2513,13 +2519,7 @@ function CreateTaskForm({
               className="h-6 px-2 text-xs"
               onClick={() => onChange({ ...config, dueDate: pick })}
             >
-              {pick === 'today'
-                ? tf.dueDateIn.today
-                : pick === 'tomorrow'
-                  ? tf.dueDateIn.tomorrow
-                  : pick === 'in 3 days'
-                    ? tf.dueDateIn.in3Days
-                    : tf.dueDateIn.in1Week}
+              {tf.dueDateIn[TASK_DUE_DATE_QUICK_PICK_LABELS[pick]]}
             </Button>
           ))}
         </div>

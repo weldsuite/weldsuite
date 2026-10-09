@@ -108,7 +108,8 @@ export function resolveVariableScope(data: {
   isGlobal?: boolean;
   workflowId?: string | null;
 }): { scope: 'global' | 'workflow'; workflowId: string | null } | null {
-  const scope = data.scope ?? (data.isGlobal === true ? 'global' : data.workflowId ? 'workflow' : 'global');
+  const impliedScope = data.isGlobal !== true && data.workflowId ? 'workflow' : 'global';
+  const scope = data.scope ?? impliedScope;
   if (scope === 'global') return { scope: 'global', workflowId: null };
   if (scope === 'workflow' && data.workflowId) return { scope: 'workflow', workflowId: data.workflowId };
   return null;

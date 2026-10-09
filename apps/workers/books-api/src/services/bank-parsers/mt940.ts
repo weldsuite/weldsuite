@@ -314,7 +314,7 @@ function parseINGTag86(text: string): ReturnType<typeof parseTag86> {
   // >31 = counterparty account (IBAN)
   // >32-33 = counterparty name
   // >34 = reference
-  const parts = text.split(/>([\d]{2})/);
+  const parts = text.split(/>(\d{2})/);
 
   for (let i = 1; i < parts.length; i += 2) {
     const code = parts[i];

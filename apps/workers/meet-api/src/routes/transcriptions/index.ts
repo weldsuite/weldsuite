@@ -248,7 +248,8 @@ app.patch('/:id', requirePermission('activities:update'), zValidator('json', upd
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) {
       if (v !== undefined) {
-        update[k] = dateFields.has(k) ? (v ? new Date(v as string) : null) : v;
+        if (!dateFields.has(k)) update[k] = v;
+        else update[k] = v ? new Date(v as string) : null;
       }
     }
     await db.update(t).set(update).where(eq(t.id, id));

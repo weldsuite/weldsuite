@@ -252,7 +252,7 @@ export function useUpdateTask() {
         assignees?: NonNullable<Task['assignees']> | null;
         linkedCompany?: NonNullable<Task['linkedCompany']> | null;
         /** CRM person link — mutually exclusive with `linkedCompany`. */
-        linkedPerson?: Task['linkedPerson'] | null;
+        linkedPerson?: NonNullable<Task['linkedPerson']> | null;
       };
     }) => {
       const client = await getClient();
