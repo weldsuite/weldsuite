@@ -55,6 +55,31 @@ export interface HrEmployeeSensitive {
   salaryCurrency?: string | null;
   salaryPeriod?: 'hour' | 'month' | 'year' | null;
   notes?: string | null;
+
+  // Payroll (weldhr-payroll.ts). `nationalId` is the BSN (NL) or SSN (US).
+  /** Structured salary account; `bankAccount` stays as the free-text legacy field. */
+  bankAccountHolder?: string | null;
+  bankIban?: string | null;
+  bankBic?: string | null;
+  bankRoutingNumber?: string | null;
+  bankAccountNumber?: string | null;
+  bankAccountType?: 'checking' | 'savings' | null;
+  /** Structured home address for payroll (US state of residence, NL loonaangifte without BSN). */
+  homeAddress?: {
+    line1?: string | null;
+    line2?: string | null;
+    houseNumber?: string | null;
+    houseNumberAddition?: string | null;
+    postalCode?: string | null;
+    city?: string | null;
+    region?: string | null;
+    country?: string | null;
+  } | null;
+  /** NL identity check before the first working day (Handboek §2.2). */
+  idDocumentType?: 'passport' | 'id_card' | 'residence_permit' | 'drivers_license' | null;
+  idDocumentNumber?: string | null;
+  idDocumentExpiresOn?: string | null;
+  idVerifiedAt?: string | null;
 }
 
 export type HrChecklistKind = 'onboarding' | 'offboarding';

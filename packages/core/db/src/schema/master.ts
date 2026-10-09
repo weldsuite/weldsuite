@@ -1251,3 +1251,5 @@ export {
   type UserAppInstallStatus,
   type UserAppTokenType,
 } from './user-apps';
+// Billable payroll usage (one row per final WeldHR payslip); see the file header.
+export { payrollUsageEvents, type PayrollUsageEvent, type NewPayrollUsageEvent } from './payroll-usage';
