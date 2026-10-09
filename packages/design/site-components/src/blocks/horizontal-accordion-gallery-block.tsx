@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { ShoppingCart } from "lucide-react";
 import { activateOnKey } from "../lib/activate-on-key";
+import { keyedBy } from '../lib/keyed';
 
 export interface HorizontalAccordionGalleryBlockProps {
   images?: Array<{ src: string; title: string; code: string }>;
@@ -68,9 +69,9 @@ export function HorizontalAccordionGalleryBlock({
 
   return (
     <div className="flex w-full items-center justify-center" style={{ gap: `${gap}px` }}>
-      {images.map((image, index) => (
+      {keyedBy(images, (img) => img.src).map(({ item: image, key }, index) => (
         <div
-          key={index}
+          key={key}
           className={`relative cursor-pointer overflow-hidden ${showBorder ? 'border' : ''}`}
           style={{
             width: activeImage === index ? `${expandedWidth}px` : `${collapsedWidth}px`,
