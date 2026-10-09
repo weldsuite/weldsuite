@@ -80,6 +80,10 @@ describe('structured builder issues', () => {
   it('returns missing bank details and an incomplete employer the same way', async () => {
     const { deps } = testDeps();
     const run = await approveMonth(deps, '2026-07-01');
+    // As if the payslips were approved before the account was sealed into them: the current details are all there is.
+    for (const slip of await db.select().from(schema.hrPayslips).where(eq(schema.hrPayslips.runId, run.id))) {
+      await db.update(schema.hrPayslips).set({ snapshot: { ...slip.snapshot, bankEncrypted: null } }).where(eq(schema.hrPayslips.id, slip.id));
+    }
     await setPaymentDetails(db, world.eva.id, { bankIban: null }, { keyring: TEST_KEYRING, selfService: false });
     const missing = await buildPaymentFile(db, run.id, deps).catch((e) => e);
     expect(missing).toMatchObject({ code: 'MISSING_BANK_ACCOUNT', status: 409 });

@@ -128,10 +128,17 @@ export function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** CSV field with quoting for commas, quotes and newlines. */
+/**
+ * CSV field with quoting for commas, quotes and newlines. A text cell that
+ * starts with = + - @ (or a tab or carriage return) would be run as a formula
+ * by a spreadsheet (a declaration's description becomes a label), so it gets a
+ * leading apostrophe. Numbers, and decimal strings such as "-12.50", are data
+ * and stay as they are.
+ */
 export function csvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '';
-  const text = String(value);
+  let text = String(value);
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(text) && !/^[+-]?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
   return /[",\r\n;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

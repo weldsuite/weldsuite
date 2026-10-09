@@ -11,7 +11,7 @@
  * gets approved.
  */
 
-import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 import type { EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import type { HrPayrollIssue } from '@weldsuite/db/schema';
 import { componentDef } from '@weldsuite/payroll-domain';
@@ -33,7 +33,7 @@ import type {
   HrPayslipSummary,
 } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { displayNameOf } from '../employees';
-import { HrConflictError, HrNotFoundError, HrValidationError, memberNames } from '../shared';
+import { HrConflictError, HrNotFoundError, HrPayrollError, HrValidationError, memberNames } from '../shared';
 import {
   countIssues,
   decimal2,
@@ -73,11 +73,28 @@ export function assertEditable(run: RunRow): void {
   }
 }
 
-/** A change to a calculated run's pay invalidates the calculation. */
-async function reopen(db: Database, run: RunRow): Promise<void> {
-  if (run.status === 'calculated') {
-    await db.update(r).set({ status: 'draft', updatedAt: new Date() }).where(eq(r.id, run.id));
-  }
+/** Runs whose pay can still change. */
+const OPEN_STATUSES = ['draft', 'calculated'];
+
+/** SQL: a calculated run goes back to draft, anything else keeps its status. */
+const reopenedStatus = sql<string>`CASE WHEN ${r.status} = 'calculated' THEN 'draft' ELSE ${r.status} END`;
+
+const RUN_CHANGED = 'This pay run was approved, cancelled or changed by someone else. Reload it and try again.';
+
+/**
+ * Claim the run for a change to its pay: a calculated run goes back to draft
+ * (the calculation no longer matches), and nothing happens to a run that is
+ * no longer open. The status is part of the UPDATE, so an approval that won the
+ * race is never flipped back, and the caller gets a 409 instead of writing
+ * into an approved run. Call it BEFORE the change itself.
+ */
+export async function touchRun(db: Database, runId: string): Promise<void> {
+  const rows = await db
+    .update(r)
+    .set({ status: reopenedStatus, updatedAt: new Date() })
+    .where(and(eq(r.id, runId), inArray(r.status, OPEN_STATUSES)))
+    .returning({ id: r.id });
+  if (rows.length === 0) throw new HrConflictError(RUN_CHANGED);
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +311,58 @@ async function employeesWithProfile(db: Database, employerId: string, ids: strin
   return rows;
 }
 
+/**
+ * Tax year and period number of a US period once its pay date is known: a US
+ * wage is taxed in the year it is paid. A period paid in the year after its
+ * natural pay date is the first of that year; one paid in the year before it
+ * follows the schedule's last period of that year.
+ */
+function usNumbering(
+  schedule: ScheduleRow,
+  natural: { start: string; taxYear: number; periodNumber: number },
+  payDate: string,
+): { taxYear: number; periodNumber: number } {
+  const taxYear = Number(payDate.slice(0, 4));
+  if (taxYear === natural.taxYear) return { taxYear, periodNumber: natural.periodNumber };
+  if (taxYear > natural.taxYear) return { taxYear, periodNumber: 1 };
+  const previous = periodContaining(specOf(schedule), 'US', addDays(natural.start, -1));
+  return { taxYear, periodNumber: previous.taxYear === taxYear ? previous.periodNumber + 1 : 1 };
+}
+
+function assertNlPaidInPeriodYear(periodStart: string, payDate: string): void {
+  if (payDate.slice(0, 4) !== periodStart.slice(0, 4)) {
+    throw new HrValidationError('A Dutch pay run must be paid in the calendar year of its period');
+  }
+}
+
+/** A correction is paid in the calendar year of the period it corrects (the tax year of the original payslips). */
+export function assertCorrectionInYear(taxYear: number, payDate: string): void {
+  if (Number(payDate.slice(0, 4)) !== taxYear) {
+    throw new HrPayrollError(
+      'CORRECTION_CROSSES_YEAR',
+      `A correction must be paid in the calendar year of the period it corrects (${taxYear}). Corrections across a year boundary are not supported yet; the earlier year's returns and statements have to be corrected outside WeldSuite.`,
+      409,
+      { taxYear, payDate },
+    );
+  }
+}
+
+/** Tax year and period number for a run whose pay date was set or changed. */
+async function numberingForPayDate(db: Database, run: RunRow, payDate: string): Promise<{ taxYear: number; periodNumber: number }> {
+  if (run.kind === 'correction') {
+    assertCorrectionInYear(run.taxYear, payDate);
+    return { taxYear: run.taxYear, periodNumber: run.periodNumber };
+  }
+  if (run.country === 'NL') {
+    assertNlPaidInPeriodYear(run.periodStart, payDate);
+    return { taxYear: run.taxYear, periodNumber: run.periodNumber };
+  }
+  const schedule = run.payScheduleId ? await requireScheduleRow(db, run.payScheduleId).catch(() => null) : null;
+  if (!schedule) return { taxYear: Number(payDate.slice(0, 4)), periodNumber: Number(payDate.slice(0, 4)) === run.taxYear ? run.periodNumber : 1 };
+  const natural = periodContaining(specOf(schedule), 'US', run.periodStart);
+  return usNumbering(schedule, natural, payDate);
+}
+
 export async function createRun(db: Database, input: CreateHrPayRunInput, ctx: { userId: string }): Promise<RunRow> {
   const employer = await requireEmployerRow(db, input.employerId);
   if (!employer.isActive) throw new HrValidationError('This employer is not active');
@@ -332,6 +401,14 @@ export async function createRun(db: Database, input: CreateHrPayRunInput, ctx: {
     payDate = input.payDate ?? period.payDate;
     taxYear = period.taxYear;
     periodNumber = period.periodNumber;
+    if (input.payDate && input.payDate !== period.payDate) {
+      // A pay date other than the schedule's moves the US tax year with it; a Dutch run stays in its period's year.
+      if (country === 'NL') {
+        assertNlPaidInPeriodYear(periodStart, payDate);
+      } else {
+        ({ taxYear, periodNumber } = usNumbering(schedule, period, payDate));
+      }
+    }
   } else {
     if (!input.periodStart || !input.periodEnd || !input.payDate) {
       throw new HrValidationError('An off-cycle run needs its period and pay date');
@@ -351,8 +428,8 @@ export async function createRun(db: Database, input: CreateHrPayRunInput, ctx: {
     schedule = scheduleId ? await requireScheduleRow(db, scheduleId).catch(() => null) : null;
     if (schedule) {
       const period = periodContaining(specOf(schedule), country, periodStart);
-      taxYear = period.taxYear;
-      periodNumber = period.periodNumber;
+      ({ taxYear, periodNumber } =
+        country === 'US' ? usNumbering(schedule, period, payDate) : { taxYear: period.taxYear, periodNumber: period.periodNumber });
     } else {
       taxYear = Number((country === 'NL' ? periodStart : payDate).slice(0, 4));
       periodNumber = country === 'NL' ? Number(periodStart.slice(5, 7)) : 1;
@@ -422,6 +499,7 @@ async function createCorrectionRun(db: Database, input: CreateHrPayRunInput, emp
   if (clash.length) throw new HrConflictError('Another open correction run already covers some of these employees');
 
   const payDate = input.payDate ?? todayIso();
+  assertCorrectionInYear(corrected.taxYear, payDate);
   const id = generateId('hrpr');
   await db.insert(r).values({
     id,
@@ -487,15 +565,20 @@ export async function updateRun(db: Database, id: string, input: UpdateHrPayRunI
   const run = await requireRun(db, id);
   assertEditable(run);
   const payDateChanged = input.payDate !== undefined && input.payDate !== run.payDate;
-  await db
+  // A new pay date can move the tax year and period number (US), or be refused (a Dutch run leaving its year, a correction leaving its year).
+  const dated = payDateChanged ? await numberingForPayDate(db, run, input.payDate!) : null;
+  const rows = await db
     .update(r)
     .set({
       ...(input.payDate !== undefined && { payDate: input.payDate }),
+      ...(dated ?? {}),
       ...(input.notes !== undefined && { notes: input.notes }),
-      ...(payDateChanged && run.status === 'calculated' && { status: 'draft' }),
+      ...(payDateChanged && { status: reopenedStatus }),
       updatedAt: new Date(),
     })
-    .where(eq(r.id, id));
+    .where(and(eq(r.id, id), inArray(r.status, OPEN_STATUSES)))
+    .returning({ id: r.id });
+  if (rows.length === 0) throw new HrConflictError(RUN_CHANGED);
   return requireRun(db, id);
 }
 
@@ -504,10 +587,14 @@ export async function cancelRun(db: Database, id: string): Promise<RunRow> {
   const run = await requireRun(db, id);
   assertEditable(run);
   const now = new Date();
-  await atomically(db, (h) => [
-    h.update(r).set({ status: 'cancelled', cancelledAt: now, updatedAt: now }).where(eq(r.id, id)),
-    h.delete(schema.hrPayslips).where(and(eq(schema.hrPayslips.runId, id), eq(schema.hrPayslips.status, 'draft'))),
-  ]);
+  // The status guard is part of the UPDATE: a run an approval just claimed stays approved.
+  const rows = await db
+    .update(r)
+    .set({ status: 'cancelled', cancelledAt: now, updatedAt: now })
+    .where(and(eq(r.id, id), inArray(r.status, OPEN_STATUSES)))
+    .returning({ id: r.id });
+  if (rows.length === 0) throw new HrConflictError(RUN_CHANGED);
+  await db.delete(schema.hrPayslips).where(and(eq(schema.hrPayslips.runId, id), eq(schema.hrPayslips.status, 'draft')));
   return requireRun(db, id);
 }
 
@@ -520,12 +607,17 @@ export async function setRunEmployee(db: Database, id: string, employeeId: strin
   if (excluded) next.add(employeeId);
   else next.delete(employeeId);
   const now = new Date();
-  await atomically(db, (h) => [
-    h.update(r).set({ excludedEmployeeIds: [...next], status: run.status === 'calculated' ? 'draft' : run.status, updatedAt: now }).where(eq(r.id, id)),
-    ...(excluded
-      ? [h.delete(schema.hrPayslips).where(and(eq(schema.hrPayslips.runId, id), eq(schema.hrPayslips.employeeId, employeeId), eq(schema.hrPayslips.status, 'draft')))]
-      : []),
-  ]);
+  const rows = await db
+    .update(r)
+    .set({ excludedEmployeeIds: [...next], status: reopenedStatus, updatedAt: now })
+    .where(and(eq(r.id, id), inArray(r.status, OPEN_STATUSES)))
+    .returning({ id: r.id });
+  if (rows.length === 0) throw new HrConflictError(RUN_CHANGED);
+  if (excluded) {
+    await db
+      .delete(schema.hrPayslips)
+      .where(and(eq(schema.hrPayslips.runId, id), eq(schema.hrPayslips.employeeId, employeeId), eq(schema.hrPayslips.status, 'draft')));
+  }
   return requireRun(db, id);
 }
 
@@ -581,6 +673,7 @@ export async function createRunInput(db: Database, runId: string, input: CreateH
   }
   validateInput(run.country as 'NL' | 'US', input.code, input);
   if (input.workDate && !isIsoDate(input.workDate)) throw new HrValidationError('workDate is not a date');
+  await touchRun(db, runId);
   const [row] = await db
     .insert(schema.hrPayRunInputs)
     .values({
@@ -598,7 +691,6 @@ export async function createRunInput(db: Database, runId: string, input: CreateH
       createdBy: ctx.userId,
     })
     .returning();
-  await reopen(db, run);
   return toInputDto(row!);
 }
 
@@ -621,6 +713,7 @@ export async function updateRunInput(db: Database, runId: string, inputId: strin
   validateInput(run.country as 'NL' | 'US', row.code, next);
   // Editing the figures of a collected line makes it the preparer's own line: re-collecting must not overwrite it.
   const figuresChanged = input.quantity !== undefined || input.rate !== undefined || input.amount !== undefined;
+  await touchRun(db, runId);
   const [updated] = await db
     .update(schema.hrPayRunInputs)
     .set({
@@ -635,7 +728,6 @@ export async function updateRunInput(db: Database, runId: string, inputId: strin
     })
     .where(eq(schema.hrPayRunInputs.id, inputId))
     .returning();
-  await reopen(db, run);
   return toInputDto(updated!);
 }
 
@@ -643,8 +735,8 @@ export async function deleteRunInput(db: Database, runId: string, inputId: strin
   const run = await requireRun(db, runId);
   assertEditable(run);
   await requireInput(db, runId, inputId);
+  await touchRun(db, runId);
   await db.delete(schema.hrPayRunInputs).where(eq(schema.hrPayRunInputs.id, inputId));
-  await reopen(db, run);
 }
 
 // ---------------------------------------------------------------------------
@@ -684,14 +776,50 @@ export async function collectRunInputs(db: Database, runId: string, keyring: Enc
   const i = schema.hrPayRunInputs;
 
   if (employeeIds.length === 0) {
+    await touchRun(db, runId);
     await db.delete(i).where(and(eq(i.runId, runId), inArray(i.source, [...COLLECTED_SOURCES])));
-    await reopen(db, run);
     return summary;
   }
 
   const data = await loadEmployeePayrollData(db, employeeIds, keyring);
   const country = run.country as 'NL' | 'US';
   const { periodStart, periodEnd } = run;
+
+  // What another live run (draft, calculated, approved or paid) with an overlapping period already pays: collecting it
+  // again would pay the same hours twice. Keyed by source reference; a request or absence that spans several periods is
+  // taken per period, so only the days another run's period already covers are left out.
+  const takenRows = await db
+    .select({ ref: i.sourceRef, start: r.periodStart, end: r.periodEnd })
+    .from(i)
+    .innerJoin(r, eq(r.id, i.runId))
+    .where(
+      and(
+        inArray(i.employeeId, employeeIds),
+        isNotNull(i.sourceRef),
+        inArray(i.source, ['attendance', 'leave', 'absence', 'manual']),
+        ne(i.runId, runId),
+        inArray(r.status, ['draft', 'calculated', 'approved', 'paid']),
+        sql`${r.periodStart} <= ${periodEnd} AND ${r.periodEnd} >= ${periodStart}`,
+      ),
+    );
+  const taken = new Map<string, Array<{ start: string; end: string }>>();
+  for (const row of takenRows) {
+    if (!row.ref) continue;
+    const list = taken.get(row.ref) ?? [];
+    list.push({ start: row.start, end: row.end });
+    taken.set(row.ref, list);
+  }
+  /** The weekdays of [start, end] that no other live run has taken for this source reference. */
+  const freeWeekdays = (ref: string, start: string, end: string): string[] => {
+    const covered = taken.get(ref) ?? [];
+    const days: string[] = [];
+    for (let day = start; day <= end; day = addDays(day, 1)) {
+      const dow = new Date(`${day}T00:00:00Z`).getUTCDay();
+      if (dow === 0 || dow === 6) continue;
+      if (!covered.some((range) => day >= range.start && day <= range.end)) days.push(day);
+    }
+    return days;
+  };
 
   const manual = await db.select().from(i).where(and(eq(i.runId, runId), eq(i.source, 'manual')));
   const manualKeys = new Set(manual.filter((m) => m.sourceRef).map((m) => `${m.code}|${m.sourceRef}`));
@@ -736,6 +864,7 @@ export async function collectRunInputs(db: Database, runId: string, keyring: Enc
     perDay.set(key, entry);
   }
   for (const day of perDay.values()) {
+    if (taken.has(day.firstId)) continue;
     push(
       { employeeId: day.employeeId, code: 'hours.regular', label: null, quantity: decimal4(round2(day.minutes / 60)), rate: null, amount: null, workDate: day.date, source: 'attendance', sourceRef: day.firstId, notes: null },
       'attendance',
@@ -758,7 +887,7 @@ export async function collectRunInputs(db: Database, runId: string, keyring: Enc
     const overlapStart = maxDate(request.startDate, periodStart);
     const overlapEnd = minDate(request.endDate, periodEnd);
     const total = weekdaysBetween(request.startDate, request.endDate);
-    const inPeriod = weekdaysBetween(overlapStart, overlapEnd);
+    const inPeriod = freeWeekdays(request.id, overlapStart, overlapEnd).length;
     if (total === 0 || inPeriod === 0) continue;
     const days = request.days * (inPeriod / total);
     const hours = round2(days * (contractHours(request.employeeId) / 5));
@@ -792,8 +921,9 @@ export async function collectRunInputs(db: Database, runId: string, keyring: Enc
       if (payTypeOf(absence.employeeId) !== 'salary') continue;
       const start = maxDate(absence.startDate, periodStart);
       const end = minDate(absence.endDate ?? periodEnd, periodEnd);
-      let days = weekdaysBetween(start, end);
-      if (absence.firstDay === 'half' && absence.startDate >= periodStart && weekdaysBetween(absence.startDate, absence.startDate) === 1) days -= 0.5;
+      const free = freeWeekdays(absence.id, start, end);
+      let days = free.length;
+      if (absence.firstDay === 'half' && absence.startDate >= periodStart && free.includes(absence.startDate)) days -= 0.5;
       if (days <= 0) continue;
       push(
         { employeeId: absence.employeeId, code: 'nl.sick_pay', label: null, quantity: decimal4(round2(days * (contractHours(absence.employeeId) / 5))), rate: decimal4(100), amount: null, workDate: start, source: 'absence', sourceRef: absence.id, notes: null },
@@ -837,10 +967,10 @@ export async function collectRunInputs(db: Database, runId: string, keyring: Enc
     }
   }
 
+  await touchRun(db, runId);
   await atomically(db, (h) => [
     h.delete(i).where(and(eq(i.runId, runId), inArray(i.source, [...COLLECTED_SOURCES]))),
     ...(fresh.length ? [h.insert(i).values(fresh)] : []),
   ]);
-  await reopen(db, run);
   return summary;
 }

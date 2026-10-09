@@ -305,7 +305,7 @@ function aggregateTotals(slips: StoredPayslip[]): HrPayRunTotals {
 }
 
 export async function calculateRun(db: Database, runId: string, deps: PayrollDeps, ctx: { userId: string }): Promise<RunRow> {
-  const run = await requireRun(db, runId);
+  let run = await requireRun(db, runId);
   assertEditable(run);
   const employer = await db
     .select()
@@ -315,9 +315,15 @@ export async function calculateRun(db: Database, runId: string, deps: PayrollDep
     .then((rows) => rows[0]);
   if (!employer) throw new HrNotFoundError('Payroll employer', run.employerId);
 
+  // While the run is being (re)calculated it is a draft: an approval cannot start on a half-written calculation, and
+  // a run that was approved or cancelled in the meantime is left alone (409).
+  await claimForCalculation(db, runId);
+  run = await requireRun(db, runId);
+
   const included = await includedEmployeeIds(db, run);
   // Taken before the data is read: a change in between only makes the run look stale, never fresh.
   const version = await dataVersion(db, employer.id, included);
+  const inputsStamp = await runInputsStamp(db, runId);
   const data = await loadEmployeePayrollData(db, included, deps.keyring);
   const inputRows = included.length
     ? await db.select().from(schema.hrPayRunInputs).where(and(eq(schema.hrPayRunInputs.runId, runId), inArray(schema.hrPayRunInputs.employeeId, included)))
@@ -338,7 +344,7 @@ export async function calculateRun(db: Database, runId: string, deps: PayrollDep
   const slips: StoredPayslip[] = [];
 
   if (run.kind === 'correction') {
-    await calculateCorrections(db, run, employer, data, inputsOf, deps, issues, slips, frequencyFor);
+    await calculateCorrections(db, run, employer, included, data, inputsOf, deps, issues, slips, frequencyFor);
   } else {
     const chain = await finalPayslipsByEmployee(db, included, employer.id, run.taxYear);
     // Last year's chain: NL reads the annual wage for the special-reward table, US carries open overtime workweeks.
@@ -402,7 +408,15 @@ export async function calculateRun(db: Database, runId: string, deps: PayrollDep
           lines: result.lines,
           ytd: result.ytd,
           filingData: result.filingData as unknown as Record<string, unknown>,
-          snapshot: { input, ruleSet: result.ruleSet, dataVersion: '' },
+          // The year-to-date chain this payslip continues: approval refuses it once another payslip was approved after
+          // the one it started from (`chain`), or anything else it read changed (`dataVersion`, `inputsStamp`).
+          snapshot: {
+            input,
+            ruleSet: result.ruleSet,
+            dataVersion: '',
+            inputsStamp: '',
+            chain: { tipId: tip?.id ?? null, previousYearTipId: lastYearTip?.id ?? null },
+          },
           issues: sortIssues(employeeIssues),
           correctsPayslipId: null,
         },
@@ -410,7 +424,11 @@ export async function calculateRun(db: Database, runId: string, deps: PayrollDep
     }
   }
 
-  for (const slip of slips) (slip.values.snapshot as Record<string, unknown>).dataVersion = version;
+  for (const slip of slips) {
+    const snapshot = slip.values.snapshot as Record<string, unknown>;
+    snapshot.dataVersion = version;
+    snapshot.inputsStamp = inputsStamp;
+  }
 
   // Run-level checks: the employer once for the whole run.
   const bank = await readEmployerBank(employer, deps.keyring);
@@ -431,6 +449,8 @@ export async function calculateRun(db: Database, runId: string, deps: PayrollDep
         .values(slip.values)
         .onConflictDoUpdate({
           target: [s.runId, s.employeeId],
+          // Only a draft is rewritten: a final payslip is never touched by a calculation.
+          setWhere: eq(s.status, 'draft'),
           set: {
             employerId: slip.values.employerId,
             country: slip.values.country,
@@ -458,20 +478,57 @@ export async function calculateRun(db: Database, runId: string, deps: PayrollDep
           },
         }),
     ),
-    h
-      .update(schema.hrPayRuns)
-      .set({
-        status: 'calculated',
-        calculatedBy: ctx.userId,
-        calculatedAt: now,
-        totals: aggregateTotals(slips),
-        issues: sortIssues(issues),
-        employeeCount: slips.length,
-        updatedAt: now,
-      })
-      .where(eq(schema.hrPayRuns.id, runId)),
   ]);
+  // Calculated only now that every payslip is written, and only if the run is still the draft we claimed.
+  const done = await db
+    .update(schema.hrPayRuns)
+    .set({
+      status: 'calculated',
+      calculatedBy: ctx.userId,
+      calculatedAt: now,
+      totals: aggregateTotals(slips),
+      issues: sortIssues(issues),
+      employeeCount: slips.length,
+      updatedAt: now,
+    })
+    .where(and(eq(schema.hrPayRuns.id, runId), eq(schema.hrPayRuns.status, 'draft')))
+    .returning({ id: schema.hrPayRuns.id });
+  if (done.length === 0) {
+    // Cancelled while it was being calculated: leave no draft payslips behind.
+    await db.delete(s).where(and(eq(s.runId, runId), eq(s.status, 'draft')));
+    throw new HrConflictError('This pay run was cancelled or changed while it was being calculated. Reload it and try again.');
+  }
   return requireRun(db, runId);
+}
+
+/** draft | calculated → draft, or 409 when the run was approved, paid or cancelled. */
+async function claimForCalculation(db: Database, runId: string): Promise<void> {
+  const r = schema.hrPayRuns;
+  const rows = await db
+    .update(r)
+    .set({ status: 'draft', updatedAt: new Date() })
+    .where(and(eq(r.id, runId), inArray(r.status, ['draft', 'calculated'])))
+    .returning({ id: r.id });
+  if (rows.length === 0) throw new HrConflictError('This pay run was approved, cancelled or changed by someone else. Reload it and try again.');
+}
+
+/**
+ * A marker of the run's own inputs: how many there are and when the latest was
+ * created or edited. Stored in each draft payslip's snapshot; approval compares
+ * it, so an input added, edited or removed while the run was being calculated
+ * (or after) shows up as a stale calculation.
+ */
+export async function runInputsStamp(db: Database, runId: string): Promise<string> {
+  const i = schema.hrPayRunInputs;
+  const rows = await db.select({ createdAt: i.createdAt, updatedAt: i.updatedAt }).from(i).where(eq(i.runId, runId));
+  let latest = '';
+  for (const row of rows) {
+    for (const at of [row.createdAt, row.updatedAt]) {
+      const iso = at.toISOString();
+      if (iso > latest) latest = iso;
+    }
+  }
+  return `${rows.length}|${latest}`;
 }
 
 /** Net pay (cents) of each employee's previous final, non-correction payslip at the employer. */
@@ -497,6 +554,7 @@ async function calculateCorrections(
   db: Database,
   run: RunRow,
   employer: EmployerRow,
+  included: string[],
   data: Map<string, EmployeePayrollData>,
   inputsOf: (employeeId: string) => RunInputRow[],
   deps: PayrollDeps,
@@ -512,7 +570,8 @@ async function calculateCorrections(
     ? await db.select().from(s).where(and(inArray(s.correctsPayslipId, originals.map((o) => o.id)), eq(s.status, 'final')))
     : [];
 
-  for (const employeeId of run.includedEmployeeIds ?? []) {
+  // The people the run pays: those it was created for, minus the ones left out of it.
+  for (const employeeId of included) {
     const original = originalOf.get(employeeId);
     const d = data.get(employeeId);
     if (!original || !d || !d.profile || !d.employer) {
@@ -523,8 +582,21 @@ async function calculateCorrections(
     for (const issue of readiness) pushIssue(issues, issue);
     if (readiness.some((i) => i.code === 'missing_compensation')) continue;
 
+    // The year's chain as it stands: the recalculation starts from the accumulators the original started from, plus
+    // what corrections of EARLIER periods changed since (they move cumulative bases such as wage caps and accruals).
+    const chain = await finalPayslipsByEmployee(db, [employeeId], employer.id, original.taxYear);
+    const chainRows = chain.get(employeeId) ?? [];
+    const tip = latestByApproval(chainRows);
+
     const originalInput = (original.snapshot as { input?: PayslipInput }).input;
-    const ytdBefore = originalInput?.ytd ?? {};
+    const ytdBefore: Record<string, number> = { ...(originalInput?.ytd ?? {}) };
+    for (const row of chainRows) {
+      const corrected = row.correctsPayslipId ? chainRows.find((x) => x.id === row.correctsPayslipId) : null;
+      if (!corrected || corrected.periodEnd >= original.periodEnd) continue;
+      for (const [key, value] of Object.entries((row.snapshot as { ytdDelta?: Record<string, number> }).ytdDelta ?? {})) {
+        ytdBefore[key] = (ytdBefore[key] ?? 0) + value;
+      }
+    }
     const previousYearAnnualWageCents =
       originalInput && originalInput.country === 'NL' ? originalInput.nl.previousYearAnnualWageCents : null;
     // The recalculation sits in the original's period and tax year; only the run's inputs are new.
@@ -548,8 +620,6 @@ async function calculateCorrections(
     };
     const diff = correctionFrom(result, ytdBefore, base);
 
-    const chain = await finalPayslipsByEmployee(db, [employeeId], employer.id, original.taxYear);
-    const tip = latestByApproval(chain.get(employeeId) ?? []);
     const tipYtd = tip?.ytd ?? original.ytd;
     const ytd: Record<string, number> = { ...tipYtd };
     for (const [key, value] of Object.entries(diff.ytdDelta)) ytd[key] = (ytd[key] ?? 0) + value;
@@ -582,6 +652,8 @@ async function calculateCorrections(
         snapshot: {
           kind: 'correction',
           dataVersion: '',
+          inputsStamp: '',
+          chain: { tipId: tip?.id ?? null, previousYearTipId: null },
           input,
           ruleSet: result.ruleSet,
           ytdDelta: diff.ytdDelta,

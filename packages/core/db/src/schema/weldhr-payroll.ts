@@ -290,6 +290,24 @@ export interface HrPayrollFilingEvent {
   status: HrPayrollFilingStatus;
   by?: string | null;
   message?: string | null;
+  /** The filing version the event belongs to (absent on events written before versions were recorded: version 1). */
+  version?: number;
+}
+
+/**
+ * The loonheffingen of a return ride on ONE salary payment file per filing
+ * version: the first run whose file is built after the return was generated
+ * claims it by adding an entry here. A later version of the same return only
+ * carries what the earlier versions did not (its amount due minus the sum of
+ * `cents`).
+ */
+export interface HrPayrollFilingTaxPayment {
+  runId: string;
+  /** The filing version whose amount this entry carries. */
+  version: number;
+  cents: number;
+  /** The betalingskenmerk the payment was made with. */
+  reference: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +580,8 @@ export const hrPayslips = pgTable('hr_payslips', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
   uniqueIndex('hr_payslips_run_employee_uidx').on(table.runId, table.employeeId),
+  // Payslip numbers are sequential per employer: two approvals must never hand out the same one.
+  uniqueIndex('hr_payslips_employer_number_uidx').on(table.employerId, table.number).where(sql`number IS NOT NULL`),
   index('hr_payslips_employee_idx').on(table.employeeId, table.payDate),
   index('hr_payslips_employer_year_idx').on(table.employerId, table.taxYear),
 ]);
@@ -610,6 +630,8 @@ export const hrPayrollFilings = pgTable('hr_payroll_filings', {
   history: jsonb('history').$type<HrPayrollFilingEvent[]>().notNull().default([]),
   /** Problems the builder found when the filing was last generated: its errors (nothing was stored) and warnings. */
   issues: jsonb('issues').$type<HrPayrollIssue[]>().notNull().default([]),
+  /** Which salary payment files carried this return's loonheffingen (NL), so a month's tax is paid once. */
+  taxPayments: jsonb('tax_payments').$type<HrPayrollFilingTaxPayment[]>().notNull().default([]),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [

@@ -17,7 +17,7 @@
 import { eq } from 'drizzle-orm';
 import type { HrPayRunTotals } from '@weldsuite/db/schema';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { HrNotFoundError } from '../shared';
+import { HrNotFoundError, HrPayrollError } from '../shared';
 import type { EmployerRow, RunRow } from './common';
 import type { JournalTotals, PayrollDeps } from './deps';
 import { requireRun } from './runs';
@@ -52,6 +52,10 @@ export interface JournalOutcome {
 /** Post (or re-post: books-api is idempotent per run) the journal and record the outcome on the run. */
 export async function postRunJournal(db: Database, runId: string, deps: PayrollDeps, ctx: { userId: string | null }): Promise<JournalOutcome> {
   const run = await requireRun(db, runId);
+  // Only an approved (or paid) run has figures worth posting: a draft or cancelled run must never reach the ledger.
+  if (run.status !== 'approved' && run.status !== 'paid') {
+    throw new HrPayrollError('RUN_NOT_APPROVED', `This pay run is ${run.status}; the journal is posted once the run is approved`, 409);
+  }
   const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, run.employerId)).limit(1);
   if (!employer) throw new HrNotFoundError('Payroll employer', run.employerId);
   const outcome = await attemptJournal(run, employer, deps, ctx);

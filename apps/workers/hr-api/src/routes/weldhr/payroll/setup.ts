@@ -205,6 +205,14 @@ employeesRoutes.get('/:employeeId/annual-statements/:year', requirePermission('p
   const employerId = c.req.query('employerId');
   if (!Number.isInteger(year) || !employerId) throw new HrValidationError('Give the year and ?employerId=');
   const { bytes, fileName } = await annualStatementPdf(db(c), param(c, 'employeeId'), year, employerId, payrollDeps(c));
+  // The statement carries the employee's BSN / SSN: reading it is on record.
+  await recordHrAudit(db(c), {
+    actorId: actor(c),
+    action: 'payroll.annual_statement_viewed',
+    employeeId: param(c, 'employeeId'),
+    metadata: { year, employerId, by: 'payroll' },
+    ip: clientIp(c),
+  });
   return pdfResponse(bytes, fileName);
 });
 

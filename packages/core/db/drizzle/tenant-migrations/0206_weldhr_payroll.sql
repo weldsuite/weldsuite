@@ -140,6 +140,7 @@ CREATE TABLE "hr_payroll_filings" (
 	"submitted_at" timestamp,
 	"history" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"issues" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"tax_payments" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
@@ -220,6 +221,7 @@ CREATE INDEX "hr_payroll_filings_status_idx" ON "hr_payroll_filings" USING btree
 CREATE UNIQUE INDEX "hr_payroll_profiles_employee_uidx" ON "hr_payroll_profiles" USING btree ("employee_id");--> statement-breakpoint
 CREATE INDEX "hr_payroll_profiles_employer_idx" ON "hr_payroll_profiles" USING btree ("employer_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "hr_payslips_run_employee_uidx" ON "hr_payslips" USING btree ("run_id","employee_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "hr_payslips_employer_number_uidx" ON "hr_payslips" USING btree ("employer_id","number") WHERE number IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "hr_payslips_employee_idx" ON "hr_payslips" USING btree ("employee_id","pay_date");--> statement-breakpoint
 CREATE INDEX "hr_payslips_employer_year_idx" ON "hr_payslips" USING btree ("employer_id","tax_year");--> statement-breakpoint
 CREATE INDEX "hr_tax_elections_employee_idx" ON "hr_tax_elections" USING btree ("employee_id","kind","effective_from");

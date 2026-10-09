@@ -1,5 +1,5 @@
 {
-  "id": "9f527cd9-7c35-4224-8205-3abcaea6abe9",
+  "id": "c2068306-06df-4369-b40b-7f6ed970b512",
   "prevId": "3757b92b-ed2d-4d39-bbd7-24111ffc08bd",
   "version": "7",
   "dialect": "postgresql",
@@ -65169,6 +65169,13 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
+        "tax_payments": {
+          "name": "tax_payments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -65593,6 +65600,28 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "hr_payslips_employer_number_uidx": {
+          "name": "hr_payslips_employer_number_uidx",
+          "columns": [
+            {
+              "expression": "employer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "number IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

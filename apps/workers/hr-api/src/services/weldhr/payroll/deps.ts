@@ -134,12 +134,14 @@ export function createBooksBridge(binding: Fetcher | undefined | null): BooksBri
           body: JSON.stringify(input),
         });
         const body = (await response.json().catch(() => null)) as {
-          data?: { importId?: string; journalEntryId?: string | null; duplicate?: boolean };
+          data?: { importId?: string; journalEntryId?: string | null; duplicate?: boolean; status?: string };
           error?: { message?: string };
         } | null;
         if (!response.ok || !body?.data?.importId) {
           return { status: 'failed', error: body?.error?.message ?? `books-api answered ${response.status}` };
         }
+        // books-api answers a reversed payroll with a 409; an older deployment answers 200 with the import's status.
+        if (body.data.status === 'reversed') return { status: 'failed', error: 'This payroll was posted to WeldBooks and has since been reversed there.' };
         return {
           status: 'posted',
           importId: body.data.importId,

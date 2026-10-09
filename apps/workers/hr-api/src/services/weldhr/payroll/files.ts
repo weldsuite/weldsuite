@@ -9,7 +9,8 @@
  * payment; nothing is handed out.
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import type { HrPayrollFilingTaxPayment, HrPayrollIssue } from '@weldsuite/db/schema';
 import { payslipLineLabel } from '@weldsuite/payroll-domain/labels';
 import { fromCents, toCents } from '@weldsuite/payroll-domain/money';
 import type { GeneratedFile } from '@weldsuite/payroll-domain/documents';
@@ -19,7 +20,7 @@ import { HrNotFoundError, HrPayrollError } from '../shared';
 import { csvRow, num, type EmployerRow, type PayslipRow, type RunRow } from './common';
 import type { PayrollDeps } from './deps';
 import { maxDate } from './dates';
-import { decryptSensitive } from './employees';
+import { bankOf, decryptSensitive, openBank, sameBank, type PayrollBank } from './employees';
 import { readEmployerBank } from './employers';
 import { engineCall, safeId, salaryRemittance } from './format';
 import { incomplete, invalidWith, structuredIssues } from './issues';
@@ -47,7 +48,10 @@ function missingBankAccounts(message: string, employeeIds: string[]): HrPayrollE
   });
 }
 
-export async function buildPaymentFile(db: Database, runId: string, deps: PayrollDeps): Promise<GeneratedFile> {
+/** The payment file, plus warnings the caller should log or audit (they never block the file). */
+export type PaymentFile = GeneratedFile & { warnings: HrPayrollIssue[] };
+
+export async function buildPaymentFile(db: Database, runId: string, deps: PayrollDeps): Promise<PaymentFile> {
   const run = await requireRun(db, runId);
   assertPayable(run);
   const [employer] = await db.select().from(schema.hrPayrollEmployers).where(eq(schema.hrPayrollEmployers.id, run.employerId)).limit(1);
@@ -62,16 +66,93 @@ export async function buildPaymentFile(db: Database, runId: string, deps: Payrol
     .from(schema.hrEmployees)
     .where(inArray(schema.hrEmployees.id, slips.map((x) => x.employeeId)));
   const personById = new Map(people.map((p) => [p.id, p]));
-  const sensitiveById = new Map<string, Awaited<ReturnType<typeof decryptSensitive>>>();
-  for (const person of people) sensitiveById.set(person.id, await decryptSensitive(person, deps.keyring));
 
-  return employer.country === 'NL'
-    ? buildSepa(db, run, employer, bank, slips, personById, sensitiveById, deps)
-    : buildNacha(run, employer, bank, slips, personById, sensitiveById, deps);
+  // Each payslip is paid to the account that was approved (sealed in its snapshot), not to whatever the employee's
+  // details say now: otherwise a change of IBAN after a four-eyes approval would redirect the salary. A difference
+  // is reported as a warning; the approved account is still the one paid.
+  const sensitiveById: SensitiveMap = new Map();
+  const warnings: HrPayrollIssue[] = [];
+  for (const slip of slips) {
+    const person = personById.get(slip.employeeId);
+    const current = person ? bankOf(await decryptSensitive(person, deps.keyring)) : null;
+    const sealed = (slip.snapshot as { bankEncrypted?: string | null }).bankEncrypted;
+    if (sealed) {
+      const approved = await openBank(sealed, deps.keyring);
+      if (!sameBank(approved, current)) {
+        warnings.push({ severity: 'warning', code: 'bank_changed_after_approval', employeeId: slip.employeeId });
+        console.warn(`[payroll] the bank details of employee ${slip.employeeId} changed after run ${run.id} was approved; the payment file uses the approved account`);
+      }
+      sensitiveById.set(slip.employeeId, approved);
+    } else {
+      // Approved before the account was sealed (or without one): the current details are all there is.
+      sensitiveById.set(slip.employeeId, current ?? {});
+    }
+  }
+
+  const file =
+    employer.country === 'NL'
+      ? await buildSepa(db, run, employer, bank, slips, personById, sensitiveById, deps)
+      : await buildNacha(run, employer, bank, slips, personById, sensitiveById, deps);
+  return { ...file, warnings };
 }
 
 type PersonMap = Map<string, typeof schema.hrEmployees.$inferSelect>;
-type SensitiveMap = Map<string, Awaited<ReturnType<typeof decryptSensitive>>>;
+type SensitiveMap = Map<string, PayrollBank>;
+
+const CARRYING_STATUSES = ['ready', 'submitted', 'accepted', 'filed'];
+
+/**
+ * The loonheffingen of the PREVIOUS month are due by the end of this one, so
+ * they ride along with the salaries when that month's return has been generated
+ * (it carries the betalingskenmerk and the amount due). They ride in exactly one
+ * run's file: the first file built after the return is ready claims the amount
+ * (recorded on the filing's `taxPayments`), and that run's file carries it
+ * again whenever it is downloaded again. Another run in the same month adds
+ * nothing, and neither does a return that a correction reopened and that has not
+ * been generated again (its amount is stale). A regenerated return (a new
+ * version) only carries what earlier files did not: its amount due minus what
+ * was already carried, by the next file built that carried nothing of it yet.
+ */
+async function taxPaymentFor(db: Database, run: RunRow, employer: EmployerRow): Promise<{ amountCents: number; betalingskenmerk: string } | null> {
+  if (run.kind === 'correction') return null;
+  const f = schema.hrPayrollFilings;
+  const month = Number(run.payDate.slice(5, 7));
+  const year = Number(run.payDate.slice(0, 4));
+  const [filing] = await db
+    .select()
+    .from(f)
+    .where(
+      and(
+        eq(f.employerId, employer.id),
+        eq(f.kind, 'nl_loonaangifte'),
+        eq(f.taxYear, month === 1 ? year - 1 : year),
+        eq(f.period, month === 1 ? 12 : month - 1),
+      ),
+    )
+    .limit(1);
+  if (!filing) return null;
+
+  const entries: HrPayrollFilingTaxPayment[] = filing.taxPayments ?? [];
+  // This run's file carried it before: it carries it again.
+  const mine = entries.filter((e) => e.runId === run.id);
+  if (mine.length) return { amountCents: mine.reduce((n, e) => n + e.cents, 0), betalingskenmerk: mine[0]!.reference };
+
+  if (!CARRYING_STATUSES.includes(filing.status) || !filing.generatedAt || !filing.paymentReference) return null;
+  // What is still owed: the return's amount minus what earlier files already carried (nothing left, or a lower new
+  // amount, carries nothing: the tax authority settles the difference itself).
+  const amountCents = toCents(filing.amountDue) - entries.reduce((n, e) => n + e.cents, 0);
+  if (amountCents <= 0) return null;
+
+  const next: HrPayrollFilingTaxPayment[] = [...entries, { runId: run.id, version: filing.version, cents: amountCents, reference: filing.paymentReference }];
+  const claimed = await db
+    .update(f)
+    .set({ taxPayments: next })
+    .where(and(eq(f.id, filing.id), eq(f.version, filing.version), inArray(f.status, CARRYING_STATUSES), sql`${f.taxPayments} = ${JSON.stringify(entries)}::jsonb`))
+    .returning({ id: f.id });
+  // Another file claimed it between the read and the write: that one carries it.
+  if (claimed.length === 0) return null;
+  return { amountCents, betalingskenmerk: filing.paymentReference };
+}
 
 async function buildSepa(
   db: Database,
@@ -88,28 +169,7 @@ async function buildSepa(
   const missing = slips.filter((x) => !sensitive.get(x.employeeId)?.bankIban).map((x) => x.employeeId);
   if (missing.length) throw missingBankAccounts('Some employees have no IBAN', missing);
 
-  // The loonheffingen of the PREVIOUS month are due by the end of this one, so they ride along with these salaries
-  // when that month's return has been generated (it carries the betalingskenmerk and the amount due).
-  let tax: { amountCents: number; betalingskenmerk: string } | null = null;
-  if (run.kind !== 'correction') {
-    const month = Number(run.payDate.slice(5, 7));
-    const year = Number(run.payDate.slice(0, 4));
-    const [filing] = await db
-      .select()
-      .from(schema.hrPayrollFilings)
-      .where(
-        and(
-          eq(schema.hrPayrollFilings.employerId, employer.id),
-          eq(schema.hrPayrollFilings.kind, 'nl_loonaangifte'),
-          eq(schema.hrPayrollFilings.taxYear, month === 1 ? year - 1 : year),
-          eq(schema.hrPayrollFilings.period, month === 1 ? 12 : month - 1),
-        ),
-      )
-      .limit(1);
-    if (filing?.generatedAt && filing.paymentReference && toCents(filing.amountDue) > 0) {
-      tax = { amountCents: toCents(filing.amountDue), betalingskenmerk: filing.paymentReference };
-    }
-  }
+  const tax = await taxPaymentFor(db, run, employer);
 
   // The builder names a payment by the id it was given (the payslip id): attach the employee to its issues.
   const sepaIdOf = (slipId: string) => safeId(slipId).slice(0, 35);

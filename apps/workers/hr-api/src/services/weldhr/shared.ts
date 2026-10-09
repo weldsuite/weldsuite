@@ -142,6 +142,7 @@ export type HrAuditAction =
   | 'payroll.payment_file_downloaded'
   | 'payroll.payslip_viewed'
   | 'payroll.annual_statement_viewed'
+  | 'payroll.filing_downloaded'
   | 'payroll.filing_submitted'
   | 'payroll.filing_filed'
   | 'payroll.tax_election_signed';

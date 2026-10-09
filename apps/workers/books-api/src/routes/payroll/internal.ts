@@ -7,7 +7,8 @@
  *   { entityId, externalId (the pay run id), payDate, periodStart?, periodEnd?,
  *     description, country: 'NL' | 'US', totals, mapping?, postedBy? }
  *   → 201 { importId, journalEntryId, entryNumber, payDate, duplicate: false }
- *   → 200 { importId, journalEntryId, ..., duplicate: true } when the run was posted before
+ *   → 200 { importId, journalEntryId, ..., duplicate: true, status } when the run was posted before
+ *   → 409 when the run was posted before and that import has since been reversed (it is not posted)
  *   → 400 for totals that do not balance, a locked or closed period, an unknown account
  *   → 404 for an unknown accounting entity
  *
@@ -132,7 +133,12 @@ app.post('/imports', async (c) => {
   } catch (err) {
     if (err instanceof DuplicatePayrollError) {
       const existing = await findImportByExternalId(db, body.entityId, 'weldhr', body.externalId);
-      return success(c, { importId: err.existing.id, journalEntryId: existing?.journalEntryId ?? null, entryNumber: null, payDate: existing?.payDate ?? body.payDate, duplicate: true });
+      // A payroll that was posted and then reversed in WeldBooks is NOT posted: the external id stays taken, so it
+      // cannot be posted again either. Say so instead of reporting a success the ledger does not have.
+      if (err.existing.status === 'reversed') {
+        return error.conflict(c, 'This payroll was posted to WeldBooks and has since been reversed there. It is not posted; a reversed payroll cannot be posted again.', { importId: err.existing.id, status: 'reversed' });
+      }
+      return success(c, { importId: err.existing.id, journalEntryId: existing?.journalEntryId ?? null, entryNumber: null, payDate: existing?.payDate ?? body.payDate, duplicate: true, status: err.existing.status });
     }
     if (isPayrollFailure(err)) return error.badRequest(c, err.message);
     console.error(`${LOG} import failed:`, err);

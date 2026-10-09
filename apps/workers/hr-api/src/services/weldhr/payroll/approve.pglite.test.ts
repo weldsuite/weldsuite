@@ -293,6 +293,10 @@ describe('payment file and report', () => {
     const { deps } = testDeps();
     const run = await calculated(deps);
     await approveRun(db, run.id, deps, boss);
+    // As if the payslips were approved before the account was sealed into them: the current details are all there is.
+    for (const slip of await db.select().from(schema.hrPayslips).where(eq(schema.hrPayslips.runId, run.id))) {
+      await db.update(schema.hrPayslips).set({ snapshot: { ...slip.snapshot, bankEncrypted: null } }).where(eq(schema.hrPayslips.id, slip.id));
+    }
     await setPaymentDetails(db, world.eva.id, { bankIban: null }, { keyring: TEST_KEYRING, selfService: false });
     await expect(buildPaymentFile(db, run.id, deps)).rejects.toMatchObject({ code: 'MISSING_BANK_ACCOUNT', details: { employeeIds: [world.eva.id] } });
     await setPaymentDetails(db, world.eva.id, { bankIban: VALID_IBAN_2 }, { keyring: TEST_KEYRING, selfService: false });

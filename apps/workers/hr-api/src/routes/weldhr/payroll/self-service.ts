@@ -143,7 +143,8 @@ export function registerPayrollSelfService(
         actorId: who.actor,
         action: 'payroll.payment_details_updated',
         employeeId: who.employeeId,
-        metadata: { fields: result.changedFields, by: 'employee' },
+        // idVerificationCleared: the employee changed who they are, so HR's ID check no longer applies.
+        metadata: { fields: result.changedFields, by: 'employee', ...(result.idVerificationCleared ? { idVerificationCleared: true } : {}) },
         ip: clientIp(c),
       });
       if (result.bankChanged) {

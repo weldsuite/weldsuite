@@ -12,6 +12,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { accountingEntitiesRoutes } from '../accounting-entities';
 import type { Env, Variables } from '../../types';
+import { reversePayrollImport } from '../../services/payroll/imports';
 import { payrollInternalRoutes } from './internal';
 
 let db: Database;
@@ -132,6 +133,27 @@ describe('POST /internal/payroll/imports', () => {
     expect(body.data.journalEntryId).toBeTruthy();
     const entries = await db.select().from(schema.journalEntries).where(eq(schema.journalEntries.entityId, nlEntity));
     expect(entries.filter((e) => e.sourceType === 'payroll')).toHaveLength(1);
+  });
+
+  it('does not report a reversed payroll as posted: the repeat is a 409 and nothing is posted again', async () => {
+    const payload = { entityId: nlEntity, externalId: 'hrpr_nl_reversed', payDate: '2026-07-24', description: 'to be reversed', country: 'NL', totals: NL_TOTALS };
+    const first = await post('/internal/payroll/imports', payload);
+    expect(first.status).toBe(201);
+    const { importId } = ((await first.json()) as { data: { importId: string } }).data;
+    await reversePayrollImport(db, { importId, userId: 'user_admin' });
+
+    const again = await post('/internal/payroll/imports', payload);
+    expect(again.status).toBe(409);
+    const body = (await again.json()) as { error: { message: string; details?: { importId: string; status: string } } };
+    expect(body.error.message).toMatch(/reversed/);
+    expect(body.error.details).toMatchObject({ importId, status: 'reversed' });
+    // The first posting and its reversal are all there is.
+    expect(await db.select().from(schema.payrollImports).where(eq(schema.payrollImports.externalId, 'hrpr_nl_reversed'))).toHaveLength(1);
+  });
+
+  it('answers a repeat of a posted payroll with its status', async () => {
+    const again = await post('/internal/payroll/imports', { entityId: nlEntity, externalId: 'hrpr_nl_1', payDate: '2026-07-24', description: 'again', country: 'NL', totals: NL_TOTALS });
+    expect(((await again.json()) as { data: { status: string } }).data.status).toBe('posted');
   });
 
   it('refuses totals that do not balance, with the difference', async () => {

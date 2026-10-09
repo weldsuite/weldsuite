@@ -6,7 +6,7 @@
  */
 
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
-import { decryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import { decryptField, encryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import type { HrEmployeeSensitive, HrPayrollIssue } from '@weldsuite/db/schema';
 import { componentDef } from '@weldsuite/payroll-domain';
 import { stateModule } from '@weldsuite/payroll-domain/us/states';
@@ -77,6 +77,37 @@ export interface EmployeePayrollData {
 export async function decryptSensitive(row: Pick<EmployeeRow, 'sensitiveEncrypted'>, keyring: EncryptionKeyring): Promise<HrEmployeeSensitive> {
   if (!row.sensitiveEncrypted) return {};
   return JSON.parse(await decryptField(row.sensitiveEncrypted, keyring)) as HrEmployeeSensitive;
+}
+
+/** The salary account of an employee: the bank fields of the sensitive block. */
+export type PayrollBank = Pick<HrEmployeeSensitive, 'bankAccountHolder' | 'bankIban' | 'bankBic' | 'bankRoutingNumber' | 'bankAccountNumber' | 'bankAccountType'>;
+
+/** The bank details in a sensitive block; null when there are none. */
+export function bankOf(sensitive: HrEmployeeSensitive): PayrollBank | null {
+  const bank: PayrollBank = {};
+  let any = false;
+  for (const key of BANK_FIELDS) {
+    const value = sensitive[key];
+    if (value !== undefined && value !== null && value !== '') {
+      (bank as Record<string, unknown>)[key] = value;
+      any = true;
+    }
+  }
+  return any ? bank : null;
+}
+
+export function sameBank(a: PayrollBank | null, b: PayrollBank | null): boolean {
+  const norm = (bank: PayrollBank | null) => JSON.stringify(BANK_FIELDS.map((key) => bank?.[key] ?? null));
+  return norm(a) === norm(b);
+}
+
+/** Bank details sealed with the keyring (AES-GCM), for the payslip snapshot: never stored in plaintext. */
+export function sealBank(bank: PayrollBank, keyring: EncryptionKeyring): Promise<string> {
+  return encryptField(JSON.stringify(bank), keyring);
+}
+
+export async function openBank(sealed: string, keyring: EncryptionKeyring): Promise<PayrollBank> {
+  return JSON.parse(await decryptField(sealed, keyring)) as PayrollBank;
 }
 
 /** Load payroll data for a set of employees in a handful of queries. */
@@ -770,6 +801,8 @@ export async function createElection(
 // ---------------------------------------------------------------------------
 
 const BANK_FIELDS = ['bankAccountHolder', 'bankIban', 'bankBic', 'bankRoutingNumber', 'bankAccountNumber', 'bankAccountType'] as const;
+/** Identity fields the employee cannot change without HR verifying them again. */
+const IDENTITY_FIELDS = ['nationalId', 'dateOfBirth', 'idDocumentType', 'idDocumentNumber', 'idDocumentExpiresOn'] as const;
 
 /**
  * Validate and write payment details. `null` clears a field, `undefined`
@@ -781,7 +814,7 @@ export async function setPaymentDetails(
   employeeId: string,
   input: HrPayrollPaymentDetailsInput,
   ctx: { keyring: EncryptionKeyring; selfService: boolean; today?: string },
-): Promise<{ details: HrPayrollPaymentDetailsMasked; changedFields: string[]; bankChanged: boolean }> {
+): Promise<{ details: HrPayrollPaymentDetailsMasked; changedFields: string[]; bankChanged: boolean; idVerificationCleared: boolean }> {
   await requireEmployee(db, employeeId);
   const [profile] = await db.select().from(schema.hrPayrollProfiles).where(eq(schema.hrPayrollProfiles.employeeId, employeeId)).limit(1);
   let country: 'NL' | 'US' | null = null;
@@ -846,12 +879,26 @@ export async function setPaymentDetails(
   if (input.idDocumentExpiresOn !== undefined) patch.idDocumentExpiresOn = input.idDocumentExpiresOn;
   if (!ctx.selfService && input.idVerifiedAt !== undefined) patch.idVerifiedAt = input.idVerifiedAt;
 
+  // From self-service, changing who the employee is (BSN/SSN, date of birth, ID document) voids HR's verification of
+  // the old details: otherwise the employee could swap them and keep the verified status (no anonymous rate, another
+  // AOW treatment). HR sets idVerifiedAt again after checking. HR's own edits keep whatever HR sets.
+  let idVerificationCleared = false;
+  if (ctx.selfService) {
+    const current = (await loadOneEmployeePayrollData(db, employeeId, ctx.keyring)).sensitive;
+    const identityChanged = IDENTITY_FIELDS.some((key) => patch[key] !== undefined && JSON.stringify(current[key] ?? null) !== JSON.stringify(patch[key]));
+    if (identityChanged && current.idVerifiedAt) {
+      patch.idVerifiedAt = null;
+      idVerificationCleared = true;
+    }
+  }
+
   const { changedFields } = await writeSensitive(db, employeeId, patch, ctx.keyring);
   const details = maskPaymentDetails((await loadOneEmployeePayrollData(db, employeeId, ctx.keyring)).sensitive);
   return {
     details,
     changedFields,
     bankChanged: changedFields.some((f) => (BANK_FIELDS as readonly string[]).includes(f)),
+    idVerificationCleared,
   };
 }
 

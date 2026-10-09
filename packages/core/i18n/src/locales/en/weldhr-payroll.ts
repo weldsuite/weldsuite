@@ -1014,6 +1014,7 @@ export const weldhrPayroll = {
       ss_wage_base_reached: 'The Social Security wage base is reached[ ({wageBase})]; no more Social Security tax is withheld this year.',
       additional_medicare_started: 'Additional Medicare tax now applies[ above {threshold}].',
       net_pay_zero: 'The net pay is zero.',
+      bank_changed_after_approval: 'The bank details of this employee were changed after the run was approved. The payment file pays the account that was approved; check the change with the employee before paying.',
       invalid_routing_number: 'A bank routing number is not valid[ (payment {individualId})]. Check the salary account and the bank details of the employees.',
       invalid_account_number: 'A bank account number is not valid[ (payment {individualId})]. Check the salary account and the bank details of the employees.',
       invalid_amount: 'A payment amount is not valid[ ({amount})][ for {field}][ (payment {individualId})]. The payment file needs positive amounts.',

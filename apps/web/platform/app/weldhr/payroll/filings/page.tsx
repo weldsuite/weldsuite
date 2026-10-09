@@ -137,7 +137,8 @@ function FilingsList() {
       width: 'w-[44px]',
       render: (filing) => {
         const closed = filing.status === 'accepted' || filing.status === 'filed';
-        const canDownload = filing.fileName !== null || filing.generatedAt !== null;
+        // The file carries full BSNs / SSNs, so the API serves it to payroll:manage only (and audits it).
+        const canDownload = canManage && (filing.fileName !== null || filing.generatedAt !== null);
         return (
           <div className="flex justify-end">
             <DropdownMenu>

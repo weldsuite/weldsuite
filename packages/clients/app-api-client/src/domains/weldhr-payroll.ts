@@ -449,6 +449,8 @@ export interface HrPayrollFilingEvent {
   status: HrPayrollFilingStatus;
   by?: string | null;
   message?: string | null;
+  /** The filing version the event belongs to. A filing that was sent and later reopened gets a new version. */
+  version?: number;
 }
 
 export interface HrPayrollFiling {

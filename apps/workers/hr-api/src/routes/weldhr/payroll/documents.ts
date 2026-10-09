@@ -1,8 +1,9 @@
 /**
  * Payslip and filing routes.
  *
- * Permissions: reads and downloads `payroll:read`; generating, submitting,
- * refreshing and marking filings `payroll:manage`.
+ * Permissions: reads and payslip downloads `payroll:read`; generating,
+ * submitting, refreshing, marking and DOWNLOADING filings `payroll:manage`
+ * (the files carry full BSN / SSN numbers; downloads are audited).
  */
 
 import { Hono } from 'hono';
@@ -61,9 +62,16 @@ filingsRoutes.post('/:filingId/generate', requirePermission('payroll:manage'), a
   return success(c, await getFiling(db(c), row.id, (await sendingAvailable(c)).available));
 });
 
-// The generated file (XML, PDF or CSV); `?name=` picks one of the extra files stored beside it.
-filingsRoutes.get('/:filingId/file', requirePermission('payroll:read'), async (c) => {
+// The generated file (XML, PDF or CSV); `?name=` picks one of the extra files stored beside it. It holds every
+// employee's full BSN / SSN, so it takes `payroll:manage` (not `payroll:read`) and every download is audited.
+filingsRoutes.get('/:filingId/file', requirePermission('payroll:manage'), async (c) => {
   const file = await filingFile(db(c), param(c, 'filingId'), payrollDeps(c), c.req.query('name'));
+  await recordHrAudit(db(c), {
+    actorId: actor(c),
+    action: 'payroll.filing_downloaded',
+    metadata: { filingId: param(c, 'filingId'), fileName: file.fileName },
+    ip: clientIp(c),
+  });
   return objectResponse(file.object, file.fileName, file.contentType);
 });
 

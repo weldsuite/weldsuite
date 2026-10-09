@@ -1015,6 +1015,7 @@ export const weldhrPayroll = {
       ss_wage_base_reached: 'De loongrens voor Social Security is bereikt[ ({wageBase})]; dit jaar wordt geen Social Security-belasting meer ingehouden.',
       additional_medicare_started: 'Aanvullende Medicare-belasting is nu van toepassing[ boven {threshold}].',
       net_pay_zero: 'Het nettoloon is nul.',
+      bank_changed_after_approval: 'De bankgegevens van deze medewerker zijn gewijzigd nadat de run is goedgekeurd. Het betaalbestand betaalt de goedgekeurde rekening; controleer de wijziging bij de medewerker voordat je betaalt.',
       invalid_routing_number: 'Een routingnummer van een bank is niet geldig[ (betaling {individualId})]. Controleer de salarisrekening en de bankgegevens van de medewerkers.',
       invalid_account_number: 'Een bankrekeningnummer is niet geldig[ (betaling {individualId})]. Controleer de salarisrekening en de bankgegevens van de medewerkers.',
       invalid_amount: 'Een betaalbedrag is niet geldig[ ({amount})][ voor {field}][ (betaling {individualId})]. Het betaalbestand heeft positieve bedragen nodig.',

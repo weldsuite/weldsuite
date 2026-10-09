@@ -81,8 +81,31 @@ Known limits of v1, to tell customers plainly:
   (after 10 November) and raises a warning.
 - Corrections: a correction run stores the difference against the original
   payslips. It reads current data as of the corrected period, so base pay is
-  corrected through a retroactive compensation row. A US correction of a
-  previous year needs a W-2c, which is not built.
+  corrected through a retroactive compensation row. A correction must be
+  paid in the same calendar year as the period it corrects: creating one
+  with a pay date in another year (a December run found wrong in January),
+  or approving one whose pay date moved there, is refused with
+  `CORRECTION_CROSSES_YEAR`. The year-end returns and statements of the
+  earlier year (jaaropgaaf, the loonaangifte of January, W-2/940, the 941
+  quarter) would disagree otherwise; such a correction has to be made
+  outside WeldSuite for now. A US correction of a previous year needs a
+  W-2c, which is not built. A correction of a later period starts from the
+  accumulators that corrections of earlier periods left; payslips already
+  approved after the corrected period keep the year-to-date figures they
+  had.
+- Salary files and loonheffingen: the previous month's loonheffingen ride in
+  exactly one run's SEPA file (the first file built once that month's return
+  is generated; recorded on the filing). If the return is regenerated with a
+  higher amount after that file was made, the difference rides in the next
+  file built by a run that carried nothing of it; with a single run that
+  month, the difference has to be paid by hand (the filing shows the amount
+  and the betalingskenmerk). We do not track whether the employer actually
+  uploaded a file.
+- Payment files pay the account that was approved: the bank details of each
+  payslip are sealed (encrypted with the workspace keyring) into the payslip
+  snapshot at approval. A change of IBAN afterwards does not redirect the
+  salary; the file is still produced and a `bank_changed_after_approval`
+  warning is logged and added to the audit trail of the download.
 - The Digipoort client is untested against Logius: until the owner has the
   connection, employers download the loonaangifte XML and file it themselves.
 

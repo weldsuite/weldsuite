@@ -226,6 +226,8 @@ export const ISSUE_CODES = [
   'ss_wage_base_reached',
   'additional_medicare_started',
   'net_pay_zero',
+  // hr-api, payment files
+  'bank_changed_after_approval',
   // Dutch engine
   'awf_revision_required',
   'dga_usual_salary',

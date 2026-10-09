@@ -151,7 +151,14 @@ runsRoutes.post('/:runId/post-journal', requirePermission('payroll:approve'), as
 runsRoutes.get('/:runId/payment-file', requirePermission('payroll:approve'), async (c) => {
   const id = param(c, 'runId');
   const file = await buildPaymentFile(db(c), id, payrollDeps(c));
-  await recordHrAudit(db(c), { actorId: actor(c), action: 'payroll.payment_file_downloaded', metadata: { runId: id, fileName: file.fileName }, ip: clientIp(c) });
+  await recordHrAudit(db(c), {
+    actorId: actor(c),
+    action: 'payroll.payment_file_downloaded',
+    // Warnings name the employee and the problem, never the account: bank_changed_after_approval means the approved
+    // account was paid although the employee's details changed since.
+    metadata: { runId: id, fileName: file.fileName, ...(file.warnings.length ? { warnings: file.warnings.map((w) => ({ code: w.code, employeeId: w.employeeId })) } : {}) },
+    ip: clientIp(c),
+  });
   return generatedFileResponse(file);
 });
 

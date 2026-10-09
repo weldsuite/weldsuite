@@ -192,6 +192,18 @@ export interface TouchedFiling {
   created: boolean;
 }
 
+const SENT_STATUSES = ['submitted', 'accepted', 'rejected', 'filed'];
+
+/**
+ * Whether the filing's CURRENT version went out (was submitted or filed), read
+ * from its history as well as its status: a reopened filing is `open` again,
+ * but its file was still sent, and sending the regenerated one under the same
+ * version would overwrite the stored file and reuse its message id.
+ */
+export function wasSent(filing: Pick<FilingRow, 'status' | 'version' | 'history'>): boolean {
+  return SENT_STATUSES.includes(filing.status) || filing.history.some((event) => SENT_STATUSES.includes(event.status) && (event.version ?? 1) === filing.version);
+}
+
 /** Create the filings an approved run feeds, and send those that already existed back to `open`. */
 export async function ensureFilingsForRun(
   db: Database,
@@ -235,16 +247,36 @@ export async function ensureFilingsForRun(
         periodEnd: bounds.end,
         dueDate: fallbackDueDate(key, deps),
         status: 'open',
-        history: [{ at: now.toISOString(), status: 'open', by: ctx.userId, message: 'Created by an approved pay run' }],
+        history: [{ at: now.toISOString(), status: 'open', by: ctx.userId, message: 'Created by an approved pay run', version: 1 }],
       });
       touched.push({ id, created: true });
     } else {
       if (existing.status !== 'open') {
+        // A filing that was already sent goes out again as a NEW version: its file, channel, reference and message id
+        // belong to the version that was sent, so they are cleared (the history keeps them). One that was only
+        // generated, never sent, simply goes back to open under the same version.
+        const sent = wasSent(existing);
+        const version = sent ? existing.version + 1 : existing.version;
         const history: HrPayrollFilingEvent[] = [
           ...existing.history,
-          { at: now.toISOString(), status: 'open', by: ctx.userId, message: 'Reopened: new payslips were approved for this period' },
+          {
+            at: now.toISOString(),
+            status: 'open',
+            by: ctx.userId,
+            message: sent ? `Reopened as version ${version}: new payslips were approved for this period` : 'Reopened: new payslips were approved for this period',
+            version,
+          },
         ];
-        await db.update(f).set({ status: 'open', history, updatedAt: now }).where(eq(f.id, existing.id));
+        await db
+          .update(f)
+          .set({
+            status: 'open',
+            version,
+            history,
+            ...(sent ? { channel: null, externalReference: null, submittedAt: null, submittedBy: null } : {}),
+            updatedAt: now,
+          })
+          .where(eq(f.id, existing.id));
       }
       touched.push({ id: existing.id, created: false });
     }
@@ -260,8 +292,9 @@ function filingStorageKey(deps: PayrollDeps, filing: FilingRow, version: number,
   return `workspaces/${deps.workspaceKey}/hr/filings/${filing.employerId}/${filing.taxYear}/${filing.id}/v${version}/${fileSafe(fileName)}`;
 }
 
-function filingPrefix(deps: PayrollDeps, filing: FilingRow, version: number): string {
-  return `workspaces/${deps.workspaceKey}/hr/filings/${filing.employerId}/${filing.taxYear}/${filing.id}/v${version}/`;
+/** Every version of a filing is stored under its own folder here. */
+function filingFolder(deps: PayrollDeps, filing: FilingRow): string {
+  return `workspaces/${deps.workspaceKey}/hr/filings/${filing.employerId}/${filing.taxYear}/${filing.id}/`;
 }
 
 function requireBucket(deps: PayrollDeps): R2Bucket {
@@ -604,7 +637,8 @@ export async function generateFiling(db: Database, id: string, deps: PayrollDeps
   if (!employer) throw new HrNotFoundError('Payroll employer', filing.employerId);
   const bucket = requireBucket(deps);
 
-  const resubmission = ['submitted', 'accepted', 'filed', 'rejected'].includes(filing.status);
+  // Sent before (by status or by history, a reopened filing is open again): this is a new version, never an overwrite.
+  const resubmission = wasSent(filing);
   const version = resubmission ? filing.version + 1 : filing.version;
   let built: BuiltFiling;
   try {
@@ -627,7 +661,7 @@ export async function generateFiling(db: Database, id: string, deps: PayrollDeps
   const now = deps.now();
   const history: HrPayrollFilingEvent[] = [
     ...filing.history,
-    { at: now.toISOString(), status: 'ready', by: ctx.userId, message: resubmission ? `Regenerated (version ${version})` : 'Generated' },
+    { at: now.toISOString(), status: 'ready', by: ctx.userId, message: resubmission ? `Regenerated (version ${version})` : 'Generated', version },
   ];
   await db
     .update(f)
@@ -655,9 +689,11 @@ export async function generateFiling(db: Database, id: string, deps: PayrollDeps
 export async function filingFile(db: Database, id: string, deps: PayrollDeps, name?: string | null) {
   const filing = await requireFilingRow(db, id);
   if (!filing.fileKey || !deps.bucket) throw new HrNotFoundError('Filing file', id);
-  const prefix = filingPrefix(deps, filing, filing.version);
-  if (!filing.fileKey.startsWith(prefix)) throw new HrNotFoundError('Filing file', id);
-  const key = name ? `${prefix}${fileSafe(name)}` : filing.fileKey;
+  // The file of the version that was last generated. A filing reopened after it was sent keeps pointing at that
+  // version's folder (its file stays downloadable) until the next version is generated.
+  const folder = filing.fileKey.slice(0, filing.fileKey.lastIndexOf('/') + 1);
+  if (!folder.startsWith(filingFolder(deps, filing))) throw new HrNotFoundError('Filing file', id);
+  const key = name ? `${folder}${fileSafe(name)}` : filing.fileKey;
   const object = await deps.bucket.get(key);
   if (!object) throw new HrNotFoundError('Filing file', id);
   const contentType = name ? (name.endsWith('.pdf') ? 'application/pdf' : name.endsWith('.csv') ? 'text/csv' : name.endsWith('.xml') ? 'application/xml' : 'application/octet-stream') : filing.contentType ?? 'application/octet-stream';
@@ -700,7 +736,7 @@ export async function submitFiling(db: Database, id: string, deps: PayrollDeps, 
     throw new HrPayrollError('DIGIPOORT_ERROR', `Digipoort did not accept the message: ${err instanceof Error ? err.message : 'unknown error'}`, 503);
   }
   const now = deps.now();
-  const history: HrPayrollFilingEvent[] = [...filing.history, { at: now.toISOString(), status: 'submitted', by: ctx.userId, message: `Sent over Digipoort (${reference})` }];
+  const history: HrPayrollFilingEvent[] = [...filing.history, { at: now.toISOString(), status: 'submitted', by: ctx.userId, message: `Sent over Digipoort (${reference})`, version: filing.version }];
   await db
     .update(f)
     .set({ status: 'submitted', channel: 'digipoort', externalReference: reference, submittedBy: ctx.userId, submittedAt: now, history, updatedAt: now })
@@ -720,8 +756,13 @@ export async function refreshFilingStatus(db: Database, id: string, deps: Payrol
   }
   if (status.status === filing.status) return filing;
   const now = deps.now();
-  const history: HrPayrollFilingEvent[] = [...filing.history, { at: now.toISOString(), status: status.status, by: ctx.userId, message: status.message ?? null }];
-  await db.update(f).set({ status: status.status, history, updatedAt: now }).where(eq(f.id, id));
+  const history: HrPayrollFilingEvent[] = [...filing.history, { at: now.toISOString(), status: status.status, by: ctx.userId, message: status.message ?? null, version: filing.version }];
+  // Only the version that was sent: a filing reopened meanwhile has a new version and no reference, and must not be
+  // marked accepted because the version it replaced was.
+  await db
+    .update(f)
+    .set({ status: status.status, history, updatedAt: now })
+    .where(and(eq(f.id, id), eq(f.version, filing.version), eq(f.externalReference, filing.externalReference)));
   return requireFilingRow(db, id);
 }
 
@@ -733,7 +774,7 @@ export async function markFilingFiled(db: Database, id: string, input: MarkHrPay
   const filedAt = input.filedOn ? new Date(`${input.filedOn}T12:00:00Z`) : ctx.now;
   const history: HrPayrollFilingEvent[] = [
     ...filing.history,
-    { at: ctx.now.toISOString(), status: 'filed', by: ctx.userId, message: input.externalReference ? `Filed by the employer (${input.externalReference})` : 'Filed by the employer' },
+    { at: ctx.now.toISOString(), status: 'filed', by: ctx.userId, message: input.externalReference ? `Filed by the employer (${input.externalReference})` : 'Filed by the employer', version: filing.version },
   ];
   await db
     .update(f)
