@@ -368,14 +368,14 @@ export function TeamMemberDetailsPanel({
   }, []);
 
   const chatResizeDragRef = useRef(false);
-  const handleChatResizeMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleChatResizePointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     chatResizeDragRef.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, []);
   useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
+    const onPointerMove = (e: PointerEvent) => {
       if (!chatResizeDragRef.current) return;
       const next = Math.max(
         MIN_TEAM_MEMBER_CHAT_WIDTH,
@@ -383,17 +383,17 @@ export function TeamMemberDetailsPanel({
       );
       setChatPanelWidth(next);
     };
-    const onMouseUp = () => {
+    const onPointerUp = () => {
       if (!chatResizeDragRef.current) return;
       chatResizeDragRef.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
     return () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp);
     };
   }, []);
 
@@ -767,7 +767,7 @@ export function TeamMemberDetailsPanel({
           chatPanelOpen={chatPanelOpen}
           onToggleChatPanel={toggleChatPanel}
           chatPanelWidth={chatPanelWidth}
-          onChatResizeMouseDown={handleChatResizeMouseDown}
+          onChatResizePointerDown={handleChatResizePointerDown}
         />
       ) : (
         <>
@@ -993,7 +993,7 @@ function ExpandedMemberContent({
   chatPanelOpen,
   onToggleChatPanel,
   chatPanelWidth,
-  onChatResizeMouseDown,
+  onChatResizePointerDown,
 }: Readonly<{
   member: TeamMemberDetail;
   memberAsCustomer: unknown;
@@ -1023,7 +1023,7 @@ function ExpandedMemberContent({
   chatPanelOpen: boolean;
   onToggleChatPanel: () => void;
   chatPanelWidth: number;
-  onChatResizeMouseDown: (e: React.MouseEvent) => void;
+  onChatResizePointerDown: (e: React.PointerEvent) => void;
 }>) {
   return (
     <>
@@ -1196,8 +1196,8 @@ function ExpandedMemberContent({
           >
             {/* Resize handle on the left edge — drag to resize */}
             <div
-              className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
-              onMouseDown={onChatResizeMouseDown}
+              className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group touch-none"
+              onPointerDown={onChatResizePointerDown}
             >
               <div className="absolute inset-y-0 -left-1 -right-1 flex items-center justify-center">
                 <div className="h-6 w-1 rounded-full bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-accent transition-colors" />
