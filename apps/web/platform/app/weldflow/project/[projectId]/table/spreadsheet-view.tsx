@@ -3,6 +3,7 @@ import { useSpreadsheet } from './use-spreadsheet';
 import { SpreadsheetGrid, type SpreadsheetClipboardApi } from './spreadsheet-grid';
 import { SheetTabBar } from './sheet-tab-bar';
 import { FormulaBar } from './formula-bar';
+import { SheetTitleBar } from './sheet-title-bar';
 import { SpreadsheetContextMenu } from './spreadsheet-context-menu';
 import { PageLoader } from '@/components/page-loader';
 import type { CellCoord, CellFormat, RichTextRun, CellDataValue } from './types';
@@ -122,7 +123,7 @@ function setFormatKey<K extends keyof CellFormat>(
 }
 
 // `onBack` / `tableName` are part of the shared ToolbarProps contract but this
-// toolbar doesn't render a back button or title — kept for callers that pass them.
+// toolbar doesn't render a back button or title (`SheetTitleBar` above it does).
 function SpreadsheetToolbar({ onFormat, onUndo, onRedo, canUndo, canRedo, paintFormatActive, onPaintFormat, showFormulaBar, onToggleFormulaBar, zoom, onZoomChange, activeFormat, onMergeCells, mergeActive, onInsertLink, onComment, onInsertFunction }: Readonly<ToolbarProps>) {
   const [fontFamily, setFontFamily] = useState('sans-serif');
   const [fontSize, setFontSize] = useState('10');
@@ -642,7 +643,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
   const [inlineSelection, setInlineSelection] = useState<{ start: number; end: number } | null>(null);
   const editingRunsRef = useRef<RichTextRun[]>([]);
   const [isEditing, setIsEditing] = useState(false);
-  const [showFormulaBar, setShowFormulaBar] = useState(false);
+  const [showFormulaBar, setShowFormulaBar] = useState(true);
   const [zoom, setZoom] = useState(100);
 
   // Context menu state
@@ -1223,6 +1224,7 @@ export function SpreadsheetView({ projectId, tableId, tableName, onBack }: Reado
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      <SheetTitleBar projectId={projectId} tableId={tableId} name={tableName} onBack={onBack} />
       <SpreadsheetToolbar
         onBack={onBack}
         tableName={tableName}
