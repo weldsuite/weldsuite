@@ -5,6 +5,7 @@ import { useRouter, usePathname } from '@/lib/router';
 import { Play, Pause, Maximize, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { SeekRange } from './meeting-intelligence/seek-range';
 
 export function GlobalFloatingVideo() {
   const t = useTranslations();
@@ -93,19 +94,17 @@ export function GlobalFloatingVideo() {
             <span className="text-white/80 text-[10px] font-mono">{formatTimestamp(smoothTime)}</span>
             <span className="text-white/80 text-[10px] font-mono">{formatTimestamp(duration)}</span>
           </div>
-          <div
-            className="relative h-3 flex items-center cursor-pointer group/miniseek"
-            onClick={(e) => {
-              e.stopPropagation();
-              const rect = e.currentTarget.getBoundingClientRect();
-              const x = e.clientX - rect.left;
-              const percent = Math.max(0, Math.min(1, x / rect.width));
-              const newTime = percent * duration;
-              if (videoRef.current) {
-                videoRef.current.currentTime = newTime;
-              }
-            }}
-          >
+          <div className="relative h-3 flex items-center cursor-pointer group/miniseek has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white/70 rounded-sm">
+            <SeekRange
+              value={smoothTime}
+              duration={duration}
+              label={t('sweep.weldcrm.videoPlayer.seek')}
+              onSeek={(time) => {
+                if (videoRef.current) {
+                  videoRef.current.currentTime = time;
+                }
+              }}
+            />
             <div className="w-full h-1 group-hover/miniseek:h-1.5 transition-all duration-150 bg-white/25 rounded-full relative overflow-hidden">
               <div
                 className="absolute inset-y-0 left-0 bg-white rounded-full"

@@ -12,7 +12,6 @@ import { getSpeakerColor } from './speaker-colors';
 import { TranscriptionProgress } from './transcription-progress';
 import type { TranscriptionSegment, WordTiming } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 const WordSpan = memo(function WordSpan({
   word,
@@ -27,20 +26,22 @@ const WordSpan = memo(function WordSpan({
 }) {
   return (
     <>
-      <span
-        onClick={(e) => {
-          e.stopPropagation();
-          onSeek(word.start);
-        }}
+      {/* Word-level seeking is a pointer shortcut; keyboard users seek by
+          segment through the speaker button above, so words stay out of the
+          tab order. */}
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => onSeek(word.start)}
         className={cn(
-          "cursor-pointer rounded-[2px] px-[1px] transition-colors duration-75",
+          "inline cursor-pointer select-text rounded-[2px] px-[1px] text-left transition-colors duration-75",
           isActive && "bg-yellow-200/70 dark:bg-yellow-700/40 text-yellow-900 dark:text-yellow-100 ring-1 ring-yellow-300/60 dark:ring-yellow-600/40",
           isSearchMatch && !isActive && "bg-yellow-200 dark:bg-yellow-800/60",
           !isActive && !isSearchMatch && "hover:bg-gray-200/70 dark:hover:bg-gray-700/50"
         )}
       >
         {word.text}
-      </span>{' '}
+      </button>{' '}
     </>
   );
 });
@@ -127,29 +128,25 @@ export function TranscriptTabContent({
               ref={(el) => {
                 if (el) segmentRefs.current.set(segment.id, el);
               }}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                const selection = window.getSelection();
-                if (selection && selection.toString().length > 0) return;
-                onSeekToSegment(segment.start);
-              }}
-              onKeyDown={activateOnKey(() => onSeekToSegment(segment.start))}
               className={cn(
-                "group flex gap-3 py-4 px-4 cursor-pointer transition-colors duration-200",
+                "group flex gap-3 py-4 px-4 transition-colors duration-200",
                 isActive
                   ? "bg-blue-50/50 dark:bg-blue-950/20"
                   : "hover:bg-gray-50 dark:hover:bg-background/50"
               )}
             >
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className={cn(
+                <button
+                  type="button"
+                  onClick={() => onSeekToSegment(segment.start)}
+                  className="flex w-full cursor-pointer items-center gap-2 mb-1 text-left"
+                >
+                  <span className={cn(
                     "h-5 w-5 rounded-md flex-shrink-0 flex items-center justify-center text-xs font-semibold text-white",
                     colors.bg
                   )}>
                     <User className="h-3 w-3" />
-                  </div>
+                  </span>
                   <span className={cn(
                     "text-sm font-semibold",
                     isActive ? "text-blue-600" : "text-gray-900 dark:text-foreground"
@@ -159,7 +156,7 @@ export function TranscriptTabContent({
                   <span className="ml-auto text-xs font-mono text-gray-400 dark:text-muted-foreground">
                     {segment.timestamp || formatSegmentTime(segment.start)}
                   </span>
-                </div>
+                </button>
                 {segment.words && segment.words.length > 0 ? (
                   <p className={cn(
                     "text-sm leading-relaxed",
