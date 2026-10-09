@@ -58,7 +58,6 @@ import {
 } from '../executions-filters';
 import { useNow } from '../use-now';
 import { ExecutionStatusBadge } from './execution-status-badge';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 interface ExecutionRow {
   id: string;
@@ -359,12 +358,14 @@ export function ExecutionsClient() {
     return (
       <div
         key={execution.id}
-        role="link"
-        tabIndex={0}
-        onClick={openDetails}
-        onKeyDown={activateOnKey(() => openDetails())}
-        className="flex flex-wrap items-start md:flex-nowrap md:items-center gap-x-4 gap-y-2 px-3 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
+        className="relative flex flex-wrap items-start md:flex-nowrap md:items-center gap-x-4 gap-y-2 px-3 md:px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
+        <button
+          type="button"
+          aria-label={execution.workflowName || t.weldconnect.executions.actions.viewDetails}
+          onClick={openDetails}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
         {/* Workflow */}
         <div className="order-1 flex-1 min-w-0 md:min-w-[200px]">
           <div className="flex items-center gap-2 min-w-0">
@@ -379,7 +380,7 @@ export function ExecutionsClient() {
         </div>
 
         {/* Actions */}
-        <div className="order-2 md:order-7 w-[40px] shrink-0 flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative order-2 md:order-7 w-[40px] shrink-0 flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

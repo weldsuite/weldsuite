@@ -452,17 +452,6 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
         'relative w-full cursor-pointer overflow-hidden bg-muted dark:bg-background',
         isInPipWindow ? 'flex-1 min-h-0' : 'h-[180px]',
       )}
-      role="button"
-      tabIndex={0}
-      aria-label={t.pipWidget.openMeeting}
-      onClick={onExpand}
-      onKeyDown={(e) => {
-        // Only react to keys pressed on the tile itself, not on the nested quick-action buttons.
-        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault();
-          onExpand();
-        }
-      }}
     >
       {focusedTrack ? (
         <video
@@ -490,7 +479,7 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
       </div>
 
       {/* Top-right: hover-revealed quick actions */}
-      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/pip:opacity-100 transition-opacity duration-150">
+      <div className="absolute top-2 right-2 z-[1] flex items-center gap-1 opacity-0 group-hover/pip:opacity-100 transition-opacity duration-150">
         {/* Hide the widget — the Document PiP popup has its own window controls. */}
         {!isInPipWindow && (
           <Button
@@ -522,6 +511,16 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
           <Maximize className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      {/* Click-to-expand surface covering the whole tile. It is a real button (keyboard and
+          screen-reader friendly); data-drag-surface lets it still start a corner drag. */}
+      <button
+        type="button"
+        data-drag-surface
+        aria-label={t.pipWidget.openMeeting}
+        onClick={onExpand}
+        className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      />
     </div>
   );
 }

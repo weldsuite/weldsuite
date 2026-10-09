@@ -1,9 +1,8 @@
 
 import { useState, useEffect, useRef } from 'react';
-import { MoreVertical, Share2, Pencil, Trash2 } from 'lucide-react';
+import { Check, MoreVertical, Share2, Pencil, Trash2 } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -19,7 +18,6 @@ import type { UserCalendar } from '@/hooks/queries/use-calendar-queries';
 import { CreateCalendarDialog } from './create-calendar-dialog';
 import { DeleteCalendarDialog } from './delete-calendar-dialog';
 import { ShareCalendarDialog } from './share-calendar-dialog';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 // Stored in localStorage to remember which calendars are visible
 function getVisibleCalendarIds(): Set<string> {
@@ -128,34 +126,33 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
           const hasMenu = canManage || canDelete;
           return (
             <SidebarMenuItem key={cal.id} className="group/cal relative">
-              {/* asChild renders the SidebarMenuButton styles onto a <div> so a
-                  Radix Checkbox (which is a <button>) is not nested inside another
-                  <button>, avoiding the React hydration warning. */}
+              {/* asChild renders the SidebarMenuButton styles onto a <label> wrapping
+                  a native checkbox, so no <button> is nested inside another <button>. */}
               <SidebarMenuButton
                 asChild
                 className="cursor-pointer group-hover/cal:bg-sidebar-accent group-hover/cal:text-sidebar-accent-foreground"
               >
-                <div
-                  role="checkbox"
-                  aria-checked={visibleIds.has(cal.id)}
-                  aria-label={cal.name}
-                  tabIndex={0}
-                  onClick={() => toggleCalendar(cal.id)}
-                  onKeyDown={activateOnKey(() => toggleCalendar(cal.id))}
-                >
-                  <div
+                <label>
+                  <span
                     className={`flex items-center gap-2 flex-1 min-w-0 pr-0 ${hasMenu ? ROW_MENU_PADDING_CLASS : ''}`}
                   >
-                    <Checkbox
-                      aria-hidden="true"
-                      tabIndex={-1}
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      aria-label={cal.name}
                       checked={visibleIds.has(cal.id)}
-                      className={`h-4 w-4 pointer-events-none ${visibleIds.has(cal.id) ? '' : 'border-[1.5px]'}`}
-                      style={{ borderColor: cal.color || '#3b82f6', backgroundColor: visibleIds.has(cal.id) ? (cal.color || '#3b82f6') : undefined }}
+                      onChange={() => toggleCalendar(cal.id)}
                     />
+                    <span
+                      aria-hidden="true"
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-shadow peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50 ${visibleIds.has(cal.id) ? '' : 'border-[1.5px]'}`}
+                      style={{ borderColor: cal.color || '#3b82f6', backgroundColor: visibleIds.has(cal.id) ? (cal.color || '#3b82f6') : undefined }}
+                    >
+                      {visibleIds.has(cal.id) && <Check className="size-3 stroke-[3] text-white" />}
+                    </span>
                     <span className="truncate text-sm">{cal.name}</span>
-                  </div>
-                </div>
+                  </span>
+                </label>
               </SidebarMenuButton>
               {hasMenu && (
                 <div className={ROW_MENU_CLASS}>

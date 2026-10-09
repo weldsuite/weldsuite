@@ -126,9 +126,11 @@ export function usePipCornerDrag(
       if (e.button !== 0 && e.pointerType === 'mouse') return;
       const el = ref.current;
       if (!el) return;
-      // Don't hijack presses that belong to interactive controls.
+      // Don't hijack presses that belong to interactive controls. A control marked
+      // `data-drag-surface` (the video tile's click-to-expand button) still starts a drag.
       const target = e.target as HTMLElement;
-      if (target.closest('button, a, input, select, textarea, [role="menuitem"], [data-no-drag]')) {
+      const control = target.closest('button, a, input, select, textarea, [role="menuitem"], [data-no-drag]');
+      if (control && !control.hasAttribute('data-drag-surface')) {
         return;
       }
       if (snapTimer.current) {
