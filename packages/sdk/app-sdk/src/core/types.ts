@@ -12,8 +12,11 @@
 /** Theme values delivered by the WeldSuite host. */
 export type WeldTheme = 'light' | 'dark';
 
-/** Locale code delivered by the host (currently `en` or `nl`). */
-export type WeldLocale = string;
+/**
+ * Locale code delivered by the host. `en` and `nl` today; open-ended so a new
+ * platform locale doesn't break apps built against this version.
+ */
+export type WeldLocale = 'en' | 'nl' | (string & {});
 
 /** The workspace member currently viewing the app. */
 export interface WeldAppUser {

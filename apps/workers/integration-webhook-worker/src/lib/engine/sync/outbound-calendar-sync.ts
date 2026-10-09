@@ -16,7 +16,7 @@ import { schema } from '../../../db';
 import { generateId } from '../../id';
 import { GoogleCalendarSyncAdapter } from '../adapters/google-calendar';
 import type { OAuthTokens } from '@weldsuite/db/schema';
-import type { Database } from '../../../db';
+import type { TenantDatabase } from '../../../db';
 
 const adapter = new GoogleCalendarSyncAdapter();
 
@@ -41,7 +41,7 @@ type EntityMapping = typeof schema.integrationEntityMappings.$inferSelect;
  * it when expired. Returns null when the connection cannot be used.
  */
 async function getUsableAccessToken(
-  db: Database,
+  db: TenantDatabase,
   connection: CalendarConnection,
   env: CalendarEnv,
 ): Promise<string | null> {
@@ -66,7 +66,7 @@ async function getUsableAccessToken(
 
 /** Delete the mapped Google event (if any) and touch the mapping on success. */
 async function deleteMappedEvent(
-  db: Database,
+  db: TenantDatabase,
   accessToken: string,
   mapping: EntityMapping | undefined,
 ): Promise<void> {
@@ -82,7 +82,7 @@ async function deleteMappedEvent(
 
 /** Log a failed push; a 403 likely means a read-only token, so flag the connection for re-auth. */
 async function handlePushFailure(
-  db: Database,
+  db: TenantDatabase,
   connection: CalendarConnection,
   eventId: string,
   error: string | undefined,
@@ -102,7 +102,7 @@ async function handlePushFailure(
 
 /** Update the existing entity mapping, or create one when the event was not yet mapped. */
 async function upsertEntityMapping(
-  db: Database,
+  db: TenantDatabase,
   connectionId: string,
   eventId: string,
   mapping: EntityMapping | undefined,
@@ -135,7 +135,7 @@ async function upsertEntityMapping(
 
 /** Push (or delete) one calendar event on a single Google Calendar connection. */
 async function pushToConnection(
-  db: Database,
+  db: TenantDatabase,
   connection: CalendarConnection,
   eventId: string,
   action: 'created' | 'updated' | 'deleted',
@@ -179,7 +179,7 @@ async function pushToConnection(
  * Push a calendar event to all connected Google Calendar accounts.
  */
 export async function pushCalendarEventToGoogle(
-  db: Database,
+  db: TenantDatabase,
   eventId: string,
   action: 'created' | 'updated' | 'deleted',
   data: Record<string, unknown>,

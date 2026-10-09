@@ -217,6 +217,4 @@ export async function resolveWorkspaceById(
 
 export type TenantDatabase = NeonHttpDatabase<typeof tenantSchema>;
 export type MasterDatabase = PostgresJsDatabase<typeof masterSchema>;
-/** Alias used by the ported sync engine, which imports `{ schema }` + `Database`. */
-export type Database = TenantDatabase;
 export { tenantSchema, masterSchema, tenantSchema as schema };
