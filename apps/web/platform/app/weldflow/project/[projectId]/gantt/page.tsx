@@ -16,6 +16,7 @@ import { PageLoader } from '@/components/page-loader';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { Calendar as CalendarPicker } from '@weldsuite/ui/components/calendar';
 import { toast } from 'sonner';
+import { TASK_DELETED_EVENT } from '@/components/objects/task/use-task-data';
 import { addDays, startOfDay } from 'date-fns';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
@@ -648,6 +649,16 @@ const GanttPage = () => {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // A task deleted from the task panel disappears from the chart right away.
+  useEffect(() => {
+    const onDeleted = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+      if (id) setFeatures((prev) => prev.filter((f) => f.id !== id && f.parentTaskId !== id));
+    };
+    window.addEventListener(TASK_DELETED_EVENT, onDeleted);
+    return () => window.removeEventListener(TASK_DELETED_EVENT, onDeleted);
+  }, []);
 
   // Fetch project members for assignee dropdown
   useEffect(() => {

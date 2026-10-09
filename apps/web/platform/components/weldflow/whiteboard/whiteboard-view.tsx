@@ -1171,8 +1171,15 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
 
   // Mouse down with the select tool: drag an element, or start a selection box
   const handleSelectToolMouseDown = (point: Point) => {
-    // Don't interrupt if we're editing text
+    // Don't interrupt if we're editing text. The textarea's own blur ends the
+    // edit (and removes an empty element), so only drop the selection here when
+    // the click landed outside the element being edited.
     if (editingElement) {
+      const editing = elements.find(el => el.id === editingElement);
+      if (!editing || !hitTestElement(editing, point, zoom)) {
+        setSelectedElement(null);
+        setSelectedElements(new Set());
+      }
       return;
     }
 

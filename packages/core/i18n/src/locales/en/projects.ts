@@ -359,6 +359,7 @@ export const projects = {
       newDocument: 'New document',
       openDocument: 'Open document',
       documentTitle: 'Document title',
+      backToDocuments: 'Documents',
       noDocumentsYetList: 'No documents yet',
       savingDocument: 'Saving…',
       savedDocument: 'Saved',
@@ -1650,6 +1651,12 @@ export const projects = {
       // table-tab-bar.tsx — dropdown
       renameTable: 'Rename',
       deleteTable: 'Delete',
+      duplicateTable: 'Duplicate',
+      tableDuplicated: 'Sheet duplicated',
+      failedToDuplicateTable: 'Failed to duplicate sheet',
+      tableCopyName: '{name} (copy)',
+      deleteTableConfirmTitle: 'Delete sheet?',
+      deleteTableConfirmDesc: '"{name}" will be deleted. This can\'t be undone.',
       // formula-bar.tsx — placeholder
       formulaPlaceholder: 'Enter a value or formula (=SUM, =IF, ...)',
       // spreadsheet-context-menu.tsx — menu items
