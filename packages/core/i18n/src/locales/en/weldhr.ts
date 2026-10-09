@@ -70,6 +70,10 @@ export const weldhr = {
       remote: 'Remote',
       half_day: 'Half day',
     },
+    absence: {
+      ongoing: 'Sick',
+      completed: 'Recovered',
+    },
     leave: {
       pending: 'Pending',
       approved: 'Approved',

@@ -11,19 +11,23 @@
  * Gated on `employees:self`. A member with no linked employee (or a
  * terminated one) gets `{ employee: null }` from GET /me and a 404 elsewhere.
  * Clock-in and leave requests honour the same switches as the portal
- * (`hr_portal_settings.employee_self_clock_in` / `employee_leave_requests`).
+ * (`hr_portal_settings.employee_self_clock_in` / `employee_leave_requests`);
+ * reporting sick and recovered is always available.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
+  hrPortalAbsenceSchema,
   hrPortalAcknowledgeSchema,
   hrPortalClockSchema,
   hrPortalLeaveRequestSchema,
+  recoverHrAbsenceSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import { error, success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
+import { employeeAbsences, recoverAbsence, reportSick } from '../../services/weldhr/absences';
 import { employeeForUser } from '../../services/weldhr/employees';
 import { acknowledgeCoachingLog, acknowledgeEvaluation } from '../../services/weldhr/performance';
 import { loadPortalSettings } from '../../services/weldhr/portal';
@@ -111,6 +115,24 @@ meRoutes.post('/leave/:leaveRequestId/cancel', async (c) => {
   const employeeId = await selfEmployeeId(c);
   const row = await cancelLeaveRequest(db(c), param(c, 'leaveRequestId'), employeeId);
   emit(c, 'hr_leave_request', 'updated', row.id, { employeeId, status: row.status });
+  return success(c, row);
+});
+
+// Reporting sick is not a switch like leave requests: an employee who is ill
+// has to be able to say so. The events carry the report id only (see routes/weldhr/absences.ts).
+meRoutes.get('/absences', async (c) => success(c, await employeeAbsences(db(c), await selfEmployeeId(c))));
+
+meRoutes.post('/absences', zValidator('json', hrPortalAbsenceSchema), async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const row = await reportSick(db(c), employeeId, c.req.valid('json'), actor(c));
+  emit(c, 'hr_absence', 'created', row.id);
+  return success(c, row, 201);
+});
+
+meRoutes.post('/absences/:absenceId/recover', zValidator('json', recoverHrAbsenceSchema), async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const row = await recoverAbsence(db(c), param(c, 'absenceId'), c.req.valid('json').endDate, actor(c), employeeId);
+  emit(c, 'hr_absence', 'recovered', row.id);
   return success(c, row);
 });
 

@@ -9,6 +9,8 @@
  *                                        KPI definitions, leave types, portal
  *   attendance:read|create|update|delete|approve
  *   leave:read|create|update|delete|approve
+ *   absences:read|create|update|delete   everyone's sick reports (employees
+ *                                        report for themselves under /me)
  *   coaching:read|create|update|delete
  *   evaluations:read|create|update|delete  evaluations, KPI values, milestones
  *   employees:self                       My HR: the caller's own record (/me)
@@ -25,6 +27,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { success } from '@weldsuite/worker-kit/response';
 import { hrDashboard } from '../../services/weldhr/dashboard';
+import { absencesRoutes } from './absences';
 import { assignmentsRoutes, clientsRoutes } from './assignments';
 import { departmentsRoutes, employeesRoutes, orgChartRoutes } from './employees';
 import { db, ensureHrDefaults, toHrErrorResponse } from './helpers';
@@ -82,6 +85,7 @@ app.route('/attendance', attendanceRoutes);
 app.route('/leave-types', leaveTypesRoutes);
 app.route('/leave-allowances', leaveAllowancesRoutes);
 app.route('/leave-requests', leaveRequestsRoutes);
+app.route('/absences', absencesRoutes);
 app.route('/coaching', coachingRoutes);
 app.route('/evaluation-forms', evaluationFormsRoutes);
 app.route('/evaluations', evaluationsRoutes);

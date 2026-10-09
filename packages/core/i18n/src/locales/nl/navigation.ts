@@ -112,6 +112,7 @@ export const navigation = {
         dashboard: 'Dashboard',
         employees: 'Medewerkers',
         attendance: 'Aanwezigheid',
+        absenteeism: 'Verzuim',
         leave: 'Verlof',
         portal: 'Medewerkersportaal',
         groups: {

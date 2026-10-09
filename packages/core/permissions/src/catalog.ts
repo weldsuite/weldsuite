@@ -475,12 +475,15 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       {
         key: 'employees:self',
         label: 'Use My HR',
-        description: 'Their own employee record only: profile, leave, attendance, onboarding tasks, coaching and evaluations. Requires being linked to an employee.',
+        description: 'Their own employee record only: profile, leave, sick reports, attendance, onboarding tasks, coaching and evaluations. Requires being linked to an employee.',
       },
     ],
   },
   objectPermissions('attendance', 'Attendance', ['read', 'create', 'update', 'delete', 'approve']),
   objectPermissions('leave', 'Leave', ['read', 'create', 'update', 'delete', 'approve']),
+  // Sick reports are kept apart from leave: who is ill is not for everyone who
+  // approves holidays. Employees report for themselves through employees:self.
+  objectPermissions('absences', 'Sick reports'),
   objectPermissions('coaching', 'Coaching logs'),
   objectPermissions('evaluations', 'Evaluations and KPIs'),
   // ── WeldObjects (user-defined custom objects) ─────────────────────────
@@ -559,6 +562,7 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'employees:sensitive', 'employees:manage', 'employees:self',
   'attendance:read', 'attendance:create', 'attendance:update', 'attendance:delete', 'attendance:approve',
   'leave:read', 'leave:create', 'leave:update', 'leave:delete', 'leave:approve',
+  'absences:read', 'absences:create', 'absences:update', 'absences:delete',
   'coaching:read', 'coaching:create', 'coaching:update', 'coaching:delete',
   'evaluations:read', 'evaluations:create', 'evaluations:update', 'evaluations:delete',
   // WeldKnow — admins also see and fix every teamspace (knowledge:manage)

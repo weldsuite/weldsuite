@@ -217,6 +217,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.weldhr.groups.time,
         items: [
           { title: t.navigation.moduleSidebar.weldhr.attendance, href: '/weldhr/attendance', icon: CalendarCheck, permission: 'attendance:read' },
+          // No permission: employees report sick here, and the page shows HR's lists only with absences:read.
+          { title: t.navigation.moduleSidebar.weldhr.absenteeism, href: '/weldhr/absenteeism', icon: HeartPulse },
           { title: t.navigation.moduleSidebar.weldhr.leave, href: '/weldhr/leave', icon: Plane, permission: 'leave:read' },
         ],
       },

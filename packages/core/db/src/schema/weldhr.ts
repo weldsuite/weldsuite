@@ -75,6 +75,9 @@ export type HrAttendanceSource = 'portal' | 'manual' | 'import' | 'api';
 
 export type HrLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
+/** How much of the first sick day the employee was absent. */
+export type HrAbsenceFirstDay = 'full' | 'half';
+
 export type HrCoachingCategory =
   | 'performance'
   | 'quality'
@@ -353,6 +356,33 @@ export const hrLeaveRequests = pgTable('hr_leave_requests', {
   index('hr_leave_requests_start_idx').on(table.startDate),
 ]);
 
+/**
+ * Sick reports. An employee reports sick from a first day and stays absent
+ * until they (or HR) report recovered, so unlike a leave request the end is
+ * open. The note is for practical matters (how to reach them); the nature of
+ * the illness is not asked for and has no column.
+ */
+export const hrAbsences = pgTable('hr_absences', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  /** First sick day. */
+  startDate: date('start_date').notNull(),
+  /** Last sick day, inclusive. Null while the employee is still absent. */
+  endDate: date('end_date'),
+  /** `full` or `half`: how much of the first day the employee was absent. */
+  firstDay: varchar('first_day', { length: 10 }).notNull().default('full'),
+  note: text('note'),
+  /** Clerk user id, or `portal:<employeeId>` for a report made in the portal. */
+  reportedBy: varchar('reported_by', { length: 255 }),
+  recoveredReportedBy: varchar('recovered_reported_by', { length: 255 }),
+  recoveredReportedAt: timestamp('recovered_reported_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_absences_employee_start_idx').on(table.employeeId, table.startDate),
+  index('hr_absences_end_idx').on(table.endDate),
+]);
+
 // ---------------------------------------------------------------------------
 // Performance — coaching, evaluations, KPIs, milestones
 // ---------------------------------------------------------------------------
@@ -565,6 +595,7 @@ export type HrAttendanceRecord = typeof hrAttendanceRecords.$inferSelect;
 export type HrLeaveType = typeof hrLeaveTypes.$inferSelect;
 export type HrLeaveAllowance = typeof hrLeaveAllowances.$inferSelect;
 export type HrLeaveRequest = typeof hrLeaveRequests.$inferSelect;
+export type HrAbsence = typeof hrAbsences.$inferSelect;
 export type HrCoachingLog = typeof hrCoachingLogs.$inferSelect;
 export type HrEvaluationForm = typeof hrEvaluationForms.$inferSelect;
 export type HrEvaluation = typeof hrEvaluations.$inferSelect;

@@ -11,6 +11,7 @@ import type { ClientApi, DataResponse, ListResponse } from '../types';
 import { buildQueryString } from '../types';
 import type {
   CreateHrAssignmentInput,
+  CreateHrAbsenceInput,
   CreateHrAttendanceInput,
   CreateHrChecklistTaskInput,
   CreateHrChecklistTemplateInput,
@@ -29,12 +30,15 @@ import type {
   HrEmployeeSensitiveInput,
   HrSelfServiceAcknowledgeInput,
   HrSelfServiceClockInput,
+  HrSelfServiceAbsenceInput,
   HrSelfServiceLeaveRequestInput,
   ImportHrAttendanceInput,
   ImportHrKpiValuesInput,
   InviteHrPortalAccessInput,
+  RecoverHrAbsenceInput,
   ReviewHrLeaveRequestInput,
   UpdateHrAssignmentInput,
+  UpdateHrAbsenceInput,
   UpdateHrAttendanceInput,
   UpdateHrChecklistTaskInput,
   UpdateHrCoachingLogInput,
@@ -53,6 +57,8 @@ export type HrEmployeeStatus = 'onboarding' | 'active' | 'on_leave' | 'offboardi
 export type HrAssigneeRole = 'hr' | 'manager' | 'it' | 'employee' | 'other';
 export type HrAttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'remote' | 'half_day';
 export type HrLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type HrAbsenceStatus = 'ongoing' | 'completed';
+export type HrAbsenceFirstDay = 'full' | 'half';
 export type HrCoachingCategory = 'performance' | 'quality' | 'behavior' | 'attendance' | 'development' | 'recognition';
 export type HrCoachingStatus = 'open' | 'acknowledged' | 'closed';
 export type HrVisibility = 'internal' | 'employee' | 'client';
@@ -331,6 +337,38 @@ export interface HrLeaveRequest {
   reviewedAt: string | null;
   reviewNote: string | null;
   createdAt: string;
+}
+
+/** A sick report as the back office sees it. */
+export interface HrAbsence {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  departmentName: string | null;
+  /** First sick day. */
+  startDate: string;
+  /** Last sick day, inclusive; null while the employee is still absent. */
+  endDate: string | null;
+  firstDay: HrAbsenceFirstDay;
+  note: string | null;
+  status: HrAbsenceStatus;
+  /** Mon–Fri days so far; a half first day counts as half. */
+  days: number;
+  /** The employee's previous report ended less than four weeks before this one began. */
+  relapse: boolean;
+  /** Filed by the employee; otherwise `reportedByName` is who filed it for them. */
+  reportedBySelf: boolean;
+  reportedByName: string | null;
+  recoveredReportedAt: string | null;
+  createdAt: string;
+}
+
+export interface HrAbsenceListParams {
+  status?: HrAbsenceStatus;
+  employeeId?: string;
+  departmentId?: string;
+  limit?: number;
+  cursor?: string;
 }
 
 export interface HrCoachingActionItem {
@@ -698,6 +736,23 @@ export interface HrSelfLeave {
   requests: HrSelfLeaveRequest[];
 }
 
+export interface HrSelfAbsence {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+  firstDay: HrAbsenceFirstDay;
+  note: string | null;
+  status: HrAbsenceStatus;
+  days: number;
+  createdAt: string;
+}
+
+export interface HrSelfAbsences {
+  /** The report that is still open, if the employee is reported sick. */
+  current: HrSelfAbsence | null;
+  history: HrSelfAbsence[];
+}
+
 export interface HrSelfTask {
   id: string;
   title: string;
@@ -969,6 +1024,23 @@ export function createWeldHrApi(api: ClientApi) {
     setLeaveAllowance(body: { employeeId: string; leaveTypeId: string; year: number; days: number }): Promise<DataResponse<unknown>> {
       return api.put(`${base}/leave-allowances`, body);
     },
+    // Sick reports ----------------------------------------------------------
+    listAbsences(params: HrAbsenceListParams = {}): Promise<ListResponse<HrAbsence>> {
+      return api.get(`${base}/absences${qs(params)}`);
+    },
+    createAbsence(body: CreateHrAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.post(`${base}/absences`, body);
+    },
+    updateAbsence(id: string, body: UpdateHrAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.patch(`${base}/absences/${id}`, body);
+    },
+    recoverAbsence(id: string, body: RecoverHrAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.post(`${base}/absences/${id}/recover`, body);
+    },
+    deleteAbsence(id: string): Promise<void> {
+      return api.delete(`${base}/absences/${id}`);
+    },
+
     listLeaveRequests(params: { employeeId?: string; status?: string; from?: string; to?: string } = {}): Promise<DataResponse<HrLeaveRequest[]>> {
       return api.get(`${base}/leave-requests${qs(params)}`);
     },
@@ -1109,6 +1181,15 @@ export function createWeldHrApi(api: ClientApi) {
     },
     meLeave(): Promise<DataResponse<HrSelfLeave>> {
       return api.get(`${base}/me/leave`);
+    },
+    meAbsences(): Promise<DataResponse<HrSelfAbsences>> {
+      return api.get(`${base}/me/absences`);
+    },
+    meReportSick(body: HrSelfServiceAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.post(`${base}/me/absences`, body);
+    },
+    meReportRecovered(id: string, body: RecoverHrAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.post(`${base}/me/absences/${id}/recover`, body);
     },
     meRequestLeave(body: HrSelfServiceLeaveRequestInput): Promise<DataResponse<HrLeaveRequest>> {
       return api.post(`${base}/me/leave`, body);
