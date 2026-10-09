@@ -453,6 +453,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     if (data.dueDate !== undefined) payload.dueDate = data.dueDate.toISOString();
     if (data.startDate !== undefined) payload.startDate = data.startDate.toISOString();
     if (data.labels !== undefined) payload.labels = data.labels;
+    if (data.duration !== undefined) payload.duration = data.duration;
     if (data.repeat !== undefined) payload.repeat = data.repeat || null;
     if (data.customFields !== undefined) payload.customFields = data.customFields;
     // A task links to a company OR a person: setting one clears the other.
@@ -667,7 +668,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
-      sidebarDefaultSize={mode === 'panel' ? 240 : 500}
+      sidebarDefaultSize={mode === 'panel' ? 200 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}
       // Panel mode: no persistKey so the chat always opens fresh at the
@@ -711,6 +712,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             alwaysShowFields={showCompanyField ? ['company'] : undefined}
             availableLabels={availableLabels}
             onCreateLabel={handleCreateLabel}
+            onDurationChange={(minutes) => handleUpdate(task.id, { duration: minutes })}
             attachments={attachments}
             onAttachmentAdd={handleAttachmentAdd}
             onAttachmentRemove={handleAttachmentRemove}

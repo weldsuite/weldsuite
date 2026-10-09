@@ -72,6 +72,7 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
 import { InlineLabelCreator } from '@/components/tasks/inline-label-creator';
+import { TaskDurationField } from './task-duration-field';
 import { Link } from '@/lib/router';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
@@ -296,6 +297,8 @@ export interface TaskUpdateData {
   /** CRM person link, mutually exclusive with `linkedCompany`. */
   linkedPerson?: NonNullable<Task['linkedPerson']> | null;
   labels?: string[];
+  /** Estimated minutes; null clears the estimate. */
+  duration?: number | null;
   repeat?: NonNullable<Task['repeat']> | null;
   customFields?: Record<string, unknown>;
 }
@@ -314,6 +317,8 @@ export interface TaskDetailContentProps {
   onOpenRecord?: (type: 'company' | 'person', id: string) => void;
   availableLabels?: { id: string; name: string; color: string }[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
+  /** Persists the time estimate (minutes, null clears it). The "Time estimate" row only renders when provided. */
+  onDurationChange?: (minutes: number | null) => void;
   projectId?: string;
   taskId?: string;
   attachments?: TaskAttachment[];
@@ -760,6 +765,7 @@ export function TaskDetailContent({
   onOpenRecord,
   availableLabels = [],
   onCreateLabel,
+  onDurationChange,
   projectId,
   taskId,
   attachments = [],
@@ -1131,6 +1137,11 @@ export function TaskDetailContent({
               </Button>
             )}
           </div>
+          )}
+
+          {/* Time estimate (minutes) */}
+          {isFieldVisible('duration') && onDurationChange && (
+            <TaskDurationField duration={task.duration} onChange={onDurationChange} />
           )}
 
           {/* Labels */}

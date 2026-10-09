@@ -126,6 +126,38 @@ describe('/api/tasks · pglite integration', () => {
   });
 });
 
+describe('/api/tasks · subtask priority · pglite integration', () => {
+  async function create(body: Record<string, unknown>): Promise<{ id: string; priority: string }> {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:create'), tenantDb: db },
+    });
+    const res = await request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { data: { id: string; priority: string } }).data;
+  }
+
+  it('a subtask without a priority inherits its parent priority', async () => {
+    const parent = await create({ title: 'Urgent parent', priority: 'high' });
+    const child = await create({ title: 'Child', parentTaskId: parent.id });
+    expect(child.priority).toBe('high');
+  });
+
+  it('an explicit subtask priority wins over the parent priority', async () => {
+    const parent = await create({ title: 'Urgent parent 2', priority: 'high' });
+    const child = await create({ title: 'Child 2', parentTaskId: parent.id, priority: 'low' });
+    expect(child.priority).toBe('low');
+  });
+
+  it('a top-level task without a priority is still medium', async () => {
+    const task = await create({ title: 'Plain task' });
+    expect(task.priority).toBe('medium');
+  });
+});
+
 describe('/api/tasks/:id/move · pglite integration', () => {
   // Stub flag evaluators mirroring what featureFlagsMiddleware resolves from
   // Flagship. `flagsOn` = the user is inside the rollout; `flagsOff` = not.
@@ -588,6 +620,16 @@ describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integrat
     });
     return request(`/api/tasks/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(body) });
   };
+
+  it('sets and clears the time estimate (duration: null)', async () => {
+    await seedTask({ id: 'task_dur_1', duration: 30 });
+
+    expect((await patch('task_dur_1', { duration: 90 })).status).toBe(200);
+    expect((await row('task_dur_1'))?.duration).toBe(90);
+
+    expect((await patch('task_dur_1', { duration: null })).status).toBe(200);
+    expect((await row('task_dur_1'))?.duration).toBeNull();
+  });
 
   it('writes only allow-listed columns and ignores server-owned ones', async () => {
     await seedTask({
