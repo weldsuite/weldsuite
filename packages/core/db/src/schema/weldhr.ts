@@ -25,6 +25,7 @@ import {
   boolean,
   integer,
   doublePrecision,
+  numeric,
   date,
   jsonb,
   index,
@@ -74,6 +75,20 @@ export type HrAttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 're
 export type HrAttendanceSource = 'portal' | 'manual' | 'import' | 'api';
 
 export type HrLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export type HrDeclarationCategory = 'travel' | 'meals' | 'accommodation' | 'equipment' | 'training' | 'other';
+/** `paid` follows `approved`: the amount has been reimbursed to the employee. */
+export type HrDeclarationStatus = 'pending' | 'approved' | 'rejected' | 'paid' | 'cancelled';
+
+/**
+ * One change in how absent a sick employee is. `percent` applies from `from`
+ * (a `YYYY-MM-DD` date) until the next step or the recovery date; a case starts
+ * with `{ from: startDate, percent: 100 }` and partial recovery lowers it.
+ */
+export interface HrAbsencePercentStep {
+  from: string;
+  percent: number;
+}
 
 export type HrCoachingCategory =
   | 'performance'
@@ -354,6 +369,79 @@ export const hrLeaveRequests = pgTable('hr_leave_requests', {
 ]);
 
 // ---------------------------------------------------------------------------
+// Declarations — expense claims
+// ---------------------------------------------------------------------------
+
+/**
+ * An expense an employee asks to be reimbursed for. The receipt is one private
+ * R2 object (`receipt_file_key`, under `workspaces/<id>/hr/declarations/`); it
+ * is only ever served through the permission-checked API, never by URL.
+ */
+export const hrDeclarations = pgTable('hr_declarations', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  expenseDate: date('expense_date').notNull(),
+  category: varchar('category', { length: 30 }).notNull().default('other'),
+  description: text('description').notNull(),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  currency: varchar('currency', { length: 3 }).notNull().default('EUR'),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  receiptFileKey: varchar('receipt_file_key', { length: 500 }),
+  receiptFileName: varchar('receipt_file_name', { length: 255 }),
+  receiptContentType: varchar('receipt_content_type', { length: 120 }),
+  receiptSize: integer('receipt_size'),
+  /** Clerk user id, or `portal:<employeeId>` for a declaration made in the portal. */
+  submittedBy: varchar('submitted_by', { length: 255 }),
+  reviewedBy: varchar('reviewed_by', { length: 255 }),
+  reviewedAt: timestamp('reviewed_at'),
+  reviewNote: text('review_note'),
+  paidBy: varchar('paid_by', { length: 255 }),
+  paidAt: timestamp('paid_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_declarations_employee_idx').on(table.employeeId),
+  index('hr_declarations_status_idx').on(table.status),
+  index('hr_declarations_expense_date_idx').on(table.expenseDate),
+]);
+
+// ---------------------------------------------------------------------------
+// Absenteeism — sickness cases
+// ---------------------------------------------------------------------------
+
+/**
+ * One sickness case: from the day an employee reports sick until the day they
+ * are fully back (`recovered_on`, null while the case is open). Days absent are
+ * `[start_date, recovered_on)`, weighted by `percent_steps`.
+ *
+ * There is deliberately no field for what is wrong with the employee: an
+ * employer may record that someone is absent, for how long and whether it was a
+ * workplace accident, but not the nature or cause of an illness.
+ */
+export const hrAbsences = pgTable('hr_absences', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  startDate: date('start_date').notNull(),
+  /** First day the employee is fully back at work. Null = still absent. */
+  recoveredOn: date('recovered_on'),
+  expectedReturnDate: date('expected_return_date'),
+  percentSteps: jsonb('percent_steps').$type<HrAbsencePercentStep[]>().notNull().default([]),
+  /** Reported as the result of an accident at work. */
+  workRelated: boolean('work_related').notNull().default(false),
+  /** HR-only practical notes. Never shown to the employee. */
+  notes: text('notes'),
+  /** Clerk user id, or `portal:<employeeId>` for a report made in the portal. */
+  reportedBy: varchar('reported_by', { length: 255 }),
+  closedBy: varchar('closed_by', { length: 255 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_absences_employee_idx').on(table.employeeId, table.startDate),
+  index('hr_absences_start_idx').on(table.startDate),
+  index('hr_absences_recovered_idx').on(table.recoveredOn),
+]);
+
+// ---------------------------------------------------------------------------
 // Performance — coaching, evaluations, KPIs, milestones
 // ---------------------------------------------------------------------------
 
@@ -504,6 +592,10 @@ export const hrPortalSettings = pgTable('hr_portal_settings', {
   employeeSelfClockIn: boolean('employee_self_clock_in').notNull().default(true),
   /** Employees may request leave from the portal. */
   employeeLeaveRequests: boolean('employee_leave_requests').notNull().default(true),
+  /** Employees may submit expense declarations from the portal. */
+  employeeDeclarations: boolean('employee_declarations').notNull().default(true),
+  /** Employees may report themselves sick and recovered from the portal. */
+  employeeSickReports: boolean('employee_sick_reports').notNull().default(true),
 
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -565,6 +657,8 @@ export type HrAttendanceRecord = typeof hrAttendanceRecords.$inferSelect;
 export type HrLeaveType = typeof hrLeaveTypes.$inferSelect;
 export type HrLeaveAllowance = typeof hrLeaveAllowances.$inferSelect;
 export type HrLeaveRequest = typeof hrLeaveRequests.$inferSelect;
+export type HrDeclaration = typeof hrDeclarations.$inferSelect;
+export type HrAbsence = typeof hrAbsences.$inferSelect;
 export type HrCoachingLog = typeof hrCoachingLogs.$inferSelect;
 export type HrEvaluationForm = typeof hrEvaluationForms.$inferSelect;
 export type HrEvaluation = typeof hrEvaluations.$inferSelect;

@@ -1,9 +1,9 @@
 /**
  * My HR: the signed-in member's own WeldHR employee record. Overview, leave,
- * attendance, onboarding tasks, coaching and evaluations, and goals. Every
- * endpoint resolves the employee from the session, so this page never takes an
- * employee id. Members who are not linked to an employee (or whose record is
- * terminated) get a "not set up yet" state instead of tabs.
+ * expense declarations, attendance, onboarding tasks, coaching and evaluations,
+ * and goals. Every endpoint resolves the employee from the session, so this
+ * page never takes an employee id. Members who are not linked to an employee
+ * (or whose record is terminated) get a "not set up yet" state instead of tabs.
  */
 
 import { useNavigate, useSearch } from '@tanstack/react-router';
@@ -16,6 +16,7 @@ import { useMyHr, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
 import { DetailHeader, DetailPage, DetailTabs, emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
 import { EmployeeAvatar, ErrorBanner, StatusBadge, errorMessage } from '../components/shared';
 import { MyAttendanceTab } from './components/attendance-tab';
+import { MyDeclarationsTab } from './components/declarations-tab';
 import { MyGoalsTab } from './components/goals-tab';
 import { MyLeaveTab } from './components/leave-tab';
 import { MyOverviewTab } from './components/overview-tab';
@@ -90,6 +91,7 @@ function MyHrContent({
   const tabs = [
     { id: 'overview', label: t('weldhr.me.tabs.overview') },
     { id: 'leave', label: t('weldhr.me.tabs.leave') },
+    { id: 'declarations', label: t('weldhr.me.tabs.declarations') },
     { id: 'attendance', label: t('weldhr.me.tabs.attendance') },
     { id: 'tasks', label: t('weldhr.me.tabs.tasks'), count: overview?.openTasks },
     { id: 'reviews', label: t('weldhr.me.tabs.reviews'), count: toAcknowledge },
@@ -124,6 +126,7 @@ function MyHrContent({
         <MyOverviewTab employee={employee} canClockIn={features.selfClockIn} onNavigate={setTab} />
       )}
       {activeTab === 'leave' && <MyLeaveTab canRequest={features.leaveRequests} />}
+      {activeTab === 'declarations' && <MyDeclarationsTab canSubmit={features.declarations} />}
       {activeTab === 'attendance' && <MyAttendanceTab />}
       {activeTab === 'tasks' && <MyTasksTab />}
       {activeTab === 'reviews' && <MyReviewsTab />}

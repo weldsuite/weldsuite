@@ -27,6 +27,7 @@ import {
   hrPortalAuthVerifySchema,
   hrPortalClientRequestSchema,
   hrPortalClockSchema,
+  hrPortalDeclarationSchema,
   hrPortalLeaveRequestSchema,
   hrPortalSelectAccessSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
@@ -45,6 +46,16 @@ import {
   sha256Hex,
 } from '@weldsuite/commerce-domain/portal-tokens';
 import { buildClientView, clientTeam } from '../../services/weldhr/client-view';
+import {
+  attachDeclarationReceipt,
+  cancelDeclaration,
+  createDeclaration,
+  employeeDeclarations,
+  loadDeclarationReceipt,
+  receiptFileFrom,
+  receiptResponse,
+  toPublicDeclaration,
+} from '../../services/weldhr/declarations';
 import { acknowledgeCoachingLog, acknowledgeEvaluation, listEvaluations, listKpiValues, listMilestones } from '../../services/weldhr/performance';
 import { grantsForEmail, loadPortalSettings } from '../../services/weldhr/portal';
 import { resolvePortalHost, sendHrPortalCodeEmail } from '../../services/weldhr/portal-mail';
@@ -176,6 +187,7 @@ function publicConfig(settings: HrPortalSettings) {
     features: {
       selfClockIn: settings.employeeSelfClockIn,
       leaveRequests: settings.employeeLeaveRequests,
+      declarations: settings.employeeDeclarations,
       individualScores: settings.clientCanSeeIndividualScores,
     },
   };
@@ -384,6 +396,12 @@ function employeeIdOf(c: { get: (k: 'hrPortalEmployeeId') => string | null | und
   return id;
 }
 
+/** The R2 bucket declaration receipts live in (see routes/weldhr/helpers.receiptBucket). */
+function receiptBucket(c: PortalContext): R2Bucket {
+  if (!c.env.STORAGE) throw new Error('hr-api is missing its STORAGE (R2) binding');
+  return c.env.STORAGE;
+}
+
 function companyIdOf(c: { get: (k: 'hrPortalCompanyId') => string | null | undefined }): string {
   const id = c.get('hrPortalCompanyId');
   if (!id) throw new Error('client session without company id');
@@ -510,6 +528,51 @@ app.post('/employee/leave/:leaveRequestId/cancel', async (c) => {
   const row = await cancelLeaveRequest(c.get('tenantDb'), c.req.param('leaveRequestId'), employeeId);
   emitPortal(c, 'hr_leave_request', 'updated', row.id, employeeId);
   return success(c, row);
+});
+
+app.get('/employee/declarations', async (c) => success(c, await employeeDeclarations(c.get('tenantDb'), employeeIdOf(c))));
+
+app.post('/employee/declarations', zValidator('json', hrPortalDeclarationSchema), async (c) => {
+  const settings = await sessionSettings(c);
+  if (!settings.employeeDeclarations) return error.forbidden(c, 'Expense declarations from the portal are turned off');
+  const employeeId = employeeIdOf(c);
+  const row = await createDeclaration(c.get('tenantDb'), { ...c.req.valid('json'), employeeId }, `portal:${employeeId}`);
+  emitPortal(c, 'hr_declaration', 'created', row.id, employeeId);
+  return success(c, toPublicDeclaration(row), 201);
+});
+
+app.post('/employee/declarations/:declarationId/cancel', async (c) => {
+  const employeeId = employeeIdOf(c);
+  const row = await cancelDeclaration(c.get('tenantDb'), c.req.param('declarationId'), employeeId);
+  emitPortal(c, 'hr_declaration', 'updated', row.id, employeeId);
+  return success(c, toPublicDeclaration(row));
+});
+
+app.post('/employee/declarations/:declarationId/receipt', async (c) => {
+  const employeeId = employeeIdOf(c);
+  const file = receiptFileFrom(await c.req.parseBody());
+  const row = await attachDeclarationReceipt(
+    c.get('tenantDb'),
+    receiptBucket(c),
+    c.get('workspaceId'),
+    c.req.param('declarationId'),
+    file,
+    employeeId,
+  );
+  emitPortal(c, 'hr_declaration', 'updated', row.id, employeeId);
+  return success(c, toPublicDeclaration(row));
+});
+
+app.get('/employee/declarations/:declarationId/receipt', async (c) => {
+  return receiptResponse(
+    await loadDeclarationReceipt(
+      c.get('tenantDb'),
+      receiptBucket(c),
+      c.get('workspaceId'),
+      c.req.param('declarationId'),
+      employeeIdOf(c),
+    ),
+  );
 });
 
 app.get('/employee/coaching', async (c) => success(c, await employeeCoaching(c.get('tenantDb'), employeeIdOf(c))));

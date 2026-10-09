@@ -17,6 +17,8 @@ export const hrChecklistKindSchema = z.enum(['onboarding', 'offboarding']);
 export const hrAssigneeRoleSchema = z.enum(['hr', 'manager', 'it', 'employee', 'other']);
 export const hrAttendanceStatusSchema = z.enum(['present', 'late', 'absent', 'excused', 'remote', 'half_day']);
 export const hrLeaveStatusSchema = z.enum(['pending', 'approved', 'rejected', 'cancelled']);
+export const hrDeclarationCategorySchema = z.enum(['travel', 'meals', 'accommodation', 'equipment', 'training', 'other']);
+export const hrDeclarationStatusSchema = z.enum(['pending', 'approved', 'rejected', 'paid', 'cancelled']);
 export const hrCoachingCategorySchema = z.enum([
   'performance',
   'quality',
@@ -272,6 +274,69 @@ export const reviewHrLeaveRequestSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Declarations (expense claims)
+// ---------------------------------------------------------------------------
+
+/** Receipt uploads: one image or PDF per declaration, sent as multipart `file`. */
+export const HR_DECLARATION_RECEIPT_MAX_BYTES = 10 * 1024 * 1024;
+export const HR_DECLARATION_RECEIPT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const;
+export const HR_DECLARATION_CURRENCIES = ['EUR', 'USD', 'GBP'] as const;
+
+/** Amount in major units, at most two decimals (12.5 = twelve euros fifty). */
+const declarationAmount = z
+  .number()
+  .positive()
+  .max(1_000_000)
+  .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, 'Use at most two decimals');
+
+const declarationFields = {
+  expenseDate: isoDate,
+  category: hrDeclarationCategorySchema,
+  description: z.string().trim().min(1).max(2000),
+  amount: declarationAmount,
+  currency: z.enum(HR_DECLARATION_CURRENCIES).optional(),
+};
+
+export const createHrDeclarationSchema = z.object({ employeeId: id, ...declarationFields });
+
+export const updateHrDeclarationSchema = z.object(declarationFields).partial();
+
+export const reviewHrDeclarationSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  note: z.string().max(2000).nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Absenteeism (sickness cases)
+// ---------------------------------------------------------------------------
+
+/** How absent the employee is: 100 = fully, lower after a partial recovery. */
+const absencePercent = z.number().int().min(1).max(100);
+
+const absenceFields = {
+  startDate: isoDate,
+  expectedReturnDate: isoDate.nullable().optional(),
+  workRelated: z.boolean().optional(),
+  /** Practical notes for HR. Not the place for medical details, and never shown to the employee. */
+  notes: z.string().max(2000).nullable().optional(),
+};
+
+export const createHrAbsenceSchema = z.object({ employeeId: id, ...absenceFields });
+
+export const updateHrAbsenceSchema = z.object(absenceFields).partial();
+
+/** A partial recovery (or a relapse): absent for `percent` from `from` onwards. */
+export const setHrAbsencePercentSchema = z.object({
+  percent: absencePercent,
+  from: isoDate,
+});
+
+/** Close the case: `recoveredOn` is the first day fully back at work. */
+export const recoverHrAbsenceSchema = z.object({
+  recoveredOn: isoDate,
+});
+
+// ---------------------------------------------------------------------------
 // Coaching
 // ---------------------------------------------------------------------------
 
@@ -424,6 +489,8 @@ export const updateHrPortalSettingsSchema = z.object({
   clientCanSeeIndividualScores: z.boolean().optional(),
   employeeSelfClockIn: z.boolean().optional(),
   employeeLeaveRequests: z.boolean().optional(),
+  employeeDeclarations: z.boolean().optional(),
+  employeeSickReports: z.boolean().optional(),
 });
 
 export const inviteHrPortalAccessSchema = z.discriminatedUnion('kind', [
@@ -460,6 +527,20 @@ export const hrPortalLeaveRequestSchema = z.object({
   reason: z.string().max(2000).nullable().optional(),
 });
 
+/** A declaration an employee files for themselves (My HR and the workforce portal). */
+export const hrPortalDeclarationSchema = z.object(declarationFields);
+
+/** An employee reporting themselves sick (My HR and the workforce portal). Defaults to today. */
+export const hrPortalSickReportSchema = z.object({
+  startDate: isoDate.optional(),
+  expectedReturnDate: isoDate.nullable().optional(),
+});
+
+/** An employee reporting themselves recovered. Defaults to today. */
+export const hrPortalRecoverSchema = z.object({
+  recoveredOn: isoDate.optional(),
+});
+
 export const hrPortalAcknowledgeSchema = z.object({
   comment: z.string().max(5000).nullable().optional(),
 });
@@ -486,6 +567,13 @@ export type ImportHrAttendanceInput = z.infer<typeof importHrAttendanceSchema>;
 export type CreateHrLeaveTypeInput = z.infer<typeof createHrLeaveTypeSchema>;
 export type CreateHrLeaveRequestInput = z.infer<typeof createHrLeaveRequestSchema>;
 export type ReviewHrLeaveRequestInput = z.infer<typeof reviewHrLeaveRequestSchema>;
+export type CreateHrDeclarationInput = z.infer<typeof createHrDeclarationSchema>;
+export type UpdateHrDeclarationInput = z.infer<typeof updateHrDeclarationSchema>;
+export type ReviewHrDeclarationInput = z.infer<typeof reviewHrDeclarationSchema>;
+export type CreateHrAbsenceInput = z.infer<typeof createHrAbsenceSchema>;
+export type UpdateHrAbsenceInput = z.infer<typeof updateHrAbsenceSchema>;
+export type SetHrAbsencePercentInput = z.infer<typeof setHrAbsencePercentSchema>;
+export type RecoverHrAbsenceInput = z.infer<typeof recoverHrAbsenceSchema>;
 export type CreateHrCoachingLogInput = z.infer<typeof createHrCoachingLogSchema>;
 export type UpdateHrCoachingLogInput = z.infer<typeof updateHrCoachingLogSchema>;
 export type HrCoachingActionItemInput = z.infer<typeof hrCoachingActionItemSchema>;
@@ -501,6 +589,9 @@ export type UpdateHrMilestoneInput = z.infer<typeof updateHrMilestoneSchema>;
 export type UpdateHrPortalSettingsInput = z.infer<typeof updateHrPortalSettingsSchema>;
 export type InviteHrPortalAccessInput = z.infer<typeof inviteHrPortalAccessSchema>;
 export type HrSelfServiceLeaveRequestInput = z.infer<typeof hrPortalLeaveRequestSchema>;
+export type HrSelfServiceDeclarationInput = z.infer<typeof hrPortalDeclarationSchema>;
+export type HrSelfServiceSickReportInput = z.infer<typeof hrPortalSickReportSchema>;
+export type HrSelfServiceRecoverInput = z.infer<typeof hrPortalRecoverSchema>;
 export type HrSelfServiceClockInput = z.infer<typeof hrPortalClockSchema>;
 export type HrSelfServiceAcknowledgeInput = z.infer<typeof hrPortalAcknowledgeSchema>;
 export type CreateHrDepartmentInput = z.infer<typeof createHrDepartmentSchema>;

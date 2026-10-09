@@ -26,6 +26,14 @@ function buildUrl(slug: string, path: string, query?: Record<string, string | un
   return `${url.pathname}${url.search}`;
 }
 
+/**
+ * Same-origin URL of a proxied GET, for a link the browser opens itself (a
+ * receipt in a new tab). The httpOnly session cookie rides along.
+ */
+export function portalUrl(slug: string, path: string): string {
+  return buildUrl(slug, path);
+}
+
 async function handle<T>(res: Response, slug: string): Promise<T> {
   if (res.status === 401) {
     clearPortalCache(slug);
@@ -56,6 +64,18 @@ export async function portalPost<T>(slug: string, path: string, body?: unknown):
   // A write can change several pages at once (a leave request moves the
   // balance and the overview too), so refresh the cached reads. Only mounted
   // queries refetch; the rest are just marked stale.
+  void invalidatePortal(slug);
+  return result;
+}
+
+/** POST a `multipart/form-data` body (a file upload). No Content-Type header: the browser sets it with the boundary. */
+export async function portalUpload<T>(slug: string, path: string, form: FormData): Promise<T> {
+  const res = await fetch(buildUrl(slug, path), {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  });
+  const result = await handle<T>(res, slug);
   void invalidatePortal(slug);
   return result;
 }

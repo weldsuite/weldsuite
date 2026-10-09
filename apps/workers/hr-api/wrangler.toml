@@ -48,6 +48,11 @@ id = "748b8f38937f4807b3978cacb17e1880"
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
 
+# R2 bucket for expense-declaration receipts (private; served through the API).
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
 # Remote binding so local dev reaches the deployed test realtime worker.
 [[services]]
 binding = "REALTIME"
@@ -81,6 +86,10 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
 
 [[env.test.services]]
 binding = "REALTIME"
@@ -117,6 +126,10 @@ id = "99689831a815455ba7f836175e5e17c9"
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
 
 [[env.production.services]]
 binding = "REALTIME"

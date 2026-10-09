@@ -17,6 +17,8 @@ function queriesFor(route: string): RouteQuery[] {
       return [{ path: '/employee/attendance', query: defaultScheduleRange() }];
     case 'me/leave':
       return [{ path: '/employee/leave' }];
+    case 'me/declarations':
+      return [{ path: '/employee/declarations' }];
     case 'me/coaching':
       return [{ path: '/employee/coaching' }];
     case 'me/evaluations':

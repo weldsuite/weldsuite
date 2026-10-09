@@ -21,6 +21,7 @@ interface FormState {
   clientPortalEnabled: boolean;
   employeeSelfClockIn: boolean;
   employeeLeaveRequests: boolean;
+  employeeDeclarations: boolean;
   clientCanSeeIndividualScores: boolean;
 }
 
@@ -115,6 +116,9 @@ export function PortalSettingsTab() {
         </SettingRow>
         <SettingRow label={t('weldhr.portal.settings.employeeLeaveRequests')}>
           <Switch checked={state.employeeLeaveRequests} onCheckedChange={(checked) => patch('employeeLeaveRequests', checked)} />
+        </SettingRow>
+        <SettingRow label={t('weldhr.portal.settings.employeeDeclarations')}>
+          <Switch checked={state.employeeDeclarations} onCheckedChange={(checked) => patch('employeeDeclarations', checked)} />
         </SettingRow>
         <SettingRow
           label={t('weldhr.portal.settings.clientCanSeeIndividualScores')}
