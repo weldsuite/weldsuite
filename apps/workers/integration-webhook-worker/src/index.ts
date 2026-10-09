@@ -28,8 +28,8 @@ import {
   matchAndDispatchIntegrationTriggers,
   retryFailedWebhookDeliveries,
   hasPendingWebhookRetries,
+  type EntityEventMessage,
 } from '@weldsuite/entity-events';
-import type { EntityEventMessage } from '@weldsuite/entity-events';
 import { handleEntityWebhookBatch } from './entity-webhooks-consumer';
 import {
   listDueTenantWorkIndex,

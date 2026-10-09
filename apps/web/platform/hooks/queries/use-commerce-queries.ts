@@ -22,8 +22,7 @@ import type {
 } from '@weldsuite/app-api-client/schemas/product-categories';
 import type { CreateOrderInput, UpdateOrderInput } from '@weldsuite/core-api-client/schemas/orders';
 import type { CreateProductInput, WeldstashProduct } from '@weldsuite/core-api-client/schemas/weldstash';
-import type { DataResponse, ListResponse } from '@weldsuite/core-api-client/types';
-import { buildQueryString } from '@weldsuite/core-api-client/types';
+import { type DataResponse, type ListResponse, buildQueryString } from '@weldsuite/core-api-client/types';
 import { randomSuffix } from '@/lib/random';
 
 type NumericValue = string | number | null;
@@ -662,7 +661,7 @@ export interface CommercePortalAccessRow {
   personId: string;
   companyId: string;
   email: string;
-  status: 'invited' | 'active' | 'revoked' | string;
+  status: string;
   invitedAt?: string | null;
   lastLoginAt?: string | null;
 }

@@ -23,10 +23,8 @@ import { TriggerNode } from './trigger-node';
 import { ActionNode, PlaceholderNode } from './action-node';
 import { ConditionNode, ConditionBranchNode } from './condition-node';
 import { SubAgentNode } from './sub-agent-node';
-import { workflowToFlow, autoLayoutNodes, getNodeHeight, getTotalNodeHeight } from './flow-utils';
-import type { FlowNodeData } from './flow-utils';
-import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, VariableItem } from './types';
-import { DEFAULT_CANVAS_LABELS } from './types';
+import { workflowToFlow, autoLayoutNodes, getNodeHeight, getTotalNodeHeight, type FlowNodeData } from './flow-utils';
+import { type WorkflowStep, type TriggerConfig, type WorkflowCanvasLabels, type VariableItem, DEFAULT_CANVAS_LABELS } from './types';
 import { Plus, Minus, Maximize } from 'lucide-react';
 
 // Alignment threshold in pixels
