@@ -52,6 +52,14 @@ export interface StateCalcInput {
   /** Residence state, for reciprocity and resident-only taxes. */
   residenceState: string | null;
   exemptFromSui: boolean;
+  /**
+   * Employee Social Security + Medicare (including Additional Medicare) withheld
+   * this period. Massachusetts subtracts it from wages for withholding, up to
+   * $2,000 a year (Circular M). Optional: when absent, the MA module estimates
+   * 7.65% of FICA wages (none when the employee is FICA-exempt, which the
+   * federal engine signals by passing 0).
+   */
+  ficaEmployeeCents?: Cents;
 }
 
 export interface StateProgramResult {
@@ -85,6 +93,14 @@ export interface StateCalcResult {
   ruleSet: string;
 }
 
+/**
+ * One field of a state withholding certificate. The keys `filingStatus`,
+ * `allowances`, `extraWithholding` (money per pay period) and `exempt` map to
+ * the same-named properties of `UsStateCertificateInput`; every other key is
+ * stored in its `values`. Select options are labelled
+ * `<state>.<key>.<option>` in STATE_CERTIFICATE_LABELS, and `<state>.form`
+ * names the form.
+ */
 export interface StateCertificateFieldDef {
   key: string;
   type: 'select' | 'number' | 'money' | 'boolean';
@@ -108,5 +124,13 @@ export interface StateModule {
     usesAllowances: boolean;
     fields: StateCertificateFieldDef[];
   } | null;
+  /**
+   * Employer-specific rates the module reads from `extraRates` (percent), for
+   * the employer setup UI. Labels: STATE_EMPLOYER_RATE_LABELS[labelKey]
+   * (us/states/labels.ts). `defaultPercent` is what the module uses when the
+   * rate is not entered (absent when the default depends on other settings).
+   * The SUI rate itself is `suiRatePercent`, not one of these.
+   */
+  employerRateCodes?: Array<{ code: string; labelKey: string; defaultPercent?: number }>;
   calculate(input: StateCalcInput): StateCalcResult;
 }
