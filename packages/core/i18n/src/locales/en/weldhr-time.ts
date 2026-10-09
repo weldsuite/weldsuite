@@ -1,5 +1,5 @@
 /**
- * WeldHR — time screens: attendance and leave.
+ * WeldHR — time screens: attendance, absenteeism (sick reports) and leave.
  * Composed into `weldhr` by ./weldhr.ts.
  */
 export const weldhrTime = {
@@ -163,6 +163,100 @@ export const weldhrTime = {
         invalidStatus: 'Unknown status',
       },
     },
+  },
+
+  absenteeism: {
+    title: 'Absenteeism',
+    tabs: {
+      mine: 'My absence',
+      ongoing: 'Ongoing',
+      completed: 'Completed',
+    },
+    firstDay: {
+      full: 'Absent all day',
+      half: 'Absent half day',
+    },
+    since: 'Since {date}',
+    stillAbsent: 'Still absent',
+    halfFirstDay: 'half day',
+    relapse: 'Within 4 weeks',
+    relapseHelp: 'The previous sick report of this employee ended less than four weeks earlier, so this continues the same absence period.',
+    reportedBySelf: 'Employee',
+    reportSick: 'Report sick',
+    reportRecovered: 'Report recovered',
+    mine: {
+      loadFailed: 'Could not load your sick reports.',
+      notSetUp: 'Your account is not linked to an employee record yet. Ask HR to set this up, then you can report sick here.',
+      well: {
+        title: 'You are not reported sick',
+        description: 'Not feeling well? Report sick here and your employer knows right away.',
+      },
+      sick: {
+        title: 'You are reported sick',
+        days: 'Working days absent so far: {days}',
+        description: 'Feeling better? Report recovered so your employer knows you are back.',
+      },
+      history: {
+        title: 'Earlier sick reports',
+        empty: 'No earlier sick reports.',
+      },
+    },
+    table: {
+      employee: 'Employee',
+      firstSickDay: 'First sick day',
+      lastSickDay: 'Last sick day',
+      days: 'Days',
+      note: 'Note',
+      reportedBy: 'Reported by',
+      status: 'Status',
+    },
+    list: {
+      filters: {
+        employee: 'Employee',
+        department: 'Department',
+      },
+      emptyOngoing: {
+        title: 'Nobody is reported sick',
+        description: 'Employees who report sick show up here until they report recovered.',
+      },
+      emptyCompleted: {
+        title: 'No completed sick reports',
+        description: 'A report moves here once the employee has recovered.',
+      },
+    },
+    form: {
+      reportTitle: 'Report sick',
+      editTitle: 'Edit sick report',
+      recoverTitle: 'Report recovered',
+      employee: 'Employee',
+      firstSickDay: 'First sick day',
+      firstDay: 'Absence on the first day',
+      lastSickDay: 'Last sick day',
+      lastSickDayOpenHint: 'Leave empty while the employee is still absent.',
+      lastSickDayHint: 'The last day of absence. Back at work today? Then this is the last working day before today.',
+      note: 'Note',
+      notePlaceholder: 'Anything your employer should know, such as how to reach you.',
+      noteHint: 'You do not have to share medical details.',
+      submit: 'Submit',
+      submitting: 'Submitting…',
+      save: 'Save',
+      saving: 'Saving…',
+      failed: 'Could not save this sick report.',
+      alreadyOpen: 'There is already an open sick report.',
+      overlap: 'This overlaps another sick report.',
+      reportedToast: 'You are reported sick. Get well soon.',
+      recoveredToast: 'You are reported recovered. Welcome back.',
+      errors: {
+        employee: 'Select an employee',
+        date: 'Pick a date',
+        future: 'This date cannot be in the future.',
+        endBeforeStart: 'The last sick day cannot be before the first.',
+        note: 'Keep the note under 1,000 characters',
+      },
+    },
+    deleteConfirmTitle: 'Delete this sick report?',
+    deleteConfirmDescription: 'This permanently removes the report.',
+    deleteFailed: 'Could not delete this sick report.',
   },
 
   leave: {

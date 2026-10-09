@@ -112,6 +112,7 @@ export const navigation = {
         dashboard: 'Dashboard',
         employees: 'Employees',
         attendance: 'Attendance',
+        absenteeism: 'Absenteeism',
         leave: 'Leave',
         declarations: 'Declarations',
         portal: 'Workforce portal',

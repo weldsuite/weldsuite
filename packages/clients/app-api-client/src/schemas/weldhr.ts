@@ -307,33 +307,36 @@ export const reviewHrDeclarationSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Absenteeism (sickness cases)
+// Absences (sick reports)
 // ---------------------------------------------------------------------------
 
-/** How absent the employee is: 100 = fully, lower after a partial recovery. */
-const absencePercent = z.number().int().min(1).max(100);
+export const hrAbsenceFirstDaySchema = z.enum(['full', 'half']);
 
-const absenceFields = {
+/** Practical matters only (how to reach the employee); not a place for medical details. */
+const absenceNote = z.string().trim().max(1000).nullable().optional();
+
+export const createHrAbsenceSchema = z.object({
+  employeeId: id,
+  /** First sick day. */
   startDate: isoDate,
-  expectedReturnDate: isoDate.nullable().optional(),
-  workRelated: z.boolean().optional(),
-  /** Practical notes for HR. Not the place for medical details, and never shown to the employee. */
-  notes: z.string().max(2000).nullable().optional(),
-};
-
-export const createHrAbsenceSchema = z.object({ employeeId: id, ...absenceFields });
-
-export const updateHrAbsenceSchema = z.object(absenceFields).partial();
-
-/** A partial recovery (or a relapse): absent for `percent` from `from` onwards. */
-export const setHrAbsencePercentSchema = z.object({
-  percent: absencePercent,
-  from: isoDate,
+  /** Defaults to a full day. */
+  firstDay: hrAbsenceFirstDaySchema.optional(),
+  /** Last sick day; leave out while the employee is still absent. */
+  endDate: isoDate.nullable().optional(),
+  note: absenceNote,
 });
 
-/** Close the case: `recoveredOn` is the first day fully back at work. */
+export const updateHrAbsenceSchema = z.object({
+  startDate: isoDate.optional(),
+  firstDay: hrAbsenceFirstDaySchema.optional(),
+  /** `null` reopens a report that was closed by mistake. */
+  endDate: isoDate.nullable().optional(),
+  note: absenceNote,
+});
+
 export const recoverHrAbsenceSchema = z.object({
-  recoveredOn: isoDate,
+  /** Last sick day, inclusive. */
+  endDate: isoDate,
 });
 
 // ---------------------------------------------------------------------------
@@ -490,7 +493,6 @@ export const updateHrPortalSettingsSchema = z.object({
   employeeSelfClockIn: z.boolean().optional(),
   employeeLeaveRequests: z.boolean().optional(),
   employeeDeclarations: z.boolean().optional(),
-  employeeSickReports: z.boolean().optional(),
 });
 
 export const inviteHrPortalAccessSchema = z.discriminatedUnion('kind', [
@@ -530,15 +532,12 @@ export const hrPortalLeaveRequestSchema = z.object({
 /** A declaration an employee files for themselves (My HR and the workforce portal). */
 export const hrPortalDeclarationSchema = z.object(declarationFields);
 
-/** An employee reporting themselves sick (My HR and the workforce portal). Defaults to today. */
-export const hrPortalSickReportSchema = z.object({
-  startDate: isoDate.optional(),
-  expectedReturnDate: isoDate.nullable().optional(),
-});
-
-/** An employee reporting themselves recovered. Defaults to today. */
-export const hrPortalRecoverSchema = z.object({
-  recoveredOn: isoDate.optional(),
+/** An employee reporting themselves sick. Recovering uses `recoverHrAbsenceSchema`. */
+export const hrPortalAbsenceSchema = z.object({
+  startDate: isoDate,
+  /** Defaults to a full day. */
+  firstDay: hrAbsenceFirstDaySchema.optional(),
+  note: absenceNote,
 });
 
 export const hrPortalAcknowledgeSchema = z.object({
@@ -572,7 +571,6 @@ export type UpdateHrDeclarationInput = z.infer<typeof updateHrDeclarationSchema>
 export type ReviewHrDeclarationInput = z.infer<typeof reviewHrDeclarationSchema>;
 export type CreateHrAbsenceInput = z.infer<typeof createHrAbsenceSchema>;
 export type UpdateHrAbsenceInput = z.infer<typeof updateHrAbsenceSchema>;
-export type SetHrAbsencePercentInput = z.infer<typeof setHrAbsencePercentSchema>;
 export type RecoverHrAbsenceInput = z.infer<typeof recoverHrAbsenceSchema>;
 export type CreateHrCoachingLogInput = z.infer<typeof createHrCoachingLogSchema>;
 export type UpdateHrCoachingLogInput = z.infer<typeof updateHrCoachingLogSchema>;
@@ -590,8 +588,7 @@ export type UpdateHrPortalSettingsInput = z.infer<typeof updateHrPortalSettingsS
 export type InviteHrPortalAccessInput = z.infer<typeof inviteHrPortalAccessSchema>;
 export type HrSelfServiceLeaveRequestInput = z.infer<typeof hrPortalLeaveRequestSchema>;
 export type HrSelfServiceDeclarationInput = z.infer<typeof hrPortalDeclarationSchema>;
-export type HrSelfServiceSickReportInput = z.infer<typeof hrPortalSickReportSchema>;
-export type HrSelfServiceRecoverInput = z.infer<typeof hrPortalRecoverSchema>;
+export type HrSelfServiceAbsenceInput = z.infer<typeof hrPortalAbsenceSchema>;
 export type HrSelfServiceClockInput = z.infer<typeof hrPortalClockSchema>;
 export type HrSelfServiceAcknowledgeInput = z.infer<typeof hrPortalAcknowledgeSchema>;
 export type CreateHrDepartmentInput = z.infer<typeof createHrDepartmentSchema>;

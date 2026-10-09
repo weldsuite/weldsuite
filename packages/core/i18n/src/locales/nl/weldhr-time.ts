@@ -1,5 +1,5 @@
 /**
- * WeldHR — tijdschermen: aanwezigheid en verlof.
+ * WeldHR — tijdschermen: aanwezigheid, verzuim (ziekmeldingen) en verlof.
  * Wordt samengevoegd tot `weldhr` door ./weldhr.ts.
  */
 export const weldhrTime = {
@@ -163,6 +163,100 @@ export const weldhrTime = {
         invalidStatus: 'Onbekende status',
       },
     },
+  },
+
+  absenteeism: {
+    title: 'Verzuim',
+    tabs: {
+      mine: 'Mijn verzuim',
+      ongoing: 'Lopend',
+      completed: 'Afgerond',
+    },
+    firstDay: {
+      full: 'Hele dag afwezig',
+      half: 'Halve dag afwezig',
+    },
+    since: 'Sinds {date}',
+    stillAbsent: 'Nog afwezig',
+    halfFirstDay: 'halve dag',
+    relapse: 'Binnen 4 weken',
+    relapseHelp: 'De vorige ziekmelding van deze medewerker eindigde minder dan vier weken eerder, dus dit hoort bij dezelfde verzuimperiode.',
+    reportedBySelf: 'Medewerker',
+    reportSick: 'Ziek melden',
+    reportRecovered: 'Beter melden',
+    mine: {
+      loadFailed: 'Je ziekmeldingen konden niet worden geladen.',
+      notSetUp: 'Je account is nog niet gekoppeld aan een medewerker. Vraag HR om dit in te stellen, daarna kun je je hier ziek melden.',
+      well: {
+        title: 'Je bent niet ziek gemeld',
+        description: 'Voel je je niet goed? Meld je hier ziek, dan weet je werkgever het meteen.',
+      },
+      sick: {
+        title: 'Je bent ziek gemeld',
+        days: 'Werkdagen afwezig tot nu toe: {days}',
+        description: 'Voel je je weer beter? Meld je beter, dan weet je werkgever dat je terug bent.',
+      },
+      history: {
+        title: 'Eerdere ziekmeldingen',
+        empty: 'Geen eerdere ziekmeldingen.',
+      },
+    },
+    table: {
+      employee: 'Medewerker',
+      firstSickDay: 'Eerste ziektedag',
+      lastSickDay: 'Laatste ziektedag',
+      days: 'Dagen',
+      note: 'Notitie',
+      reportedBy: 'Gemeld door',
+      status: 'Status',
+    },
+    list: {
+      filters: {
+        employee: 'Medewerker',
+        department: 'Afdeling',
+      },
+      emptyOngoing: {
+        title: 'Niemand is ziek gemeld',
+        description: 'Medewerkers die zich ziek melden staan hier tot ze zich beter melden.',
+      },
+      emptyCompleted: {
+        title: 'Geen afgeronde ziekmeldingen',
+        description: 'Een melding komt hier te staan zodra de medewerker hersteld is.',
+      },
+    },
+    form: {
+      reportTitle: 'Ziek melden',
+      editTitle: 'Ziekmelding wijzigen',
+      recoverTitle: 'Beter melden',
+      employee: 'Medewerker',
+      firstSickDay: 'Eerste ziektedag',
+      firstDay: 'Afwezigheid op de eerste dag',
+      lastSickDay: 'Laatste ziektedag',
+      lastSickDayOpenHint: 'Laat leeg zolang de medewerker nog afwezig is.',
+      lastSickDayHint: 'De laatste dag van afwezigheid. Vandaag weer aan het werk? Dan is dit de laatste werkdag voor vandaag.',
+      note: 'Notitie',
+      notePlaceholder: 'Wat je werkgever moet weten, bijvoorbeeld hoe je bereikbaar bent.',
+      noteHint: 'Je hoeft geen medische details te delen.',
+      submit: 'Versturen',
+      submitting: 'Versturen…',
+      save: 'Opslaan',
+      saving: 'Opslaan…',
+      failed: 'Deze ziekmelding kon niet worden opgeslagen.',
+      alreadyOpen: 'Er is al een openstaande ziekmelding.',
+      overlap: 'Dit overlapt met een andere ziekmelding.',
+      reportedToast: 'Je bent ziek gemeld. Beterschap.',
+      recoveredToast: 'Je bent beter gemeld. Welkom terug.',
+      errors: {
+        employee: 'Kies een medewerker',
+        date: 'Kies een datum',
+        future: 'Deze datum mag niet in de toekomst liggen.',
+        endBeforeStart: 'De laatste ziektedag mag niet voor de eerste liggen.',
+        note: 'Houd de notitie onder de 1.000 tekens',
+      },
+    },
+    deleteConfirmTitle: 'Deze ziekmelding verwijderen?',
+    deleteConfirmDescription: 'De melding wordt definitief verwijderd.',
+    deleteFailed: 'Deze ziekmelding kon niet worden verwijderd.',
   },
 
   leave: {

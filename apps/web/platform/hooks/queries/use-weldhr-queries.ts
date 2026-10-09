@@ -15,10 +15,12 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type {
+  HrAbsenceListParams,
   HrAttendanceListParams,
   HrEmployeeListParams,
 } from '@weldsuite/app-api-client/domains/weldhr';
 import type {
+  CreateHrAbsenceInput,
   CreateHrAttendanceInput,
   CreateHrDeclarationInput,
   CreateHrDepartmentInput,
@@ -28,14 +30,17 @@ import type {
   CreateHrLeaveTypeInput,
   CreateHrShiftInput,
   HrEmployeeSensitiveInput,
+  HrSelfServiceAbsenceInput,
   HrSelfServiceAcknowledgeInput,
   HrSelfServiceClockInput,
   HrSelfServiceDeclarationInput,
   HrSelfServiceLeaveRequestInput,
   ImportHrAttendanceInput,
   InviteHrPortalAccessInput,
+  RecoverHrAbsenceInput,
   ReviewHrDeclarationInput,
   ReviewHrLeaveRequestInput,
+  UpdateHrAbsenceInput,
   UpdateHrAttendanceInput,
   UpdateHrDeclarationInput,
   UpdateHrEmployeeInput,
@@ -55,6 +60,7 @@ export const weldhrKeys = {
   leaveTypes: (includeInactive: boolean) => [...weldhrKeys.all, 'leave-types', includeInactive] as const,
   leaveBalances: (employeeId: string, year: number) => [...weldhrKeys.all, 'leave-balances', employeeId, year] as const,
   leaveRequests: (params: object) => [...weldhrKeys.all, 'leave-requests', params] as const,
+  absences: (params: object) => [...weldhrKeys.all, 'absences', params] as const,
   declarations: (params: object) => [...weldhrKeys.all, 'declarations', params] as const,
   portalSettings: () => [...weldhrKeys.all, 'portal-settings'] as const,
   portalAccess: (params: object) => [...weldhrKeys.all, 'portal-access', params] as const,
@@ -159,9 +165,14 @@ export function useUpdateHrEmployeeSensitive() {
 // Departments
 // ---------------------------------------------------------------------------
 
-export function useHrDepartments() {
+export function useHrDepartments(opts: { enabled?: boolean } = {}) {
   const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.departments(), queryFn: () => weldhr.listDepartments(), select: (r) => r.data });
+  return useQuery({
+    queryKey: weldhrKeys.departments(),
+    queryFn: () => weldhr.listDepartments(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
 }
 
 export function useCreateHrDepartment() {
@@ -318,6 +329,40 @@ export function useCancelHrLeaveRequest() {
 export function useDeleteHrLeaveRequest() {
   const { weldhr } = useAppApi();
   return useHrMutation((id: string) => weldhr.deleteLeaveRequest(id));
+}
+
+// ---------------------------------------------------------------------------
+// Sick reports (back office; an employee's own reports are under My HR below)
+// ---------------------------------------------------------------------------
+
+export function useHrAbsences(params: HrAbsenceListParams, opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.absences(params),
+    queryFn: () => weldhr.listAbsences(params),
+    placeholderData: keepPreviousData,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useCreateHrAbsence() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: CreateHrAbsenceInput) => weldhr.createAbsence(input));
+}
+
+export function useUpdateHrAbsence() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: UpdateHrAbsenceInput & { id: string }) => weldhr.updateAbsence(id, input));
+}
+
+export function useRecoverHrAbsence() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: RecoverHrAbsenceInput & { id: string }) => weldhr.recoverAbsence(id, input));
+}
+
+export function useDeleteHrAbsence() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.deleteAbsence(id));
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +556,16 @@ export function useMyHrCancelLeave() {
   return useHrMutation((id: string) => weldhr.meCancelLeave(id));
 }
 
+export function useMyHrAbsences(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('absences'),
+    queryFn: () => weldhr.meAbsences(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
 export function useMyHrDeclarations(opts: { enabled?: boolean } = {}) {
   const { weldhr } = useAppApi();
   return useQuery({
@@ -519,6 +574,16 @@ export function useMyHrDeclarations(opts: { enabled?: boolean } = {}) {
     select: (r) => r.data,
     enabled: opts.enabled ?? true,
   });
+}
+
+export function useMyHrReportSick() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: HrSelfServiceAbsenceInput) => weldhr.meReportSick(input));
+}
+
+export function useMyHrReportRecovered() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: RecoverHrAbsenceInput & { id: string }) => weldhr.meReportRecovered(id, input));
 }
 
 /** Same two-step filing as `useCreateHrDeclaration`, for the caller's own record. */
