@@ -100,6 +100,41 @@ export async function syncClerkSeatLimit(
   }
 }
 
+export type SeatPlan = Parameters<typeof calculateEffectiveSeatLimit>[0];
+
+/** Recompute the workspace's effective seat limit and push it to Clerk. */
+export async function applyClerkSeatLimit(
+  env: Env,
+  clerkSecretKey: string,
+  masterDb: ReturnType<typeof getMasterDb>,
+  clerkOrgId: string,
+  workspaceId: string,
+  plan: SeatPlan,
+  seats: number,
+): Promise<void> {
+  const memberCount = await getMemberCount(env, masterDb, clerkOrgId, workspaceId);
+  const effectiveLimit = calculateEffectiveSeatLimit(plan, seats, memberCount);
+  await syncClerkSeatLimit(clerkSecretKey, clerkOrgId, effectiveLimit);
+}
+
+/** Best-effort Clerk seat-limit sync for an already-resolved plan. Never throws. */
+export async function trySyncClerkSeatLimit(
+  env: Env,
+  masterDb: ReturnType<typeof getMasterDb>,
+  clerkOrgId: string | null,
+  workspaceId: string,
+  plan: SeatPlan | null | undefined,
+  seats: number,
+  context: string,
+): Promise<void> {
+  if (!clerkOrgId || !env.CLERK_SECRET_KEY || !plan) return;
+  try {
+    await applyClerkSeatLimit(env, env.CLERK_SECRET_KEY, masterDb, clerkOrgId, workspaceId, plan, seats);
+  } catch (err) {
+    console.error(`[Clerk Sync] Failed to sync seat limit after ${context}:`, err);
+  }
+}
+
 // ============================================================================
 // Get member count
 // ============================================================================
