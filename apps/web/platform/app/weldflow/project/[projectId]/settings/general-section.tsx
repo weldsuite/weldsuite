@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
+import { Textarea } from '@weldsuite/ui/components/textarea';
+import { normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
 import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -59,7 +61,9 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
         setName(p.name || '');
         setOriginalName(p.name || '');
         setDescription(p.description || '');
-        setStatus(p.status || 'Planning');
+        // Older rows were stored lowercase ("planning"); show them under the
+        // canonical option so the select is never blank.
+        setStatus(p.status ? normalizeProjectStatus(p.status) : 'Planning');
         setPriority(p.priority || 'medium');
         setDueDate(p.endDate ? new Date(p.endDate) : undefined);
         setColor(p.color || undefined);
@@ -98,7 +102,8 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
       try {
         const payload = {
           name: name.trim(),
-          description: description.trim() || undefined,
+          // Empty string (not undefined) so a cleared description is saved.
+          description: description.trim(),
           status,
           priority,
           endDate: dueDate ? dueDate.toISOString() : undefined,
@@ -141,6 +146,19 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={disabled}
+              className="focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="description" className="text-[13px]">{t.projects.settings.descriptionLabel}</Label>
+            <Textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={disabled}
+              rows={3}
+              placeholder={t.projects.settings.descriptionPlaceholder}
               className="focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>

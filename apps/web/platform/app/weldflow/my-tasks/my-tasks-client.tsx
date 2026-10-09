@@ -508,6 +508,8 @@ export function MyTasksClient({
     }
   }, [initialTasks]);
   const [showTaskDialog, setShowTaskDialog] = useState(false);
+  // Status preset for the create dialog (the board column it was opened from).
+  const [dialogDefaultStatus, setDialogDefaultStatus] = useState<Task['status'] | undefined>(undefined);
   const [showSubtaskDialog, setShowSubtaskDialog] = useState(false);
   // When the page provides controlled sort/filter/search props we defer to it
   // so the api-worker query is keyed off those values. Otherwise fall back to
@@ -669,6 +671,7 @@ export function MyTasksClient({
         fillNewTaskFromForm(newTask, data, selectedProject, availableAssignees);
         setTasks(prev => [newTask, ...prev]);
         setShowTaskDialog(false);
+        setDialogDefaultStatus(undefined);
         toast.success(t.projects.myTasks.taskCreated);
         void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });
       } else {
@@ -1596,7 +1599,9 @@ export function MyTasksClient({
             onTaskClick={(task) => setSelectedTask(task)}
             onStatusChange={handleStatusChange}
             onReorder={handlePipelineReorder}
-            onCreateTask={() => {
+            onCreateTask={(status) => {
+              // Preset the dialog's status to the column "New Task" was clicked in.
+              setDialogDefaultStatus(status);
               setShowTaskDialog(true);
             }}
             viewToggle={viewToggle}
@@ -1609,7 +1614,10 @@ export function MyTasksClient({
         open={showTaskDialog}
         onOpenChange={(open) => {
           setShowTaskDialog(open);
-          if (!open) setEditingCrmTask(null);
+          if (!open) {
+            setEditingCrmTask(null);
+            setDialogDefaultStatus(undefined);
+          }
         }}
         editingTask={editingCrmTask}
         availableAssignees={availableAssignees}
@@ -1617,6 +1625,7 @@ export function MyTasksClient({
         availableLabels={availableLabels}
         onCreateLabel={handleCreateLabel}
         defaultAssignee={userId || undefined}
+        defaultStatus={dialogDefaultStatus}
         defaultRecord={projects[0]?.id}
         recordLabel={t.projects.myTasks.selectProject}
         onSave={handleSaveTask}
@@ -1636,6 +1645,7 @@ export function MyTasksClient({
               setTasks(prev => prev.map(t => t.id === taskId ? ({ ...t, ...projectData } as Task) : t));
               setSelectedTask(prev => prev?.id === taskId ? ({ ...prev, ...projectData } as Task) : prev);
               setShowTaskDialog(false);
+              setDialogDefaultStatus(undefined);
               setEditingCrmTask(null);
               toast.success(t.projects.myTasks.taskUpdated);
               void queryClient.invalidateQueries({ queryKey: taskKeys.myTasks() });

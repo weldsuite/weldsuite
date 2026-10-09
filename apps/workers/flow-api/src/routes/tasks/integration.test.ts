@@ -316,6 +316,20 @@ describe('/api/tasks · numbering · pglite integration', () => {
       expect(body.data.some((t) => t.id === created.id)).toBe(true);
     }
   });
+
+  it('matches title search case-insensitively', async () => {
+    const created = await createTask('Recurring Only Findable');
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: db },
+    });
+
+    for (const q of ['recur', 'RECURRING', 'only findable']) {
+      const res = await request(`/api/tasks?search=${encodeURIComponent(q)}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: Array<{ id: string }> };
+      expect(body.data.some((t) => t.id === created.id)).toBe(true);
+    }
+  });
 });
 
 describe('/api/tasks · project list pagination · pglite integration', () => {

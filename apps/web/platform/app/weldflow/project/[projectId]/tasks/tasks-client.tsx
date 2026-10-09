@@ -1289,7 +1289,6 @@ export function TasksClient({
         { value: 'low', label: t.projects.tasks.priorityLow },
         { value: 'medium', label: t.projects.tasks.priorityMedium },
         { value: 'high', label: t.projects.tasks.priorityHigh },
-        { value: 'urgent', label: t.projects.tasks.priorityUrgent },
       ],
     },
     {
@@ -1297,7 +1296,26 @@ export function TasksClient({
       label: t.projects.tasks.filterLabel,
       options: availableLabels.map(l => ({ value: l.id, label: l.name })),
     },
-  ], [availableLabels, t]);
+    {
+      field: 'assignee',
+      label: t.projects.tasks.filterAssignee,
+      searchable: true,
+      options: projectMembers
+        .filter(m => m.user?.name)
+        .map(m => ({ value: m.userId, label: m.user!.name })),
+    },
+    {
+      field: 'dueDate',
+      label: t.projects.tasks.filterDueDate,
+      options: [
+        { value: 'overdue', label: t.projects.tasks.groupOverdue },
+        { value: 'today', label: t.projects.tasks.groupToday },
+        { value: 'this-week', label: t.projects.tasks.groupThisWeek },
+        { value: 'later', label: t.projects.tasks.groupLater },
+        { value: 'no-date', label: t.projects.tasks.groupNoDate },
+      ],
+    },
+  ], [availableLabels, projectMembers, t]);
 
   // Resolve a task to its pipeline stage. Prefer `stageId`; fall back to matching
   // the task's `status` against each stage's `systemStatus` (for legacy tasks that
@@ -1448,6 +1466,29 @@ export function TasksClient({
         result = filter.operator === 'is'
           ? result.filter(t => Array.isArray(t.labels) && t.labels.includes(filter.value))
           : result.filter(t => !Array.isArray(t.labels) || !t.labels.includes(filter.value));
+      } else if (filter.field === 'assignee') {
+        result = filter.operator === 'is'
+          ? result.filter(t => getTaskAssigneeIds(t).includes(filter.value))
+          : result.filter(t => !getTaskAssigneeIds(t).includes(filter.value));
+      } else if (filter.field === 'dueDate') {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const startOfTomorrow = new Date(startOfToday);
+        startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+        const startOfNextWeek = new Date(startOfToday);
+        startOfNextWeek.setDate(startOfNextWeek.getDate() + 7);
+        const inBucket = (t: Task): boolean => {
+          const due = t.dueDate;
+          switch (filter.value) {
+            case 'overdue': return !!due && due < startOfToday;
+            case 'today': return !!due && due >= startOfToday && due < startOfTomorrow;
+            case 'this-week': return !!due && due >= startOfTomorrow && due < startOfNextWeek;
+            case 'later': return !!due && due >= startOfNextWeek;
+            case 'no-date': return !due;
+            default: return true;
+          }
+        };
+        result = filter.operator === 'is' ? result.filter(inBucket) : result.filter(t => !inBucket(t));
       }
     });
     return result;
@@ -2032,8 +2073,11 @@ export function TasksClient({
             onClick: () => setShowAddDialog(true),
           } : undefined,
         }}
-        noResultsState={{
-          title: t.projects.tasks.noTasksTitle,
+        noResultsState={searchQueryProp?.trim() ? {
+          title: t.projects.tasks.noTasksMatchTitle,
+          description: t.projects.tasks.noTasksMatchSearchDesc.replace('{query}', searchQueryProp.trim()),
+        } : {
+          title: t.projects.tasks.noTasksMatchTitle,
           description: t.projects.tasks.noResultsDesc,
         }}
       />

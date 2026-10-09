@@ -177,6 +177,12 @@ export type ProjectTaskFilters = {
   sortField?: 'title' | 'status' | 'priority' | 'dueDate' | 'assignee' | 'position' | 'createdAt';
   sortDirection?: 'asc' | 'desc';
   includeSubtasks?: boolean;
+  /** Negated ("is not") filters. */
+  excludeStatus?: string[];
+  excludePriority?: string[];
+  excludeLabelIds?: string[];
+  excludeAssigneeId?: string;
+  excludeDueDateBucket?: 'overdue' | 'today' | 'this-week' | 'later' | 'no-date';
 };
 
 export function useInfiniteProjectTasks(
@@ -195,6 +201,9 @@ export function useInfiniteProjectTasks(
         limit: pageSize,
         ...filters,
         labelIds: filters.labelIds && filters.labelIds.length > 0 ? filters.labelIds.join(',') : undefined,
+        excludeStatus: filters.excludeStatus?.length ? filters.excludeStatus.join(',') : undefined,
+        excludePriority: filters.excludePriority?.length ? filters.excludePriority.join(',') : undefined,
+        excludeLabelIds: filters.excludeLabelIds?.length ? filters.excludeLabelIds.join(',') : undefined,
       };
       if (pageParam) qs.cursor = pageParam;
       const query = buildQueryString(qs);
@@ -210,6 +219,10 @@ export function useInfiniteProjectTasks(
       return pagination.hasMore ? pagination.cursor : undefined;
     },
     enabled: !!projectId && enabled,
+    // Keep the current rows (and the page chrome) mounted while a new search /
+    // filter / sort refetches, but never show another project's tasks.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey.includes(projectId) ? previous : undefined,
   });
 }export function useProjectMembers(projectId: string, enabled = true) {
   const { getClient } = useAppApiClient();
