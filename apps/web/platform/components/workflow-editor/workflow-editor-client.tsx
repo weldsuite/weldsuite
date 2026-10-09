@@ -3496,7 +3496,7 @@ export function WorkflowEditorClient({
   // Fetch full agent definition when editing a sub-agent
   const { data: editSubAgentData } = useQuery({
     queryKey: ['ai-agent-detail', editSubAgentId],
-    queryFn: async (): Promise<{
+    queryFn: (): Promise<{
       name?: string;
       description?: string;
       systemPrompt?: string;
@@ -3509,7 +3509,7 @@ export function WorkflowEditorClient({
       integrationIds?: string[];
       integrationToolPermissions?: Record<string, string[]>;
       escalationRules?: { escalateOnFailure?: boolean; escalateOnMaxIterations?: boolean };
-    } | undefined> => undefined,
+    } | undefined> => Promise.resolve(undefined),
     enabled: false,
   });
 
