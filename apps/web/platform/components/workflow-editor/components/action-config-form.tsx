@@ -1553,7 +1553,7 @@ function GithubRepoField({
   effectiveIntegrationId,
   repos,
   reposLoading,
-}: {
+}: Readonly<{
   cf: {
     noConnection: string;
     connection: string;
@@ -1573,7 +1573,7 @@ function GithubRepoField({
   effectiveIntegrationId: string;
   repos: Array<{ id: number; fullName: string; private: boolean }>;
   reposLoading: boolean;
-}) {
+}>) {
   const repoValue = (config.repo as string | undefined) || '';
 
   return (
@@ -1643,7 +1643,7 @@ function GithubCreateIssueForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -1651,7 +1651,7 @@ function GithubCreateIssueForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.githubCreateIssue;
@@ -1714,7 +1714,7 @@ function GithubCreateCommentForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -1722,7 +1722,7 @@ function GithubCreateCommentForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const acf = t.weldconnect.actionConfigForm;
   const cf = acf.githubCreateComment;
@@ -1774,7 +1774,7 @@ function ColumnMappingEditor({
   onChange,
   labels,
   variableProps,
-}: {
+}: Readonly<{
   value: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
   labels: {
@@ -1791,7 +1791,7 @@ function ColumnMappingEditor({
     extraVariableGroups?: VariableGroup[];
     excludeGroups?: string[];
   };
-}) {
+}>) {
   const rows = Object.entries(value);
 
   function setRow(index: number, column: string, cellValue: string) {
@@ -1889,11 +1889,11 @@ function GoogleSheetsLocationFields({
   config,
   onChange,
   cf,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   cf: GoogleSheetsRowLabels;
-}) {
+}>) {
   const { data: connectionsData, isLoading: connectionsLoading } = useWorkflowIntegrations({
     type: 'google_sheets',
     status: 'connected',
@@ -1984,7 +1984,7 @@ function GoogleSheetsAppendRowForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -1992,7 +1992,7 @@ function GoogleSheetsAppendRowForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const cf = t.weldconnect.actionConfigForm.googleSheetsRow;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
@@ -2022,7 +2022,7 @@ function GoogleSheetsUpdateRowForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -2030,7 +2030,7 @@ function GoogleSheetsUpdateRowForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const cf = t.weldconnect.actionConfigForm.googleSheetsRow;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
@@ -2113,7 +2113,7 @@ function GmailSendEmailForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -2121,7 +2121,7 @@ function GmailSendEmailForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const cf = t.weldconnect.actionConfigForm.gmailSendEmail;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };
@@ -2217,7 +2217,7 @@ function GoogleCalendarCreateEventForm({
   workflowVariables = [],
   extraVariableGroups,
   excludeGroups,
-}: {
+}: Readonly<{
   config: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void;
   triggerType?: string;
@@ -2225,7 +2225,7 @@ function GoogleCalendarCreateEventForm({
   workflowVariables?: WorkflowVariable[];
   extraVariableGroups?: VariableGroup[];
   excludeGroups?: string[];
-}) {
+}>) {
   const { t } = useI18n();
   const cf = t.weldconnect.actionConfigForm.googleCalendarCreateEvent;
   const variableProps = { triggerType, steps, workflowVariables, extraVariableGroups, excludeGroups };

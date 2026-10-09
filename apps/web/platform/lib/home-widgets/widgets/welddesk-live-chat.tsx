@@ -44,7 +44,7 @@ function Render({ settings }: Readonly<{ settings: WelddeskLiveChatSettings }>) 
   return <DeskLiveChatCard rows={rows} isLoading={isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WelddeskLiveChatSettings; onChange: (next: WelddeskLiveChatSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WelddeskLiveChatSettings; onChange: (next: WelddeskLiveChatSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (
