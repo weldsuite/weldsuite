@@ -80,6 +80,7 @@ import {
 import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
 import { useCompany } from '@/components/objects/company/use-company-data';
 import { OPPORTUNITY_TABS, type OpportunityTab } from './opportunity-tabs';
+import { formatDealDate, formatDealMoney, getCurrencyOptions, resolveDealCurrency } from '@/lib/crm/deal-format';
 
 const OPPORTUNITY_PANEL_WIDTH = 400;
 
@@ -394,31 +395,17 @@ function MemberPropertyRow({
 
 // ─── Details body ──────────────────────────────────────────────────────────
 
-function formatMoney(amount: string | undefined, currency: string | undefined): string | null {
+function formatMoney(amount: string | undefined | null, currency: string | undefined | null): string | null {
   if (amount === undefined || amount === null || amount === '') return null;
   const n = Number(amount);
   if (!Number.isFinite(n)) return amount;
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency: currency || 'EUR',
-      maximumFractionDigits: 2,
-    }).format(n);
-  } catch {
-    return `${currency ?? ''} ${n.toFixed(2)}`.trim();
-  }
+  return formatDealMoney(n, currency, { fractionDigits: 2 });
 }
 
-// Matches the kanban card's close-date format (`deal-card.tsx`) plus a year,
-// so the same date doesn't read as "10/20/2026" here and "Oct 20" on the
-// card (TASK-920).
+// One close-date format for the card, the Company pipeline tab and this
+// panel (TASK-920), shared via `lib/crm/deal-format`.
 function formatDate(iso: string | undefined): string | null {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return iso;
-  }
+  return formatDealDate(iso);
 }
 
 export function OpportunityDetailsTab({
@@ -448,12 +435,15 @@ export function OpportunityDetailsTab({
     (value: string) =>
       pipelineStages.find((s) => s.id === value)?.name ??
       legacyStageOptions.find((o) => o.value === value)?.label ??
-      value,
-    [pipelineStages, legacyStageOptions],
+      // Never flash a raw stage id while the pipeline's stages are loading.
+      (stagesResult ? value : '…'),
+    [pipelineStages, legacyStageOptions, stagesResult],
   );
   const pipelineName =
     pipelinesResult?.data?.find((p) => p.id === opportunity.pipeline)?.name ??
-    opportunity.pipeline;
+    (pipelinesResult ? opportunity.pipeline : null);
+  const currencyOptions = useMemo(() => getCurrencyOptions(), []);
+  const dealCurrency = resolveDealCurrency(opportunity.currency);
   return (
     <div className="p-4 space-y-1">
       <PropertyRow
@@ -493,27 +483,35 @@ export function OpportunityDetailsTab({
             ? String(opportunity.probability)
             : null
         }
+        renderValue={(v) => (v ? `${v}%` : null)}
         onSave={(v) => {
-          const n = v ? Number(v) : null;
-          onUpdateField({ probability: n === null || Number.isNaN(n) ? undefined : n });
+          const n = v ? Number(v.replace('%', '').trim()) : null;
+          if (n === null || !Number.isFinite(n)) return;
+          // Probability is a whole percentage between 0 and 100.
+          onUpdateField({ probability: Math.min(100, Math.max(0, Math.round(n))) });
         }}
       />
       <PropertyRow
         icon={PiggyBank}
         label={t('sweep.entities.fieldAmount')}
-        value={formatMoney(opportunity.amount, opportunity.currency)}
+        value={opportunity.amount}
+        renderValue={(v) => formatMoney(v, opportunity.currency)}
         onSave={(v) => {
           if (!v) return;
-          const cleaned = v.replace(/[^0-9.-]/g, '');
-          if (!cleaned) return;
-          onUpdateField({ amount: cleaned });
+          // Edited as the raw number (not the locale-formatted money string),
+          // and never negative: a deal value below zero is a data-entry slip.
+          const n = Number(v.replace(/[^0-9.-]/g, ''));
+          if (!Number.isFinite(n) || n < 0) return;
+          onUpdateField({ amount: String(n) });
         }}
       />
-      <PropertyRow
+      <SelectPropertyRow
         icon={PiggyBank}
         label={t('sweep.entities.fieldCurrency')}
-        value={opportunity.currency}
-        onSave={(v) => onUpdateField({ currency: (v ?? 'EUR').toUpperCase() })}
+        value={dealCurrency}
+        options={currencyOptions}
+        onChange={(v) => onUpdateField({ currency: v })}
+        renderBadge={(v) => <StageBadge label={currencyOptions.find((o) => o.value === v)?.label ?? v} />}
       />
       <PropertyRow
         icon={Calendar}

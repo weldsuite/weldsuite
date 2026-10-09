@@ -12,7 +12,7 @@
  */
 
 import { Hono } from 'hono';
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -248,7 +248,9 @@ app.get('/onboarding-checklist', async (c) => {
     const db = c.get('tenantDb');
     const {
       workspaceSettings,
-      people: contacts,
+      companies,
+      people,
+      crmActivities,
       crmPipelines,
       helpdeskDepartments,
       mailAccounts,
@@ -279,9 +281,9 @@ app.get('/onboarding-checklist', async (c) => {
       // workspace_settings may not exist yet.
     }
 
-    async function hasRows(table: any, deletedAtCol?: any): Promise<boolean> {
+    async function hasRows(table: any, deletedAtCol?: any, ...extra: any[]): Promise<boolean> {
       try {
-        const conditions = deletedAtCol ? [isNull(deletedAtCol)] : [];
+        const conditions = [...(deletedAtCol ? [isNull(deletedAtCol)] : []), ...extra];
         const [result] = await db
           .select({ count: sql<number>`count(*)::int` })
           .from(table)
@@ -294,7 +296,10 @@ app.get('/onboarding-checklist', async (c) => {
     }
 
     const [
-      hasContacts,
+      hasCrmCompanies,
+      hasCrmPeople,
+      hasCrmNotes,
+      hasCrmTasks,
       hasPipelines,
       hasDepartments,
       hasMailAccounts,
@@ -307,7 +312,18 @@ app.get('/onboarding-checklist', async (c) => {
       hasSocialAccounts,
       memberCount,
     ] = await Promise.all([
-      hasRows(contacts, contacts.deletedAt),
+      // CRM checklist items count CRM data only: companies, people flagged
+      // `in_crm` (never mail/helpdesk auto-created contacts or WeldBooks
+      // accounting contacts), `note` activities and tasks linked to a
+      // company or person (the CRM My Tasks scope).
+      hasRows(companies, companies.deletedAt),
+      hasRows(people, people.deletedAt, eq(people.inCrm, true)),
+      hasRows(crmActivities, crmActivities.deletedAt, eq(crmActivities.type, 'note')),
+      hasRows(
+        tasks,
+        tasks.deletedAt,
+        or(isNotNull(tasks.customerId), isNotNull(tasks.personId), isNotNull(tasks.contactId)),
+      ),
       hasRows(crmPipelines, crmPipelines.deletedAt),
       hasRows(helpdeskDepartments, helpdeskDepartments.deletedAt),
       hasRows(mailAccounts, mailAccounts.deletedAt),
@@ -332,7 +348,10 @@ app.get('/onboarding-checklist', async (c) => {
     ]);
 
     const items: Record<string, boolean> = {
-      crm_contact_created: hasContacts,
+      crm_customer_created: hasCrmCompanies,
+      crm_contact_created: hasCrmPeople,
+      crm_note_created: hasCrmNotes,
+      crm_task_created: hasCrmTasks,
       crm_pipeline_created: hasPipelines,
       helpdesk_department_created: hasDepartments,
       mail_account_connected: hasMailAccounts,

@@ -87,6 +87,25 @@ function mapPerson(p: ApiPerson, untitledLabel: string): SelectableRecord {
   return { id: p.id, kind: 'person', displayName, email: p.email, avatarUrl: p.avatarUrl };
 }
 
+const RECORD_FETCH_TIMEOUT_MS = 15_000;
+
+/** Rejects when `promise` has not settled within `ms`, so a hung request cannot spin forever. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Record search timed out')), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
 function recordRowStateClass(isAlready: boolean, isMultiChecked: boolean, isHighlighted: boolean): string {
   if (isAlready) return 'opacity-50 cursor-not-allowed';
   if (isMultiChecked) return 'bg-primary/5 dark:bg-primary/10';
@@ -157,17 +176,31 @@ export function RecordSelectionModal({
     [multiSelect, onSelectRecord, toggleSelection],
   );
 
+  // The fetch effect must depend only on what changes the query. `getClient`
+  // and `t` are read through refs: when either identity changed mid-request the
+  // old request was aborted without ever clearing the loading flag, leaving
+  // the list stuck on "Searching...".
+  const getClientRef = useRef(getClient);
+  const tRef = useRef(t);
+  useEffect(() => {
+    getClientRef.current = getClient;
+    tRef.current = t;
+  }, [getClient, t]);
+  // Only the latest request may touch state; stale or closed-over runs are ignored.
+  const fetchSeq = useRef(0);
+
   useEffect(() => {
     if (!open) return;
-    const controller = new AbortController();
+    const seq = ++fetchSeq.current;
+    const trimmedQuery = searchQuery.trim();
+    setIsLoading(true);
     const fetchRecords = async () => {
-      setIsLoading(true);
       try {
-        const client = await getClient();
-        const searchParam = searchQuery.trim()
-          ? `&search=${encodeURIComponent(searchQuery.trim())}`
-          : '';
-        const [companiesRes, peopleRes] = await Promise.all([
+        const client = await getClientRef.current();
+        const searchParam = trimmedQuery ? `&search=${encodeURIComponent(trimmedQuery)}` : '';
+        // Without a search the API returns the most recently created first, so
+        // an empty query shows recent companies and people.
+        const request = Promise.all([
           kind === 'person'
             ? Promise.resolve({ data: [] as ApiCompany[] })
             : client.get<{ data?: ApiCompany[] }>(`/companies?limit=50${searchParam}`),
@@ -178,32 +211,34 @@ export function RecordSelectionModal({
             // record pickers like this one either.
             : client.get<{ data?: ApiPerson[] }>(`/people?limit=50&inCrm=true${searchParam}`),
         ]);
-        if (controller.signal.aborted) return;
-        const untitledCompanyLabel = t('sweep.entities.untitledCompany');
-        const untitledPersonLabel = t('sweep.entities.untitledPerson');
+        const [companiesRes, peopleRes] = await withTimeout(request, RECORD_FETCH_TIMEOUT_MS);
+        if (seq !== fetchSeq.current) return;
+        const untitledCompanyLabel = tRef.current('sweep.entities.untitledCompany');
+        const untitledPersonLabel = tRef.current('sweep.entities.untitledPerson');
         const next: SelectableRecord[] = [
           ...(companiesRes.data ?? []).map((c) => mapCompany(c, untitledCompanyLabel)),
           ...(peopleRes.data ?? []).map((p) => mapPerson(p, untitledPersonLabel)),
         ];
         setRecords(next);
       } catch (err) {
-        if (!controller.signal.aborted) {
+        if (seq === fetchSeq.current) {
           console.error('Failed to fetch records:', err);
           setRecords([]);
         }
       } finally {
-        if (!controller.signal.aborted) setIsLoading(false);
+        if (seq === fetchSeq.current) setIsLoading(false);
       }
     };
-    const timeoutId = setTimeout(fetchRecords, 300);
-    return () => {
-      clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [searchQuery, open, getClient, kind, t]);
+    // Debounce typing, but load the recent records right away on open.
+    const timeoutId = setTimeout(fetchRecords, trimmedQuery ? 300 : 0);
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, open, kind]);
 
   useEffect(() => {
     if (!open) {
+      // Drop any in-flight request so it cannot leave the list "loading".
+      fetchSeq.current++;
+      setIsLoading(false);
       setSearchQuery('');
       setSelectedIndex(0);
       setKeyboardActive(false);
@@ -291,7 +326,7 @@ export function RecordSelectionModal({
   ) : null;
 
   let listContent: ReactNode;
-  if (isLoading) {
+  if (isLoading && records.length === 0) {
     listContent = (
       <div className="flex items-center justify-center py-12 gap-3">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -311,7 +346,7 @@ export function RecordSelectionModal({
     );
   } else {
     listContent = (
-      <div ref={listRef} className="flex flex-col gap-0.5">
+      <div ref={listRef} className={cn('flex flex-col gap-0.5', isLoading && 'opacity-60')}>
         {records.map((record, index) => {
           const isAlready = existingIds.includes(record.id);
           const isChecked = selectedIds.has(record.id);
@@ -321,7 +356,7 @@ export function RecordSelectionModal({
             variant="ghost"
             disabled={isAlready}
             className={cn(
-              'group w-full flex items-center gap-2.5 min-w-0 px-4 py-1.5 transition-colors text-left',
+              'group w-full h-auto flex items-center justify-start gap-2.5 min-w-0 px-4 py-1.5 transition-colors text-left font-normal',
               recordRowStateClass(isAlready, multiSelect && isChecked, keyboardActive && selectedIndex === index),
             )}
             onMouseEnter={() => {
@@ -336,7 +371,7 @@ export function RecordSelectionModal({
                 className="pointer-events-none flex-shrink-0 rounded-[5px] data-[state=checked]:bg-primary data-[state=checked]:border-primary"
               />
             )}
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <div className="pointer-events-none flex items-center gap-1.5 min-w-0 flex-1">
               <Avatar className="h-[22px] w-[22px] rounded-md border border-border flex-shrink-0">
                 <AvatarImage src={record.avatarUrl} />
                 <AvatarFallback className="rounded-md bg-muted text-[10px] font-medium">
@@ -349,7 +384,7 @@ export function RecordSelectionModal({
             </div>
 
             {record.email && (
-              <span className="text-[12px] text-muted-foreground truncate flex-shrink-0 max-w-[40%]">
+              <span className="pointer-events-none text-[12px] text-muted-foreground truncate flex-shrink-0 max-w-[40%]">
                 {record.email}
               </span>
             )}
@@ -357,7 +392,7 @@ export function RecordSelectionModal({
             {!kind && (
               <span
                 className={cn(
-                  'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none flex-shrink-0',
+                  'pointer-events-none inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none flex-shrink-0',
                   record.kind === 'person'
                     ? 'bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400'
                     : 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400',

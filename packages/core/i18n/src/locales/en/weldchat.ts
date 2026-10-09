@@ -669,6 +669,8 @@ export const weldchat = {
     incomingCall: {
       incomingVideo: 'Incoming video call...',
       incomingVoice: 'Incoming voice call...',
+      accept: 'Accept',
+      decline: 'Decline',
     },
     dm: {
       selectConversation: 'Select a conversation or start a new one',

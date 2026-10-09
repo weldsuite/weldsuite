@@ -57,10 +57,14 @@ export function useTemplatePicker(entityType: string): UseTemplatePickerResult {
   );
 
   const activeSlugs = useMemo(() => {
-    const fallback = getDefaultSlugs(entityType);
+    // The default tab shows the built-in defaults plus EVERY custom field the
+    // workspace defined for this object (Settings > Custom Fields), so they are
+    // fillable at creation. A picked template shows exactly its own fields.
+    const customSlugs = (customFields ?? []).map((cf) => `cf:${cf.slug}`);
+    const fallback = [...getDefaultSlugs(entityType), ...customSlugs];
     if (!templateId) return fallback;
     return projected.find((t) => t.id === templateId)?.fields ?? fallback;
-  }, [entityType, templateId, projected]);
+  }, [entityType, templateId, projected, customFields]);
 
   const requiredSlugs = useMemo(() => {
     const builtin = getRequiredBuiltinSlugs(entityType);
@@ -85,7 +89,7 @@ export function useTemplatePicker(entityType: string): UseTemplatePickerResult {
         if (slug.startsWith('cf:')) {
           const key = slug.slice(3);
           const v = customValues[key];
-          if (v !== undefined && v !== '') cf[key] = v;
+          if (v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)) cf[key] = v;
         } else {
           const v = values[slug];
           if (v !== undefined && v !== '') payload[slug] = v;

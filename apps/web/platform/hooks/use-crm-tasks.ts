@@ -6,6 +6,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { calendarKeys } from '@/hooks/queries/use-calendar-queries';
 import { toast } from 'sonner';
 import { withQuery } from '@/lib/with-query';
+import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
 
 export interface Task {
   id: string;
@@ -183,6 +184,7 @@ export function useCreateTask() {
     onSuccess: (result) => {
       if (result.success) {
         queryClient.invalidateQueries({ queryKey: crmTasksKeys.all });
+        invalidateOnboardingChecklist(queryClient);
         // Every created task gets a calendar block: refresh the calendar now
         // instead of on the next reload.
         queryClient.invalidateQueries({ queryKey: calendarKeys.all });

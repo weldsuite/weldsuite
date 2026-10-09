@@ -151,6 +151,128 @@ describe('companies service · pglite integration', () => {
     expect(second.changedRows[0]!.row.customFields).toEqual({ a: '1', b: '20', c: '3' });
   });
 
+  it('updateCompany accepts `version` as an alias of ifVersion and never writes it as a column', async () => {
+    const c = await createCompany(db, { name: 'Version Alias' });
+    await expect(
+      updateCompany(db, c.id, { name: 'Stale', version: 7 }),
+    ).rejects.toBeInstanceOf(CompanyVersionConflictError);
+
+    const ok = await updateCompany(db, c.id, { name: 'Fresh', version: 1 });
+    expect(ok?.row.version).toBe(2);
+    expect(ok?.row.name).toBe('Fresh');
+
+    // Omitting the version keeps the unconditional behaviour.
+    const unconditional = await updateCompany(db, c.id, { name: 'No Version Sent' });
+    expect(unconditional?.row.version).toBe(3);
+  });
+
+  it('a pinned-version update loses to a concurrent write (atomic WHERE version = ?)', async () => {
+    const c = await createCompany(db, { name: 'Race' });
+    const { companies } = schema;
+    // Two writers pinned to the same version: exactly one may win.
+    const results = await Promise.allSettled([
+      updateCompany(db, c.id, { name: 'Writer A', version: 1 }),
+      updateCompany(db, c.id, { name: 'Writer B', version: 1 }),
+    ]);
+    const won = results.filter((r) => r.status === 'fulfilled');
+    const lost = results.filter((r) => r.status === 'rejected');
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect((lost[0] as PromiseRejectedResult).reason).toBeInstanceOf(CompanyVersionConflictError);
+    const [row] = await db.select().from(companies).where(eq(companies.id, c.id));
+    expect(row?.version).toBe(2);
+  });
+
+  describe('customer status validation', () => {
+    it('rejects an unconfigured status on create and update, accepts built-ins and configured slugs', async () => {
+      await expect(createCompany(db, { name: 'Bad Status', status: 'bogus' })).rejects.toMatchObject({
+        name: 'InvalidStatusError',
+      });
+      const created = await createCompany(db, { name: 'Default Status Co' });
+      expect(created.status).toBe('prospect');
+      await expect(updateCompany(db, created.id, { status: 'bogus' })).rejects.toMatchObject({
+        name: 'InvalidStatusError',
+      });
+      const builtin = await updateCompany(db, created.id, { status: 'churned' });
+      expect(builtin?.row.status).toBe('churned');
+
+      await db.insert(schema.crmCustomerStatuses).values({
+        id: 'cs_vip_test',
+        name: 'VIP Partner',
+        slug: 'vip_partner',
+        color: 'purple',
+      });
+      const custom = await updateCompany(db, created.id, { status: 'vip_partner' });
+      expect(custom?.row.status).toBe('vip_partner');
+    });
+
+    it('bulkUpdateCompanies rejects an unconfigured status', async () => {
+      const c = await createCompany(db, { name: 'Bulk Status' });
+      await expect(
+        bulkUpdateCompanies(db, { companyIds: [c.id], updates: { status: 'bogus' } }),
+      ).rejects.toMatchObject({ name: 'InvalidStatusError' });
+    });
+  });
+
+  describe('importCompanies validation', () => {
+    it('reports bad rows per row instead of failing the batch, and keeps good rows', async () => {
+      const res = await importCompanies(db, [
+        { name: 'Import Good', website: 'good-import.com', employeeCount: '11-50' },
+        { name: 'Import Bad Website', website: 'not a url' },
+        { name: 'Import Bad Employees', employeeCount: 'abc' },
+        { name: 'Import Bad Status', status: 'bogus' },
+        { name: 'Import Bad Stage', lifecycleStage: 'nonsense' },
+        { name: 'Import Bad Email', email: 'nope' },
+      ]);
+      expect(res.total).toBe(6);
+      expect(res.imported).toBe(1);
+      expect(res.failed).toBe(5);
+      expect(res.errors.map((e) => e.row)).toEqual([2, 3, 4, 5, 6]);
+      expect(res.errors[0]!.error).toMatch(/Website must be a valid URL/);
+      expect(res.errors[1]!.error).toMatch(/Employees must be a number or a range/);
+      expect(res.errors[2]!.error).toMatch(/Unknown status "bogus"/);
+      expect(res.errors[3]!.error).toMatch(/Lifecycle stage must be one of/);
+      expect(res.errors[4]!.error).toMatch(/Email must be a valid email/);
+      // The good row was normalized exactly like createCompany would.
+      expect(res.changedRows[0]!.row.website).toBe('https://good-import.com');
+    });
+
+    it('accepts configured statuses by slug or display name, case-insensitively; blank status falls back to the default', async () => {
+      await db.insert(schema.crmCustomerStatuses).values({
+        id: 'cs_gold_test',
+        name: 'Gold Tier',
+        slug: 'gold_tier',
+        color: 'yellow',
+      });
+      const res = await importCompanies(db, [
+        { name: 'Status Slug Co', status: 'gold_tier' },
+        { name: 'Status Label Co', status: 'gold tier' },
+        { name: 'Status Builtin Co', status: 'Active' },
+        { name: 'Status Blank Co', status: '' },
+      ]);
+      expect(res.failed).toBe(0);
+      expect(res.changedRows.map((r) => r.row.status)).toEqual(['gold_tier', 'gold_tier', 'active', 'prospect']);
+    });
+
+    it('defaults ownerId to the importing user for new rows only', async () => {
+      const first = await importCompanies(
+        db,
+        [{ partyCode: 'IMP-OWNER-1', name: 'Owned By Importer' }],
+        { defaultOwnerId: 'user_importer' },
+      );
+      expect(first.changedRows[0]!.row.ownerId).toBe('user_importer');
+
+      // Re-importing as someone else updates the row but must not steal ownership.
+      const second = await importCompanies(
+        db,
+        [{ partyCode: 'IMP-OWNER-1', industry: 'Software' }],
+        { defaultOwnerId: 'user_someone_else' },
+      );
+      expect(second.updated).toBe(1);
+      expect(second.changedRows[0]!.row.ownerId).toBe('user_importer');
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Owner-scope isolation tests
   // ---------------------------------------------------------------------------

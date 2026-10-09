@@ -30,7 +30,7 @@ function isValidWebsiteValue(raw: string): boolean {
 
 const schema = z
   .object({
-    name: z.string().min(1, 'Name is required').max(255),
+    name: z.string().min(1).max(255),
     email: z.string().email().optional().or(z.literal('')),
     website: z
       .string()
@@ -52,7 +52,7 @@ const schema = z
       .refine((v) => !v || /^\d+(-\d+)?\+?$/.test(v), {
         message: 'Must be a number or a range (e.g. 42 or 11-50)',
       }),
-    customFields: z.record(z.string()).optional(),
+    customFields: z.record(z.unknown()).optional(),
   })
   .passthrough();
 
@@ -111,7 +111,11 @@ export function QuickAddCompanyForm({ initialName, onCreated, onCancel }: Readon
       />
 
       {form.formState.errors.name && (
-        <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
+        <p className="text-xs text-destructive">
+          {form.formState.errors.name.type === 'too_big'
+            ? t('crm.quickAddCompany.nameTooLong', { max: 255 })
+            : t('crm.quickAddCompany.nameRequired')}
+        </p>
       )}
       {form.formState.errors.website && (
         <p className="text-xs text-destructive">{form.formState.errors.website.message}</p>

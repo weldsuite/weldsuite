@@ -9,6 +9,7 @@ import { DEFAULT_PIPELINE_SETTINGS, type PipelineViewSettings } from '@/app/weld
 import { PageLoader } from '@/components/page-loader';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { toast } from 'sonner';
+import { resolveDealCurrency } from '@/lib/crm/deal-format';
 
 interface ServerPipelineKanbanProps {
   pipelineId?: string;
@@ -64,6 +65,9 @@ export function ServerPipelineKanban({ pipelineId }: ServerPipelineKanbanProps =
     // Look up customer data if customerId exists
     const customer = opp.customerId ? customerMap.get(opp.customerId) : null;
     const customerName = opp.customerName || customer?.name;
+    // The list endpoint left-joins the company: a deal whose company was
+    // deleted still shows up, labelled instead of linking to a dead record.
+    const companyDeleted = opp.companyDeleted === true;
 
     // Look up contact data if primaryContactId exists
     const contactData = opp.primaryContactId ? contactMap.get(opp.primaryContactId) : null;
@@ -73,7 +77,10 @@ export function ServerPipelineKanban({ pipelineId }: ServerPipelineKanbanProps =
       title: opp.name,
       value: (opp.amount ? Number(opp.amount) : undefined) || opp.value || 0,
       stage: opp.stageId || opp.stage,
-      company: (opp.customerId || customerName) ? {
+      currency: resolveDealCurrency(opp.currency, initialSettings.defaultCurrency),
+      company: companyDeleted
+        ? { id: '', name: t('sweep.weldcrm.serverPipelineKanban.deletedCompany') }
+        : (opp.customerId || customerName) ? {
         id: opp.customerId,
         name: customerName || t('sweep.weldcrm.serverPipelineKanban.unknownCompany')
       } : undefined,

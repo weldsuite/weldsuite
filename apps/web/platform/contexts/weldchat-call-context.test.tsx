@@ -48,6 +48,7 @@ const realtime = vi.hoisted(() => ({
 const sounds = vi.hoisted(() => ({
   playCallJoinSound: vi.fn(),
   playCallLeaveSound: vi.fn(),
+  playIncomingRingSound: vi.fn(),
   playMuteSound: vi.fn(),
   playUnmuteSound: vi.fn(),
   playCameraToggleSound: vi.fn(),
@@ -416,7 +417,6 @@ describe('WeldChatCallProvider · in-call toggles', () => {
   });
 });
 
-
 describe('WeldChatCallProvider · an incoming call', () => {
   it('rings as before when the user is idle', () => {
     mountChat();
@@ -436,6 +436,8 @@ describe('WeldChatCallProvider · an incoming call', () => {
     expect(call.status).toBe('connected');
     expect(call.callId).toBe('call_1');
     expect(call.meeting).not.toBeNull();
+    // The ringtone only plays for an idle user, never over the live call.
+    expect(sounds.playIncomingRingSound).not.toHaveBeenCalled();
   });
 
   it('does not ring for the call the user is already in', async () => {
@@ -706,5 +708,45 @@ describe('WeldChatCallProvider · dropped for another call', () => {
     emit('roomLeft', { state: 'kicked' });
 
     expect(toast.info).not.toHaveBeenCalled();
+  });
+});
+
+describe('WeldChatCallProvider · the incoming call ringtone', () => {
+  /** Mount the provider idle and deliver a `call_incoming` event on the user topic. */
+  function ringIncoming() {
+    mountChat();
+    publish('call_incoming', { callId: 'call_9', channelId: 'ch_9', callType: 'voice', callerName: 'Sam' });
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rings on a loop while the popup is up, and goes quiet after 30s', () => {
+    vi.useFakeTimers();
+    ringIncoming();
+    expect(call.status).toBe('ringing-incoming');
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
+
+    act(() => vi.advanceTimersByTime(2600 * 2));
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(3);
+
+    act(() => vi.advanceTimersByTime(60_000));
+    const ringsAt30s = sounds.playIncomingRingSound.mock.calls.length;
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(ringsAt30s);
+    expect(call.status).toBe('ringing-incoming');
+  });
+
+  it('stops ringing as soon as the call is declined', async () => {
+    vi.useFakeTimers();
+    ringIncoming();
+    await act(async () => {
+      await call.declineCall();
+    });
+    expect(call.status).toBe('idle');
+
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
   });
 });

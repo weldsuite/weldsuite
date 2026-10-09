@@ -17,42 +17,50 @@ export function IncomingCallToast() {
   if (!incomingCall) return null;
 
   const isVideo = incomingCall.callType === 'video';
+  const CallIcon = isVideo ? Video : Phone;
 
   return (
-    <div data-testid="incoming-call-toast" className="fixed top-4 right-4 z-[60] w-80 bg-background border rounded-xl shadow-2xl p-4 animate-in slide-in-from-top-2">
-      <div className="flex items-center gap-3 mb-4">
-        <Avatar className="h-12 w-12">
+    <div
+      data-testid="incoming-call-toast"
+      className="fixed top-4 right-4 z-[60] w-80 rounded-lg border bg-background p-4 text-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-2"
+    >
+      <div className="flex items-center gap-3">
+        <Avatar className="size-10 !rounded-[12px]">
           {incomingCall.callerAvatar && (
-            <AvatarImage src={incomingCall.callerAvatar} />
+            <AvatarImage src={incomingCall.callerAvatar} className="!rounded-[12px]" />
           )}
-          <AvatarFallback className="text-lg">
+          <AvatarFallback className="!rounded-[12px] text-sm font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
             {incomingCall.callerName[0]?.toUpperCase() ?? '?'}
           </AvatarFallback>
         </Avatar>
-        <div>
-          <p className="font-semibold">{incomingCall.callerName}</p>
-          <p className="text-sm text-muted-foreground">
-            {isVideo ? t.weldchat.incomingCall.incomingVideo : t.weldchat.incomingCall.incomingVoice}
+        <div className="grid min-w-0 flex-1 gap-1">
+          <p className="truncate text-sm leading-none font-medium">{incomingCall.callerName}</p>
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <CallIcon className="size-3.5 shrink-0" />
+            <span className="truncate">
+              {isVideo ? t.weldchat.incomingCall.incomingVideo : t.weldchat.incomingCall.incomingVoice}
+            </span>
           </p>
         </div>
       </div>
-      <div className="flex items-center justify-center gap-4">
+      <div className="mt-4 grid grid-cols-2 gap-2">
         <Button
           variant="destructive"
-          size="icon"
-          className="h-12 w-12 rounded-full"
+          size="sm"
           data-testid="incoming-call-decline"
           onClick={declineCall}
         >
-          <PhoneOff className="h-5 w-5" />
+          <PhoneOff />
+          {t.weldchat.incomingCall.decline}
         </Button>
         <Button
-          className="h-12 w-12 rounded-full bg-green-600 hover:bg-green-700"
-          size="icon"
+          size="sm"
+          className="bg-green-600 text-white hover:bg-green-700"
           data-testid="incoming-call-accept"
           onClick={acceptIncomingCall}
         >
-          {isVideo ? <Video className="h-5 w-5" /> : <Phone className="h-5 w-5" />}
+          <CallIcon />
+          {t.weldchat.incomingCall.accept}
         </Button>
       </div>
     </div>

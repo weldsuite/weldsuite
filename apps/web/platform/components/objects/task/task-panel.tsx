@@ -64,6 +64,7 @@ import {
   useProjectTasksForDeps,
   useTaskById,
   useTaskCompanyOptions,
+  useTaskPersonOptions,
   useTaskComments,
   useTaskSubtasks,
   useToggleSubtask,
@@ -124,6 +125,14 @@ function toCrmTask(
           id: api.linkedCompany.id,
           name: api.linkedCompany.name,
           avatar: api.linkedCompany.avatar ?? undefined,
+        }
+      : null,
+    // `personId` resolved server-side to the CRM person (id, name, avatar).
+    linkedPerson: api.linkedPerson
+      ? {
+          id: api.linkedPerson.id,
+          name: api.linkedPerson.name,
+          avatar: api.linkedPerson.avatar ?? undefined,
         }
       : null,
     duration: api.duration ?? undefined,
@@ -298,8 +307,11 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
 
   // The CRM record link belongs to tasks outside a project (CRM My Tasks).
   // It is always shown there, and for a project task that happens to carry one.
-  const showCompanyField = !!task && (!projectId || !!task.linkedCompany);
+  const showCompanyField = !!task && (!projectId || !!task.linkedCompany || !!task.linkedPerson);
   const companyOptionsQuery = useTaskCompanyOptions(showCompanyField);
+  // Outside a project the field is a CRM record picker: companies and people.
+  const showPeopleOptions = showCompanyField && !projectId;
+  const personOptionsQuery = useTaskPersonOptions(showPeopleOptions);
   const availableCompanies = useMemo(() => {
     const options = new Map<string, { id: string; name: string; avatar?: string }>();
     if (task?.linkedCompany) {
@@ -311,6 +323,19 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     }
     return Array.from(options.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [task?.linkedCompany, companyOptionsQuery.data]);
+  const availablePeople = useMemo(() => {
+    if (!showPeopleOptions) return undefined;
+    const options = new Map<string, { id: string; name: string; avatar?: string }>();
+    if (task?.linkedPerson) {
+      options.set(task.linkedPerson.id, task.linkedPerson);
+    }
+    for (const person of personOptionsQuery.data ?? []) {
+      if (person.displayName) {
+        options.set(person.id, { id: person.id, name: person.displayName, avatar: person.avatarUrl ?? undefined });
+      }
+    }
+    return Array.from(options.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [showPeopleOptions, task?.linkedPerson, personOptionsQuery.data]);
 
   const availableAssignees = useMemo(() => {
     if (projectId && projectMembersQuery.data && projectMembersQuery.data.length > 0) {
@@ -423,7 +448,15 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     if (data.labels !== undefined) payload.labels = data.labels;
     if (data.repeat !== undefined) payload.repeat = data.repeat || null;
     if (data.customFields !== undefined) payload.customFields = data.customFields;
-    if (data.linkedCompany !== undefined) payload.customerId = data.linkedCompany?.id ?? null;
+    // A task links to a company OR a person: setting one clears the other.
+    if (data.linkedCompany !== undefined) {
+      payload.customerId = data.linkedCompany?.id ?? null;
+      if (data.linkedCompany) payload.personId = null;
+    }
+    if (data.linkedPerson !== undefined) {
+      payload.personId = data.linkedPerson?.id ?? null;
+      if (data.linkedPerson) payload.customerId = null;
+    }
     if (data.assignees !== undefined) {
       const ids = (data.assignees ?? []).map((a) => a.id).filter(Boolean);
       payload.assigneeIds = ids;
@@ -552,6 +585,10 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     openPanel({ type: 'task', id: targetTaskId, stack: true });
   }, [openPanel]);
 
+  const handleOpenRecord = useCallback((type: 'company' | 'person', recordId: string) => {
+    openPanel({ type, id: recordId, stack: true });
+  }, [openPanel]);
+
   const handleAddDependency = useCallback((targetTaskId: string, type: 'blocks' | 'blockedBy') => {
     const currentDeps = apiTask?.dependsOn ?? [];
     const currentBlocks = apiTask?.blocks ?? [];
@@ -648,6 +685,8 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onUpdate={handleUpdate}
             availableAssignees={availableAssignees}
             availableCompanies={availableCompanies}
+            availablePeople={availablePeople}
+            onOpenRecord={handleOpenRecord}
             alwaysShowFields={showCompanyField ? ['company'] : undefined}
             availableLabels={availableLabels}
             onCreateLabel={handleCreateLabel}

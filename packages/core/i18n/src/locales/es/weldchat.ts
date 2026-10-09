@@ -660,6 +660,8 @@ export const weldchat = {
     incomingCall: {
       incomingVideo: 'Videollamada entrante...',
       incomingVoice: 'Llamada de voz entrante...',
+      accept: 'Aceptar',
+      decline: 'Rechazar',
     },
     dm: {
       selectConversation: 'Selecciona una conversación o inicia una nueva',

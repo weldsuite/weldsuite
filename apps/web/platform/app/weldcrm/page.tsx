@@ -98,7 +98,7 @@ function makeTaskFilterMatcher(filter: ActiveFilter): ((task: Task) => boolean) 
     case 'status': return (t) => t.status === value;
     case 'assignee': return (t) => t.assignee?.name === value;
     case 'due date': return makeDueDateMatcher(value);
-    case 'company': return (t) => t.linkedCompany?.name === value;
+    case 'company': return (t) => (t.linkedCompany?.name ?? t.linkedPerson?.name) === value;
     case 'priority': return (t) => t.priority === value;
     case 'label': return (t) => Array.isArray(t.labels) && t.labels.includes(value);
     default: return null;
@@ -157,23 +157,34 @@ function toggleAssignee(
   return nextIds.map((id) => ({ id, name: directory.find((x) => x.id === id)?.name || '' }));
 }
 
-const CompanyPicker = React.memo(function CompanyPicker({
+const RecordPicker = React.memo(function RecordPicker({
   taskId,
   linkedCompany,
+  linkedPerson,
   availableCompanyObjects,
+  availablePersonObjects,
   onCustomerSearch,
   noRecordsLabel,
   searchPlaceholder,
+  companiesLabel,
+  peopleLabel,
   onSelect,
+  onSelectPerson,
 }: {
   taskId: string;
   linkedCompany: { id: string; name: string } | undefined;
+  linkedPerson: { id: string; name: string } | undefined;
   availableCompanyObjects: CompanyOption[];
+  availablePersonObjects: CompanyOption[];
   onCustomerSearch: (value: string) => void;
   noRecordsLabel: string;
   searchPlaceholder: string;
+  companiesLabel: string;
+  peopleLabel: string;
   onSelect: (taskId: string, company: { id: string; name: string }) => void;
+  onSelectPerson: (taskId: string, person: { id: string; name: string }) => void;
 }) {
+  const linkedRecord = linkedCompany ?? linkedPerson;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 250);
@@ -183,10 +194,11 @@ const CompanyPicker = React.memo(function CompanyPicker({
     onCustomerSearch(debouncedSearch);
   }, [debouncedSearch, open, onCustomerSearch]);
 
-  const selected = useMemo(
-    () => (linkedCompany ? availableCompanyObjects.find((c) => c.id === linkedCompany.id) : undefined),
-    [linkedCompany, availableCompanyObjects],
-  );
+  const selected = useMemo(() => {
+    if (linkedCompany) return availableCompanyObjects.find((c) => c.id === linkedCompany.id);
+    if (linkedPerson) return availablePersonObjects.find((p) => p.id === linkedPerson.id);
+    return undefined;
+  }, [linkedCompany, linkedPerson, availableCompanyObjects, availablePersonObjects]);
 
   return (
     <Popover
@@ -198,17 +210,17 @@ const CompanyPicker = React.memo(function CompanyPicker({
     >
       <PopoverTrigger asChild>
         <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow max-w-full text-left inline-flex items-center gap-1.5 min-w-0">
-          {linkedCompany?.name ? (
+          {linkedRecord?.name ? (
             <>
-              <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
+              <Avatar className={cn('h-5 w-5 flex-shrink-0', linkedCompany ? '!rounded-[7px]' : '!rounded-full')}>
                 {selected?.avatar && (
-                  <AvatarImage src={selected.avatar} alt={linkedCompany.name} className="!rounded-[7px]" />
+                  <AvatarImage src={selected.avatar} alt={linkedRecord.name} className={linkedCompany ? '!rounded-[7px]' : '!rounded-full'} />
                 )}
-                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                  {linkedCompany.name.charAt(0).toUpperCase()}
+                <AvatarFallback className={cn('text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground', linkedCompany ? '!rounded-[7px]' : '!rounded-full')}>
+                  {linkedRecord.name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-gray-600 dark:text-muted-foreground truncate">{linkedCompany.name}</span>
+              <span className="text-gray-600 dark:text-muted-foreground truncate">{linkedRecord.name}</span>
             </>
           ) : (
             <span className="text-gray-400">—</span>
@@ -230,35 +242,68 @@ const CompanyPicker = React.memo(function CompanyPicker({
               }}
             >
               <CommandEmpty>{noRecordsLabel}</CommandEmpty>
-              <CommandGroup className="px-1 py-1">
-                {availableCompanyObjects.map((company) => (
+              {availableCompanyObjects.length > 0 && (
+              <CommandGroup className="px-1 py-1" heading={companiesLabel}>
+                {availableCompanyObjects.map((record) => (
                   <CommandItem
-                    key={company.id}
-                    value={`${company.name} ${company.id}`}
+                    key={record.id}
+                    value={`${record.name} ${record.id}`}
                     onSelect={() => {
-                      onSelect(taskId, { id: company.id, name: company.name });
+                      onSelect(taskId, { id: record.id, name: record.name });
                       setOpen(false);
                     }}
                     className={cn(
                       'flex items-center justify-between gap-2 px-1.5',
-                      linkedCompany?.id === company.id && 'bg-accent text-accent-foreground',
+                      linkedCompany?.id === record.id && 'bg-accent text-accent-foreground',
                     )}
                   >
                     <span className="flex items-center gap-2 min-w-0 flex-1">
                       <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
-                        {company.avatar && (
-                          <AvatarImage src={company.avatar} alt={company.name} className="!rounded-[7px]" />
+                        {record.avatar && (
+                          <AvatarImage src={record.avatar} alt={record.name} className="!rounded-[7px]" />
                         )}
                         <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                          {company.name.charAt(0).toUpperCase()}
+                          {record.name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      <span className="truncate">{company.name}</span>
+                      <span className="truncate">{record.name}</span>
                     </span>
-                    {linkedCompany?.id === company.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
+                    {linkedCompany?.id === record.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
                   </CommandItem>
                 ))}
               </CommandGroup>
+              )}
+              {availablePersonObjects.length > 0 && (
+              <CommandGroup className="px-1 py-1" heading={peopleLabel}>
+                {availablePersonObjects.map((record) => (
+                  <CommandItem
+                    key={record.id}
+                    value={`${record.name} ${record.id}`}
+                    onSelect={() => {
+                      onSelectPerson(taskId, { id: record.id, name: record.name });
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      'flex items-center justify-between gap-2 px-1.5',
+                      linkedPerson?.id === record.id && 'bg-accent text-accent-foreground',
+                    )}
+                  >
+                    <span className="flex items-center gap-2 min-w-0 flex-1">
+                      <Avatar className="h-5 w-5 !rounded-[full] flex-shrink-0">
+                        {record.avatar && (
+                          <AvatarImage src={record.avatar} alt={record.name} className="!rounded-[full]" />
+                        )}
+                        <AvatarFallback className="!rounded-[full] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                          {record.name.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="truncate">{record.name}</span>
+                    </span>
+                    {linkedPerson?.id === record.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+              )}
             </CommandList>
           </Command>
         </PopoverContent>
@@ -392,10 +437,6 @@ export default function CrmTasksClient() {
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [tasks, companiesData]);
 
-  const availableCompanies = useMemo(
-    () => availableCompanyObjects.map((c) => c.name),
-    [availableCompanyObjects]
-  );
 
   const availablePersonObjects = useMemo(() => {
     const map = new Map<string, { id: string; name: string; avatar?: string }>();
@@ -412,12 +453,17 @@ export default function CrmTasksClient() {
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [tasks, peopleData]);
 
+  const availableRecordNames = useMemo(
+    () => Array.from(new Set([...availableCompanyObjects, ...availablePersonObjects].map((r) => r.name))),
+    [availableCompanyObjects, availablePersonObjects]
+  );
+
   // Filter configurations
   const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       field: 'company',
       label: t('crm.tasks.columns.company'),
-      options: availableCompanies.map(name => ({ value: name, label: name })),
+      options: availableRecordNames.map(name => ({ value: name, label: name })),
     },
     {
       field: 'status',
@@ -448,7 +494,7 @@ export default function CrmTasksClient() {
       options: availableLabels.map(l => ({ value: l.id, label: l.name })),
       getDisplayValue: (value) => availableLabels.find(l => l.id === value)?.name || value,
     },
-  ], [availableAssignees, availableCompanies, availableLabels, t, statusConfig, priorityConfig, dueDateConfig]);
+  ], [availableAssignees, availableRecordNames, availableLabels, t, statusConfig, priorityConfig, dueDateConfig]);
 
   // Group configurations
   const groupConfigs: GroupConfig<Task>[] = useMemo(() => {
@@ -502,11 +548,18 @@ export default function CrmTasksClient() {
         sortOrder: i + 1,
         filter: (t: Task) => t.linkedCompany?.id === c.id,
       }));
+      const personGroups: GroupConfig<Task>[] = availablePersonObjects.map((p, i) => ({
+        id: `person-${p.id}`,
+        label: p.name,
+        sortOrder: availableCompanyObjects.length + i + 1,
+        filter: (t: Task) => t.linkedPerson?.id === p.id,
+      }));
+      companyGroups.push(...personGroups);
       companyGroups.push({
         id: 'no-company',
         label: t('crm.tasks.groupBy.noCompany'),
-        sortOrder: availableCompanyObjects.length + 1,
-        filter: (t) => !t.linkedCompany,
+        sortOrder: availableCompanyObjects.length + availablePersonObjects.length + 1,
+        filter: (t) => !t.linkedCompany && !t.linkedPerson,
       });
       return companyGroups;
     }
@@ -556,7 +609,7 @@ export default function CrmTasksClient() {
         filter: (t) => !t.dueDate,
       },
     ];
-  }, [groupBy, t, statusConfig, priorityConfig, availableAssignees, availableCompanyObjects]);
+  }, [groupBy, t, statusConfig, priorityConfig, availableAssignees, availableCompanyObjects, availablePersonObjects]);
 
   const groupByOptions = [
     { value: 'dueDate' as const, label: t('crm.tasks.groupBy.options.dueDate') },
@@ -643,7 +696,11 @@ export default function CrmTasksClient() {
   }, [updateTaskMutation]);
 
   const handleLinkCompany = useCallback((taskId: string, company: { id: string; name: string }) => {
-    updateTaskMutation.mutate({ taskId, data: { linkedCompany: company } });
+    updateTaskMutation.mutate({ taskId, data: { linkedCompany: company, linkedPerson: null } });
+  }, [updateTaskMutation]);
+
+  const handleLinkPerson = useCallback((taskId: string, person: { id: string; name: string }) => {
+    updateTaskMutation.mutate({ taskId, data: { linkedPerson: person, linkedCompany: null } });
   }, [updateTaskMutation]);
 
   // The task detail panel is rendered globally and fetches its own data,
@@ -732,14 +789,19 @@ export default function CrmTasksClient() {
 
         {/* Company */}
         <div className="w-[140px]" role="presentation" onClick={(e) => e.stopPropagation()}>
-          <CompanyPicker
+          <RecordPicker
             taskId={task.id}
             linkedCompany={task.linkedCompany}
+            linkedPerson={task.linkedPerson}
             availableCompanyObjects={availableCompanyObjects}
+            availablePersonObjects={availablePersonObjects}
             onCustomerSearch={setCustomerSearch}
             noRecordsLabel={t('crm.tasks.noRecords')}
             searchPlaceholder={t('crm.tasks.searchRecords')}
+            companiesLabel={t('sweep.shared.recordCompanies')}
+            peopleLabel={t('sweep.shared.recordPeople')}
             onSelect={handleLinkCompany}
+            onSelectPerson={handleLinkPerson}
           />
         </div>
 
@@ -982,6 +1044,7 @@ export default function CrmTasksClient() {
                   dueDate: task.dueDate,
                   duration: task.duration,
                   linkedCompanyId: task.linkedCompany?.id,
+                  personId: task.linkedPerson?.id,
                   labels: task.labels,
                   repeat: task.repeat,
                 });
@@ -1002,7 +1065,7 @@ export default function CrmTasksClient() {
         </div>
       </div>
     );
-  }, [availableAssignees, availableLabels, availableCompanyObjects, setCustomerSearch, handleLinkCompany, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, t, statusConfig, priorityConfig, formatDate]);
+  }, [availableAssignees, availableLabels, availableCompanyObjects, setCustomerSearch, availablePersonObjects, handleLinkCompany, handleLinkPerson, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, t, statusConfig, priorityConfig, formatDate]);
 
   const handleSort = useCallback((columnId: string) => {
     setSortState(prev => {
@@ -1039,8 +1102,8 @@ export default function CrmTasksClient() {
           return aName.localeCompare(bName) * dir;
         }
         case 'company': {
-          const aName = (a.linkedCompany?.name || '').toLowerCase();
-          const bName = (b.linkedCompany?.name || '').toLowerCase();
+          const aName = (a.linkedCompany?.name || a.linkedPerson?.name || '').toLowerCase();
+          const bName = (b.linkedCompany?.name || b.linkedPerson?.name || '').toLowerCase();
           return aName.localeCompare(bName) * dir;
         }
         default:
