@@ -171,7 +171,9 @@ function getConfigSummary(actionType: string, config: ActionConfig): string[] {
   const summarize = Object.hasOwn(CONFIG_SUMMARIZERS, actionType)
     ? CONFIG_SUMMARIZERS[actionType]
     : undefined;
-  return summarize ? summarize(config) : [];
+  // Each line is its own list key, so a repeated line (e.g. a log message that
+  // reads like the level line) is shown once.
+  return summarize ? [...new Set(summarize(config))] : [];
 }
 
 export function ActionStepCard({
