@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockNoteEditor } from '@blocknote/core';
 import { en } from '@weldsuite/i18n/locales/en';
 import { schema, type SchemaEditor } from './schema';
@@ -6,11 +6,19 @@ import { filterSlashMenuItems, getPageLinkItems, getSlashMenuItems, type PageLin
 
 const strings = en.blockEditor;
 
+const mounted: SchemaEditor[] = [];
+
 function createEditor(): SchemaEditor {
   const editor = BlockNoteEditor.create({ schema });
   editor.mount(document.createElement('div'));
+  mounted.push(editor);
   return editor;
 }
+
+// ProseMirror's DOM observer flushes on a timer; unmount so it can't fire after jsdom is torn down.
+afterEach(() => {
+  for (const editor of mounted.splice(0)) editor.unmount();
+});
 
 function setup(pageLinks?: PageLinkSource) {
   const editor = createEditor();
