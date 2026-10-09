@@ -411,8 +411,7 @@ type CellValue = Row['data'][string];
 type CellRenderer = (field: Field, value: CellValue) => React.ReactNode;
 
 const MONO_CELL_STYLE: React.CSSProperties = { fontSize: '14px', fontFamily: 'monospace' };
-// Links sit above the cell's overlay edit button (see CellWrapper `interactiveContent`).
-const LINK_CELL_STYLE: React.CSSProperties = { position: 'relative', zIndex: 1, fontSize: '14px', color: '#3b82f6', textDecoration: 'none' };
+const LINK_CELL_STYLE: React.CSSProperties = { fontSize: '14px', color: '#3b82f6', textDecoration: 'none' };
 
 const renderDurationCell: CellRenderer = (_field, value) => (
   <span style={MONO_CELL_STYLE}>{value || "00:00:00"}</span>
@@ -800,9 +799,6 @@ const getEditInputType = (type: FieldType): "number" | "email" | "text" => {
   return "text";
 };
 
-// Field types whose cells render an external link.
-const LINK_FIELD_TYPES = new Set<FieldType>(["linkedin", "domain"]);
-
 const isEmptyValue = (value: unknown) => value === undefined || value === null || value === "";
 
 // Stable callback ref: focuses the inline cell editor once when it mounts
@@ -812,10 +808,8 @@ const focusOnMount = (el: HTMLInputElement | null) => {
 
 // Cell wrapper component that enforces 40px height. With `onClick` the whole cell
 // is a native button (so it is keyboard reachable); `label` names it when the
-// cell has no visible text. Content that is itself interactive (links) can't sit
-// inside a button, so `interactiveContent` renders the button as an overlay
-// behind the content instead, and `label` must name it.
-const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: () => void; label?: string; interactiveContent?: boolean; style?: React.CSSProperties }> = ({ children, onClick, label, interactiveContent, style }) => {
+// cell has no visible text.
+const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: () => void; label?: string; style?: React.CSSProperties }> = ({ children, onClick, label, style }) => {
   const boxStyle: React.CSSProperties = {
     height: '40px',
     width: '100%',
@@ -839,19 +833,6 @@ const CellWrapper: React.FC<{ children: React.ReactNode; onClick?: () => void; l
       {children}
     </span>
   );
-  if (onClick && interactiveContent) {
-    return (
-      <div style={{ ...boxStyle, position: 'relative' }}>
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={label}
-          style={{ position: 'absolute', inset: 0, background: 'transparent', border: 0, cursor: 'pointer' }}
-        />
-        {content}
-      </div>
-    );
-  }
   if (onClick) {
     return (
       <button
@@ -1409,12 +1390,10 @@ export default function TablePage() {
         </CellWrapper>
       );
     }
-    const hasLinks = LINK_FIELD_TYPES.has(field.type);
     return (
       <CellWrapper
         onClick={() => handleCellEdit(row.id, field.id, row.data[field.id])}
-        label={hasLinks || isEmptyValue(row.data[field.id]) ? field.name : undefined}
-        interactiveContent={hasLinks}
+        label={isEmptyValue(row.data[field.id]) ? field.name : undefined}
       >
         {renderCellContent(field, row.data[field.id], row.data)}
       </CellWrapper>

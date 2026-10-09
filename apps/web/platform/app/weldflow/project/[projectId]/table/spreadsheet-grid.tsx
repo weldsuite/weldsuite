@@ -973,10 +973,13 @@ export function SpreadsheetGrid({
   }, [getRawCellValue, commitValue, onSelectionEndChange]);
 
   useEffect(() => {
-    const up = () => {
+    // A cancelled gesture (pointercancel) ends the drag like a release but never
+    // commits a fill: only a real release applies it.
+    const finish = (commit: boolean) => {
       if (isFillDraggingRef.current) {
         isFillDraggingRef.current = false;
-        applyFill();
+        if (commit) applyFill();
+        else setFillDragEnd(null);
       }
       isDraggingRef.current = false;
       if (resizeStartRef.current) {
@@ -991,6 +994,8 @@ export function SpreadsheetGrid({
         rowResizeStartRef.current = null;
       }
     };
+    const up = () => finish(true);
+    const cancel = () => finish(false);
     const move = (e: PointerEvent) => {
       if (resizeStartRef.current) {
         const { col, startX, startWidth } = resizeStartRef.current;
@@ -1006,11 +1011,11 @@ export function SpreadsheetGrid({
       }
     };
     window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    window.addEventListener('pointercancel', cancel);
     window.addEventListener('pointermove', move);
     return () => {
       window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('pointercancel', cancel);
       window.removeEventListener('pointermove', move);
     };
   }, [applyFill, colWidths, sortedCols, onUpdateColumn]);
