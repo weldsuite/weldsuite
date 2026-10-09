@@ -1,5 +1,6 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
@@ -63,7 +64,7 @@ export function AnnouncementEditorClient({ announcementId }: Readonly<Announceme
   const { t } = useI18n();
   const st = useTranslations();
   const ta = t.helpdesk.announcements;
-  const titleRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useBreadcrumbs([
@@ -74,6 +75,7 @@ export function AnnouncementEditorClient({ announcementId }: Readonly<Announceme
 
   // Mock data - in real app, fetch from API based on announcementId
   const [title, setTitle] = useState('System Maintenance Scheduled for Next Week');
+  useAutosizeTextarea(titleRef, title);
   const [content, setContent] = useState('<p dir="ltr">Full announcement content here...</p><p dir="ltr"><br></p><p dir="ltr">This is where you can write your announcement content. The editor provides a clean, distraction-free writing experience similar to Notion.</p><p dir="ltr"><br></p><p dir="ltr">You can write multiple paragraphs, and the content will automatically expand as you type.</p>');
   const [author, setAuthor] = useState('Sarah Williams');
   const [category, setCategory] = useState<string>('company');
@@ -96,16 +98,7 @@ export function AnnouncementEditorClient({ announcementId }: Readonly<Announceme
 
   // Focus title on mount
   useEffect(() => {
-    if (titleRef.current) {
-      titleRef.current.focus();
-      // Set initial title content
-      if (title && titleRef.current.textContent !== title) {
-        titleRef.current.textContent = title;
-      }
-    }
-    // Mount-only: re-running on every `title` change would clobber the user's
-    // in-progress edits inside the contentEditable title element.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    titleRef.current?.focus();
   }, []);
 
   // Initialize content on mount only
@@ -122,12 +115,11 @@ export function AnnouncementEditorClient({ announcementId }: Readonly<Announceme
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const text = e.currentTarget.textContent || '';
-    setTitle(text);
+  const handleTitleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setTitle(e.target.value.replaceAll('\n', ''));
   };
 
-  const handleTitleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+  const handleTitleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (contentRef.current) {
@@ -543,28 +535,16 @@ export function AnnouncementEditorClient({ announcementId }: Readonly<Announceme
         )}
 
         {/* Title */}
-        <div
+        <textarea
           ref={titleRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleTitleInput}
+          rows={1}
+          value={title}
+          onChange={handleTitleChange}
           onKeyDown={handleTitleKeyDown}
-          role="textbox"
-          tabIndex={0}
-          aria-multiline="false"
+          placeholder={ta.untitled}
           aria-label={ta.untitled}
           dir="ltr"
-          className={cn(
-            "text-4xl font-bold outline-none mb-2 leading-[1.2]",
-            !title && "text-muted-foreground/40"
-          )}
-          data-placeholder={ta.untitled}
-          style={{
-            caretColor: 'currentColor',
-            direction: 'ltr',
-            unicodeBidi: 'normal',
-            textAlign: 'left',
-          }}
+          className="mb-2 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-4xl font-bold leading-[1.2] outline-none placeholder:text-muted-foreground/40"
         />
 
 
