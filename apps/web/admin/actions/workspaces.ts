@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
 import { guardWrite } from '@/lib/auth';
+import { recordConsoleAudit } from '@/lib/audit';
 import { getMasterDb, masterSchema } from '@/lib/db';
 import {
   getWorkspaceById,
@@ -66,6 +67,15 @@ export async function scheduleWorkspaceDeletion(
     })
     .where(eq(workspaces.id, workspaceId));
 
+  await recordConsoleAudit({
+    identity: guard.identity,
+    workspaceId,
+    action: 'workspace.deletion_schedule',
+    outcome: 'success',
+    reason: trimmedReason,
+    details: { deleteAt: deleteAt.toISOString() },
+  });
+
   // Warn the workspace owners (best-effort — never blocks the action).
   const emails = await getWorkspaceNotifyEmails(workspaceId);
   await sendDeletionScheduledEmail(emails, {
@@ -111,6 +121,14 @@ export async function cancelWorkspaceDeletion(
       updatedAt: new Date(),
     })
     .where(eq(workspaces.id, workspaceId));
+
+  await recordConsoleAudit({
+    identity: guard.identity,
+    workspaceId,
+    action: 'workspace.deletion_cancel',
+    outcome: 'success',
+    details: { scheduledDeletionAt: existing.scheduledDeletionAt },
+  });
 
   const emails = await getWorkspaceNotifyEmails(workspaceId);
   await sendDeletionCancelledEmail(emails, { workspaceName: existing.name });
