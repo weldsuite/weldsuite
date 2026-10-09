@@ -1107,23 +1107,20 @@ export function MyTasksClient({
     return (
       <div
         key={task.id}
-        role="button"
-        tabIndex={0}
-        onClick={() => setSelectedTask(task)}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setSelectedTask(task);
-          }
-        }}
         className={cn(
-          "flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group",
+          "relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group",
           task.status === 'done' && "opacity-50"
         )}
       >
+        {/* Row click target: stretched button; interactive cells sit above it */}
+        <button
+          type="button"
+          aria-label={task.title}
+          onClick={() => setSelectedTask(task)}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
         {/* Checkbox */}
-        <div className="w-4 flex-shrink-0" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-4 flex-shrink-0">
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}
@@ -1179,7 +1176,7 @@ export function MyTasksClient({
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[120px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("h-auto px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
@@ -1203,7 +1200,7 @@ export function MyTasksClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("h-auto px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1227,7 +1224,7 @@ export function MyTasksClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1262,7 +1259,7 @@ export function MyTasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[120px]">
           {(() => {
             // Derive full assignee list from assigneeIds + availableAssignees directory.
             // Falls back to enriched `assignees` or the single assignee when needed.
@@ -1392,7 +1389,7 @@ export function MyTasksClient({
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

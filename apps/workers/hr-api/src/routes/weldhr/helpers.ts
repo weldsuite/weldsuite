@@ -27,6 +27,19 @@ export function clientIp(c: HrContext): string | null {
   return c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() || null;
 }
 
+/** The R2 bucket declaration receipts live in. A missing binding is a deploy error, not a client one. */
+export function receiptBucket(c: HrContext): R2Bucket {
+  if (!c.env.STORAGE) throw new Error('hr-api is missing its STORAGE (R2) binding');
+  return c.env.STORAGE;
+}
+
+/** The tenant the request was authenticated into; the auth chain always sets it. */
+export function workspaceIdOf(c: HrContext): string {
+  const workspaceId = c.get('workspaceId');
+  if (!workspaceId) throw new Error('WeldHR route reached without a workspace');
+  return workspaceId;
+}
+
 /** Path parameter the route is known to declare; fails loudly if a route is renamed. */
 export function param(c: HrContext, name: string): string {
   const value = c.req.param(name);

@@ -123,7 +123,6 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
     const result = await forwardAndPersist(
       env, db, ORG, USER, original,
       { to: ['someone@example.com'], body: 'FYI' },
-      undefined,
       { dryRun: true },
     );
 
@@ -148,7 +147,6 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
     const result = await forwardAndPersist(
       env, db, ORG, USER, original,
       { to: ['someone@example.com'], excludeAttachmentIds: [removed] },
-      undefined,
       { dryRun: true },
     );
 
@@ -163,7 +161,6 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
     const result = await forwardAndPersist(
       env, db, ORG, USER, original,
       { to: ['someone@example.com'], body: 'FYI', timeZone: 'Europe/Amsterdam', locale: 'en-GB' },
-      undefined,
       { dryRun: true },
     );
 
@@ -187,7 +184,6 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
     const result = await forwardAndPersist(
       env, db, ORG, USER, original,
       { to: ['someone@example.com'], timeZone: 'Not/AZone' },
-      undefined,
       { dryRun: true },
     );
 
@@ -204,7 +200,6 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
     const result = await forwardAndPersist(
       env, db, ORG, USER, original,
       { to: ['someone@example.com'], body: 'Original attached', asAttachment: true },
-      undefined,
       { dryRun: true },
     );
 
@@ -224,7 +219,6 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
     const result = await forwardAndPersist(
       env, db, ORG, USER, original,
       { to: ['someone@example.com'], asAttachment: true },
-      undefined,
       { dryRun: true },
     );
 
@@ -243,7 +237,7 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
     stored.clear();
 
     await expect(
-      forwardAndPersist(env, db, ORG, USER, original, { to: ['someone@example.com'] }, undefined, {
+      forwardAndPersist(env, db, ORG, USER, original, { to: ['someone@example.com'] }, {
         dryRun: true,
       }),
     ).rejects.toMatchObject({ code: 'ATTACHMENT_NOT_IN_STORAGE' } satisfies Partial<MailSendError>);
@@ -259,7 +253,6 @@ describe('sendAndPersist · text/plain part and preview (TASK-903)', () => {
     const result = await sendAndPersist(
       env, db, ORG, USER, accountId,
       { to: ['someone@example.com'], subject: 'Formatting', body: html, htmlBody: html },
-      undefined,
       { dryRun: true },
     );
 
@@ -279,7 +272,6 @@ describe('sendAndPersist · text/plain part and preview (TASK-903)', () => {
     const result = await sendAndPersist(
       env, db, ORG, USER, accountId,
       { to: ['someone@example.com'], subject: 'Legacy client', body: '<p>Only <b>body</b></p>' },
-      undefined,
       { dryRun: true },
     );
 
@@ -294,7 +286,6 @@ describe('sendAndPersist · text/plain part and preview (TASK-903)', () => {
     const result = await sendAndPersist(
       env, db, ORG, USER, accountId,
       { to: ['someone@example.com'], subject: 'Html only', htmlBody: '<p>First</p><p>Second</p>' },
-      undefined,
       { dryRun: true },
     );
 

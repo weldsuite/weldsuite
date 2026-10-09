@@ -189,6 +189,10 @@ export function ProductCard({
   const productImages = toImageUrls(product.images);
   const imageUrl = product.imageUrl || productImages[0];
   const secondImage = productImages[1];
+  // Same fallback the product list and collection blocks use; a product with
+  // no handle or id (e.g. builder sample data) links to the catalogue instead.
+  const productSlug = product.handle || product.id;
+  const productHref = product.link || (productSlug ? `/products/${productSlug}` : '/products');
 
   const { formattedPrice, formattedComparePrice, onSale, isOutOfStock } = getPricing(product);
 
@@ -210,7 +214,7 @@ export function ProductCard({
     >
       {/* Image Container */}
       <div className={`relative ${imageRatioClass} overflow-hidden bg-gray-200 mb-4 ${imageShapeClass}`}>
-        <a href="#" className="block w-full h-full">
+        <a href={productHref} className="block w-full h-full">
           <ProductCardImages
             name={product.name}
             imageUrl={imageUrl}
@@ -281,7 +285,7 @@ export function ProductCard({
         )}
 
         {/* Product Name */}
-        <a href="#" className="group-hover:underline">
+        <a href={productHref} className="group-hover:underline">
           <h3 className={`${titleSizeClass} font-normal line-clamp-2`} style={{ color: textColor || '#111827' }}>
             {product.name}
           </h3>

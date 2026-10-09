@@ -148,7 +148,7 @@ plain JS objects. Every new user-visible string needs an entry in **both**
   applies branding, renders `PortalTopbar`, redirects to login on 401 — see
   `lib/client.ts`)
 - `app/[workspace]/(portal)/me/**` — employee pages (home, schedule, leave,
-  coaching, evaluations, tasks, performance)
+  declarations, coaching, evaluations, tasks, performance)
 - `app/[workspace]/(portal)/client/**` — client pages (overview, team member,
   milestones, requests)
 - `app/api/auth/*` — request/verify/select/logout route handlers; these are

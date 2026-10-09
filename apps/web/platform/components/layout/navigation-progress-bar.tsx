@@ -48,21 +48,23 @@ export function NavigationProgressBar() {
   if (phase === 'hidden') return null;
 
   return (
-    <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-0.5"
-      role="progressbar"
-      aria-label={t('sweep.shared.loadingPage')}
-      aria-valuemin={0}
-      aria-valuemax={100}
-    >
+    <>
+      {/* Native indeterminate <progress> carries the semantics for assistive
+          tech; the animated bar below is purely visual. */}
+      <progress className="sr-only" aria-label={t('sweep.shared.loadingPage')} />
       <div
-        className={cn(
-          'h-full rounded-r-full bg-primary',
-          phase === 'loading' &&
-            'animate-[nav-progress-advance_5s_cubic-bezier(0.2,0.8,0.4,1)_forwards]',
-          phase === 'done' && 'w-full opacity-0 transition-opacity duration-200',
-        )}
-      />
-    </div>
+        className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-0.5"
+        aria-hidden="true"
+      >
+        <div
+          className={cn(
+            'h-full rounded-r-full bg-primary',
+            phase === 'loading' &&
+              'animate-[nav-progress-advance_5s_cubic-bezier(0.2,0.8,0.4,1)_forwards]',
+            phase === 'done' && 'w-full opacity-0 transition-opacity duration-200',
+          )}
+        />
+      </div>
+    </>
   );
 }

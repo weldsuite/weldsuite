@@ -17,11 +17,11 @@ const entityTypeSchema = z
   .regex(/^[a-z][a-z0-9_]*$/, 'lowercase letters, digits, underscores');
 
 /**
- * Convenience type alias. Kept as `string` (not a narrow union) because the
- * universe of values is owned by the front-end registry, not this schema.
- * Callers that want a tighter type can intersect with their own union.
+ * Inferred from the slug schema, so it stays a plain `string` (not a narrow
+ * union): the universe of values is owned by the front-end registry, not this
+ * schema. Callers that want a tighter type can intersect with their own union.
  */
-export type ObjectTemplateEntityType = string;
+export type ObjectTemplateEntityType = z.infer<typeof entityTypeSchema>;
 
 export const objectTemplateSchema = z.object({
   id: z.string(),

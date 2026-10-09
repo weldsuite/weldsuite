@@ -6,12 +6,18 @@
  * never through the generic PATCH. Closed periods block all bookings dated
  * inside them (see services/accounting-guards.ts) and cannot be deleted.
  *
+ * GET /calendar and POST /generate build the periods of a fiscal year from the
+ * entity's setup: calendar months, or 4-4-5 week periods for a 52-53-week year
+ * (see calendar.ts).
+ *
  * Permissions: reports:read | reports:create | reports:update | reports:delete.
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { z } from 'zod';
+import { and, desc, eq, gte, isNull, like, lte, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -22,6 +28,8 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
+import { resolveEntityId } from '../../lib/entity-context';
+import { fiscalCalendarFor } from './calendar';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.fiscalPeriods;
@@ -67,6 +75,130 @@ app.get('/', requirePermission('reports:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/fiscal-periods] list failed:', err);
     return error.internal(c, 'Failed to list fiscal periods');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Period calendar of a fiscal year (month-based and 52-53-week entities).
+// Registered before /:id so "calendar" is not read as an id.
+// ---------------------------------------------------------------------------
+
+const calendarQuerySchema = z.object({
+  entityId: z.string().max(30).optional(),
+  fiscalYear: z.coerce.number().int().min(1990).max(2200),
+  includeQuarters: z.enum(['true', 'false']).optional(),
+  includeYear: z.enum(['true', 'false']).optional(),
+});
+
+const generateSchema = z.object({
+  entityId: z.string().max(30).optional(),
+  fiscalYear: z.number().int().min(1990).max(2200),
+  /** Also create the four quarters (they close and lock like months do). */
+  includeQuarters: z.boolean().optional(),
+  /** Also create one period for the whole fiscal year. */
+  includeYear: z.boolean().optional(),
+});
+
+async function calendarContext(c: Context<{ Bindings: Env; Variables: Variables }>, db: Database, requestedEntityId: string | undefined) {
+  const entityId = requestedEntityId ?? (await resolveEntityId(c, db));
+  if (!entityId) return { error: error.badRequest(c, 'No accounting entity resolved') } as const;
+  const [entity] = await db
+    .select()
+    .from(schema.entities)
+    .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
+    .limit(1);
+  if (!entity) return { error: error.notFound(c, 'Accounting entity', entityId) } as const;
+  return { entity } as const;
+}
+
+/** The existing, undeleted period rows of an entity that cover the same dates and type. */
+async function existingPeriods(db: Database, entityId: string, from: string, to: string) {
+  return db
+    .select()
+    .from(t)
+    .where(and(eq(t.entityId, entityId), isNull(t.deletedAt), gte(t.startDate, from), lte(t.endDate, to)));
+}
+
+// GET /calendar?fiscalYear=2026[&entityId=][&includeQuarters=true][&includeYear=true]
+// The periods of a fiscal year as the entity's setup defines them, and which of them exist already.
+app.get('/calendar', requirePermission('reports:read'), zValidator('query', calendarQuerySchema), async (c) => {
+  const db = c.get('tenantDb');
+  const q = c.req.valid('query');
+  try {
+    const ctx = await calendarContext(c, db, q.entityId);
+    if ('error' in ctx) return ctx.error;
+    const calendar = fiscalCalendarFor(ctx.entity, q.fiscalYear, {
+      includeQuarters: q.includeQuarters === 'true',
+      includeYear: q.includeYear === 'true',
+    });
+    const existing = await existingPeriods(db, ctx.entity.id, calendar.startDate, calendar.endDate);
+    return success(c, {
+      ...calendar,
+      entityId: ctx.entity.id,
+      periods: calendar.periods.map((period) => ({
+        ...period,
+        existingId:
+          existing.find((row) => row.startDate === period.startDate && row.endDate === period.endDate && row.type === period.type)?.id ?? null,
+      })),
+    });
+  } catch (err) {
+    console.error('[app-api/fiscal-periods] calendar failed:', err);
+    return error.internal(c, 'Failed to build the fiscal calendar');
+  }
+});
+
+// POST /generate { fiscalYear, entityId?, includeQuarters?, includeYear? }
+// Creates the (open) periods of a fiscal year that do not exist yet: calendar months for a
+// month-based entity, 4-4-5 periods for a 52-53-week one (the 53rd week in period 12).
+app.post('/generate', requirePermission('reports:create'), zValidator('json', generateSchema), async (c) => {
+  const db = c.get('tenantDb');
+  const data = c.req.valid('json');
+  try {
+    const ctx = await calendarContext(c, db, data.entityId);
+    if ('error' in ctx) return ctx.error;
+    const calendar = fiscalCalendarFor(ctx.entity, data.fiscalYear, {
+      includeQuarters: data.includeQuarters,
+      includeYear: data.includeYear,
+    });
+    const existing = await existingPeriods(db, ctx.entity.id, calendar.startDate, calendar.endDate);
+    const exists = (period: { startDate: string; endDate: string; type: string }) =>
+      existing.some((row) => row.startDate === period.startDate && row.endDate === period.endDate && row.type === period.type);
+
+    const now = new Date();
+    const created = calendar.periods
+      .filter((period) => !exists(period))
+      .map((period) => ({
+        id: generateId('fp'),
+        entityId: ctx.entity.id,
+        name: period.name,
+        type: period.type,
+        startDate: period.startDate,
+        endDate: period.endDate,
+        status: 'open',
+        createdAt: now,
+        updatedAt: now,
+      }));
+    if (created.length > 0) await db.insert(t).values(created);
+    for (const row of created) {
+      publishEntityEvent({ c, entityType: 'fiscal_period', entityId: row.id, action: 'created', data: { id: row.id, name: row.name, status: 'open', entityId: row.entityId } });
+    }
+    return success(
+      c,
+      {
+        entityId: ctx.entity.id,
+        fiscalYear: calendar.fiscalYear,
+        startDate: calendar.startDate,
+        endDate: calendar.endDate,
+        kind: calendar.kind,
+        weeks: calendar.weeks,
+        created,
+        skipped: calendar.periods.filter(exists).map((period) => ({ name: period.name, startDate: period.startDate, endDate: period.endDate })),
+      },
+      201,
+    );
+  } catch (err) {
+    console.error('[app-api/fiscal-periods] generate failed:', err);
+    return error.internal(c, 'Failed to generate fiscal periods');
   }
 });
 

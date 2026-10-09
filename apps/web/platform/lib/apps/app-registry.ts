@@ -131,13 +131,15 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
   // WeldHR. Icon-only logo, same as WeldPass.
+  // `?v=2`: same immutable /assets/* caching as WeldBooks below, the redrawn
+  // mark needs a new URL or browsers keep the old three-person one.
   weldhr: {
     lucideIcon: UsersRound,
     shortName: 'People',
-    icon: '/assets/images/weldhr/icon.svg',
+    icon: '/assets/images/weldhr/icon.svg?v=2',
     logo: {
-      iconLight: '/assets/images/weldhr/logo-light.svg',
-      iconDark: '/assets/images/weldhr/logo-dark.svg',
+      iconLight: '/assets/images/weldhr/logo-light.svg?v=2',
+      iconDark: '/assets/images/weldhr/logo-dark.svg?v=2',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },

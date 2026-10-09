@@ -5,7 +5,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { usePathname } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
-import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, Minus, PictureInPicture2, Copy, LogOut } from 'lucide-react';
+import { Mic, MicOff, VideoOff, Phone, MonitorUp, MoreVertical, Hand, Maximize, Minus, PictureInPicture2, Copy } from 'lucide-react';
 import { useWeldMeetCall, type MeetingCallStatus } from '@/contexts/weldmeet-call-context';
 import { useMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useWorkspaceId } from '@/contexts/workspace-context';
@@ -666,7 +666,6 @@ interface PipControlsBarProps {
   isVideoOff: boolean;
   isScreenSharing: boolean;
   handRaised: boolean;
-  isOrganizer: boolean;
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onScreenShare: () => void;
@@ -674,7 +673,6 @@ interface PipControlsBarProps {
   onExpand: () => void;
   onCopyJoiningInfo: () => void;
   onLeave: () => void;
-  onEndForAll: () => void;
 }
 
 /** Controls bar — same button style as the main CallControlsBar; hangup sits on the right. */
@@ -684,7 +682,6 @@ function PipControlsBar({
   isVideoOff,
   isScreenSharing,
   handRaised,
-  isOrganizer,
   onToggleMute,
   onToggleVideo,
   onScreenShare,
@@ -692,7 +689,6 @@ function PipControlsBar({
   onExpand,
   onCopyJoiningInfo,
   onLeave,
-  onEndForAll,
 }: Readonly<PipControlsBarProps>) {
   return (
     <div className="flex shrink-0 items-center gap-2 px-3 pt-[9px] pb-2.5">
@@ -708,44 +704,18 @@ function PipControlsBar({
       />
 
       {/* Hangup — same destructive pill + rotated phone icon as the
-          maximized meeting's CallControlsBar leave button. Organizers get a
-          Leave / End-for-all menu (same labels as the main bar); everyone else
-          a single leave button. */}
-      {isOrganizer ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="destructive"
-              size="icon"
-              className="ml-auto h-10 w-[52px] rounded-[12px] transition-all [&]:hover:brightness-90"
-              title={t.pipWidget.leaveMeeting}
-              aria-label={t.pipWidget.leaveMeeting}
-            >
-              <Phone className="!h-[18px] !w-[18px] rotate-[135deg] fill-current" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="end" sideOffset={6} className="w-56 z-[10000]">
-            <DropdownMenuItem onClick={onLeave}>
-              <LogOut className="h-4 w-4 mr-0.5" />
-              {t.pipWidget.leaveMeeting}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onEndForAll} className="text-red-500 focus:text-red-500">
-              <Phone className="h-4 w-4 mr-0.5 rotate-[135deg]" />
-              {t.leaveMenu.endForAll}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : (
-        <Button
-          variant="destructive"
-          size="icon"
-          className="ml-auto h-10 w-[52px] rounded-[12px] transition-all [&]:hover:brightness-90"
-          onClick={onLeave}
-          title={t.pipWidget.leaveMeeting}
-        >
-          <Phone className="!h-[18px] !w-[18px] rotate-[135deg] fill-current" />
-        </Button>
-      )}
+          maximized meeting's CallControlsBar leave button. It only ever
+          leaves, for the host too: the meeting carries on for the others. */}
+      <Button
+        variant="destructive"
+        size="icon"
+        className="ml-auto h-10 w-[52px] rounded-[12px] transition-all [&]:hover:brightness-90"
+        onClick={onLeave}
+        title={t.pipWidget.leaveMeeting}
+        aria-label={t.pipWidget.leaveMeeting}
+      >
+        <Phone className="!h-[18px] !w-[18px] rotate-[135deg] fill-current" />
+      </Button>
     </div>
   );
 }
@@ -772,7 +742,6 @@ export function MeetingPiPWidget() {
     isPiP,
     meeting,
     meetingTitle,
-    isOrganizer,
     prewarmedVideoTrack,
     toggleMute,
     toggleVideo,
@@ -780,7 +749,6 @@ export function MeetingPiPWidget() {
     stopScreenShare,
     toggleHandRaise,
     leaveMeeting,
-    endMeeting,
     expandFromPiP,
     registerPopOut,
   } = useWeldMeetCall();
@@ -1074,10 +1042,6 @@ export function MeetingPiPWidget() {
     leaveMeeting();
   }, [leaveMeeting]);
 
-  const handleEndForAll = useCallback(() => {
-    endMeeting();
-  }, [endMeeting]);
-
   const handleScreenShare = useCallback(() => {
     if (isScreenSharing) stopScreenShare();
     else {
@@ -1191,7 +1155,6 @@ export function MeetingPiPWidget() {
         isVideoOff={isVideoOff}
         isScreenSharing={isScreenSharing}
         handRaised={handRaised}
-        isOrganizer={isOrganizer}
         onToggleMute={toggleMute}
         onToggleVideo={toggleVideo}
         onScreenShare={handleScreenShare}
@@ -1199,7 +1162,6 @@ export function MeetingPiPWidget() {
         onExpand={handleExpand}
         onCopyJoiningInfo={handleCopyJoiningInfo}
         onLeave={handleLeave}
-        onEndForAll={handleEndForAll}
       />
 
       {/* Hidden duration tracker — exposed for screen readers; not shown in this design */}

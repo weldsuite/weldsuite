@@ -25,6 +25,7 @@ import {
   boolean,
   integer,
   doublePrecision,
+  numeric,
   date,
   jsonb,
   index,
@@ -74,6 +75,13 @@ export type HrAttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 're
 export type HrAttendanceSource = 'portal' | 'manual' | 'import' | 'api';
 
 export type HrLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+/** How much of the first sick day the employee was absent. */
+export type HrAbsenceFirstDay = 'full' | 'half';
+
+export type HrDeclarationCategory = 'travel' | 'meals' | 'accommodation' | 'equipment' | 'training' | 'other';
+/** `paid` follows `approved`: the amount has been reimbursed to the employee. */
+export type HrDeclarationStatus = 'pending' | 'approved' | 'rejected' | 'paid' | 'cancelled';
 
 export type HrCoachingCategory =
   | 'performance'
@@ -266,6 +274,11 @@ export const hrShifts = pgTable('hr_shifts', {
   companyId: varchar('company_id', { length: 30 }),
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
   endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  /** What the employee is scheduled to do, e.g. "Cashier". Free text. */
+  workType: varchar('work_type', { length: 100 }),
+  /** Unpaid break inside the shift. Both set, or both null. */
+  breakStartsAt: timestamp('break_starts_at', { withTimezone: true }),
+  breakEndsAt: timestamp('break_ends_at', { withTimezone: true }),
   notes: text('notes'),
   createdBy: varchar('created_by', { length: 255 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -346,6 +359,70 @@ export const hrLeaveRequests = pgTable('hr_leave_requests', {
   index('hr_leave_requests_employee_idx').on(table.employeeId),
   index('hr_leave_requests_status_idx').on(table.status),
   index('hr_leave_requests_start_idx').on(table.startDate),
+]);
+
+/**
+ * Sick reports. An employee reports sick from a first day and stays absent
+ * until they (or HR) report recovered, so unlike a leave request the end is
+ * open. The note is for practical matters (how to reach them); the nature of
+ * the illness is not asked for and has no column.
+ */
+export const hrAbsences = pgTable('hr_absences', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  /** First sick day. */
+  startDate: date('start_date').notNull(),
+  /** Last sick day, inclusive. Null while the employee is still absent. */
+  endDate: date('end_date'),
+  /** `full` or `half`: how much of the first day the employee was absent. */
+  firstDay: varchar('first_day', { length: 10 }).notNull().default('full'),
+  note: text('note'),
+  /** Clerk user id, or `portal:<employeeId>` for a report made in the portal. */
+  reportedBy: varchar('reported_by', { length: 255 }),
+  recoveredReportedBy: varchar('recovered_reported_by', { length: 255 }),
+  recoveredReportedAt: timestamp('recovered_reported_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_absences_employee_start_idx').on(table.employeeId, table.startDate),
+  index('hr_absences_end_idx').on(table.endDate),
+]);
+
+// ---------------------------------------------------------------------------
+// Declarations — expense claims
+// ---------------------------------------------------------------------------
+
+/**
+ * An expense an employee asks to be reimbursed for. The receipt is one private
+ * R2 object (`receipt_file_key`, under `workspaces/<id>/hr/declarations/`); it
+ * is only ever served through the permission-checked API, never by URL.
+ */
+export const hrDeclarations = pgTable('hr_declarations', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  expenseDate: date('expense_date').notNull(),
+  category: varchar('category', { length: 30 }).notNull().default('other'),
+  description: text('description').notNull(),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  currency: varchar('currency', { length: 3 }).notNull().default('EUR'),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  receiptFileKey: varchar('receipt_file_key', { length: 500 }),
+  receiptFileName: varchar('receipt_file_name', { length: 255 }),
+  receiptContentType: varchar('receipt_content_type', { length: 120 }),
+  receiptSize: integer('receipt_size'),
+  /** Clerk user id, or `portal:<employeeId>` for a declaration made in the portal. */
+  submittedBy: varchar('submitted_by', { length: 255 }),
+  reviewedBy: varchar('reviewed_by', { length: 255 }),
+  reviewedAt: timestamp('reviewed_at'),
+  reviewNote: text('review_note'),
+  paidBy: varchar('paid_by', { length: 255 }),
+  paidAt: timestamp('paid_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_declarations_employee_idx').on(table.employeeId),
+  index('hr_declarations_status_idx').on(table.status),
+  index('hr_declarations_expense_date_idx').on(table.expenseDate),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -499,6 +576,8 @@ export const hrPortalSettings = pgTable('hr_portal_settings', {
   employeeSelfClockIn: boolean('employee_self_clock_in').notNull().default(true),
   /** Employees may request leave from the portal. */
   employeeLeaveRequests: boolean('employee_leave_requests').notNull().default(true),
+  /** Employees may submit expense declarations from the portal. */
+  employeeDeclarations: boolean('employee_declarations').notNull().default(true),
 
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -560,6 +639,8 @@ export type HrAttendanceRecord = typeof hrAttendanceRecords.$inferSelect;
 export type HrLeaveType = typeof hrLeaveTypes.$inferSelect;
 export type HrLeaveAllowance = typeof hrLeaveAllowances.$inferSelect;
 export type HrLeaveRequest = typeof hrLeaveRequests.$inferSelect;
+export type HrDeclaration = typeof hrDeclarations.$inferSelect;
+export type HrAbsence = typeof hrAbsences.$inferSelect;
 export type HrCoachingLog = typeof hrCoachingLogs.$inferSelect;
 export type HrEvaluationForm = typeof hrEvaluationForms.$inferSelect;
 export type HrEvaluation = typeof hrEvaluations.$inferSelect;

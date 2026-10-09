@@ -9,8 +9,7 @@
 import type { StepHandler, StepContext, StepResult } from '../../types';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { schema } from '../../db';
-import { createHelpdeskAgent } from '../../lib/helpdesk-agent-stub';
-import { asText } from '@weldsuite/text';
+import { createHelpdeskAgent, resolveModelId } from '../../lib/helpdesk-agent-stub';
 
 export const aiClassifyHandler: StepHandler = {
   type: 'ai_classify',
@@ -56,11 +55,7 @@ export const aiClassifyHandler: StepHandler = {
       return { success: false, error: 'No messages to classify' };
     }
 
-    const modelId = ctx.inputs.model
-      ? asText(ctx.inputs.model).includes('/')
-        ? asText(ctx.inputs.model)
-        : `openai/${asText(ctx.inputs.model)}`
-      : 'openai/gpt-4o';
+    const modelId = resolveModelId(ctx.inputs.model);
 
     // Create Mastra agent for classification
     const agent = createHelpdeskAgent({

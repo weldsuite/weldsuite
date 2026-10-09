@@ -29,7 +29,9 @@ interface TierProgressProps {
 
 function parseBenefits(benefits: string[] | string | null | undefined): string[] {
   if (!benefits) return [];
-  return typeof benefits === 'string' ? JSON.parse(benefits) : benefits;
+  const list: string[] = typeof benefits === 'string' ? JSON.parse(benefits) : benefits;
+  // A benefit is its own list key, so a duplicate entry is shown once.
+  return [...new Set(list)];
 }
 
 export function TierProgress({
@@ -114,8 +116,8 @@ export function TierProgress({
           <div className="pt-3 border-t">
             <p className="text-sm font-medium mb-2">Current Benefits:</p>
             <ul className="space-y-1">
-              {currentBenefits.map((benefit: string, index: number) => (
-                <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
+              {currentBenefits.map((benefit: string) => (
+                <li key={benefit} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <Star className="w-3 h-3 text-yellow-500 mt-0.5 flex-shrink-0" />
                   <span>{benefit}</span>
                 </li>
@@ -128,8 +130,8 @@ export function TierProgress({
           <div className="pt-3 border-t">
             <p className="text-sm font-medium mb-2">Next Tier Benefits:</p>
             <ul className="space-y-1">
-              {nextBenefits.map((benefit: string, index: number) => (
-                <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
+              {nextBenefits.map((benefit: string) => (
+                <li key={benefit} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <Star className="w-3 h-3 text-gray-400 mt-0.5 flex-shrink-0" />
                   <span>{benefit}</span>
                 </li>

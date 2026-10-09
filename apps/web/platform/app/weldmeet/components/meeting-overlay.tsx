@@ -168,7 +168,6 @@ function MeetingRoomAdapter() {
     togglePin,
     setViewMode,
     leaveMeeting,
-    endMeeting,
     isRecording,
     recordingState,
     recordingStartRequestedAt,
@@ -739,10 +738,10 @@ function MeetingRoomAdapter() {
       stopScreenShare={stopScreenShare}
       toggleHandRaise={toggleHandRaise}
       setViewMode={setViewMode}
-      // Organizers get a Leave / End-for-all menu; everyone else a single leave button.
+      // Hanging up only ever leaves, for the host too: the meeting carries on
+      // for whoever is still in it.
       onLeave={leaveMeeting}
-      onEndForAll={isOrganizer ? endMeeting : undefined}
-      leaveLabels={{ leaveMeeting: t.pipWidget.leaveMeeting, endForAll: t.leaveMenu.endForAll }}
+      leaveLabels={{ leave: t.pipWidget.leaveMeeting }}
       onToggleFullscreen={toggleFullscreen}
       // Picture-in-picture: open the OUT-OF-BROWSER PiP window (Document PiP,
       // with a native single-video fallback). requestPopOut must run inside this

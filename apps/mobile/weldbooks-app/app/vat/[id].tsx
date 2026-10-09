@@ -23,10 +23,18 @@ import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow, TotalsBlock } from '@/components/detail';
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { VatStatusBadge } from '@/components/status-badge';
+import { FeatureUnavailable } from '@/components/feature-unavailable';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
 import type { VatReturnDetail } from '@/types/accounting';
 
-export default function VatReturnDetailScreen() {
+/** The Dutch BTW return only exists where the entity's jurisdiction files one. */
+export default function VatReturnDetailRoute() {
+  const { features } = useJurisdiction();
+  return features.vatReturn ? <VatReturnDetailScreen /> : <FeatureUnavailable />;
+}
+
+function VatReturnDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const toast = useToast();

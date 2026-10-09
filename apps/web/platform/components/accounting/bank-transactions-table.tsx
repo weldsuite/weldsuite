@@ -1,17 +1,18 @@
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import {
   ListTable,
   type ListTableColumn,
   type ListTableGroup,
 } from '@weldsuite/ui/components/list-table';
-import type { BankTransaction } from '@/lib/api/domains/weldbooks';
+import type { BankLine } from '@/lib/api/domains/weldbooks-banking';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { formatWeldbooksMoney } from '@/lib/weldbooks/format-money';
 
 interface BankTransactionsTableProps {
-  transactions: BankTransaction[];
+  transactions: BankLine[];
   emptyMessage?: string;
   currency?: string;
   /** Per-account currency lookup used when the table shows mixed accounts. */
@@ -43,16 +44,16 @@ function formatAmount(amount: string, currency: string, locale?: string | null):
 }
 
 function createDateCell(formatDate: (value: string | null | undefined) => string) {
-  return function renderDateCell(t: BankTransaction) {
+  return function renderDateCell(t: BankLine) {
     return <span className="text-sm">{formatDate(t.date)}</span>;
   };
 }
 
-function renderDescriptionCell(t: BankTransaction) {
+function renderDescriptionCell(t: BankLine) {
   return <div className="text-sm truncate max-w-[360px]">{t.description || '—'}</div>;
 }
 
-function renderCounterpartyCell(t: BankTransaction) {
+function renderCounterpartyCell(t: BankLine) {
   return t.counterpartyName ? (
     <div className="text-sm">
       <div className="truncate max-w-[200px]">{t.counterpartyName}</div>
@@ -67,7 +68,7 @@ function renderCounterpartyCell(t: BankTransaction) {
   );
 }
 
-function renderReferenceCell(t: BankTransaction) {
+function renderReferenceCell(t: BankLine) {
   return (
     <span className="text-sm text-muted-foreground truncate max-w-[200px]">
       {t.reference || '—'}
@@ -80,7 +81,7 @@ function createAmountCell(
   displayCurrency: string,
   locale: string | null | undefined,
 ) {
-  return function renderAmountCell(t: BankTransaction) {
+  return function renderAmountCell(t: BankLine) {
     const isPositive = (Number(t.amount) || 0) >= 0;
     return (
       <span
@@ -95,7 +96,15 @@ function createAmountCell(
   };
 }
 
-function renderStatusCell(t: BankTransaction) {
+function renderCheckNumberCell(t: BankLine) {
+  return t.checkNumber ? (
+    <span className="text-sm tabular-nums">{t.checkNumber}</span>
+  ) : (
+    <span className="text-muted-foreground">—</span>
+  );
+}
+
+function renderStatusCell(t: BankLine) {
   return (
     <Badge variant={statusVariant(t.status)} className="capitalize">
       {t.status}
@@ -112,10 +121,12 @@ export function BankTransactionsTable({
   groupByStatus,
 }: Readonly<BankTransactionsTableProps>) {
   const st = useTranslations();
+  const { t: i18n } = useI18n();
+  const tl = i18n.weldbooksUs.banking.lines;
   const { currency: entityCurrency, entityLocale: locale, formatDate } = useWeldbooksFormat();
   const displayCurrency = currency || entityCurrency;
   const resolvedEmptyMessage = emptyMessage ?? st('sweep.weldbooks.bankTransactionsTable.emptyMessage');
-  const columns: ListTableColumn<BankTransaction>[] = [
+  const columns: ListTableColumn<BankLine>[] = [
     {
       id: 'date',
       header: st('sweep.weldbooks.date'),
@@ -139,6 +150,20 @@ export function BankTransactionsTable({
       cell: renderReferenceCell,
     },
     {
+      id: 'checkNumber',
+      header: tl.checkNumber,
+      width: 100,
+      hidden: !transactions.some((t) => t.checkNumber),
+      cell: renderCheckNumberCell,
+    },
+    {
+      id: 'source',
+      header: tl.source,
+      width: 110,
+      hidden: !transactions.some((t) => t.source),
+      cell: (t) => (t.source ? <span className="text-sm text-muted-foreground">{tl.sources[t.source]}</span> : null),
+    },
+    {
       id: 'amount',
       header: st('sweep.weldbooks.amount'),
       align: 'right',
@@ -152,7 +177,7 @@ export function BankTransactionsTable({
     },
   ];
 
-  const groups: ListTableGroup<BankTransaction>[] | undefined = groupByStatus
+  const groups: ListTableGroup<BankLine>[] | undefined = groupByStatus
     ? [
         { id: 'unreconciled', label: st('sweep.weldbooks.bankTransactionsTable.unreconciled'), sortOrder: 1, filter: (t) => t.status === 'unreconciled' },
         { id: 'reconciled', label: st('sweep.weldbooks.bankTransactionsTable.reconciled'), sortOrder: 2, filter: (t) => t.status === 'reconciled' },
@@ -161,7 +186,7 @@ export function BankTransactionsTable({
     : undefined;
 
   return (
-    <ListTable<BankTransaction>
+    <ListTable<BankLine>
       columns={columns}
       data={transactions}
       emptyMessage={resolvedEmptyMessage}

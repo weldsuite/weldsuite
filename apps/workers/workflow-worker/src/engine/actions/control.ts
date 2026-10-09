@@ -198,7 +198,7 @@ export const MAX_LOOP_ITEMS = 100;
  * unresolved list runs the body zero times. A JSON array string is accepted
  * (a template spliced into text arrives as one).
  */
-export const handleLoop: ActionHandler = async (inputs) => {
+export const handleLoop: ActionHandler = (inputs) => {
   let items = inputs.items;
   if (items === undefined || items === null || items === '') items = [];
   if (typeof items === 'string') {
@@ -209,14 +209,16 @@ export const handleLoop: ActionHandler = async (inputs) => {
     }
   }
   if (!Array.isArray(items)) {
-    throw new NonRetryableStepError('The loop needs a list of items, for example {{trigger.data.lineItems}}');
-  }
-  if (items.length > MAX_LOOP_ITEMS) {
-    throw new NonRetryableStepError(
-      `The list has ${items.length} items; a loop can run over at most ${MAX_LOOP_ITEMS}`,
+    return Promise.reject(
+      new NonRetryableStepError('The loop needs a list of items, for example {{trigger.data.lineItems}}'),
     );
   }
-  return { items, count: items.length };
+  if (items.length > MAX_LOOP_ITEMS) {
+    return Promise.reject(
+      new NonRetryableStepError(`The list has ${items.length} items; a loop can run over at most ${MAX_LOOP_ITEMS}`),
+    );
+  }
+  return Promise.resolve({ items, count: items.length });
 };
 
 /** Longest wait a delay may ask for (Cloudflare Workflows sleeps up to a year). */

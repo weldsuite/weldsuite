@@ -53,12 +53,12 @@ export async function decryptIndexedCredentials(
   keyring: EncryptionKeyring,
 ): Promise<Record<string, string>> {
   const parsed = JSON.parse(encryptedJson) as Record<string, string>;
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(parsed)) {
-    if (!value) continue;
-    out[key] = await maybeDecryptField(value, keyring);
-  }
-  return out;
+  const entries = await Promise.all(
+    Object.entries(parsed)
+      .filter(([, value]) => Boolean(value))
+      .map(async ([key, value]) => [key, await maybeDecryptField(value, keyring)] as const),
+  );
+  return Object.fromEntries(entries);
 }
 
 export function d1ConnectorCatchupStore(d1: ConnectorSyncIndexDb): ConnectorCatchupStore {

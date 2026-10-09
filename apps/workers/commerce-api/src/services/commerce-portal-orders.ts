@@ -10,6 +10,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { BASE36_UPPER, randomString } from '@weldsuite/worker-kit/random';
+import { portalPartyColumns } from './commerce-portal';
 
 export class PortalOrderError extends Error {
   constructor(
@@ -172,7 +173,7 @@ export async function placePortalOrder(
   }
 
   const [party] = await db
-    .select()
+    .select(portalPartyColumns)
     .from(schema.parties)
     .where(and(eq(schema.parties.id, params.partyId), isNull(schema.parties.deletedAt)))
     .limit(1);

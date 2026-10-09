@@ -25,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { RowOverlayButton, ROW_CELL_PASSTHROUGH } from '@/components/shared/row-overlay-button';
 import { getTranslations } from '@/lib/i18n';
 import {
   EntityList,
@@ -128,33 +129,18 @@ export function PanelEntityList<T extends { id: string }>({
   const renderRow = (item: T) => (
     <div
       key={item.id}
-      onClick={onRowClick ? () => onRowClick(item) : undefined}
-      // A click-only row is unreachable without a mouse. Give it a button role,
-      // put it in the tab order, and accept the keys a button accepts. Only when
-      // the row is actually clickable — otherwise these would announce an
-      // interactive element that does nothing.
-      role={onRowClick ? 'button' : undefined}
-      tabIndex={onRowClick ? 0 : undefined}
-      onKeyDown={
-        onRowClick
-          ? (e) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return;
-              // Ignore keys forwarded from a control inside the row (the row
-              // menu trigger), which handles them itself.
-              if (e.target !== e.currentTarget) return;
-              e.preventDefault(); // Space would otherwise scroll the list.
-              onRowClick(item);
-            }
-          : undefined
-      }
       className={cn(
-        'group flex items-center gap-4 px-4 py-3 border-b border-border/70 text-sm transition-colors',
-        onRowClick &&
-          'cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+        'group relative flex items-center gap-4 px-4 py-3 border-b border-border/70 text-sm transition-colors',
+        onRowClick && 'cursor-pointer hover:bg-muted/40',
       )}
     >
+      {/* A click-only row is unreachable without a mouse, so the click target
+          is a native button stretched over the row (only when it is clickable). */}
+      {onRowClick ? (
+        <RowOverlayButton label={t.actions.view} onClick={() => onRowClick(item)} />
+      ) : null}
       {columns.map((column) => (
-        <div key={column.id} className={cn(column.width, 'min-w-0')}>
+        <div key={column.id} className={cn(column.width, 'min-w-0', onRowClick && ROW_CELL_PASSTHROUGH)}>
           {column.render(item, {
             onEdit: () => onEdit?.(item),
             onDelete: () => onDelete?.(item),
@@ -164,7 +150,7 @@ export function PanelEntityList<T extends { id: string }>({
         </div>
       ))}
       {/* h-7 = the menu button's height, so rows without a menu are as tall as rows with one. */}
-      <div className="w-[40px] h-7 flex items-center justify-end">
+      <div className="relative z-[1] w-[40px] h-7 flex items-center justify-end">
         {hasRowMenu && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>

@@ -47,11 +47,12 @@ const ASSIGNEE_AVATAR_PALETTE = [
 ];
 
 function assigneeFallbackColor(seed: string): string {
-  let hash = 0;
+  // An Int32Array slot wraps on every write, exactly like `| 0` did.
+  const hash = new Int32Array(1);
   for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.codePointAt(i)!) | 0;
+    hash[0] = Math.imul(hash[0]!, 31) + seed.codePointAt(i)!;
   }
-  const idx = Math.abs(hash) % ASSIGNEE_AVATAR_PALETTE.length;
+  const idx = Math.abs(hash[0]!) % ASSIGNEE_AVATAR_PALETTE.length;
   return ASSIGNEE_AVATAR_PALETTE[idx]!;
 }
 
@@ -112,68 +113,66 @@ export function MemberSelect({
   if (variant === 'assignee') {
     return (
       <Popover>
-        <PopoverTrigger asChild>
-          <div
-            role="button"
-            tabIndex={0}
-            aria-disabled={disabled || isError || undefined}
-            onKeyDown={(e) => {
-              // A div trigger does not turn Enter/Space into a click on its own.
-              if (e.target !== e.currentTarget) return;
-              if (e.key !== 'Enter' && e.key !== ' ') return;
-              e.preventDefault();
-              if (disabled || isError) return;
-              e.currentTarget.click();
-            }}
-            className={cn(
-              'text-sm cursor-pointer flex items-center justify-between gap-2 h-8 outline-none focus-visible:ring-2 focus-visible:ring-ring w-full group/field px-2',
-              (disabled || isError) && 'pointer-events-none opacity-60',
-              className,
-            )}
-          >
-            {selected ? (
-              <>
-                <div className="flex flex-col gap-1 min-w-0">
-                  <div className="flex items-center gap-2 pr-1.5 py-0.5 rounded-[6px] group/assignee">
-                    <AssigneeAvatar
-                      id={selected.userId}
-                      name={selected.name?.trim() || selectedEmail || selected.userId}
-                      picture={selected.picture}
-                    />
-                    <span className="text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px]">
-                      {selectedLabel}
-                    </span>
-                    {allowClear && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          onChange('');
-                        }}
-                        className="inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/assignee:opacity-100 transition-[opacity,color,background-color]"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
+        <div
+          className={cn(
+            'relative text-sm flex items-center justify-between gap-2 h-8 w-full group/field px-2',
+            (disabled || isError) && 'pointer-events-none opacity-60',
+            className,
+          )}
+        >
+          {/* The popover trigger is a native button stretched over the field,
+              so the clear button below can sit above it without nesting
+              interactive elements. */}
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={disabled || isError}
+              aria-label={selectedLabel ?? placeholder}
+              className="absolute inset-0 cursor-pointer rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </PopoverTrigger>
+          {selected ? (
+            <>
+              <div className="flex flex-col gap-1 min-w-0">
+                <div className="flex items-center gap-2 pr-1.5 py-0.5 rounded-[6px] group/assignee">
+                  <AssigneeAvatar
+                    id={selected.userId}
+                    name={selected.name?.trim() || selectedEmail || selected.userId}
+                    picture={selected.picture}
+                  />
+                  <span className="text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px]">
+                    {selectedLabel}
+                  </span>
+                  {allowClear && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onChange('');
+                      }}
+                      className="relative z-[1] inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/field:opacity-100 focus-visible:opacity-100 transition-[opacity,color,background-color]"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
-                <span
-                  className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
-                  aria-label="Change"
-                >
-                  <Plus className="h-4 w-4" />
-                </span>
-              </>
-            ) : (
-              <span className="text-muted-foreground group-hover/field:underline">
-                {isLoading ? 'Loading…' : placeholder}
+              </div>
+              <span
+                className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                aria-label="Change"
+              >
+                <Plus className="h-4 w-4" />
               </span>
-            )}
-          </div>
-        </PopoverTrigger>
+            </>
+          ) : (
+            <span className="text-muted-foreground group-hover/field:underline">
+              {isLoading ? 'Loading…' : placeholder}
+            </span>
+          )}
+        </div>
         <PopoverContent className="w-64 p-0" align="start">
           <Command>
             <CommandInput placeholder="Search…" />

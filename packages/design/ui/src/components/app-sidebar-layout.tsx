@@ -159,7 +159,7 @@ export function AppSidebarLayout({
                                 {item.actions.map((action, idx) => {
                                   const ActionIcon = action.icon;
                                   return (
-                                    <React.Fragment key={idx}>
+                                    <React.Fragment key={action.label}>
                                       <DropdownMenuItem onClick={action.onClick}>
                                         {ActionIcon && <ActionIcon className="mr-2 h-4 w-4" />}
                                         {action.label}

@@ -64,15 +64,20 @@ import {
   Vault,
   HeartPulse,
   UsersRound,
-  Network,
-  UserPlus,
   CalendarCheck,
   Plane,
-  MessageSquareHeart,
   ClipboardCheck,
-  Target,
   AppWindow,
   UserRound,
+  Percent,
+  ShieldCheck,
+  Radar,
+  CalendarClock,
+  Banknote,
+  Wallet,
+  FileSpreadsheet,
+  CalendarRange,
+  Layers,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import type { TranslationsType } from '@/lib/i18n/types';
@@ -206,24 +211,21 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldhr.myHr, href: '/weldhr/me', icon: UserRound, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.dashboard, href: '/weldhr', icon: LayoutDashboard },
           { title: t.navigation.moduleSidebar.weldhr.employees, href: '/weldhr/employees', icon: User, permission: 'employees:read' },
-          { title: t.navigation.moduleSidebar.weldhr.clients, href: '/weldhr/clients', icon: Building, permission: 'employees:read' },
-          { title: t.navigation.moduleSidebar.weldhr.orgChart, href: '/weldhr/org-chart', icon: Network, permission: 'employees:read' },
-          { title: t.navigation.moduleSidebar.weldhr.lifecycle, href: '/weldhr/lifecycle', icon: UserPlus, permission: 'employees:read' },
         ],
       },
       {
         group: t.navigation.moduleSidebar.weldhr.groups.time,
         items: [
           { title: t.navigation.moduleSidebar.weldhr.attendance, href: '/weldhr/attendance', icon: CalendarCheck, permission: 'attendance:read' },
+          // No permission: employees report sick here, and the page shows HR's lists only with absences:read.
+          { title: t.navigation.moduleSidebar.weldhr.absenteeism, href: '/weldhr/absenteeism', icon: HeartPulse },
           { title: t.navigation.moduleSidebar.weldhr.leave, href: '/weldhr/leave', icon: Plane, permission: 'leave:read' },
         ],
       },
       {
-        group: t.navigation.moduleSidebar.weldhr.groups.performance,
+        group: t.navigation.moduleSidebar.weldhr.groups.expenses,
         items: [
-          { title: t.navigation.moduleSidebar.weldhr.coaching, href: '/weldhr/coaching', icon: MessageSquareHeart, permission: 'coaching:read' },
-          { title: t.navigation.moduleSidebar.weldhr.evaluations, href: '/weldhr/evaluations', icon: ClipboardCheck, permission: 'evaluations:read' },
-          { title: t.navigation.moduleSidebar.weldhr.performance, href: '/weldhr/performance', icon: Target, permission: 'evaluations:read' },
+          { title: t.navigation.moduleSidebar.weldhr.declarations, href: '/weldhr/declarations', icon: Receipt, permission: 'declarations:read' },
         ],
       },
       {
@@ -304,7 +306,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldmeet.newMeeting, href: '/weldmeet', icon: Plus },
           { title: t.navigation.moduleSidebar.weldmeet.upcoming, href: '/weldmeet/upcoming', icon: Calendar },
           { title: t.navigation.moduleSidebar.weldmeet.history, href: '/weldmeet/history', icon: History },
-          { title: t.navigation.moduleSidebar.weldmeet.people, href: '/weldmeet/people', icon: Users },
+          { title: t.navigation.moduleSidebar.weldmeet.people, href: '/weldmeet/people', icon: User },
         ],
       },
     ],
@@ -379,6 +381,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.weldbooks.bills, href: '/weldbooks/bills', icon: CreditCard },
           { title: t.navigation.moduleSidebar.weldbooks.documents, href: '/weldbooks/documents', icon: FileSearch },
+          { title: t.navigation.moduleSidebar.weldbooks.paymentRuns, href: '/weldbooks/payment-runs', icon: Banknote },
         ],
       },
       {
@@ -388,6 +391,9 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldbooks.transactions, href: '/weldbooks/banking/transactions', icon: ArrowLeftRight },
           { title: t.navigation.moduleSidebar.weldbooks.reconciliation, href: '/weldbooks/banking/reconciliation', icon: Building2 },
           { title: t.navigation.moduleSidebar.weldbooks.rules, href: '/weldbooks/banking/rules', icon: Wand2 },
+          { title: t.navigation.moduleSidebar.weldbooks.statementReconciliation, href: '/weldbooks/banking/statements', icon: ClipboardCheck },
+          { title: t.navigation.moduleSidebar.weldbooks.deposits, href: '/weldbooks/deposits', icon: Wallet },
+          { title: t.navigation.moduleSidebar.weldbooks.bankFeeds, href: '/weldbooks/banking/feeds', icon: Link2 },
         ],
       },
       {
@@ -396,6 +402,18 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldbooks.chartOfAccounts, href: '/weldbooks/accounts', icon: BookOpen },
           { title: t.navigation.moduleSidebar.weldbooks.journalEntries, href: '/weldbooks/journal', icon: Calculator },
           { title: t.navigation.moduleSidebar.weldbooks.vatReturns, href: '/weldbooks/vat', icon: Receipt },
+          { title: t.navigation.moduleSidebar.weldbooks.fixedAssets, href: '/weldbooks/fixed-assets', icon: Boxes },
+          { title: t.navigation.moduleSidebar.weldbooks.payroll, href: '/weldbooks/payroll', icon: UsersRound },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.groups.tax,
+        items: [
+          { title: t.navigation.moduleSidebar.weldbooks.salesTaxCenter, href: '/weldbooks/sales-tax', icon: Percent },
+          { title: t.navigation.moduleSidebar.weldbooks.exemptionCertificates, href: '/weldbooks/sales-tax/certificates', icon: ShieldCheck },
+          { title: t.navigation.moduleSidebar.weldbooks.nexus, href: '/weldbooks/sales-tax/nexus', icon: Radar },
+          { title: t.navigation.moduleSidebar.weldbooks.form1099, href: '/weldbooks/form-1099', icon: FileText },
+          { title: t.navigation.moduleSidebar.weldbooks.taxCalendar, href: '/weldbooks/tax-calendar', icon: CalendarClock },
         ],
       },
       {
@@ -413,12 +431,15 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldbooks.trialBalance, href: '/weldbooks/reports/trial-balance', icon: BarChart3 },
           { title: t.navigation.moduleSidebar.weldbooks.agedReceivables, href: '/weldbooks/reports/aged-receivables', icon: BarChart3 },
           { title: t.navigation.moduleSidebar.weldbooks.agedPayables, href: '/weldbooks/reports/aged-payables', icon: BarChart3 },
+          { title: t.navigation.moduleSidebar.weldbooks.taxWorksheet, href: '/weldbooks/reports/tax-worksheet', icon: FileSpreadsheet },
         ],
       },
       {
         group: t.navigation.moduleSidebar.groups.settings,
         items: [
           { title: t.navigation.moduleSidebar.weldbooks.entities, href: '/weldbooks/entities', icon: Building2 },
+          { title: t.navigation.moduleSidebar.weldbooks.fiscalPeriods, href: '/weldbooks/fiscal-periods', icon: CalendarRange },
+          { title: t.navigation.moduleSidebar.weldbooks.dimensions, href: '/weldbooks/settings/dimensions', icon: Layers },
           { title: t.navigation.moduleSidebar.weldbooks.settings, href: '/weldbooks/settings', icon: Settings },
         ],
       },

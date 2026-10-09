@@ -5,103 +5,209 @@
  * accounting entity, resolved via `resolveEntityId` (X-Accounting-Entity-Id
  * header → `?entityId=` query param → workspace default entity).
  *
- * Multi-entity correctness: the legacy api-worker versions of
- * aged-receivables, aged-payables and cash-flow were NOT entity-scoped —
- * that is fixed here (invoices/bills/bankTransactions all filter on entityId).
+ * Query parameters shared by the financial reports:
+ *   basis=accrual|cash   Default: the entity's accounting method, then the
+ *                        workspace setting, then accrual. Cash basis is
+ *                        computed at report time from payments (see
+ *                        services/accounting-reports-basis.ts).
+ *   from, to / asOf      YYYY-MM-DD. Defaults come from the entity's fiscal
+ *                        year (month-based or 52–53 weeks), not 1 January.
+ *   compare=prior_period|prior_year   Adds a `prior` column and deltas
+ *                        (profit-loss, balance-sheet, trial-balance, cash-flow).
+ *   periods=months|quarters           profit-loss only: a column per month or
+ *                        quarter plus `total` (not combinable with compare).
+ *   classId, locationId  Only journal lines with that dimension.
+ *   format=json|csv|print   csv downloads the table; print returns a
+ *                        print-ready document (title, entity header, paper,
+ *                        table) that the platform renders to PDF.
+ *
+ * Cash flow keeps its `{ period, monthly, totals }` shape: `monthly` is one
+ * row per calendar month of bank activity, `totals` the sum of those rows.
  *
  * Reports are read-only — no mutations, no entity events.
  *
  * Permissions: reports:read.
  */
 
-import { Hono } from 'hono';
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
-import { BOOKED_STATUSES } from '../../services/accounting-posting';
+import { Hono, type Context } from 'hono';
+import { and, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { taxFormForEntity } from '@weldsuite/books-domain/jurisdictions/us/entity-types';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
+import { BOOKED_STATUSES } from '../../services/accounting-posting';
+import {
+  createLedger,
+  parseBasis,
+  parseReportDate,
+  ReportInputError,
+  resolveBasis,
+  type ReportBasis,
+} from '../../services/accounting-reports-basis';
+import {
+  buildAgedReport,
+  buildBalanceSheet,
+  buildExpenseByCategory,
+  buildGeneralLedger,
+  buildProfitLoss,
+  buildRevenueByCustomer,
+  buildTrialBalance,
+  deltaOf,
+  latestDate,
+  money,
+} from '../../services/accounting-reports';
+import {
+  fiscalYearContaining,
+  fiscalYearNamed,
+  parseCompare,
+  parsePeriods,
+  periodColumns,
+  pointInTimeColumns,
+  priorPeriodOf,
+  priorYearOf,
+  requireIsoDate,
+  resolvePeriod,
+  splitColumns,
+  todayFor,
+  type DateRange,
+} from '../../services/accounting-report-periods';
+import {
+  agedTable,
+  balanceSheetTable,
+  buildPrintDocument,
+  cashFlowTable,
+  csvResponse,
+  expenseByCategoryTable,
+  generalLedgerTable,
+  profitLossTable,
+  revenueByCustomerTable,
+  toCsv,
+  trialBalanceTable,
+  type PrintEntity,
+  type ReportMeta,
+  type ReportTable,
+} from '../../services/accounting-report-export';
+import { buildTaxWorksheet, taxWorksheetTable } from '../../services/accounting-tax-worksheet';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type EntityRow = typeof schema.entities.$inferSelect;
+type Format = 'json' | 'csv' | 'print';
+
+interface ReportContext {
+  db: Database;
+  entity: EntityRow;
+  basis: ReportBasis;
+  format: Format;
+  filters: { classId: string | null; locationId: string | null };
+  query: Record<string, string>;
+}
+
+class EntityNotFoundError extends Error {
+  constructor(readonly entityId: string) {
+    super('Entity not found');
+  }
+}
+
+async function reportContext(c: Context<{ Bindings: Env; Variables: Variables }>, opts: { basis: boolean }): Promise<ReportContext> {
+  const db = c.get('tenantDb');
+  const query = c.req.query();
+  const entityId = await resolveEntityId(c, db);
+  if (!entityId) throw new ReportInputError('No accounting entity resolved');
+
+  const [entity] = await db
+    .select()
+    .from(schema.entities)
+    .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
+    .limit(1);
+  if (!entity) throw new EntityNotFoundError(entityId);
+
+  const format = query.format ?? 'json';
+  if (format !== 'json' && format !== 'csv' && format !== 'print') {
+    throw new ReportInputError("format must be 'json', 'csv' or 'print'");
+  }
+
+  // Reports that don't depend on the basis (aging, cash flow, tax summary) leave it out of their export.
+  const basis = opts.basis ? await resolveBasis(db, entity, parseBasis(query.basis)) : 'accrual';
+
+  return {
+    db,
+    entity,
+    basis,
+    format,
+    filters: { classId: query.classId || null, locationId: query.locationId || null },
+    query,
+  };
+}
+
+function printEntity(entity: EntityRow): PrintEntity {
+  const ids = entity.taxIdentifiers;
+  const ein = ids?.einOrSsn && /^\d{2}-\d{7}$/.test(ids.einOrSsn) ? ids.einOrSsn : null;
+  return {
+    name: entity.name,
+    legalName: entity.legalName,
+    dba: entity.dba,
+    address: entity.address,
+    taxId: entity.jurisdictionCode === 'US' ? ein : (ids?.vatNumber ?? ids?.registrationNumber ?? null),
+    jurisdictionCode: entity.jurisdictionCode,
+    locale: entity.locale,
+    timezone: entity.timezone,
+  };
+}
+
+function respond<T>(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  ctx: ReportContext,
+  args: { table: ReportTable; periodLabel: string; filename: string; json: T; showBasis?: boolean },
+) {
+  if (ctx.format === 'json') return success(c, args.json);
+  const meta: ReportMeta = {
+    entityName: ctx.entity.name,
+    basis: args.showBasis === false ? null : ctx.basis,
+    periodLabel: args.periodLabel,
+    currency: ctx.entity.baseCurrency,
+  };
+  if (ctx.format === 'csv') return csvResponse(toCsv(args.table, meta), `${args.filename}.csv`);
+  return success(c, buildPrintDocument(args.table, meta, printEntity(ctx.entity)));
+}
+
+function failure(c: Context<{ Bindings: Env; Variables: Variables }>, err: unknown, name: string) {
+  if (err instanceof ReportInputError) return error.badRequest(c, err.message);
+  if (err instanceof EntityNotFoundError) return error.notFound(c, 'Entity', err.entityId);
+  console.error(`[books-api/accounting-reports] ${name} failed:`, err);
+  return error.internal(c, `Failed to generate ${name} report`);
+}
+
+const rangeLabel = (r: DateRange) => `Period: ${r.from} to ${r.to}`;
+
+function periodArgs(entity: EntityRow, query: Record<string, string>, allow: { periods: boolean }) {
+  const range = resolvePeriod(entity, query);
+  const compare = parseCompare(query.compare);
+  const periods = allow.periods ? parsePeriods(query.periods) : null;
+  if (compare && periods) throw new ReportInputError('Use either compare or periods, not both');
+  const columns = periods ? splitColumns(entity, range, periods) : periodColumns(entity, range, compare);
+  return { range, columns };
+}
 
 // ---------------------------------------------------------------------------
 // GET /profit-loss
 // ---------------------------------------------------------------------------
 app.get('/profit-loss', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const from = q.from ?? new Date(new Date().getFullYear(), 0, 1).toISOString();
-  const to = q.to ?? new Date().toISOString();
-
   try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-
-    const { journalLines, journalEntries, accounts } = schema;
-
-    const results = await db
-      .select({
-        accountId: journalLines.accountId,
-        accountCode: accounts.code,
-        accountName: accounts.name,
-        accountType: accounts.type,
-        accountSubtype: accounts.subtype,
-        totalDebit: sql<string>`coalesce(sum(${journalLines.debit}::numeric), 0)`,
-        totalCredit: sql<string>`coalesce(sum(${journalLines.credit}::numeric), 0)`,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
-      .where(
-        and(
-          eq(journalLines.entityId, entityId),
-          isNull(journalLines.deletedAt),
-          inArray(journalEntries.status, BOOKED_STATUSES),
-          gte(journalEntries.date, new Date(from)),
-          lte(journalEntries.date, new Date(to)),
-          sql`${accounts.type} in ('revenue', 'expense')`,
-        ),
-      )
-      .groupBy(
-        journalLines.accountId,
-        accounts.code,
-        accounts.name,
-        accounts.type,
-        accounts.subtype,
-      )
-      .orderBy(accounts.code);
-
-    const revenue = results.filter((r) => r.accountType === 'revenue');
-    const expenses = results.filter((r) => r.accountType === 'expense');
-
-    const totalRevenue = revenue.reduce(
-      (sum, r) => sum + Number.parseFloat(r.totalCredit) - Number.parseFloat(r.totalDebit),
-      0,
-    );
-    const totalExpenses = expenses.reduce(
-      (sum, r) => sum + Number.parseFloat(r.totalDebit) - Number.parseFloat(r.totalCredit),
-      0,
-    );
-
-    return success(c, {
-      period: { from, to },
-      revenue: revenue.map((r) => ({
-        ...r,
-        balance: (Number.parseFloat(r.totalCredit) - Number.parseFloat(r.totalDebit)).toFixed(2),
-      })),
-      expenses: expenses.map((r) => ({
-        ...r,
-        balance: (Number.parseFloat(r.totalDebit) - Number.parseFloat(r.totalCredit)).toFixed(2),
-      })),
-      totalRevenue: totalRevenue.toFixed(2),
-      totalExpenses: totalExpenses.toFixed(2),
-      netProfit: (totalRevenue - totalExpenses).toFixed(2),
+    const ctx = await reportContext(c, { basis: true });
+    const { range, columns } = periodArgs(ctx.entity, ctx.query, { periods: true });
+    const ledger = await createLedger(ctx.db, { entityId: ctx.entity.id, basis: ctx.basis, filters: ctx.filters, upTo: latestDate(columns) });
+    const report = await buildProfitLoss(ledger, columns, range);
+    return respond(c, ctx, {
+      table: profitLossTable(report),
+      periodLabel: rangeLabel(range),
+      filename: `profit-and-loss-${range.from}_${range.to}`,
+      json: report,
     });
   } catch (err) {
-    console.error('[app-api/accounting-reports] profit-loss failed:', err);
-    return error.internal(c, 'Failed to generate profit & loss report');
+    return failure(c, err, 'profit & loss');
   }
 });
 
@@ -109,85 +215,22 @@ app.get('/profit-loss', requirePermission('reports:read'), async (c) => {
 // GET /balance-sheet
 // ---------------------------------------------------------------------------
 app.get('/balance-sheet', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const asOf = q.asOf ?? new Date().toISOString();
-
   try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-
-    const { journalLines, journalEntries, accounts } = schema;
-
-    const results = await db
-      .select({
-        accountId: journalLines.accountId,
-        accountCode: accounts.code,
-        accountName: accounts.name,
-        accountType: accounts.type,
-        accountSubtype: accounts.subtype,
-        normalSide: accounts.normalSide,
-        totalDebit: sql<string>`coalesce(sum(${journalLines.debit}::numeric), 0)`,
-        totalCredit: sql<string>`coalesce(sum(${journalLines.credit}::numeric), 0)`,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
-      .where(
-        and(
-          eq(journalLines.entityId, entityId),
-          isNull(journalLines.deletedAt),
-          inArray(journalEntries.status, BOOKED_STATUSES),
-          lte(journalEntries.date, new Date(asOf)),
-          sql`${accounts.type} in ('asset', 'liability', 'equity')`,
-        ),
-      )
-      .groupBy(
-        journalLines.accountId,
-        accounts.code,
-        accounts.name,
-        accounts.type,
-        accounts.subtype,
-        accounts.normalSide,
-      )
-      .orderBy(accounts.code);
-
-    const computeBalance = (r: (typeof results)[0]) => {
-      const debit = Number.parseFloat(r.totalDebit);
-      const credit = Number.parseFloat(r.totalCredit);
-      return r.normalSide === 'debit'
-        ? (debit - credit).toFixed(2)
-        : (credit - debit).toFixed(2);
-    };
-
-    const assets = results
-      .filter((r) => r.accountType === 'asset')
-      .map((r) => ({ ...r, balance: computeBalance(r) }));
-    const liabilities = results
-      .filter((r) => r.accountType === 'liability')
-      .map((r) => ({ ...r, balance: computeBalance(r) }));
-    const equity = results
-      .filter((r) => r.accountType === 'equity')
-      .map((r) => ({ ...r, balance: computeBalance(r) }));
-
-    const totalAssets = assets.reduce((sum, r) => sum + Number.parseFloat(r.balance), 0);
-    const totalLiabilities = liabilities.reduce((sum, r) => sum + Number.parseFloat(r.balance), 0);
-    const totalEquity = equity.reduce((sum, r) => sum + Number.parseFloat(r.balance), 0);
-
-    return success(c, {
-      asOf,
-      assets,
-      liabilities,
-      equity,
-      totalAssets: totalAssets.toFixed(2),
-      totalLiabilities: totalLiabilities.toFixed(2),
-      totalEquity: totalEquity.toFixed(2),
-      totalLiabilitiesAndEquity: (totalLiabilities + totalEquity).toFixed(2),
+    const ctx = await reportContext(c, { basis: true });
+    const asOf = ctx.query.asOf ? requireIsoDate(ctx.query.asOf, 'asOf') : todayFor(ctx.entity);
+    const compare = parseCompare(ctx.query.compare);
+    const periodStart = ctx.query.from ? requireIsoDate(ctx.query.from, 'from') : null;
+    const columns = pointInTimeColumns(asOf, compare, periodStart);
+    const ledger = await createLedger(ctx.db, { entityId: ctx.entity.id, basis: ctx.basis, filters: ctx.filters, upTo: latestDate(columns) });
+    const report = await buildBalanceSheet(ledger, columns, (date) => fiscalYearContaining(ctx.entity, date).from);
+    return respond(c, ctx, {
+      table: balanceSheetTable(report),
+      periodLabel: `As of ${asOf}`,
+      filename: `balance-sheet-${asOf}`,
+      json: report,
     });
   } catch (err) {
-    console.error('[app-api/accounting-reports] balance-sheet failed:', err);
-    return error.internal(c, 'Failed to generate balance sheet');
+    return failure(c, err, 'balance sheet');
   }
 });
 
@@ -195,217 +238,67 @@ app.get('/balance-sheet', requirePermission('reports:read'), async (c) => {
 // GET /trial-balance
 // ---------------------------------------------------------------------------
 app.get('/trial-balance', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const from = q.from ?? new Date(new Date().getFullYear(), 0, 1).toISOString();
-  const to = q.to ?? new Date().toISOString();
-
   try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-
-    const { journalLines, journalEntries, accounts } = schema;
-
-    const results = await db
-      .select({
-        accountCode: accounts.code,
-        accountName: accounts.name,
-        accountType: accounts.type,
-        totalDebit: sql<string>`coalesce(sum(${journalLines.debit}::numeric), 0)`,
-        totalCredit: sql<string>`coalesce(sum(${journalLines.credit}::numeric), 0)`,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
-      .where(
-        and(
-          eq(journalLines.entityId, entityId),
-          isNull(journalLines.deletedAt),
-          inArray(journalEntries.status, BOOKED_STATUSES),
-          gte(journalEntries.date, new Date(from)),
-          lte(journalEntries.date, new Date(to)),
-        ),
-      )
-      .groupBy(accounts.code, accounts.name, accounts.type)
-      .orderBy(accounts.code);
-
-    const totalDebit = results.reduce((sum, r) => sum + Number.parseFloat(r.totalDebit), 0);
-    const totalCredit = results.reduce((sum, r) => sum + Number.parseFloat(r.totalCredit), 0);
-
-    return success(c, {
-      period: { from, to },
-      accounts: results,
-      totalDebit: totalDebit.toFixed(2),
-      totalCredit: totalCredit.toFixed(2),
-      isBalanced: Math.abs(totalDebit - totalCredit) < 0.01,
+    const ctx = await reportContext(c, { basis: true });
+    const { range, columns } = periodArgs(ctx.entity, ctx.query, { periods: false });
+    const ledger = await createLedger(ctx.db, { entityId: ctx.entity.id, basis: ctx.basis, filters: ctx.filters, upTo: latestDate(columns) });
+    const report = await buildTrialBalance(ledger, columns, range);
+    return respond(c, ctx, {
+      table: trialBalanceTable(report),
+      periodLabel: rangeLabel(range),
+      filename: `trial-balance-${range.from}_${range.to}`,
+      json: report,
     });
   } catch (err) {
-    console.error('[app-api/accounting-reports] trial-balance failed:', err);
-    return error.internal(c, 'Failed to generate trial balance');
+    return failure(c, err, 'trial balance');
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /aged-receivables
+// GET /aged-receivables, /aged-payables
+//
+// Aging works on open documents, so the basis doesn't change it. `asOf` sets
+// the day days-past-due count to (default today); balances are the current
+// ones.
 // ---------------------------------------------------------------------------
-app.get('/aged-receivables', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-
-  try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-
-    const { invoices } = schema;
-
-    // Entity scoping added over legacy (which aggregated tenant-wide).
-    const openInvoices = await db
-      .select()
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.entityId, entityId),
-          isNull(invoices.deletedAt),
-          sql`${invoices.balanceDue}::numeric > 0`,
-        ),
-      )
-      .orderBy(invoices.dueDate);
-
-    const now = new Date();
-    const buckets = { current: 0, days30: 0, days60: 0, days90: 0, over90: 0 };
-    const bucketItems: Record<string, typeof openInvoices> = {
-      current: [],
-      days30: [],
-      days60: [],
-      days90: [],
-      over90: [],
-    };
-
-    for (const inv of openInvoices) {
-      const daysPast = Math.floor(
-        (now.getTime() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24),
-      );
-      const balance = Number.parseFloat(inv.balanceDue ?? '0');
-
-      if (daysPast <= 0) {
-        buckets.current += balance;
-        bucketItems.current.push(inv);
-      } else if (daysPast <= 30) {
-        buckets.days30 += balance;
-        bucketItems.days30.push(inv);
-      } else if (daysPast <= 60) {
-        buckets.days60 += balance;
-        bucketItems.days60.push(inv);
-      } else if (daysPast <= 90) {
-        buckets.days90 += balance;
-        bucketItems.days90.push(inv);
-      } else {
-        buckets.over90 += balance;
-        bucketItems.over90.push(inv);
-      }
+for (const kind of ['receivables', 'payables'] as const) {
+  app.get(`/aged-${kind}`, requirePermission('reports:read'), async (c) => {
+    try {
+      const ctx = await reportContext(c, { basis: false });
+      const asOf = ctx.query.asOf ? requireIsoDate(ctx.query.asOf, 'asOf') : todayFor(ctx.entity);
+      const report = await buildAgedReport(ctx.db, ctx.entity.id, kind, asOf);
+      // Aged payables always answered with plain strings per bucket; the counts are new next to them.
+      const json =
+        kind === 'payables'
+          ? {
+              ...report,
+              buckets: Object.fromEntries(Object.entries(report.buckets).map(([bucket, v]) => [bucket, v.total])),
+              bucketCounts: Object.fromEntries(Object.entries(report.buckets).map(([bucket, v]) => [bucket, v.count])),
+            }
+          : report;
+      return respond(c, ctx, {
+        table: agedTable(report, kind),
+        periodLabel: `As of ${asOf}`,
+        filename: `aged-${kind}-${asOf}`,
+        json,
+        showBasis: false,
+      });
+    } catch (err) {
+      return failure(c, err, `aged ${kind}`);
     }
-
-    return success(c, {
-      buckets: {
-        current: { total: buckets.current.toFixed(2), count: bucketItems.current.length },
-        '1-30': { total: buckets.days30.toFixed(2), count: bucketItems.days30.length },
-        '31-60': { total: buckets.days60.toFixed(2), count: bucketItems.days60.length },
-        '61-90': { total: buckets.days90.toFixed(2), count: bucketItems.days90.length },
-        '90+': { total: buckets.over90.toFixed(2), count: bucketItems.over90.length },
-      },
-      total: (
-        buckets.current +
-        buckets.days30 +
-        buckets.days60 +
-        buckets.days90 +
-        buckets.over90
-      ).toFixed(2),
-    });
-  } catch (err) {
-    console.error('[app-api/accounting-reports] aged-receivables failed:', err);
-    return error.internal(c, 'Failed to generate aged receivables');
-  }
-});
+  });
+}
 
 // ---------------------------------------------------------------------------
-// GET /aged-payables
-// ---------------------------------------------------------------------------
-app.get('/aged-payables', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-
-  try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-
-    const { bills } = schema;
-
-    // Entity scoping added over legacy (which aggregated tenant-wide).
-    const openBills = await db
-      .select()
-      .from(bills)
-      .where(
-        and(
-          eq(bills.entityId, entityId),
-          isNull(bills.deletedAt),
-          sql`${bills.balanceDue}::numeric > 0`,
-        ),
-      )
-      .orderBy(bills.dueDate);
-
-    const now = new Date();
-    const buckets = { current: 0, days30: 0, days60: 0, days90: 0, over90: 0 };
-
-    for (const bill of openBills) {
-      const daysPast = Math.floor(
-        (now.getTime() - new Date(bill.dueDate).getTime()) / (1000 * 60 * 60 * 24),
-      );
-      const balance = Number.parseFloat(bill.balanceDue ?? '0');
-      if (daysPast <= 0) buckets.current += balance;
-      else if (daysPast <= 30) buckets.days30 += balance;
-      else if (daysPast <= 60) buckets.days60 += balance;
-      else if (daysPast <= 90) buckets.days90 += balance;
-      else buckets.over90 += balance;
-    }
-
-    return success(c, {
-      buckets: {
-        current: buckets.current.toFixed(2),
-        '1-30': buckets.days30.toFixed(2),
-        '31-60': buckets.days60.toFixed(2),
-        '61-90': buckets.days90.toFixed(2),
-        '90+': buckets.over90.toFixed(2),
-      },
-      total: (
-        buckets.current +
-        buckets.days30 +
-        buckets.days60 +
-        buckets.days90 +
-        buckets.over90
-      ).toFixed(2),
-    });
-  } catch (err) {
-    console.error('[app-api/accounting-reports] aged-payables failed:', err);
-    return error.internal(c, 'Failed to generate aged payables');
-  }
-});
-
-// ---------------------------------------------------------------------------
-// GET /vat-summary
+// GET /vat-summary — tax per rate from the journal lines (tax ledger of NL entities)
 // ---------------------------------------------------------------------------
 app.get('/vat-summary', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const from = q.from ?? new Date(new Date().getFullYear(), 0, 1).toISOString();
-  const to = q.to ?? new Date().toISOString();
-
   try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-
+    const ctx = await reportContext(c, { basis: false });
+    const range = resolvePeriod(ctx.entity, ctx.query);
     const { journalLines, journalEntries, taxRates } = schema;
 
-    const results = await db
+    const results = await ctx.db
       .select({
         taxRateId: journalLines.taxRateId,
         taxRateName: taxRates.name,
@@ -419,11 +312,11 @@ app.get('/vat-summary', requirePermission('reports:read'), async (c) => {
       .leftJoin(taxRates, eq(journalLines.taxRateId, taxRates.id))
       .where(
         and(
-          eq(journalLines.entityId, entityId),
+          eq(journalLines.entityId, ctx.entity.id),
           isNull(journalLines.deletedAt),
           inArray(journalEntries.status, BOOKED_STATUSES),
-          gte(journalEntries.date, new Date(from)),
-          lte(journalEntries.date, new Date(to)),
+          gte(journalEntries.date, parseReportDate(range.from, 'start')),
+          lte(journalEntries.date, parseReportDate(range.to, 'end')),
           sql`${journalLines.taxRateId} is not null`,
         ),
       )
@@ -435,158 +328,144 @@ app.get('/vat-summary', requirePermission('reports:read'), async (c) => {
         taxRates.jurisdictionMetadata,
       );
 
-    return success(c, { period: { from, to }, breakdown: results });
+    const table: ReportTable = {
+      report: 'tax_summary',
+      title: 'Tax summary',
+      hasCode: false,
+      columns: [
+        { key: 'rate', label: 'Rate', numeric: true },
+        { key: 'tax', label: 'Tax', numeric: true },
+      ],
+      rows: results.map((r) => ({
+        kind: 'account' as const,
+        depth: 0,
+        label: r.taxRateName ?? r.taxRateId ?? '',
+        values: { rate: r.rate ?? null, tax: money(Number.parseFloat(r.totalTax)) },
+      })),
+      notes: [],
+    };
+    return respond(c, ctx, {
+      table,
+      periodLabel: rangeLabel(range),
+      filename: `tax-summary-${range.from}_${range.to}`,
+      json: { period: range, breakdown: results },
+      showBasis: false,
+    });
   } catch (err) {
-    console.error('[app-api/accounting-reports] vat-summary failed:', err);
-    return error.internal(c, 'Failed to generate VAT summary');
+    return failure(c, err, 'tax summary');
   }
 });
 
 // ---------------------------------------------------------------------------
 // GET /general-ledger — per-account drill-down with running balance
+//
+// `runningBalance` is debit minus credit, starting from `openingBalance` (the
+// balance before `from`). csv and print export every line of the period.
 // ---------------------------------------------------------------------------
 app.get('/general-ledger', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const accountId = q.accountId;
-  if (!accountId) return error.badRequest(c, 'accountId is required');
-
-  const from = q.from ?? new Date(new Date().getFullYear(), 0, 1).toISOString();
-  const to = q.to ?? new Date().toISOString();
-  const page = Number.parseInt(q.page ?? '1', 10);
-  const pageSize = Number.parseInt(q.pageSize ?? '50', 10);
-
   try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+    const ctx = await reportContext(c, { basis: true });
+    const accountId = ctx.query.accountId;
+    if (!accountId) return error.badRequest(c, 'accountId is required');
 
-    const { journalLines, journalEntries, accounts } = schema;
+    const range = resolvePeriod(ctx.entity, ctx.query);
+    const exporting = ctx.format !== 'json';
+    const page = exporting ? 1 : Math.max(Number.parseInt(ctx.query.page ?? '1', 10) || 1, 1);
+    const pageSize = exporting ? Number.MAX_SAFE_INTEGER : Math.min(Math.max(Number.parseInt(ctx.query.pageSize ?? '50', 10) || 50, 1), 500);
 
-    const [account] = await db
-      .select({
-        id: accounts.id,
-        code: accounts.code,
-        name: accounts.name,
-        normalSide: accounts.normalSide,
-      })
-      .from(accounts)
-      .where(eq(accounts.id, accountId))
-      .limit(1);
+    const ledger = await createLedger(ctx.db, {
+      entityId: ctx.entity.id,
+      basis: ctx.basis,
+      filters: ctx.filters,
+      upTo: parseReportDate(range.to, 'end'),
+    });
+    const report = await buildGeneralLedger(ledger, accountId, range, { page, pageSize });
+    if (!report) return error.notFound(c, 'Account', accountId);
 
-    if (!account) return error.notFound(c, 'Account', accountId);
-
-    const [{ count }] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .where(
-        and(
-          eq(journalLines.entityId, entityId),
-          isNull(journalLines.deletedAt),
-          inArray(journalEntries.status, BOOKED_STATUSES),
-          eq(journalLines.accountId, accountId),
-          gte(journalEntries.date, new Date(from)),
-          lte(journalEntries.date, new Date(to)),
-        ),
-      );
-
-    const totalCount = Number(count);
-    const totalPages = Math.ceil(totalCount / pageSize);
-    const offset = (page - 1) * pageSize;
-
-    const lines = await db
-      .select({
-        id: journalLines.id,
-        journalEntryId: journalLines.journalEntryId,
-        entryNumber: journalEntries.entryNumber,
-        entryDate: journalEntries.date,
-        entryStatus: journalEntries.status,
-        description: journalLines.description,
-        debit: sql<string>`coalesce(${journalLines.debit}::numeric, 0)`,
-        credit: sql<string>`coalesce(${journalLines.credit}::numeric, 0)`,
-        runningBalance: sql<string>`sum(coalesce(${journalLines.debit}::numeric, 0) - coalesce(${journalLines.credit}::numeric, 0)) over (order by ${journalEntries.date} asc, ${journalEntries.id} asc)`,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .where(
-        and(
-          eq(journalLines.entityId, entityId),
-          isNull(journalLines.deletedAt),
-          inArray(journalEntries.status, BOOKED_STATUSES),
-          eq(journalLines.accountId, accountId),
-          gte(journalEntries.date, new Date(from)),
-          lte(journalEntries.date, new Date(to)),
-        ),
-      )
-      .orderBy(asc(journalEntries.date), asc(journalEntries.id))
-      .limit(pageSize)
-      .offset(offset);
-
-    return success(c, {
-      account,
-      period: { from, to },
-      lines,
-      pagination: { page, pageSize, totalCount, totalPages, hasMore: page < totalPages },
+    return respond(c, ctx, {
+      table: generalLedgerTable(report),
+      periodLabel: rangeLabel(range),
+      filename: `general-ledger-${report.account.code || 'account'}-${range.from}_${range.to}`,
+      json: report,
     });
   } catch (err) {
-    console.error('[app-api/accounting-reports] general-ledger failed:', err);
-    return error.internal(c, 'Failed to generate general ledger');
+    return failure(c, err, 'general ledger');
   }
 });
 
 // ---------------------------------------------------------------------------
-// GET /cash-flow
+// GET /cash-flow — bank movements by calendar month
 // ---------------------------------------------------------------------------
+
+interface CashFlowMonth {
+  month: string;
+  inflows: string;
+  outflows: string;
+  net: string;
+}
+
+async function cashFlowFor(db: Database, entityId: string, range: DateRange) {
+  const { bankTransactions } = schema;
+  const monthly: CashFlowMonth[] = await db
+    .select({
+      month: sql<string>`to_char(${bankTransactions.date}, 'YYYY-MM')`,
+      inflows: sql<string>`coalesce(sum(case when ${bankTransactions.amount}::numeric > 0 then ${bankTransactions.amount}::numeric else 0 end), 0)`,
+      outflows: sql<string>`coalesce(sum(case when ${bankTransactions.amount}::numeric < 0 then ${bankTransactions.amount}::numeric else 0 end), 0)`,
+      net: sql<string>`coalesce(sum(${bankTransactions.amount}::numeric), 0)`,
+    })
+    .from(bankTransactions)
+    .where(
+      and(
+        eq(bankTransactions.entityId, entityId),
+        isNull(bankTransactions.deletedAt),
+        gte(bankTransactions.date, parseReportDate(range.from, 'start')),
+        lte(bankTransactions.date, parseReportDate(range.to, 'end')),
+      ),
+    )
+    .groupBy(sql`to_char(${bankTransactions.date}, 'YYYY-MM')`)
+    .orderBy(sql`to_char(${bankTransactions.date}, 'YYYY-MM')`);
+
+  const sum = (key: 'inflows' | 'outflows' | 'net') => monthly.reduce((total, m) => total + Number.parseFloat(m[key]), 0);
+  return {
+    period: range,
+    monthly,
+    totals: { inflows: money(sum('inflows')), outflows: money(sum('outflows')), net: money(sum('net')) },
+  };
+}
+
 app.get('/cash-flow', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const from = q.from ?? new Date(new Date().getFullYear(), 0, 1).toISOString();
-  const to = q.to ?? new Date().toISOString();
-
   try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+    const ctx = await reportContext(c, { basis: false });
+    const range = resolvePeriod(ctx.entity, ctx.query);
+    const compare = parseCompare(ctx.query.compare);
 
-    const { bankTransactions } = schema;
-
-    // Entity scoping added over legacy (which aggregated tenant-wide).
-    const monthly = await db
-      .select({
-        month: sql<string>`to_char(${bankTransactions.date}, 'YYYY-MM')`,
-        inflows: sql<string>`coalesce(sum(case when ${bankTransactions.amount}::numeric > 0 then ${bankTransactions.amount}::numeric else 0 end), 0)`,
-        outflows: sql<string>`coalesce(sum(case when ${bankTransactions.amount}::numeric < 0 then ${bankTransactions.amount}::numeric else 0 end), 0)`,
-        net: sql<string>`coalesce(sum(${bankTransactions.amount}::numeric), 0)`,
-      })
-      .from(bankTransactions)
-      .where(
-        and(
-          eq(bankTransactions.entityId, entityId),
-          isNull(bankTransactions.deletedAt),
-          gte(bankTransactions.date, new Date(from)),
-          lte(bankTransactions.date, new Date(to)),
-        ),
-      )
-      .groupBy(sql`to_char(${bankTransactions.date}, 'YYYY-MM')`)
-      .orderBy(sql`to_char(${bankTransactions.date}, 'YYYY-MM')`);
-
-    const totalInflows = monthly.reduce((sum, m) => sum + Number.parseFloat(m.inflows), 0);
-    const totalOutflows = monthly.reduce((sum, m) => sum + Number.parseFloat(m.outflows), 0);
-    const totalNet = monthly.reduce((sum, m) => sum + Number.parseFloat(m.net), 0);
-
-    return success(c, {
-      period: { from, to },
-      monthly,
-      totals: {
-        inflows: totalInflows.toFixed(2),
-        outflows: totalOutflows.toFixed(2),
-        net: totalNet.toFixed(2),
-      },
+    const report = await cashFlowFor(ctx.db, ctx.entity.id, range);
+    let json: Record<string, unknown> = report;
+    if (compare) {
+      const priorRange = compare === 'prior_year' ? priorYearOf(ctx.entity, range) : priorPeriodOf(range);
+      const prior = await cashFlowFor(ctx.db, ctx.entity.id, priorRange);
+      json = {
+        ...report,
+        comparison: {
+          mode: compare,
+          ...prior,
+          delta: {
+            inflows: deltaOf(Number(report.totals.inflows), Number(prior.totals.inflows)),
+            outflows: deltaOf(Number(report.totals.outflows), Number(prior.totals.outflows)),
+            net: deltaOf(Number(report.totals.net), Number(prior.totals.net)),
+          },
+        },
+      };
+    }
+    return respond(c, ctx, {
+      table: cashFlowTable(report),
+      periodLabel: rangeLabel(range),
+      filename: `cash-flow-${range.from}_${range.to}`,
+      json,
+      showBasis: false,
     });
   } catch (err) {
-    console.error('[app-api/accounting-reports] cash-flow failed:', err);
-    return error.internal(c, 'Failed to generate cash flow report');
+    return failure(c, err, 'cash flow');
   }
 });
 
@@ -594,56 +473,27 @@ app.get('/cash-flow', requirePermission('reports:read'), async (c) => {
 // GET /revenue-by-customer
 // ---------------------------------------------------------------------------
 app.get('/revenue-by-customer', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const from = q.from ?? new Date(new Date().getFullYear(), 0, 1).toISOString();
-  const to = q.to ?? new Date().toISOString();
-
   try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-
-    const { journalLines, journalEntries, accounts, parties } = schema;
-
-    const results = await db
-      .select({
-        contactId: journalLines.contactId,
-        contactName: parties.displayName,
-        totalRevenue: sql<string>`coalesce(sum(${journalLines.credit}::numeric - ${journalLines.debit}::numeric), 0)`,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
-      .leftJoin(parties, eq(journalLines.contactId, parties.id))
-      .where(
-        and(
-          eq(journalLines.entityId, entityId),
-          isNull(journalLines.deletedAt),
-          inArray(journalEntries.status, BOOKED_STATUSES),
-          eq(accounts.type, 'revenue'),
-          gte(journalEntries.date, new Date(from)),
-          lte(journalEntries.date, new Date(to)),
-          sql`${journalLines.contactId} is not null`,
-        ),
-      )
-      .groupBy(journalLines.contactId, parties.displayName)
-      .orderBy(
-        desc(
-          sql`coalesce(sum(${journalLines.credit}::numeric - ${journalLines.debit}::numeric), 0)`,
-        ),
-      );
-
-    const grandTotal = results.reduce((sum, r) => sum + Number.parseFloat(r.totalRevenue), 0);
-
-    return success(c, {
-      period: { from, to },
-      customers: results,
-      grandTotal: grandTotal.toFixed(2),
+    const ctx = await reportContext(c, { basis: true });
+    const range = resolvePeriod(ctx.entity, ctx.query);
+    const ledger = await createLedger(ctx.db, {
+      entityId: ctx.entity.id,
+      basis: ctx.basis,
+      filters: ctx.filters,
+      upTo: parseReportDate(range.to, 'end'),
+    });
+    const result = await buildRevenueByCustomer(ctx.db, ledger, {
+      from: parseReportDate(range.from, 'start'),
+      to: parseReportDate(range.to, 'end'),
+    });
+    return respond(c, ctx, {
+      table: revenueByCustomerTable(result),
+      periodLabel: rangeLabel(range),
+      filename: `revenue-by-customer-${range.from}_${range.to}`,
+      json: { basis: ctx.basis, period: range, ...result },
     });
   } catch (err) {
-    console.error('[app-api/accounting-reports] revenue-by-customer failed:', err);
-    return error.internal(c, 'Failed to generate revenue by customer report');
+    return failure(c, err, 'revenue by customer');
   }
 });
 
@@ -651,55 +501,86 @@ app.get('/revenue-by-customer', requirePermission('reports:read'), async (c) => 
 // GET /expense-by-category
 // ---------------------------------------------------------------------------
 app.get('/expense-by-category', requirePermission('reports:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.query();
-
-  const from = q.from ?? new Date(new Date().getFullYear(), 0, 1).toISOString();
-  const to = q.to ?? new Date().toISOString();
-
   try {
-    const entityId = await resolveEntityId(c, db);
-    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
-
-    const { journalLines, journalEntries, accounts } = schema;
-
-    const results = await db
-      .select({
-        accountId: journalLines.accountId,
-        accountCode: accounts.code,
-        accountName: accounts.name,
-        totalExpense: sql<string>`coalesce(sum(${journalLines.debit}::numeric - ${journalLines.credit}::numeric), 0)`,
-      })
-      .from(journalLines)
-      .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
-      .innerJoin(accounts, eq(journalLines.accountId, accounts.id))
-      .where(
-        and(
-          eq(journalLines.entityId, entityId),
-          isNull(journalLines.deletedAt),
-          inArray(journalEntries.status, BOOKED_STATUSES),
-          eq(accounts.type, 'expense'),
-          gte(journalEntries.date, new Date(from)),
-          lte(journalEntries.date, new Date(to)),
-        ),
-      )
-      .groupBy(journalLines.accountId, accounts.code, accounts.name)
-      .orderBy(
-        desc(
-          sql`coalesce(sum(${journalLines.debit}::numeric - ${journalLines.credit}::numeric), 0)`,
-        ),
-      );
-
-    const grandTotal = results.reduce((sum, r) => sum + Number.parseFloat(r.totalExpense), 0);
-
-    return success(c, {
-      period: { from, to },
-      categories: results,
-      grandTotal: grandTotal.toFixed(2),
+    const ctx = await reportContext(c, { basis: true });
+    const range = resolvePeriod(ctx.entity, ctx.query);
+    const ledger = await createLedger(ctx.db, {
+      entityId: ctx.entity.id,
+      basis: ctx.basis,
+      filters: ctx.filters,
+      upTo: parseReportDate(range.to, 'end'),
+    });
+    const result = await buildExpenseByCategory(ledger, {
+      from: parseReportDate(range.from, 'start'),
+      to: parseReportDate(range.to, 'end'),
+    });
+    return respond(c, ctx, {
+      table: expenseByCategoryTable(result),
+      periodLabel: rangeLabel(range),
+      filename: `expenses-by-category-${range.from}_${range.to}`,
+      json: { basis: ctx.basis, period: range, ...result },
     });
   } catch (err) {
-    console.error('[app-api/accounting-reports] expense-by-category failed:', err);
-    return error.internal(c, 'Failed to generate expense by category report');
+    return failure(c, err, 'expense by category');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /tax-worksheet?year=&basis= — the fiscal year's trial balance grouped by
+// the lines of the entity's income-tax return (US)
+//
+// `year` names the fiscal year by the calendar year it ends in (July–June
+// FY2026 is 1 July 2025 to 30 June 2026); without it, the current fiscal year.
+// `from` / `to` override the dates. The return's line catalog is the one of the
+// year the fiscal year starts in.
+// ---------------------------------------------------------------------------
+app.get('/tax-worksheet', requirePermission('reports:read'), async (c) => {
+  try {
+    const ctx = await reportContext(c, { basis: true });
+    const { entity } = ctx;
+    if (entity.jurisdictionCode !== 'US') {
+      return error.badRequest(c, 'The tax return worksheet is available for US entities');
+    }
+
+    let range: DateRange;
+    if (ctx.query.from || ctx.query.to) {
+      range = resolvePeriod(entity, ctx.query);
+    } else if (ctx.query.year) {
+      const year = Number.parseInt(ctx.query.year, 10);
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new ReportInputError('year must be a four-digit year');
+      range = fiscalYearNamed(entity, year);
+    } else {
+      range = fiscalYearContaining(entity, todayFor(entity));
+    }
+
+    const form = taxFormForEntity(entity.entityType, entity.taxClassification);
+    const ledger = await createLedger(ctx.db, {
+      entityId: entity.id,
+      basis: ctx.basis,
+      filters: ctx.filters,
+      upTo: parseReportDate(range.to, 'end'),
+    });
+    const worksheet = await buildTaxWorksheet(
+      ledger,
+      {
+        id: entity.id,
+        name: entity.name,
+        legalName: entity.legalName,
+        entityType: entity.entityType,
+        taxClassification: entity.taxClassification,
+      },
+      form,
+      range,
+      ctx.query.includeZero === 'true',
+    );
+    return respond(c, ctx, {
+      table: taxWorksheetTable(worksheet),
+      periodLabel: `${worksheet.formLabel}, ${rangeLabel(range)}`,
+      filename: `tax-worksheet-${form}-${range.from}_${range.to}`,
+      json: worksheet,
+    });
+  } catch (err) {
+    return failure(c, err, 'tax worksheet');
   }
 });
 

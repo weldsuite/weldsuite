@@ -9,6 +9,7 @@ import {
   type FilterConfig,
 } from '@/components/entity-list';
 import { useWorkspaceMembers, type ChatMessage } from '@/hooks/queries/use-weldchat-queries';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { renderMessageContent } from '@/app/weldchat/lib/render-message-content';
 
 interface ChannelThreadsTabProps {
@@ -115,26 +116,17 @@ export function ChannelThreadsTab({ channelId, messages }: Readonly<ChannelThrea
     (t: ThreadItem) => (
       <div
         key={t.id}
-        role="button"
-        tabIndex={0}
-        onClick={() =>
-          navigate({
-            to: '/weldchat/$channelId/thread/$messageId',
-            params: { channelId: t.channelId, messageId: t.id },
-          })
-        }
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
+        className="relative flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border [&_:is(a,button)]:relative [&_:is(a,button)]:z-[1]"
+      >
+        <RowOverlayButton
+          label={t.authorName || st('common.actions.view')}
+          onClick={() =>
             navigate({
               to: '/weldchat/$channelId/thread/$messageId',
               params: { channelId: t.channelId, messageId: t.id },
-            });
+            })
           }
-        }}
-        className="flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border"
-      >
+        />
         <div className="flex-1 min-w-0 flex items-start gap-3">
           <div className="relative flex-shrink-0 mt-0.5">
             <Avatar className="h-6 w-6 !rounded-[8px]">

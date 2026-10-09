@@ -73,8 +73,8 @@ WHERE slug IN ('pro', 'professional');
 
 -- Free & Enterprise rows are intentionally left unchanged.
 
--- 3) Verify before COMMIT (uncomment to inspect inside a manual session):
--- SELECT slug, name, price_per_user, included_users, max_users, badge, has_api_access
---   FROM plans WHERE deleted_at IS NULL ORDER BY sort_order;
+-- 3) Verify before COMMIT: read-only, prints the plans as they now stand.
+SELECT slug, name, price_per_user, included_users, max_users, badge, has_api_access
+  FROM plans WHERE deleted_at IS NULL ORDER BY sort_order;
 
 COMMIT;

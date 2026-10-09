@@ -5,6 +5,7 @@
  * full ~1500-icon set whenever someone does `import * as LucideIcons`.
  */
 import { DynamicIcon as LucideDynamic } from 'lucide-react/dynamic';
+import dynamicIconImports from 'lucide-react/dynamicIconImports';
 import { Hash } from 'lucide-react';
 
 function toKebab(name: string): string {
@@ -22,15 +23,8 @@ export interface LucideDynamicIconProps {
 
 export function LucideDynamicIcon({ name, className, size }: Readonly<LucideDynamicIconProps>) {
   const kebab = name.includes('-') ? name : toKebab(name);
-  // `name` is loosely typed here — lucide's DynamicIcon throws on unknown
-  // names. We use a Hash fallback to keep the UI rendering instead of
-  // surfacing a console error during sidebar resolution.
-  return (
-    <LucideDynamic
-      name={kebab as never}
-      className={className}
-      size={size}
-      fallback={() => <Hash className={className} />}
-    />
-  );
+  // lucide's DynamicIcon logs an error for an unknown name, so an unknown name
+  // never reaches it: a Hash icon renders instead.
+  if (!Object.hasOwn(dynamicIconImports, kebab)) return <Hash className={className} />;
+  return <LucideDynamic name={kebab as never} className={className} size={size} />;
 }

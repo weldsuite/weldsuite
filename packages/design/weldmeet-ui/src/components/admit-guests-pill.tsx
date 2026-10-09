@@ -24,12 +24,12 @@ const PERSON_THEMES = [
 ] as const;
 
 function hashString(input: string): number {
-  let h = 0;
+  // An Int32Array slot wraps on every write, exactly like `h |= 0` did.
+  const h = new Int32Array(1);
   for (let i = 0; i < input.length; i++) {
-    h = ((h << 5) - h) + input.codePointAt(i)!;
-    h |= 0;
+    h[0] = Math.imul(h[0]!, 31) + input.codePointAt(i)!;
   }
-  return Math.abs(h);
+  return Math.abs(h[0]!);
 }
 
 function getInitials(name: string): string {
@@ -132,7 +132,7 @@ export function AdmitGuestsPill({ meeting }: Readonly<AdmitGuestsPillProps>) {
     <Card
       role="dialog"
       aria-label="Lobby notification"
-      className="absolute top-4 right-4 z-30 w-[340px] gap-0 py-0 shadow-lg animate-in fade-in slide-in-from-top-2 duration-200"
+      className="absolute top-4 right-4 z-30 w-[340px] max-md:top-2 max-md:right-2 max-md:w-auto max-md:left-2 gap-0 py-0 shadow-lg animate-in fade-in slide-in-from-top-2 duration-200"
     >
       <Button
         variant="ghost"

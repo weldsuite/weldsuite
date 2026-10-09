@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { cn, stripTags } from '@/lib/utils';
 import { NoteActionsMenu } from './note-actions-menu';
-import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
+import { format, isToday, isYesterday } from 'date-fns';
+import { getNoteBucket, type NoteBucketId } from './note-buckets';
 import {
   useCreateNote,
   useUpdateNote,
@@ -39,7 +40,7 @@ import { BlockEditor, StaticFormattingToolbar, type BlockNoteEditorInstance } fr
 import type { Block } from '@blocknote/core';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { withQuery } from '@/lib/with-query';
-import { activateOnKey } from '@/lib/activate-on-key';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 
 interface Note {
   id: string;
@@ -119,7 +120,14 @@ function NoteEditorDialog({
   const t = useTranslations();
   const { setPinnedNote, setIsOpen: setGlobalPinnedOpen, setOnSave, setOnDelete, setStartMinimized } = usePinnedNote();
   const [title, setTitle] = useState('');
-  const titleRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
+
+  const resizeTitle = useCallback(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
   const [editor, setEditor] = useState<BlockNoteEditorInstance | null>(null);
   const editorRef = useRef<BlockNoteEditorInstance | null>(null);
   const currentBlocksRef = useRef<Block[]>([]);
@@ -185,14 +193,11 @@ function NoteEditorDialog({
 
     requestAnimationFrame(() => {
       if (titleRef.current) {
-        if (resolvedTitle) {
-          titleRef.current.textContent = resolvedTitle;
-        } else {
-          titleRef.current.innerHTML = '';
-        }
+        titleRef.current.value = resolvedTitle;
+        resizeTitle();
       }
     });
-  }, [note, open]);
+  }, [note, open, resizeTitle]);
 
   // Flush any pending save immediately (used on close)
   const flushSave = useCallback(async () => {
@@ -254,23 +259,16 @@ function NoteEditorDialog({
   }, [triggerAutoSave]);
 
   const handleTitleInput = useCallback(
-    (e: React.FormEvent<HTMLDivElement>) => {
-      const el = e.currentTarget;
-      const text = el.textContent || '';
-      // contentEditable often leaves a stray <br> behind after the user
-      // backspaces the last character, which prevents the :empty CSS pseudo
-      // from matching — so the placeholder wouldn't come back.
-      if (!text && el.innerHTML !== '') {
-        el.innerHTML = '';
-      }
-      setTitle(text);
+    (e: React.FormEvent<HTMLTextAreaElement>) => {
+      setTitle(e.currentTarget.value);
+      resizeTitle();
       triggerAutoSave();
     },
-    [triggerAutoSave],
+    [triggerAutoSave, resizeTitle],
   );
 
   const handleTitleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         const editorEl = document.querySelector('.bn-editor') as HTMLElement | null;
@@ -351,14 +349,14 @@ function NoteEditorDialog({
 
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-black/5 [&::-webkit-scrollbar-thumb]:rounded-full">
               <div className="max-w-[760px] mx-auto w-full px-12 pt-[70px] pb-10">
-                <div
+                <textarea
                   ref={titleRef}
-                  contentEditable
-                  suppressContentEditableWarning
+                  rows={1}
                   onInput={handleTitleInput}
                   onKeyDown={handleTitleKeyDown}
-                  data-placeholder={t('sweep.weldcrm.globalPinnedNote.untitled')}
-                  className="text-4xl font-bold text-foreground outline-none mb-1 break-words empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/50"
+                  placeholder={t('sweep.weldcrm.globalPinnedNote.untitled')}
+                  aria-label={t('sweep.weldcrm.globalPinnedNote.untitled')}
+                  className="block w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-4xl font-bold leading-[1.2] text-foreground outline-none mb-1 break-words placeholder:text-muted-foreground/50"
                 />
                 <div className="mt-4">
                   <BlockEditor
@@ -502,61 +500,17 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
     },
   ], [availableRecords, availableAuthors, t]);
 
-  // Group configurations by time
+  // Group configurations by time. Every note lands in exactly one bucket
+  // (see getNoteBucket), so no note is ever listed twice.
   const groupConfigs: GroupConfig<Note>[] = useMemo(() => {
-    const now = new Date();
-    const _startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
+    const inBucket = (bucket: NoteBucketId) => (n: Note) => getNoteBucket(n.createdAt) === bucket;
     return [
-      {
-        id: 'today',
-        label: t('sweep.weldcrm.notesView.createdToday'),
-        sortOrder: 1,
-        filter: (n) => isToday(new Date(n.createdAt)),
-      },
-      {
-        id: 'yesterday',
-        label: t('sweep.weldcrm.notesView.createdYesterday'),
-        sortOrder: 2,
-        filter: (n) => isYesterday(new Date(n.createdAt)),
-      },
-      {
-        id: 'this-week',
-        label: t('sweep.weldcrm.notesView.createdThisWeek'),
-        sortOrder: 3,
-        filter: (n) => {
-          const d = new Date(n.createdAt);
-          return isThisWeek(d, { weekStartsOn: 1 }) && !isToday(d) && !isYesterday(d);
-        },
-      },
-      {
-        id: 'this-month',
-        label: t('sweep.weldcrm.notesView.createdThisMonth'),
-        sortOrder: 4,
-        filter: (n) => {
-          const d = new Date(n.createdAt);
-          return isThisMonth(d) && !isThisWeek(d, { weekStartsOn: 1 });
-        },
-      },
-      {
-        id: 'this-year',
-        label: t('sweep.weldcrm.notesView.createdThisYear'),
-        sortOrder: 5,
-        filter: (n) => {
-          const d = new Date(n.createdAt);
-          // A date can be outside the current month (e.g. Sep 29 when today
-          // is Oct 5) while still falling in the current ISO week — without
-          // excluding isThisWeek too, that note matched both "this week" and
-          // "this year" and was listed twice.
-          return isThisYear(d) && !isThisMonth(d) && !isThisWeek(d, { weekStartsOn: 1 });
-        },
-      },
-      {
-        id: 'older',
-        label: t('sweep.weldcrm.notesView.older'),
-        sortOrder: 6,
-        filter: (n) => !isThisYear(new Date(n.createdAt)),
-      },
+      { id: 'today', label: t('sweep.weldcrm.notesView.createdToday'), sortOrder: 1, filter: inBucket('today') },
+      { id: 'yesterday', label: t('sweep.weldcrm.notesView.createdYesterday'), sortOrder: 2, filter: inBucket('yesterday') },
+      { id: 'this-week', label: t('sweep.weldcrm.notesView.createdThisWeek'), sortOrder: 3, filter: inBucket('this-week') },
+      { id: 'this-month', label: t('sweep.weldcrm.notesView.createdThisMonth'), sortOrder: 4, filter: inBucket('this-month') },
+      { id: 'this-year', label: t('sweep.weldcrm.notesView.createdThisYear'), sortOrder: 5, filter: inBucket('this-year') },
+      { id: 'older', label: t('sweep.weldcrm.notesView.older'), sortOrder: 6, filter: inBucket('older') },
     ];
   }, [t]);
 
@@ -694,121 +648,119 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   };
 
   // Row renderer
-  const renderNoteRow = useCallback((note: Note, _handlers: RowHandlers<Note>) => (
-    <div
-      key={note.id}
-      role="button"
-      tabIndex={0}
-      onClick={() => openEditDialog(note)}
-      onKeyDown={activateOnKey(() => openEditDialog(note))}
-      className="flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-background/50"
-    >
-      {/* Favorite */}
-      <div className="w-[28px] flex items-center -mr-4" onClick={(e) => e.stopPropagation()}>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => handleToggleFavorite(note.id)}
-          className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-secondary"
-        >
-          <Star className={cn("h-[15px] w-[15px]", note.isPinned ? "fill-yellow-400 text-yellow-400" : "text-gray-300 hover:text-gray-400")} />
-        </Button>
-      </div>
+  const renderNoteRow = useCallback((note: Note, _handlers: RowHandlers<Note>) => {
+    const rawTitle = getNoteTitle(note.content);
+    const noteTitle = rawTitle === 'Untitled' ? t('sweep.weldcrm.globalPinnedNote.untitled') : rawTitle;
+    return (
+      <div
+        key={note.id}
+        className="relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-background/50"
+      >
+        <RowOverlayButton label={noteTitle} onClick={() => openEditDialog(note)} />
+        {/* Favorite */}
+        <div className="relative z-[1] w-[28px] flex items-center -mr-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => handleToggleFavorite(note.id)}
+            className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-secondary"
+          >
+            <Star className={cn("h-[15px] w-[15px]", note.isPinned ? "fill-yellow-400 text-yellow-400" : "text-gray-300 hover:text-gray-400")} />
+          </Button>
+        </div>
 
-      {/* Note Title */}
-      <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-        <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
-          {(() => {
-            const noteTitle = getNoteTitle(note.content);
-            return noteTitle === 'Untitled' ? t('sweep.weldcrm.globalPinnedNote.untitled') : noteTitle;
-          })()}
-        </span>
-      </div>
+        {/* Note Title */}
+        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+          <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
+            {noteTitle}
+          </span>
+        </div>
 
-      {/* Record */}
-      <div className="w-[180px] overflow-hidden">
-        {getRecordName(note) ? (
-          (() => {
-            const canOpenPanel = !!(note.recordId && note.recordKind);
-            const content = (
-              <>
-                <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
-                  {note.recordAvatar && (
-                    <AvatarImage src={note.recordAvatar} alt={getRecordName(note)} className="!rounded-[7px]" />
-                  )}
-                  <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                    {getRecordName(note)!.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="text-sm text-foreground/80 truncate min-w-0 group-hover/record:text-primary group-hover/record:underline">
-                  {getRecordName(note)}
-                </span>
-              </>
-            );
-            return canOpenPanel ? (
-              <Button
-                variant="ghost"
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openPanel({
-                    type: note.recordKind === 'person' ? 'person' : 'company',
-                    id: note.recordId!,
-                    stack: true,
-                  });
-                }}
-                className="group/record flex items-center gap-1.5 w-full min-w-0 text-left hover:underline-offset-2"
-              >
-                {content}
-              </Button>
-            ) : (
-              <div className="flex items-center gap-1.5 w-full min-w-0">{content}</div>
-            );
-          })()
-        ) : (
-          <span className="text-sm text-muted-foreground">—</span>
-        )}
-      </div>
+        {/* Record */}
+        <div className="w-[180px] overflow-hidden">
+          {getRecordName(note) ? (
+            (() => {
+              const canOpenPanel = !!(note.recordId && note.recordKind);
+              const content = (
+                <>
+                  <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
+                    {note.recordAvatar && (
+                      <AvatarImage src={note.recordAvatar} alt={getRecordName(note)} className="!rounded-[7px]" />
+                    )}
+                    <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                      {getRecordName(note)!.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm text-foreground/80 truncate min-w-0 group-hover/record:text-primary group-hover/record:underline">
+                    {getRecordName(note)}
+                  </span>
+                </>
+              );
+              return canOpenPanel ? (
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openPanel({
+                      type: note.recordKind === 'person' ? 'person' : 'company',
+                      id: note.recordId!,
+                      stack: true,
+                    });
+                  }}
+                  className="group/record relative z-[1] flex items-center gap-1.5 w-full min-w-0 text-left hover:underline-offset-2"
+                >
+                  {content}
+                </Button>
+              ) : (
+                <div className="flex items-center gap-1.5 w-full min-w-0">{content}</div>
+              );
+            })()
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          )}
+        </div>
 
-      {/* Author */}
-      <div className="w-[150px]">
-        {note.authorName ? (
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
-              {note.authorAvatar && (
-                <AvatarImage src={note.authorAvatar} alt={note.authorName} className="!rounded-[7px]" />
-              )}
-              <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                {note.authorName.charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <span className="text-sm text-foreground/80 truncate min-w-0">
-              {note.authorName}
-            </span>
-          </div>
-        ) : (
-          <span className="text-sm text-muted-foreground">—</span>
-        )}
-      </div>
+        {/* Author */}
+        <div className="w-[150px]">
+          {note.authorName ? (
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
+                {note.authorAvatar && (
+                  <AvatarImage src={note.authorAvatar} alt={note.authorName} className="!rounded-[7px]" />
+                )}
+                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                  {note.authorName.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <span className="text-sm text-foreground/80 truncate min-w-0">
+                {note.authorName}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          )}
+        </div>
 
-      {/* Date */}
-      <div className="w-[120px]">
-        <span className="text-sm font-mono text-gray-500">
-          {formatNoteDate(new Date(note.createdAt), t)}
-        </span>
-      </div>
+        {/* Date */}
+        <div className="w-[120px]">
+          <span className="text-sm font-mono text-gray-500">
+            {formatNoteDate(new Date(note.createdAt), t)}
+          </span>
+        </div>
 
-      {/* Actions */}
-      <div className="w-[40px] flex justify-end">
-        <NoteActionsMenu
-          isPinned={!!note.isPinned}
-          onEdit={() => openEditDialog(note)}
-          onToggleFavorite={() => handleToggleFavorite(note.id)}
-          onDelete={() => requestDelete(note.id)}
-        />
+        {/* Actions */}
+        <div className="relative z-[1] w-[40px] flex justify-end">
+          <NoteActionsMenu
+            isPinned={!!note.isPinned}
+            onEdit={() => openEditDialog(note)}
+            onToggleFavorite={() => handleToggleFavorite(note.id)}
+            onDelete={() => requestDelete(note.id)}
+          />
+        </div>
       </div>
-    </div>
-  ), [openEditDialog, requestDelete, handleToggleFavorite, openPanel, t]);
+    );
+  }, [openEditDialog, requestDelete, handleToggleFavorite, openPanel, t]);
 
   // Header column definitions
   const headerColumns: HeaderColumn[] = useMemo(() => [

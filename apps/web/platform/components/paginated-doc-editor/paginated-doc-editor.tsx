@@ -44,6 +44,7 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { PaginatedDocMenubar, type DocCommand, type DocActions } from './menubar';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // ---------------------------------------------------------------------------
 // Standalone paginated document editor — plain contenteditable, no BlockNote.
@@ -250,7 +251,7 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     // ---- Command surface (execCommand — reliable inside contenteditable) ----
     const exec = useCallback((command: string, value?: string) => {
       restoreSelection();
-      document.execCommand(command, false, value);
+      runEditorCommand(command, value);
       handleInput();
       refreshToolbarRef.current();
     }, [handleInput, restoreSelection]);
@@ -265,9 +266,9 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     // deprecated <font color>. We flip it on for the command and back off after.
     const applyColor = useCallback((command: 'foreColor' | 'hiliteColor', color: string) => {
       restoreSelection();
-      try { document.execCommand('styleWithCSS', false, 'true'); } catch { /* noop */ }
-      document.execCommand(command, false, color);
-      try { document.execCommand('styleWithCSS', false, 'false'); } catch { /* noop */ }
+      try { runEditorCommand('styleWithCSS', 'true'); } catch { /* noop */ }
+      runEditorCommand(command, color);
+      try { runEditorCommand('styleWithCSS', 'false'); } catch { /* noop */ }
       handleInput();
       refreshToolbarRef.current();
     }, [handleInput, restoreSelection]);
@@ -275,9 +276,9 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     // Apply a font family to the selection (styleWithCSS → inline `style` spans).
     const applyFontName = useCallback((family: string) => {
       restoreSelection();
-      try { document.execCommand('styleWithCSS', false, 'true'); } catch { /* noop */ }
-      document.execCommand('fontName', false, family);
-      try { document.execCommand('styleWithCSS', false, 'false'); } catch { /* noop */ }
+      try { runEditorCommand('styleWithCSS', 'true'); } catch { /* noop */ }
+      runEditorCommand('fontName', family);
+      try { runEditorCommand('styleWithCSS', 'false'); } catch { /* noop */ }
       handleInput();
       refreshToolbarRef.current();
     }, [handleInput, restoreSelection]);
@@ -313,8 +314,8 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
       pendingFontSizeRef.current = null;
 
       // styleWithCSS off → execCommand emits the <font size="7"> sentinels.
-      try { document.execCommand('styleWithCSS', false, 'false'); } catch { /* noop */ }
-      document.execCommand('fontSize', false, '7');
+      try { runEditorCommand('styleWithCSS', 'false'); } catch { /* noop */ }
+      runEditorCommand('fontSize', '7');
 
       if (collapsed) {
         // Nothing selected: apply to the next typed text (handleInput rewrites
@@ -345,9 +346,9 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     // block instead of wrapping it in <blockquote>.
     const indentBlock = useCallback((direction: 'indent' | 'outdent') => {
       restoreSelection();
-      try { document.execCommand('styleWithCSS', false, 'true'); } catch { /* noop */ }
-      document.execCommand(direction);
-      try { document.execCommand('styleWithCSS', false, 'false'); } catch { /* noop */ }
+      try { runEditorCommand('styleWithCSS', 'true'); } catch { /* noop */ }
+      runEditorCommand(direction);
+      try { runEditorCommand('styleWithCSS', 'false'); } catch { /* noop */ }
       handleInput();
       refreshToolbarRef.current();
     }, [handleInput, restoreSelection]);
@@ -405,13 +406,13 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
           ul.querySelectorAll('li').forEach((li) => {
             delete li.dataset.checked;
           });
-          document.execCommand('insertUnorderedList');
+          runEditorCommand('insertUnorderedList');
         } else {
           // Plain bullet list → promote to checklist.
           ul.classList.add('pgn-checklist');
         }
       } else {
-        document.execCommand('insertUnorderedList');
+        runEditorCommand('insertUnorderedList');
         const created = findListAncestor();
         created?.classList.add('pgn-checklist');
       }
@@ -635,12 +636,12 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
               minHeight: `${pageCount * PAGE_STRIDE_PX - PAGE_GAP_PX}px`,
             }}
           >
-            {Array.from({ length: pageCount }).map((_, i) => (
+            {Array.from({ length: pageCount }, (_, i) => i).map((page) => (
               <div
-                key={i}
+                key={page}
                 aria-hidden
                 className="pgn-page-bg absolute left-0 right-0 bg-white border border-gray-200 dark:bg-[#26282c] dark:border-[#383e47] shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.4)]"
-                style={{ top: `${i * PAGE_STRIDE_PX}px`, height: `${PAGE_HEIGHT_PX}px` }}
+                style={{ top: `${page * PAGE_STRIDE_PX}px`, height: `${PAGE_HEIGHT_PX}px` }}
               />
             ))}
 
@@ -752,7 +753,7 @@ function readFontAtSelection(
 
 function queryCommandStateSafe(cmd: string): boolean {
   try {
-    return document.queryCommandState(cmd);
+    return isEditorCommandActive(cmd);
   } catch {
     return false;
   }
@@ -1100,7 +1101,8 @@ function BlockTypeMenu({ current, onPick }: Readonly<{ current: BlockKind; onPic
       >
         {blockItems.map((item, idx) => {
           if (item.label === '__separator__') {
-            return <div key={idx} className="my-1 h-px bg-border" />;
+            // A separator has no kind; it is named after the item it follows.
+            return <div key={`separator-${blockItems[idx - 1]?.kind}`} className="my-1 h-px bg-border" />;
           }
           const { kind, label, Icon } = item;
           const match = kind === current;

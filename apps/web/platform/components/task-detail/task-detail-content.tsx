@@ -73,6 +73,7 @@ import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -199,11 +200,12 @@ const ASSIGNEE_AVATAR_PALETTE = [
 ];
 
 function assigneeFallbackColor(seed: string): string {
-  let hash = 0;
+  // An Int32Array slot wraps on every write, exactly like `| 0` did.
+  const hash = new Int32Array(1);
   for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.codePointAt(i)!) | 0;
+    hash[0] = Math.imul(hash[0]!, 31) + seed.codePointAt(i)!;
   }
-  const idx = Math.abs(hash) % ASSIGNEE_AVATAR_PALETTE.length;
+  const idx = Math.abs(hash[0]!) % ASSIGNEE_AVATAR_PALETTE.length;
   return ASSIGNEE_AVATAR_PALETTE[idx]!;
 }
 
@@ -289,6 +291,8 @@ export interface TaskUpdateData {
   assignee?: NonNullable<Task['assignee']> | null;
   assignees?: NonNullable<Task['assignees']> | null;
   linkedCompany?: NonNullable<Task['linkedCompany']> | null;
+  /** CRM person link, mutually exclusive with `linkedCompany`. */
+  linkedPerson?: NonNullable<Task['linkedPerson']> | null;
   labels?: string[];
   repeat?: NonNullable<Task['repeat']> | null;
   customFields?: Record<string, unknown>;
@@ -299,6 +303,13 @@ export interface TaskDetailContentProps {
   onUpdate: (taskId: string, data: TaskUpdateData) => void;
   availableAssignees: string[] | { id: string; name: string; avatar?: string }[];
   availableCompanies: { id: string; name: string; avatar?: string }[];
+  /**
+   * When provided, the company field becomes a CRM "record" picker offering
+   * people next to companies (CRM tasks link to either).
+   */
+  availablePeople?: { id: string; name: string; avatar?: string }[];
+  /** Opens the linked company/person panel; shows an "open" button next to the record. */
+  onOpenRecord?: (type: 'company' | 'person', id: string) => void;
   availableLabels?: { id: string; name: string; color: string }[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
   projectId?: string;
@@ -743,6 +754,8 @@ export function TaskDetailContent({
   onUpdate,
   availableAssignees,
   availableCompanies,
+  availablePeople,
+  onOpenRecord,
   availableLabels = [],
   onCreateLabel,
   projectId,
@@ -795,11 +808,24 @@ export function TaskDetailContent({
   // control both the popover open state and the query string from here.
   const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
   const [companyQuery, setCompanyQuery] = useState('');
+  const isRecordPicker = availablePeople !== undefined;
   const filteredCompanies = useMemo(() => {
     const q = companyQuery.trim().toLowerCase();
     if (!q) return availableCompanies;
     return availableCompanies.filter((c) => c.name.toLowerCase().includes(q));
   }, [companyQuery, availableCompanies]);
+  const filteredPeople = useMemo(() => {
+    const q = companyQuery.trim().toLowerCase();
+    const people = availablePeople ?? [];
+    if (!q) return people;
+    return people.filter((p) => p.name.toLowerCase().includes(q));
+  }, [companyQuery, availablePeople]);
+  // The record currently linked to the task: a company or a person.
+  const linkedRecord = useMemo(() => {
+    if (task.linkedCompany) return { ...task.linkedCompany, type: 'company' as const };
+    if (task.linkedPerson) return { ...task.linkedPerson, type: 'person' as const };
+    return null;
+  }, [task.linkedCompany, task.linkedPerson]);
   const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
   // Escape closes the attachment preview overlay.
   useEffect(() => {
@@ -953,12 +979,12 @@ export function TaskDetailContent({
           <AssigneesField task={task} onUpdate={onUpdate} availableAssignees={availableAssignees} />
           )}
 
-          {/* Company */}
+          {/* Company (or CRM record: company / person) */}
           {isFieldVisible('company') && (
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 w-32 flex-shrink-0">
               <Building className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{t('sweep.shared.customer')}</span>
+              <span className="text-sm text-muted-foreground">{isRecordPicker ? t('sweep.shared.record') : t('sweep.shared.customer')}</span>
             </div>
             <Popover
               open={companyPopoverOpen}
@@ -976,7 +1002,7 @@ export function TaskDetailContent({
                     onKeyDown={(e) => {
                       if (e.key === 'Escape') setCompanyPopoverOpen(false);
                     }}
-                    placeholder={t('sweep.shared.searchCustomerPlaceholder')}
+                    placeholder={isRecordPicker ? t('sweep.shared.searchRecordPlaceholder') : t('sweep.shared.searchCustomerPlaceholder')}
                     className="h-8 text-sm -mx-2 w-auto min-w-[200px] self-start border-0 shadow-none focus-visible:ring-0 px-2 bg-transparent"
                   />
                 </PopoverAnchor>
@@ -984,20 +1010,20 @@ export function TaskDetailContent({
                 <PopoverTrigger asChild>
                   <Button variant="ghost" className={cn(
                     "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start gap-2 group/field transition-colors",
-                    task.linkedCompany && "border border-transparent hover:border-border hover:bg-muted/40",
+                    linkedRecord && "border border-transparent hover:border-border hover:bg-muted/40",
                   )}>
-                    {task.linkedCompany ? (
+                    {linkedRecord ? (
                       <>
                         <Avatar className="h-5 w-5 rounded-[7px]">
-                          <AvatarImage src={task.linkedCompany.avatar} className="rounded-[7px]" />
+                          <AvatarImage src={linkedRecord.avatar} className="rounded-[7px]" />
                           <AvatarFallback className="text-[10px] rounded-[7px]">
-                            {(task.linkedCompany.name || '?').charAt(0).toUpperCase()}
+                            {(linkedRecord.name || '?').charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="text-foreground">{task.linkedCompany.name}</span>
+                        <span className="text-foreground">{linkedRecord.name}</span>
                       </>
                     ) : (
-                      <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setCustomer')}</span>
+                      <span className="text-muted-foreground group-hover/field:underline">{isRecordPicker ? t('sweep.shared.setRecord') : t('sweep.shared.setCustomer')}</span>
                     )}
                   </Button>
                 </PopoverTrigger>
@@ -1012,42 +1038,73 @@ export function TaskDetailContent({
                     backgrounds extend all the way to the scrollbar on the
                     right side. */}
                 <div className="max-h-[240px] overflow-y-auto py-1 pl-1">
-                  {filteredCompanies.length === 0 ? (
+                  {filteredCompanies.length === 0 && filteredPeople.length === 0 ? (
                     <div className="px-2 py-6 text-sm text-center text-muted-foreground">
-                      {t('sweep.shared.noCustomerFound')}
+                      {isRecordPicker ? t('sweep.shared.noRecordFound') : t('sweep.shared.noCustomerFound')}
                     </div>
                   ) : (
-                    filteredCompanies.map((company) => {
-                      const isSelected = task.linkedCompany?.id === company.id;
-                      return (
-                        <Button
-                          variant="ghost"
-                          key={company.id}
-                          onClick={() => {
-                            onUpdate(task.id, { linkedCompany: company });
-                            setCompanyPopoverOpen(false);
-                          }}
-                          className="flex items-center gap-2 w-full pl-1.5 pr-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-                        >
-                          <Avatar className="h-5 w-5 rounded-[7px]">
-                            <AvatarImage src={company.avatar} className="rounded-[7px]" />
-                            <AvatarFallback className="text-[10px] rounded-[7px]">
-                              {(company.name || '?').charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="flex-1 truncate">{company.name}</span>
-                          {isSelected && <Check className="ml-auto h-3.5 w-3.5 text-primary shrink-0" />}
-                        </Button>
-                      );
-                    })
+                    <>
+                      {isRecordPicker && filteredCompanies.length > 0 && (
+                        <div className="px-1.5 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{t('sweep.shared.recordCompanies')}</div>
+                      )}
+                      {filteredCompanies.map((company) => {
+                        const isSelected = task.linkedCompany?.id === company.id;
+                        return (
+                          <Button
+                            variant="ghost"
+                            key={`company-${company.id}`}
+                            onClick={() => {
+                              onUpdate(task.id, { linkedCompany: company });
+                              setCompanyPopoverOpen(false);
+                            }}
+                            className="flex items-center gap-2 w-full pl-1.5 pr-2 py-1.5 text-sm text-left hover:bg-muted rounded"
+                          >
+                            <Avatar className="h-5 w-5 rounded-[7px]">
+                              <AvatarImage src={company.avatar} className="rounded-[7px]" />
+                              <AvatarFallback className="text-[10px] rounded-[7px]">
+                                {(company.name || '?').charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="flex-1 truncate">{company.name}</span>
+                            {isSelected && <Check className="ml-auto h-3.5 w-3.5 text-primary shrink-0" />}
+                          </Button>
+                        );
+                      })}
+                      {isRecordPicker && filteredPeople.length > 0 && (
+                        <div className="px-1.5 pt-2 pb-0.5 text-xs font-medium text-muted-foreground">{t('sweep.shared.recordPeople')}</div>
+                      )}
+                      {filteredPeople.map((person) => {
+                        const isSelected = task.linkedPerson?.id === person.id;
+                        return (
+                          <Button
+                            variant="ghost"
+                            key={`person-${person.id}`}
+                            onClick={() => {
+                              onUpdate(task.id, { linkedPerson: person });
+                              setCompanyPopoverOpen(false);
+                            }}
+                            className="flex items-center gap-2 w-full pl-1.5 pr-2 py-1.5 text-sm text-left hover:bg-muted rounded"
+                          >
+                            <Avatar className="h-5 w-5 rounded-full">
+                              <AvatarImage src={person.avatar} className="rounded-full" />
+                              <AvatarFallback className="text-[10px] rounded-full">
+                                {(person.name || '?').charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="flex-1 truncate">{person.name}</span>
+                            {isSelected && <Check className="ml-auto h-3.5 w-3.5 text-primary shrink-0" />}
+                          </Button>
+                        );
+                      })}
+                    </>
                   )}
                 </div>
-                {task.linkedCompany && (
+                {linkedRecord && (
                   <div className="border-t border-border p-1">
                     <Button
                       variant="ghost"
                       onClick={() => {
-                        onUpdate(task.id, { linkedCompany: null });
+                        onUpdate(task.id, linkedRecord.type === 'person' ? { linkedPerson: null } : { linkedCompany: null });
                         setCompanyPopoverOpen(false);
                       }}
                       className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
@@ -1059,6 +1116,18 @@ export function TaskDetailContent({
                 )}
               </PopoverContent>
             </Popover>
+            {linkedRecord && onOpenRecord && !companyPopoverOpen && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                aria-label={t('sweep.shared.openRecord')}
+                title={t('sweep.shared.openRecord')}
+                onClick={() => onOpenRecord(linkedRecord.type, linkedRecord.id)}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
           )}
 
@@ -1508,21 +1577,28 @@ function findNextSiblingIndex(subtasks: SubtaskItem[], i: number): number {
 // ancestor's subtree that contain row i). A later sibling of the
 // ancestor would only appear AFTER the ancestor's entire subtree
 // closes, i.e. after row i.
-function findAncestorContinuations(subtasks: SubtaskItem[], nextSiblingAt: number[], i: number): boolean[] {
+function findAncestorContinuations(
+  subtasks: SubtaskItem[],
+  nextSiblingAt: number[],
+  i: number,
+): AncestorContinuation[] {
   const d = subtasks[i].depth ?? 0;
-  const arr: boolean[] = new Array(d).fill(false);
+  const arr: AncestorContinuation[] = [];
   for (let c = 0; c < d; c++) {
     let j = i - 1;
     while (j >= 0 && (subtasks[j].depth ?? 0) !== c) j--;
-    arr[c] = j >= 0 && nextSiblingAt[j] !== -1;
+    arr.push({ depth: c, show: j >= 0 && nextSiblingAt[j] !== -1 });
   }
   return arr;
 }
 
+/** Whether the guide column at `depth` draws a line through a row. */
+type AncestorContinuation = { depth: number; show: boolean };
+
 /** Per-row guide-line data for the subtask tree (see the render comment for what each array means). */
 function computeSubtaskTreeGuides(subtasks: SubtaskItem[]): {
   nextSiblingAt: number[];
-  ancestorContinuations: boolean[][];
+  ancestorContinuations: AncestorContinuation[][];
   hasChildBelow: boolean[];
 } {
   const nextSiblingAt = subtasks.map((_, i) => findNextSiblingIndex(subtasks, i));
@@ -1676,7 +1752,7 @@ export function SubtasksSection({
             sibling in its group. Controls whether row i's OWN column draws
             the lower half of the vertical line (the bit heading down to
             the next sibling's elbow).
-          - `ancestorContinuations[i][c]`: whether the column at depth c
+          - `ancestorContinuations[i][c].show`: whether the column at depth c
             should draw a full-height vertical line through row i. True iff
             row i's ancestor at depth c is NOT the last sibling in its own
             group — meaning the tree at depth c still has unfinished
@@ -1736,8 +1812,8 @@ export function SubtasksSection({
                         if its ancestor has more siblings below, so the tree
                         trunk "threads through" descendants back to its later
                         siblings. */}
-                    {continuations.map((show, c) => (
-                      <div key={c} style={{ width: 18, flexShrink: 0, position: 'relative' }}>
+                    {continuations.map(({ depth, show }) => (
+                      <div key={depth} style={{ width: 18, flexShrink: 0, position: 'relative' }}>
                         {show && (
                           <div
                             style={{ position: 'absolute', left: 6, top: 0, bottom: 0, width: 1, backgroundColor: DEFAULT }}
@@ -2473,7 +2549,7 @@ const EXEC_COMMANDS: Record<Exclude<EditorFormatKind, 'code' | 'highlight'>, str
 };
 
 function execListOrInlineCommand(kind: Exclude<EditorFormatKind, 'code' | 'highlight'>): void {
-  document.execCommand(EXEC_COMMANDS[kind], false);
+  runEditorCommand(EXEC_COMMANDS[kind]);
 }
 
 function placeCaretAfter(sel: Selection, node: Node): void {
@@ -2588,9 +2664,9 @@ export function DescriptionField({
     if (!editorRef.current) return;
     if (!editorRef.current.contains(document.activeElement)) return;
     const next = new Set<string>();
-    if (document.queryCommandState('bold')) next.add('bold');
-    if (document.queryCommandState('italic')) next.add('italic');
-    if (document.queryCommandState('strikeThrough')) next.add('strike');
+    if (isEditorCommandActive('bold')) next.add('bold');
+    if (isEditorCommandActive('italic')) next.add('italic');
+    if (isEditorCommandActive('strikeThrough')) next.add('strike');
     // <code> / <mark> aren't execCommands — detect by ancestor walk.
     const sel = window.getSelection();
     const anchor = sel?.anchorNode;
@@ -2602,8 +2678,8 @@ export function DescriptionField({
       ? anchor.closest('mark')
       : anchor?.parentElement?.closest('mark');
     if (markEl && editorRef.current.contains(markEl)) next.add('highlight');
-    if (document.queryCommandState('insertUnorderedList')) next.add('ul');
-    if (document.queryCommandState('insertOrderedList')) next.add('ol');
+    if (isEditorCommandActive('insertUnorderedList')) next.add('ul');
+    if (isEditorCommandActive('insertOrderedList')) next.add('ol');
     setActiveFormats(next);
   }, []);
 
@@ -2646,7 +2722,7 @@ export function DescriptionField({
     const html = kind === 'image'
       ? `<img src="${escapeHtml(url)}" alt="${escapeHtml(name)}" />`
       : `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(name)}</a>`;
-    document.execCommand('insertHTML', false, html);
+    runEditorCommand('insertHTML', html);
     currentHtmlRef.current = el.innerHTML;
   }, []);
 
@@ -2688,7 +2764,7 @@ export function DescriptionField({
     // unwanted styles from other apps.
     e.preventDefault();
     const text = e.clipboardData?.getData('text/plain') ?? '';
-    document.execCommand('insertText', false, text);
+    runEditorCommand('insertText', text);
   }, [handleUploadFiles]);
 
   const handleSave = () => {

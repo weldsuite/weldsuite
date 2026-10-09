@@ -69,7 +69,6 @@ import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { ProjectPermissionContext } from '@/app/weldflow/contexts/project-permission-context';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 interface Task {
   id: string;
@@ -1542,20 +1541,23 @@ export function TasksClient({
     return (
       <div
         key={task.id}
-        role="button"
-        tabIndex={0}
-        onClick={() => setSelectedTask(task)}
-        onKeyDown={activateOnKey(() => setSelectedTask(task))}
         className={cn(
-          "flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group",
+          "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group",
           !isSubtask && "border-b border-gray-200/70 dark:border-border",
           isVisuallyDone && !isCompleting && "opacity-50",
           isCompleting && "task-completing-inner"
         )}
         style={{ paddingLeft: isSubtask ? 48 + depth * 32 : 16, paddingRight: 16 }}
       >
+        {/* Row click target: stretched button; interactive cells sit above it */}
+        <button
+          type="button"
+          aria-label={task.title}
+          onClick={() => setSelectedTask(task)}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
         {/* Checkbox */}
-        <div className="flex-shrink-0 translate-y-[1px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] flex-shrink-0 translate-y-[1px]">
           <Checkbox
             checked={isVisuallyDone || isCompleting}
             onCheckedChange={() => handleCheckboxToggle(task.id, task.status)}
@@ -1579,7 +1581,7 @@ export function TasksClient({
             <Button
               variant="ghost"
               onClick={(e) => { e.stopPropagation(); toggleExpandTask(task.id); }}
-              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-gray-200 dark:hover:bg-gray-700 transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              className="relative z-[1] p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-gray-200 dark:hover:bg-gray-700 transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
             >
               <ChevronRight className={cn("h-3.5 w-3.5", isExpanded && "rotate-90")} />
             </Button>
@@ -1632,7 +1634,7 @@ export function TasksClient({
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[120px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
@@ -1673,7 +1675,7 @@ export function TasksClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1697,7 +1699,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1732,7 +1734,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[120px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1807,7 +1809,7 @@ export function TasksClient({
         </div>
 
         {/* Actions - only show for users with write permission */}
-        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           {canWrite && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

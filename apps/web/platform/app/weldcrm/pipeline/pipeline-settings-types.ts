@@ -64,7 +64,7 @@ export const DEFAULT_PIPELINE_SETTINGS: PipelineViewSettings = {
   rottenDealDays: 30,
   showProbability: true,
   showExpectedCloseDate: true,
-  defaultCurrency: 'USD',
+  defaultCurrency: 'EUR',
   activityReminders: true,
   emailNotifications: true,
   slackIntegration: false,

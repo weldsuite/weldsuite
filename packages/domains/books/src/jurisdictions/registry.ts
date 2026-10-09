@@ -1,10 +1,12 @@
 import type { JurisdictionAdapter, JurisdictionFeatures, JurisdictionTerminology } from './types';
 import { nlAdapter } from './nl';
 import { inAdapter } from './in';
+import { usAdapter } from './us';
 
 const adapters: Record<string, JurisdictionAdapter> = {
   NL: nlAdapter,
   IN: inAdapter,
+  US: usAdapter,
 };
 
 export function getAdapter(code: string): JurisdictionAdapter {

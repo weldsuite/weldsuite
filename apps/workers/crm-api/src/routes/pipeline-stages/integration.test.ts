@@ -126,6 +126,127 @@ describe('/api/pipeline-stages · pglite integration', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // TASK-946: a stage added without a position must sit BEFORE Won/Lost, and
+  // Won/Lost must move right instead of tying with it.
+  // ---------------------------------------------------------------------------
+
+  async function seedStage(pipeline: string, name: string, position: number, flags: { isWon?: boolean; isLost?: boolean } = {}) {
+    const now = new Date();
+    await db.insert(schema.crmPipelineStages).values({
+      id: generateId('pls'),
+      name,
+      position,
+      pipeline,
+      isWon: flags.isWon ?? false,
+      isLost: flags.isLost ?? false,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  async function listStageNames(request: (path: string, init?: RequestInit) => Response | Promise<Response>, pipeline: string) {
+    const res = await request(`/api/pipeline-stages?pipeline=${pipeline}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ name: string; position: number }> };
+    return body.data.map((s) => `${s.name}@${s.position}`);
+  }
+
+  it('POST / without a position inserts before Won/Lost and shifts them', async () => {
+    const pipeline = generateId('pl');
+    await seedStage(pipeline, 'Lead', 0);
+    await seedStage(pipeline, 'Qualified', 1);
+    await seedStage(pipeline, 'Won', 2, { isWon: true });
+    await seedStage(pipeline, 'Lost', 3, { isLost: true });
+
+    const { request } = createTestApp('/api/pipeline-stages', pipelineStagesRoutes, {
+      context: { permissions: permissions('pipelines:create', 'pipelines:read'), tenantDb: db },
+    });
+    const res = await request('/api/pipeline-stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Stage 3', pipeline }),
+    });
+    expect(res.status).toBe(201);
+
+    expect(await listStageNames(request, pipeline)).toEqual([
+      'Lead@0',
+      'Qualified@1',
+      'Stage 3@2',
+      'Won@3',
+      'Lost@4',
+    ]);
+
+    // A second one keeps stacking in front of the closed stages.
+    const res2 = await request('/api/pipeline-stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Stage 4', pipeline }),
+    });
+    expect(res2.status).toBe(201);
+    expect(await listStageNames(request, pipeline)).toEqual([
+      'Lead@0',
+      'Qualified@1',
+      'Stage 3@2',
+      'Stage 4@3',
+      'Won@4',
+      'Lost@5',
+    ]);
+  });
+
+  it('POST / without a position repairs a legacy tie between an open stage and Won', async () => {
+    const pipeline = generateId('pl');
+    await seedStage(pipeline, 'Negotiation', 0);
+    await seedStage(pipeline, 'Stage 3', 1);
+    await seedStage(pipeline, 'Won', 1, { isWon: true }); // legacy tie
+    await seedStage(pipeline, 'Lost', 2, { isLost: true });
+
+    const { request } = createTestApp('/api/pipeline-stages', pipelineStagesRoutes, {
+      context: { permissions: permissions('pipelines:create', 'pipelines:read'), tenantDb: db },
+    });
+    const res = await request('/api/pipeline-stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Stage 4', pipeline }),
+    });
+    expect(res.status).toBe(201);
+    expect(await listStageNames(request, pipeline)).toEqual([
+      'Negotiation@0',
+      'Stage 3@1',
+      'Stage 4@2',
+      'Won@3',
+      'Lost@4',
+    ]);
+  });
+
+  it('GET / lists open stages before won/lost stages that tie on position', async () => {
+    const pipeline = generateId('pl');
+    await seedStage(pipeline, 'Won', 1, { isWon: true });
+    await seedStage(pipeline, 'Open', 1);
+
+    const { request } = createTestApp('/api/pipeline-stages', pipelineStagesRoutes, {
+      context: { permissions: permissions('pipelines:read'), tenantDb: db },
+    });
+    expect(await listStageNames(request, pipeline)).toEqual(['Open@1', 'Won@1']);
+  });
+
+  it('POST / adds a new Won/Lost stage without a position after every stage', async () => {
+    const pipeline = generateId('pl');
+    await seedStage(pipeline, 'Open', 0);
+    await seedStage(pipeline, 'Won', 1, { isWon: true });
+
+    const { request } = createTestApp('/api/pipeline-stages', pipelineStagesRoutes, {
+      context: { permissions: permissions('pipelines:create', 'pipelines:read'), tenantDb: db },
+    });
+    const res = await request('/api/pipeline-stages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Lost', pipeline, isLost: true }),
+    });
+    expect(res.status).toBe(201);
+    expect(await listStageNames(request, pipeline)).toEqual(['Open@0', 'Won@1', 'Lost@2']);
+  });
+
+  // ---------------------------------------------------------------------------
   // Delete guard (TASK-921): a stage still holding deals must not be
   // deletable — the deals would be orphaned (stageId pointing nowhere).
   // ---------------------------------------------------------------------------

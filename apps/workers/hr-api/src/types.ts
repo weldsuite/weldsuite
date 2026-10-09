@@ -11,6 +11,8 @@ export interface Env extends KitEnv {
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
   REALTIME?: Fetcher;
+  /** R2 bucket holding declaration receipts (services/weldhr/declarations.ts). */
+  STORAGE?: R2Bucket;
 
   // --- Workforce portal mails (services/weldhr/portal-mail.ts, @weldsuite/emails) -
   /** Cloudflare Email Service binding for outbound mail (portal invite

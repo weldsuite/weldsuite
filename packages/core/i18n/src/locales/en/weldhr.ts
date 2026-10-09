@@ -2,16 +2,16 @@
  * WeldHR — employee operations and the workforce portal.
  *
  * Split per area so each screen group owns its own file:
- *   weldhr-people.ts       dashboard, employees, org chart, client accounts
- *   weldhr-time.ts         on/offboarding, attendance, shifts, leave
- *   weldhr-performance.ts  coaching, evaluations, KPIs, milestones
+ *   weldhr-people.ts       dashboard, employees
+ *   weldhr-time.ts         attendance, shifts, leave
+ *   weldhr-declarations.ts expense declarations
  *   weldhr-admin.ts        settings and the workforce portal
  *   weldhr-self.ts         My HR, the employee self-service page
  * Shared labels (status chips, pickers, generic actions) live here.
  */
 import { weldhrAdmin } from './weldhr-admin';
+import { weldhrDeclarations } from './weldhr-declarations';
 import { weldhrPeople } from './weldhr-people';
-import { weldhrPerformance } from './weldhr-performance';
 import { weldhrSelf } from './weldhr-self';
 import { weldhrTime } from './weldhr-time';
 
@@ -30,15 +30,11 @@ export const weldhr = {
     add: 'Add',
     edit: 'Edit',
     delete: 'Delete',
-    remove: 'Remove',
-    close: 'Close',
-    confirm: 'Confirm',
     search: 'Search',
     all: 'All',
     none: 'None',
     yes: 'Yes',
     no: 'No',
-    employee: 'Employee',
     client: 'Client account',
     date: 'Date',
     from: 'From',
@@ -49,13 +45,7 @@ export const weldhr = {
     loadFailed: 'Could not load this data.',
     saveFailed: 'Could not save your changes.',
     deleteFailed: 'Could not delete this item.',
-    confirmDelete: 'Delete this item? This cannot be undone.',
-    sharedWithClient: 'Shared with client',
-    sharedWithClientHint: 'Visible to the client in the workforce portal.',
     internalOnly: 'Internal only',
-    importCsv: 'Import CSV',
-    importResult: '{created} added, {updated} updated',
-    importErrors: '{count} rows could not be imported',
     noPermission: 'You do not have permission to see this.',
   },
 
@@ -82,10 +72,21 @@ export const weldhr = {
       remote: 'Remote',
       half_day: 'Half day',
     },
+    absence: {
+      ongoing: 'Sick',
+      completed: 'Recovered',
+    },
     leave: {
       pending: 'Pending',
       approved: 'Approved',
       rejected: 'Rejected',
+      cancelled: 'Cancelled',
+    },
+    declaration: {
+      pending: 'Pending',
+      approved: 'Approved',
+      rejected: 'Rejected',
+      paid: 'Paid',
       cancelled: 'Cancelled',
     },
     coaching: {
@@ -158,7 +159,7 @@ export const weldhr = {
 
   ...weldhrPeople,
   ...weldhrTime,
-  ...weldhrPerformance,
+  ...weldhrDeclarations,
   ...weldhrAdmin,
   ...weldhrSelf,
 };

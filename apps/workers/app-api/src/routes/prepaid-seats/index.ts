@@ -4,8 +4,8 @@
  * Ported from apps/api-worker GET /settings/prepaid-seats (W3 legacy-worker
  * phase-out). Returns prepaid seat info for the workspace: total prepaid
  * (plan includedUsers + purchasedSeats), used (accurate member count from
- * Clerk), available, and whether more members can be added without buying
- * seats.
+ * Clerk plus pending seat invitations), available, and whether more members
+ * can be added without buying seats.
  *
  * Permissions: baseline general:read — shown in the invite-member dialog to
  * any member who can open it (same stance as member-limits).
@@ -20,6 +20,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
 import { getAccurateMemberCount } from '../../services/member-count';
+import { countPendingSeatInvitations } from '../../services/clerk-seat-cap';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -64,7 +65,12 @@ app.get('/', requirePermission('general:read'), async (c) => {
     const purchasedSeats = workspace.purchasedSeats ?? 0;
     const prepaidSeats = includedUsers + purchasedSeats;
 
-    const usedSeats = await getAccurateMemberCount(c.env, orgId, workspace.id, masterDb);
+    // Pending invitations take a seat too: Clerk counts them against its cap.
+    const [members, pendingInvitations] = await Promise.all([
+      getAccurateMemberCount(c.env, orgId, workspace.id, masterDb),
+      countPendingSeatInvitations(c.env, orgId),
+    ]);
+    const usedSeats = members + (pendingInvitations ?? 0);
     const availableSeats = Math.max(0, prepaidSeats - usedSeats);
 
     return success(c, {

@@ -1,3 +1,4 @@
+import type { BankFeedEnv } from '@weldsuite/bank-feeds';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 
@@ -5,7 +6,7 @@ import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
  * books-api bindings: the kit's (auth, tenant DB, flags) plus only what
  * the books module uses. Add a binding here and in wrangler.toml together.
  */
-export interface Env extends KitEnv {
+export interface Env extends KitEnv, BankFeedEnv {
   /** Entity-events hub queue (publishEntityEvent). */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */
@@ -21,6 +22,15 @@ export interface Env extends KitEnv {
   /** mTLS certificate binding presenting the PKIoverheid SBR services server
    *  certificate to Digipoort (wrangler.toml `mtls_certificates`). */
   DIGIPOORT_CERT?: Fetcher;
+
+  // --- Bank feeds (@weldsuite/bank-feeds) ------------------------------------
+  // Provider secrets and routing come from BankFeedEnv (PLAID_*, STRIPE_FC_SECRET_KEY,
+  // PONTO_*, ENABLE_BANKING_*, BANK_FEED_PROVIDERS, BANK_FEED_WEBHOOK_URL).
+  /** Workers mTLS binding presenting Ponto's client certificate (wrangler.toml `mtls_certificates`). */
+  PONTO_CERT?: Fetcher;
+
+  /** Platform origin for links books-api hands out (online W-9 requests). */
+  PLATFORM_URL?: string;
 
   // --- AI (@weldsuite/ai) — Cloudflare AI Gateway, accounting OCR ----------
   // Credits are metered through @weldsuite/core-domain/ai-billing (master DB).

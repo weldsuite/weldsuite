@@ -4,9 +4,10 @@
  * EntityList's built-in "columns" row renderer always appends a hard-coded
  * (non-i18n, no-op) Edit dropdown, which doesn't fit WeldBooks' navigate-to-
  * detail lists. This wrapper renders EntityList with a custom row that:
- *   - is clickable to open the record (when `onRowClick` is given),
+ *   - is clickable to open the record (when `onRowClick` is given) via a
+ *     stretched native button behind the cells,
  *   - shows a trailing chevron affordance instead of the dead action menu,
- *   - lets individual cells opt out of row navigation via stopPropagation.
+ *   - lets interactive cell content (buttons, links, inputs) keep working on its own.
  *
  * Pages pass the same `ColumnDef[]` they'd pass to EntityList, so the visual
  * language (top bar, header row, spacing, empty state) stays identical to
@@ -15,7 +16,9 @@
 
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
+import { RowOverlayButton, ROW_CELL_PASSTHROUGH } from '@/components/shared/row-overlay-button';
 import {
   EntityList,
   type ColumnDef,
@@ -52,6 +55,7 @@ interface WeldbooksEntityListProps<T extends { id: string }> {
     title: string;
     description: string;
     action?: { label: string; onClick: () => void };
+    secondaryAction?: { label: string; onClick: () => void };
   };
 }
 
@@ -72,6 +76,7 @@ export function WeldbooksEntityList<T extends { id: string }>({
   actionButtons,
   emptyState,
 }: Readonly<WeldbooksEntityListProps<T>>) {
+  const t = useTranslations();
   return (
     <EntityList<T>
       items={items}
@@ -91,27 +96,16 @@ export function WeldbooksEntityList<T extends { id: string }>({
       renderRow={(item) => (
         <div
           key={item.id}
-          role={onRowClick ? 'button' : undefined}
-          tabIndex={onRowClick ? 0 : undefined}
-          onClick={onRowClick ? () => onRowClick(item) : undefined}
-          onKeyDown={
-            onRowClick
-              ? (e) => {
-                  // Ignore keys pressed on interactive cell content (buttons, inputs).
-                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                    e.preventDefault();
-                    onRowClick(item);
-                  }
-                }
-              : undefined
-          }
           className={cn(
-            'group flex items-center gap-4 px-4 py-3 border-b border-border/70',
+            'group relative flex items-center gap-4 px-4 py-3 border-b border-border/70',
             onRowClick && 'cursor-pointer hover:bg-muted/40',
           )}
         >
+          {onRowClick ? (
+            <RowOverlayButton label={t('common.actions.view')} onClick={() => onRowClick(item)} />
+          ) : null}
           {columns.map((column) => (
-            <div key={column.id} className={column.width}>
+            <div key={column.id} className={cn(column.width, onRowClick && ROW_CELL_PASSTHROUGH)}>
               {column.render(item, {
                 onEdit: () => {},
                 onDelete: () => {},

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 // =============================================================================
@@ -64,6 +64,14 @@ const onboardingChecklistKeys = {
   data: () => [...onboardingChecklistKeys.all, 'data'] as const,
 };
 
+/**
+ * Marks the checklist stale so the Getting Started card ticks off an item as
+ * soon as the record behind it is created (call from create-mutation hooks).
+ */
+export function invalidateOnboardingChecklist(queryClient: QueryClient): void {
+  queryClient.invalidateQueries({ queryKey: onboardingChecklistKeys.all });
+}
+
 // =============================================================================
 // Hooks
 // =============================================================================
@@ -85,6 +93,8 @@ function useOnboardingChecklist() {
       return res?.data || { dismissedApps: [], items: {} };
     },
     staleTime: 60_000,
+    // Items can be completed in another tab or by a teammate.
+    refetchOnWindowFocus: true,
   });
 }
 

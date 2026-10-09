@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, or, type SQL } from 'drizzle-orm';
+import { and, eq, getTableColumns, isNull, like, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { omitSensitive, sensitiveColumnsOf } from '@weldsuite/db/lib/sensitive-columns';
 import {
   createAccountingContactSchema,
   updateAccountingContactSchema,
@@ -16,6 +17,11 @@ import { listWithCursor } from '../../../lib/list-helpers';
 
 const table = schema.parties;
 const app = new Hono<HonoEnv>();
+
+// `parties` holds the vendor's TIN and ACH account number as ciphertext
+// (`sensitiveEncrypted`). It is never selected, so it never leaves the worker,
+// is never echoed and never rides along in an entity event.
+const columns = omitSensitive('parties', getTableColumns(table));
 
 const listQuery = z.object({
   cursor: z.string().optional(),
@@ -62,6 +68,7 @@ app.get('/', requireScope('accounting_contacts:read'), zValidator('query', listQ
     cursor: q.cursor,
     limit: q.limit,
     mapRow: (row) => toResponse(row as Record<string, unknown>),
+    omit: sensitiveColumnsOf('parties'),
   });
   return list(
     c,
@@ -74,7 +81,7 @@ app.get('/:id', requireScope('accounting_contacts:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const [row] = await db
-    .select()
+    .select(columns)
     .from(table)
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
@@ -95,7 +102,7 @@ app.post('/', requireScope('accounting_contacts:write'), zValidator('json', crea
     createdAt: now,
     updatedAt: now,
   };
-  const [row] = await db.insert(table).values(insert as typeof table.$inferInsert).returning();
+  const [row] = await db.insert(table).values(insert as typeof table.$inferInsert).returning(columns);
   if (!row) return error.internal(c, 'Failed to create accounting contact');
   const response = { ...body, ...toResponse(row as Record<string, unknown>) };
   publishEntityEvent({
@@ -113,7 +120,7 @@ app.patch('/:id', requireScope('accounting_contacts:write'), zValidator('json', 
   const id = c.req.param('id');
   const body = c.req.valid('json') as Record<string, unknown>;
   const [existing] = await db
-    .select()
+    .select({ id: table.id })
     .from(table)
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .limit(1);
@@ -122,7 +129,7 @@ app.patch('/:id', requireScope('accounting_contacts:write'), zValidator('json', 
     .update(table)
     .set({ ...toPartyColumns(body), updatedAt: new Date() })
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .returning();
+    .returning(columns);
   if (!row) return error.internal(c, 'Failed to update accounting contact');
   const response = toResponse(row as Record<string, unknown>);
   publishEntityEvent({
@@ -142,7 +149,7 @@ app.delete('/:id', requireScope('accounting_contacts:write'), async (c) => {
     .update(table)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .returning();
+    .returning({ id: table.id });
   if (!row) return error.notFound(c, 'Accounting contact', id);
   publishEntityEvent({
     c,

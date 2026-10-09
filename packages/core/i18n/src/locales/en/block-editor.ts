@@ -1,0 +1,56 @@
+export const blockEditor = {
+  slashMenu: {
+    groups: {
+      basic: 'Basic blocks',
+      media: 'Media',
+      embeds: 'Embeds',
+      advanced: 'Advanced',
+      inline: 'Inline',
+    },
+    items: {
+      page: { title: 'Page', subtext: 'Create a sub-page inside this page' },
+      linkToPage: { title: 'Link to page', subtext: 'Link to an existing page' },
+      callout: { title: 'Callout', subtext: 'Make text stand out' },
+      bookmark: { title: 'Web bookmark', subtext: 'Save a link as a visual card' },
+      embed: { title: 'Embed', subtext: 'Embed a website by its link' },
+      youtube: { title: 'YouTube', subtext: 'Embed a YouTube video' },
+      vimeo: { title: 'Vimeo', subtext: 'Embed a Vimeo video' },
+      loom: { title: 'Loom', subtext: 'Embed a Loom recording' },
+      figma: { title: 'Figma', subtext: 'Embed a Figma file or prototype' },
+      googleDrive: { title: 'Google Drive', subtext: 'Embed a Google Doc, Sheet, Slide or Drive file' },
+      googleMaps: { title: 'Google Maps', subtext: 'Embed a Google map' },
+      codepen: { title: 'CodePen', subtext: 'Embed a CodePen' },
+      miro: { title: 'Miro', subtext: 'Embed a Miro board' },
+      tableOfContents: { title: 'Table of contents', subtext: 'Show an outline of this page' },
+      date: { title: 'Date', subtext: "Insert today's date" },
+    },
+  },
+  pageLinks: {
+    untitled: 'Untitled',
+    createError: 'Failed to create the page',
+  },
+  callout: {
+    changeIcon: 'Change icon',
+  },
+  urlPrompt: {
+    submit: 'Add',
+    invalid: 'Enter a valid https:// link',
+    openLink: 'Open link',
+    placeholders: {
+      generic: 'Paste a link to embed…',
+      bookmark: 'Paste a link to bookmark…',
+      youtube: 'Paste a YouTube link…',
+      vimeo: 'Paste a Vimeo link…',
+      loom: 'Paste a Loom link…',
+      figma: 'Paste a Figma link…',
+      googleDrive: 'Paste a Google Drive, Docs, Sheets or Slides link…',
+      googleMaps: 'Paste a Google Maps link…',
+      codepen: 'Paste a CodePen link…',
+      miro: 'Paste a Miro board link…',
+    },
+  },
+  tableOfContents: {
+    empty: 'Add headings to build a table of contents.',
+    untitled: 'Untitled',
+  },
+};

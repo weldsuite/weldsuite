@@ -1,5 +1,6 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useState } from 'react';
 import type { z } from 'zod';
 import { createProductSchema, type CreateProductInput } from '@weldsuite/core-api-client/schemas/weldstash';
 import {
@@ -18,6 +19,14 @@ import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { ProductImagesField, type ProductImage } from './product-images-field';
 import { ProductSalesChannelsEditor } from './product-sales-channels-editor';
+import { ProductTaxFields } from './product-tax-fields';
+import {
+  hasInvalidCustomCode,
+  initialTaxState,
+  productTaxPayload,
+  storedProductTax,
+  type ProductTaxState,
+} from './product-tax';
 
 type FormValues = z.input<typeof createProductSchema>;
 
@@ -64,12 +73,23 @@ export function ProductDialog({
       : { name: '', price: 0, status: 'active' },
   });
 
+  // The sales tax fields are not form inputs: `product-tax.ts` keeps their state
+  // and works out which of them to send, so a save that doesn't touch them
+  // leaves the stored tax code alone.
+  const storedTax = storedProductTax(product);
+  const [tax, setTax] = useState<ProductTaxState>(() => initialTaxState(storedTax));
+  const [taxChecked, setTaxChecked] = useState(false);
+
   // Images are an array field, so they're controlled by hand rather than via
   // `register`. `watch` keeps the editor in sync with form state (including a
   // reset after submit).
   const images = (form.watch('images') ?? []) as ProductImage[];
 
   const onSubmit = async (values: FormValues) => {
+    if (tax.taxable && hasInvalidCustomCode(tax)) {
+      setTaxChecked(true);
+      return;
+    }
     try {
       // `featuredImageUrl` is derived, never entered: the first image wins.
       // Keeping the column in step here means no consumer has to know the
@@ -78,6 +98,7 @@ export function ProductDialog({
         ...values,
         featuredImageUrl: images[0]?.url,
         images: images.length > 0 ? images : undefined,
+        ...productTaxPayload(storedTax, tax),
       };
       const parsed = createProductSchema.parse(withMedia) as CreateProductInput;
       if (isEdit && product) {
@@ -96,7 +117,7 @@ export function ProductDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? t.products.editTitle : t.products.newTitle}</DialogTitle>
         </DialogHeader>
@@ -164,6 +185,7 @@ export function ProductDialog({
             value={images}
             onChange={(next) => form.setValue('images', next, { shouldDirty: true })}
           />
+          <ProductTaxFields state={tax} onChange={setTax} showErrors={taxChecked} />
           {isEdit && product ? (
             <ProductSalesChannelsEditor
               productId={product.id}

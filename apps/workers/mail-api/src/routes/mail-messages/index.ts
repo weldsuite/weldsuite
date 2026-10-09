@@ -426,7 +426,7 @@ app.post(
         userId,
         id,
         data,
-        c.executionCtx.waitUntil.bind(c.executionCtx),
+        { waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx) },
       );
       publishEntityEvent({
         c,
@@ -497,7 +497,7 @@ app.post(
         userId,
         id,
         data,
-        c.executionCtx.waitUntil.bind(c.executionCtx),
+        { waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx) },
       );
       publishEntityEvent({
         c,

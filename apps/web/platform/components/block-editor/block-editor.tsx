@@ -3,24 +3,28 @@ import { BlockNoteView } from '@blocknote/shadcn';
 import {
   useCreateBlockNote,
   SuggestionMenuController,
-  getDefaultReactSlashMenuItems,
   FloatingComposerController,
   FloatingThreadController,
 } from '@blocknote/react';
-import { filterSuggestionItems ,
-  Block,
-  BlockNoteSchema,
-  createStyleSpec,
-  defaultBlockSpecs,
-  defaultInlineContentSpecs,
-  defaultStyleSpecs,
-  PartialBlock,
-} from '@blocknote/core';
+import type { Block, PartialBlock } from '@blocknote/core';
 import { CommentsExtension } from '@blocknote/core/comments';
+import { en as blockNoteEn, es as blockNoteEs, fr as blockNoteFr, nl as blockNoteNl } from '@blocknote/core/locales';
 import { undoDepth, redoDepth } from 'prosemirror-history';
 import '@blocknote/shadcn/style.css';
 import { cn } from '@/lib/utils';
 import { useFileUpload } from '@/hooks/use-file-upload';
+import { useI18n } from '@/lib/i18n/provider';
+import { schema } from './schema';
+import { getBlockEditorStrings } from './strings';
+import { SuggestionMenu } from './suggestion-menu';
+import {
+  filterSlashMenuItems,
+  getPageLinkItems,
+  getSlashMenuItems,
+  PAGE_LINK_TRIGGER,
+  type PageLinkSource,
+} from './slash-menu';
+import { useTableResizeClamp } from './use-table-resize-clamp';
 import {
   Bold,
   Italic,
@@ -49,11 +53,9 @@ import {
   Pilcrow,
   ChevronDown,
   Check,
-  Image as ImageIcon,
-  Table as TableIcon,
-  Minus,
+  Lightbulb,
+  ListCollapse,
   SquareCode,
-  Type,
   MessageSquarePlus,
 } from 'lucide-react';
 import {
@@ -89,104 +91,7 @@ import {
 // BlockNote-based Notion-like document editor
 // ============================================================================
 
-// Custom style specs for font-family and font-size. BlockNote doesn't
-// ship these by default; we register them as inline styles that render
-// a <span> with the corresponding CSS so they round-trip through
-// serialization and external HTML export.
-const FontFamily = createStyleSpec(
-  { type: 'fontFamily', propSchema: 'string' },
-  {
-    render: (value) => {
-      const span = document.createElement('span');
-      if (value) span.style.fontFamily = String(value);
-      return { dom: span, contentDOM: span };
-    },
-    toExternalHTML: (value) => {
-      const span = document.createElement('span');
-      if (value) span.style.fontFamily = String(value);
-      return { dom: span, contentDOM: span };
-    },
-    parse: (el) => {
-      if (el instanceof HTMLElement && el.style.fontFamily) return el.style.fontFamily;
-      return undefined;
-    },
-  },
-);
-
-const FontSize = createStyleSpec(
-  { type: 'fontSize', propSchema: 'string' },
-  {
-    render: (value) => {
-      const span = document.createElement('span');
-      if (value) span.style.fontSize = String(value);
-      return { dom: span, contentDOM: span };
-    },
-    toExternalHTML: (value) => {
-      const span = document.createElement('span');
-      if (value) span.style.fontSize = String(value);
-      return { dom: span, contentDOM: span };
-    },
-    parse: (el) => {
-      if (el instanceof HTMLElement && el.style.fontSize) return el.style.fontSize;
-      return undefined;
-    },
-  },
-);
-
-// Map BlockNote's default slash-menu titles → Lucide icon components
-// so every row in the / menu renders a consistent icon from lucide.dev.
-const SLASH_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  'Heading 1': Heading1,
-  'Heading 2': Heading2,
-  'Heading 3': Heading3,
-  'Paragraph': Pilcrow,
-  'Quote': Quote,
-  'Numbered List': ListOrdered,
-  'Bullet List': List,
-  'Check List': ListChecks,
-  'Code Block': SquareCode,
-  'Divider': Minus,
-  'Table': TableIcon,
-  'Image': ImageIcon,
-  'Heading': Type,
-};
-
-// Restrict block specs to those with native DOCX equivalents so documents
-// always survive a Word / Google Docs round-trip without sidecar metadata.
-// Dropped: audio, video, file, embed, toggle (no DOCX equivalent), and the
-// WeldSuite-custom pageLink inline content (cross-doc linking has no DOCX
-// equivalent; use plain hyperlinks instead).
-const DOCX_SAFE_BLOCK_SPECS: (keyof typeof defaultBlockSpecs)[] = [
-  'paragraph',
-  'heading',
-  'bulletListItem',
-  'numberedListItem',
-  'checkListItem',
-  'quote',
-  'codeBlock',
-  'table',
-  'image',
-  'divider',
-];
-
-// Build a block-spec map that only contains the DOCX-safe entries.
-const docxBlockSpecs = Object.fromEntries(
-  DOCX_SAFE_BLOCK_SPECS
-    .filter((k) => k in defaultBlockSpecs)
-    .map((k) => [k, defaultBlockSpecs[k]]),
-) as typeof defaultBlockSpecs;
-
-const schema = BlockNoteSchema.create({
-  blockSpecs: docxBlockSpecs,
-  inlineContentSpecs: defaultInlineContentSpecs,
-  styleSpecs: {
-    ...defaultStyleSpecs,
-    fontFamily: FontFamily,
-    fontSize: FontSize,
-  },
-});
-
-/** Blocks bound to this editor's custom schema (docx-safe blocks + font style specs). */
+/** Blocks bound to this editor's schema (see ./schema). */
 type EditorBlock = PartialBlock<typeof schema.blockSchema, typeof schema.inlineContentSchema, typeof schema.styleSchema>;
 
 /** Imperative handle exposed via ref */
@@ -231,7 +136,38 @@ export interface BlockEditorProps {
     threadStore: unknown;
     resolveUsers: (userIds: string[]) => Promise<unknown[]>;
   };
+  /**
+   * Pages this editor can create and link to. Enables the "Page" and "Link to
+   * page" slash commands and the `@` page menu; leave unset where the content
+   * has no pages around it.
+   */
+  pageLinks?: PageLinkSource;
 }
+
+/** BlockNote's own UI strings (built-in slash commands, placeholders, menus) per app language. */
+const BLOCKNOTE_DICTIONARIES: Record<string, typeof blockNoteEn> = {
+  en: blockNoteEn,
+  nl: blockNoteNl,
+  es: blockNoteEs,
+  fr: blockNoteFr,
+};
+
+// Uploads the editor accepts: images, plus what the video, audio and file
+// blocks hold. Images keep their own, smaller size limit.
+const IMAGE_UPLOAD_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const MEDIA_UPLOAD_TYPES = [
+  'video/mp4', 'video/webm', 'video/quicktime',
+  'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm',
+  'application/pdf', 'application/zip', 'text/plain', 'text/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+];
+const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_MEDIA_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 /** Opaque editor handle for external formatting toolbars */
 export type BlockNoteEditorInstance = ReturnType<typeof useCreateBlockNote>;
@@ -247,11 +183,13 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
   onEditorReady,
   collaboration,
   comments,
+  pageLinks,
 }, ref) {
+  const { language } = useI18n();
   const { uploadFile } = useFileUpload({
     folder: 'documents/content',
-    maxFileSize: 10 * 1024 * 1024,
-    allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    maxFileSize: MAX_MEDIA_UPLOAD_BYTES,
+    allowedTypes: [...IMAGE_UPLOAD_TYPES, ...MEDIA_UPLOAD_TYPES],
     entityType: 'project-document',
     entityId: entityId || projectId || '',
     isPublic: true,
@@ -259,8 +197,14 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
 
   const handleUploadFile = useCallback(
     async (file: File): Promise<string> => {
+      if (IMAGE_UPLOAD_TYPES.includes(file.type) && file.size > MAX_IMAGE_UPLOAD_BYTES) {
+        throw new Error('Image exceeds the upload limit');
+      }
       const result = await uploadFile(file);
-      return result?.url || '';
+      // Throwing makes BlockNote show its "upload failed" state; returning an
+      // empty URL would leave a broken, empty media block behind.
+      if (!result?.url) throw new Error('Upload failed');
+      return result.url;
     },
     [uploadFile],
   );
@@ -276,6 +220,7 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
   const editor = useCreateBlockNote(
     {
       schema,
+      dictionary: BLOCKNOTE_DICTIONARIES[language] ?? blockNoteEn,
       // In collaborative mode the Yjs fragment is the source of truth, so we
       // must NOT also pass initialContent (it would conflict with sync).
       initialContent: collaboration ? undefined : resolvedInitialContent,
@@ -308,19 +253,28 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
     onEditorReady?.(editor);
   }, [editor, onEditorReady]);
 
+  // Keep table columns from being dragged wider than the content width
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  useTableResizeClamp(wrapperRef);
+
   // Flag to suppress onChange during remote content replacement
   const isRemoteUpdateRef = useRef(false);
 
   // Expose imperative handle for remote content updates
   useImperativeHandle(ref, () => ({
     replaceContent: (blocks: EditorBlock[]) => {
-      isRemoteUpdateRef.current = true;
-      try {
-        editor.replaceBlocks(editor.document, blocks);
-      } finally {
-        // Reset after a tick so the onChange from replaceBlocks is suppressed
-        setTimeout(() => { isRemoteUpdateRef.current = false; }, 0);
-      }
+      // Deferred out of the caller's stack: hosts call this from an effect,
+      // and the React-rendered blocks (callout, embed, …) mount through
+      // flushSync, which React refuses to run inside a lifecycle.
+      queueMicrotask(() => {
+        isRemoteUpdateRef.current = true;
+        try {
+          editor.replaceBlocks(editor.document, blocks);
+        } finally {
+          // Reset after a tick so the onChange from replaceBlocks is suppressed
+          setTimeout(() => { isRemoteUpdateRef.current = false; }, 0);
+        }
+      });
     },
   }), [editor]);
 
@@ -341,12 +295,22 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
     }
   }, [initialHtml, initialContent, editor]);
 
+  // Switching the editor between editable and read-only makes it emit an
+  // update of its own. Nothing was edited, and a host that autosaves would
+  // write to a page that has just been locked (a 409 and a "failed to save"
+  // toast). That update fires from BlockNoteView's effect, which can run while
+  // the previous `handleChange` is still subscribed — so check the value as of
+  // this render (the ref) as well as the one the callback closed over.
+  const editableRef = useRef(editable);
+  editableRef.current = editable;
+
   const handleChange = useCallback(() => {
     if (isRemoteUpdateRef.current) return; // Skip onChange triggered by remote replaceContent
+    if (!editable || !editableRef.current) return;
     if (onContentChange) {
       onContentChange(editor.document as unknown as Block[]);
     }
-  }, [editor, onContentChange]);
+  }, [editable, editor, onContentChange]);
 
   // Watch for theme changes
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -368,16 +332,10 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
     return () => observer.disconnect();
   }, []);
 
-
-  // Titles of blocks NOT in our DOCX-safe set — filtered out of the slash menu.
-  const DOCX_SAFE_SLASH_TITLES = new Set([
-    'Heading 1', 'Heading 2', 'Heading 3', 'Paragraph',
-    'Quote', 'Numbered List', 'Bullet List', 'Check List',
-    'Code Block', 'Table', 'Image', 'Divider',
-  ]);
+  const strings = getBlockEditorStrings();
 
   return (
-    <div className={cn('block-editor-wrapper', className)}>
+    <div ref={wrapperRef} className={cn('block-editor-wrapper', className)}>
       <BlockNoteView
         editor={editor}
         editable={editable}
@@ -389,29 +347,32 @@ export const BlockEditor = forwardRef<BlockEditorHandle, BlockEditorProps>(funct
         // any text selection.
         formattingToolbar={false}
         // Disable BlockNote's default / menu — we provide our own below
-        // that remaps every icon to Lucide. Without this, BOTH menus
+        // (Notion-style commands, Lucide icons). Without this, BOTH menus
         // would register on the same trigger character and clicks on
         // our menu's items got intercepted by the default's handler.
         slashMenu={false}
         data-theming-css-variables-demo
       >
-        {/* / trigger — only expose DOCX-safe block types, swap icons for Lucide */}
+        {/* / trigger — see ./slash-menu for the command list */}
         <SuggestionMenuController
           triggerCharacter="/"
+          suggestionMenuComponent={SuggestionMenu}
           getItems={(query) =>
-            Promise.resolve(filterSuggestionItems(
-              getDefaultReactSlashMenuItems(editor)
-                .filter((item) => DOCX_SAFE_SLASH_TITLES.has(item.title))
-                .map((item) => {
-                  const Icon = SLASH_ICON_MAP[item.title];
-                  return Icon
-                    ? { ...item, icon: <Icon className="h-4 w-4" /> }
-                    : item;
-                }),
-              query,
-            ))
+            Promise.resolve(
+              filterSlashMenuItems(getSlashMenuItems(editor, { strings, locale: language, pageLinks }), query),
+            )
           }
         />
+        {/* @ trigger — link to another page, where the host has pages */}
+        {pageLinks ? (
+          <SuggestionMenuController
+            triggerCharacter={PAGE_LINK_TRIGGER}
+            suggestionMenuComponent={SuggestionMenu}
+            getItems={(query) =>
+              Promise.resolve(getPageLinkItems(editor, pageLinks.search(query), strings.pageLinks.untitled))
+            }
+          />
+        ) : null}
         {/* Comment threads (collaborative): floating composer when adding a
             comment on a selection, and the thread card when one is clicked. */}
         {comments ? (
@@ -816,7 +777,9 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
 
   const setBlockType = useCallback(
     (
-      type: 'paragraph' | 'heading' | 'bulletListItem' | 'numberedListItem' | 'checkListItem' | 'quote',
+      type:
+        | 'paragraph' | 'heading' | 'bulletListItem' | 'numberedListItem' | 'checkListItem' | 'quote'
+        | 'toggleListItem' | 'codeBlock' | 'callout',
       level?: 1 | 2 | 3,
     ) => {
       editor.focus();
@@ -972,12 +935,21 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       isActive && 'bg-accent text-foreground',
     );
 
+  // Names of the block types added with the Notion-style blocks; BlockNote's
+  // dictionary and our own strings are both in the app language.
+  const toggleListLabel = editor.dictionary.slash_menu.toggle_list.title;
+  const codeBlockLabel = editor.dictionary.slash_menu.code_block.title;
+  const calloutLabel = getBlockEditorStrings().slashMenu.items.callout.title;
+
   const currentBlockLabel = (() => {
     if (activeBlockType === 'heading' && activeHeadingLevel) return `Heading ${activeHeadingLevel}`;
     if (activeBlockType === 'quote') return 'Quote';
     if (activeBlockType === 'bulletListItem') return 'Bullet list';
     if (activeBlockType === 'numberedListItem') return 'Numbered list';
     if (activeBlockType === 'checkListItem') return 'Check list';
+    if (activeBlockType === 'toggleListItem') return toggleListLabel;
+    if (activeBlockType === 'codeBlock') return codeBlockLabel;
+    if (activeBlockType === 'callout') return calloutLabel;
     return 'Paragraph';
   })();
 
@@ -1000,7 +972,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       // search input and menu items inside those menus can receive
       // focus and clicks normally (popovers propagate React events back
       // through the component tree even though they render in a portal).
-      role="presentation"
+      role="toolbar"
       onMouseDown={(e) => {
         const target = e.target as Element | null;
         if (target?.closest('[data-slot="popover-content"], [data-slot="dropdown-menu-content"]')) {
@@ -1073,7 +1045,11 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
               { type: 'bulletListItem' as const, label: 'Bullet list', Icon: List, match: activeBlockType === 'bulletListItem' },
               { type: 'numberedListItem' as const, label: 'Numbered list', Icon: ListOrdered, match: activeBlockType === 'numberedListItem' },
               { type: 'checkListItem' as const, label: 'Check list', Icon: ListChecks, match: activeBlockType === 'checkListItem' },
+              { type: 'toggleListItem' as const, label: toggleListLabel, Icon: ListCollapse, match: activeBlockType === 'toggleListItem' },
+              { type: null, label: '__separator__', Icon: null as never, match: false },
               { type: 'quote' as const, label: 'Quote', Icon: Quote, match: activeBlockType === 'quote' },
+              { type: 'callout' as const, label: calloutLabel, Icon: Lightbulb, match: activeBlockType === 'callout' },
+              { type: 'codeBlock' as const, label: codeBlockLabel, Icon: SquareCode, match: activeBlockType === 'codeBlock' },
             ];
             let separatorCount = 0;
             return items.map((item) => {

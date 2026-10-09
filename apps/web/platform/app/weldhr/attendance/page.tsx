@@ -1,4 +1,4 @@
-/** WeldHR — Attendance: records, the weekly schedule, and CSV import. */
+/** WeldHR — Attendance: records, the shift calendar, and CSV import. */
 
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -30,11 +30,7 @@ export default function WeldHrAttendancePage() {
   return (
     <HrTabsPage tabs={tabs} activeTab={tab} onTabChange={setTab}>
       {tab === 'records' && <RecordsTab />}
-      {tab === 'schedule' && (
-        <TabBody>
-          <ScheduleTab />
-        </TabBody>
-      )}
+      {tab === 'schedule' && <ScheduleTab />}
       {tab === 'import' && (
         <TabBody>
           <ImportTab />

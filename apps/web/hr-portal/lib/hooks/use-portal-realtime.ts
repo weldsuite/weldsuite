@@ -25,6 +25,7 @@ interface PortalSignalData {
 /** Cached reads each kind of change can affect on an employee's pages. */
 const EMPLOYEE_PATHS: Record<string, string[]> = {
   hr_leave_request: ['/employee/leave', '/employee/overview'],
+  hr_declaration: ['/employee/declarations'],
   hr_attendance: ['/employee/attendance', '/employee/overview'],
   hr_coaching_log: ['/employee/coaching', '/employee/overview'],
   hr_evaluation: ['/employee/evaluations', '/employee/overview'],
@@ -100,6 +101,9 @@ export function usePortalRealtime(slug: string, me: Me) {
         const live = dictRef.current.live;
         if (entity === 'hr_leave_request' && action === 'approved') toast.success(live.leaveApproved);
         else if (entity === 'hr_leave_request' && action === 'rejected') toast.error(live.leaveRejected);
+        else if (entity === 'hr_declaration' && action === 'approved') toast.success(live.declarationApproved);
+        else if (entity === 'hr_declaration' && action === 'rejected') toast.error(live.declarationRejected);
+        else if (entity === 'hr_declaration' && action === 'paid') toast.success(live.declarationPaid);
         else if (entity === 'hr_coaching_log' && action === 'created') toast(live.newCoaching);
         else if (entity === 'hr_evaluation' && action === 'submitted') toast(live.newEvaluation);
         else if (entity === 'hr_checklist' && action === 'created') toast(live.newTasks);

@@ -7,6 +7,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Star, ChevronLeft, ChevronRight, Minus, Plus, Truck, Store, Undo2 } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { asText } from '@weldsuite/text';
+import { keyedBy } from '../lib/keyed';
 
 // Shop app style with 60/40 split
 
@@ -38,6 +39,9 @@ export interface FeaturedProductBlockProps {
   showShippingPolicy?: boolean;
   showRefundPolicy?: boolean;
 }
+
+/** Star positions 1–5 of the rating row. */
+const RATING_STARS = [1, 2, 3, 4, 5];
 
 export function FeaturedProductBlock({
   productHandle = '',
@@ -123,9 +127,9 @@ export function FeaturedProductBlock({
             {/* Thumbnail Gallery */}
             <div className="flex items-center gap-2.5">
               <div className="flex gap-2 flex-1 overflow-x-auto">
-                {finalImages.map((image: string, index: number) => (
+                {keyedBy(finalImages, (src: string) => src).map(({ item: image, key }, index) => (
                   <button
-                    key={index}
+                    key={key}
                     onClick={() => setActiveImage(index)}
                     className={cn(
                       "relative w-16 h-16 rounded-lg transition-all flex-shrink-0 cursor-pointer",
@@ -177,12 +181,12 @@ export function FeaturedProductBlock({
                   {/* Rating */}
                   <div className="flex items-center gap-2 mb-2">
                     <div className="flex items-center">
-                      {[...new Array(5)].map((_, i) => (
+                      {RATING_STARS.map((star) => (
                         <Star
-                          key={i}
+                          key={star}
                           className={cn(
                             "h-4 w-4",
-                            i < Math.floor(rating)
+                            star <= Math.floor(rating)
                               ? "fill-primary text-primary"
                               : "fill-muted text-muted"
                           )}

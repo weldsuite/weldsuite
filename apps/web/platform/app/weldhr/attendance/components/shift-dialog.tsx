@@ -18,6 +18,12 @@ import type { HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { useCreateHrShift, useUpdateHrShift } from '@/hooks/queries/use-weldhr-queries';
 import { CompanyPicker, EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
 
+/** The local calendar day (`YYYY-MM-DD`) of a UTC instant, matching `timeOf`. */
+function dateOf(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function timeOf(iso: string): string {
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -25,6 +31,8 @@ function timeOf(iso: string): string {
 
 export function ShiftDialog({
   defaultEmployeeId,
+  defaultEmployeeName,
+  defaultWorkType,
   defaultDate,
   shift,
   onClose,
@@ -32,6 +40,10 @@ export function ShiftDialog({
   deleting,
 }: Readonly<{
   defaultEmployeeId?: string | null;
+  /** Shown for `defaultEmployeeId` until the picker has loaded that employee. */
+  defaultEmployeeName?: string | null;
+  /** Prefilled type of work for a new shift, e.g. the employee's job title. */
+  defaultWorkType?: string | null;
   defaultDate?: string;
   shift?: HrShift;
   onClose: () => void;
@@ -43,17 +55,23 @@ export function ShiftDialog({
   const updateShift = useUpdateHrShift();
 
   const [employeeId, setEmployeeId] = useState<string | null>(shift?.employeeId ?? defaultEmployeeId ?? null);
-  const [employeeLabel, setEmployeeLabel] = useState<string | null>(shift?.employeeName ?? null);
+  const [employeeLabel, setEmployeeLabel] = useState<string | null>(shift?.employeeName ?? defaultEmployeeName ?? null);
   const [companyId, setCompanyId] = useState<string | null>(shift?.companyId ?? null);
   const [companyLabel, setCompanyLabel] = useState<string | null>(shift?.companyName ?? null);
-  const [date, setDate] = useState(shift ? shift.startsAt.slice(0, 10) : defaultDate ?? '');
+  const [date, setDate] = useState(shift ? dateOf(shift.startsAt) : defaultDate ?? '');
   const [start, setStart] = useState(shift ? timeOf(shift.startsAt) : '09:00');
   const [end, setEnd] = useState(shift ? timeOf(shift.endsAt) : '17:00');
+  const [workType, setWorkType] = useState(shift ? shift.workType ?? '' : defaultWorkType ?? '');
+  const [breakStart, setBreakStart] = useState(shift?.breakStartsAt ? timeOf(shift.breakStartsAt) : '');
+  const [breakEnd, setBreakEnd] = useState(shift?.breakEndsAt ? timeOf(shift.breakEndsAt) : '');
   const [notes, setNotes] = useState(shift?.notes ?? '');
   const [failure, setFailure] = useState<string | null>(null);
 
   const pending = createShift.isPending || updateShift.isPending;
-  const canSubmit = Boolean(employeeId && date && start && end) && !pending;
+  // A break is optional, but needs both ends and has to sit inside the shift ("HH:mm" compares as text).
+  const hasBreak = Boolean(breakStart || breakEnd);
+  const breakValid = !hasBreak || (Boolean(breakStart && breakEnd) && start <= breakStart && breakStart < breakEnd && breakEnd <= end);
+  const canSubmit = Boolean(employeeId && date && start && end) && breakValid && !pending;
 
   let submitLabel: string;
   if (pending) submitLabel = t('weldhr.attendance.schedule.form.saving');
@@ -66,10 +84,19 @@ export function ShiftDialog({
     try {
       const startsAt = new Date(`${date}T${start}`).toISOString();
       const endsAt = new Date(`${date}T${end}`).toISOString();
+      const details = {
+        companyId,
+        startsAt,
+        endsAt,
+        workType: workType.trim() || null,
+        breakStartsAt: hasBreak ? new Date(`${date}T${breakStart}`).toISOString() : null,
+        breakEndsAt: hasBreak ? new Date(`${date}T${breakEnd}`).toISOString() : null,
+        notes: notes.trim() || null,
+      };
       if (shift) {
-        await updateShift.mutateAsync({ id: shift.id, companyId, startsAt, endsAt, notes: notes.trim() || null });
+        await updateShift.mutateAsync({ id: shift.id, ...details });
       } else {
-        await createShift.mutateAsync({ employeeId, companyId, startsAt, endsAt, notes: notes.trim() || null });
+        await createShift.mutateAsync({ employeeId, ...details });
       }
       onClose();
     } catch (err) {
@@ -114,6 +141,17 @@ export function ShiftDialog({
           </div>
 
           <div className="space-y-1.5">
+            <Label htmlFor="hr-shift-work-type">{t('weldhr.attendance.schedule.form.workType')}</Label>
+            <Input
+              id="hr-shift-work-type"
+              value={workType}
+              maxLength={100}
+              placeholder={t('weldhr.attendance.schedule.form.workTypePlaceholder')}
+              onChange={(e) => setWorkType(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1.5">
             <Label htmlFor="hr-shift-date">{t('weldhr.attendance.schedule.form.date')}</Label>
             <Input id="hr-shift-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
@@ -127,6 +165,32 @@ export function ShiftDialog({
               <Label htmlFor="hr-shift-end">{t('weldhr.attendance.schedule.form.end')}</Label>
               <Input id="hr-shift-end" type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="hr-shift-break-start">{t('weldhr.attendance.schedule.form.breakStart')}</Label>
+                <Input
+                  id="hr-shift-break-start"
+                  type="time"
+                  value={breakStart}
+                  aria-invalid={!breakValid}
+                  onChange={(e) => setBreakStart(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="hr-shift-break-end">{t('weldhr.attendance.schedule.form.breakEnd')}</Label>
+                <Input
+                  id="hr-shift-break-end"
+                  type="time"
+                  value={breakEnd}
+                  aria-invalid={!breakValid}
+                  onChange={(e) => setBreakEnd(e.target.value)}
+                />
+              </div>
+            </div>
+            {!breakValid && <p className="text-xs text-destructive">{t('weldhr.attendance.schedule.form.breakInvalid')}</p>}
           </div>
 
           <div className="space-y-1.5">

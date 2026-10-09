@@ -66,6 +66,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { useI18n } from '@/lib/i18n/provider';
+import { runEditorCommand } from '@weldsuite/ui/lib/editor-commands';
 
 // Color values are locale-independent; labels are translated inside the component
 const textColorValues = [
@@ -578,9 +579,9 @@ function buildInlineFormat(
 
 // Collapsed cursor: let the browser apply the format to the next typed characters.
 function applyNativeInlineFormat(format: Partial<CellFormat>): void {
-  if (format.bold !== undefined) document.execCommand('bold');
-  if (format.italic !== undefined) document.execCommand('italic');
-  if (format.strikethrough !== undefined) document.execCommand('strikeThrough');
+  if (format.bold !== undefined) runEditorCommand('bold');
+  if (format.italic !== undefined) runEditorCommand('italic');
+  if (format.strikethrough !== undefined) runEditorCommand('strikeThrough');
 }
 
 // Format for one cell of "Convert to table": styled header, then banded rows.
@@ -1550,10 +1551,8 @@ function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClo
     <>
       <div className="fixed inset-0 z-40" aria-hidden="true" onMouseDown={onClose} />
       <div
-        role="presentation"
         className="fixed z-50 w-64 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
         style={{ left: Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 270), top: y }}
-        onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-1 truncate px-1 text-xs font-medium text-muted-foreground" title={columnName}>
           {columnName}

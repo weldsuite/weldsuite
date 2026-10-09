@@ -9,6 +9,7 @@
 
 import { and, asc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { decryptField, encryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
+import { escapeLikeTerm } from '@weldsuite/db/lib/custom-objects';
 import type {
   HrEmployee,
   HrEmployeeSensitive,
@@ -301,7 +302,7 @@ export async function listAvailableMembers(
     sql`not exists (select 1 from ${t} where ${t.userId} = ${m.userId} and ${t.deletedAt} is null)`,
   ];
   if (filters.search?.trim()) {
-    const q = `%${filters.search.trim().replace(/[%_]/g, (ch) => `\\${ch}`)}%`;
+    const q = `%${escapeLikeTerm(filters.search.trim())}%`;
     const match = or(ilike(m.name, q), ilike(m.email, q));
     if (match) conditions.push(match);
   }
@@ -431,6 +432,7 @@ export async function createEmployeeFromMember(
     throw new HrValidationError('This workspace member has no email address');
   }
   const names = splitMemberName(member.name);
+  const memberHours = member.hoursPerWeek == null ? null : Number(member.hoursPerWeek);
   return createEmployee(
     db,
     {
@@ -443,12 +445,7 @@ export async function createEmployeeFromMember(
       avatarUrl: input.avatarUrl !== undefined ? input.avatarUrl : member.picture,
       pronouns: input.pronouns !== undefined ? input.pronouns : member.pronouns,
       location: input.location !== undefined ? input.location : member.location,
-      weeklyHours:
-        input.weeklyHours !== undefined
-          ? input.weeklyHours
-          : member.hoursPerWeek != null
-            ? Number(member.hoursPerWeek)
-            : null,
+      weeklyHours: input.weeklyHours !== undefined ? input.weeklyHours : memberHours,
       userId: member.userId,
     },
     opts,

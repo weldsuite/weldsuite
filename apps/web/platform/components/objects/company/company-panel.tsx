@@ -4,10 +4,10 @@
  *
  * Layout:
  *   - Header: avatar / displayName / inline actions (email, phone, kebab)
- *   - Tab strip with the same 11 tabs the customer panel uses; in panel
- *     mode only Details + Activity + People show by default, the rest are
- *     toggleable via the kebab menu's "Configure tabs" submenu. Fullscreen
- *     shows all tabs.
+ *   - Tab strip with the same 11 tabs the customer panel uses. Every tab is
+ *     visible by default in both modes; whatever doesn't fit the width
+ *     collapses into the strip's "+N more" menu. Tabs can still be hidden via
+ *     the kebab menu's "Configure tabs" submenu.
  *   - Details body: a vertical list of `PropertyRow`s — same icon + label +
  *     inline-editable value affordance as the customer panel.
  *   - All 11 tabs are wired: Details, Activity, People, Emails, Calls,
@@ -72,6 +72,9 @@ import {
   StatusPropertyRow,
   TagsPropertyRow,
 } from '@/components/objects/_shared/property-row';
+import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
+import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
+import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
 import { NotesTab } from '@/components/objects/_shared/notes-tab';
 import { ActivityTab } from '@/components/objects/_shared/activity-tab';
 import { DealsTab } from '@/components/objects/_shared/deals-tab';
@@ -101,6 +104,7 @@ import {
 import { EntityList } from '@/components/entity-list';
 import { LinkPersonPopover } from './link-person-popover';
 import { CompanyChat } from './company-chat';
+import { useCompanyDeleteGuard } from './use-company-delete-guard';
 import { COMPANY_TABS, type CompanyTab } from './company-tabs';
 import type { Company } from '@weldsuite/app-api-client/schemas/companies';
 
@@ -325,17 +329,6 @@ function CompanyPanelTabsBar({
 
 // ─── Details body ──────────────────────────────────────────────────────────
 
-function formatAddress(addr?: Record<string, unknown> | null): string {
-  if (!addr) return '';
-  const parts = [
-    [addr.street, addr.houseNumber].filter(Boolean).join(' '),
-    [addr.postalCode, addr.city].filter(Boolean).join(' '),
-    addr.state,
-    addr.country,
-  ].filter((s) => typeof s === 'string' && s.trim().length > 0);
-  return parts.join(', ');
-}
-
 function CompanyDetailsTab({
   company,
   onUpdateField,
@@ -347,6 +340,8 @@ function CompanyDetailsTab({
 }>) {
   const st = useTranslations();
   const { options: statusOptions } = useCustomerStatusOptions();
+  const lifecycleOptions = useLifecycleStageOptions();
+  const languageOptions = useLanguageOptions();
   return (
     <div className="p-4 space-y-1">
       <PropertyRow
@@ -432,25 +427,26 @@ function CompanyDetailsTab({
         value={company.employeeCount}
         onSave={(v) => onUpdateField({ employeeCount: v })}
       />
-      <PropertyRow
+      <SelectPropertyRow
         icon={Smile}
         label={st('sweep.entities.fieldLifecycle')}
         value={company.lifecycleStage}
-        onSave={(v) => onUpdateField({ lifecycleStage: v })}
+        options={lifecycleOptions}
+        onChange={(v) => onUpdateField({ lifecycleStage: v })}
       />
-      <PropertyRow
+      <SelectPropertyRow
         icon={Languages}
         label={st('sweep.entities.fieldLanguage')}
         value={company.preferredLanguage}
-        onSave={(v) => onUpdateField({ preferredLanguage: v })}
+        options={languageOptions}
+        onChange={(v) => onUpdateField({ preferredLanguage: v })}
       />
-      <PropertyRow
+      <AddressPropertyRow
         icon={MapPin}
         label={st('sweep.entities.fieldAddress')}
-        type="address"
-        value={formatAddress(company.primaryAddress) || null}
-        readOnly
+        value={company.primaryAddress as Record<string, unknown> | null | undefined}
         placeholder={st('sweep.entities.setAddressPlaceholder')}
+        onSave={(next) => onUpdateFieldAsync({ primaryAddress: next })}
       />
 
       <CustomFieldsSidebarSection
@@ -708,6 +704,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
   const archiveMut = useArchiveCompany();
   const unarchiveMut = useUnarchiveCompany();
   const deleteMut = useDeleteCompany();
+  const { confirmDelete: confirmCompanyDelete, dialog: companyDeleteDialog } = useCompanyDeleteGuard();
 
   const handleUpdateField = useCallback((patch: Record<string, unknown>) => {
     if (!company) return;
@@ -730,8 +727,10 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
     });
   }, [company, archiveMut, unarchiveMut, st]);
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!company) return;
+    // Warn first when the company still has open deals (TASK-1040).
+    if (!(await confirmCompanyDelete([company.id]))) return;
     deleteMut.mutate(company.id, {
       onSuccess: () => {
         toast.success(st('sweep.entities.companyDeleted'));
@@ -740,7 +739,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
       onError: (err: unknown) =>
         toast.error(err instanceof Error ? err.message : st('sweep.entities.deleteFailed')),
     });
-  }, [company, deleteMut, onClose, st]);
+  }, [company, deleteMut, confirmCompanyDelete, onClose, st]);
 
   const initial: CompanyTab['id'] = useMemo(() => {
     if (initialTab && COMPANY_TABS.some((t) => t.id === initialTab)) {
@@ -868,6 +867,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
       {company && activeTab === 'audit' && (
         <AuditTab entityId={company.id} entityKind="company" />
       )}
+      {companyDeleteDialog}
     </EntityDetailView>
   );
 }

@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Button } from '@weldsuite/ui/components/button';
+import { SeekRange } from './seek-range';
 import { formatTimestamp, hideSegmentHover, showSegmentHover } from './utils';
 import type { FlatTimelineSegment, TranscriptionSegment } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -137,7 +138,7 @@ export function AudioPlayer({
           {/* Seekbar */}
           <div
             ref={seekBarRef}
-            className="flex-1 relative h-8 flex items-center cursor-pointer group/seek"
+            className="flex-1 relative h-8 flex items-center cursor-pointer group/seek has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring rounded-sm"
             onMouseMove={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               const x = e.clientX - rect.left;
@@ -146,18 +147,17 @@ export function AudioPlayer({
               setSeekHoverX(x);
             }}
             onMouseLeave={() => setSeekHoverTime(null)}
-            onClick={(e) => {
-              e.stopPropagation();
-              const dur = audioRef.current?.duration || duration;
-              if (!dur || dur <= 0) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              const x = e.clientX - rect.left;
-              const percent = Math.max(0, Math.min(1, x / rect.width));
-              const newTime = percent * dur;
-              onSeek(newTime);
-              if (audioRef.current) audioRef.current.currentTime = newTime;
-            }}
           >
+            <SeekRange
+              value={smoothTime}
+              duration={duration}
+              label={t('sweep.weldcrm.videoPlayer.seek')}
+              onSeek={(time) => {
+                onSeek(time);
+                if (audioRef.current) audioRef.current.currentTime = time;
+              }}
+            />
+
             {/* Hover tooltip */}
             {seekHoverTime !== null && (
               <div
@@ -208,12 +208,12 @@ export function AudioPlayer({
               <div className="w-full h-1.5 bg-gray-200 dark:bg-white/15 rounded-full absolute" />
 
               {/* Speaker color segments */}
-              {duration > 0 && flattenedTimeline.map((seg, i) => {
+              {duration > 0 && flattenedTimeline.map((seg) => {
                 const left = (seg.start / duration) * 100;
                 const w = Math.max(0.3, ((seg.end - seg.start) / duration) * 100);
                 return (
                   <div
-                    key={`seg-${i}`}
+                    key={`seg-${seg.speakerId}-${seg.start}`}
                     className="absolute rounded-full pointer-events-none"
                     style={{
                       left: `${left}%`,

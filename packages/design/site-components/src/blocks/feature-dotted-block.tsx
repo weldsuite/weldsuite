@@ -3,6 +3,7 @@
 import { ArrowUpRight, ChevronRight, ChevronUp } from "lucide-react";
 import React from "react";
 import { cn } from "@weldsuite/ui/lib/utils";
+import { textLines } from '../lib/list-keys';
 
 interface FeatureDottedBlockProps {
   badgeText?: string;
@@ -56,7 +57,6 @@ export function FeatureDottedBlock({
   const isEditing = mode === 'edit' || mode === 'preview';
 
   // Split heading into lines for line breaks
-  const headingLines = heading.split('\n');
 
   return (
     <section className={cn("bg-background py-32", className)} style={{ backgroundColor }}>
@@ -78,10 +78,10 @@ export function FeatureDottedBlock({
                 className="text-5xl font-semibold tracking-tighter md:text-7xl"
                 style={{ color: textColor }}
               >
-                {headingLines.map((line, i) => (
-                  <React.Fragment key={i}>
+                {textLines(heading).map(({ offset, line, last }) => (
+                  <React.Fragment key={offset}>
                     {line}
-                    {i < headingLines.length - 1 && <br />}
+                    {!last && <br />}
                   </React.Fragment>
                 ))}
               </h1>
@@ -119,7 +119,7 @@ export function FeatureDottedBlock({
                 <div className="relative h-full w-full overflow-hidden rounded-3xl">
                   <img
                     src={cardImage}
-                    alt="Feature image"
+                    alt=""
                     className="h-full w-full object-cover"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
@@ -132,10 +132,10 @@ export function FeatureDottedBlock({
                   </p>
                   <div className="flex flex-col items-center justify-center">
                     <h2 className="text-center text-6xl font-semibold tracking-tight text-white">
-                      {cardTitle.split('\n').map((line, i) => (
-                        <React.Fragment key={i}>
+                      {textLines(cardTitle).map(({ offset, line, last }) => (
+                        <React.Fragment key={offset}>
                           {line}
-                          {i < cardTitle.split('\n').length - 1 && <br />}
+                          {!last && <br />}
                         </React.Fragment>
                       ))}
                     </h2>

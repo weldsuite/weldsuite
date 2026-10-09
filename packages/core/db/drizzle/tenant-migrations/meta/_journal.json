@@ -1415,6 +1415,34 @@
       "when": 1791444812631,
       "tag": "0201_weldbooks_ledger_foundations",
       "breakpoints": true
+    },
+    {
+      "idx": 202,
+      "version": "7",
+      "when": 1791449038505,
+      "tag": "0202_weldbooks_us",
+      "breakpoints": true
+    },
+    {
+      "idx": 203,
+      "version": "7",
+      "when": 1791493335518,
+      "tag": "0203_weldhr_shift_work_type_breaks",
+      "breakpoints": true
+    },
+    {
+      "idx": 204,
+      "version": "7",
+      "when": 1791541552732,
+      "tag": "0204_weldhr_declarations",
+      "breakpoints": true
+    },
+    {
+      "idx": 205,
+      "version": "7",
+      "when": 1791559677602,
+      "tag": "0205_weldhr_absences",
+      "breakpoints": true
     }
   ]
 }

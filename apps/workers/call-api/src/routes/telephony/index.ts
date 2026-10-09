@@ -256,11 +256,15 @@ app.post('/phone-numbers/:id/set-default', requirePermission(MANAGE_TELEPHONY), 
       .from(voipPhoneNumbers)
       .where(and(eq(voipPhoneNumbers.isDefault, true), isNull(voipPhoneNumbers.deletedAt)));
 
-    for (const num of allNumbers) {
-      if (num.id !== id) {
-        await db.update(voipPhoneNumbers).set({ isDefault: false, updatedAt: new Date() }).where(eq(voipPhoneNumbers.id, num.id));
-      }
-    }
+    // Only the current default(s) are cleared — normally a single row — and
+    // each update touches a different number, so they can run concurrently.
+    await Promise.all(
+      allNumbers
+        .filter((num) => num.id !== id)
+        .map((num) =>
+          db.update(voipPhoneNumbers).set({ isDefault: false, updatedAt: new Date() }).where(eq(voipPhoneNumbers.id, num.id)),
+        ),
+    );
 
     await db.update(voipPhoneNumbers).set({ isDefault: true, updatedAt: new Date() }).where(eq(voipPhoneNumbers.id, id));
 

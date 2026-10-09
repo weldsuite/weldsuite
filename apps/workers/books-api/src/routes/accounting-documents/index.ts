@@ -20,7 +20,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import {
   processDocumentOcr,
@@ -36,9 +36,30 @@ const t = schema.documents;
 
 type DocumentRow = typeof t.$inferSelect;
 
+/**
+ * Tax forms (W-9s, exemption certificates) carry TINs and SSNs, which must
+ * never reach an AI prompt. A document is one when it is filed as such or is
+ * attached to a vendor's W-9 or a customer's exemption certificate.
+ */
+async function isTaxFormDocument(db: Database, doc: DocumentRow): Promise<boolean> {
+  if (doc.type === 'tax_form') return true;
+  const [w9] = await db
+    .select({ id: schema.parties.id })
+    .from(schema.parties)
+    .where(sql`${schema.parties.w9}->>'documentId' = ${doc.id}`)
+    .limit(1);
+  if (w9) return true;
+  const [certificate] = await db
+    .select({ id: schema.exemptionCertificates.id })
+    .from(schema.exemptionCertificates)
+    .where(eq(schema.exemptionCertificates.documentId, doc.id))
+    .limit(1);
+  return Boolean(certificate);
+}
+
 const createDocumentSchema = z.object({
   type: z
-    .enum(['purchase_invoice', 'receipt', 'bank_statement', 'contract', 'expense_report', 'other'])
+    .enum(['purchase_invoice', 'receipt', 'bank_statement', 'contract', 'expense_report', 'tax_form', 'other'])
     .optional(),
   fileName: z.string().min(1),
   originalFileName: z.string().optional(),
@@ -171,6 +192,9 @@ app.post('/:id/process', requirePermission('invoices:update'), async (c) => {
     const id = c.req.param('id');
     const [doc] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!doc) return error.notFound(c, 'Document', id);
+    if (await isTaxFormDocument(db, doc)) {
+      return error.badRequest(c, 'Tax forms such as W-9s and exemption certificates are never sent to OCR.');
+    }
 
     // Mark as processing
     await db.update(t).set({ status: 'processing', updatedAt: new Date() }).where(eq(t.id, id));

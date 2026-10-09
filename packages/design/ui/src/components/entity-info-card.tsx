@@ -25,11 +25,11 @@ export function EntityInfoCard({ title, description, items, children }: Readonly
         {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
       </div>
       <div className="space-y-3">
-        {items.map((item, index) => {
+        {items.map((item) => {
           const Icon = item.icon;
           const content = (
             <div
-              key={index}
+              key={item.label}
               className="flex items-center justify-between py-2.5 border-b last:border-0"
             >
               <div className="flex items-center gap-2.5">
@@ -43,7 +43,7 @@ export function EntityInfoCard({ title, description, items, children }: Readonly
           if (item.href) {
             return (
               <a
-                key={index}
+                key={item.label}
                 href={item.href}
                 className="block hover:text-primary transition-colors"
               >

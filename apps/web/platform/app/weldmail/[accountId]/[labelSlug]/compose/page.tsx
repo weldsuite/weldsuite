@@ -63,6 +63,7 @@ import {
   type MailAttachmentRef,
   type MailUploadClient,
 } from '@/app/weldmail/lib/upload-attachments';
+import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 interface PersonSuggestion {
   id: string;
@@ -630,9 +631,9 @@ function useEditorFormatting(editorRef: React.RefObject<HTMLDivElement | null>) 
   // Check formatting state
   const checkFormatting = () => {
     saveSelection();
-    setIsBold(document.queryCommandState('bold'));
-    setIsItalic(document.queryCommandState('italic'));
-    setIsUnderline(document.queryCommandState('underline'));
+    setIsBold(isEditorCommandActive('bold'));
+    setIsItalic(isEditorCommandActive('italic'));
+    setIsUnderline(isEditorCommandActive('underline'));
   };
 
   const focusEditor = () => {
@@ -647,7 +648,7 @@ function useEditorFormatting(editorRef: React.RefObject<HTMLDivElement | null>) 
     if (editorRef.current) {
       editorRef.current.focus();
       restoreSelection();
-      document.execCommand(command, false, value);
+      runEditorCommand(command, value);
       saveSelection();
     }
   };

@@ -53,6 +53,11 @@ export interface MeetingToolsPanelProps {
   tools?: MeetingToolsController | null;
   /** Copy for the tools. Defaults to the controller's labels, then English. */
   labels?: MeetingToolsLabels;
+  /**
+   * The "back + tool name" row above an open tool. Turn it off when the
+   * surrounding panel shows that in its own header (MeetingRightPanel does).
+   */
+  showToolHeader?: boolean;
 }
 
 interface ToolItem {
@@ -157,7 +162,7 @@ const TOOL_ICONS: Record<MeetingToolKey, ComponentType<{ className?: string }>> 
   qa: HelpCircle,
 };
 
-function toolTitle(key: MeetingToolKey, labels: MeetingToolsLabels): string {
+export function toolTitle(key: MeetingToolKey, labels: MeetingToolsLabels): string {
   return labels.rows[key];
 }
 
@@ -225,6 +230,7 @@ export function MeetingToolsPanel({
   recordingLabels,
   tools,
   labels: labelsProp,
+  showToolHeader = true,
 }: Readonly<MeetingToolsPanelProps>) {
   const labels = labelsProp ?? tools?.labels ?? DEFAULT_MEETING_TOOLS_LABELS;
   // Standalone (no controller) the panel keeps track of the open tool itself.
@@ -237,18 +243,20 @@ export function MeetingToolsPanel({
   if (tools && activeTool) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center gap-1.5 border-b px-2 h-11 flex-shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTool(null)}
-            aria-label={labels.back}
-            title={labels.back}
-            className="p-1.5 rounded-md hover:bg-muted transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4 text-muted-foreground" />
-          </button>
-          <span className="text-sm font-medium">{toolTitle(activeTool, labels)}</span>
-        </div>
+        {showToolHeader && (
+          <div className="flex items-center gap-1.5 border-b px-2 h-11 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveTool(null)}
+              aria-label={labels.back}
+              title={labels.back}
+              className="p-1.5 rounded-md hover:bg-muted transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+            </button>
+            <span className="text-sm font-medium">{toolTitle(activeTool, labels)}</span>
+          </div>
+        )}
         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
           <ToolView tool={activeTool} tools={tools} labels={labels} />
         </div>
@@ -321,7 +329,15 @@ function ToolView({
   const { store, state, isOrganizer } = tools;
   switch (tool) {
     case 'timer':
-      return <TimerTool store={store} timer={state.timer} canControl={isOrganizer} labels={labels} />;
+      return (
+        <TimerTool
+          store={store}
+          timer={state.timer}
+          canControl={isOrganizer}
+          soundOn={state.prefs.timerSound}
+          labels={labels}
+        />
+      );
     case 'transcribe':
       return (
         <TranscriptTool

@@ -63,7 +63,8 @@ import * as notesService from '../../services/team/notes';
 import * as commonService from '../../services/team/common-concepts';
 import * as activityService from '../../services/team/activity';
 import * as memberAccessService from '../../services/team/member-access';
-import { getWorkspaceSeatLimit } from '../../services/seat-limits';
+import { getWorkspaceSeatLimit, type SeatLimit } from '../../services/seat-limits';
+import { alignClerkCapWithPlan } from '../../services/clerk-seat-cap';
 import { syncClerkSeatLimit } from '../../services/billing';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
@@ -381,18 +382,24 @@ async function resolveInviteRole(
 
 /**
  * Seat check for internal invites. Returns the user-facing message when the
- * workspace is at its seat limit, otherwise null. A failed lookup never
+ * workspace is at its seat limit, otherwise null. When there is room, Clerk's
+ * cap is first raised to match the plan, so a stale cap left by a plan change
+ * outside billing can't refuse a seat the plan has. A failed lookup never
  * blocks an invite — Clerk is still the hard gate behind this.
  */
-async function getSeatLimitMessage(env: Env, orgId: string): Promise<string | null> {
+async function checkSeatsForInvite(env: Env, orgId: string): Promise<string | null> {
+  let seats: SeatLimit | null;
   try {
-    const seats = await getWorkspaceSeatLimit(env, orgId);
-    if (seats?.atLimit) {
-      return `Your ${seats.planName} plan includes ${seats.limit} ${seats.limit === 1 ? 'member' : 'members'}. Upgrade your plan to invite more people.`;
-    }
+    seats = await getWorkspaceSeatLimit(env, orgId);
   } catch (err) {
     console.error('[app-api/team-members] Seat-limit check failed, continuing:', err);
+    return null;
   }
+  if (!seats) return null;
+  if (seats.atLimit) {
+    return `Your ${seats.planName} plan includes ${seats.limit} ${seats.limit === 1 ? 'member' : 'members'}. Upgrade your plan to invite more people.`;
+  }
+  await alignClerkCapWithPlan(env, orgId, seats.limit);
   return null;
 }
 
@@ -574,7 +581,8 @@ async function describeClerkInvitationFailure(resp: Response): Promise<ClerkInvi
   if (clerkCode?.includes('quota') || clerkCode?.includes('max_allowed_memberships')) {
     return {
       kind: 'forbidden',
-      message: 'Your plan has no seats left. Upgrade your plan to invite more people.',
+      message:
+        'Your plan has no seats left. Upgrade your plan, or remove a member or pending invitation, then try again.',
     };
   }
   if (clerkCode === 'duplicate_record' || resp.status === 422) {
@@ -714,8 +722,9 @@ app.post('/invite', async (c) => {
   // and excluded from the seat count, so they never consume one. Clerk enforces
   // the same cap via max_allowed_memberships and would reject this anyway;
   // checking first turns a generic 500 into an answer the UI can act on,
-  // which matters most on Free, where the cap is a single seat.
-  const seatLimitMessage = isGuest ? null : await getSeatLimitMessage(c.env, orgId);
+  // which matters most on Free, where the cap is a single seat. With room left,
+  // the check also brings a stale Clerk cap up to the plan.
+  const seatLimitMessage = isGuest ? null : await checkSeatsForInvite(c.env, orgId);
   if (seatLimitMessage) return error.forbidden(c, seatLimitMessage);
   if (isGuest) await makeClerkRoomForGuest(c.env, orgId);
 

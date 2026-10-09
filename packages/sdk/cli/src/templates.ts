@@ -37,23 +37,28 @@ export async function copyTemplateDir(
   vars: Record<string, string>,
   relativeBase = '',
 ): Promise<string[]> {
-  const written: string[] = [];
   await mkdir(dest, { recursive: true });
 
+  // A small, fixed template tree: each entry writes its own path, so copy them
+  // concurrently and keep the listing order by mapping.
   const entries = await readdir(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const targetName = RENAMES[entry.name] ?? entry.name;
-    const srcPath = join(src, entry.name);
-    const destPath = join(dest, targetName);
-    const relativePath = relativeBase ? `${relativeBase}/${targetName}` : targetName;
+  const perEntry = await Promise.all(
+    entries.map(async (entry): Promise<string[]> => {
+      const targetName = RENAMES[entry.name] ?? entry.name;
+      const srcPath = join(src, entry.name);
+      const destPath = join(dest, targetName);
+      const relativePath = relativeBase ? `${relativeBase}/${targetName}` : targetName;
 
-    if (entry.isDirectory()) {
-      written.push(...(await copyTemplateDir(srcPath, destPath, vars, relativePath)));
-    } else if (entry.isFile()) {
-      const content = await readFile(srcPath, 'utf8');
-      await writeFile(destPath, substitute(content, vars), 'utf8');
-      written.push(relativePath);
-    }
-  }
-  return written;
+      if (entry.isDirectory()) {
+        return copyTemplateDir(srcPath, destPath, vars, relativePath);
+      }
+      if (entry.isFile()) {
+        const content = await readFile(srcPath, 'utf8');
+        await writeFile(destPath, substitute(content, vars), 'utf8');
+        return [relativePath];
+      }
+      return [];
+    }),
+  );
+  return perEntry.flat();
 }

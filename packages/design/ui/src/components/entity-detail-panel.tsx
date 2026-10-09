@@ -385,8 +385,8 @@ export function EntityDetailPanel({
           {/* Fields */}
           {fields.length > 0 && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {fields.map((field, index) => (
-                <div key={index} className="flex items-center justify-between py-3">
+              {fields.map((field) => (
+                <div key={field.label} className="flex items-center justify-between py-3">
                   <span className="text-sm text-gray-500 dark:text-muted-foreground">{field.label}</span>
                   <div className="text-sm">{field.value}</div>
                 </div>

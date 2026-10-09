@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
+import { keyedBy } from '../lib/keyed';
 
 const DEFAULT_GALLERY_IMAGES = [
   [
@@ -48,7 +49,13 @@ export function HeroGalleryBlock({
   mode = 'live',
 }: Readonly<HeroGalleryBlockProps>) {
   // Convert newlines to <br> for display
-  const titleLines = title.split('\n');
+  // Each line keeps the offset it starts at in the title, as its key.
+  let lineOffset = 0;
+  const titleLines = title.split('\n').map((line) => {
+    const entry = { offset: lineOffset, line };
+    lineOffset += line.length + 1;
+    return entry;
+  });
 
   return (
     <section
@@ -57,9 +64,9 @@ export function HeroGalleryBlock({
     >
       {/* Animated gallery background */}
       <div className="absolute inset-0 flex flex-col justify-center gap-4">
-        {galleryImages.map((row, rowIndex) => (
+        {keyedBy(galleryImages, (row) => row.join('|')).map(({ item: row, key: rowKey }, rowIndex) => (
           <motion.div
-            key={`${rowIndex}-${animationSpeed}`}
+            key={`${rowKey}-${animationSpeed}`}
             className="flex gap-4 will-change-transform"
             animate={{
               x: rowIndex === 1 ? [-1920, 0] : [0, -1920],
@@ -70,9 +77,9 @@ export function HeroGalleryBlock({
               ease: "linear",
             }}
           >
-            {[...row, ...row, ...row].map((image, imageIndex) => (
+            {keyedBy([...row, ...row, ...row], (src) => src).map(({ item: image, key: imageKey }, imageIndex) => (
               <motion.div
-                key={`${rowIndex}-${imageIndex}`}
+                key={imageKey}
                 className="relative flex-shrink-0 overflow-hidden rounded-lg"
                 style={{
                   width: rowIndex === 1 ? "280px" : "240px",
@@ -83,7 +90,7 @@ export function HeroGalleryBlock({
               >
                 <img
                   src={image}
-                  alt={`Gallery image ${imageIndex + 1}`}
+                  alt={`Gallery item ${imageIndex + 1}`}
                   className="h-full w-full object-cover"
                 />
               </motion.div>
@@ -127,8 +134,8 @@ export function HeroGalleryBlock({
             animate={mode === 'edit' ? false : { opacity: 1, y: 0 }}
             transition={mode === 'edit' ? { duration: 0 } : { duration: 0.8, delay: 0.7 }}
           >
-            {titleLines.map((line, index) => (
-              <React.Fragment key={index}>
+            {titleLines.map(({ offset, line }, index) => (
+              <React.Fragment key={offset}>
                 {line}
                 {index < titleLines.length - 1 && <br />}
               </React.Fragment>

@@ -18,7 +18,10 @@ import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 
 import api from '@/services/api';
 import { toNumber } from '@/lib/currency';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n, useLocaleFormatters } from '@/lib/i18n';
+import { accruedUseTaxTotal } from '@/lib/sales-tax';
+import { addressLines } from '@/lib/us';
 import { BRAND } from '@/lib/brand';
 import { Screen, ScreenHeader } from '@/components/screen';
 import { SectionCard, DetailRow } from '@/components/detail';
@@ -32,6 +35,7 @@ import {
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { BillStatusBadge } from '@/components/status-badge';
 import { RecordPaymentSheet } from '@/components/record-payment-sheet';
+import { TaxBreakdownCard } from '@/components/tax-breakdown';
 import type { Bill } from '@/types/accounting';
 
 type Confirm = 'reject' | 'delete' | null;
@@ -101,8 +105,9 @@ function BillActions({
 export default function BillDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
-  const { t } = useI18n();
-  const { formatDate } = useLocaleFormatters();
+  const { t, format } = useI18n();
+  const { formatDate, formatCurrency, currency: entityCurrency } = useLocaleFormatters();
+  const { isUs, labels, terms } = useJurisdiction();
 
   const [bill, setBill] = useState<Bill | null>(null);
   const [loading, setLoading] = useState(true);
@@ -170,8 +175,11 @@ export default function BillDetailScreen() {
     );
   }
 
-  const currency = documentCurrency(bill);
+  const currency = documentCurrency(bill, entityCurrency);
   const balanceDue = toNumber(bill.balanceDue);
+  // US: the vendor's tax is part of the cost; use tax accrued on lines it charged none on is owed to the state.
+  const useTax = isUs ? accruedUseTaxTotal(bill.taxBreakdown) : 0;
+  const deliveredTo = isUs ? addressLines(bill.deliveryAddress) : [];
 
   return (
     <Screen header={header}>
@@ -202,20 +210,37 @@ export default function BillDetailScreen() {
         />
 
         <SectionCard title={t.billDetail.details}>
-          <DetailRow label={t.billDetail.vendor} value={bill.contactName} />
+          <DetailRow label={labels.supplier} value={bill.contactName} />
           <DetailRow label={t.billDetail.issueDate} value={formatDate(bill.issueDate)} />
           <DetailRow label={t.billDetail.dueDate} value={formatDate(bill.dueDate)} />
           {bill.reference ? <DetailRow label={t.billDetail.reference} value={bill.reference} /> : null}
+          {deliveredTo.length > 0 ? (
+            <DetailRow label={t.billDetail.deliveredTo} value={deliveredTo.join('\n')} />
+          ) : null}
         </SectionCard>
 
         <DocumentLineItems
           items={bill.items}
           currency={currency}
           title={t.billDetail.lineItems}
-          vatRateLabel={t.billDetail.vatRate}
+          kind="bill"
         />
 
-        <DocumentTotalsCard doc={bill} labels={t.billDetail} />
+        <DocumentTotalsCard
+          doc={bill}
+          labels={t.billDetail}
+          taxLabel={isUs ? format(t.billDetail.taxPaid, terms) : labels.tax}
+          extraRows={useTax > 0 ? [{ label: t.salesTax.useTaxAccrued, value: formatCurrency(useTax, currency) }] : []}
+        />
+
+        {useTax > 0 ? (
+          <TaxBreakdownCard
+            rows={bill.taxBreakdown}
+            currency={currency}
+            title={t.salesTax.useTaxAccrued}
+            footnote={format(t.billDetail.useTaxHint, terms)}
+          />
+        ) : null}
 
         {bill.notes ? (
           <SectionCard title={t.billDetail.notes}>
@@ -238,6 +263,7 @@ export default function BillDetailScreen() {
         onClose={() => setPaymentOpen(false)}
         balanceDue={balanceDue}
         currency={currency}
+        direction="sent"
         submitting={busy}
         onSubmit={async (payment) => {
           await run(() => api.recordBillPayment(bill.id, payment), t.billDetail.paymentRecorded);

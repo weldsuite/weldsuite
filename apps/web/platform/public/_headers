@@ -35,3 +35,10 @@
 # Runtime environment shim — not content-hashed, must never be cached.
 /__ENV.js
   Cache-Control: no-cache
+
+# Vendor-facing W-9 form (/w9/<token>): the token in the path is the credential,
+# so keep it out of search indexes and out of Referer headers sent elsewhere.
+/w9/*
+  X-Robots-Tag: noindex, nofollow
+  Referrer-Policy: no-referrer
+  Cache-Control: no-store

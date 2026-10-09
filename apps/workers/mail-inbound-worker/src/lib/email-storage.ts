@@ -1349,15 +1349,19 @@ async function applyMatchedLabels(
     .set({ labels: newLabels, updatedAt: new Date() })
     .where(eq(mailMessages.id, messageId));
 
-  for (const label of candidates.filter((l) => matchedLabels.includes(l.name))) {
-    await tenantDb
-      .update(mailLabels)
-      .set({
-        messageCount: sql`${mailLabels.messageCount} + 1`,
-        updatedAt: new Date(),
-      })
-      .where(eq(mailLabels.id, label.id));
-  }
+  await Promise.all(
+    candidates
+      .filter((l) => matchedLabels.includes(l.name))
+      .map((label) =>
+        tenantDb
+          .update(mailLabels)
+          .set({
+            messageCount: sql`${mailLabels.messageCount} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(eq(mailLabels.id, label.id)),
+      ),
+  );
 
   console.log(
     `[Store] Applied Jev labels [${matchedLabels.join(', ')}] to message ${messageId}`,

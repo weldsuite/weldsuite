@@ -91,6 +91,17 @@ function formatErrorMessage(error: Record<string, unknown>, status: number): str
   return `Request failed with status ${status}`;
 }
 
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new ApiError(formatErrorMessage(error, response.status), response.status, error);
+  }
+  if (response.status === 204) {
+    return {} as T;
+  }
+  return response.json();
+}
+
 export function createClientApi(options: ClientApiOptions): ClientApi {
   const { getToken, baseUrl, apiPrefix = '/api', getExtraHeaders } = options;
 
@@ -123,17 +134,6 @@ export function createClientApi(options: ClientApiOptions): ClientApi {
       Authorization: `Bearer ${token}`,
       ...(await extraHeaders()),
     };
-  }
-
-  async function handleResponse<T>(response: Response): Promise<T> {
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new ApiError(formatErrorMessage(error, response.status), response.status, error);
-    }
-    if (response.status === 204) {
-      return {} as T;
-    }
-    return response.json();
   }
 
   const url = (path: string) => {

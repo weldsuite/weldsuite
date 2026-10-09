@@ -19,14 +19,41 @@ const nonNegativeAmountSchema = z
     { message: 'Amount must be zero or greater' },
   );
 
-// ISO-4217 code shape (3 uppercase letters, e.g. USD/EUR) — empty string
-// still allowed so the field can be cleared.
+/**
+ * ISO 4217 currency codes a deal may carry. Shared by the server validation
+ * and the platform's currency picker so the two never drift (a free-text
+ * 3-letter field used to accept `XYZ`).
+ */
+export const ISO_4217_CURRENCY_CODES: readonly string[] = [
+  'AED', 'AFN', 'ALL', 'AMD', 'ANG', 'AOA', 'ARS', 'AUD', 'AWG', 'AZN', 'BAM', 'BBD', 'BDT',
+  'BGN', 'BHD', 'BIF', 'BMD', 'BND', 'BOB', 'BRL', 'BSD', 'BTN', 'BWP', 'BYN', 'BZD', 'CAD',
+  'CDF', 'CHF', 'CLP', 'CNY', 'COP', 'CRC', 'CUC', 'CUP', 'CVE', 'CZK', 'DJF', 'DKK', 'DOP',
+  'DZD', 'EGP', 'ERN', 'ETB', 'EUR', 'FJD', 'FKP', 'GBP', 'GEL', 'GHS', 'GIP', 'GMD', 'GNF',
+  'GTQ', 'GYD', 'HKD', 'HNL', 'HRK', 'HTG', 'HUF', 'IDR', 'ILS', 'INR', 'IQD', 'IRR', 'ISK',
+  'JMD', 'JOD', 'JPY', 'KES', 'KGS', 'KHR', 'KMF', 'KPW', 'KRW', 'KWD', 'KYD', 'KZT', 'LAK',
+  'LBP', 'LKR', 'LRD', 'LSL', 'LYD', 'MAD', 'MDL', 'MGA', 'MKD', 'MMK', 'MNT', 'MOP', 'MRU',
+  'MUR', 'MVR', 'MWK', 'MXN', 'MYR', 'MZN', 'NAD', 'NGN', 'NIO', 'NOK', 'NPR', 'NZD', 'OMR',
+  'PAB', 'PEN', 'PGK', 'PHP', 'PKR', 'PLN', 'PYG', 'QAR', 'RON', 'RSD', 'RUB', 'RWF', 'SAR',
+  'SBD', 'SCR', 'SDG', 'SEK', 'SGD', 'SHP', 'SLE', 'SLL', 'SOS', 'SRD', 'SSP', 'STN', 'SVC',
+  'SYP', 'SZL', 'THB', 'TJS', 'TMT', 'TND', 'TOP', 'TRY', 'TTD', 'TWD', 'TZS', 'UAH', 'UGX',
+  'USD', 'UYU', 'UZS', 'VES', 'VND', 'VUV', 'WST', 'XAF', 'XCD', 'XCG', 'XOF', 'XPF', 'YER',
+  'ZAR', 'ZMW', 'ZWG', 'ZWL',
+];
+
+const ISO_4217_SET: ReadonlySet<string> = new Set(ISO_4217_CURRENCY_CODES);
+
+export function isIso4217Currency(code: string): boolean {
+  return ISO_4217_SET.has(code);
+}
+
+// A real ISO-4217 code (e.g. USD/EUR) — empty string still allowed so the
+// field can be cleared.
 const currencySchema = z
   .string()
   .max(3)
   .optional()
-  .refine((v) => !v || /^[A-Z]{3}$/.test(v), {
-    message: 'Currency must be a 3-letter ISO 4217 code (e.g. USD, EUR)',
+  .refine((v) => !v || isIso4217Currency(v), {
+    message: 'Currency must be a valid 3-letter ISO 4217 code (e.g. USD, EUR)',
   });
 
 export const createOpportunitySchema = z.object({
@@ -82,6 +109,8 @@ export const listOpportunitiesQuery = z.object({
   pipeline: z.string().optional(),
   ownerId: z.string().optional(),
   customerId: z.string().optional(),
+  /** Comma-separated company ids (max 200). */
+  customerIds: z.string().optional(),
 });
 
 // ============================================================================
@@ -103,6 +132,8 @@ export interface Opportunity {
 
   customerId: string;
   customerName?: string | null;
+  /** True when the linked company was deleted (or never existed). */
+  companyDeleted?: boolean;
   primaryContactId?: string | null;
 
   amount: string;

@@ -84,7 +84,6 @@ describe('replyAndPersist · attachments (pglite, dryRun)', () => {
           { filename: 'note.txt', contentType: 'text/plain', size: FILE_BYTES.byteLength, fileKey: FILE_KEY },
         ],
       },
-      undefined,
       { dryRun: true },
     );
 

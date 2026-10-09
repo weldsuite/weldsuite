@@ -294,6 +294,35 @@ describe('/public/commerce-portal · auth', () => {
   });
 });
 
+describe('/public/commerce-portal · profile', () => {
+  it('GET /me returns the commercial party fields and never the TIN / ACH ciphertext', async () => {
+    await enablePortal();
+    const kv = new MemoryKV();
+    const email = `profile.${uid('e')}@example.com`;
+    const { companyId, partyId } = await seedCompany('Profile Co');
+    const blob = 'ct-party-tin-blob-portal-6c10';
+    await db
+      .update(schema.parties)
+      .set({ sensitiveEncrypted: blob, tinLast4: '4321', achAccountLast4: '9876' })
+      .where(eq(schema.parties.id, partyId));
+    const personId = await seedPerson(email, 'Profile Person');
+    await linkPerson(personId, companyId);
+    const accessId = await seedAccess({ personId, companyId, email, status: 'invited' });
+    const session = await verifySession(kv, { id: accessId, email });
+
+    const { request } = portalApp(kv);
+    const res = await request('/public/commerce-portal/me', { headers: { Authorization: `Bearer ${session}` } });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain(blob);
+    expect(text).not.toContain('sensitiveEncrypted');
+    expect(text).not.toContain('4321');
+    const body = JSON.parse(text) as { data: { party: { id: string; paymentTerms: string } } };
+    expect(body.data.party.id).toBe(partyId);
+    expect(body.data.party.paymentTerms).toBe('Net 30');
+  });
+});
+
 describe('/public/commerce-portal · orders', () => {
   it('cannot list another company’s orders after verify', async () => {
     await enablePortal();

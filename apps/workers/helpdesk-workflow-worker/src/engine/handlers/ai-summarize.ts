@@ -9,8 +9,7 @@ import type { StepHandler, StepContext, StepResult } from '../../types';
 import { eq, and, isNull, desc } from 'drizzle-orm';
 import { schema } from '../../db';
 import { generateId } from '../../lib/id';
-import { createHelpdeskAgent } from '../../lib/helpdesk-agent-stub';
-import { asText } from '@weldsuite/text';
+import { createHelpdeskAgent, resolveModelId } from '../../lib/helpdesk-agent-stub';
 
 export const aiSummarizeHandler: StepHandler = {
   type: 'ai_summarize',
@@ -56,11 +55,7 @@ export const aiSummarizeHandler: StepHandler = {
       return { success: false, error: 'No messages to summarize' };
     }
 
-    const modelId = ctx.inputs.model
-      ? asText(ctx.inputs.model).includes('/')
-        ? asText(ctx.inputs.model)
-        : `openai/${asText(ctx.inputs.model)}`
-      : 'openai/gpt-4o';
+    const modelId = resolveModelId(ctx.inputs.model);
 
     // Create Mastra agent for summarization
     const agent = createHelpdeskAgent({

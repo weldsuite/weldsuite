@@ -61,7 +61,7 @@ const weldmeetKeys = { all: ['weldmeet'] as const };
 const calendarKeys = { all: ['calendar'] as const };
 
 // WeldKnow — mirrors knowledgeKeys in hooks/queries/use-knowledge-queries.ts.
-// Tree/trash/favorites are invalidate-only (list-shaped); page detail gets
+// Tree/favorites are invalidate-only (list-shaped); page detail gets
 // the richer updateDetail/remove treatment since it's a hot single-record view.
 const knowledgeKeys = {
   all: ['knowledge'] as const,
@@ -69,7 +69,6 @@ const knowledgeKeys = {
   tree: () => [...knowledgeKeys.all, 'tree'] as const,
   pages: () => [...knowledgeKeys.all, 'pages'] as const,
   pageDetail: (id: string) => [...knowledgeKeys.pages(), 'detail', id] as const,
-  trash: () => [...knowledgeKeys.all, 'trash'] as const,
   favorites: () => [...knowledgeKeys.all, 'favorites'] as const,
 };
 
@@ -269,6 +268,27 @@ export const platformSyncMap: EntitySyncMap = {
   purchase_order: inv(['accounting', 'purchase-orders']),
   fiscal_period: inv(['accounting', 'fiscal-periods']),
   fx_rate: inv(['accounting', 'fx-rates']),
+  // US accounting (docs/plans/weldbooks-us.md).
+  sales_tax_agency: inv(['accounting', 'sales-tax-setup'], ['accounting', 'sales-tax-center']),
+  sales_tax_jurisdiction: inv(['accounting', 'sales-tax-setup']),
+  sales_tax_zone: inv(['accounting', 'sales-tax-setup']),
+  sales_tax_rule: inv(['accounting', 'sales-tax-setup']),
+  exemption_certificate: inv(
+    ['accounting', 'sales-tax-setup'],
+    ['accounting', 'exemption-certificates'],
+    ['accounting', 'sales-tax-center'],
+  ),
+  tax_return: inv(['accounting', 'sales-tax-center'], ['accounting', 'tax-calendar']),
+  form_1099_filing: inv(['accounting', 'form-1099']),
+  w9_request: inv(['accounting', 'form-1099'], ['accounting', 'customers']),
+  bank_connection: inv(['accounting', 'bank-feeds'], ['accounting', 'bank-accounts'], ['accounting', 'bank-transactions']),
+  bank_deposit: inv(['accounting', 'bank-deposits'], ['accounting', 'payments'], ['accounting', 'bank-transactions']),
+  bank_reconciliation: inv(['accounting', 'bank-reconciliations']),
+  payment_run: inv(['accounting', 'payment-runs'], ['accounting', 'bills'], ['accounting', 'payments']),
+  fixed_asset: inv(['accounting', 'fixed-assets']),
+  accounting_dimension: inv(['accounting', 'dimensions']),
+  payroll_import: inv(['accounting', 'payroll'], ['accounting', 'journal-entries']),
+  payroll_connection: inv(['accounting', 'payroll']),
 
   // =========================================================================
   // WeldStash — WMS
@@ -477,12 +497,11 @@ export const platformSyncMap: EntitySyncMap = {
   knowledge_space_member: inv(knowledgeKeys.spaces(), knowledgeKeys.tree(), knowledgeKeys.favorites()),
   knowledge_page: {
     // Structural changes (created/deleted/moved/restored) all reshuffle the
-    // sidebar tree and trash list; `updated` (title/icon/content) also needs
+    // sidebar tree; `updated` (title/icon/content) also needs
     // the tree invalidated since it carries title/icon for the sidebar rows.
     // `pages` prefix covers pageDetail + versions list queries.
     invalidate: [
       knowledgeKeys.tree(),
-      knowledgeKeys.trash(),
       knowledgeKeys.favorites(),
       knowledgeKeys.pages(),
     ],
@@ -529,6 +548,8 @@ export const platformSyncMap: EntitySyncMap = {
   hr_checklist: inv(['weldhr']),
   hr_attendance: inv(['weldhr']),
   hr_leave_request: inv(['weldhr']),
+  hr_declaration: inv(['weldhr']),
+  hr_absence: inv(['weldhr']),
   hr_coaching_log: inv(['weldhr']),
   hr_evaluation: inv(['weldhr']),
   hr_kpi_value: inv(['weldhr']),

@@ -1132,21 +1132,13 @@ async function insertOrReusePendingCheckoutRows(
   const metadata = { registrationYears: input.years };
   const registrationIds: string[] = [];
   const toInsert: Array<typeof hostDomains.$inferInsert> = [];
+  const reused: Array<{ id: string; fullDomain: string }> = [];
 
   for (const fullDomain of names) {
     const reusedId = reusedByFqdn.get(fullDomain);
     if (reusedId) {
       registrationIds.push(reusedId);
-      await db
-        .update(hostDomains)
-        .set({
-          autoRenew: input.autoRenew ?? true,
-          privacyProtection: privacyProtectForDomain(fullDomain),
-          registrantContact: (input.contact as never) ?? null,
-          metadata,
-          updatedAt: now,
-        })
-        .where(eq(hostDomains.id, reusedId));
+      reused.push({ id: reusedId, fullDomain });
       continue;
     }
 
@@ -1169,6 +1161,22 @@ async function insertOrReusePendingCheckoutRows(
       updatedAt: now,
     });
   }
+
+  // At most MAX_CHECKOUT_DOMAINS distinct rows: refresh the reused ones together.
+  await Promise.all(
+    reused.map(({ id, fullDomain }) =>
+      db
+        .update(hostDomains)
+        .set({
+          autoRenew: input.autoRenew ?? true,
+          privacyProtection: privacyProtectForDomain(fullDomain),
+          registrantContact: (input.contact as never) ?? null,
+          metadata,
+          updatedAt: now,
+        })
+        .where(eq(hostDomains.id, id)),
+    ),
+  );
 
   if (toInsert.length > 0) {
     await db.insert(hostDomains).values(toInsert);

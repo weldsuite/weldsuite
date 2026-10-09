@@ -372,7 +372,7 @@ app.post(
         c.get('userId'),
         accountId,
         data,
-        c.executionCtx.waitUntil.bind(c.executionCtx),
+        { waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx) },
       );
       publishEntityEvent({
         c,

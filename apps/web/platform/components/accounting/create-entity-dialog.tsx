@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -22,6 +21,8 @@ import { Loader2 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
+import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
+import { useRouter } from '@/lib/router';
 
 interface Jurisdiction {
   code: string;
@@ -65,6 +66,8 @@ interface CreateEntityDialogProps {
  */
 export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly<CreateEntityDialogProps>) {
   const t = useTranslations();
+  const tus = useDocumentTexts().createEntity;
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { setEntityId } = useCurrentAccountingEntity();
 
@@ -112,6 +115,12 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
 
   const vatHint = JURISDICTION_HINTS[jurisdictionCode]?.vatHint ?? '';
   const isIndia = jurisdictionCode === 'IN';
+  // A US entity needs its legal form and tax classification, which the setup guide asks for.
+  const isUs = jurisdictionCode === 'US';
+  const startUsSetup = () => {
+    onOpenChange(false);
+    router.push('/weldbooks/entities/add');
+  };
   const jurisdictionOptions = jurisdictions.length > 0 ? jurisdictions : FALLBACK_JURISDICTIONS;
   const jurisdictionLabel = (j: { code: string; name: string }): string => {
     if (j.code === 'NL') return t('sweep.weldbooks.createEntity.netherlandsOption');
@@ -120,20 +129,16 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>
             {firstEntity ? t('sweep.weldbooks.createEntity.welcomeTitle') : t('sweep.weldbooks.createEntity.newEntityTitle')}
           </DialogTitle>
-          <DialogDescription>
-            {firstEntity
-              ? t('sweep.weldbooks.createEntity.welcomeDescription')
-              : t('sweep.weldbooks.createEntity.newEntityDescription')}
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-2">
-          <div>
+        <div className="space-y-4 py-2">
+          {!isUs && (
+          <div className="space-y-2">
             <Label htmlFor="entity-name">{t('sweep.weldbooks.createEntity.nameLabel')}</Label>
             <Input
               id="entity-name"
@@ -143,9 +148,10 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
               autoFocus
             />
           </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div className="space-y-2">
               <Label>{t('sweep.weldbooks.createEntity.jurisdictionLabel')}</Label>
               <Select
                 value={jurisdictionCode}
@@ -165,7 +171,8 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
                 </SelectContent>
               </Select>
             </div>
-            <div>
+            {!isUs && (
+            <div className="space-y-2">
               <Label>{t('sweep.weldbooks.createEntity.currencyLabel')}</Label>
               <Select value={baseCurrency} onValueChange={setBaseCurrency}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -174,9 +181,18 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
                 </SelectContent>
               </Select>
             </div>
+            )}
           </div>
 
-          <div>
+          {isUs && (
+            <div className="rounded-md border border-border bg-muted/40 p-3 text-sm" data-testid="us-setup-notice">
+              <p className="font-medium">{tus.usTitle}</p>
+              <p className="mt-1 text-muted-foreground">{tus.usBody}</p>
+            </div>
+          )}
+
+          {!isUs && (
+          <div className="space-y-2">
             <Label htmlFor="entity-vat">
               {isIndia
                 ? t('sweep.weldbooks.createEntity.gstinLabel')
@@ -195,6 +211,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
               }
             />
           </div>
+          )}
         </div>
 
         {createMutation.isError ? (
@@ -207,13 +224,17 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={createMutation.isPending}>
             {t('sweep.weldbooks.cancel')}
           </Button>
-          <Button onClick={() => createMutation.mutate()} disabled={!name || createMutation.isPending}>
-            {createMutation.isPending ? (
-              <><Loader2 className="h-4 w-4 mr-1 animate-spin" />{t('sweep.weldbooks.createEntity.creating')}</>
-            ) : (
-              t('sweep.weldbooks.createEntity.createButton')
-            )}
-          </Button>
+          {isUs ? (
+            <Button onClick={startUsSetup}>{tus.usButton}</Button>
+          ) : (
+            <Button onClick={() => createMutation.mutate()} disabled={!name || createMutation.isPending}>
+              {createMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-1 animate-spin" />{t('sweep.weldbooks.createEntity.creating')}</>
+              ) : (
+                t('sweep.weldbooks.createEntity.createButton')
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -24,7 +24,9 @@ import { SectionCard, DetailRow } from '@/components/detail';
 import { DetailSkeleton } from '@/components/data-states';
 import { useAccountingEntity } from '@/contexts/AccountingEntityContext';
 import { useOfflineQueue } from '@/contexts/OfflineQueueContext';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n } from '@/lib/i18n';
+import { addressLines } from '@/lib/us';
 import type { AppSettings } from '@/types/accounting';
 
 export default function SettingsScreen() {
@@ -37,6 +39,7 @@ export default function SettingsScreen() {
   const { queue, isOnline, isSyncing, syncQueue } = useOfflineQueue();
   const toast = useToast();
   const { t, format, plural, language } = useI18n();
+  const { isUs, labels, currency: entityCurrency } = useJurisdiction();
 
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,6 +62,16 @@ export default function SettingsScreen() {
   }, [fetchSettings]);
 
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
+  // The tax ID of the active entity: the EIN for a US company (settings keep it in the VAT slot too).
+  const taxIdValue = (isUs ? activeEntity?.ein : undefined) ?? settings?.vatNumber;
+  const legalForm = activeEntity?.entityType
+    ? ((t.entitySetup.entityTypes as Record<string, string>)[activeEntity.entityType] ?? activeEntity.entityType)
+    : undefined;
+  const classification = activeEntity?.taxClassification
+    ? ((t.entitySetup.taxClassifications as Record<string, string>)[activeEntity.taxClassification] ??
+      activeEntity.taxClassification)
+    : undefined;
+  const entityAddress = addressLines(activeEntity?.address);
 
   return (
     <Screen header={<ScreenHeader title={t.settings.title} showBack />}>
@@ -99,13 +112,19 @@ export default function SettingsScreen() {
                 label={t.settings.jurisdiction}
                 value={activeEntity?.jurisdictionCode ?? settings?.jurisdictionCode ?? t.common.dash}
               />
-              <DetailRow label={t.settings.baseCurrency} value={settings?.currency ?? 'EUR'} />
+              <DetailRow label={t.settings.baseCurrency} value={settings?.currency ?? entityCurrency} />
               <DetailRow
                 label={t.settings.fiscalYearStart}
                 value={settings?.fiscalYearStart ?? t.settings.fiscalYearFallback}
               />
-              {settings?.vatNumber ? (
-                <DetailRow label={t.settings.vatNumber} value={settings.vatNumber} />
+              {taxIdValue ? <DetailRow label={labels.taxId} value={taxIdValue} /> : null}
+              {isUs && legalForm ? <DetailRow label={t.settings.legalForm} value={legalForm} /> : null}
+              {isUs && classification ? (
+                <DetailRow label={t.settings.taxClassification} value={classification} />
+              ) : null}
+              {isUs && activeEntity?.dba ? <DetailRow label={t.settings.dba} value={activeEntity.dba} /> : null}
+              {isUs && entityAddress.length > 0 ? (
+                <DetailRow label={t.settings.address} value={entityAddress.join('\n')} />
               ) : null}
               {error ? (
                 <Text style={[styles.error, { color: colors.destructive }]}>{error}</Text>

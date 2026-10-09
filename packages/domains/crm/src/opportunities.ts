@@ -8,7 +8,7 @@
  * identical `opportunity:*` event payloads.
  */
 
-import { and, eq, isNull, type SQL } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { CreateOpportunityInput } from '@weldsuite/core-api-client/schemas/opportunities';
@@ -62,6 +62,13 @@ export async function createOpportunity(
   const now = new Date();
   const closeDate = input.closeDate ? new Date(input.closeDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   const customerName = await lookupCompanyName(db, input.customerId);
+  // A deal created without an explicit probability starts at its stage's
+  // probability (TASK-947) instead of 0.
+  let probability = input.probability;
+  if (probability === undefined && input.stageId) {
+    const stage = await loadStage(db, input.stageId);
+    if (stage?.probability != null) probability = stage.probability;
+  }
   const values: OpportunityInsert = {
     id,
     name: input.name,
@@ -70,14 +77,14 @@ export async function createOpportunity(
     customerName,
     primaryContactId: input.primaryContactId,
     amount: input.amount !== undefined ? String(input.amount) : '0',
-    currency: input.currency ?? 'EUR',
+    currency: input.currency || 'EUR',
     expectedRevenue: input.expectedRevenue !== undefined ? String(input.expectedRevenue) : undefined,
     recurringRevenue: input.recurringRevenue !== undefined ? String(input.recurringRevenue) : undefined,
     contractLength: input.contractLength,
     stage: input.stage ?? 'prospecting',
     stageId: input.stageId,
     status: input.status ?? 'open',
-    probability: input.probability ?? 0,
+    probability: probability ?? 0,
     pipeline: input.pipeline ?? 'default',
     closeDate,
     startDate: input.startDate ? new Date(input.startDate) : undefined,
@@ -126,6 +133,8 @@ export function buildUpdatePayload(data: Record<string, unknown>): Record<string
   for (const [k, v] of Object.entries(data)) {
     if (v !== undefined) update[k] = toColumnValue(k, v);
   }
+  // A cleared currency means "no override", never an empty column value.
+  if (update.currency === '') delete update.currency;
   return update;
 }
 
@@ -182,6 +191,8 @@ export interface PipelineStageFlags {
   isWon: boolean | null;
   isLost: boolean | null;
   probability: number | null;
+  /** Owning pipeline (`crm_pipeline_stages.pipeline`). */
+  pipeline?: string | null;
 }
 
 export async function loadStage(db: Database, stageId: string): Promise<PipelineStageFlags | undefined> {
@@ -191,9 +202,38 @@ export async function loadStage(db: Database, stageId: string): Promise<Pipeline
       isWon: schema.crmPipelineStages.isWon,
       isLost: schema.crmPipelineStages.isLost,
       probability: schema.crmPipelineStages.probability,
+      pipeline: schema.crmPipelineStages.pipeline,
     })
     .from(schema.crmPipelineStages)
     .where(and(eq(schema.crmPipelineStages.id, stageId), isNull(schema.crmPipelineStages.deletedAt)))
+    .limit(1);
+  return row;
+}
+
+/** The first (lowest `position`) stage of a pipeline that is neither won nor lost. */
+async function findFirstOpenStage(
+  db: Database,
+  pipeline: string,
+): Promise<PipelineStageFlags | undefined> {
+  const stages = schema.crmPipelineStages;
+  const [row] = await db
+    .select({
+      id: stages.id,
+      isWon: stages.isWon,
+      isLost: stages.isLost,
+      probability: stages.probability,
+      pipeline: stages.pipeline,
+    })
+    .from(stages)
+    .where(
+      and(
+        eq(stages.pipeline, pipeline),
+        or(isNull(stages.isWon), eq(stages.isWon, false)),
+        or(isNull(stages.isLost), eq(stages.isLost, false)),
+        isNull(stages.deletedAt),
+      ),
+    )
+    .orderBy(asc(stages.position), asc(stages.createdAt))
     .limit(1);
   return row;
 }
@@ -204,12 +244,16 @@ export async function loadStage(db: Database, stageId: string): Promise<Pipeline
  *  - Dragging the deal onto a stage flagged isWon/isLost (an explicit
  *    `stageId` in this PATCH) marks it won/lost, stamps `actualCloseDate`
  *    (today, unless already set) and copies the stage's probability. Moving
- *    it back out to a plain open stage reopens it and clears
- *    `actualCloseDate`.
+ *    it back out to a plain open stage reopens it, clears `actualCloseDate`
+ *    and, unless the request sets `probability` itself, takes the stage's
+ *    probability (TASK-947: a reopened deal used to keep 0 / 100).
  *  - Marking the deal won/lost directly (`status` in this PATCH, no
  *    `stageId`) moves it into the pipeline's matching isWon/isLost stage, if
- *    one exists, and stamps `actualCloseDate`. Reopening it directly clears
- *    `actualCloseDate`.
+ *    one exists, and stamps `actualCloseDate`. Reopening it directly
+ *    (`status: 'open'` on a won/lost deal) clears `actualCloseDate` and moves
+ *    it out of the Won/Lost stage into the pipeline's first open stage, with
+ *    that stage's probability. (The deal's previous open stage is not stored,
+ *    so the first open stage is the deterministic fallback.)
  * Mutates `update` in place; `targetStage` is the already-validated stage
  * for an explicit `stageId` move (avoids re-querying it).
  */
@@ -231,9 +275,16 @@ export async function syncStatusWithStage(
       }
     } else {
       const previousStage = existing.stageId ? await loadStage(db, existing.stageId) : undefined;
-      if (previousStage && (previousStage.isWon || previousStage.isLost) && update.status === undefined) {
+      const wasClosed =
+        existing.status === 'won' ||
+        existing.status === 'lost' ||
+        !!(previousStage && (previousStage.isWon || previousStage.isLost));
+      if (wasClosed && (update.status === undefined || update.status === 'open')) {
         update.status = 'open';
-        update.actualCloseDate = null;
+        if (update.actualCloseDate === undefined) update.actualCloseDate = null;
+        if (update.probability === undefined && targetStage.probability !== null) {
+          update.probability = targetStage.probability;
+        }
       }
     }
     return;
@@ -267,8 +318,23 @@ export async function syncStatusWithStage(
       }
     }
   } else if (explicitStatus === 'open' || explicitStatus === 'abandoned') {
-    if ((existing.status === 'won' || existing.status === 'lost') && update.actualCloseDate === undefined) {
-      update.actualCloseDate = null;
+    const wasClosed = existing.status === 'won' || existing.status === 'lost';
+    if (wasClosed && update.actualCloseDate === undefined) update.actualCloseDate = null;
+    if (explicitStatus === 'open' && wasClosed && update.stageId === undefined) {
+      // Reopening must also leave the Won/Lost stage, otherwise the deal sits
+      // in "Won" at 100% while marked open.
+      const currentStage = existing.stageId ? await loadStage(db, existing.stageId) : undefined;
+      if (!currentStage || currentStage.isWon || currentStage.isLost) {
+        const pipeline = currentStage?.pipeline ?? (update.pipeline as string | undefined) ?? existing.pipeline ?? 'default';
+        const openStage = await findFirstOpenStage(db, pipeline);
+        if (openStage) {
+          update.stageId = openStage.id;
+          if (data.stage === undefined) update.stage = openStage.id;
+          if (update.probability === undefined && openStage.probability !== null) {
+            update.probability = openStage.probability;
+          }
+        }
+      }
     }
   }
 }

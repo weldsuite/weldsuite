@@ -63,23 +63,23 @@ describe('requireVerifiedDomain', () => {
   it('refuses an address on an unverified or foreign domain', async () => {
     const gmail = await seedAccount('someone@gmail.com');
     const pending = await seedAccount('ops@pending.dev');
-    await expectSendError(sendAndPersist(env, db, ORG, WORKSPACE, gmail, base, undefined, API), 'SENDER_DOMAIN_NOT_VERIFIED');
-    await expectSendError(sendAndPersist(env, db, ORG, WORKSPACE, pending, base, undefined, API), 'SENDER_DOMAIN_NOT_VERIFIED');
+    await expectSendError(sendAndPersist(env, db, ORG, WORKSPACE, gmail, base, API), 'SENDER_DOMAIN_NOT_VERIFIED');
+    await expectSendError(sendAndPersist(env, db, ORG, WORKSPACE, pending, base, API), 'SENDER_DOMAIN_NOT_VERIFIED');
   });
 
   it('is off unless asked for (platform behaviour unchanged)', async () => {
     const gmail = await seedAccount('another@gmail.com');
-    await expect(sendAndPersist(env, db, ORG, WORKSPACE, gmail, base, undefined, { dryRun: true })).resolves.toBeTruthy();
+    await expect(sendAndPersist(env, db, ORG, WORKSPACE, gmail, base, { dryRun: true })).resolves.toBeTruthy();
   });
 });
 
 describe('enforceDailyLimit', () => {
   it('stops at dailySendLimit and reports when it resets', async () => {
     const accountId = await seedAccount('limited@verified.dev', { dailySendLimit: 2 });
-    await sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, undefined, API);
-    await sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, undefined, API);
+    await sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, API);
+    await sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, API);
     const err = await expectSendError(
-      sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, undefined, API),
+      sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, API),
       'DAILY_LIMIT_REACHED',
     );
     expect(err.details).toMatchObject({ limit: 2, sent: 2 });
@@ -88,23 +88,23 @@ describe('enforceDailyLimit', () => {
 
   it('a replay of a send that already went out is not refused by the limit', async () => {
     const accountId = await seedAccount('replay@verified.dev', { dailySendLimit: 1 });
-    const first = await sendAndPersist(env, db, ORG, WORKSPACE, accountId, { ...base, idempotencyKey: 'once' }, undefined, API);
-    const again = await sendAndPersist(env, db, ORG, WORKSPACE, accountId, { ...base, idempotencyKey: 'once' }, undefined, API);
+    const first = await sendAndPersist(env, db, ORG, WORKSPACE, accountId, { ...base, idempotencyKey: 'once' }, API);
+    const again = await sendAndPersist(env, db, ORG, WORKSPACE, accountId, { ...base, idempotencyKey: 'once' }, API);
     expect(again.messageId).toBe(first.messageId);
   });
 
   it('deleting a sent message does not give the send back', async () => {
     const accountId = await seedAccount('deleted@verified.dev', { dailySendLimit: 1 });
-    const sent = await sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, undefined, API);
+    const sent = await sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, API);
     await db.update(mailMessages).set({ deletedAt: new Date() }).where(eq(mailMessages.id, sent.messageId));
-    await expectSendError(sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, undefined, API), 'DAILY_LIMIT_REACHED');
+    await expectSendError(sendAndPersist(env, db, ORG, WORKSPACE, accountId, base, API), 'DAILY_LIMIT_REACHED');
   });
 });
 
 describe('workspace principal sends', () => {
   it('cannot send from a private mailbox (it looks missing)', async () => {
     const privateId = await seedAccount('private@verified.dev', { isShared: false, assignedUserIds: ['user_x'] });
-    await expectSendError(sendAndPersist(env, db, ORG, WORKSPACE, privateId, base, undefined, API), 'ACCOUNT_NOT_FOUND');
+    await expectSendError(sendAndPersist(env, db, ORG, WORKSPACE, privateId, base, API), 'ACCOUNT_NOT_FOUND');
   });
 });
 
@@ -122,8 +122,8 @@ describe('reply idempotency', () => {
       labels: ['INBOX'],
       sentDate: new Date(),
     });
-    const first = await replyAndPersist(env, db, ORG, WORKSPACE, originalId, { body: 'Answer', idempotencyKey: 'r1' }, undefined, API);
-    const second = await replyAndPersist(env, db, ORG, WORKSPACE, originalId, { body: 'Answer', idempotencyKey: 'r1' }, undefined, API);
+    const first = await replyAndPersist(env, db, ORG, WORKSPACE, originalId, { body: 'Answer', idempotencyKey: 'r1' }, API);
+    const second = await replyAndPersist(env, db, ORG, WORKSPACE, originalId, { body: 'Answer', idempotencyKey: 'r1' }, API);
     expect(second.messageId).toBe(first.messageId);
     const replies = await db
       .select({ id: mailMessages.id })
@@ -139,7 +139,7 @@ describe('sendDraftAndPersist', () => {
     const draftId = generateId('draft');
     await db.insert(mailDrafts).values({ id: draftId, accountId, to: ['rcpt@example.com'], subject: 'From a draft', body: 'Hi' });
 
-    const result = await sendDraftAndPersist(env, db, ORG, WORKSPACE, draftId, {}, undefined, API);
+    const result = await sendDraftAndPersist(env, db, ORG, WORKSPACE, draftId, {}, API);
     expect(result.subject).toBe('From a draft');
     const [draft] = await db.select({ deletedAt: mailDrafts.deletedAt }).from(mailDrafts).where(eq(mailDrafts.id, draftId));
     expect(draft?.deletedAt).not.toBeNull();
@@ -150,7 +150,7 @@ describe('sendDraftAndPersist', () => {
     const draftId = generateId('draft');
     await db.insert(mailDrafts).values({ id: draftId, accountId, to: ['rcpt@example.com'], subject: 'Stays' });
 
-    await expectSendError(sendDraftAndPersist(env, db, ORG, WORKSPACE, draftId, {}, undefined, API), 'SENDER_DOMAIN_NOT_VERIFIED');
+    await expectSendError(sendDraftAndPersist(env, db, ORG, WORKSPACE, draftId, {}, API), 'SENDER_DOMAIN_NOT_VERIFIED');
     const [draft] = await db.select({ deletedAt: mailDrafts.deletedAt }).from(mailDrafts).where(eq(mailDrafts.id, draftId));
     expect(draft?.deletedAt).toBeNull();
   });
@@ -159,7 +159,7 @@ describe('sendDraftAndPersist', () => {
     const accountId = await seedAccount('empty@verified.dev');
     const draftId = generateId('draft');
     await db.insert(mailDrafts).values({ id: draftId, accountId, subject: 'No one' });
-    await expectSendError(sendDraftAndPersist(env, db, ORG, WORKSPACE, draftId, {}, undefined, API), 'INVALID_RECIPIENTS');
-    await expectSendError(sendDraftAndPersist(env, db, ORG, WORKSPACE, 'draft_missing', {}, undefined, API), 'DRAFT_NOT_FOUND');
+    await expectSendError(sendDraftAndPersist(env, db, ORG, WORKSPACE, draftId, {}, API), 'INVALID_RECIPIENTS');
+    await expectSendError(sendDraftAndPersist(env, db, ORG, WORKSPACE, 'draft_missing', {}, API), 'DRAFT_NOT_FOUND');
   });
 });

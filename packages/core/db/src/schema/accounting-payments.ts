@@ -41,8 +41,21 @@ export const payments = pgTable('payments', {
 
   notes: text('notes'),
   isPartial: boolean('is_partial').default(false),
+  /** Received into Undeposited Funds and later grouped into this bank deposit. */
+  depositId: varchar('deposit_id', { length: 30 }),
+  /** The check or ACH run that made this payment. */
+  paymentRunId: varchar('payment_run_id', { length: 30 }),
+  /** Checks: to_print | printed | voided | cleared. */
+  checkStatus: varchar('check_status', { length: 10 }),
+  checkPrintedAt: timestamp('check_printed_at'),
+  /** US backup withholding (24%) kept back from a vendor without a valid TIN. */
+  backupWithholdingAmount: numeric('backup_withholding_amount', { precision: 18, scale: 2 }),
+  /** Paid through a payroll provider, which files the 1099 itself. */
+  paidThroughPayroll: boolean('paid_through_payroll').default(false),
   createdBy: varchar('created_by', { length: 255 }),
 }, (table) => [
+  index('acct_payments_deposit_idx').on(table.depositId),
+  index('acct_payments_run_idx').on(table.paymentRunId),
   index('acct_payments_entity_idx').on(table.entityId),
   index('acct_payments_type_idx').on(table.type),
   index('acct_payments_invoice_idx').on(table.invoiceId),

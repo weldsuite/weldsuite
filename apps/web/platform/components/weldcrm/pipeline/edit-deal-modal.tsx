@@ -31,10 +31,10 @@ import { Calendar } from '@weldsuite/ui/components/calendar';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
   Calendar as CalendarIcon,
-  DollarSign,
   Loader2,
 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { dealCurrencySymbol } from '@/lib/crm/deal-format';
 
 interface Deal {
   id: string;
@@ -215,14 +215,22 @@ export function EditDealModal({
           <div className="space-y-2">
             <Label htmlFor="value">{t.crm.deals.detailsModal.valueLabel}</Label>
             <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                {dealCurrencySymbol(deal?.currency)}
+              </span>
               <Input
                 id="value"
                 type="number"
+                min={0}
+                step="any"
                 placeholder={t.crm.deals.detailsModal.valuePlaceholder}
                 className="pl-9"
                 value={dealValue}
-                onChange={(e) => setDealValue(e.target.value)}
+                onChange={(e) => {
+                  // A deal value is never negative.
+                  if (e.target.value.startsWith('-')) return;
+                  setDealValue(e.target.value);
+                }}
               />
             </div>
           </div>

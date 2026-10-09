@@ -1,10 +1,10 @@
 import { type ReactNode, useState } from 'react';
-import { Check, Copy, X } from 'lucide-react';
+import { Check, ChevronLeft, Copy, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { PeoplePanel } from './people-panel';
-import { MeetingToolsPanel } from './meeting-tools-panel';
+import { MeetingToolsPanel, toolTitle } from './meeting-tools-panel';
 import { useIsMobile } from '../hooks/use-is-mobile';
 import type { RecordingLabels, RecordingState, MeetingClient, MeetingPeer } from '../types';
 import type { MeetingToolsController } from '../tools/use-meeting-tools-controller';
@@ -98,14 +98,17 @@ export function MeetingRightPanel({
   if (!isOpen) return null;
 
   const title = RIGHT_PANEL_TITLES[panel];
+  // An open tool takes over the header: its name, and a way back to the list.
+  const openTool = panel === 'tools' && tools ? tools.activeTool : null;
 
   return (
     <div
       className={cn(
         'flex flex-col min-h-0 overflow-hidden',
-        // Mobile: full-screen sheet over the call. Desktop: 480px right dock.
+        // Mobile: a sheet over the whole meeting view (absolute, so it stays
+        // below any app chrome above the room). Desktop: 480px right dock.
         isMobile
-          ? 'fixed inset-0 z-50 bg-background'
+          ? 'absolute inset-0 z-40 bg-background'
           : 'flex-shrink-0 border-l border-gray-200 dark:border-border',
       )}
       style={isMobile ? undefined : { width: 480 }}
@@ -117,8 +120,23 @@ export function MeetingRightPanel({
         )}
       >
         <div className="px-4 border-b flex-shrink-0 h-[53px] flex items-center justify-between">
-          <span className="text-sm font-semibold">{title}</span>
-          <button onClick={onClose} className="p-1 rounded-md hover:bg-muted transition-colors">
+          {openTool && tools ? (
+            <div className="flex min-w-0 items-center gap-1.5 -ml-1.5">
+              <button
+                type="button"
+                onClick={() => tools.setActiveTool(null)}
+                aria-label={tools.labels.back}
+                title={tools.labels.back}
+                className="p-1.5 max-md:p-2.5 rounded-md hover:bg-muted transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+              </button>
+              <span className="truncate text-sm font-semibold">{toolTitle(openTool, tools.labels)}</span>
+            </div>
+          ) : (
+            <span className="text-sm font-semibold">{title}</span>
+          )}
+          <button onClick={onClose} className="p-1 max-md:p-2.5 max-md:-mr-1.5 rounded-md hover:bg-muted transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
@@ -157,6 +175,7 @@ export function MeetingRightPanel({
               recordingStartElapsedSeconds={recordingStartElapsedSeconds}
               recordingLabels={recordingLabels}
               tools={tools}
+              showToolHeader={false}
             />
           )}
         </div>

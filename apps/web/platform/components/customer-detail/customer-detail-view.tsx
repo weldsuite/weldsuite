@@ -209,14 +209,14 @@ function CustomerDetailPageLayout({
   }, []);
 
   const dragRef = React.useRef(false);
-  const handleResizeMouseDown = React.useCallback((e: React.MouseEvent) => {
+  const handleResizePointerDown = React.useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     dragRef.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, []);
   React.useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
+    const onPointerMove = (e: PointerEvent) => {
       if (!dragRef.current) return;
       const next = Math.max(
         MIN_CUSTOMER_CHAT_WIDTH,
@@ -224,17 +224,17 @@ function CustomerDetailPageLayout({
       );
       setChatWidth(next);
     };
-    const onMouseUp = () => {
+    const onPointerUp = () => {
       if (!dragRef.current) return;
       dragRef.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
     return () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp);
     };
   }, []);
 
@@ -292,8 +292,8 @@ function CustomerDetailPageLayout({
             >
               {/* Resize handle on the left edge — drag to resize */}
               <div
-                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
-                onMouseDown={handleResizeMouseDown}
+                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group touch-none"
+                onPointerDown={handleResizePointerDown}
               >
                 <div className="absolute inset-y-0 -left-1 -right-1 flex items-center justify-center">
                   <div className="h-6 w-1 rounded-full bg-transparent group-hover:bg-gray-300 dark:group-hover:bg-accent transition-colors" />

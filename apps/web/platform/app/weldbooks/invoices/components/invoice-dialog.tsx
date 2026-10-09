@@ -31,16 +31,32 @@ import {
 } from '@/hooks/queries/use-accounting-queries';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
 import type { Customer } from '@/lib/api/domains/weldbooks';
+import type { TaxUse } from '@/lib/api/domains/weldbooks-sales-tax-preview';
+import type { ProductOption } from '@/hooks/queries/use-weldbooks-tax-preview';
 import { toPostalAddressFormValue, type PostalAddress } from '@/components/address/postal-address';
+import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { addDaysToIsoDate } from '@/lib/weldbooks/format';
-import { InvoiceAddressSection, invoiceAddressPayload } from './invoice-address-section';
+import { NO_TAX_RATE } from '@/lib/weldbooks/document-tax';
+import {
+  EMPTY_SALES_TAX_LINE,
+  overrideChecks,
+  salesTaxLineFields,
+  toTaxFormLine,
+  type SalesTaxLineValues,
+} from '@/lib/weldbooks/document-tax-form';
+import { productTaxCode } from '@/lib/weldbooks/tax-codes';
+import { InvoiceAddressSection } from './invoice-address-section';
+import { DocumentTaxPanel } from './document-tax-panel';
+import { InvoiceLineExtras } from './invoice-line-extras';
+import { buildInvoicePayload } from './invoice-payload';
+import { ProductPicker } from './product-picker';
+import { useDescribeError } from './sales-tax-error-notice';
+import { useDocumentTaxPreview } from './use-document-tax-preview';
 
-/** Select value for "no tax"; never sent to the API (the line gets `taxRateId: null`). */
-const NO_TAX = 'none';
 const DEFAULT_PAYMENT_TERMS_DAYS = 30;
 
 const addressSchema = z.object({
@@ -52,14 +68,20 @@ const addressSchema = z.object({
   country: z.string().optional(),
 });
 
-function createInvoiceFormSchema(st: (key: string) => string) {
-  const lineItemSchema = z.object({
-    description: z.string().min(1, st('sweep.weldbooks.invoiceDialog.descriptionRequired')),
-    quantity: z.coerce.number().min(0, st('sweep.weldbooks.invoiceDialog.mustBeAtLeastZero')).default(1),
-    unitPrice: z.coerce.number().min(0, st('sweep.weldbooks.invoiceDialog.mustBeAtLeastZero')).default(0),
-    taxRateId: z.string().nullable().optional(),
-    discountPercent: z.coerce.number().min(0).max(100).default(0),
-  });
+function createInvoiceFormSchema(
+  st: (key: string) => string,
+  overrideMessages: { reasonRequired: string; amountInvalid: string },
+) {
+  const lineItemSchema = z
+    .object({
+      description: z.string().min(1, st('sweep.weldbooks.invoiceDialog.descriptionRequired')),
+      quantity: z.coerce.number().min(0, st('sweep.weldbooks.invoiceDialog.mustBeAtLeastZero')).default(1),
+      unitPrice: z.coerce.number().min(0, st('sweep.weldbooks.invoiceDialog.mustBeAtLeastZero')).default(0),
+      taxRateId: z.string().nullable().optional(),
+      discountPercent: z.coerce.number().min(0).max(100).default(0),
+      ...salesTaxLineFields,
+    })
+    .superRefine(overrideChecks(overrideMessages));
 
   return z.object({
     contactId: z.string().min(1, st('sweep.weldbooks.invoiceDialog.customerRequired')),
@@ -76,7 +98,7 @@ function createInvoiceFormSchema(st: (key: string) => string) {
 
 type InvoiceFormValues = z.infer<ReturnType<typeof createInvoiceFormSchema>>;
 
-const emptyLine = { description: '', quantity: 1, unitPrice: 0, taxRateId: null, discountPercent: 0 };
+const emptyLine = { description: '', quantity: 1, unitPrice: 0, taxRateId: null, discountPercent: 0, ...EMPTY_SALES_TAX_LINE };
 
 interface InvoiceDialogProps {
   open: boolean;
@@ -90,9 +112,18 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
   const { t } = useI18n();
   const st = useTranslations();
   const tid = t.accounting.invoiceDialog;
-  const invoiceFormSchema = useMemo(() => createInvoiceFormSchema(st), [st]);
+  const td = useDocumentTexts();
+  const invoiceFormSchema = useMemo(
+    () =>
+      createInvoiceFormSchema(st, {
+        reasonRequired: td.line.overrideReasonRequired,
+        amountInvalid: td.line.overrideAmountInvalid,
+      }),
+    [st, td.line.overrideReasonRequired, td.line.overrideAmountInvalid],
+  );
   const { entityCurrency, formatMoney, today } = useWeldbooksFormat();
   const { labels } = useJurisdictionLabels();
+  const describeError = useDescribeError();
 
   const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
@@ -111,7 +142,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
   }, [st]);
 
   const contactOptions: AutocompleteOption[] = useMemo(
-    () => contacts.map(toContactOption),
+    () => contacts.map((c) => toContactOption(c)),
     [contacts, toContactOption],
   );
 
@@ -124,7 +155,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
     return (res?.data ?? []).map((c) => toContactOption(c));
   };
 
-  const defaultValues: InvoiceFormValues = useMemo(() => {
+  const defaultValues = useMemo(() => {
     const issueDate = today();
     return {
       contactId: '',
@@ -149,12 +180,14 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
     name: 'items',
   });
 
-  const watchedItems = form.watch('items');
-  const watchedContactId = form.watch('contactId');
+  const watched = form.watch();
+  const watchedItems = watched.items;
+  const watchedContactId = watched.contactId;
 
   // The due date follows the customer's payment terms until picked by hand.
   const { data: selectedContactData } = useAccountingCustomer(watchedContactId);
   const selectedTerms = selectedContactData?.data?.paymentTermsDays;
+  const customerUse = (selectedContactData?.data as { taxUse?: TaxUse | null } | undefined)?.taxUse ?? null;
   useEffect(() => {
     if (selectedTerms == null || form.getFieldState('dueDate').isDirty) return;
     form.setValue('dueDate', addDaysToIsoDate(form.getValues('issueDate'), selectedTerms));
@@ -173,29 +206,41 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
     [form],
   );
 
-  const taxRateMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const tr of taxRates) {
-      map[tr.id] = Number.parseFloat(tr.rate ?? '0');
-    }
-    return map;
-  }, [taxRates]);
+  // The server calculates the totals and each line's tax; nothing is computed here.
+  const { salesTax, preview, totals, lineTax } = useDocumentTaxPreview({
+    kind: 'invoice',
+    contactId: watchedContactId,
+    issueDate: watched.issueDate,
+    currency: entityCurrency,
+    billingAddress: watched.billingAddress,
+    shipToDifferent: watched.shipToDifferent,
+    shippingAddress: watched.shippingAddress,
+    lines: (watchedItems ?? []).map(toTaxFormLine),
+  });
 
-  // Preview only — the server computes the authoritative totals on save.
-  const totals = useMemo(() => {
-    let subtotal = 0;
-    let taxTotal = 0;
-    for (const item of watchedItems ?? []) {
-      const qty = Number(item.quantity) || 0;
-      const price = Number(item.unitPrice) || 0;
-      const discount = Number(item.discountPercent) || 0;
-      const lineSubtotal = qty * price * (1 - discount / 100);
-      const rate = item.taxRateId ? (taxRateMap[item.taxRateId] ?? 0) : 0;
-      subtotal += lineSubtotal;
-      taxTotal += lineSubtotal * (rate / 100);
+  const setLine = (index: number, patch: Partial<SalesTaxLineValues>) => {
+    const current = form.getValues(`items.${index}`);
+    form.setValue(`items.${index}`, { ...current, ...patch }, { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
+  };
+
+  const selectProduct = (index: number, product: ProductOption | null) => {
+    if (!product) {
+      setLine(index, { productId: '' });
+      return;
     }
-    return { subtotal, taxTotal, total: subtotal + taxTotal };
-  }, [watchedItems, taxRateMap]);
+    const current = form.getValues(`items.${index}`);
+    form.setValue(
+      `items.${index}`,
+      {
+        ...current,
+        productId: product.id,
+        taxCode: productTaxCode(product) ?? '',
+        description: current.description || product.name,
+        unitPrice: Number(current.unitPrice) > 0 || !product.price ? current.unitPrice : product.price,
+      },
+      { shouldDirty: true },
+    );
+  };
 
   const handleClose = (next: boolean) => {
     if (!next) {
@@ -207,23 +252,10 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
   const onSubmit = (values: InvoiceFormValues) => {
     startTransition(async () => {
       try {
-        const payload: Record<string, unknown> = {
-          contactId: values.contactId,
-          issueDate: values.issueDate,
-          dueDate: values.dueDate,
-          reference: values.reference || undefined,
-          notes: values.notes || undefined,
-          ...invoiceAddressPayload(values, 'add'),
-          items: values.items.map((item) => ({
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            // "No tax" is null — the API rejects placeholder ids such as 'none'.
-            taxRateId: item.taxRateId && item.taxRateId !== NO_TAX ? item.taxRateId : null,
-            discountPercent: item.discountPercent || undefined,
-          })),
-        };
-        if (entityCurrency) payload.currency = entityCurrency;
+        const payload = buildInvoicePayload(
+          { ...values, shipFromDifferent: false, marketplaceFacilitated: false },
+          { mode: 'add', kind: 'invoice', salesTax, currency: entityCurrency },
+        );
 
         const result = (await createMutation.mutateAsync(payload)) as
           | { id?: string; data?: { id?: string } }
@@ -235,7 +267,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
         if (createdId) onCreated?.({ id: createdId });
       } catch (error) {
         toast.error(tid.failedToCreate, {
-          description: error instanceof Error ? error.message : st('sweep.weldbooks.invoiceDialog.unexpectedError'),
+          description: describeError(error) ?? st('sweep.weldbooks.invoiceDialog.unexpectedError'),
         });
       }
     });
@@ -332,6 +364,9 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
 
               {fields.map((field, index) => {
                 const id = (name: string) => `dialog-items-${index}-${name}`;
+                const line = watchedItems?.[index];
+                const calculated = lineTax(index);
+                const errors = form.formState.errors.items?.[index];
                 return (
                   <div key={field.id} className="rounded-md border border-border p-3 space-y-3">
                     <div className="flex items-center justify-between">
@@ -352,6 +387,15 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
                       )}
                     </div>
 
+                    {salesTax && (
+                      <ProductPicker
+                        id={id('product')}
+                        value={line?.productId ?? ''}
+                        selectedLabel={line?.description}
+                        onSelect={(product) => selectProduct(index, product)}
+                      />
+                    )}
+
                     <div className="space-y-1.5">
                       <Label htmlFor={id('description')} className="text-xs">{tid.description}</Label>
                       <Input
@@ -360,10 +404,8 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
                         className="shadow-none"
                         {...form.register(`items.${index}.description`)}
                       />
-                      {form.formState.errors.items?.[index]?.description && (
-                        <p className="text-sm text-destructive">
-                          {form.formState.errors.items[index]?.description?.message}
-                        </p>
+                      {errors?.description && (
+                        <p className="text-sm text-destructive">{errors.description.message}</p>
                       )}
                     </div>
 
@@ -390,29 +432,31 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
                           {...form.register(`items.${index}.unitPrice`, { valueAsNumber: true })}
                         />
                       </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor={id('taxRate')} className="text-xs">{labels.taxRate}</Label>
-                        <Select
-                          value={form.watch(`items.${index}.taxRateId`) ?? NO_TAX}
-                          onValueChange={(val) =>
-                            form.setValue(`items.${index}.taxRateId`, val === NO_TAX ? null : val, {
-                              shouldValidate: true,
-                            })
-                          }
-                        >
-                          <SelectTrigger id={id('taxRate')} className="shadow-none">
-                            <SelectValue placeholder={labels.noTax} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NO_TAX}>{labels.noTax}</SelectItem>
-                            {taxRates.map((tr) => (
-                              <SelectItem key={tr.id} value={tr.id}>
-                                {tr.name ?? `${Number(tr.rate)}%`}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      {!salesTax && (
+                        <div className="space-y-1.5">
+                          <Label htmlFor={id('taxRate')} className="text-xs">{labels.taxRate}</Label>
+                          <Select
+                            value={form.watch(`items.${index}.taxRateId`) ?? NO_TAX_RATE}
+                            onValueChange={(val) =>
+                              form.setValue(`items.${index}.taxRateId`, val === NO_TAX_RATE ? null : val, {
+                                shouldValidate: true,
+                              })
+                            }
+                          >
+                            <SelectTrigger id={id('taxRate')} className="shadow-none">
+                              <SelectValue placeholder={labels.noTax} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NO_TAX_RATE}>{labels.noTax}</SelectItem>
+                              {taxRates.map((tr) => (
+                                <SelectItem key={tr.id} value={tr.id}>
+                                  {tr.name ?? `${Number(tr.rate)}%`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                       <div className="space-y-1.5">
                         <Label htmlFor={id('discountPercent')} className="text-xs">{tid.discountPercent}</Label>
                         <Input
@@ -428,6 +472,23 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
                         />
                       </div>
                     </div>
+
+                    {line && (
+                      <InvoiceLineExtras
+                        idPrefix={`dialog-items-${index}`}
+                        salesTax={salesTax}
+                        mode="invoice"
+                        value={line as SalesTaxLineValues}
+                        onChange={(patch) => setLine(index, patch)}
+                        customerUse={customerUse}
+                        tax={calculated ? { amount: calculated.taxAmount, rate: calculated.taxRate } : null}
+                        currency={entityCurrency}
+                        errors={{
+                          taxOverrideAmount: errors?.taxOverrideAmount?.message,
+                          taxOverrideReason: errors?.taxOverrideReason?.message,
+                        }}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -451,7 +512,8 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
             </div>
           </div>
 
-          <div className="border-t px-4 sm:px-6 py-3 space-y-1 text-sm">
+          {/* The breakdown and warnings can run long: they scroll here instead of squeezing the form. */}
+          <div className="border-t px-4 sm:px-6 py-3 space-y-2 text-sm max-h-[35vh] overflow-y-auto">
             <div className="flex justify-between text-muted-foreground">
               <span>{tid.subtotal}</span>
               <span>{formatMoney(totals.subtotal)}</span>
@@ -464,7 +526,8 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
               <span>{tid.total}</span>
               <span>{formatMoney(totals.total)}</span>
             </div>
-            <p className="text-xs text-muted-foreground">{tid.totalsPreview}</p>
+            <DocumentTaxPanel state={preview} salesTax={salesTax} currency={entityCurrency} taxLabel={labels.tax} />
+            {!salesTax && <p className="text-xs text-muted-foreground">{tid.totalsPreview}</p>}
           </div>
 
           <div className="border-t px-4 sm:px-6 py-4 flex items-center justify-end gap-2">

@@ -42,6 +42,7 @@ import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { RepeatConfigMenu, repeatLabel, type RepeatFrequency, type RepeatUnit } from '@/components/tasks/repeat-config';
+import { runEditorCommand } from '@weldsuite/ui/lib/editor-commands';
 
 const statusConfig = {
   'backlog': { label: 'Backlog', color: 'bg-gray-100 text-gray-800 dark:bg-background/30 dark:text-muted-foreground', btnColor: 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200 dark:bg-secondary dark:text-muted-foreground dark:border-border' },
@@ -943,13 +944,16 @@ function GithubCreateOption({
   );
 }
 
+// Stable default so the record-search effect does not see a new array every render.
+const NO_PEOPLE: NonNullable<TaskDialogProps['availablePeople']> = [];
+
 export function TaskDialog({
   open,
   onOpenChange,
   editingTask,
   availableAssignees,
   availableCompanies,
-  availablePeople = [],
+  availablePeople = NO_PEOPLE,
   onRecordSearchChange,
   recordRequired,
   availableLabels = [],
@@ -997,23 +1001,41 @@ export function TaskDialog({
   const isSubmittingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordSearchSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const availableCompaniesRef = useRef(availableCompanies);
+  const availablePeopleRef = useRef(availablePeople);
 
   const handleRecordSearch = useCallback((value: string) => {
     if (!onRecordSearchChange) return;
     setIsSearchingRecords(true);
     if (recordSearchTimerRef.current) clearTimeout(recordSearchTimerRef.current);
+    if (recordSearchSettleTimerRef.current) clearTimeout(recordSearchSettleTimerRef.current);
     recordSearchTimerRef.current = setTimeout(() => {
       onRecordSearchChange(value);
     }, 150);
+    // A search that returns the same rows keeps the list references unchanged
+    // (React Query structural sharing), so the effect below never fires. Stop
+    // the spinner after a short grace period instead of leaving it stuck.
+    recordSearchSettleTimerRef.current = setTimeout(() => {
+      setIsSearchingRecords(false);
+    }, 2000);
   }, [onRecordSearchChange]);
 
   useEffect(() => {
-    if (availableCompaniesRef.current !== availableCompanies) {
+    if (
+      availableCompaniesRef.current !== availableCompanies ||
+      availablePeopleRef.current !== availablePeople
+    ) {
       availableCompaniesRef.current = availableCompanies;
+      availablePeopleRef.current = availablePeople;
       setIsSearchingRecords(false);
     }
-  }, [availableCompanies]);
+  }, [availableCompanies, availablePeople]);
+
+  useEffect(() => () => {
+    if (recordSearchTimerRef.current) clearTimeout(recordSearchTimerRef.current);
+    if (recordSearchSettleTimerRef.current) clearTimeout(recordSearchSettleTimerRef.current);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1139,7 +1161,7 @@ export function TaskDialog({
       e.preventDefault();
       const text = e.clipboardData.getData('text/plain');
       if (text) {
-        document.execCommand('insertText', false, text);
+        runEditorCommand('insertText', text);
       }
     }
   }, [handleUploadFiles]);

@@ -225,9 +225,9 @@ export function AnalyticsView() {
         return (
           <div className="h-full flex items-center justify-center">
             <div className="w-full h-32 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 rounded flex items-end justify-around p-2">
-              {widget.data?.values?.map((value: number, i: number) => (
+              {widget.data?.values?.map((value: number, i: number) => ({ value, point: widget.data?.labels?.[i] ?? `point-${i}` })).map(({ value, point }) => (
                 <div
-                  key={i}
+                  key={point}
                   className="bg-blue-500 rounded-t"
                   style={{
                     width: '12%',
@@ -244,7 +244,7 @@ export function AnalyticsView() {
           <div className="h-full flex items-center justify-center">
             <div className="w-full space-y-2">
               {widget.data?.labels?.slice(0, 4).map((label: string, i: number) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={label} className="flex items-center gap-2">
                   <span className="text-xs w-20 truncate">{label}</span>
                   <div className="flex-1 bg-gray-200 dark:bg-accent rounded-full h-4">
                     <div
@@ -277,8 +277,8 @@ export function AnalyticsView() {
       case 'list':
         return (
           <div className="space-y-2">
-            {widget.data?.items?.slice(0, 4).map((item, i) => (
-              <div key={i} className="flex items-center justify-between py-1">
+            {widget.data?.items?.slice(0, 4).map((item) => (
+              <div key={item.name} className="flex items-center justify-between py-1">
                 <span className="text-sm">{item.name}</span>
                 <span className="text-sm font-medium">{item.value}</span>
               </div>

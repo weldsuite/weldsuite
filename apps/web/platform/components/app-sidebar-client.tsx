@@ -70,7 +70,7 @@ function SidebarAppIcon({
       <LucideDynamicIcon
         name={icon ?? 'Box'}
         className="h-6 w-6"
-        fallback={ObjectIconFallback}
+        fallback={<ObjectIconFallback />}
       />
     );
   }
@@ -79,7 +79,7 @@ function SidebarAppIcon({
     // the developer-declared lucide icon name, falling back to a generic
     // Puzzle icon for apps that didn't set one or set an unknown name.
     if (icon) {
-      return <LucideDynamicIcon name={icon} className="h-6 w-6" fallback={UserAppIconFallback} />;
+      return <LucideDynamicIcon name={icon} className="h-6 w-6" fallback={<UserAppIconFallback />} />;
     }
     return <Puzzle className="h-6 w-6" />;
   }

@@ -11,11 +11,11 @@
       margin: 0 auto;
       padding: 40px 20px;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #333;
     }
 
     .container {
       background: white;
+      color: #333;
       border-radius: 12px;
       padding: 40px;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
@@ -121,8 +121,7 @@
   <!-- Load the Helpdesk Widget SDK from local build -->
   <script src="../dist/index.umd.js"></script>
 
-  <!-- OR use this for production from unpkg -->
-  <!-- <script src="https://unpkg.com/helpdesk-widget@latest/dist/index.umd.js"></script> -->
+  <!-- In production, point the script src at dist/index.umd.js on unpkg instead. -->
 
   <script>
     // Initialize the widget with just a widgetId - that's it!

@@ -166,7 +166,8 @@ let _default: WeldAI | undefined;
  * {@link createWeldAI} with the request `env` instead.
  */
 export function defaultAI(): WeldAI {
-  return (_default ??= createWeldAI());
+  _default ??= createWeldAI();
+  return _default;
 }
 
 /** Shorthand for `defaultAI().model(id)`. Node/script convenience. */

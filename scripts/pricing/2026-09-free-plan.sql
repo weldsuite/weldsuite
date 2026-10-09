@@ -116,18 +116,19 @@ WHERE paid_plan_required = true
   AND deletion_requested_by IS NULL;
 
 -- ---------------------------------------------------------------------------
--- 5) Verify before COMMIT (uncomment to inspect inside a manual session):
+-- 5) Verify before COMMIT: read-only, prints what the steps above left.
 -- ---------------------------------------------------------------------------
--- SELECT slug, name, price_per_user, included_users, max_users, is_default, sort_order
---   FROM plans WHERE deleted_at IS NULL ORDER BY sort_order;
---
--- SELECT count(*) AS still_flagged FROM workspaces
---   WHERE paid_plan_required = true AND deleted_at IS NULL
---     AND deletion_requested_by IS NULL;                      -- expect 0
---
--- Anything left here should be admin-scheduled only (deletion_requested_by set):
--- SELECT id, name, deletion_requested_by, scheduled_deletion_at FROM workspaces
---   WHERE scheduled_deletion_at IS NOT NULL AND deleted_at IS NULL;
+SELECT slug, name, price_per_user, included_users, max_users, is_default, sort_order
+  FROM plans WHERE deleted_at IS NULL ORDER BY sort_order;
+
+-- Expect 0.
+SELECT count(*) AS still_flagged FROM workspaces
+  WHERE paid_plan_required = true AND deleted_at IS NULL
+    AND deletion_requested_by IS NULL;
+
+-- Anything left here should be admin-scheduled only (deletion_requested_by set).
+SELECT id, name, deletion_requested_by, scheduled_deletion_at FROM workspaces
+  WHERE scheduled_deletion_at IS NOT NULL AND deleted_at IS NULL;
 
 COMMIT;
 

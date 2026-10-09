@@ -13,6 +13,7 @@ import 'react-native-reanimated';
 import { hideAppSplash } from '@/utils/splash';
 
 import { tokenCache } from '@clerk/expo/token-cache';
+import { passkeys } from '@clerk/expo/passkeys';
 import { ClerkAuthProvider, useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { ThemeProvider, useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { ToastProvider } from '@weldsuite/mobile-ui/contexts/ToastContext';
@@ -165,7 +166,7 @@ const workspaceApi = {
   // app-api has no single "current workspace" endpoint; returning a failure
   // lets WorkspaceProvider fall back to the active Clerk org (the source of
   // truth for which workspace is current).
-  getCurrentWorkspace: async () => ({ success: false as const }),
+  getCurrentWorkspace: () => Promise.resolve({ success: false as const }),
   getUserWorkspaces: async () => {
     try {
       const { data: workspaces } = await appApi.workspaces.list();
@@ -369,6 +370,7 @@ function RootLayout() {
           <ClerkProvider
             publishableKey={CLERK_PUBLISHABLE_KEY || ''}
             tokenCache={tokenCache}
+            __experimental_passkeys={passkeys}
             __experimental_disableNativeClientSync
           >
             <ClerkLoading>

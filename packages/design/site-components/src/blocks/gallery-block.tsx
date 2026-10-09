@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import { keyedBy } from '../lib/keyed';
 
 export interface GalleryBlockProps {
   images?: Array<{ src: string; alt: string; caption?: string }>;
@@ -70,7 +71,7 @@ export function GalleryBlock({
   return (
     <>
       <div className={`grid ${columnClasses} ${gapClasses}`}>
-        {images.map((image, index) => {
+        {keyedBy(images, (img) => img.src).map(({ item: image, key }, index) => {
           const content = (
             <>
               <img
@@ -88,14 +89,14 @@ export function GalleryBlock({
           return lightbox ? (
             <button
               type="button"
-              key={index}
+              key={key}
               className="relative block w-full overflow-hidden rounded-lg cursor-pointer text-left"
               onClick={() => handleImageClick(index)}
             >
               {content}
             </button>
           ) : (
-            <div key={index} className="relative overflow-hidden rounded-lg">
+            <div key={key} className="relative overflow-hidden rounded-lg">
               {content}
             </div>
           );

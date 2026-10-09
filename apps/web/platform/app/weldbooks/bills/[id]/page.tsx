@@ -6,6 +6,7 @@ import {
   useApproveBill,
   useRejectBill,
 } from '@/hooks/queries/use-accounting-queries';
+import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
@@ -36,6 +37,14 @@ import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
+import { salesTaxErrorCode, type BillWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
+import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { groupTaxBreakdown } from '@/lib/weldbooks/document-tax';
+import { isWeldTaxCode } from '@/lib/weldbooks/tax-codes';
+import { FORM_1099_OMIT, form1099BoxName } from '@/lib/weldbooks/form-1099';
+import { Link as AppLink } from '@/lib/router';
+import { SalesTaxErrorNotice, useDescribeError } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
+import { TaxBreakdownList } from '@/app/weldbooks/invoices/components/tax-breakdown';
 import { toast } from 'sonner';
 
 function statusVariant(status: string) {
@@ -77,15 +86,20 @@ export default function BillDetailPage() {
   const { t, language } = useI18n();
   const st = useTranslations();
   const tb = t.accounting.billDetail;
+  const td = useDocumentTexts();
   const { formatMoney, formatDate } = useWeldbooksFormat();
+  const { features } = useJurisdictionLabels();
+  const describeError = useDescribeError();
 
+  /** The last approval that a sales tax rule refused (the use tax engine was down, ...). */
+  const [taxError, setTaxError] = useState<unknown>(null);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
-  const bill = data?.data;
+  const bill = data?.data as unknown as BillWithTax | undefined;
   if (!bill) {
     return (
       <div className="p-6">
@@ -123,9 +137,15 @@ export default function BillDetailPage() {
   };
 
   const handleApprove = () => {
+    setTaxError(null);
     approveBill.mutate(id, {
       onSuccess: () => {
         navigate({ to: '/weldbooks/bills/$id', params: { id } });
+      },
+      onError: (err) => {
+        // Approving recalculates the use tax and refuses while the engine can't answer.
+        if (salesTaxErrorCode(err)) setTaxError(err);
+        else toast.error(td.bill.approveFailed, { description: describeError(err) });
       },
     });
   };
@@ -144,6 +164,23 @@ export default function BillDetailPage() {
   };
 
   const isDraft = bill.status === 'draft';
+  const isPosted = bill.approvalStatus === 'approved' || ['approved', 'paid', 'partial', 'overdue'].includes(bill.status);
+  const taxGroups = groupTaxBreakdown(bill.taxBreakdown);
+  const useTaxGroups = taxGroups.filter((group) => group.kind === 'use');
+  const deliveryLines = formatPostalAddressLines(normalizeAccountingAddress(bill.deliveryAddress), {
+    countryName: (code) => countryName(code, language),
+  });
+
+  /** Tax code, use tax accrual and 1099 box of a line, when they are set. */
+  const lineFlags = (item: BillWithTax['items'][number]): string[] => {
+    const flags: string[] = [];
+    if (features.salesTax && item.taxCode) flags.push(isWeldTaxCode(item.taxCode) ? td.taxCodes[item.taxCode] : item.taxCode);
+    if (item.accrueUseTax) flags.push(td.bill.accrueUseTax);
+    if (features.form1099 && item.form1099Box) {
+      flags.push(item.form1099Box === FORM_1099_OMIT ? td.bill.form1099Omit : form1099BoxName(item.form1099Box));
+    }
+    return flags;
+  };
   const isPendingApproval = bill.approvalStatus === 'pending' || bill.status === 'pending_approval';
 
   return (
@@ -203,6 +240,8 @@ export default function BillDetailPage() {
         </div>
       </div>
 
+      {taxError !== null && <SalesTaxErrorNotice error={taxError} />}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
           <CardHeader>
@@ -247,6 +286,21 @@ export default function BillDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {features.salesTax && deliveryLines.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{td.bill.deliveryTitle}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {deliveryLines.map((line, index) => (
+              <p key={`${index}-${line}`} className="text-sm">
+                {line}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {bill.attachmentKeys && bill.attachmentKeys.length > 0 && (
         <Card>
@@ -296,9 +350,22 @@ export default function BillDetailPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                items.map((item) => (
+                items.map((item) => {
+                  const flags = lineFlags(item);
+                  return (
                   <TableRow key={item.id}>
-                    <TableCell>{item.description}</TableCell>
+                    <TableCell>
+                      {item.description}
+                      {flags.length > 0 && <span className="block text-xs text-muted-foreground">{flags.join(' · ')}</span>}
+                      {features.salesTax && isPosted && (
+                        <AppLink
+                          href={`/weldbooks/fixed-assets/new?billItemId=${encodeURIComponent(item.id)}`}
+                          className="block text-xs font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          {td.bill.createFixedAsset}
+                        </AppLink>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{item.quantity ?? '-'}</TableCell>
                     <TableCell className="text-right">
                       {formatMoney(item.unitPrice, bill.currency)}
@@ -313,7 +380,8 @@ export default function BillDetailPage() {
                       {formatMoney(item.lineTotalWithTax ?? item.lineTotal, bill.currency)}
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -327,7 +395,7 @@ export default function BillDetailPage() {
                 <span>{formatMoney(bill.subtotal, bill.currency)}</span>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{tb.tax}</span>
+                <span className="text-muted-foreground">{features.salesTax ? td.bill.vendorTaxLabel : tb.tax}</span>
                 <span>{formatMoney(bill.taxTotal, bill.currency)}</span>
               </div>
               <Separator />
@@ -351,6 +419,18 @@ export default function BillDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {features.salesTax && useTaxGroups.length > 0 && (
+        <Card data-testid="use-tax-card">
+          <CardHeader>
+            <CardTitle>{td.bill.useTaxTitle}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <TaxBreakdownList groups={useTaxGroups} currency={bill.currency} taxLabel={td.bill.useTaxTitle} plain />
+            <p className="text-xs text-muted-foreground">{td.bill.useTaxNote}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {(bill.notes || bill.internalNotes) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

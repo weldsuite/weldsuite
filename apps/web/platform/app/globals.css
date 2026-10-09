@@ -659,83 +659,47 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
 }
 
 /* ============================================================
-   BlockNote slash-command suggestion menu — compact redesign.
-   Without the description line each item should feel like a
-   standard command-palette row: one line, tight padding, icon
-   on the left, shortcut badge on the right. ============================================================ */
+   BlockNote `/` and `@` menus. They render the shadcn Command component
+   (components/block-editor/suggestion-menu.tsx), so rows and headings need no
+   styling here — only the scroll-edge fade below.
 
-/* Hide the description text (structural selector — see item source). */
-.bn-suggestion-menu [role="option"] > div:not([data-position]) > div:nth-child(2),
-.bn-suggestion-menu [role="option"] > div.flex-1 > div:nth-child(2) {
-  display: none !important;
+   Rows fade out at the top and bottom edges while there is more to scroll to,
+   so the list never ends on a hard-cut row. The fades are overlays in the
+   menu's own background color, pinned to the scroll edges; their opacity
+   follows the scroll position: none at an end, full once 24px away from it.
+   Needs scroll-driven animations; without them (or when the list does not
+   scroll) there are simply no fades.
+   ============================================================ */
+@keyframes bn-menu-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-
-/* Whole menu — narrower, less padding, scoped scrollbar. */
-.bn-suggestion-menu {
-  min-width: 240px !important;
-  max-width: 300px !important;
-  padding: 4px !important;
-}
-
-/* Group headers (Headings / Basic blocks / Media / …) — denser.
-   Extra top margin creates breathing room between categories, but the
-   first group shouldn't get it (would push it off the top of the menu). */
-.bn-suggestion-menu [class*="label"],
-.bn-suggestion-menu [role="group"] > [class*="label"] {
-  padding: 6px 8px 2px !important;
-  margin-top: 12px !important;
-  font-size: 11px !important;
-  letter-spacing: 0.03em !important;
-  text-transform: uppercase !important;
-  color: hsl(var(--muted-foreground, 220 9% 46%)) !important;
-}
-.bn-suggestion-menu [class*="label"]:first-child,
-.bn-suggestion-menu > :first-child [class*="label"] {
-  margin-top: 0 !important;
-}
-
-/* Each row — single line, smaller gap, smaller padding. */
-.bn-suggestion-menu [role="option"] {
-  gap: 8px !important;
-  padding: 6px 8px !important;
-  border-radius: 6px !important;
-  min-height: 0 !important;
-}
-
-/* Icon wrapper — drop the big p-3 and shrink to 20px square. */
-.bn-suggestion-menu [role="option"] > [data-position="left"] {
-  padding: 0 !important;
-  width: 22px !important;
-  height: 22px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  color: hsl(var(--muted-foreground, 220 9% 46%)) !important;
-}
-.bn-suggestion-menu [role="option"] > [data-position="left"] svg {
-  width: 16px !important;
-  height: 16px !important;
-}
-
-/* Title text — tighter, matches row height. */
-.bn-suggestion-menu [role="option"] > div:not([data-position]) > div:first-child,
-.bn-suggestion-menu [role="option"] > div.flex-1 > div:first-child {
-  font-size: 13px !important;
-  line-height: 20px !important;
-  font-weight: 500 !important;
-}
-
-/* Right-side keyboard shortcut badge — monospaced, muted. */
-.bn-suggestion-menu [role="option"] > [data-position="right"] {
-  font-size: 11px !important;
-  color: hsl(var(--muted-foreground, 220 9% 46%)) !important;
-}
-.bn-suggestion-menu [role="option"] > [data-position="right"] [class*="badge"],
-.bn-suggestion-menu [role="option"] > [data-position="right"] .bg-secondary {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
-  padding: 1px 6px !important;
-  font-weight: 500 !important;
-  border-radius: 4px !important;
+@supports (animation-timeline: scroll()) {
+  .bn-suggestion-list [data-slot="command-list"]::before,
+  .bn-suggestion-list [data-slot="command-list"]::after {
+    content: "";
+    display: block;
+    position: sticky;
+    z-index: 1;
+    height: 36px;
+    opacity: 0;
+    pointer-events: none;
+    animation: bn-menu-fade-in linear both;
+    animation-timeline: scroll(nearest);
+  }
+  .bn-suggestion-list [data-slot="command-list"]::before {
+    top: 0;
+    margin-bottom: -36px;
+    background: linear-gradient(to bottom, var(--popover) 15%, transparent);
+    animation-range: 0px 24px;
+  }
+  .bn-suggestion-list [data-slot="command-list"]::after {
+    bottom: 0;
+    margin-top: -36px;
+    background: linear-gradient(to top, var(--popover) 15%, transparent);
+    animation-direction: reverse;
+    animation-range: calc(100% - 24px) 100%;
+  }
 }
 
 /* BlockNote tables: keep horizontal overflow contained inside the table
@@ -744,6 +708,82 @@ body[data-grid-dragging="true"] [data-grid-hover-only="true"] {
 .bn-container .tableWrapper {
   overflow-x: auto !important;
   max-width: 100% !important;
+}
+
+/* Callout block (components/block-editor/blocks/callout.tsx): an emoji and
+   a tinted box. The neutral tint applies while the block's background color
+   is "default"; a chosen background color (set on the block by BlockNote)
+   shows through instead. */
+.bn-editor .bn-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background-color: var(--muted);
+}
+.bn-editor [data-background-color]:not([data-background-color="default"]) .bn-callout {
+  background-color: transparent;
+}
+.bn-editor .bn-callout-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  user-select: none;
+}
+.bn-editor .bn-callout-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* "Add row" bar under a table: 24px tall instead of the default 18px, which
+   is a thin target to hit. BlockNote reserves 22px below the table for the
+   bar and its 4px gap, so grow that space to match and the bar never
+   overlaps the block underneath. */
+.bn-container .bn-extend-button-add-remove-rows {
+  height: 24px !important;
+}
+.bn-container .bn-editor [data-content-type="table"] .tableWrapper {
+  padding-bottom: 28px;
+}
+
+/* BlockNote table row/column drag handles. The shadcn variant renders them
+   as a bare ghost Button around a 24px grip icon: 48x24 with no background,
+   so the dots float over the table border and the row handle sits further
+   from the table than the column handle. Make both a small pill centred on
+   the border they belong to. The column handle is the same button rotated a
+   quarter turn, so one set of dimensions covers both. */
+.bn-container .bn-table-handle {
+  width: 14px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  border: 1px solid color-mix(in oklch, var(--border), var(--foreground) 12%) !important;
+  border-radius: 4px !important;
+  background-color: var(--background) !important;
+  color: var(--muted-foreground) !important;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  cursor: grab;
+}
+.bn-container .bn-table-handle:hover,
+.bn-container .bn-table-handle[data-state="open"] {
+  background-color: var(--accent) !important;
+  color: var(--foreground) !important;
+}
+.bn-container .bn-table-handle svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+/* BlockNote overlaps the column handle 12px onto the table (half the pill's
+   24px, so it is centred on the top border) but the row handle only 10px.
+   Pad the row pill out so it is centred on the left border as well. */
+.bn-container .bn-table-handle:not([style*="rotate"]) {
+  margin-right: 3px;
 }
 
 /* Top-edge navigation progress bar. Advances fast at first, then crawls —

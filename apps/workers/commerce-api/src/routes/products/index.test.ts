@@ -95,3 +95,58 @@ describe('/api/products · validation', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('/api/products · tax fields validation', () => {
+  const json = { 'Content-Type': 'application/json' };
+
+  it.each(['bogus', 'taxable', 'txcd_123', 'p0000000', 'GENERAL'])(
+    'POST / returns 400 for taxClass %s',
+    async (taxClass) => {
+      const { request } = createTestApp('/api/products', productsRoutes, {
+        context: { permissions: permissions('products:create') },
+      });
+      const res = await request('/api/products', {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Widget', slug: 'widget-1', taxClass }),
+      });
+      expect(res.status).toBe(400);
+    },
+  );
+
+  it('POST / returns 400 for a taxClass longer than 50 characters', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create') },
+    });
+    const res = await request('/api/products', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ name: 'Widget', slug: 'widget-1', taxClass: 'x'.repeat(51) }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('POST / returns 400 for a non-boolean taxable', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:create') },
+    });
+    const res = await request('/api/products', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ name: 'Widget', slug: 'widget-1', taxable: 'no' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('PATCH /:id returns 400 for an unknown taxClass', async () => {
+    const { request } = createTestApp('/api/products', productsRoutes, {
+      context: { permissions: permissions('products:update') },
+    });
+    const res = await request('/api/products/prod_1', {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ taxClass: 'reduced' }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

@@ -38,7 +38,12 @@ export default function DashboardScreen() {
   const { activeEntity, canSwitch, openSwitcher } = useAccountingEntity();
   const { queue, isOnline } = useOfflineQueue();
   const { t, format, plural } = useI18n();
-  const { formatCompactCurrency, formatCurrency, formatShortDate } = useLocaleFormatters();
+  const {
+    formatCompactCurrency,
+    formatCurrency,
+    formatShortDate,
+    currency: entityCurrency,
+  } = useLocaleFormatters();
 
   const QUICK_ACTIONS = [
     { label: t.dashboard.invoice, icon: FileText, route: '/invoice/new' },
@@ -123,7 +128,7 @@ export default function DashboardScreen() {
     );
   }
 
-  const currency = data?.currency ?? 'EUR';
+  const currency = data?.currency ?? entityCurrency;
   const money = (value: number) => formatCompactCurrency(value, currency);
 
   return (

@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
@@ -47,6 +47,7 @@ export function NewTaskModal({ isOpen, onClose, onSave }: Readonly<NewTaskModalP
   const [assigneeId, setAssigneeId] = useState('');
   const [companyId, setCompanyId] = useState('');
   const [duration, setDuration] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -85,9 +86,14 @@ export function NewTaskModal({ isOpen, onClose, onSave }: Readonly<NewTaskModalP
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent 
+      <DialogContent
         className="max-w-md p-0 gap-0"
         showCloseButton={false}
+        onOpenAutoFocus={(e) => {
+          // Start in the task name rather than on the header's close button.
+          e.preventDefault();
+          titleInputRef.current?.focus();
+        }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
@@ -106,12 +112,12 @@ export function NewTaskModal({ isOpen, onClose, onSave }: Readonly<NewTaskModalP
         <div className="px-6 py-5 space-y-4">
           {/* Title */}
           <input
+            ref={titleInputRef}
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder={st('sweep.weldflow.newTaskModal.taskNamePlaceholder')}
             className="w-full text-sm border-none outline-none bg-transparent placeholder:text-gray-400"
-            autoFocus
           />
 
           {/* Description */}

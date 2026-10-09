@@ -459,8 +459,8 @@ async function insertPersonRow(
 }
 
 /**
- * Thrown by `createPerson` when the given email already belongs to another
- * (non-deleted) person. Callers that intentionally de-duplicate by email
+ * Thrown by `createPerson` / `updatePerson` when the given email already belongs
+ * to another (non-deleted) CRM person. Callers that intentionally de-duplicate by email
  * themselves first (e.g. `findOrCreatePersonByEmail`) pass
  * `allowDuplicateEmail: true` to skip this check.
  */
@@ -472,45 +472,154 @@ export class PersonDuplicateEmailError extends Error {
   }
 }
 
-export async function createPerson(
+export interface CreatePersonResult {
+  row: PersonRow;
+  /**
+   * True when the submitted email matched a hidden (non-CRM, mail/helpdesk
+   * auto-created) identity, which was promoted into the CRM and updated with
+   * the submitted fields instead of a second row being inserted.
+   */
+  promoted: boolean;
+}
+
+/** Non-deleted people whose email equals `email` (case-insensitive), optionally excluding one id. */
+async function findPeopleByEmail(
+  db: Database,
+  email: string,
+  excludeId?: string,
+): Promise<{ id: string; inCrm: boolean }[]> {
+  const { people } = schema;
+  const conditions: SQL[] = [
+    sql`LOWER(${people.email}) = ${email.toLowerCase()}`,
+    isNull(people.deletedAt),
+  ];
+  if (excludeId) conditions.push(sql`${people.id} <> ${excludeId}`);
+  return db
+    .select({ id: people.id, inCrm: people.inCrm })
+    .from(people)
+    .where(and(...conditions));
+}
+
+/**
+ * Promote a hidden (non-CRM) identity into the CRM and apply the submitted
+ * create fields to it. The existing row's email and (when set) owner are kept;
+ * companies from `companyIds` are linked unless already linked.
+ */
+async function promoteHiddenPerson(
+  db: Database,
+  existingId: string,
+  input: CreatePersonInput,
+): Promise<PersonRow> {
+  const { people, personCompanies } = schema;
+  const {
+    companyIds,
+    primaryCompanyId,
+    ownerId,
+    inCrm: _inCrm,
+    email: _email,
+    ...fields
+  } = input;
+
+  const updated = await updatePerson(db, existingId, fields);
+  if (!updated) throw new Error('Person disappeared during promotion');
+
+  await db
+    .update(people)
+    .set({
+      inCrm: true,
+      ownerId: updated.row.ownerId ?? ownerId ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(people.id, existingId));
+
+  if (companyIds?.length) {
+    const linked = await db
+      .select({ companyId: personCompanies.companyId })
+      .from(personCompanies)
+      .where(eq(personCompanies.personId, existingId));
+    const linkedIds = new Set(linked.map((l) => l.companyId));
+    const now = new Date();
+    await Promise.all(
+      companyIds
+        .filter((companyId) => !linkedIds.has(companyId))
+        .map((companyId) =>
+          db.insert(personCompanies).values({
+            id: generateId('pc'),
+            createdAt: now,
+            updatedAt: now,
+            personId: existingId,
+            companyId,
+            isPrimary: companyId === primaryCompanyId,
+          }),
+        ),
+    );
+  }
+
+  const promoted = await getPerson(db, existingId);
+  if (!promoted) throw new Error('Person disappeared during promotion');
+  return promoted;
+}
+
+/**
+ * Create a person, or — when the email belongs to a hidden non-CRM identity
+ * (an email guest auto-created by WeldMail / WeldMeet / helpdesk) — promote that
+ * identity into the CRM instead of rejecting with a duplicate. A match that is
+ * already a CRM person still throws `PersonDuplicateEmailError`.
+ */
+export async function createPersonDetailed(
   db: Database,
   input: CreatePersonInput,
   options: { allowDuplicateEmail?: boolean } = {},
-): Promise<PersonRow> {
-  const { personCompanies, people } = schema;
+): Promise<CreatePersonResult> {
+  const { personCompanies } = schema;
 
   await assertValidMemberFields(db, input);
 
   const email = input.email?.trim();
   if (email && !options.allowDuplicateEmail) {
-    const [existing] = await db
-      .select({ id: people.id })
-      .from(people)
-      .where(and(sql`LOWER(${people.email}) = ${email.toLowerCase()}`, isNull(people.deletedAt)))
-      .limit(1);
-    if (existing) throw new PersonDuplicateEmailError(existing.id);
+    const matches = await findPeopleByEmail(db, email);
+    const crmMatch = matches.find((m) => m.inCrm);
+    if (crmMatch) throw new PersonDuplicateEmailError(crmMatch.id);
+    const hidden = matches[0];
+    if (hidden) {
+      // Creating another hidden identity with a taken email is still a conflict;
+      // creating a CRM person upgrades the hidden one.
+      if (input.inCrm === false) throw new PersonDuplicateEmailError(hidden.id);
+      return { row: await promoteHiddenPerson(db, hidden.id, input), promoted: true };
+    }
   }
 
   const created = await insertPersonRow(db, input);
 
   if (input.companyIds?.length) {
     const now = new Date();
-    for (const companyId of input.companyIds) {
-      await db.insert(personCompanies).values({
-        id: generateId('pc'),
-        createdAt: now,
-        updatedAt: now,
-        personId: created.id,
-        companyId,
-        isPrimary: companyId === input.primaryCompanyId,
-      });
-    }
+    // One person's company links: independent rows, insert them together.
+    await Promise.all(
+      input.companyIds.map((companyId) =>
+        db.insert(personCompanies).values({
+          id: generateId('pc'),
+          createdAt: now,
+          updatedAt: now,
+          personId: created.id,
+          companyId,
+          isPrimary: companyId === input.primaryCompanyId,
+        }),
+      ),
+    );
   }
 
   // Phase 1 dual-write: mirror the customFields blob into the typed values table.
   await syncValuesForEntity(db, 'person', created.id, input.customFields);
 
-  return created;
+  return { row: created, promoted: false };
+}
+
+export async function createPerson(
+  db: Database,
+  input: CreatePersonInput,
+  options: { allowDuplicateEmail?: boolean } = {},
+): Promise<PersonRow> {
+  return (await createPersonDetailed(db, input, options)).row;
 }
 
 /**
@@ -566,7 +675,7 @@ export async function findOrCreatePersonByEmail(
 export class PersonVersionConflictError extends Error {
   readonly isConflict = true as const;
   constructor() {
-    super('Person was modified by someone else; please reload.');
+    super('This record was changed by someone else. Reload to see the latest version.');
     this.name = 'PersonVersionConflictError';
   }
 }
@@ -593,14 +702,25 @@ export async function updatePerson(
     .limit(1);
   if (!existing) return null;
 
-  if (input.ifVersion !== undefined && existing.version !== input.ifVersion) {
+  // `version` is accepted as an alias of `ifVersion`.
+  const expectedVersion = input.ifVersion ?? input.version;
+  if (expectedVersion !== undefined && existing.version !== expectedVersion) {
     throw new PersonVersionConflictError();
   }
 
   await assertValidMemberFields(db, input);
 
+  // Changing the email to one already used by ANOTHER CRM person is a
+  // conflict, same as on create. Hidden (non-CRM) identities don't block it.
+  const nextEmail = input.email?.trim();
+  if (nextEmail && nextEmail.toLowerCase() !== (existing.email ?? '').toLowerCase()) {
+    const crmMatch = (await findPeopleByEmail(db, nextEmail, id)).find((m) => m.inCrm);
+    if (crmMatch) throw new PersonDuplicateEmailError(crmMatch.id);
+  }
+
   const {
     ifVersion: _ignored,
+    version: _ignoredVersion,
     companyIds: _ignore2,
     primaryCompanyId: _ignore3,
     dateOfBirth,
@@ -641,7 +761,20 @@ export async function updatePerson(
     });
   }
 
-  await db.update(people).set(updates).where(eq(people.id, id));
+  // When the caller pinned a version the write is conditional on it, so a
+  // concurrent update landing after the read above gets a 409 instead of being
+  // silently overwritten.
+  const writeConditions: SQL[] = [eq(people.id, id)];
+  if (expectedVersion !== undefined) writeConditions.push(eq(people.version, existing.version));
+  const written = await db
+    .update(people)
+    .set(updates)
+    .where(and(...writeConditions))
+    .returning({ id: people.id });
+  if (written.length === 0) {
+    if (expectedVersion !== undefined) throw new PersonVersionConflictError();
+    return null;
+  }
 
   const updated = await getPerson(db, id);
   if (!updated) return null;

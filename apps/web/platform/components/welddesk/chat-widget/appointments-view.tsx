@@ -77,12 +77,13 @@ export function AppointmentsView({
     const daysInMonth = lastDay.getDate();
     const startingDayOfWeek = firstDay.getDay();
     
-    const days = [];
+    // Leading blanks pad the first week; each cell carries its own key.
+    const days: { key: string; day: number | null }[] = [];
     for (let i = 0; i < startingDayOfWeek; i++) {
-      days.push(null);
+      days.push({ key: `blank-${i}`, day: null });
     }
     for (let i = 1; i <= daysInMonth; i++) {
-      days.push(i);
+      days.push({ key: `day-${i}`, day: i });
     }
     return days;
   };
@@ -216,9 +217,9 @@ export function AppointmentsView({
                   {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day) => (
                     <div key={day} className="text-xs text-gray-500 py-1">{day}</div>
                   ))}
-                  {getDaysInMonth(selectedDate).map((day, index) => (
+                  {getDaysInMonth(selectedDate).map(({ key, day }) => (
                     <Button
-                      key={index}
+                      key={key}
                       variant="ghost"
                       onClick={() => day && !isPast(day) && setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day))}
                       disabled={!day || isPast(day)}

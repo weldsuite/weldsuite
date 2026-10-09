@@ -11,10 +11,12 @@ import type { ClientApi, DataResponse, ListResponse } from '../types';
 import { buildQueryString } from '../types';
 import type {
   CreateHrAssignmentInput,
+  CreateHrAbsenceInput,
   CreateHrAttendanceInput,
   CreateHrChecklistTaskInput,
   CreateHrChecklistTemplateInput,
   CreateHrCoachingLogInput,
+  CreateHrDeclarationInput,
   CreateHrDepartmentInput,
   CreateHrEmployeeFromMemberInput,
   CreateHrEmployeeInput,
@@ -29,15 +31,21 @@ import type {
   HrEmployeeSensitiveInput,
   HrSelfServiceAcknowledgeInput,
   HrSelfServiceClockInput,
+  HrSelfServiceAbsenceInput,
+  HrSelfServiceDeclarationInput,
   HrSelfServiceLeaveRequestInput,
   ImportHrAttendanceInput,
   ImportHrKpiValuesInput,
   InviteHrPortalAccessInput,
+  RecoverHrAbsenceInput,
+  ReviewHrDeclarationInput,
   ReviewHrLeaveRequestInput,
   UpdateHrAssignmentInput,
+  UpdateHrAbsenceInput,
   UpdateHrAttendanceInput,
   UpdateHrChecklistTaskInput,
   UpdateHrCoachingLogInput,
+  UpdateHrDeclarationInput,
   UpdateHrEmployeeInput,
   UpdateHrEvaluationInput,
   UpdateHrMilestoneInput,
@@ -53,6 +61,10 @@ export type HrEmployeeStatus = 'onboarding' | 'active' | 'on_leave' | 'offboardi
 export type HrAssigneeRole = 'hr' | 'manager' | 'it' | 'employee' | 'other';
 export type HrAttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'remote' | 'half_day';
 export type HrLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type HrAbsenceStatus = 'ongoing' | 'completed';
+export type HrAbsenceFirstDay = 'full' | 'half';
+export type HrDeclarationCategory = 'travel' | 'meals' | 'accommodation' | 'equipment' | 'training' | 'other';
+export type HrDeclarationStatus = 'pending' | 'approved' | 'rejected' | 'paid' | 'cancelled';
 export type HrCoachingCategory = 'performance' | 'quality' | 'behavior' | 'attendance' | 'development' | 'recognition';
 export type HrCoachingStatus = 'open' | 'acknowledged' | 'closed';
 export type HrVisibility = 'internal' | 'employee' | 'client';
@@ -248,6 +260,11 @@ export interface HrShift {
   companyName: string | null;
   startsAt: string;
   endsAt: string;
+  /** What the employee is scheduled to do, e.g. "Cashier". */
+  workType: string | null;
+  /** Unpaid break inside the shift; both set or both null. */
+  breakStartsAt: string | null;
+  breakEndsAt: string | null;
   notes: string | null;
 }
 
@@ -326,6 +343,68 @@ export interface HrLeaveRequest {
   reviewedAt: string | null;
   reviewNote: string | null;
   createdAt: string;
+}
+
+/** A sick report as the back office sees it. */
+export interface HrAbsence {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  departmentName: string | null;
+  /** First sick day. */
+  startDate: string;
+  /** Last sick day, inclusive; null while the employee is still absent. */
+  endDate: string | null;
+  firstDay: HrAbsenceFirstDay;
+  note: string | null;
+  status: HrAbsenceStatus;
+  /** Mon–Fri days so far; a half first day counts as half. */
+  days: number;
+  /** The employee's previous report ended less than four weeks before this one began. */
+  relapse: boolean;
+  /** Filed by the employee; otherwise `reportedByName` is who filed it for them. */
+  reportedBySelf: boolean;
+  reportedByName: string | null;
+  recoveredReportedAt: string | null;
+  createdAt: string;
+}
+
+export interface HrAbsenceListParams {
+  status?: HrAbsenceStatus;
+  employeeId?: string;
+  departmentId?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+/** An expense declaration. The receipt itself is fetched with `declarationReceipt`. */
+export interface HrDeclaration {
+  id: string;
+  employeeId: string;
+  expenseDate: string;
+  category: HrDeclarationCategory;
+  description: string;
+  /** Major units, two decimals. */
+  amount: number;
+  currency: string;
+  status: HrDeclarationStatus;
+  hasReceipt: boolean;
+  receiptFileName: string | null;
+  receiptContentType: string | null;
+  receiptSize: number | null;
+  submittedBy: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  paidBy: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrDeclarationListItem extends HrDeclaration {
+  employeeName: string;
+  reviewedByName: string | null;
 }
 
 export interface HrCoachingActionItem {
@@ -468,6 +547,7 @@ export interface HrPortalSettings {
   clientCanSeeIndividualScores: boolean;
   employeeSelfClockIn: boolean;
   employeeLeaveRequests: boolean;
+  employeeDeclarations: boolean;
   updatedAt: string;
 }
 
@@ -627,6 +707,8 @@ export interface HrSelfFeatures {
   selfClockIn: boolean;
   /** Request leave from My HR (WeldHR settings → portal → leave requests). */
   leaveRequests: boolean;
+  /** Submit expense declarations from My HR (WeldHR settings → portal → declarations). */
+  declarations: boolean;
 }
 
 export interface HrSelf {
@@ -691,6 +773,45 @@ export interface HrSelfLeave {
   types: Array<{ id: string; name: string; color: string | null; requiresApproval: boolean }>;
   balances: HrLeaveBalance[];
   requests: HrSelfLeaveRequest[];
+}
+
+export interface HrSelfAbsence {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+  firstDay: HrAbsenceFirstDay;
+  note: string | null;
+  status: HrAbsenceStatus;
+  days: number;
+  createdAt: string;
+}
+
+export interface HrSelfAbsences {
+  /** The report that is still open, if the employee is reported sick. */
+  current: HrSelfAbsence | null;
+  history: HrSelfAbsence[];
+}
+
+export interface HrSelfDeclaration {
+  id: string;
+  expenseDate: string;
+  category: HrDeclarationCategory;
+  description: string;
+  amount: number;
+  currency: string;
+  status: HrDeclarationStatus;
+  hasReceipt: boolean;
+  receiptFileName: string | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface HrSelfDeclarations {
+  declarations: HrSelfDeclaration[];
+  /** Money still outstanding, per currency: awaiting a decision, and approved but not yet paid. */
+  open: Array<{ currency: string; pending: number; approved: number }>;
 }
 
 export interface HrSelfTask {
@@ -796,6 +917,12 @@ const base = '/weldhr';
 
 function qs(params: object): string {
   return buildQueryString(params as Record<string, unknown>);
+}
+
+function receiptForm(file: File): FormData {
+  const form = new FormData();
+  form.append('file', file);
+  return form;
 }
 
 export function createWeldHrApi(api: ClientApi) {
@@ -964,6 +1091,23 @@ export function createWeldHrApi(api: ClientApi) {
     setLeaveAllowance(body: { employeeId: string; leaveTypeId: string; year: number; days: number }): Promise<DataResponse<unknown>> {
       return api.put(`${base}/leave-allowances`, body);
     },
+    // Sick reports ----------------------------------------------------------
+    listAbsences(params: HrAbsenceListParams = {}): Promise<ListResponse<HrAbsence>> {
+      return api.get(`${base}/absences${qs(params)}`);
+    },
+    createAbsence(body: CreateHrAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.post(`${base}/absences`, body);
+    },
+    updateAbsence(id: string, body: UpdateHrAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.patch(`${base}/absences/${id}`, body);
+    },
+    recoverAbsence(id: string, body: RecoverHrAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.post(`${base}/absences/${id}/recover`, body);
+    },
+    deleteAbsence(id: string): Promise<void> {
+      return api.delete(`${base}/absences/${id}`);
+    },
+
     listLeaveRequests(params: { employeeId?: string; status?: string; from?: string; to?: string } = {}): Promise<DataResponse<HrLeaveRequest[]>> {
       return api.get(`${base}/leave-requests${qs(params)}`);
     },
@@ -978,6 +1122,36 @@ export function createWeldHrApi(api: ClientApi) {
     },
     deleteLeaveRequest(id: string): Promise<void> {
       return api.delete(`${base}/leave-requests/${id}`);
+    },
+
+    // Declarations -----------------------------------------------------------
+    listDeclarations(params: { employeeId?: string; status?: string; category?: string; from?: string; to?: string } = {}): Promise<DataResponse<HrDeclarationListItem[]>> {
+      return api.get(`${base}/declarations${qs(params)}`);
+    },
+    createDeclaration(body: CreateHrDeclarationInput): Promise<DataResponse<HrDeclaration>> {
+      return api.post(`${base}/declarations`, body);
+    },
+    updateDeclaration(id: string, body: UpdateHrDeclarationInput): Promise<DataResponse<HrDeclaration>> {
+      return api.patch(`${base}/declarations/${id}`, body);
+    },
+    reviewDeclaration(id: string, body: ReviewHrDeclarationInput): Promise<DataResponse<HrDeclaration>> {
+      return api.post(`${base}/declarations/${id}/review`, body);
+    },
+    markDeclarationPaid(id: string): Promise<DataResponse<HrDeclaration>> {
+      return api.post(`${base}/declarations/${id}/pay`, {});
+    },
+    cancelDeclaration(id: string): Promise<DataResponse<HrDeclaration>> {
+      return api.post(`${base}/declarations/${id}/cancel`, {});
+    },
+    deleteDeclaration(id: string): Promise<void> {
+      return api.delete(`${base}/declarations/${id}`);
+    },
+    uploadDeclarationReceipt(id: string, file: File): Promise<DataResponse<HrDeclaration>> {
+      return api.postForm(`${base}/declarations/${id}/receipt`, receiptForm(file));
+    },
+    /** The receipt file itself; the caller reads it as a blob. */
+    declarationReceipt(id: string): Promise<Response> {
+      return api.getRaw(`${base}/declarations/${id}/receipt`);
     },
 
     // Coaching ---------------------------------------------------------------
@@ -1105,11 +1279,35 @@ export function createWeldHrApi(api: ClientApi) {
     meLeave(): Promise<DataResponse<HrSelfLeave>> {
       return api.get(`${base}/me/leave`);
     },
+    meAbsences(): Promise<DataResponse<HrSelfAbsences>> {
+      return api.get(`${base}/me/absences`);
+    },
+    meReportSick(body: HrSelfServiceAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.post(`${base}/me/absences`, body);
+    },
+    meReportRecovered(id: string, body: RecoverHrAbsenceInput): Promise<DataResponse<{ id: string }>> {
+      return api.post(`${base}/me/absences/${id}/recover`, body);
+    },
     meRequestLeave(body: HrSelfServiceLeaveRequestInput): Promise<DataResponse<HrLeaveRequest>> {
       return api.post(`${base}/me/leave`, body);
     },
     meCancelLeave(id: string): Promise<DataResponse<HrLeaveRequest>> {
       return api.post(`${base}/me/leave/${id}/cancel`, {});
+    },
+    meDeclarations(): Promise<DataResponse<HrSelfDeclarations>> {
+      return api.get(`${base}/me/declarations`);
+    },
+    meCreateDeclaration(body: HrSelfServiceDeclarationInput): Promise<DataResponse<HrDeclaration>> {
+      return api.post(`${base}/me/declarations`, body);
+    },
+    meCancelDeclaration(id: string): Promise<DataResponse<HrDeclaration>> {
+      return api.post(`${base}/me/declarations/${id}/cancel`, {});
+    },
+    meUploadDeclarationReceipt(id: string, file: File): Promise<DataResponse<HrDeclaration>> {
+      return api.postForm(`${base}/me/declarations/${id}/receipt`, receiptForm(file));
+    },
+    meDeclarationReceipt(id: string): Promise<Response> {
+      return api.getRaw(`${base}/me/declarations/${id}/receipt`);
     },
     meTasks(): Promise<DataResponse<HrSelfTask[]>> {
       return api.get(`${base}/me/tasks`);

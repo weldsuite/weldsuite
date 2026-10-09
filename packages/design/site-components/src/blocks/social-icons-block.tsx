@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { keyedBy, tupleKey } from '../lib/keyed';
 
 export interface SocialIconsBlockProps {
   icons?: Array<{
@@ -53,9 +54,9 @@ export function SocialIconsBlock({
 
   return (
     <div className={`flex ${layoutClasses} ${spacingClasses}`}>
-      {icons.map((icon, index) => (
+      {keyedBy(icons, (icon) => tupleKey(icon.platform, icon.url)).map(({ item: icon, key }) => (
         <a
-          key={index}
+          key={key}
           href={icon.url}
           target="_blank"
           rel="noopener noreferrer"

@@ -81,7 +81,7 @@ function makeAgentIcon(agent: { id: string; name: string; icon?: string | null; 
         <LucideDynamicIcon
           name={agent.icon}
           className={`${slot} ${colorClass}`}
-          fallback={() => fallbackIcon}
+          fallback={fallbackIcon}
         />
       );
     }

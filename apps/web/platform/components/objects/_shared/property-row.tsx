@@ -28,6 +28,7 @@ import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } f
 import { Check, Flag, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -42,6 +43,9 @@ import { MemberSelect } from '@/components/team/member-select';
 import { STATUS_STYLE_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
 
 type PropertyRowType = 'text' | 'email' | 'phone' | 'url' | 'address';
+
+/** Links and buttons in read-only values stay clickable above the "edit" overlay button. */
+const KEEP_CONTROLS_ABOVE_OVERLAY = '[&_:is(a,button)]:relative [&_:is(a,button)]:z-[1]';
 
 export interface PropertyRowProps {
   icon: ComponentType<{ className?: string }>;
@@ -80,7 +84,10 @@ const INPUT_TYPE_BY_ROW_TYPE: Record<PropertyRowType, string> = {
   address: 'text',
 };
 
-const LINK_CLASS = 'text-primary hover:underline truncate inline-block max-w-full';
+// `min-w-0` + `overflow-wrap:anywhere`: values are flex children, so a long
+// unbroken string (URL, email, pasted name) must be allowed to shrink and wrap
+// instead of stretching the row past the panel edge.
+const LINK_CLASS = 'text-primary hover:underline inline-block min-w-0 max-w-full break-words [overflow-wrap:anywhere]';
 
 /** Read-mode render of a non-empty value: link for url/email/phone, plain text otherwise. */
 function renderReadValue(type: PropertyRowType, value: string) {
@@ -112,7 +119,7 @@ function renderReadValue(type: PropertyRowType, value: string) {
       </a>
     );
   }
-  return <span className="text-foreground break-words">{value}</span>;
+  return <span className="min-w-0 text-foreground break-words [overflow-wrap:anywhere]">{value}</span>;
 }
 
 export function PropertyRow({
@@ -205,7 +212,7 @@ export function PropertyRow({
   };
 
   return (
-    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
+    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center group/row min-h-[32px]">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
@@ -217,24 +224,12 @@ export function PropertyRow({
           // margin and min height. `border-box` keeps the outer rectangle
           // identical once the border is drawn (the border eats into the
           // padding rather than growing the box).
-          'text-sm min-w-0 flex items-center min-h-[32px] rounded-[9px] -mx-2 px-2 box-border',
-          editable && !isEditing && 'cursor-text hover:bg-muted/50 transition-colors',
+          'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-2 box-border',
+          editable && !isEditing && cn('relative cursor-text hover:bg-muted/50 transition-colors', KEEP_CONTROLS_ABOVE_OVERLAY),
           isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
-        onClick={() => {
-          if (editable && !isEditing) setIsEditing(true);
-        }}
-        role={editable && !isEditing ? 'button' : undefined}
-        tabIndex={editable && !isEditing ? 0 : undefined}
-        onKeyDown={(e) => {
-          if (!editable || isEditing) return;
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setIsEditing(true);
-          }
-        }}
       >
+        {editable && !isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
         {isEditing ? renderEditor() : renderReadMode()}
       </div>
       <div className="text-muted-foreground">
@@ -258,7 +253,7 @@ export interface MemberPropertyRowProps {
 
 export function MemberPropertyRow({ icon: Icon, label, value, placeholder, onChange }: Readonly<MemberPropertyRowProps>) {
   return (
-    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
+    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center group/row min-h-[32px]">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
@@ -291,7 +286,9 @@ function StatusBadge({ value, options }: Readonly<{ value: string; options: Stat
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
+        // `-ml-1.5` pulls the pill's left edge into the gutter so the badge TEXT
+        // lines up with the plain-text values of the rows above and below.
+        'inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-medium -ml-1.5',
         style?.bg ?? 'bg-muted',
         style?.color ?? 'text-foreground',
       )}
@@ -311,7 +308,7 @@ export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusP
   const st = useTranslations();
   const [open, setOpen] = useState(false);
   return (
-    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
+    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center group/row min-h-[32px]">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Flag className="h-4 w-4" />
         <span>{st('sweep.entities.fieldStatus')}</span>
@@ -321,7 +318,7 @@ export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusP
           <Button
             type="button"
             variant="ghost"
-            className="text-sm min-w-0 text-left cursor-pointer rounded px-1.5 -mx-1.5 py-0.5 hover:bg-muted/40 transition-colors flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring h-auto"
+            className="text-sm min-w-0 justify-start text-left cursor-pointer rounded-[9px] px-2 -mx-2 py-0.5 hover:bg-muted/50 transition-colors flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring h-auto min-h-[32px]"
           >
             {value ? (
               <StatusBadge value={value} options={options} />
@@ -394,7 +391,7 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
   const removeTag = (tag: string) => onChange(tags.filter((x) => x !== tag));
 
   return (
-    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-start group/row min-h-[32px] py-0.5">
+    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-start group/row min-h-[32px] py-0.5">
       <div className="flex items-center gap-2 text-sm text-muted-foreground h-7">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
@@ -402,16 +399,11 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
       <div
         className={cn(
           'min-w-0 -mx-2 px-2 rounded-[9px] box-border flex flex-wrap items-center gap-1 min-h-[32px] py-1',
-          !isEditing && 'cursor-text hover:bg-muted/50 transition-colors',
+          !isEditing && 'relative cursor-text hover:bg-muted/50 transition-colors',
           isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
-        onClick={() => setIsEditing(true)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (!isEditing && e.key === 'Enter') setIsEditing(true);
-        }}
       >
+        {!isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
         {tags.length === 0 && !isEditing && (
           <span className="text-muted-foreground/70 text-sm">
             {placeholder ?? t('sweep.entities.setFieldPlaceholder', { label })}

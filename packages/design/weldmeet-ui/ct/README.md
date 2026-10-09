@@ -17,6 +17,7 @@ components, so covering them once here covers the host controls for both apps.
 | `preview-view.ct.spec.tsx` | Pre-join screen: English defaults, translated labels, mic/camera device pickers, empty device list, blocked-permission empty state |
 | `recording-start-elapsed.ct.spec.tsx` | Header + Meeting tools show elapsed seconds (and translated labels) while the recorder is STARTING |
 | `participant-name-tag.ct.spec.tsx` | Host-muted mic and the viewer's "muted for me" marker show together |
+| `mobile.ct.spec.tsx` | Phone viewport: "More options" is a bottom sheet that also offers meeting details / tools and switches the layout; the header keeps only People and Chat; no share button when the browser cannot capture a screen; the share card hides once someone else joined. Desktop keeps the menu, every header button and the card |
 | `call-controls-bar-leave.ct.spec.tsx` | Leave button: single action by default; with `onEndForAll` (host) it becomes a Leave meeting / End meeting for all menu, each item calling only its own handler |
 
 ## Running

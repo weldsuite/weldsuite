@@ -130,7 +130,7 @@ export async function unsubscribe(
         input.userId,
         subscription.accountId,
         { to: [to], subject, body },
-        input.waitUntil,
+        { waitUntil: input.waitUntil },
       );
     },
   });

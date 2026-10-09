@@ -20,6 +20,7 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
+import { SeekRange } from './seek-range';
 import { formatTimestamp, hideSegmentHover, showSegmentHover } from './utils';
 import type { FlatTimelineSegment, TranscriptionSegment } from './types';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -65,6 +66,15 @@ export function VideoPlayer({
   const holdActiveRef = useRef(false);
   const holdWasActiveRef = useRef(false);
   const preMuteVolumeRef = useRef(1);
+  // Seeking into the first 30% of a speaker segment snaps to its start.
+  const snapToSegment = (time: number) => {
+    const seg = flattenedTimeline.find((candidate) => time >= candidate.start && time <= candidate.end);
+    if (!seg) return time;
+    const localPercent = (time - seg.start) / (seg.end - seg.start);
+    const magnetZone = 0.3;
+    return localPercent < magnetZone ? seg.start : time;
+  };
+
   const seekBarRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const hoveredSegRef = useRef<number>(-1);
@@ -228,7 +238,7 @@ export function VideoPlayer({
             </div>
             <div
               ref={seekBarRef}
-              className="relative h-5 flex items-end cursor-pointer group/seek"
+              className="relative h-5 flex items-end cursor-pointer group/seek has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white/70 rounded-sm"
               onMouseMove={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const x = e.clientX - rect.left;
@@ -237,17 +247,6 @@ export function VideoPlayer({
                 setSeekHoverX(x);
               }}
               onMouseLeave={() => setSeekHoverTime(null)}
-              onClick={(e) => {
-                e.stopPropagation();
-                const dur = videoRef.current?.duration || duration;
-                if (!dur || dur <= 0) return;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const percent = Math.max(0, Math.min(1, x / rect.width));
-                const newTime = percent * dur;
-                onSeek(newTime);
-                if (videoRef.current) videoRef.current.currentTime = newTime;
-              }}
             >
               {/* Hover tooltip */}
               {seekHoverTime !== null && (
@@ -273,27 +272,6 @@ export function VideoPlayer({
                 ref={trackRef}
                 className="w-full relative flex items-center cursor-pointer"
                 style={{ height: '20px' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!trackRef.current || duration <= 0 || flattenedTimeline.length === 0) return;
-                  const rect = trackRef.current.getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  const timeAtCursor = (x / rect.width) * duration;
-                  const idx = flattenedTimeline.findIndex(s => timeAtCursor >= s.start && timeAtCursor <= s.end);
-                  if (idx >= 0) {
-                    const seg = flattenedTimeline[idx];
-                    const segLeft = (seg.start / duration) * rect.width;
-                    const segWidth = ((seg.end - seg.start) / duration) * rect.width;
-                    const localPercent = (x - segLeft) / segWidth;
-                    const magnetZone = 0.3;
-                    const time = localPercent < magnetZone ? seg.start : seg.start + localPercent * (seg.end - seg.start);
-                    onSeek(time);
-                    if (videoRef.current) videoRef.current.currentTime = time;
-                  } else {
-                    onSeek(timeAtCursor);
-                    if (videoRef.current) videoRef.current.currentTime = timeAtCursor;
-                  }
-                }}
                 onMouseMove={(e) => {
                   if (!trackRef.current || duration <= 0 || flattenedTimeline.length === 0) return;
                   const rect = trackRef.current.getBoundingClientRect();
@@ -316,16 +294,27 @@ export function VideoPlayer({
                   hideSegmentHover(segHighlightRef.current, segCursorRef.current);
                 }}
               >
+                <SeekRange
+                  value={smoothTime}
+                  duration={duration}
+                  label={st('sweep.weldcrm.videoPlayer.seek')}
+                  onSeek={(requested) => {
+                    const time = snapToSegment(requested);
+                    onSeek(time);
+                    if (videoRef.current) videoRef.current.currentTime = time;
+                  }}
+                />
+
                 {/* Base track line */}
                 <div className="w-full h-1 bg-white/25 rounded-full absolute" />
 
                 {/* Speaker color segments */}
-                {duration > 0 && flattenedTimeline.map((seg, i) => {
+                {duration > 0 && flattenedTimeline.map((seg) => {
                   const left = (seg.start / duration) * 100;
                   const w = Math.max(0.3, ((seg.end - seg.start) / duration) * 100);
                   return (
                     <div
-                      key={`seg-${i}`}
+                      key={`seg-${seg.speakerId}-${seg.start}`}
                       className="absolute rounded-full pointer-events-none"
                       style={{
                         left: `${left}%`,

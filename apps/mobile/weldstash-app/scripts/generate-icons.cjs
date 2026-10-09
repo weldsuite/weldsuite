@@ -63,10 +63,11 @@ async function fitSquare(canvas, targetFraction, bg) {
   await (await fitSquare(1024, 0.86, TRANSPARENT)).toFile(path.join(OUT, 'logo.png'));
 
   console.log('Generated from', path.relative(ROOT, SVG));
-  for (const f of ['splash-icon.png', 'adaptive-icon.png', 'icon.png', 'notification-icon.png', 'logo.png']) {
-    const m = await sharp(path.join(OUT, f)).metadata();
-    console.log(' ', f, m.width + 'x' + m.height);
-  }
+  const generated = ['splash-icon.png', 'adaptive-icon.png', 'icon.png', 'notification-icon.png', 'logo.png'];
+  const metas = await Promise.all(generated.map((f) => sharp(path.join(OUT, f)).metadata()));
+  generated.forEach((f, i) => {
+    console.log(' ', f, metas[i].width + 'x' + metas[i].height);
+  });
 })().catch((e) => {
   console.error(e);
   process.exit(1);

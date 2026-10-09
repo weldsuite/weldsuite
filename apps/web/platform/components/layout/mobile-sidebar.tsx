@@ -84,13 +84,13 @@ function RailAppIcon({ appCode, name, icon, appType }: Readonly<RailIconProps>) 
       <LucideDynamicIcon
         name={icon ?? 'Box'}
         className="h-6 w-6"
-        fallback={BoxRailFallback}
+        fallback={<BoxRailFallback />}
       />
     );
   }
   if (appType === 'user') {
     if (icon) {
-      return <LucideDynamicIcon name={icon} className="h-6 w-6" fallback={PuzzleRailFallback} />;
+      return <LucideDynamicIcon name={icon} className="h-6 w-6" fallback={<PuzzleRailFallback />} />;
     }
     return <Puzzle className="h-6 w-6" />;
   }

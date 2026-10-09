@@ -12,6 +12,8 @@ export const HR_ENTITY_EVENTS = {
   hr_checklist: ['created', 'updated', 'deleted', 'completed'],
   hr_attendance: ['created', 'updated', 'deleted', 'approved'],
   hr_leave_request: ['created', 'updated', 'deleted', 'approved', 'rejected'],
+  hr_declaration: ['created', 'updated', 'deleted', 'approved', 'rejected', 'paid'],
+  hr_absence: ['created', 'updated', 'deleted', 'recovered'],
   hr_coaching_log: ['created', 'updated', 'deleted', 'acknowledged'],
   hr_evaluation: ['created', 'updated', 'deleted', 'submitted', 'acknowledged'],
   hr_kpi_value: ['created', 'updated', 'deleted'],

@@ -13,3 +13,6 @@ export * from './blocks';
 
 // Components
 export { PoweredByBadge } from './components/powered-by-badge';
+
+// List-key helpers
+export { keyedBy } from './lib/keyed';

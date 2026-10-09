@@ -62,8 +62,9 @@ export async function sendTaskAssignmentNotification<Env extends NotificationEnv
 
   // ISO date-time for the `task.assigned` template, which formats it in the
   // recipient's locale + the workspace timezone.
-  const dueDateIso =
-    dueDate instanceof Date ? dueDate.toISOString() : typeof dueDate === 'string' && dueDate ? dueDate : undefined;
+  let dueDateIso: string | undefined;
+  if (dueDate instanceof Date) dueDateIso = dueDate.toISOString();
+  else if (typeof dueDate === 'string' && dueDate) dueDateIso = dueDate;
 
   // Resolve assigner name + the workspace timezone for the email template.
   // Tolerant of misses: defaults keep the email renderable.

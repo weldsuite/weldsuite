@@ -9,6 +9,47 @@ import {
 } from 'drizzle-orm/pg-core';
 
 /**
+ * One row of a document's `tax_breakdown`: a tax amount per rate (VAT/GST) or
+ * per jurisdiction and line (US sales tax), as the tax calculation returned it.
+ */
+export interface DocumentTaxBreakdownRow {
+  taxRateId: string;
+  taxRateName: string;
+  taxRate: number;
+  taxableAmount: number;
+  taxAmount: number;
+  /** GST component when expanded (cgst / sgst / igst). */
+  component?: string;
+  /** System account role for journal posting. */
+  accountRole?: string;
+  /** The rate's tax category (standard, reduced, reverse_charge, ...). */
+  taxCategoryCode?: string;
+  /** Purchase tax the buyer self-assesses (reverse charge, imports, US use tax): not owed to the supplier. */
+  selfAssessed?: boolean;
+  /** US sales tax: the document line this row belongs to. */
+  lineId?: string;
+  /** US sales tax: jurisdiction (FIPS / SST code) and its name and level. */
+  jurisdictionCode?: string;
+  jurisdictionName?: string;
+  jurisdictionLevel?: 'state' | 'county' | 'city' | 'district';
+  stateCode?: string;
+  agencyId?: string;
+  /** The state's location code for the return. */
+  reportingCode?: string;
+  /** Part of the line that is exempt (certificate) or not taxable (product taxability). */
+  exemptAmount?: number;
+  nonTaxableAmount?: number;
+  exemptReason?: string;
+  certificateId?: string;
+  /** Tax before rounding to the cent, so returns reconcile. */
+  unroundedTaxAmount?: number;
+  /** WeldBooks product tax code of the line. */
+  taxCode?: string;
+  /** use = US use tax accrued on a purchase. */
+  kind?: 'tax' | 'use';
+}
+
+/**
  * Tax ledger: one row per tax amount a posted document or journal entry
  * carries, written in the same batch as its journal entry.
  *
@@ -29,7 +70,7 @@ export const taxLines = pgTable('tax_lines', {
   journalEntryId: varchar('journal_entry_id', { length: 30 }).notNull(),
   /** The tax point: the date the amount counts for on a return. */
   taxDate: date('tax_date').notNull(),
-  /** sales = tax charged to customers; purchase = tax paid to suppliers (or self-assessed). */
+  /** sales = tax charged to customers; purchase = tax paid to suppliers (or self-assessed); use = US use tax accrued. */
   direction: varchar('direction', { length: 10 }).notNull(),
 
   taxRateId: varchar('tax_rate_id', { length: 30 }),
@@ -59,7 +100,28 @@ export const taxLines = pgTable('tax_lines', {
 
   /** Set when a filed return includes this row, so a filed period can't change under it. */
   taxReturnId: varchar('tax_return_id', { length: 30 }),
+
+  /** US sales tax detail (null for VAT/GST rows). */
+  agencyId: varchar('agency_id', { length: 30 }),
+  jurisdictionName: varchar('jurisdiction_name', { length: 255 }),
+  reportingCode: varchar('reporting_code', { length: 30 }),
+  /** Line amount before exemptions; taxable + exempt + non-taxable = gross. */
+  grossAmount: numeric('gross_amount', { precision: 18, scale: 2 }),
+  exemptAmount: numeric('exempt_amount', { precision: 18, scale: 2 }),
+  nonTaxableAmount: numeric('non_taxable_amount', { precision: 18, scale: 2 }),
+  exemptReason: varchar('exempt_reason', { length: 30 }),
+  certificateId: varchar('certificate_id', { length: 30 }),
+  shipToState: varchar('ship_to_state', { length: 10 }),
+  shipToPostalCode: varchar('ship_to_postal_code', { length: 10 }),
+  taxCode: varchar('tax_code', { length: 30 }),
+  /** Sold through a marketplace facilitator: counts toward nexus, no tax charged. */
+  marketplaceFacilitated: boolean('marketplace_facilitated').notNull().default(false),
+  unroundedTaxAmount: numeric('unrounded_tax_amount', { precision: 18, scale: 6 }),
+  /** Engine that calculated it (manual, stripe_tax, avalara) and its reference. */
+  engine: varchar('engine', { length: 30 }),
+  engineRef: varchar('engine_ref', { length: 255 }),
 }, (table) => [
+  index('acct_tax_lines_agency_date_idx').on(table.agencyId, table.taxDate),
   index('acct_tax_lines_entity_date_idx').on(table.entityId, table.taxDate),
   index('acct_tax_lines_source_idx').on(table.sourceType, table.sourceId),
   index('acct_tax_lines_journal_entry_idx').on(table.journalEntryId),

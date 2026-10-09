@@ -64,8 +64,8 @@ export const dashboard = {
       tasks: {
         workspace_member_invited: 'Invite a team member',
         workspace_logo_uploaded: 'Upload workspace logo',
-        crm_customer_created: 'Add your first customer',
-        crm_contact_created: 'Add your first contact',
+        crm_customer_created: 'Add your first company',
+        crm_contact_created: 'Add your first person',
         crm_note_created: 'Add your first note',
         crm_task_created: 'Add your first task',
         commerce_product_created: 'Add your first product',

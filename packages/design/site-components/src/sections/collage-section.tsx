@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { keyedBy } from '../lib/keyed';
 
 interface CollageImage {
   url: string;
@@ -46,9 +47,9 @@ export function CollageSection({
             gap: `${spacing}px`
           }}
         >
-          {images.map((image, index) => (
+          {keyedBy(images, (img) => img.url).map(({ item: image, key }, index) => (
             <a
-              key={index}
+              key={key}
               href={image.link}
               className="group relative aspect-square overflow-hidden bg-gray-100"
             >

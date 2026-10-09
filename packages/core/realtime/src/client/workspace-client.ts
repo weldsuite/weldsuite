@@ -384,7 +384,8 @@ export class WorkspaceClient {
     this.reconnectAttempt++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.connect();
+      // connect() handles its own failures by scheduling the next attempt.
+      void this.connect();
     }, delay);
   }
 

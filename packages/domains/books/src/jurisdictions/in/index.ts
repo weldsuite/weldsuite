@@ -129,6 +129,7 @@ export const inAdapter: JurisdictionAdapter = {
     supplier: 'supplier',
     creditNote: 'credit_note',
   },
+  purchaseTax: 'recoverable',
 
   getChartOfAccountsTemplate() {
     return inChartOfAccounts;

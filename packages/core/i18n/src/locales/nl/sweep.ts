@@ -211,8 +211,6 @@ export const sweep = {
     "createEntity": {
       "welcomeTitle": "Welkom bij WeldBooks",
       "newEntityTitle": "Nieuwe juridische entiteit",
-      "welcomeDescription": "Maak uw eerste juridische entiteit aan om te starten met boekhouden. Het rekeningschema en de belastingtarieven voor het gekozen rechtsgebied worden automatisch ingesteld.",
-      "newEntityDescription": "Voeg nog een juridische entiteit toe aan deze werkruimte. Wissel tussen entiteiten via de header.",
       "nameLabel": "Naam",
       "jurisdictionLabel": "Rechtsgebied",
       "currencyLabel": "Valuta",
@@ -871,6 +869,13 @@ export const sweep = {
     "searchCustomerPlaceholder": "Klant zoeken...",
     "setCustomer": "Klant instellen",
     "noCustomerFound": "Geen klant gevonden.",
+    "record": "Record",
+    "searchRecordPlaceholder": "Bedrijven en personen zoeken...",
+    "setRecord": "Record instellen",
+    "noRecordFound": "Geen records gevonden.",
+    "openRecord": "Record openen",
+    "recordCompanies": "Bedrijven",
+    "recordPeople": "Personen",
     "labels": "Labels",
     "setLabels": "Labels instellen",
     "repeat": "Herhalen",
@@ -1398,6 +1403,10 @@ export const sweep = {
     "comingSoonDescription": "Dit tabblad wordt gevuld zodra de onderliggende module klaar is met de migratie. De gegevenslaag is gereed — de interface is hier alleen nog niet aangesloten.",
     "comingSoonToast": "{label} — binnenkort beschikbaar",
     "companyDeleted": "Bedrijf verwijderd",
+    "companyDeleteConfirm": "Dit bedrijf verwijderen?",
+    "companyDeleteOpenDealsOne": "Dit bedrijf heeft 1 open deal. De deal blijft zonder bedrijf op het pipelinebord staan. Het bedrijf toch verwijderen?",
+    "companyDeleteOpenDealsOther": "Dit bedrijf heeft {count} open deals. De deals blijven zonder bedrijf op het pipelinebord staan. Het bedrijf toch verwijderen?",
+    "companyDeleteBulkOpenDeals": "{count} van de geselecteerde bedrijven hebben open deals (in totaal {deals}). De deals blijven zonder bedrijf op het pipelinebord staan. De bedrijven toch verwijderen?",
     "companyLabel": "Bedrijf",
     "companyLinked": "{name} gekoppeld",
     "compose": "Opstellen",
@@ -1413,6 +1422,7 @@ export const sweep = {
     "createNoteFailed": "Notitie aanmaken mislukt",
     "createPersonFailed": "Persoon aanmaken mislukt",
     "createPersonFromSearch": "\"{name}\" toevoegen als nieuwe persoon",
+    "createOptionFromSearch": "\"{value}\" aanmaken",
     "personCreatedNeedsEmail": "Persoon aangemaakt. Voeg een e-mailadres toe om deze hier te gebruiken.",
     "createSubtaskFailed": "Subtaak aanmaken mislukt",
     "customAttributesHeading": "Aangepaste kenmerken",
@@ -1421,6 +1431,8 @@ export const sweep = {
     "deleteColumn": "Kolom verwijderen",
     "deleteCompanyFailed": "Bedrijf verwijderen mislukt",
     "deleteFailed": "Verwijderen mislukt",
+    "deleteFileDescription": "\"{fileName}\" wordt permanent verwijderd. Deze actie kan niet ongedaan worden gemaakt.",
+    "deleteFileTitle": "Bestand verwijderen?",
     "deleteItemsDescriptionPlural": "Deze actie kan niet ongedaan worden gemaakt. De geselecteerde items worden permanent verwijderd.",
     "deleteItemsDescriptionSingular": "Deze actie kan niet ongedaan worden gemaakt. Het geselecteerde item wordt permanent verwijderd.",
     "deleteItemsTitlePlural": "{count} items verwijderen?",
@@ -1855,6 +1867,7 @@ export const sweep = {
     "untitledCompany": "Naamloos bedrijf",
     "untitledPerson": "Naamloze persoon",
     "updateCompanyFailed": "Bedrijf bijwerken mislukt",
+    "recordChangedByOther": "Dit record is door iemand anders gewijzigd. Herlaad om de nieuwste versie te zien.",
     "updateFailed": "Bijwerken mislukt",
     "updateFieldFailed": "Veld bijwerken mislukt",
     "updatePersonFailed": "Persoon bijwerken mislukt",
@@ -3464,7 +3477,8 @@ export const sweep = {
     "videoPlayer": {
       "recordingNotAvailable": "Audio-/video-opname niet beschikbaar",
       "browserNotSupported": "Uw browser ondersteunt de video-tag niet.",
-      "playPause": "Afspelen of pauzeren"
+      "playPause": "Afspelen of pauzeren",
+      "seek": "Spoel in opname"
     },
     "globalPinnedNote": {
       "untitled": "Naamloos",
@@ -3556,7 +3570,8 @@ export const sweep = {
       "searchRecords": "Records doorzoeken...",
       "searching": "Bezig met zoeken…",
       "noRecordsFound": "Geen records gevonden.",
-      "clearAll": "Alles wissen"
+      "clearAll": "Alles wissen",
+      "currency": "Valuta"
     },
     "pipelineKanban": {
       "filterStage": "Fase",
@@ -3656,6 +3671,7 @@ export const sweep = {
     },
     "serverPipelineKanban": {
       "unknownCompany": "Onbekend bedrijf",
+      "deletedCompany": "(verwijderd bedrijf)",
       "failedToMoveDeal": "Verplaatsen van deal mislukt",
       "failedToCreateDeal": "Aanmaken van deal mislukt"
     },
@@ -3905,6 +3921,7 @@ export const sweep = {
     "activitySection": {
       "noActivitiesYet": "Nog geen activiteiten",
       "noActivitiesYetDescriptionPerson": "Activiteit met deze persoon verschijnt hier.",
+      "noActivitiesYetDescriptionCompany": "Activiteit met dit bedrijf verschijnt hier.",
       "noActivitiesYetDescription": "Activiteit met deze klant verschijnt hier.",
       "changeCountSingular": "{count} wijziging",
       "changeCountPlural": "{count} wijzigingen"

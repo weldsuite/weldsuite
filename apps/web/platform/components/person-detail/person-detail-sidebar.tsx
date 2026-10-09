@@ -167,7 +167,7 @@ export function PersonDetailSidebar({ sections, className, onFieldSave }: Readon
     <div className={`w-full md:w-80 flex-shrink-0 md:pr-8 pb-6 md:pb-0 border-b md:border-b-0 md:border-r border-border/40 ${className || ''}`}>
       {sections.map((section, sectionIndex) => (
         <div
-          key={sectionIndex}
+          key={section.title ?? section.fields.map((field) => field.key ?? field.label).join('|')}
           className={`${sectionIndex < sections.length - 1 ? 'pb-5 border-b border-border/50' : 'py-5'} ${sectionIndex > 0 ? 'py-5' : ''} space-y-3`}
         >
           {section.title && (

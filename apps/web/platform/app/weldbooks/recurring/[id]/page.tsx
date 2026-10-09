@@ -1,13 +1,25 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { ArrowLeft, Play, Pause, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Pencil, Play, Pause, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useCan } from '@weldsuite/permissions/react';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
+import type {
+  GeneratedRecurringInvoice,
+  RecurringTemplateTaxItem,
+} from '@/lib/api/domains/weldbooks-sales-tax-preview';
+import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
+import { isWeldTaxCode } from '@/lib/weldbooks/tax-codes';
+import { Link as AppLink } from '@/lib/router';
+import { SalesTaxErrorNotice } from '@/app/weldbooks/invoices/components/sales-tax-error-notice';
+import { RecurringInvoiceForm } from '../components/recurring-invoice-form';
 
 const STATUS_BADGE_VARIANTS: Record<string, 'default' | 'secondary' | 'outline'> = {
   active: 'default',
@@ -31,11 +43,14 @@ export default function RecurringInvoiceDetailPage() {
   const { t } = useI18n();
   const { formatMoney: fmt, formatDate, formatDateTime } = useWeldbooksFormat();
   const trp = t.accounting.recurringPage;
+  const td = useDocumentTexts();
   const tslRec = t.accounting.statusLabels.recurringInvoice;
+  const canUpdate = useCan('invoices:update');
 
   const { id } = useParams({ strict: false });
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['accounting', 'recurring', 'detail', id],
@@ -44,7 +59,8 @@ export default function RecurringInvoiceDetailPage() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => accountingApi.generateRecurringInvoice(id!),
+    mutationFn: async () =>
+      (await accountingApi.generateRecurringInvoice(id!)) as unknown as { data: GeneratedRecurringInvoice },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['accounting', 'recurring'] });
       qc.invalidateQueries({ queryKey: ['accounting', 'invoices'] });
@@ -67,13 +83,38 @@ export default function RecurringInvoiceDetailPage() {
   if (!rec) return <div className="p-6 text-muted-foreground">{trp.notFound}</div>;
 
   const template = rec.templateData ?? {};
-  const items = template.items ?? [];
+  const items = (template.items ?? []) as RecurringTemplateTaxItem[];
   const keyedItems = withItemKeys(items);
   const statusVariant = STATUS_BADGE_VARIANTS[rec.status] ?? 'outline';
+  const generated = generateMutation.data?.data;
+
+  /** The tax settings of a template line, when they are not the defaults. */
+  const lineFlags = (item: RecurringTemplateTaxItem): string[] => {
+    const flags: string[] = [];
+    if (item.taxCode) flags.push(isWeldTaxCode(item.taxCode) ? td.taxCodes[item.taxCode] : item.taxCode);
+    if (item.taxUse === 'business') flags.push(td.detail.lineFlags.business);
+    if (item.taxUse === 'personal') flags.push(td.detail.lineFlags.personal);
+    if (item.taxIncluded) flags.push(td.detail.lineFlags.taxIncluded);
+    return flags;
+  };
+
+  if (editing) {
+    return (
+      <div className="p-6 space-y-6">
+        <h1 className="text-2xl font-semibold">{rec.name || trp.defaultName}</h1>
+        <RecurringInvoiceForm
+          mode="edit"
+          recurring={rec}
+          onSaved={() => setEditing(false)}
+          onCancel={() => setEditing(false)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/weldbooks/recurring' })}>
             <ArrowLeft className="h-4 w-4" />
@@ -83,10 +124,16 @@ export default function RecurringInvoiceDetailPage() {
             <p className="text-sm text-muted-foreground capitalize">{rec.frequency} — {rec.contactId}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant={statusVariant}>
             {tslRec[rec.status as keyof typeof tslRec] ?? rec.status}
           </Badge>
+          {canUpdate && (
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+              <Pencil className="h-4 w-4 mr-1" />
+              {td.recurring.editTemplate}
+            </Button>
+          )}
           {rec.status === 'active' && (
             <>
               <Button size="sm" onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}>
@@ -108,10 +155,26 @@ export default function RecurringInvoiceDetailPage() {
         </div>
       </div>
 
-      {generateMutation.isSuccess && (
+      {generateMutation.isError && <SalesTaxErrorNotice error={generateMutation.error} />}
+
+      {generated && !generated.finalizeError && (
         <div className="text-sm text-green-600">
-          {trp.generatedInvoice.replace('{number}', generateMutation.data?.data?.invoiceNumber ?? '')}
+          {trp.generatedInvoice.replace('{number}', generated.invoiceNumber ?? '')}
         </div>
+      )}
+
+      {generated?.finalizeError && (
+        <InfoBanner variant="warning" title={td.recurring.finalizeFailedTitle}>
+          <p data-testid="finalize-error">
+            {td.recurring.finalizeFailed.replace('{message}', generated.finalizeError)}
+          </p>
+          <AppLink
+            href={`/weldbooks/invoices/${generated.invoiceId}`}
+            className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+          >
+            {td.recurring.openInvoice}
+          </AppLink>
+        </InfoBanner>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -170,14 +233,22 @@ export default function RecurringInvoiceDetailPage() {
           <CardHeader><CardTitle className="text-base">{trp.templateItems}</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {keyedItems.map(({ key, item }) => (
-                <div key={key} className="flex justify-between text-sm border-b pb-2">
-                  <span>{item.description}</span>
-                  <span className="font-medium">
-                    {item.quantity} × {fmt(item.unitPrice, template.currency)} = {fmt((item.quantity ?? 1) * (item.unitPrice ?? 0), template.currency)}
-                  </span>
-                </div>
-              ))}
+              {keyedItems.map(({ key, item }) => {
+                const flags = lineFlags(item);
+                return (
+                  <div key={key} className="flex justify-between gap-3 text-sm border-b pb-2">
+                    <span>
+                      {item.description}
+                      {flags.length > 0 && (
+                        <span className="block text-xs text-muted-foreground">{flags.join(' · ')}</span>
+                      )}
+                    </span>
+                    <span className="font-medium">
+                      {item.quantity} × {fmt(item.unitPrice, template.currency)} = {fmt((item.quantity ?? 1) * (item.unitPrice ?? 0), template.currency)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>

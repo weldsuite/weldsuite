@@ -173,7 +173,7 @@ const workspaceApi = {
   // app-api has no single "current workspace" endpoint; returning a failure
   // lets WorkspaceProvider fall back to the active Clerk org (the source of
   // truth for which workspace is current).
-  getCurrentWorkspace: async () => ({ success: false as const }),
+  getCurrentWorkspace: () => Promise.resolve({ success: false as const }),
   getUserWorkspaces: async () => {
     try {
       const { data: workspaces } = await appApi.workspaces.list();

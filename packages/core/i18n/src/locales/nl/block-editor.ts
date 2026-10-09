@@ -1,0 +1,56 @@
+export const blockEditor = {
+  slashMenu: {
+    groups: {
+      basic: 'Basisblokken',
+      media: 'Media',
+      embeds: 'Insluiten',
+      advanced: 'Geavanceerd',
+      inline: 'Inline',
+    },
+    items: {
+      page: { title: 'Pagina', subtext: 'Maak een subpagina binnen deze pagina' },
+      linkToPage: { title: 'Link naar pagina', subtext: 'Link naar een bestaande pagina' },
+      callout: { title: 'Toelichting', subtext: 'Laat tekst opvallen' },
+      bookmark: { title: 'Webbladwijzer', subtext: 'Bewaar een link als visuele kaart' },
+      embed: { title: 'Insluiten', subtext: 'Sluit een website in via de link' },
+      youtube: { title: 'YouTube', subtext: 'Sluit een YouTube-video in' },
+      vimeo: { title: 'Vimeo', subtext: 'Sluit een Vimeo-video in' },
+      loom: { title: 'Loom', subtext: 'Sluit een Loom-opname in' },
+      figma: { title: 'Figma', subtext: 'Sluit een Figma-bestand of -prototype in' },
+      googleDrive: { title: 'Google Drive', subtext: 'Sluit een Google-document, -spreadsheet, -presentatie of Drive-bestand in' },
+      googleMaps: { title: 'Google Maps', subtext: 'Sluit een Google-kaart in' },
+      codepen: { title: 'CodePen', subtext: 'Sluit een CodePen in' },
+      miro: { title: 'Miro', subtext: 'Sluit een Miro-bord in' },
+      tableOfContents: { title: 'Inhoudsopgave', subtext: 'Toon een overzicht van deze pagina' },
+      date: { title: 'Datum', subtext: 'Voeg de datum van vandaag in' },
+    },
+  },
+  pageLinks: {
+    untitled: 'Naamloos',
+    createError: 'Pagina aanmaken mislukt',
+  },
+  callout: {
+    changeIcon: 'Pictogram wijzigen',
+  },
+  urlPrompt: {
+    submit: 'Toevoegen',
+    invalid: 'Voer een geldige https://-link in',
+    openLink: 'Link openen',
+    placeholders: {
+      generic: 'Plak een link om in te sluiten…',
+      bookmark: 'Plak een link om te bewaren…',
+      youtube: 'Plak een YouTube-link…',
+      vimeo: 'Plak een Vimeo-link…',
+      loom: 'Plak een Loom-link…',
+      figma: 'Plak een Figma-link…',
+      googleDrive: 'Plak een link naar Google Drive, Documenten, Spreadsheets of Presentaties…',
+      googleMaps: 'Plak een Google Maps-link…',
+      codepen: 'Plak een CodePen-link…',
+      miro: 'Plak een link naar een Miro-bord…',
+    },
+  },
+  tableOfContents: {
+    empty: 'Voeg koppen toe om een inhoudsopgave op te bouwen.',
+    untitled: 'Naamloos',
+  },
+};

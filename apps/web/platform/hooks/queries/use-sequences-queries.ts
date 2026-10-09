@@ -20,6 +20,7 @@ import type {
   SingleResponse,
 } from '@/lib/api/domains/weldcrm';
 import { asText } from '@weldsuite/text';
+import { workflowEditorKeys } from '@/hooks/use-workflow-editor-data';
 
 export type {
   SequenceSummary,
@@ -180,6 +181,7 @@ export function useLaunchSequence() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sequenceKeys.all });
+      qc.invalidateQueries({ queryKey: workflowEditorKeys.all });
     },
   });
 }
@@ -206,6 +208,30 @@ export function useStartSequence() {
 }
 
 /**
+ * Resume a paused sequence — flips workflow status back to active and starts
+ * every pending enrollment (and any active one that never got a run). Use this,
+ * not `useStartSequence`, for the editor's Resume button: `start` leaves the
+ * sequence paused.
+ */
+export function useResumeSequence() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (sequenceId: string) => {
+      const client = await getClient();
+      return client.post<SingleResponse<{ resumed: boolean; activated: number }>>(
+        `/sequences/${sequenceId}/resume`,
+        {},
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: sequenceKeys.all });
+      qc.invalidateQueries({ queryKey: workflowEditorKeys.all });
+    },
+  });
+}
+
+/**
  * Pause a running sequence — flips workflow status to paused. The runtime
  * checks status on each step and short-circuits live instances.
  */
@@ -222,6 +248,7 @@ export function usePauseSequence() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: sequenceKeys.all });
+      qc.invalidateQueries({ queryKey: workflowEditorKeys.all });
     },
   });
 }

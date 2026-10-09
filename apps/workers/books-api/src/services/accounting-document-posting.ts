@@ -5,19 +5,37 @@
  * `postJournalEntry`, so every document posts atomically and at most once.
  *
  *   invoice        Dr receivable (total)  /  Cr revenue per line account, Cr tax per rate
- *   credit note    the invoice entry mirrored
+ *   US invoice     the same, with Cr tax per agency (Sales Tax Payable - <agency>) and one
+ *                  tax-ledger row per jurisdiction and line, zero-tax sales included
+ *   credit note    the invoice entry mirrored (US: negative tax-ledger rows)
  *   bill           Dr expense per line, Dr deductible input tax  /  Cr payable (total)
  *                  self-assessed tax (reverse charge, imports): Dr input tax / Cr tax payable
  *                  non-deductible tax (NL KOR) is added to the line's expense
+ *   US bill        tax the vendor charged is part of each line's expense or asset (the
+ *                  adapter's purchaseTax 'cost'), no tax-ledger rows for it; use tax accrued
+ *                  on a line: Dr the line's account / Cr Use Tax Payable - <agency>, one
+ *                  'use' tax-ledger row per jurisdiction
  *   payment in     Dr bank  /  Cr receivable per allocation (unallocated stays on the receivable)
  *   payment out    Dr payable per allocation  /  Cr bank
  *   write-off      Dr bad debts  /  Cr receivable (open balance)
+ *                  US invoice with tax: the tax share of the open balance is Dr the agency's
+ *                  payable instead, with negative write_off tax-ledger rows per jurisdiction
  *   bank line      Dr/Cr bank against a category account, tax split out when a rate is given
  */
 
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isKorActive } from '@weldsuite/books-domain/accounting-guards';
+import { getAdapter, hasAdapter } from '@weldsuite/books-domain/jurisdictions/registry';
+import {
+  allocateCents,
+  breakdownToTaxLineFields,
+  fromCents,
+  roundHalfUp,
+  toCents,
+  zip5Of,
+} from '@weldsuite/books-domain/sales-tax';
+import { pickShipTo } from './sales-tax/document-tax';
 import { toBaseCurrency } from './accounting-currency';
 import {
   accountForRole,
@@ -109,11 +127,14 @@ function taxAccountFor(
   if (component) return component.id;
   const ledger = accounts.byId(rate?.ledgerAccountId);
   if (ledger) return ledger.id;
+  // The US chart has no tax_payable / tax_input roles, only sales and use tax payable.
   const byDirection =
     direction === 'purchase'
       ? accountForRole(accounts, 'tax_input', FALLBACK_CODES.tax_input) ??
-        accountForRole(accounts, 'tax_payable', FALLBACK_CODES.tax_payable)
-      : accountForRole(accounts, 'tax_payable', FALLBACK_CODES.tax_payable);
+        accountForRole(accounts, 'tax_payable', FALLBACK_CODES.tax_payable) ??
+        accountForRole(accounts, 'sales_tax_payable')
+      : accountForRole(accounts, 'tax_payable', FALLBACK_CODES.tax_payable) ??
+        accountForRole(accounts, 'sales_tax_payable');
   return requireAccount(byDirection, 'No tax account found. Link the tax rate to a ledger account or add a tax payable account.');
 }
 
@@ -148,6 +169,141 @@ function breakdownToTaxLine(
 }
 
 // ---------------------------------------------------------------------------
+// US sales tax: agencies, accounts, tax-ledger rows
+// ---------------------------------------------------------------------------
+
+interface AgencyAccounts {
+  name: string;
+  liabilityAccountId: string | null;
+  useTaxAccountId: string | null;
+}
+
+async function loadAgencyAccounts(db: Database, entityId: string): Promise<Map<string, AgencyAccounts>> {
+  const rows = await db
+    .select({
+      id: schema.salesTaxAgencies.id,
+      name: schema.salesTaxAgencies.name,
+      liabilityAccountId: schema.salesTaxAgencies.liabilityAccountId,
+      useTaxAccountId: schema.salesTaxAgencies.useTaxAccountId,
+    })
+    .from(schema.salesTaxAgencies)
+    .where(eq(schema.salesTaxAgencies.entityId, entityId));
+  return new Map(rows.map((r) => [r.id, r]));
+}
+
+/** The agency's Sales Tax Payable child account, else the Sales Tax Payable role account (a row with no agency: unregistered, marketplace). */
+function salesTaxAccountFor(accounts: EntityAccounts, agencies: Map<string, AgencyAccounts>, agencyId: string | undefined): string {
+  const own = agencyId ? accounts.byId(agencies.get(agencyId)?.liabilityAccountId) : undefined;
+  if (own) return own.id;
+  return requireAccount(
+    accountForRole(accounts, 'sales_tax_payable', ['2200']),
+    'No Sales Tax Payable account found. Add the agency in the sales tax settings first.',
+  );
+}
+
+function useTaxAccountFor(accounts: EntityAccounts, agencies: Map<string, AgencyAccounts>, agencyId: string | undefined): string {
+  const own = agencyId ? accounts.byId(agencies.get(agencyId)?.useTaxAccountId) : undefined;
+  if (own) return own.id;
+  return requireAccount(
+    accountForRole(accounts, 'use_tax_payable', ['2210']),
+    'No Use Tax Payable account found for this entity.',
+  );
+}
+
+/**
+ * Tax-ledger rows for US breakdown rows: one per jurisdiction and line, zero-tax
+ * ones included, so gross sales, exempt sales and nexus see every sale.
+ * `sign` -1 writes a credit memo's rows (positive on the document) as negatives.
+ */
+export function usTaxLines(
+  rows: BreakdownRow[],
+  args: {
+    sign: 1 | -1;
+    direction: 'sales' | 'use';
+    currency: string;
+    toBase: (amount: number) => number;
+    contactId: string | null;
+    marketplaceFacilitated?: boolean | null;
+    shipToState?: string | null;
+    shipToPostalCode?: string | null;
+    engine?: string | null;
+    engineRef?: string | null;
+  },
+): PostingTaxLine[] {
+  const fields = breakdownToTaxLineFields(rows, {
+    sign: args.sign,
+    direction: args.direction,
+    marketplaceFacilitated: Boolean(args.marketplaceFacilitated),
+    shipToState: args.shipToState,
+    shipToPostalCode: args.shipToPostalCode,
+    engine: args.engine,
+    engineRef: args.engineRef,
+  });
+  return rows.map((row, i) => {
+    const f = fields[i];
+    const taxable = row.taxableAmount * args.sign;
+    const tax = row.taxAmount * args.sign;
+    return {
+      sourceLineId: f.sourceLineId ?? null,
+      direction: args.direction,
+      taxRateId: null,
+      taxRateName: f.taxRateName ?? null,
+      rate: row.taxRate,
+      selfAssessed: row.selfAssessed ?? false,
+      jurisdictionCode: f.jurisdictionCode ?? null,
+      jurisdictionLevel: f.jurisdictionLevel ?? null,
+      stateCode: f.stateCode ?? null,
+      taxableAmount: taxable,
+      taxAmount: tax,
+      currency: args.currency,
+      baseTaxableAmount: args.toBase(taxable),
+      baseTaxAmount: args.toBase(tax),
+      contactId: args.contactId,
+      extra: {
+        agencyId: f.agencyId ?? null,
+        jurisdictionName: f.jurisdictionName ?? null,
+        reportingCode: f.reportingCode ?? null,
+        grossAmount: f.grossAmount ?? null,
+        exemptAmount: f.exemptAmount ?? null,
+        nonTaxableAmount: f.nonTaxableAmount ?? null,
+        exemptReason: f.exemptReason ?? null,
+        certificateId: f.certificateId ?? null,
+        shipToState: f.shipToState ?? null,
+        shipToPostalCode: f.shipToPostalCode ?? null,
+        taxCode: f.taxCode ?? null,
+        marketplaceFacilitated: f.marketplaceFacilitated ?? false,
+        unroundedTaxAmount: f.unroundedTaxAmount ?? null,
+        engine: f.engine ?? null,
+        engineRef: f.engineRef ?? null,
+      },
+    };
+  });
+}
+
+/** An entity whose adapter posts supplier tax into the cost (US). */
+function purchaseTaxIsCost(entity: EntityRow): boolean {
+  return hasAdapter(entity.jurisdictionCode) && getAdapter(entity.jurisdictionCode).purchaseTax === 'cost';
+}
+
+/** Journal amounts per account and reporting dimensions, so a class or location splits the line. */
+class DimensionedAmounts {
+  private readonly amounts = new Map<string, { accountId: string; classId: string | null; locationId: string | null; amount: number }>();
+
+  add(accountId: string, amount: number, dims: { classId?: string | null; locationId?: string | null }) {
+    const classId = dims.classId ?? null;
+    const locationId = dims.locationId ?? null;
+    const key = `${accountId}|${classId ?? ''}|${locationId ?? ''}`;
+    const existing = this.amounts.get(key);
+    if (existing) existing.amount += amount;
+    else this.amounts.set(key, { accountId, classId, locationId, amount });
+  }
+
+  entries() {
+    return [...this.amounts.values()];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Invoices and credit notes
 // ---------------------------------------------------------------------------
 
@@ -159,7 +315,9 @@ export async function buildInvoicePosting(
   const entity = await loadEntity(db, invoice.entityId);
   const accounts = await loadEntityAccounts(db, invoice.entityId);
   const breakdown = (invoice.taxBreakdown ?? []) as BreakdownRow[];
-  const rates = await loadTaxRates(db, invoice.entityId, breakdown.map((r) => r.taxRateId));
+  // A US document calculated by the sales tax engine: tax per jurisdiction and agency, no rate rows.
+  const salesTax = Boolean(invoice.taxEngine);
+  const rates = salesTax ? new Map<string, TaxRateRow>() : await loadTaxRates(db, invoice.entityId, breakdown.map((r) => r.taxRateId));
   const party = await loadParty(db, invoice.contactId);
 
   const sign: 1 | -1 = invoice.type === 'credit_note' ? -1 : 1;
@@ -175,7 +333,7 @@ export async function buildInvoicePosting(
     throw new PostingError('revenueAccountId does not belong to this accounting entity');
   }
 
-  const revenueByAccount = new Map<string, number>();
+  const revenue = new DimensionedAmounts();
   for (const item of items) {
     if (item.accountId && !accounts.byId(item.accountId)) {
       throw new PostingError(`Line account ${item.accountId} does not belong to this accounting entity`);
@@ -184,36 +342,74 @@ export async function buildInvoicePosting(
       accounts.byId(item.accountId) ?? defaultRevenue,
       'No revenue account found. Choose a revenue account on the invoice line.',
     );
-    revenueByAccount.set(accountId, (revenueByAccount.get(accountId) ?? 0) + Number.parseFloat(item.lineTotal ?? '0'));
+    revenue.add(accountId, Number.parseFloat(item.lineTotal ?? '0'), item);
   }
 
   const lines: PostingLine[] = [];
-  for (const [accountId, amount] of revenueByAccount) {
+  for (const { accountId, classId, locationId, amount } of revenue.entries()) {
     lines.push({
       accountId,
       credit: toBase(amount * sign),
       description: `Revenue ${invoice.invoiceNumber ?? ''}`.trim(),
+      classId,
+      locationId,
       ...meta,
     });
   }
 
   const taxLines: PostingTaxLine[] = [];
-  for (const row of breakdown) {
-    const rate = rates.get(row.taxRateId);
-    if (row.taxAmount !== 0) {
+  if (salesTax) {
+    const agencies = await loadAgencyAccounts(db, invoice.entityId);
+    const payable = new Map<string, { accountId: string; amount: number; label: string }>();
+    for (const row of breakdown) {
+      if (row.taxAmount === 0) continue;
+      const accountId = salesTaxAccountFor(accounts, agencies, row.agencyId);
+      const label = row.agencyId ? (agencies.get(row.agencyId)?.name ?? 'Sales tax') : 'Sales tax';
+      const existing = payable.get(accountId);
+      if (existing) existing.amount += row.taxAmount;
+      else payable.set(accountId, { accountId, amount: row.taxAmount, label });
+    }
+    for (const { accountId, amount, label } of payable.values()) {
       lines.push({
-        accountId: taxAccountFor(accounts, row, rate, 'sales'),
-        credit: toBase(row.taxAmount * sign),
-        description: `${row.taxRateName ?? 'Tax'} ${invoice.invoiceNumber ?? ''}`.trim(),
-        taxRateId: row.taxRateId || null,
-        taxAmount: toBase(row.taxAmount * sign),
+        accountId,
+        credit: toBase(amount * sign),
+        description: `Sales tax ${label} ${invoice.invoiceNumber ?? ''}`.trim(),
+        taxAmount: toBase(amount * sign),
         ...meta,
       });
     }
-    if (row.taxRateId) {
-      taxLines.push(
-        breakdownToTaxLine(row, rate, { direction: 'sales', sign, currency, toBase, contactId: invoice.contactId }),
-      );
+    taxLines.push(
+      ...usTaxLines(breakdown, {
+        sign,
+        direction: 'sales',
+        currency,
+        toBase,
+        contactId: invoice.contactId,
+        marketplaceFacilitated: invoice.marketplaceFacilitated,
+        shipToState: breakdown.find((r) => r.stateCode)?.stateCode ?? null,
+        shipToPostalCode: pickShipToZip(invoice),
+        engine: invoice.taxEngine,
+        engineRef: invoice.taxEngineRef,
+      }),
+    );
+  } else {
+    for (const row of breakdown) {
+      const rate = rates.get(row.taxRateId);
+      if (row.taxAmount !== 0) {
+        lines.push({
+          accountId: taxAccountFor(accounts, row, rate, 'sales'),
+          credit: toBase(row.taxAmount * sign),
+          description: `${row.taxRateName ?? 'Tax'} ${invoice.invoiceNumber ?? ''}`.trim(),
+          taxRateId: row.taxRateId || null,
+          taxAmount: toBase(row.taxAmount * sign),
+          ...meta,
+        });
+      }
+      if (row.taxRateId) {
+        taxLines.push(
+          breakdownToTaxLine(row, rate, { direction: 'sales', sign, currency, toBase, contactId: invoice.contactId }),
+        );
+      }
     }
   }
 
@@ -230,6 +426,11 @@ export async function buildInvoicePosting(
   });
 
   return { lines, taxLines };
+}
+
+/** The ship-to ZIP stored with a US document's tax rows: the shipping address, else the billing address. */
+function pickShipToZip(invoice: InvoiceRow): string | null {
+  return zip5Of(pickShipTo(invoice.shippingAddress, invoice.billingAddress)) ?? null;
 }
 
 /** Post a draft invoice or credit note and mark it finalized ('sent'). */
@@ -269,6 +470,35 @@ export async function postInvoice(
   });
 }
 
+/**
+ * The tax part of a write-off, per jurisdiction: the open share of each taxed
+ * row, as the negative rows of a bad debt (the next return deducts them). The
+ * tax parts add up to the open share of the invoice's tax, to the cent.
+ */
+export function writeOffTaxRows(invoice: InvoiceRow): { rows: BreakdownRow[]; taxCents: number } {
+  const total = Number.parseFloat(invoice.total ?? '0');
+  const open = Number.parseFloat(invoice.balanceDue ?? '0');
+  const taxed = ((invoice.taxBreakdown ?? []) as BreakdownRow[]).filter((r) => r.taxAmount !== 0);
+  if (total <= 0 || open <= 0 || taxed.length === 0) return { rows: [], taxCents: 0 };
+
+  const share = Math.min(1, open / total);
+  const invoiceTaxCents = taxed.reduce((sum, r) => sum + toCents(r.taxAmount), 0);
+  const taxCents = Math.round(invoiceTaxCents * share);
+  const parts = allocateCents(taxCents, taxed.map((r) => r.taxAmount));
+  const rows = taxed.map((row, i): BreakdownRow => {
+    const tax = fromCents(parts[i]);
+    return {
+      ...row,
+      taxableAmount: roundHalfUp(row.taxableAmount * share),
+      taxAmount: tax,
+      unroundedTaxAmount: tax,
+      exemptAmount: 0,
+      nonTaxableAmount: 0,
+    };
+  });
+  return { rows, taxCents };
+}
+
 /** Write an invoice's open balance off to bad debts. */
 export async function postInvoiceWriteOff(
   db: Database,
@@ -285,6 +515,43 @@ export async function postInvoiceWriteOff(
   const meta = { currency: invoice.currency, exchangeRate: invoice.exchangeRate ?? '1', contactId: invoice.contactId };
   const now = opts.date ?? new Date();
 
+  // US sales tax already booked on the invoice comes back off the agency's payable: the bad debt is only the net.
+  const writeOff =
+    invoice.taxEngine && invoice.type !== 'credit_note' ? writeOffTaxRows(invoice) : { rows: [] as BreakdownRow[], taxCents: 0 };
+  const taxLines: PostingTaxLine[] = [];
+  const taxDebits: PostingLine[] = [];
+  if (writeOff.rows.length > 0) {
+    const agencies = await loadAgencyAccounts(db, invoice.entityId);
+    const byAccount = new Map<string, number>();
+    for (const row of writeOff.rows) {
+      const accountId = salesTaxAccountFor(accounts, agencies, row.agencyId);
+      byAccount.set(accountId, (byAccount.get(accountId) ?? 0) + row.taxAmount);
+    }
+    for (const [accountId, amount] of byAccount) {
+      taxDebits.push({
+        accountId,
+        debit: toBase(amount),
+        description: `Sales tax written off ${invoice.invoiceNumber ?? ''}`.trim(),
+        ...meta,
+      });
+    }
+    taxLines.push(
+      ...usTaxLines(writeOff.rows, {
+        sign: -1,
+        direction: 'sales',
+        currency: invoice.currency || entity.baseCurrency,
+        toBase,
+        contactId: invoice.contactId,
+        marketplaceFacilitated: invoice.marketplaceFacilitated,
+        shipToState: writeOff.rows.find((r) => r.stateCode)?.stateCode ?? null,
+        shipToPostalCode: pickShipToZip(invoice),
+        engine: invoice.taxEngine,
+        engineRef: invoice.taxEngineRef,
+      }),
+    );
+  }
+  const taxBase = roundMoney(taxDebits.reduce((sum, l) => sum + (l.debit ?? 0), 0));
+
   return postJournalEntry(db, {
     entityId: invoice.entityId,
     date: now,
@@ -296,10 +563,11 @@ export async function postInvoiceWriteOff(
     lines: [
       {
         accountId: requireAccount(badDebt, 'No bad-debt or general expense account found for this entity.'),
-        debit: open,
+        debit: roundMoney(open - taxBase),
         description: `Bad debt ${invoice.invoiceNumber ?? ''}`.trim(),
         ...meta,
       },
+      ...taxDebits,
       {
         accountId: requireAccount(
           accountForRole(accounts, 'accounts_receivable', FALLBACK_CODES.accounts_receivable),
@@ -310,6 +578,7 @@ export async function postInvoiceWriteOff(
         ...meta,
       },
     ],
+    taxLines,
     createdBy: opts.userId,
     alsoWrite: (h) => [
       h
@@ -339,8 +608,8 @@ export async function buildBillPosting(
   const currency = bill.currency || entity.baseCurrency;
   const toBase = baseConverter(entity, bill.currency, bill.exchangeRate);
   const meta = { currency, exchangeRate: bill.exchangeRate ?? '1', contactId: bill.contactId };
-  // Under the Dutch KOR no input VAT is deductible: it becomes part of the cost.
-  const taxDeductible = !isKorActive(entity, bill.issueDate);
+  // Tax the supplier charged is part of the cost under the Dutch KOR and in the US (sales tax is never reclaimed).
+  const taxDeductible = !purchaseTaxIsCost(entity) && !isKorActive(entity, bill.issueDate);
 
   if (bill.expenseAccountId && !accounts.byId(bill.expenseAccountId)) {
     throw new PostingError('expenseAccountId does not belong to this accounting entity');
@@ -350,7 +619,8 @@ export async function buildBillPosting(
     accounts.byId(party?.defaultExpenseAccountId) ??
     accountForRole(accounts, 'general_expense', FALLBACK_CODES.general_expense);
 
-  const expenseByAccount = new Map<string, number>();
+  const expenses = new DimensionedAmounts();
+  const itemById = new Map(items.map((i) => [i.id, i]));
   for (const item of items) {
     if (item.accountId && !accounts.byId(item.accountId)) {
       throw new PostingError(`Line account ${item.accountId} does not belong to this accounting entity`);
@@ -361,16 +631,65 @@ export async function buildBillPosting(
     );
     const net = Number.parseFloat(item.lineTotal ?? '0');
     const tax = taxDeductible ? 0 : Number.parseFloat(item.taxAmount ?? '0');
-    expenseByAccount.set(accountId, (expenseByAccount.get(accountId) ?? 0) + net + tax);
+    expenses.add(accountId, net + tax, item);
   }
 
   const lines: PostingLine[] = [];
-  for (const [accountId, amount] of expenseByAccount) {
-    lines.push({ accountId, debit: toBase(amount * sign), description: `Expense ${bill.billNumber ?? ''}`.trim(), ...meta });
+  for (const { accountId, classId, locationId, amount } of expenses.entries()) {
+    lines.push({
+      accountId,
+      debit: toBase(amount * sign),
+      description: `Expense ${bill.billNumber ?? ''}`.trim(),
+      classId,
+      locationId,
+      ...meta,
+    });
   }
 
   const taxLines: PostingTaxLine[] = [];
+  const useRows = breakdown.filter((r) => r.kind === 'use');
+  if (useRows.length > 0) {
+    // Use tax the buyer accrues: Dr the line's expense or asset, Cr the agency's Use Tax Payable.
+    const agencies = await loadAgencyAccounts(db, bill.entityId);
+    const accrued = new DimensionedAmounts();
+    const owed = new Map<string, number>();
+    for (const row of useRows) {
+      if (row.taxAmount === 0) continue;
+      const item = row.lineId ? itemById.get(row.lineId) : undefined;
+      const expenseAccount = requireAccount(accounts.byId(item?.accountId) ?? defaultExpense, 'No expense account found for use tax.');
+      accrued.add(expenseAccount, row.taxAmount, item ?? {});
+      const payable = useTaxAccountFor(accounts, agencies, row.agencyId);
+      owed.set(payable, (owed.get(payable) ?? 0) + row.taxAmount);
+    }
+    for (const { accountId, classId, locationId, amount } of accrued.entries()) {
+      lines.push({ accountId, debit: toBase(amount * sign), description: `Use tax ${bill.billNumber ?? ''}`.trim(), classId, locationId, ...meta });
+    }
+    for (const [accountId, amount] of owed) {
+      lines.push({
+        accountId,
+        credit: toBase(amount * sign),
+        description: `Use tax ${bill.billNumber ?? ''}`.trim(),
+        taxAmount: toBase(amount * sign),
+        ...meta,
+      });
+    }
+    taxLines.push(
+      ...usTaxLines(useRows, {
+        sign,
+        direction: 'use',
+        currency,
+        toBase,
+        contactId: bill.contactId,
+        shipToState: useRows.find((r) => r.stateCode)?.stateCode ?? null,
+        shipToPostalCode: zip5Of(pickShipTo(bill.deliveryAddress)) ?? null,
+        engine: null,
+        engineRef: null,
+      }),
+    );
+  }
+
   for (const row of breakdown) {
+    if (row.kind === 'use') continue;
     const rate = rates.get(row.taxRateId);
     if (row.selfAssessed) {
       // Owed and deducted by the buyer itself: both legs, nothing to the supplier.
@@ -395,7 +714,9 @@ export async function buildBillPosting(
         }
         lines.push({
           accountId: requireAccount(
-            accountForRole(accounts, 'tax_payable', FALLBACK_CODES.tax_payable),
+            accountForRole(accounts, 'tax_payable', FALLBACK_CODES.tax_payable) ??
+              accountForRole(accounts, 'use_tax_payable') ??
+              accountForRole(accounts, 'sales_tax_payable'),
             'No tax payable account found for this entity.',
           ),
           credit: amount,
@@ -558,6 +879,14 @@ export async function buildPaymentPosting(
     bankAccountId?: string | null;
     paymentMethod?: string | null;
     reference?: string | null;
+    /** The ledger account the money moves through (Undeposited Funds, say), instead of resolving the bank one. */
+    moneyAccountId?: string | null;
+    /**
+     * US backup withholding on a payment to a vendor: the bills settle for the
+     * gross `amount`, the bank is credited the net and the withheld part goes
+     * to Backup Withholding Payable.
+     */
+    backupWithholdingAmount?: number | null;
   },
   allocations: PaymentAllocationInput[],
 ): Promise<PostingLine[]> {
@@ -573,9 +902,15 @@ export async function buildPaymentPosting(
       : accountForRole(accounts, 'accounts_payable', FALLBACK_CODES.accounts_payable),
     received ? 'No accounts receivable account found for this entity.' : 'No accounts payable account found for this entity.',
   );
-  const moneyAccount = await resolveMoneyAccount(db, accounts, entity, payment);
+  const moneyAccount = payment.moneyAccountId
+    ? requireAccount(accounts.byId(payment.moneyAccountId), 'The money account does not belong to this accounting entity')
+    : await resolveMoneyAccount(db, accounts, entity, payment);
 
   const total = toBase(payment.amount);
+  const withheld = payment.backupWithholdingAmount ? toBase(payment.backupWithholdingAmount) : 0;
+  if (withheld < 0 || (withheld > 0 && (received || withheld > total))) {
+    throw new PostingError('Backup withholding applies to payments to vendors and can not be more than the payment');
+  }
   const counterLines: PostingLine[] = [];
   let allocated = 0;
   for (const allocation of allocations) {
@@ -601,15 +936,32 @@ export async function buildPaymentPosting(
     });
   }
 
+  const withholdingLines: PostingLine[] =
+    withheld > 0
+      ? [
+          {
+            accountId: requireAccount(
+              accountForRole(accounts, 'backup_withholding_payable', ['2310']),
+              'This accounting entity has no Backup Withholding Payable account',
+            ),
+            credit: withheld,
+            description: `Backup withholding ${payment.reference ?? ''}`.trim(),
+            contactId: payment.contactId,
+            ...meta,
+          },
+        ]
+      : [];
+
   return [
     {
       accountId: moneyAccount,
-      [received ? 'debit' : 'credit']: total,
+      [received ? 'debit' : 'credit']: roundMoney(total - withheld),
       description: `${received ? 'Payment received' : 'Payment sent'} ${payment.reference ?? ''}`.trim(),
       contactId: payment.contactId,
       ...meta,
     },
     ...counterLines,
+    ...withholdingLines,
   ];
 }
 

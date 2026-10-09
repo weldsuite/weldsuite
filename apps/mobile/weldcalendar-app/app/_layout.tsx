@@ -225,7 +225,7 @@ function AppStack() {
 }
 
 const workspaceApi = {
-  getCurrentWorkspace: async () => ({ success: false as const }),
+  getCurrentWorkspace: () => Promise.resolve({ success: false as const }),
   getUserWorkspaces: async () => {
     try {
       const { data: workspaces } = await appApi.workspaces.list();

@@ -8,14 +8,19 @@ import { GridRow } from './grid-row';
 import { GridFooter } from './grid-footer';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import { Button } from '@weldsuite/ui/components/button';
+import { useTranslations } from '@weldsuite/i18n/client';
+import { SPREADSHEET_EXTRA_COLUMNS } from '../spreadsheet';
 
 interface GridTableProps {
   onLoadMore?: () => void;
   hasMore?: boolean;
   isFetchingMore?: boolean;
+  /** Set when the grid shows the members of a list: the empty state then points at the list, not the whole entity. */
+  listName?: string;
 }
 
-export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<GridTableProps>) {
+export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Readonly<GridTableProps>) {
+  const t = useTranslations();
   const { config, filteredEntities, calculateTableWidth, getVisibleColumns, actions } = useGridContext();
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
@@ -96,12 +101,20 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<Grid
               <line x1="101" y1="8" x2="101" y2="88" className="stroke-gray-200/90 dark:stroke-white/15" strokeWidth="0.75" />
             </svg>
           </EmptyStateIllustration>
-          <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
-            No {entityNamePluralLower} yet
-          </h3>
-          <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed mb-5">
-            Add your first {entityNameLower} to get started.
-          </p>
+          {listName ? (
+            <h3 className="text-[15px] font-semibold text-foreground mb-1.5 max-w-[320px]">
+              {config.entityName === 'Person' ? t('crm.listPage.emptyPeople') : t('crm.listPage.emptyCompanies')}
+            </h3>
+          ) : (
+            <>
+              <h3 className="text-[15px] font-semibold text-foreground mb-1.5">
+                No {entityNamePluralLower} yet
+              </h3>
+              <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed mb-5">
+                Add your first {entityNameLower} to get started.
+              </p>
+            </>
+          )}
           {actions.onCreateEntity && (
             <Button
               onClick={actions.onCreateEntity}
@@ -144,10 +157,9 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<Grid
           ))}
 
           {/* Empty filler rows for spreadsheet mode */}
-          {config.fillViewport && Array.from({ length: fillerRowCount }).map((_, i) => {
-            const rowNum = filteredEntities.length + i + 1;
+          {config.fillViewport && Array.from({ length: fillerRowCount }, (_, i) => filteredEntities.length + i + 1).map((rowNum) => {
             return (
-              <tr key={`empty-${i}`} className="border-b border-border" style={{ height: `${ROW_HEIGHT}px` }}>
+              <tr key={`empty-${rowNum}`} className="border-b border-border" style={{ height: `${ROW_HEIGHT}px` }}>
                 {showRowNumbers && (
                   <td
                     className="border-r border-border bg-muted/30 text-center text-xs text-muted-foreground select-none"
@@ -165,8 +177,8 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<Grid
                   />
                 ))}
                 {/* Extra empty columns matching header */}
-                {Array.from({ length: 8 }).map((_, j) => (
-                  <td key={`empty-col-${j}`} className="border-r border-border" style={{ width: 100, height: ROW_HEIGHT, padding: 0 }} />
+                {SPREADSHEET_EXTRA_COLUMNS.map((slot) => (
+                  <td key={`empty-col-${slot}`} className="border-r border-border" style={{ width: 100, height: ROW_HEIGHT, padding: 0 }} />
                 ))}
               </tr>
             );

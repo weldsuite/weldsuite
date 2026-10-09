@@ -12,6 +12,9 @@
  *   - Approving a bill posts it (Dr expense + deductible input tax / Cr
  *     payable) in one atomic posting, refused inside closed periods and on or
  *     before the purchase lock date. Rejecting an approved bill reverses it.
+ *   - US bills: sales tax the vendor charged is part of each line's cost; a
+ *     line marked "accrue use tax" accrues use tax at the delivery address
+ *     (Dr the line's account / Cr Use Tax Payable), recalculated on approval.
  *   - Only drafts may be edited or deleted.
  *   - Every mutation is written to the accounting audit log.
  *
@@ -36,9 +39,18 @@ import {
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
-import { calculateDocumentTax, TaxCalculationError } from '../../services/accounting-tax-resolve';
+import { calculateDocumentTax, TaxCalculationError, type DocumentTaxItem } from '../../services/accounting-tax-resolve';
 import { postBill, PostingError } from '../../services/accounting-document-posting';
-import { reverseJournalEntry } from '../../services/accounting-posting';
+import { assertDimensionsBelongToEntity, reverseJournalEntry } from '../../services/accounting-posting';
+import { salesTaxErrorResponse } from '../../services/sales-tax/errors';
+import { loadSalesTaxEntity, usesSalesTax } from '../../services/sales-tax/document-tax';
+import {
+  billDocumentContext,
+  billItemToTaxItem,
+  hasUseTaxLines,
+  refreshBillUseTax,
+} from '../../services/sales-tax/bill-tax';
+import { salesTaxRuntimeFromEnv } from '../../services/sales-tax/runtime';
 import { lineItemsForBill, normalizeOcrResult } from '../../services/accounting-ocr';
 import { streamDocumentAttachment } from '../../lib/document-attachment';
 
@@ -46,6 +58,9 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /** 400 for errors the user can fix (closed period, lock date, posting rules, tax rates). */
 function accountingErrorResponse(c: Context<{ Bindings: Env; Variables: Variables }>, err: unknown): Response | undefined {
+  // Sales tax refusals carry their own code (TAX_ENGINE_UNAVAILABLE, TAX_RATES_NOT_CONFIGURED, ...).
+  const salesTax = salesTaxErrorResponse(c, err);
+  if (salesTax) return salesTax;
   if (
     err instanceof ClosedPeriodError ||
     err instanceof LockedPeriodError ||
@@ -81,6 +96,13 @@ const lineItemSchema = z.object({
   taxRate: z.string().optional(),
   accountId: z.string().max(30).nullable().optional(),
   sortOrder: z.number().optional(),
+  productId: z.string().max(30).nullable().optional(),
+  // US: the product tax code (for use tax), accrue use tax when the vendor charged none, 1099 box, dimensions.
+  taxCode: z.string().max(30).nullable().optional(),
+  accrueUseTax: z.boolean().optional(),
+  form1099Box: z.string().max(20).nullable().optional(),
+  classId: z.string().max(30).nullable().optional(),
+  locationId: z.string().max(30).nullable().optional(),
 });
 
 type BillLineInput = z.infer<typeof lineItemSchema>;
@@ -89,12 +111,13 @@ type BillLineInput = z.infer<typeof lineItemSchema>;
 function buildBillItemRecords(
   entityId: string,
   billId: string,
+  itemIds: string[],
   items: BillLineInput[],
   processedItems: Array<{ taxAmount: string; lineTotal: string; lineTotalWithTax: string; taxRateId: string | null; taxRate: string | null }>,
 ) {
   const now = new Date();
   return items.map((item, idx) => ({
-    id: generateId('bli'),
+    id: itemIds[idx],
     entityId,
     billId,
     description: item.description,
@@ -108,10 +131,22 @@ function buildBillItemRecords(
     lineTotal: processedItems[idx].lineTotal,
     lineTotalWithTax: processedItems[idx].lineTotalWithTax,
     accountId: item.accountId || null,
+    productId: item.productId || null,
     sortOrder: item.sortOrder ?? idx,
+    taxCode: item.taxCode || null,
+    accrueUseTax: item.accrueUseTax ?? false,
+    form1099Box: item.form1099Box || null,
+    classId: item.classId || null,
+    locationId: item.locationId || null,
     createdAt: now,
     updatedAt: now,
   }));
+}
+
+/** Line ids first: the use tax rows of the breakdown refer to them. */
+function withLineIds(items: BillLineInput[]): { itemIds: string[]; taxItems: DocumentTaxItem[] } {
+  const itemIds = items.map(() => generateId('bli'));
+  return { itemIds, taxItems: items.map((item, idx) => ({ ...item, id: itemIds[idx], sortOrder: item.sortOrder ?? idx })) };
 }
 
 const createBillSchema = z.object({
@@ -130,6 +165,8 @@ const createBillSchema = z.object({
   internalNotes: z.string().optional(),
   expenseAccountId: z.string().max(30).optional(),
   vendorAddress: addressSchema.nullable().optional(),
+  /** US: where the goods were delivered; sets the use tax rate. Defaults to the entity's address. */
+  deliveryAddress: addressSchema.nullable().optional(),
   sourceDocumentId: z.string().max(30).optional(),
   items: z.array(lineItemSchema).default([]),
 });
@@ -285,9 +322,28 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
     const billNumber = data.billNumber ?? (await nextEntityNumber(db, entityId, 'bill')).formatted;
     const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));
 
-    const totals = await calculateDocumentTax(db, { entityId, direction: 'purchase', items: data.items });
-    const { processedItems, taxBreakdown, ...billTotals } = totals;
     const billId = generateId('bil');
+    const { itemIds, taxItems } = withLineIds(data.items);
+    await assertDimensionsBelongToEntity(db, entityId, data.items);
+    const deliveryAddress = normalizePostalAddress(data.deliveryAddress);
+    const vendorAddress = normalizePostalAddress(data.vendorAddress);
+    const totals = await calculateDocumentTax(db, {
+      entityId,
+      direction: 'purchase',
+      items: taxItems,
+      runtime: salesTaxRuntimeFromEnv(c.env),
+      document: {
+        kind: 'bill',
+        documentId: billId,
+        documentNumber: billNumber,
+        contactId: data.contactId,
+        issueDate: new Date(data.issueDate),
+        currency,
+        billingAddress: vendorAddress,
+        deliveryAddress,
+      },
+    });
+    const { processedItems, taxBreakdown, salesTax: _salesTax, ...billTotals } = totals;
 
     const newBill = {
       id: billId,
@@ -308,7 +364,8 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       notes: data.notes || null,
       internalNotes: data.internalNotes || null,
       expenseAccountId: data.expenseAccountId || null,
-      vendorAddress: normalizePostalAddress(data.vendorAddress),
+      vendorAddress,
+      deliveryAddress,
       sourceDocumentId: data.sourceDocumentId || null,
       approvalStatus: 'pending' as const,
       createdBy: userId,
@@ -318,7 +375,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
 
     await db.insert(bills).values(newBill);
 
-    const itemRecords = buildBillItemRecords(entityId, billId, data.items, processedItems);
+    const itemRecords = buildBillItemRecords(entityId, billId, itemIds, data.items, processedItems);
 
     if (itemRecords.length > 0) {
       await db.insert(billItems).values(itemRecords);
@@ -427,7 +484,9 @@ app.patch('/:id/approve', requirePermission('bills:update'), async (c) => {
     const items = await db.select().from(billItems)
       .where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt)));
 
-    const posted = await postBill(db, bill, items, { userId });
+    // US: the use tax that posts is the engine's answer for what is saved now (an engine that can't answer refuses).
+    const ready = await refreshBillUseTax(db, bill, items, salesTaxRuntimeFromEnv(c.env));
+    const posted = await postBill(db, ready, items, { userId });
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: bill.entityId,
@@ -580,19 +639,45 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
     if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes;
     if (data.expenseAccountId !== undefined) updateData.expenseAccountId = data.expenseAccountId || null;
     if (data.vendorAddress !== undefined) updateData.vendorAddress = normalizePostalAddress(data.vendorAddress);
+    if (data.deliveryAddress !== undefined) updateData.deliveryAddress = normalizePostalAddress(data.deliveryAddress);
 
     let newItems: ReturnType<typeof buildBillItemRecords> | undefined;
     if (data.items) {
-      const { processedItems, taxBreakdown, ...billTotals } = await calculateDocumentTax(db, {
+      const { itemIds, taxItems } = withLineIds(data.items);
+      await assertDimensionsBelongToEntity(db, bill.entityId, data.items);
+      const effective = { ...bill, ...updateData } as typeof bill;
+      const { processedItems, taxBreakdown, salesTax: _salesTax, ...billTotals } = await calculateDocumentTax(db, {
         entityId: bill.entityId,
         direction: 'purchase',
-        items: data.items,
+        items: taxItems,
+        runtime: salesTaxRuntimeFromEnv(c.env),
+        document: billDocumentContext(effective),
       });
       Object.assign(updateData, billTotals, {
         taxBreakdown,
         balanceDue: String(Number.parseFloat(billTotals.total) - Number.parseFloat(bill.amountPaid || '0')),
       });
-      newItems = buildBillItemRecords(bill.entityId, billId, data.items, processedItems);
+      newItems = buildBillItemRecords(bill.entityId, billId, itemIds, data.items, processedItems);
+    } else if (
+      (data.deliveryAddress !== undefined || data.issueDate !== undefined || data.contactId !== undefined) &&
+      usesSalesTax(await loadSalesTaxEntity(db, bill.entityId))
+    ) {
+      // The use tax rate follows the delivery address and the date: re-tax the saved lines.
+      const stored = await db
+        .select()
+        .from(billItems)
+        .where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt)));
+      if (hasUseTaxLines(stored)) {
+        const effective = { ...bill, ...updateData } as typeof bill;
+        const calc = await calculateDocumentTax(db, {
+          entityId: bill.entityId,
+          direction: 'purchase',
+          items: stored.map(billItemToTaxItem),
+          runtime: salesTaxRuntimeFromEnv(c.env),
+          document: billDocumentContext(effective),
+        });
+        updateData.taxBreakdown = calc.taxBreakdown;
+      }
     }
 
     const now = new Date();

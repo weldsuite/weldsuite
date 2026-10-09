@@ -17,6 +17,8 @@ export const hrChecklistKindSchema = z.enum(['onboarding', 'offboarding']);
 export const hrAssigneeRoleSchema = z.enum(['hr', 'manager', 'it', 'employee', 'other']);
 export const hrAttendanceStatusSchema = z.enum(['present', 'late', 'absent', 'excused', 'remote', 'half_day']);
 export const hrLeaveStatusSchema = z.enum(['pending', 'approved', 'rejected', 'cancelled']);
+export const hrDeclarationCategorySchema = z.enum(['travel', 'meals', 'accommodation', 'equipment', 'training', 'other']);
+export const hrDeclarationStatusSchema = z.enum(['pending', 'approved', 'rejected', 'paid', 'cancelled']);
 export const hrCoachingCategorySchema = z.enum([
   'performance',
   'quality',
@@ -196,6 +198,11 @@ export const createHrShiftSchema = z.object({
   companyId: id.nullable().optional(),
   startsAt: isoDateTime,
   endsAt: isoDateTime,
+  /** What the employee is scheduled to do, e.g. "Cashier". */
+  workType: shortText(100).nullable().optional(),
+  /** Unpaid break inside the shift: send both or neither (the service checks the window). */
+  breakStartsAt: isoDateTime.nullable().optional(),
+  breakEndsAt: isoDateTime.nullable().optional(),
   notes: z.string().max(1000).nullable().optional(),
 });
 export const updateHrShiftSchema = createHrShiftSchema.omit({ employeeId: true }).partial();
@@ -264,6 +271,72 @@ export const createHrLeaveRequestSchema = z.object({
 export const reviewHrLeaveRequestSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
   note: z.string().max(2000).nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Declarations (expense claims)
+// ---------------------------------------------------------------------------
+
+/** Receipt uploads: one image or PDF per declaration, sent as multipart `file`. */
+export const HR_DECLARATION_RECEIPT_MAX_BYTES = 10 * 1024 * 1024;
+export const HR_DECLARATION_RECEIPT_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const;
+export const HR_DECLARATION_CURRENCIES = ['EUR', 'USD', 'GBP'] as const;
+
+/** Amount in major units, at most two decimals (12.5 = twelve euros fifty). */
+const declarationAmount = z
+  .number()
+  .positive()
+  .max(1_000_000)
+  .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, 'Use at most two decimals');
+
+const declarationFields = {
+  expenseDate: isoDate,
+  category: hrDeclarationCategorySchema,
+  description: z.string().trim().min(1).max(2000),
+  amount: declarationAmount,
+  currency: z.enum(HR_DECLARATION_CURRENCIES).optional(),
+};
+
+export const createHrDeclarationSchema = z.object({ employeeId: id, ...declarationFields });
+
+export const updateHrDeclarationSchema = z.object(declarationFields).partial();
+
+export const reviewHrDeclarationSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  note: z.string().max(2000).nullable().optional(),
+});
+
+// ---------------------------------------------------------------------------
+// Absences (sick reports)
+// ---------------------------------------------------------------------------
+
+export const hrAbsenceFirstDaySchema = z.enum(['full', 'half']);
+
+/** Practical matters only (how to reach the employee); not a place for medical details. */
+const absenceNote = z.string().trim().max(1000).nullable().optional();
+
+export const createHrAbsenceSchema = z.object({
+  employeeId: id,
+  /** First sick day. */
+  startDate: isoDate,
+  /** Defaults to a full day. */
+  firstDay: hrAbsenceFirstDaySchema.optional(),
+  /** Last sick day; leave out while the employee is still absent. */
+  endDate: isoDate.nullable().optional(),
+  note: absenceNote,
+});
+
+export const updateHrAbsenceSchema = z.object({
+  startDate: isoDate.optional(),
+  firstDay: hrAbsenceFirstDaySchema.optional(),
+  /** `null` reopens a report that was closed by mistake. */
+  endDate: isoDate.nullable().optional(),
+  note: absenceNote,
+});
+
+export const recoverHrAbsenceSchema = z.object({
+  /** Last sick day, inclusive. */
+  endDate: isoDate,
 });
 
 // ---------------------------------------------------------------------------
@@ -419,6 +492,7 @@ export const updateHrPortalSettingsSchema = z.object({
   clientCanSeeIndividualScores: z.boolean().optional(),
   employeeSelfClockIn: z.boolean().optional(),
   employeeLeaveRequests: z.boolean().optional(),
+  employeeDeclarations: z.boolean().optional(),
 });
 
 export const inviteHrPortalAccessSchema = z.discriminatedUnion('kind', [
@@ -455,6 +529,17 @@ export const hrPortalLeaveRequestSchema = z.object({
   reason: z.string().max(2000).nullable().optional(),
 });
 
+/** A declaration an employee files for themselves (My HR and the workforce portal). */
+export const hrPortalDeclarationSchema = z.object(declarationFields);
+
+/** An employee reporting themselves sick. Recovering uses `recoverHrAbsenceSchema`. */
+export const hrPortalAbsenceSchema = z.object({
+  startDate: isoDate,
+  /** Defaults to a full day. */
+  firstDay: hrAbsenceFirstDaySchema.optional(),
+  note: absenceNote,
+});
+
 export const hrPortalAcknowledgeSchema = z.object({
   comment: z.string().max(5000).nullable().optional(),
 });
@@ -481,6 +566,12 @@ export type ImportHrAttendanceInput = z.infer<typeof importHrAttendanceSchema>;
 export type CreateHrLeaveTypeInput = z.infer<typeof createHrLeaveTypeSchema>;
 export type CreateHrLeaveRequestInput = z.infer<typeof createHrLeaveRequestSchema>;
 export type ReviewHrLeaveRequestInput = z.infer<typeof reviewHrLeaveRequestSchema>;
+export type CreateHrDeclarationInput = z.infer<typeof createHrDeclarationSchema>;
+export type UpdateHrDeclarationInput = z.infer<typeof updateHrDeclarationSchema>;
+export type ReviewHrDeclarationInput = z.infer<typeof reviewHrDeclarationSchema>;
+export type CreateHrAbsenceInput = z.infer<typeof createHrAbsenceSchema>;
+export type UpdateHrAbsenceInput = z.infer<typeof updateHrAbsenceSchema>;
+export type RecoverHrAbsenceInput = z.infer<typeof recoverHrAbsenceSchema>;
 export type CreateHrCoachingLogInput = z.infer<typeof createHrCoachingLogSchema>;
 export type UpdateHrCoachingLogInput = z.infer<typeof updateHrCoachingLogSchema>;
 export type HrCoachingActionItemInput = z.infer<typeof hrCoachingActionItemSchema>;
@@ -496,6 +587,8 @@ export type UpdateHrMilestoneInput = z.infer<typeof updateHrMilestoneSchema>;
 export type UpdateHrPortalSettingsInput = z.infer<typeof updateHrPortalSettingsSchema>;
 export type InviteHrPortalAccessInput = z.infer<typeof inviteHrPortalAccessSchema>;
 export type HrSelfServiceLeaveRequestInput = z.infer<typeof hrPortalLeaveRequestSchema>;
+export type HrSelfServiceDeclarationInput = z.infer<typeof hrPortalDeclarationSchema>;
+export type HrSelfServiceAbsenceInput = z.infer<typeof hrPortalAbsenceSchema>;
 export type HrSelfServiceClockInput = z.infer<typeof hrPortalClockSchema>;
 export type HrSelfServiceAcknowledgeInput = z.infer<typeof hrPortalAcknowledgeSchema>;
 export type CreateHrDepartmentInput = z.infer<typeof createHrDepartmentSchema>;

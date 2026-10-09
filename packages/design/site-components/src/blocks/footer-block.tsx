@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Facebook, Twitter, Instagram, Youtube, Linkedin, Mail, Globe, ChevronDown } from 'lucide-react';
+import { keyedBy, tupleKey } from '../lib/keyed';
 
 type HorizontalPosition = 'left' | 'center' | 'right';
 
@@ -165,8 +166,8 @@ function FooterColumnsGrid({ columns, isMobileView, isEditing, textColor }: Read
             {column.title}
           </h3>
           <ul className="space-y-3">
-            {(column.links ?? []).map((link, index) => (
-              <li key={index}>
+            {keyedBy(column.links ?? [], (l) => tupleKey(l.url, l.label)).map(({ item: link, key }) => (
+              <li key={key}>
                 <a
                   href={link.url}
                   onClick={(e) => isEditing && e.preventDefault()}
@@ -192,12 +193,12 @@ interface SocialIconLinksProps {
 function SocialIconLinks({ links, isEditing }: Readonly<SocialIconLinksProps>) {
   return (
     <div className="flex gap-4">
-      {links.map((social, index) => {
+      {keyedBy(links, (l) => tupleKey(l.platform, l.url)).map(({ item: social, key }) => {
         const Icon = socialIcons[social.platform];
         if (!Icon) return null;
         return (
           <a
-            key={index}
+            key={key}
             href={social.url}
             onClick={(e) => isEditing && e.preventDefault()}
             className={`hover:opacity-70 transition-opacity ${isEditing ? 'pointer-events-none' : ''}`}
@@ -359,9 +360,9 @@ function PaymentMethods({ isMobileView, textColor }: Readonly<PaymentMethodsProp
     <div className={`mt-8 flex gap-3 ${isMobileView ? 'justify-start' : 'justify-end'}`}>
       <div className="flex gap-2 items-center flex-wrap">
         <span className="text-xs" style={{ color: `${textColor}99` }}>Payment methods:</span>
-        {PAYMENT_METHODS.map((payment, index) => (
+        {PAYMENT_METHODS.map((payment) => (
           <div
-            key={index}
+            key={payment}
             className="px-2 py-1 border rounded text-xs font-medium"
             style={{ borderColor: `${textColor}30`, color: `${textColor}99` }}
           >

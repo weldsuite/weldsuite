@@ -2324,7 +2324,7 @@ export function QuickCreateCard({
           e.target.dataset.enterSubmits === 'true'
         ) {
           e.preventDefault();
-          handleSave();
+          void handleSave();
         }
       }}
     >
@@ -2335,7 +2335,7 @@ export function QuickCreateCard({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.stopPropagation(); handleSave(); }
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.stopPropagation(); void handleSave(); }
           }}
           className="h-10 text-sm font-medium shadow-none"
           autoFocus
@@ -3193,11 +3193,12 @@ function MobileMonthBlock({
 }
 
 /** Localized one-letter weekday headers ("M", "T", …), starting on WEEK_STARTS_ON. */
-function weekdayInitials(): string[] {
+function weekdayInitials(): { day: string; initial: string }[] {
   const days = getTranslations('weldcalendar').bookingEditorDays;
-  return orderWeekdays([days.sun, days.mon, days.tue, days.wed, days.thu, days.fri, days.sat]).map((d) =>
-    d.charAt(0).toUpperCase(),
-  );
+  return orderWeekdays([days.sun, days.mon, days.tue, days.wed, days.thu, days.fri, days.sat]).map((day) => ({
+    day,
+    initial: day.charAt(0).toUpperCase(),
+  }));
 }
 
 function MobileMonthView({
@@ -3243,12 +3244,12 @@ function MobileMonthView({
     <div className="flex flex-col flex-1 min-h-0">
       {/* Sticky weekday header */}
       <div className="grid grid-cols-7 border-b shrink-0 bg-background">
-        {dayLetters.map((d, i) => (
+        {dayLetters.map(({ day, initial }) => (
           <div
-            key={i}
+            key={day}
             className="text-center text-[11px] font-medium text-muted-foreground py-2 tracking-wide"
           >
-            {d}
+            {initial}
           </div>
         ))}
       </div>
@@ -5707,18 +5708,18 @@ function YearMonth({
     <div>
       <h3 className="text-sm font-semibold mb-2 pl-2.5">{format(month, 'MMMM')}</h3>
       <div className="grid grid-cols-7 gap-0">
-        {weekdayLabels.map((d, i) => (
-          <div key={i} className="text-[10px] text-muted-foreground text-center py-0.5">{d}</div>
+        {weekdayLabels.map(({ day, initial }) => (
+          <div key={day} className="text-[10px] text-muted-foreground text-center py-0.5">{initial}</div>
         ))}
-        {weeks.map((week, wi) =>
-          week.map((d, di) => {
+        {weeks.map((week) =>
+          week.map((d) => {
             const inMonth = isSameMonth(d, month);
             const today = isToday(d);
             const count = inMonth ? (eventCounts.get(localDayKey(d)) ?? 0) : 0;
             return (
               <Button
                 variant="ghost"
-                key={`${wi}-${di}`}
+                key={d.toISOString()}
                 onClick={() => onDateClick(d)}
                 aria-label={count > 0
                   ? `${format(d, 'EEEE, MMMM d')}, ${count === 1 ? t.viewExtras.oneEvent : t.viewExtras.manyEvents.replace('{count}', String(count))}`

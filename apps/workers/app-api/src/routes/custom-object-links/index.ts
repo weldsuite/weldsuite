@@ -328,10 +328,10 @@ traversalApp.get('/:slug/records/:id/links', requireCustomObject('read'), async 
     // LINK, not per record — permissions are resolved once and cached on the
     // context, so this costs nothing beyond the first call.
     const allLinks = await listLinksForObject(db, object.entityKey);
-    const readable = [];
-    for (const link of allLinks) {
-      if (await canReadTarget(c, link.targetEntityKey)) readable.push(link);
-    }
+    const canRead = await Promise.all(
+      allLinks.map((link) => canReadTarget(c, link.targetEntityKey)),
+    );
+    const readable = allLinks.filter((_, i) => canRead[i]);
 
     const panels = await Promise.all(
       readable.map(async (link) => ({
@@ -494,10 +494,10 @@ reverseApp.get('/:entityType/:entityId/custom-objects', requirePermission('weldo
   try {
     const panels = await listReversePanels(db, entityType, entityId);
 
-    const visible = [];
-    for (const panel of panels) {
-      if (await canReadTarget(c, entityKeyForSlug(panel.objectSlug))) visible.push(panel);
-    }
+    const canRead = await Promise.all(
+      panels.map((panel) => canReadTarget(c, entityKeyForSlug(panel.objectSlug))),
+    );
+    const visible = panels.filter((_, i) => canRead[i]);
 
     return success(c, visible);
   } catch (err) {

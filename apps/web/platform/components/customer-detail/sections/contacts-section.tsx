@@ -18,7 +18,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { activateOnKey } from '@/lib/activate-on-key';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ClientApi } from '@weldsuite/api-client/types';
@@ -182,12 +182,12 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
       <div key={contact.id}>
         {/* Desktop row - hidden in panel mode */}
         {!isPanel && <div
-          role="button"
-          tabIndex={0}
-          className="hidden md:flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/30"
-          onClick={() => openObjectPanel({ type: 'person', id: contact.id, stack: true })}
-          onKeyDown={activateOnKey(() => openObjectPanel({ type: 'person', id: contact.id, stack: true }))}
+          className="relative hidden md:flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/30"
         >
+          <RowOverlayButton
+            label={name}
+            onClick={() => openObjectPanel({ type: 'person', id: contact.id, stack: true })}
+          />
           {/* Name (with avatar) */}
           <div className="w-[360px] min-w-0 flex items-center gap-3">
             <div className="flex-shrink-0">
@@ -253,7 +253,7 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
           </div>
 
           {/* Actions */}
-          <div className="w-[40px] flex justify-end flex-shrink-0">
+          <div className="relative z-[1] w-[40px] flex justify-end flex-shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -286,15 +286,12 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
 
         {/* Compact row - always in panel mode, mobile-only otherwise */}
         <div
-          role="button"
-          tabIndex={0}
           className={cn(
             isPanel ? "flex" : "md:hidden flex",
-            "group items-center gap-3 px-4 py-3 border-b border-border/70 hover:bg-gray-50 dark:hover:bg-secondary/40 active:bg-muted/50 cursor-pointer transition-colors",
+            "group relative items-center gap-3 px-4 py-3 border-b border-border/70 hover:bg-gray-50 dark:hover:bg-secondary/40 active:bg-muted/50 cursor-pointer transition-colors",
           )}
-          onClick={openCompactContact}
-          onKeyDown={activateOnKey(openCompactContact)}
         >
+          <RowOverlayButton label={name} onClick={openCompactContact} />
           <Avatar className="h-[22px] w-[22px] !rounded-[8px] flex-shrink-0">
             <AvatarImage src={contact.avatarUrl} alt={name} className="!rounded-[8px]" />
             <AvatarFallback className="!rounded-[8px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
@@ -328,7 +325,7 @@ export function ContactsSection({ customer, contacts }: Readonly<ContactsSection
               </div>
             )}
           </div>
-          <div onClick={(e) => e.stopPropagation()}>
+          <div className="relative z-[1]">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

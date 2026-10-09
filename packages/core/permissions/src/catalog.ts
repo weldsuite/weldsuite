@@ -200,8 +200,33 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('bills',         'Bills'),
   objectPermissions('journal',       'Journal Entries',      ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('accounts',      'Accounts',             ['read', 'create', 'update', 'delete', 'manage']),
-  objectPermissions('banking',       'Banking',              ['read', 'create', 'update', 'manage']),
+  objectPermissions('banking',       'Banking',              ['read', 'create', 'update', 'delete', 'manage']),
   objectPermissions('reports',       'Reports',              ['read', 'manage']),
+  // Sales tax agencies, rates, returns, exemption certificates and 1099s.
+  {
+    key: 'taxes',
+    label: 'Taxes',
+    permissions: [
+      { key: 'taxes:read', label: 'View sales tax, tax returns and 1099s' },
+      { key: 'taxes:create', label: 'Create agencies, rates, certificates and returns' },
+      { key: 'taxes:update', label: 'Edit agencies, rates, certificates and returns' },
+      { key: 'taxes:delete', label: 'Delete agencies, rates and certificates' },
+      { key: 'taxes:file', label: 'Mark tax returns and 1099s filed and record their payment' },
+    ],
+  },
+  // Revealing a full TIN, SSN or bank account number. Kept apart from every
+  // read grant (like `employees:sensitive`); each reveal is logged.
+  {
+    key: 'tax_ids',
+    label: 'Tax IDs',
+    permissions: [
+      {
+        key: 'tax_ids:reveal',
+        label: 'Reveal full TINs, SSNs and bank account numbers',
+        description: 'Every reveal is recorded in the tax ID reveal log.',
+      },
+    ],
+  },
 
   // ── Helpdesk (WeldDesk) ───────────────────────────────────────────────
   objectPermissions('tickets',       'Tickets'),
@@ -450,12 +475,16 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       {
         key: 'employees:self',
         label: 'Use My HR',
-        description: 'Their own employee record only: profile, leave, attendance, onboarding tasks, coaching and evaluations. Requires being linked to an employee.',
+        description: 'Their own employee record only: profile, leave, expense declarations, sick reports, attendance, onboarding tasks, coaching and evaluations. Requires being linked to an employee.',
       },
     ],
   },
   objectPermissions('attendance', 'Attendance', ['read', 'create', 'update', 'delete', 'approve']),
   objectPermissions('leave', 'Leave', ['read', 'create', 'update', 'delete', 'approve']),
+  objectPermissions('declarations', 'Expense declarations', ['read', 'create', 'update', 'delete', 'approve']),
+  // Sick reports are kept apart from leave: who is ill is not for everyone who
+  // approves holidays. Employees report for themselves through employees:self.
+  objectPermissions('absences', 'Sick reports'),
   objectPermissions('coaching', 'Coaching logs'),
   objectPermissions('evaluations', 'Evaluations and KPIs'),
   // ── WeldObjects (user-defined custom objects) ─────────────────────────
@@ -534,8 +563,12 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'employees:sensitive', 'employees:manage', 'employees:self',
   'attendance:read', 'attendance:create', 'attendance:update', 'attendance:delete', 'attendance:approve',
   'leave:read', 'leave:create', 'leave:update', 'leave:delete', 'leave:approve',
+  'declarations:read', 'declarations:create', 'declarations:update', 'declarations:delete', 'declarations:approve',
+  'absences:read', 'absences:create', 'absences:update', 'absences:delete',
   'coaching:read', 'coaching:create', 'coaching:update', 'coaching:delete',
   'evaluations:read', 'evaluations:create', 'evaluations:update', 'evaluations:delete',
+  // WeldKnow — admins also see and fix every teamspace (knowledge:manage)
+  'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete', 'knowledge:manage',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [
@@ -647,6 +680,9 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // personal vault and can start a shared one. Access inside a vault is by
   // membership, so this grants nothing over anyone else's passwords.
   'passwords:use', 'passwords:create',
+  // WeldKnow — teamspace membership decides which pages a member reads and
+  // edits, so these only open the app; they grant nothing inside a teamspace.
+  'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [
@@ -664,6 +700,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'weldagent:read',
   // WeldObjects — read-only, own records only
   'weldobjects:read', 'weldobjects:*:read',
+  // WeldKnow — read-only
+  'knowledge:read',
 ];
 
 export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {
@@ -692,6 +730,23 @@ export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {
     permissions: migratePermissionKeys(LEGACY_VIEWER_PERMISSIONS),
   },
 };
+
+/**
+ * What a `roles` row grants. Each workspace seeds the system roles as rows
+ * (Owner/Admin/Member/Viewer), and the invite dialog assigns them by id, so
+ * most members point at one. Those rows can't be edited, which means their
+ * stored copy only ever lags behind grants added here after the workspace was
+ * seeded (WeldKnow's `knowledge` keys, for one) — answer them from the code.
+ */
+export function getRoleRowPermissions(role: {
+  isSystem: boolean;
+  name: string;
+  permissions: unknown;
+}): string[] {
+  const systemRole = role.isSystem ? SYSTEM_ROLES[role.name.toUpperCase()] : undefined;
+  if (systemRole) return [...systemRole.permissions];
+  return (role.permissions as string[] | null) ?? [];
+}
 
 /**
  * The complete access of a workspace member with `memberType = 'EMPLOYEE'`:

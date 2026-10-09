@@ -1,13 +1,36 @@
-import { useQuery, useMutation, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+} from '@tanstack/react-query';
 import {
   accountingApi,
+  type ApplyTaxLinesInput,
+  type CreateAccountingEntityInput,
+  type CreateDimensionValueInput,
   type CreateLockExceptionInput,
   type CreatePaymentInput,
+  type DimensionValueFilters,
   type RecordInvoicePaymentInput,
   type ReconciliationRule,
   type UpdateAccountingEntityInput,
+  type UpdateDimensionValueInput,
   type UpdateLockDatesInput,
 } from '@/lib/api/domains/weldbooks';
+import type {
+  AgedReport,
+  BalanceSheetReport,
+  CashFlowReport,
+  GeneralLedgerReport,
+  ProfitLossReport,
+  ReportName,
+  ReportQuery,
+  TaxWorksheet,
+  TrialBalanceReport,
+} from '@/lib/weldbooks/report-types';
 
 // ============================================================================
 // Query Keys
@@ -27,6 +50,18 @@ export const accountingKeys = {
     all: [...(['accounting', 'entities'] as const)],
     detail: (id: string) => [...accountingKeys.entities.all, 'detail', id] as const,
     lockExceptions: (id: string) => [...accountingKeys.entities.all, 'lock-exceptions', id] as const,
+  },
+
+  /** The lines of the entity's income-tax return (US), per tax year. */
+  taxLines: {
+    all: [...(['accounting', 'tax-lines'] as const)],
+    catalog: (year?: number) => [...accountingKeys.taxLines.all, year ?? 'current'] as const,
+  },
+
+  /** Classes and locations. */
+  dimensions: {
+    all: [...(['accounting', 'dimensions'] as const)],
+    list: (filters?: DimensionValueFilters) => [...accountingKeys.dimensions.all, 'list', filters ?? {}] as const,
   },
 
   accounts: {
@@ -114,13 +149,8 @@ export const accountingKeys = {
   },
 
   reports: {
-    profitLoss: (params?: Record<string, unknown>) => ['accounting', 'reports', 'profit-loss', params] as const,
-    balanceSheet: (params?: Record<string, unknown>) => ['accounting', 'reports', 'balance-sheet', params] as const,
-    trialBalance: (params?: Record<string, unknown>) => ['accounting', 'reports', 'trial-balance', params] as const,
-    agedReceivables: () => ['accounting', 'reports', 'aged-receivables'] as const,
-    agedPayables: () => ['accounting', 'reports', 'aged-payables'] as const,
-    cashFlow: (params?: Record<string, unknown>) => ['accounting', 'reports', 'cash-flow', params] as const,
-    generalLedger: (params?: Record<string, unknown>) => ['accounting', 'reports', 'general-ledger', params] as const,
+    all: [...(['accounting', 'reports'] as const)],
+    report: (name: ReportName, query?: ReportQuery) => [...accountingKeys.reports.all, name, query ?? {}] as const,
   },
 };
 
@@ -201,6 +231,16 @@ export function useAccountingEntity(id: string | null | undefined) {
   });
 }
 
+export function useCreateAccountingEntity() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateAccountingEntityInput) => accountingApi.createEntity(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.entities.all });
+    },
+  });
+}
+
 export function useUpdateAccountingEntity() {
   const qc = useQueryClient();
   return useMutation({
@@ -208,6 +248,22 @@ export function useUpdateAccountingEntity() {
       accountingApi.updateEntity(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: accountingKeys.entities.all });
+      // The accounting method and the fiscal year set the defaults of every report.
+      qc.invalidateQueries({ queryKey: accountingKeys.reports.all });
+    },
+  });
+}
+
+/** US: remap every account to the lines of the entity's current return. */
+export function useApplyTaxLines() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ entityId, data }: { entityId: string; data?: ApplyTaxLinesInput }) =>
+      accountingApi.applyTaxLines(entityId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.taxLines.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.reports.all });
     },
   });
 }
@@ -256,10 +312,24 @@ export function useRevokeLockException() {
 // Accounts
 // ============================================================================
 
-export function useAccountingAccounts(filters?: { type?: string; search?: string }) {
+export function useAccountingAccounts(
+  filters?: { type?: string; search?: string; taxLine?: string },
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: accountingKeys.accounts.list(filters),
     queryFn: () => accountingApi.listAccounts(filters),
+    enabled: options.enabled ?? true,
+  });
+}
+
+/** US: the lines of the entity's income-tax return for a tax year (default: the current one). */
+export function useTaxLineCatalog(year?: number, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: accountingKeys.taxLines.catalog(year),
+    queryFn: async () => (await accountingApi.getTaxLines(year)).data,
+    enabled: options.enabled ?? true,
+    staleTime: 10 * 60 * 1000,
   });
 }
 
@@ -283,7 +353,48 @@ export function useUpdateAccount() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => accountingApi.updateAccount(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.accounts.all }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.accounts.all });
+      // A tax line change moves the account between worksheet lines.
+      qc.invalidateQueries({ queryKey: accountingKeys.reports.all });
+    },
+  });
+}
+
+// ============================================================================
+// Dimensions (classes and locations)
+// ============================================================================
+
+export function useDimensionValues(filters?: DimensionValueFilters, options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: accountingKeys.dimensions.list(filters),
+    queryFn: async () => (await accountingApi.listDimensionValues(filters)).data ?? [],
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useCreateDimensionValue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateDimensionValueInput) => accountingApi.createDimensionValue(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.dimensions.all }); },
+  });
+}
+
+export function useUpdateDimensionValue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateDimensionValueInput }) =>
+      accountingApi.updateDimensionValue(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.dimensions.all }); },
+  });
+}
+
+export function useDeleteDimensionValue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => accountingApi.deleteDimensionValue(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.dimensions.all }); },
   });
 }
 // ============================================================================
@@ -714,40 +825,58 @@ export function useAccountingRecurringInvoices() {
 // Reports
 // ============================================================================
 
-export function useProfitLossReport(params?: { from?: string; to?: string }) {
+interface ReportOptions {
+  enabled?: boolean;
+}
+
+/**
+ * A financial report. Runs whenever its query changes; the previous result
+ * stays on screen while the next one loads, so toggling the basis or the
+ * comparison doesn't blank the table.
+ */
+function useReport<T>(name: ReportName, fetcher: () => Promise<{ data: T }>, query: ReportQuery, options: ReportOptions) {
   return useQuery({
-    queryKey: accountingKeys.reports.profitLoss(params),
-    queryFn: () => accountingApi.getProfitLoss(params),
-    enabled: false, // Only fetch on demand
+    queryKey: accountingKeys.reports.report(name, query),
+    queryFn: async () => (await fetcher()).data,
+    enabled: options.enabled ?? true,
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useBalanceSheetReport(params?: { asOf?: string }) {
-  return useQuery({
-    queryKey: accountingKeys.reports.balanceSheet(params),
-    queryFn: () => accountingApi.getBalanceSheet(params),
-    enabled: false,
-  });
+export function useProfitLossReport(query: ReportQuery = {}, options: ReportOptions = {}) {
+  return useReport<ProfitLossReport>('profit-loss', () => accountingApi.getProfitLoss(query), query, options);
 }
 
-export function useTrialBalanceReport(params?: { from?: string; to?: string }) {
-  return useQuery({
-    queryKey: accountingKeys.reports.trialBalance(params),
-    queryFn: () => accountingApi.getTrialBalance(params),
-    enabled: false,
-  });
+export function useBalanceSheetReport(query: ReportQuery = {}, options: ReportOptions = {}) {
+  return useReport<BalanceSheetReport>('balance-sheet', () => accountingApi.getBalanceSheet(query), query, options);
 }
 
-export function useAgedReceivablesReport() {
-  return useQuery({
-    queryKey: accountingKeys.reports.agedReceivables(),
-    queryFn: () => accountingApi.getAgedReceivables(),
-  });
+export function useTrialBalanceReport(query: ReportQuery = {}, options: ReportOptions = {}) {
+  return useReport<TrialBalanceReport>('trial-balance', () => accountingApi.getTrialBalance(query), query, options);
 }
 
-export function useAgedPayablesReport() {
-  return useQuery({
-    queryKey: accountingKeys.reports.agedPayables(),
-    queryFn: () => accountingApi.getAgedPayables(),
-  });
+export function useGeneralLedgerReport(query: ReportQuery & { accountId: string }, options: ReportOptions = {}) {
+  return useReport<GeneralLedgerReport>(
+    'general-ledger',
+    () => accountingApi.getGeneralLedger(query),
+    query,
+    { enabled: (options.enabled ?? true) && !!query.accountId },
+  );
+}
+
+export function useCashFlowReport(query: ReportQuery = {}, options: ReportOptions = {}) {
+  return useReport<CashFlowReport>('cash-flow', () => accountingApi.getCashFlow(query), query, options);
+}
+
+export function useAgedReceivablesReport(query: ReportQuery = {}, options: ReportOptions = {}) {
+  return useReport<AgedReport>('aged-receivables', () => accountingApi.getAgedReceivables(query), query, options);
+}
+
+export function useAgedPayablesReport(query: ReportQuery = {}, options: ReportOptions = {}) {
+  return useReport<AgedReport>('aged-payables', () => accountingApi.getAgedPayables(query), query, options);
+}
+
+/** US only: the fiscal year's trial balance grouped by the lines of the entity's income-tax return. */
+export function useTaxWorksheetReport(query: ReportQuery = {}, options: ReportOptions = {}) {
+  return useReport<TaxWorksheet>('tax-worksheet', () => accountingApi.getTaxWorksheet(query), query, options);
 }

@@ -21,7 +21,8 @@ import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { buildQueryString } from '@weldsuite/api-client';
+import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
+import { buildQueryString, isApiError } from '@weldsuite/api-client';
 import type {
   Company,
   CreateCompanyInput,
@@ -270,6 +271,7 @@ export function useCreateCompany() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: companyKeys.lists() });
+      invalidateOnboardingChecklist(qc);
     },
     onError: (err) => {
       console.error('[Companies] create failed:', err);
@@ -314,6 +316,13 @@ export function useUpdateCompany() {
       qc.invalidateQueries({ queryKey: companyKeys.detail(variables.id) });
     },
     onError: (err) => {
+      // 409: the caller pinned a `version` and the row has moved on. Tell the
+      // user to reload and refetch so the next edit starts from the latest row.
+      if (isApiError(err) && err.status === 409) {
+        toast.error(t('sweep.entities.recordChangedByOther'));
+        qc.invalidateQueries({ queryKey: companyKeys.all });
+        return;
+      }
       console.error('[Companies] update failed:', err);
       toast.error(t('sweep.entities.updateCompanyFailed'));
     },
@@ -384,6 +393,7 @@ export function useImportCompanies() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: companyKeys.lists() });
+      invalidateOnboardingChecklist(qc);
     },
   });
 }

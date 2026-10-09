@@ -246,7 +246,7 @@ export function ZapietHomeView({
               ].map((item, index) => (
                 <Button
                   variant="ghost"
-                  key={index}
+                  key={item}
                   onClick={onOpenFAQ}
                   className={cn(
                     "w-full flex items-center justify-between px-3.5 py-2.5 hover:bg-gray-50 dark:hover:bg-background transition-all duration-150",

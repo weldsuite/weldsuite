@@ -10,7 +10,7 @@
  * members / dependencies from the new app-api worker.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import {
   Copy,
   EllipsisVertical,
@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { InlineTextEditor } from '@/components/shared/inline-text-editor';
 import {
   TaskDetailContent,
   type TaskComment,
@@ -63,6 +64,7 @@ import {
   useProjectTasksForDeps,
   useTaskById,
   useTaskCompanyOptions,
+  useTaskPersonOptions,
   useTaskComments,
   useTaskSubtasks,
   useToggleSubtask,
@@ -125,6 +127,14 @@ function toCrmTask(
           avatar: api.linkedCompany.avatar ?? undefined,
         }
       : null,
+    // `personId` resolved server-side to the CRM person (id, name, avatar).
+    linkedPerson: api.linkedPerson
+      ? {
+          id: api.linkedPerson.id,
+          name: api.linkedPerson.name,
+          avatar: api.linkedPerson.avatar ?? undefined,
+        }
+      : null,
     duration: api.duration ?? undefined,
     ...(api.customFields ? { customFields: api.customFields } : {}),
   } as CrmTask;
@@ -156,78 +166,15 @@ function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: 
 }
 
 function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: boolean; onSave: (next: string) => void }>) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [local, setLocal] = useState(title);
-  const editorRef = React.useRef<HTMLDivElement>(null);
-  const isEditingRef = React.useRef(isEditing);
-  useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
-  useEffect(() => {
-    if (isEditingRef.current) return;
-    setLocal(title);
-  }, [title]);
-  useEffect(() => {
-    if (!isEditing) return;
-    const el = editorRef.current;
-    if (!el) return;
-    el.textContent = local;
-    el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditing]);
-
-  const commit = () => {
-    const next = (editorRef.current?.textContent ?? local).trim();
-    if (next && next !== local) {
-      setLocal(next);
-      onSave(next);
-    } else if (editorRef.current) {
-      editorRef.current.textContent = local;
-    }
-    setIsEditing(false);
-  };
-
   return (
-    <div
-      ref={editorRef}
-      role={isEditing ? 'textbox' : 'button'}
-      tabIndex={isEditing ? undefined : 0}
-      contentEditable={isEditing}
-      suppressContentEditableWarning
-      onClick={() => { if (!isEditing) setIsEditing(true); }}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (!isEditing) {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setIsEditing(true);
-          }
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          (e.target as HTMLDivElement).blur();
-        }
-        if (e.key === 'Escape') {
-          if (editorRef.current) editorRef.current.textContent = local;
-          setIsEditing(false);
-        }
-      }}
+    <InlineTextEditor
+      value={title}
+      onSave={onSave}
       className={cn(
-        'text-[15px] font-medium leading-normal text-foreground break-words min-w-0 rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 border outline-none whitespace-pre-wrap',
-        isEditing
-          ? 'border-border focus:ring-1 focus:ring-primary cursor-text'
-          : 'border-transparent hover:border-border transition-colors cursor-text',
+        'text-[15px] font-medium leading-normal text-foreground',
         isDone && 'line-through text-muted-foreground',
       )}
-    >
-      {local}
-    </div>
+    />
   );
 }
 
@@ -360,8 +307,11 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
 
   // The CRM record link belongs to tasks outside a project (CRM My Tasks).
   // It is always shown there, and for a project task that happens to carry one.
-  const showCompanyField = !!task && (!projectId || !!task.linkedCompany);
+  const showCompanyField = !!task && (!projectId || !!task.linkedCompany || !!task.linkedPerson);
   const companyOptionsQuery = useTaskCompanyOptions(showCompanyField);
+  // Outside a project the field is a CRM record picker: companies and people.
+  const showPeopleOptions = showCompanyField && !projectId;
+  const personOptionsQuery = useTaskPersonOptions(showPeopleOptions);
   const availableCompanies = useMemo(() => {
     const options = new Map<string, { id: string; name: string; avatar?: string }>();
     if (task?.linkedCompany) {
@@ -373,6 +323,19 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     }
     return Array.from(options.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [task?.linkedCompany, companyOptionsQuery.data]);
+  const availablePeople = useMemo(() => {
+    if (!showPeopleOptions) return undefined;
+    const options = new Map<string, { id: string; name: string; avatar?: string }>();
+    if (task?.linkedPerson) {
+      options.set(task.linkedPerson.id, task.linkedPerson);
+    }
+    for (const person of personOptionsQuery.data ?? []) {
+      if (person.displayName) {
+        options.set(person.id, { id: person.id, name: person.displayName, avatar: person.avatarUrl ?? undefined });
+      }
+    }
+    return Array.from(options.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [showPeopleOptions, task?.linkedPerson, personOptionsQuery.data]);
 
   const availableAssignees = useMemo(() => {
     if (projectId && projectMembersQuery.data && projectMembersQuery.data.length > 0) {
@@ -485,7 +448,15 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     if (data.labels !== undefined) payload.labels = data.labels;
     if (data.repeat !== undefined) payload.repeat = data.repeat || null;
     if (data.customFields !== undefined) payload.customFields = data.customFields;
-    if (data.linkedCompany !== undefined) payload.customerId = data.linkedCompany?.id ?? null;
+    // A task links to a company OR a person: setting one clears the other.
+    if (data.linkedCompany !== undefined) {
+      payload.customerId = data.linkedCompany?.id ?? null;
+      if (data.linkedCompany) payload.personId = null;
+    }
+    if (data.linkedPerson !== undefined) {
+      payload.personId = data.linkedPerson?.id ?? null;
+      if (data.linkedPerson) payload.customerId = null;
+    }
     if (data.assignees !== undefined) {
       const ids = (data.assignees ?? []).map((a) => a.id).filter(Boolean);
       payload.assigneeIds = ids;
@@ -614,6 +585,10 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     openPanel({ type: 'task', id: targetTaskId, stack: true });
   }, [openPanel]);
 
+  const handleOpenRecord = useCallback((type: 'company' | 'person', recordId: string) => {
+    openPanel({ type, id: recordId, stack: true });
+  }, [openPanel]);
+
   const handleAddDependency = useCallback((targetTaskId: string, type: 'blocks' | 'blockedBy') => {
     const currentDeps = apiTask?.dependsOn ?? [];
     const currentBlocks = apiTask?.blocks ?? [];
@@ -659,7 +634,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
           ? <TaskTitle title={task.title} isDone={task.status === 'done'} onSave={(next) => handleUpdate(task.id, { title: next })} />
           : <div className="h-4 w-32 rounded bg-muted animate-pulse" />
       }
-      // `TaskTitle` is a wrapping `contentEditable` — without this the shell's
+      // `TaskTitle` is a wrapping, auto-growing editor — without this the shell's
       // single-line clamp boxes it in and the title scrolls instead of wrapping.
       titleWrap
       actions={
@@ -710,6 +685,8 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onUpdate={handleUpdate}
             availableAssignees={availableAssignees}
             availableCompanies={availableCompanies}
+            availablePeople={availablePeople}
+            onOpenRecord={handleOpenRecord}
             alwaysShowFields={showCompanyField ? ['company'] : undefined}
             availableLabels={availableLabels}
             onCreateLabel={handleCreateLabel}

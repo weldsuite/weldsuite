@@ -27,12 +27,11 @@ type AnyDb = PgDatabase<PgQueryResultHKT, typeof schema>;
 const defs = schema.customFieldDefinitions;
 const vals = schema.customFieldValues;
 
-type Definition = typeof defs.$inferSelect;
 type ValueRow = typeof vals.$inferSelect;
 
 /** A `custom_field_definitions` row — exported so callers can pass a scoped
  *  definition list (e.g. ticket-type-scoped) into {@link setValues}/{@link hydrateCustomFields}. */
-export type CustomFieldDefinitionRow = Definition;
+export type CustomFieldDefinitionRow = typeof defs.$inferSelect;
 
 /** Slug -> value map, the shape entity APIs read/write. */
 export type CustomFieldMap = Record<string, unknown>;
@@ -41,7 +40,7 @@ export type CustomFieldMap = Record<string, unknown>;
 export function getDefinitionsForEntityType(
   db: AnyDb,
   entityType: string,
-): Promise<Definition[]> {
+): Promise<CustomFieldDefinitionRow[]> {
   return Promise.resolve(
     db
       .select()
@@ -65,7 +64,7 @@ export function getDefinitionsForEntityType(
 export function getDefinitionsForTicket(
   db: AnyDb,
   ticketTypeId: string | null | undefined,
-): Promise<Definition[]> {
+): Promise<CustomFieldDefinitionRow[]> {
   const scope = ticketTypeId
     ? or(eq(defs.ticketTypeId, ticketTypeId), isNull(defs.ticketTypeId))
     : isNull(defs.ticketTypeId);
@@ -93,7 +92,7 @@ export async function ensureCustomFieldDefinition(
   entityType: string,
   slug: string,
   name?: string,
-): Promise<Definition> {
+): Promise<CustomFieldDefinitionRow> {
   const [found] = await db
     .select()
     .from(defs)
@@ -123,7 +122,7 @@ export async function ensureCustomFieldDefinition(
 }
 
 /** Reconstruct the slug->value map for one value row against its definition. */
-function readValue(def: Definition, row: ValueRow): unknown {
+function readValue(def: CustomFieldDefinitionRow, row: ValueRow): unknown {
   switch (fieldTypeToValueColumn(def.fieldType as CustomFieldDefinitionLike['fieldType'])) {
     case 'number':
       return row.valueNumber ?? null;
@@ -150,7 +149,7 @@ export async function getValuesForEntities(
   db: AnyDb,
   entityType: string,
   entityIds: string[],
-  definitions?: Definition[],
+  definitions?: CustomFieldDefinitionRow[],
 ): Promise<Record<string, CustomFieldMap>> {
   const out: Record<string, CustomFieldMap> = {};
   for (const id of entityIds) out[id] = {};
@@ -179,7 +178,7 @@ export async function getValuesForEntity(
   db: AnyDb,
   entityType: string,
   entityId: string,
-  definitions?: Definition[],
+  definitions?: CustomFieldDefinitionRow[],
 ): Promise<CustomFieldMap> {
   const map = await getValuesForEntities(db, entityType, [entityId], definitions);
   return map[entityId] ?? {};
@@ -211,7 +210,7 @@ export async function hydrateCustomFields<T extends { id: string; customFields?:
   db: AnyDb,
   entityType: string,
   rows: T[],
-  definitions?: Definition[],
+  definitions?: CustomFieldDefinitionRow[],
 ): Promise<T[]> {
   if (rows.length === 0) return rows;
 
@@ -264,7 +263,7 @@ export async function hydrateCustomFieldsOne<T extends { id: string; customField
 
 /** Map a validated value onto the correct typed insert column. */
 function toValueColumns(
-  def: Definition,
+  def: CustomFieldDefinitionRow,
   value: string | number | boolean | string[] | Record<string, unknown> | null,
 ): Partial<typeof vals.$inferInsert> {
   const base = {
@@ -315,7 +314,7 @@ export async function setValues(
   values: CustomFieldMap,
   options: {
     generateId: IdGenerator;
-    definitions?: Definition[];
+    definitions?: CustomFieldDefinitionRow[];
     patch?: boolean;
     enforceRequired?: boolean;
   },
@@ -336,6 +335,9 @@ export async function setValues(
     .where(and(eq(vals.entityType, entityType), eq(vals.entityId, entityId)));
   const existingByFieldId = new Map(existing.map((r) => [r.fieldId, r]));
 
+  // Validate every field first so a rejected value aborts before any write,
+  // then persist: each field owns its own value row, so the writes are independent.
+  const writes: { def: CustomFieldDefinitionRow; normalized: NormalizedFieldValue }[] = [];
   for (const slug of slugs) {
     const def = defBySlug.get(slug);
     if (!def) continue;
@@ -343,24 +345,29 @@ export async function setValues(
     // In non-patch mode a missing slug means "clear"; in patch mode we skip it.
     if (raw === undefined && patch) continue;
 
-    const normalized = normalizeFieldValue(def, slug, raw, enforceRequired);
-    await persistFieldValue(db, {
-      def,
-      entityType,
-      entityId,
-      normalized,
-      prior: existingByFieldId.get(def.id),
-      now,
-      generateId,
-    });
+    writes.push({ def, normalized: normalizeFieldValue(def, slug, raw, enforceRequired) });
   }
+
+  await Promise.all(
+    writes.map(({ def, normalized }) =>
+      persistFieldValue(db, {
+        def,
+        entityType,
+        entityId,
+        normalized,
+        prior: existingByFieldId.get(def.id),
+        now,
+        generateId,
+      }),
+    ),
+  );
 }
 
 type NormalizedFieldValue = string | number | boolean | string[] | Record<string, unknown> | null;
 
 /** Validate/coerce a raw value against its definition (`null` = clear the field). */
 function normalizeFieldValue(
-  def: Definition,
+  def: CustomFieldDefinitionRow,
   slug: string,
   raw: CustomFieldMap[string] | undefined,
   enforceRequired: boolean,
@@ -379,7 +386,7 @@ function normalizeFieldValue(
 async function persistFieldValue(
   db: AnyDb,
   args: {
-    def: Definition;
+    def: CustomFieldDefinitionRow;
     entityType: string;
     entityId: string;
     normalized: NormalizedFieldValue;
@@ -446,7 +453,7 @@ export async function syncValuesForEntity(
   entityId: string,
   customFields: CustomFieldMap | null | undefined,
   generateId: IdGenerator,
-  definitions?: Definition[],
+  definitions?: CustomFieldDefinitionRow[],
 ): Promise<void> {
   if (customFields === undefined) return;
   try {

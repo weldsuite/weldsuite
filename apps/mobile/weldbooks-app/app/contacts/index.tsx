@@ -23,6 +23,7 @@ import { Screen, ScreenHeader } from '@/components/screen';
 import { RecordRow } from '@/components/record-row';
 import { IconTile } from '@/components/detail';
 import { ListSkeleton, ErrorState } from '@/components/data-states';
+import { useJurisdiction } from '@/hooks/useJurisdiction';
 import { useI18n } from '@/lib/i18n';
 import type { Contact } from '@/types/accounting';
 
@@ -36,17 +37,18 @@ export default function ContactsScreen() {
   const { colors } = useTheme();
   const router = useRouter();
   const { t, format } = useI18n();
+  const { labels, terms } = useJurisdiction();
 
   const FILTERS = [
     { key: 'all', label: t.contacts.filterAll },
     { key: 'customer', label: t.contacts.filterCustomers },
-    { key: 'vendor', label: t.contacts.filterSuppliers },
+    { key: 'vendor', label: labels.suppliers },
   ];
 
   const ROLE_LABELS: Record<string, string> = {
     customer: t.contacts.customer,
-    supplier: t.contacts.supplier,
-    both: t.contacts.both,
+    supplier: labels.supplier,
+    both: format(t.contacts.both, terms),
   };
 
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -172,7 +174,7 @@ export default function ContactsScreen() {
             icon={<Users size={32} color={colors.mutedForeground} />}
             title={search ? t.contacts.noMatchTitle : t.contacts.emptyTitle}
             description={
-              search ? t.contacts.noMatchDescription : t.contacts.emptyDescription
+              search ? t.contacts.noMatchDescription : format(t.contacts.emptyDescription, terms)
             }
             action={
               search ? undefined : (

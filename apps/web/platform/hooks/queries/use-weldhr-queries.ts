@@ -1,6 +1,5 @@
 /**
- * WeldHR hooks — employees, lifecycle, time, performance and the workforce
- * portal settings.
+ * WeldHR hooks — employees, time, the workforce portal settings and My HR.
  *
  * Every key sits under ['weldhr'] (the realtime sync map invalidates that
  * root on any hr_* event), and mutations invalidate the same root: HR screens
@@ -16,41 +15,35 @@
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type {
+  HrAbsenceListParams,
   HrAttendanceListParams,
   HrEmployeeListParams,
 } from '@weldsuite/app-api-client/domains/weldhr';
 import type {
-  CreateHrAssignmentInput,
+  CreateHrAbsenceInput,
   CreateHrAttendanceInput,
-  CreateHrChecklistTaskInput,
-  CreateHrChecklistTemplateInput,
-  CreateHrCoachingLogInput,
+  CreateHrDeclarationInput,
   CreateHrDepartmentInput,
   CreateHrEmployeeFromMemberInput,
   CreateHrEmployeeInput,
-  CreateHrEvaluationFormInput,
-  CreateHrEvaluationInput,
-  CreateHrKpiDefinitionInput,
-  CreateHrKpiValueInput,
   CreateHrLeaveRequestInput,
   CreateHrLeaveTypeInput,
-  CreateHrMilestoneInput,
   CreateHrShiftInput,
   HrEmployeeSensitiveInput,
+  HrSelfServiceAbsenceInput,
   HrSelfServiceAcknowledgeInput,
   HrSelfServiceClockInput,
+  HrSelfServiceDeclarationInput,
   HrSelfServiceLeaveRequestInput,
   ImportHrAttendanceInput,
-  ImportHrKpiValuesInput,
   InviteHrPortalAccessInput,
+  RecoverHrAbsenceInput,
+  ReviewHrDeclarationInput,
   ReviewHrLeaveRequestInput,
-  UpdateHrAssignmentInput,
+  UpdateHrAbsenceInput,
   UpdateHrAttendanceInput,
-  UpdateHrChecklistTaskInput,
-  UpdateHrCoachingLogInput,
+  UpdateHrDeclarationInput,
   UpdateHrEmployeeInput,
-  UpdateHrEvaluationInput,
-  UpdateHrMilestoneInput,
   UpdateHrPortalSettingsInput,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 
@@ -60,26 +53,15 @@ export const weldhrKeys = {
   employees: (params: HrEmployeeListParams) => [...weldhrKeys.all, 'employees', params] as const,
   employee: (id: string) => [...weldhrKeys.all, 'employee', id] as const,
   sensitive: (id: string) => [...weldhrKeys.all, 'sensitive', id] as const,
-  orgChart: () => [...weldhrKeys.all, 'org-chart'] as const,
   departments: () => [...weldhrKeys.all, 'departments'] as const,
-  assignments: (params: object) => [...weldhrKeys.all, 'assignments', params] as const,
-  clients: () => [...weldhrKeys.all, 'clients'] as const,
-  client: (companyId: string) => [...weldhrKeys.all, 'client', companyId] as const,
-  templates: (kind?: string) => [...weldhrKeys.all, 'templates', kind ?? 'all'] as const,
-  checklists: (params: object) => [...weldhrKeys.all, 'checklists', params] as const,
   shifts: (params: object) => [...weldhrKeys.all, 'shifts', params] as const,
   attendance: (params: object) => [...weldhrKeys.all, 'attendance', params] as const,
   attendanceSummary: (params: object) => [...weldhrKeys.all, 'attendance-summary', params] as const,
   leaveTypes: (includeInactive: boolean) => [...weldhrKeys.all, 'leave-types', includeInactive] as const,
   leaveBalances: (employeeId: string, year: number) => [...weldhrKeys.all, 'leave-balances', employeeId, year] as const,
   leaveRequests: (params: object) => [...weldhrKeys.all, 'leave-requests', params] as const,
-  coaching: (params: object) => [...weldhrKeys.all, 'coaching', params] as const,
-  evaluationForms: () => [...weldhrKeys.all, 'evaluation-forms'] as const,
-  evaluations: (params: object) => [...weldhrKeys.all, 'evaluations', params] as const,
-  evaluation: (id: string) => [...weldhrKeys.all, 'evaluation', id] as const,
-  kpis: (params: object) => [...weldhrKeys.all, 'kpis', params] as const,
-  kpiValues: (params: object) => [...weldhrKeys.all, 'kpi-values', params] as const,
-  milestones: (params: object) => [...weldhrKeys.all, 'milestones', params] as const,
+  absences: (params: object) => [...weldhrKeys.all, 'absences', params] as const,
+  declarations: (params: object) => [...weldhrKeys.all, 'declarations', params] as const,
   portalSettings: () => [...weldhrKeys.all, 'portal-settings'] as const,
   portalAccess: (params: object) => [...weldhrKeys.all, 'portal-access', params] as const,
   availableMembers: (params: object) => [...weldhrKeys.all, 'available-members', params] as const,
@@ -179,18 +161,18 @@ export function useUpdateHrEmployeeSensitive() {
   return useHrMutation(({ id, ...input }: HrEmployeeSensitiveInput & { id: string }) => weldhr.updateSensitive(id, input));
 }
 
-export function useHrOrgChart() {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.orgChart(), queryFn: () => weldhr.orgChart(), select: (r) => r.data });
-}
-
 // ---------------------------------------------------------------------------
 // Departments
 // ---------------------------------------------------------------------------
 
-export function useHrDepartments() {
+export function useHrDepartments(opts: { enabled?: boolean } = {}) {
   const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.departments(), queryFn: () => weldhr.listDepartments(), select: (r) => r.data });
+  return useQuery({
+    queryKey: weldhrKeys.departments(),
+    queryFn: () => weldhr.listDepartments(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
 }
 
 export function useCreateHrDepartment() {
@@ -209,114 +191,18 @@ export function useDeleteHrDepartment() {
 }
 
 // ---------------------------------------------------------------------------
-// Assignments & clients
-// ---------------------------------------------------------------------------
-
-export function useHrAssignments(params: { employeeId?: string; companyId?: string; active?: boolean }) {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.assignments(params), queryFn: () => weldhr.listAssignments(params), select: (r) => r.data });
-}
-
-export function useCreateHrAssignment() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((input: CreateHrAssignmentInput) => weldhr.createAssignment(input));
-}
-
-export function useUpdateHrAssignment() {
-  const { weldhr } = useAppApi();
-  return useHrMutation(({ id, ...input }: UpdateHrAssignmentInput & { id: string }) => weldhr.updateAssignment(id, input));
-}
-
-export function useDeleteHrAssignment() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteAssignment(id));
-}
-
-export function useHrClients() {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.clients(), queryFn: () => weldhr.listClients(), select: (r) => r.data });
-}
-
-export function useHrClient(companyId: string | undefined) {
-  const { weldhr } = useAppApi();
-  return useQuery({
-    queryKey: weldhrKeys.client(companyId ?? ''),
-    queryFn: () => weldhr.getClient(companyId as string),
-    select: (r) => r.data,
-    enabled: Boolean(companyId),
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Lifecycle
-// ---------------------------------------------------------------------------
-
-export function useHrChecklistTemplates(kind?: 'onboarding' | 'offboarding') {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.templates(kind), queryFn: () => weldhr.listChecklistTemplates(kind), select: (r) => r.data });
-}
-
-export function useCreateHrChecklistTemplate() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((input: CreateHrChecklistTemplateInput) => weldhr.createChecklistTemplate(input));
-}
-
-export function useUpdateHrChecklistTemplate() {
-  const { weldhr } = useAppApi();
-  return useHrMutation(({ id, ...input }: Partial<CreateHrChecklistTemplateInput> & { id: string }) =>
-    weldhr.updateChecklistTemplate(id, input),
-  );
-}
-
-export function useDeleteHrChecklistTemplate() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteChecklistTemplate(id));
-}
-
-export function useHrChecklists(params: { employeeId?: string; status?: string; kind?: string }) {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.checklists(params), queryFn: () => weldhr.listChecklists(params), select: (r) => r.data });
-}
-
-export function useStartHrChecklist() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((input: { employeeId: string; templateId: string; anchorDate?: string }) => weldhr.startChecklist(input));
-}
-
-export function useCancelHrChecklist() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.cancelChecklist(id));
-}
-
-export function useDeleteHrChecklist() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteChecklist(id));
-}
-
-export function useAddHrChecklistTask() {
-  const { weldhr } = useAppApi();
-  return useHrMutation(({ checklistId, ...input }: CreateHrChecklistTaskInput & { checklistId: string }) =>
-    weldhr.addChecklistTask(checklistId, input),
-  );
-}
-
-export function useUpdateHrChecklistTask() {
-  const { weldhr } = useAppApi();
-  return useHrMutation(({ id, ...input }: UpdateHrChecklistTaskInput & { id: string }) => weldhr.updateChecklistTask(id, input));
-}
-
-export function useDeleteHrChecklistTask() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteChecklistTask(id));
-}
-
-// ---------------------------------------------------------------------------
 // Shifts & attendance
 // ---------------------------------------------------------------------------
 
 export function useHrShifts(params: { from?: string; to?: string; employeeId?: string; companyId?: string }) {
   const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.shifts(params), queryFn: () => weldhr.listShifts(params), select: (r) => r.data });
+  return useQuery({
+    queryKey: weldhrKeys.shifts(params),
+    queryFn: () => weldhr.listShifts(params),
+    select: (r) => r.data,
+    // Paging through periods keeps the grid on screen instead of flashing a loader.
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useCreateHrShift() {
@@ -446,152 +332,120 @@ export function useDeleteHrLeaveRequest() {
 }
 
 // ---------------------------------------------------------------------------
-// Coaching
+// Sick reports (back office; an employee's own reports are under My HR below)
 // ---------------------------------------------------------------------------
 
-export function useHrCoaching(params: { employeeId?: string; companyId?: string; status?: string; category?: string; from?: string; to?: string; followUpDue?: boolean }) {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.coaching(params), queryFn: () => weldhr.listCoaching(params), select: (r) => r.data });
-}
-
-export function useCreateHrCoaching() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((input: CreateHrCoachingLogInput) => weldhr.createCoaching(input));
-}
-
-export function useUpdateHrCoaching() {
-  const { weldhr } = useAppApi();
-  return useHrMutation(({ id, ...input }: UpdateHrCoachingLogInput & { id: string }) => weldhr.updateCoaching(id, input));
-}
-
-export function useDeleteHrCoaching() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteCoaching(id));
-}
-
-// ---------------------------------------------------------------------------
-// Evaluations
-// ---------------------------------------------------------------------------
-
-export function useHrEvaluationForms() {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.evaluationForms(), queryFn: () => weldhr.listEvaluationForms(), select: (r) => r.data });
-}
-
-export function useCreateHrEvaluationForm() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((input: CreateHrEvaluationFormInput) => weldhr.createEvaluationForm(input));
-}
-
-export function useUpdateHrEvaluationForm() {
-  const { weldhr } = useAppApi();
-  return useHrMutation(({ id, ...input }: Partial<CreateHrEvaluationFormInput> & { id: string }) => weldhr.updateEvaluationForm(id, input));
-}
-
-export function useDeleteHrEvaluationForm() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteEvaluationForm(id));
-}
-
-export function useHrEvaluations(params: { employeeId?: string; companyId?: string; status?: string; formId?: string; from?: string; to?: string }) {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.evaluations(params), queryFn: () => weldhr.listEvaluations(params), select: (r) => r.data });
-}
-
-export function useHrEvaluation(id: string | undefined) {
+export function useHrAbsences(params: HrAbsenceListParams, opts: { enabled?: boolean } = {}) {
   const { weldhr } = useAppApi();
   return useQuery({
-    queryKey: weldhrKeys.evaluation(id ?? ''),
-    queryFn: () => weldhr.getEvaluation(id as string),
-    select: (r) => r.data,
-    enabled: Boolean(id),
+    queryKey: weldhrKeys.absences(params),
+    queryFn: () => weldhr.listAbsences(params),
+    placeholderData: keepPreviousData,
+    enabled: opts.enabled ?? true,
   });
 }
 
-export function useCreateHrEvaluation() {
+export function useCreateHrAbsence() {
   const { weldhr } = useAppApi();
-  return useHrMutation((input: CreateHrEvaluationInput) => weldhr.createEvaluation(input));
+  return useHrMutation((input: CreateHrAbsenceInput) => weldhr.createAbsence(input));
 }
 
-export function useUpdateHrEvaluation() {
+export function useUpdateHrAbsence() {
   const { weldhr } = useAppApi();
-  return useHrMutation(({ id, ...input }: UpdateHrEvaluationInput & { id: string }) => weldhr.updateEvaluation(id, input));
+  return useHrMutation(({ id, ...input }: UpdateHrAbsenceInput & { id: string }) => weldhr.updateAbsence(id, input));
 }
 
-export function useDeleteHrEvaluation() {
+export function useRecoverHrAbsence() {
   const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteEvaluation(id));
+  return useHrMutation(({ id, ...input }: RecoverHrAbsenceInput & { id: string }) => weldhr.recoverAbsence(id, input));
+}
+
+export function useDeleteHrAbsence() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.deleteAbsence(id));
 }
 
 // ---------------------------------------------------------------------------
-// KPIs & milestones
+// Declarations (expense claims)
 // ---------------------------------------------------------------------------
 
-export function useHrKpis(params: { companyId?: string; includeInactive?: boolean } = {}) {
+export function useHrDeclarations(params: { employeeId?: string; status?: string; category?: string; from?: string; to?: string } = {}) {
   const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.kpis(params), queryFn: () => weldhr.listKpis(params), select: (r) => r.data });
+  return useQuery({ queryKey: weldhrKeys.declarations(params), queryFn: () => weldhr.listDeclarations(params), select: (r) => r.data });
 }
 
-export function useCreateHrKpi() {
+/**
+ * File a declaration. The receipt is a second request to the new record; when
+ * only that part fails the declaration is kept and `receiptFailed` says so.
+ */
+export function useCreateHrDeclaration() {
   const { weldhr } = useAppApi();
-  return useHrMutation((input: CreateHrKpiDefinitionInput) => weldhr.createKpi(input));
+  return useHrMutation(async ({ receipt, ...input }: CreateHrDeclarationInput & { receipt?: File | null }) => {
+    const { data } = await weldhr.createDeclaration(input);
+    if (!receipt) return { declaration: data, receiptFailed: false };
+    try {
+      return { declaration: (await weldhr.uploadDeclarationReceipt(data.id, receipt)).data, receiptFailed: false };
+    } catch {
+      return { declaration: data, receiptFailed: true };
+    }
+  });
 }
 
-export function useUpdateHrKpi() {
+export function useUpdateHrDeclaration() {
   const { weldhr } = useAppApi();
-  return useHrMutation(({ id, ...input }: Partial<CreateHrKpiDefinitionInput> & { id: string }) => weldhr.updateKpi(id, input));
+  return useHrMutation(({ id, ...input }: UpdateHrDeclarationInput & { id: string }) => weldhr.updateDeclaration(id, input));
 }
 
-export function useDeleteHrKpi() {
+export function useUploadHrDeclarationReceipt() {
   const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteKpi(id));
+  return useHrMutation(({ id, file }: { id: string; file: File }) => weldhr.uploadDeclarationReceipt(id, file));
 }
 
-export function useHrKpiValues(params: { employeeId?: string; kpiId?: string; companyId?: string; from?: string; to?: string }) {
+export function useReviewHrDeclaration() {
   const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.kpiValues(params), queryFn: () => weldhr.listKpiValues(params), select: (r) => r.data });
+  return useHrMutation(({ id, ...input }: ReviewHrDeclarationInput & { id: string }) => weldhr.reviewDeclaration(id, input));
 }
 
-export function useCreateHrKpiValue() {
+export function useMarkHrDeclarationPaid() {
   const { weldhr } = useAppApi();
-  return useHrMutation((input: CreateHrKpiValueInput) => weldhr.createKpiValue(input));
+  return useHrMutation((id: string) => weldhr.markDeclarationPaid(id));
 }
 
-export function useUpdateHrKpiValue() {
+export function useCancelHrDeclaration() {
   const { weldhr } = useAppApi();
-  return useHrMutation(
-    ({ id, ...input }: Partial<Omit<CreateHrKpiValueInput, 'kpiId' | 'employeeId'>> & { id: string }) => weldhr.updateKpiValue(id, input),
-  );
+  return useHrMutation((id: string) => weldhr.cancelDeclaration(id));
 }
 
-export function useDeleteHrKpiValue() {
+export function useDeleteHrDeclaration() {
   const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteKpiValue(id));
+  return useHrMutation((id: string) => weldhr.deleteDeclaration(id));
 }
 
-export function useImportHrKpiValues() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((input: ImportHrKpiValuesInput) => weldhr.importKpiValues(input));
+/**
+ * Receipts are private files behind the session, so there is no URL to link
+ * to: fetch the bytes and hand them to the browser as a download.
+ */
+function saveReceipt(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
-export function useHrMilestones(params: { employeeId?: string; companyId?: string; status?: string }) {
-  const { weldhr } = useAppApi();
-  return useQuery({ queryKey: weldhrKeys.milestones(params), queryFn: () => weldhr.listMilestones(params), select: (r) => r.data });
-}
+type ReceiptRef = { id: string; receiptFileName: string | null };
 
-export function useCreateHrMilestone() {
+export function useOpenHrDeclarationReceipt() {
   const { weldhr } = useAppApi();
-  return useHrMutation((input: CreateHrMilestoneInput) => weldhr.createMilestone(input));
-}
-
-export function useUpdateHrMilestone() {
-  const { weldhr } = useAppApi();
-  return useHrMutation(({ id, ...input }: UpdateHrMilestoneInput & { id: string }) => weldhr.updateMilestone(id, input));
-}
-
-export function useDeleteHrMilestone() {
-  const { weldhr } = useAppApi();
-  return useHrMutation((id: string) => weldhr.deleteMilestone(id));
+  return useMutation<void, Error, ReceiptRef>({
+    mutationFn: async ({ id, receiptFileName }) => {
+      const response = await weldhr.declarationReceipt(id);
+      saveReceipt(await response.blob(), receiptFileName ?? 'receipt');
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -700,6 +554,65 @@ export function useMyHrRequestLeave() {
 export function useMyHrCancelLeave() {
   const { weldhr } = useAppApi();
   return useHrMutation((id: string) => weldhr.meCancelLeave(id));
+}
+
+export function useMyHrAbsences(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('absences'),
+    queryFn: () => weldhr.meAbsences(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrDeclarations(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('declarations'),
+    queryFn: () => weldhr.meDeclarations(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrReportSick() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: HrSelfServiceAbsenceInput) => weldhr.meReportSick(input));
+}
+
+export function useMyHrReportRecovered() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: RecoverHrAbsenceInput & { id: string }) => weldhr.meReportRecovered(id, input));
+}
+
+/** Same two-step filing as `useCreateHrDeclaration`, for the caller's own record. */
+export function useMyHrCreateDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(async ({ receipt, ...input }: HrSelfServiceDeclarationInput & { receipt?: File | null }) => {
+    const { data } = await weldhr.meCreateDeclaration(input);
+    if (!receipt) return { declaration: data, receiptFailed: false };
+    try {
+      return { declaration: (await weldhr.meUploadDeclarationReceipt(data.id, receipt)).data, receiptFailed: false };
+    } catch {
+      return { declaration: data, receiptFailed: true };
+    }
+  });
+}
+
+export function useMyHrCancelDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.meCancelDeclaration(id));
+}
+
+export function useMyHrOpenDeclarationReceipt() {
+  const { weldhr } = useAppApi();
+  return useMutation<void, Error, ReceiptRef>({
+    mutationFn: async ({ id, receiptFileName }) => {
+      const response = await weldhr.meDeclarationReceipt(id);
+      saveReceipt(await response.blob(), receiptFileName ?? 'receipt');
+    },
+  });
 }
 
 export function useMyHrTasks(opts: { enabled?: boolean } = {}) {

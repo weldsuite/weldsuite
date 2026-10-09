@@ -1,12 +1,11 @@
 import * as React from 'react';
-import { BookOpen, FileText, LayoutGrid, Trash2 } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';
 import { useCan } from '@weldsuite/permissions/react';
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { getTranslations } from '@/lib/i18n';
-import { useI18n } from '@/lib/i18n/provider';
 import { usePathname, useRouter } from '@/lib/router';
 import {
   useAddKnowledgeFavorite,
@@ -47,16 +46,14 @@ function pageIcon(emoji: string | null | undefined): MenuItemProps['icon'] {
 }
 
 /**
- * WeldKnow entries for the shared module sidebar: General (Home, Teamspaces,
- * Trash), Favorites, Private (the caller's personal space) and Teamspaces (the
- * ones they joined). Page trees are rendered as custom content so they can
- * nest arbitrarily deep.
+ * WeldKnow entries for the shared module sidebar: Favorites, Private (the
+ * caller's personal space) and Teamspaces (the ones they joined). Page trees
+ * are rendered as custom content so they can nest arbitrarily deep.
  */
 export function useWeldknowSidebarItems(isActive: boolean): {
   menuGroups: MenuGroupProps[];
   dialogs: React.ReactNode;
 } {
-  const { t: tAll } = useI18n();
   const t = getTranslations('weldknow');
   const router = useRouter();
   const pathname = usePathname();
@@ -90,7 +87,7 @@ export function useWeldknowSidebarItems(isActive: boolean): {
 
   const allSpaces = React.useMemo(() => spacesData?.data ?? [], [spacesData]);
   const personalSpaces = React.useMemo(() => allSpaces.filter((s) => s.kind === 'personal'), [allSpaces]);
-  // The sidebar lists joined teamspaces only; the rest live on the Teamspaces page.
+  // The sidebar lists joined teamspaces only.
   const spaces = React.useMemo(() => allSpaces.filter((s) => s.kind === 'team' && s.isMember), [allSpaces]);
   const allNodes = React.useMemo(() => treeData?.data ?? [], [treeData]);
   const favorites = React.useMemo(() => favoritesData?.data ?? [], [favoritesData]);
@@ -216,16 +213,7 @@ export function useWeldknowSidebarItems(isActive: boolean): {
   const menuGroups = React.useMemo<MenuGroupProps[]>(() => {
     if (!isActive) return [];
 
-    const groups: MenuGroupProps[] = [
-      {
-        group: tAll.navigation.moduleSidebar.groups.general,
-        items: [
-          { title: t.sidebar.home, href: '/weldknow', icon: BookOpen, isActive: pathname === '/weldknow' },
-          { title: t.sidebar.allTeamspaces, href: '/weldknow/teamspaces', icon: LayoutGrid },
-          { title: t.sidebar.trash, href: '/weldknow/trash', icon: Trash2 },
-        ],
-      },
-    ];
+    const groups: MenuGroupProps[] = [];
 
     if (favorites.length > 0) {
       groups.push({
@@ -269,9 +257,7 @@ export function useWeldknowSidebarItems(isActive: boolean): {
         group: t.sidebar.private,
         items: [],
         onAdd: canCreate ? () => void handleCreatePage(personal.id, null) : undefined,
-        customContent: (
-          <KnowledgeSpaceTree {...treeProps} spaces={[personal]} flat emptyLabel={t.sidebar.noPrivatePages} />
-        ),
+        customContent: <KnowledgeSpaceTree {...treeProps} spaces={[personal]} flat />,
       });
     }
 
@@ -284,7 +270,7 @@ export function useWeldknowSidebarItems(isActive: boolean): {
 
     return groups;
   }, [
-    isActive, tAll, t, pathname, favorites, canCreate, canDelete, spaces, personalSpaces, treesBySpace, spacesLoading,
+    isActive, t, favorites, canCreate, canDelete, spaces, personalSpaces, treesBySpace, spacesLoading,
     treeLoading, activePageId, favoritePageIds, expandedSpaces, expandedPages, toggleSpace, togglePage,
     openCreateSpace, handleCreatePage, handleToggleFavorite,
   ]);

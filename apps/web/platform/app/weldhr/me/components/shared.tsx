@@ -3,9 +3,9 @@
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 
-export type MeTabId = 'overview' | 'leave' | 'attendance' | 'tasks' | 'reviews' | 'goals';
+export type MeTabId = 'overview' | 'leave' | 'declarations' | 'attendance' | 'tasks' | 'reviews' | 'goals';
 
-export const ME_TAB_IDS: readonly MeTabId[] = ['overview', 'leave', 'attendance', 'tasks', 'reviews', 'goals'];
+export const ME_TAB_IDS: readonly MeTabId[] = ['overview', 'leave', 'declarations', 'attendance', 'tasks', 'reviews', 'goals'];
 
 export function isMeTabId(value: string | undefined): value is MeTabId {
   return ME_TAB_IDS.some((id) => id === value);

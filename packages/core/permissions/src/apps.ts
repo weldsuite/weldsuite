@@ -58,7 +58,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'weldbooks',
     label: 'WeldBooks',
-    objects: ['entities', 'invoices', 'bills', 'journal', 'accounts', 'banking', 'reports', 'settings'],
+    objects: ['entities', 'invoices', 'bills', 'journal', 'accounts', 'banking', 'reports', 'settings', 'taxes', 'tax_ids'],
   },
   {
     code: 'welddesk',
@@ -151,7 +151,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'weldhr',
     label: 'WeldHR',
-    objects: ['employees', 'attendance', 'leave', 'coaching', 'evaluations', 'companies', 'people'],
+    objects: ['employees', 'attendance', 'leave', 'declarations', 'absences', 'coaching', 'evaluations', 'companies', 'people'],
   },
 ];
 

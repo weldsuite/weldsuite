@@ -12,6 +12,10 @@ import {
 import { ArrowLeft, Pencil } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
+import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import { useTaxLineCatalog } from '@/hooks/queries/use-accounting-queries';
+import { form1099BoxName, FORM_1099_OMIT } from '@/lib/weldbooks/form-1099';
+import { taxLineLabel } from '@/lib/weldbooks/tax-lines';
 
 function DetailRow({ label, value }: Readonly<{ label: string; value: React.ReactNode }>) {
   if (value === null || value === undefined) return null;
@@ -29,6 +33,10 @@ export default function AccountDetailPage() {
   const { t } = useI18n();
   const ta = t.accounting.accounts;
   const { formatMoney, entityCurrency } = useCurrentEntityCurrency();
+  const { code: jurisdictionCode, features } = useCurrentJurisdiction();
+  const isUs = jurisdictionCode === 'US';
+  const tus = t.weldbooksUs.setup.accounts;
+  const taxLineCatalog = useTaxLineCatalog(undefined, { enabled: isUs });
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -96,6 +104,32 @@ export default function AccountDetailPage() {
           <DetailRow label={ta.currency} value={account.currency ?? entityCurrency ?? '—'} />
         </CardContent>
       </Card>
+
+      {isUs && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{tus.reportingTitle}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DetailRow
+              label={tus.taxLine}
+              value={account.taxLine ? taxLineLabel(taxLineCatalog.data, account.taxLine) : tus.notSet}
+            />
+            {features.form1099 && (
+              <DetailRow
+                label={tus.form1099Box}
+                value={
+                  account.form1099Box
+                    ? account.form1099Box === FORM_1099_OMIT
+                      ? tus.form1099Omit
+                      : form1099BoxName(account.form1099Box)
+                    : tus.notSet
+                }
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

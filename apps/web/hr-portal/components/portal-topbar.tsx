@@ -30,6 +30,7 @@ export function PortalTopbar({ me, config }: Readonly<{ me: Me; config: PortalCo
           { href: `/${slug}/me`, label: dict.nav.home },
           { href: `/${slug}/me/schedule`, label: dict.nav.schedule },
           { href: `/${slug}/me/leave`, label: dict.nav.leave },
+          { href: `/${slug}/me/declarations`, label: dict.nav.declarations },
           { href: `/${slug}/me/coaching`, label: dict.nav.coaching },
           { href: `/${slug}/me/evaluations`, label: dict.nav.evaluations },
           { href: `/${slug}/me/tasks`, label: dict.nav.tasks },

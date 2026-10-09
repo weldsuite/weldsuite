@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { slideTransitionClasses } from '../lib/slide-transition';
+import { keyedBy } from '../lib/keyed';
 
 export interface SlideshowContainerBlockProps {
   autoplay?: boolean;
@@ -162,9 +163,9 @@ export function SlideshowContainerBlock({
             {/* Dots */}
             {showDots && (
               <div className="flex gap-2.5">
-                {slides.map((_, index) => (
+                {keyedBy(slides, (slide) => (React.isValidElement(slide) ? String(slide.key) : String(slide))).map(({ key }, index) => (
                   <button
-                    key={index}
+                    key={key}
                     onClick={() => goToSlide(index)}
                     disabled={isTransitioning}
                     className={`w-3 h-3 rounded-full transition-all duration-300 disabled:cursor-not-allowed ${

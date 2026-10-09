@@ -2,6 +2,7 @@ import {
   pgTable,
   varchar,
   timestamp,
+  date,
   boolean,
   numeric,
   text,
@@ -42,6 +43,9 @@ export const taxRates = pgTable('tax_rates', {
   isActive: boolean('is_active').default(true),
   description: text('description'),
   ledgerAccountId: varchar('ledger_account_id', { length: 30 }),
+  /** The rate applies to documents dated in this range (open-ended when empty). */
+  effectiveFrom: date('effective_from'),
+  effectiveTo: date('effective_to'),
 
   jurisdictionMetadata: jsonb('jurisdiction_metadata').$type<Record<string, unknown>>(),
 }, (table) => [
