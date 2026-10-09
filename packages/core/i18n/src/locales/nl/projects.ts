@@ -1297,6 +1297,12 @@ export const projects = {
       priorityLabel: 'Prioriteit',
       dueDateLabel: 'Vervaldatum',
       appearanceLabel: 'Weergave',
+      descriptionLabel: 'Beschrijving',
+      descriptionPlaceholder: 'Waar gaat dit project over?',
+      noDueDatePlaceholder: 'Geen vervaldatum',
+      savingChanges: 'Opslaan…',
+      changesSaved: 'Alle wijzigingen opgeslagen',
+      autoSaveHint: 'Wijzigingen worden automatisch opgeslagen.',
       changeColorTitle: 'Kleur wijzigen',
       changeIconTitle: 'Pictogram wijzigen',
       // Status options
@@ -1379,6 +1385,9 @@ export const projects = {
       deleteStatusBtn: 'Verwijderen',
       editStageMenuItem: 'Bewerken',
       deleteStageMenuItem: 'Verwijderen',
+      moveStageUpMenuItem: 'Omhoog',
+      moveStageDownMenuItem: 'Omlaag',
+      failedToReorderStatuses: 'Statussen herschikken mislukt',
 
       // import-section.tsx
       importHeading: 'Taken importeren vanuit CSV of Excel',

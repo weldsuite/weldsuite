@@ -33,7 +33,8 @@ beforeAll(async () => {
 
 /** A key shaped like the ones `/api/storage/generate-upload-url` issues. */
 function uploadKey(projectId: string, name: string, workspaceId = WORKSPACE_ID) {
-  return `workspaces/${workspaceId}/projects/project/${projectId}/${name}`;
+  const unguessable = '0123456789abcdef'.repeat(2);
+  return `workspaces/${workspaceId}/projects/project/${projectId}/1760000000000_${unguessable}/${name}`;
 }
 
 function mockStorage() {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Input } from '@weldsuite/ui/components/input';
+import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Label } from '@weldsuite/ui/components/label';
 import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
@@ -38,6 +39,7 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('Planning');
@@ -47,7 +49,8 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
   const [iconLabel, setIconLabel] = useState<string | undefined>(undefined);
   const [colorOpen, setColorOpen] = useState(false);
   const [iconOpen, setIconOpen] = useState(false);
-  const [originalName, setOriginalName] = useState('');
+  // A ref, not state: renaming must not re-run the autosave effect below.
+  const originalNameRef = useRef('');
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +60,7 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
       if (res.success && res.data) {
         const p = res.data;
         setName(p.name || '');
-        setOriginalName(p.name || '');
+        originalNameRef.current = p.name || '';
         setDescription(p.description || '');
         setStatus(p.status || 'Planning');
         setPriority(p.priority || 'medium');
@@ -93,12 +96,14 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
     }
     if (!name.trim()) return; // required — silently skip while empty
 
+    setSaved(false);
     const timer = setTimeout(async () => {
       setSaving(true);
       try {
         const payload = {
           name: name.trim(),
-          description: description.trim() || undefined,
+          // Sent even when empty so a cleared description is saved too.
+          description: description.trim(),
           status,
           priority,
           endDate: dueDate ? dueDate.toISOString() : undefined,
@@ -110,12 +115,13 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
           toast.error(result.error || t.projects.settings.failedToSaveChanges);
           return;
         }
-        if (name.trim() !== originalName) {
+        if (name.trim() !== originalNameRef.current) {
           window.dispatchEvent(
             new CustomEvent('project:renamed', { detail: { id: projectId, name: name.trim() } }),
           );
-          setOriginalName(name.trim());
+          originalNameRef.current = name.trim();
         }
+        setSaved(true);
       } finally {
         setSaving(false);
       }
@@ -125,11 +131,13 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
     // `t` intentionally excluded — including it would re-trigger this autosave
     // effect (and schedule a spurious save) on every locale switch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, description, status, priority, dueDate, color, iconLabel, loading, isAdmin, projectId, originalName]);
+  }, [name, description, status, priority, dueDate, color, iconLabel, loading, isAdmin, projectId]);
 
   if (loading) return <PageLoader fullScreen={false} />;
 
-  const disabled = !isAdmin || saving;
+  // Not disabled while saving: the form autosaves as you type, and disabling
+  // the fields mid-request would drop focus from the one being edited.
+  const disabled = !isAdmin;
 
   return (
     <div className="max-w-3xl">
@@ -141,6 +149,19 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={disabled}
+              className="focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="description" className="text-[13px]">{t.projects.settings.descriptionLabel}</Label>
+            <Textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={disabled}
+              rows={4}
+              placeholder={t.projects.settings.descriptionPlaceholder}
               className="focus-visible:ring-0 focus-visible:ring-offset-0"
             />
           </div>
@@ -180,7 +201,7 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
             <DatePicker
               date={dueDate}
               onDateChange={(d) => !disabled && setDueDate(d)}
-              placeholder="No due date"
+              placeholder={t.projects.settings.noDueDatePlaceholder}
               className="max-w-xs"
             />
           </div>
@@ -270,6 +291,15 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
             </div>
           </div>
 
+        {isAdmin && (
+          <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
+            {saving
+              ? t.projects.settings.savingChanges
+              : saved
+                ? t.projects.settings.changesSaved
+                : t.projects.settings.autoSaveHint}
+          </p>
+        )}
       </div>
     </div>
   );

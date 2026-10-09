@@ -130,6 +130,7 @@ const Cell = memo(function Cell({
   if (isEditing) {
     return (
       <div
+        key="cell-editor"
         ref={inputRef}
         contentEditable
         suppressContentEditableWarning
@@ -194,8 +195,13 @@ const Cell = memo(function Cell({
     return inner;
   };
 
+  // Own key: the editor above is an uncontrolled contentEditable whose typed
+  // text lives in the DOM, not in React. Without a distinct key React reuses
+  // that same <div> for the read-only cell and appends the rendered value to
+  // the leftover edit text ("57" becomes "5757", "=A1*2" becomes "=A1*264").
   return (
     <div
+      key="cell-display"
       className={`relative w-full ${isError ? 'text-red-500' : 'text-foreground'}`}
       title={note || undefined}
       style={{
