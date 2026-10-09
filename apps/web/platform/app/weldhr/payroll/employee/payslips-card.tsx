@@ -12,24 +12,12 @@ import {
   useDownloadHrPayslipPdf,
   useHrAnnualStatements,
   useHrEmployeePayslips,
-  useHrPayslip,
 } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { EmptyText, SectionCard } from '../../components/page-kit';
 import { ErrorBanner, errorMessage, formatDate } from '../../components/shared';
 import { PayslipSheet } from '../components/payslip-sheet';
 import { PayslipStatusBadge } from '../components/payroll-ui';
 import { formatDecimal, periodRange } from '../lib/format';
-
-/** The summary has no dates, so each row reads its period from the payslip itself (one cached request per row). */
-function PeriodCell({ payslipId }: Readonly<{ payslipId: string }>) {
-  const { data } = useHrPayslip(payslipId);
-  return <span className="whitespace-nowrap">{data ? periodRange(data.periodStart, data.periodEnd) : '—'}</span>;
-}
-
-function PayDateCell({ payslipId }: Readonly<{ payslipId: string }>) {
-  const { data } = useHrPayslip(payslipId);
-  return <span className="whitespace-nowrap text-muted-foreground">{data ? formatDate(data.payDate) : '—'}</span>;
-}
 
 export function PayslipsCard({ employeeId, detail }: Readonly<{ employeeId: string; detail: HrPayrollEmployeeDetail }>) {
   const t = useTranslations();
@@ -38,7 +26,7 @@ export function PayslipsCard({ employeeId, detail }: Readonly<{ employeeId: stri
   const [openId, setOpenId] = useState<string | null>(null);
   const pdf = useDownloadHrPayslipPdf();
   const statementPdf = useDownloadHrAnnualStatementPdf();
-  const currency = detail.employer?.currency ?? 'EUR';
+  const fallbackCurrency = detail.employer?.currency ?? 'EUR';
 
   return (
     <SectionCard title={t('weldhr.payroll.employee.payslips.title')} contentClassName="p-0">
@@ -65,15 +53,11 @@ export function PayslipsCard({ employeeId, detail }: Readonly<{ employeeId: stri
           <TableBody>
             {payslips.map((payslip) => (
               <TableRow key={payslip.id}>
-                <TableCell>
-                  <PeriodCell payslipId={payslip.id} />
-                </TableCell>
-                <TableCell>
-                  <PayDateCell payslipId={payslip.id} />
-                </TableCell>
+                <TableCell className="whitespace-nowrap">{periodRange(payslip.periodStart, payslip.periodEnd)}</TableCell>
+                <TableCell className="whitespace-nowrap text-muted-foreground">{formatDate(payslip.payDate)}</TableCell>
                 <TableCell className="text-muted-foreground">{payslip.number ?? '—'}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatDecimal(payslip.grossPay, currency)}</TableCell>
-                <TableCell className="text-right font-medium tabular-nums">{formatDecimal(payslip.netPay, currency)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatDecimal(payslip.grossPay, payslip.currency || fallbackCurrency)}</TableCell>
+                <TableCell className="text-right font-medium tabular-nums">{formatDecimal(payslip.netPay, payslip.currency || fallbackCurrency)}</TableCell>
                 <TableCell>
                   <PayslipStatusBadge status={payslip.status} />
                 </TableCell>

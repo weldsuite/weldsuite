@@ -3024,6 +3024,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.90.19
         version: 5.90.19(react@19.2.3)
+      '@weldsuite/payroll-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/payroll
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../../packages/core/realtime

@@ -833,10 +833,6 @@ export const weldhrPayroll = {
       state: {
         formName: 'This is the {form} certificate for {state}.',
         noCertificate: '{state} has no state withholding certificate to sign. It uses the federal W-4, or has no wage tax.',
-        filingStatus: 'Filing status',
-        allowances: 'Allowances',
-        extraWithholding: 'Extra withholding per pay period',
-        exempt: 'Exempt from state withholding',
         exemptHint: 'Only if the state allows it for you.',
       },
       summary: {

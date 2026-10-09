@@ -3,7 +3,9 @@
  * state withholding certificate. The employee signs their own on My HR with a
  * typed full name; HR enters a paper form on the employee's Payroll tab (the
  * name is then the one on the paper form). The state certificate is rendered
- * from the state module's field list.
+ * from the state module's field list: each field once, in the form's order, with
+ * filing status, allowances, extra withholding and exempt bound to the
+ * election itself and every other field to its `values`.
  */
 
 import { useState } from 'react';
@@ -15,7 +17,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Form } from '@weldsuite/ui/components/form';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { stateModule } from '@weldsuite/payroll-domain/us/states';
+import { isCertificateTopLevelKey, stateModule } from '@weldsuite/payroll-domain/us/states';
 import type { StateCertificateFieldDef } from '@weldsuite/payroll-domain/us/states';
 import type { HrStateCertificateDefinition, HrTaxElectionKind } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import {
@@ -257,7 +259,11 @@ function StateForm({ target, mode, defaultName, onSubmit, onClose }: Readonly<Di
       data: {
         filingStatus: certificate?.filingStatuses?.[0] ?? null,
         allowances: certificate?.usesAllowances ? 0 : null,
-        values: Object.fromEntries((certificate?.fields ?? []).map((field) => [field.key, field.type === 'boolean' ? false : null])),
+        values: Object.fromEntries(
+          (certificate?.fields ?? [])
+            .filter((field) => !isCertificateTopLevelKey(field.key))
+            .map((field) => [field.key, field.type === 'boolean' ? false : null]),
+        ),
         extraWithholding: null,
         exempt: false,
       },
@@ -290,7 +296,7 @@ function StateForm({ target, mode, defaultName, onSubmit, onClose }: Readonly<Di
   }
 
   function renderField(field: StateCertificateFieldDef) {
-    const name = `data.values.${field.key}` as const;
+    const name = isCertificateTopLevelKey(field.key) ? (`data.${field.key}` as const) : (`data.values.${field.key}` as const);
     const label = labels.stateField(state, field.key);
     switch (field.type) {
       case 'select':
@@ -304,7 +310,15 @@ function StateForm({ target, mode, defaultName, onSubmit, onClose }: Readonly<Di
           />
         );
       case 'boolean':
-        return <SwitchField key={field.key} control={form.control} name={name} label={label} />;
+        return (
+          <SwitchField
+            key={field.key}
+            control={form.control}
+            name={name}
+            label={label}
+            description={field.key === 'exempt' ? t('weldhr.payroll.elections.state.exemptHint') : undefined}
+          />
+        );
       default:
         return <NumberField key={field.key} control={form.control} name={name} label={label} />;
     }
@@ -315,18 +329,7 @@ function StateForm({ target, mode, defaultName, onSubmit, onClose }: Readonly<Di
       <form onSubmit={form.handleSubmit(submit)} className="space-y-4">
         <ErrorBanner error={failure} />
         <InfoLine>{t('weldhr.payroll.elections.state.formName', { form: certificate.formName, state })}</InfoLine>
-        {certificate.filingStatuses && certificate.filingStatuses.length > 0 && (
-          <SelectField
-            control={form.control}
-            name="data.filingStatus"
-            label={t('weldhr.payroll.elections.state.filingStatus')}
-            options={certificate.filingStatuses.map((status) => ({ value: status, label: labels.stateOption(state, 'filingStatus', status) }))}
-          />
-        )}
-        {certificate.usesAllowances && <NumberField control={form.control} name="data.allowances" label={t('weldhr.payroll.elections.state.allowances')} />}
         {certificate.fields.length > 0 && <div className="grid gap-3 sm:grid-cols-2">{certificate.fields.map(renderField)}</div>}
-        <NumberField control={form.control} name="data.extraWithholding" label={t('weldhr.payroll.elections.state.extraWithholding')} />
-        <SwitchField control={form.control} name="data.exempt" label={t('weldhr.payroll.elections.state.exempt')} description={t('weldhr.payroll.elections.state.exemptHint')} />
         <TextField control={form.control} name="effectiveFrom" label={t('weldhr.payroll.elections.effectiveFrom')} type="date" emptyAs="string" />
         <SignatureFooter mode={mode} saving={saving} onClose={onClose} />
       </form>

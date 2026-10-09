@@ -1,63 +1,57 @@
 /**
- * The state withholding certificates the portal can render.
+ * The state withholding certificates the portal renders, from the state
+ * modules in `@weldsuite/payroll-domain` (form name, filing statuses,
+ * allowances, the form's own lines) and their labels
+ * (`STATE_CERTIFICATE_LABELS`, keyed `<ST>.<key>` and `<ST>.<key>.<option>`).
  *
- * Each US state module in `@weldsuite/payroll-domain` declares its certificate
- * (`stateModule(code).certificate`: form name, filing statuses, allowances,
- * extra fields) and the field labels live in `STATE_CERTIFICATE_LABELS`
- * (`packages/domains/payroll/src/us/states/{types,certificate-labels}.ts`).
- *
- * This app does not depend on `@weldsuite/payroll-domain` yet, so those
- * definitions are not reachable here. The interfaces below are local copies of
- * the domain's `StateCertificateFieldDef` and `StateModule['certificate']`, and
- * the tables below are empty for now. The portal then shows the generic
- * certificate (filing status, allowances, extra withholding, exempt), which is
- * the set of fields the API accepts for every state.
- *
- * To switch to the real definitions, add `"@weldsuite/payroll-domain":
- * "workspace:*"` to this app's dependencies and its `transpilePackages`, then
- * make `getStateCertificate` return `stateModule(state)?.certificate ?? null`
- * (from '@weldsuite/payroll-domain/us/states') and read the labels from
- * `STATE_CERTIFICATE_LABELS` (from '.../us/states/certificate-labels')
- * instead of the empty local tables below.
+ * A certificate's field list is the whole form. Filing status, allowances,
+ * extra withholding and exempt are answers of the election itself, which the
+ * form shows with its own controls; `fields` here holds only the other lines,
+ * which the API stores in the election's `values`. A state without a module
+ * certificate gets the generic form (filing status, allowances, extra
+ * withholding, exempt).
  */
 
+import { isCertificateTopLevelKey, stateModule, type StateCertificateFieldDef } from '@weldsuite/payroll-domain/us/states';
+import { STATE_CERTIFICATE_LABELS } from '@weldsuite/payroll-domain/us/states/certificate-labels';
 import type { Locale } from '@/lib/i18n';
 import { humanizeKey } from '@/lib/payroll/format';
 
-export interface StateCertificateFieldDef {
-  key: string;
-  type: 'select' | 'number' | 'money' | 'boolean';
-  /** For `select`. */
-  options?: string[];
-  required?: boolean;
-  /** Translation key for the label, under `weldhr.payroll.stateCertificates.<state>.<key>`. */
-  labelKey: string;
-}
+export type { StateCertificateFieldDef };
 
 export interface StateCertificateDef {
   formName: string;
   /** `filingStatus` options, if the form has one. */
   filingStatuses?: string[];
   usesAllowances: boolean;
+  /** Whether the form has an extra-withholding line and an exempt claim. */
+  asksExtraWithholding: boolean;
+  asksExempt: boolean;
+  /** The form's other lines, stored in the election's `values`. */
   fields: StateCertificateFieldDef[];
 }
 
-/**
- * Certificates by two-letter state code. Empty until this app can read the
- * domain package's state modules (see the header): every state then renders
- * the generic certificate.
- */
-const CERTIFICATES: Record<string, StateCertificateDef> = {};
-
-/** Same shape and keys (`<ST>.<key>`) as the domain's `STATE_CERTIFICATE_LABELS`. */
-const FIELD_LABELS: Record<string, { en: string; nl: string }> = {};
-
-/** The state's certificate, or null when the portal has no definition for it (it falls back to the generic form). */
+/** The state's certificate, or null when the state has none (the portal then shows the generic form). */
 export function getStateCertificate(state: string): StateCertificateDef | null {
-  return CERTIFICATES[state.toUpperCase()] ?? null;
+  const certificate = stateModule(state)?.certificate;
+  if (!certificate) return null;
+  const keys = new Set(certificate.fields.map((field) => field.key));
+  return {
+    formName: certificate.formName,
+    ...(certificate.filingStatuses ? { filingStatuses: certificate.filingStatuses } : {}),
+    usesAllowances: certificate.usesAllowances,
+    asksExtraWithholding: keys.has('extraWithholding'),
+    asksExempt: keys.has('exempt'),
+    fields: certificate.fields.filter((field) => !isCertificateTopLevelKey(field.key)),
+  };
 }
 
 /** Label of one certificate field in the viewer's language; the humanised key when nobody translated it. */
 export function stateCertificateFieldLabel(state: string, key: string, locale: Locale): string {
-  return FIELD_LABELS[`${state.toUpperCase()}.${key}`]?.[locale] ?? humanizeKey(key);
+  return STATE_CERTIFICATE_LABELS[`${state.toUpperCase()}.${key}`]?.[locale] ?? humanizeKey(key);
+}
+
+/** Label of a select option (a filing status, or an option of another field); the humanised option otherwise. */
+export function stateCertificateOptionLabel(state: string, key: string, option: string, locale: Locale): string {
+  return STATE_CERTIFICATE_LABELS[`${state.toUpperCase()}.${key}.${option}`]?.[locale] ?? humanizeKey(option);
 }

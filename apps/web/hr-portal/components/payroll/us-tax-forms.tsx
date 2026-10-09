@@ -3,8 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { todayInZone } from '@/lib/date';
-import { humanizeKey } from '@/lib/payroll/format';
-import { getStateCertificate, stateCertificateFieldLabel } from '@/lib/payroll/state-certificates';
+import { getStateCertificate, stateCertificateFieldLabel, stateCertificateOptionLabel } from '@/lib/payroll/state-certificates';
 import { usStateName } from '@/lib/payroll/us-states';
 import { parseAllowances, parseAmount } from '@/lib/payroll/validate';
 import type { HrTaxElection, HrUsFilingStatus, HrUsStateCertificateData } from '@/lib/payroll/types';
@@ -374,15 +373,18 @@ function StateForm({
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      <Checkbox
-        id={`${idPrefix}-exempt`}
-        checked={fields.exempt}
-        onChange={(checked) => set('exempt', checked)}
-        label={format(t.us.stateExempt, { state: stateName })}
-      />
+      {(!definition || definition.asksExempt) && (
+        <Checkbox
+          id={`${idPrefix}-exempt`}
+          checked={fields.exempt}
+          onChange={(checked) => set('exempt', checked)}
+          label={format(t.us.stateExempt, { state: stateName })}
+        />
+      )}
 
       {!fields.exempt && (
         <div className="grid gap-4 sm:grid-cols-2">
+          {(!definition || definition.filingStatuses) && (
           <div>
             <Label htmlFor={`${idPrefix}-filing-status`}>
               {t.us.filingStatus}
@@ -400,7 +402,7 @@ function StateForm({
                 </option>
                 {definition.filingStatuses.map((status) => (
                   <option key={status} value={status}>
-                    {humanizeKey(status)}
+                    {stateCertificateOptionLabel(state, 'filingStatus', status, locale)}
                   </option>
                 ))}
               </Select>
@@ -413,6 +415,7 @@ function StateForm({
               />
             )}
           </div>
+          )}
 
           {showAllowances && (
             <div>
@@ -457,7 +460,7 @@ function StateForm({
                     </option>
                     {(field.options ?? []).map((option) => (
                       <option key={option} value={option}>
-                        {humanizeKey(option)}
+                        {stateCertificateOptionLabel(state, field.key, option, locale)}
                       </option>
                     ))}
                   </Select>
@@ -482,6 +485,7 @@ function StateForm({
             );
           })}
 
+          {(!definition || definition.asksExtraWithholding) && (
           <div>
             <Label htmlFor={`${idPrefix}-extra`}>{t.us.stateExtraWithholding}</Label>
             <Input
@@ -495,6 +499,7 @@ function StateForm({
               onChange={(e) => set('extraWithholding', e.target.value)}
             />
           </div>
+          )}
         </div>
       )}
 
@@ -521,7 +526,7 @@ export function UsStateCertificateCard({
   state,
   election,
 }: Readonly<{ slug: string; state: string; election: HrTaxElection | null }>) {
-  const { dict, format } = useI18n();
+  const { dict, format, locale } = useI18n();
   const t = dict.payroll.taxForms;
   const definition = getStateCertificate(state);
   const stateName = usStateName(state);
@@ -529,7 +534,7 @@ export function UsStateCertificateCard({
   const title = format(t.us.stateTitle, { state: stateName });
   let summary: string | null = null;
   if (current.exempt) summary = t.us.summaryExempt;
-  else if (current.filingStatus) summary = humanizeKey(current.filingStatus);
+  else if (current.filingStatus) summary = stateCertificateOptionLabel(state, 'filingStatus', current.filingStatus, locale);
   return (
     <ElectionCard
       title={definition?.formName ? `${title} (${definition.formName})` : title}

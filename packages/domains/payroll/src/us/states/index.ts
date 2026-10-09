@@ -49,6 +49,21 @@ export function stateModule(code: string | null | undefined): StateModule | unde
   return code ? MODULES[code.toUpperCase()] : undefined;
 }
 
+/**
+ * Certificate fields that are answers of the election itself
+ * (`UsStateCertificateInput.filingStatus`, `.allowances`, `.extraWithholding`,
+ * `.exempt`) rather than entries of its `values`. A certificate's `fields` list
+ * the whole form in order; a form renders each field once and binds these keys
+ * to the top-level properties.
+ */
+export const CERTIFICATE_TOP_LEVEL_KEYS = ['filingStatus', 'allowances', 'extraWithholding', 'exempt'] as const;
+
+export type CertificateTopLevelKey = (typeof CERTIFICATE_TOP_LEVEL_KEYS)[number];
+
+export function isCertificateTopLevelKey(key: string): key is CertificateTopLevelKey {
+  return (CERTIFICATE_TOP_LEVEL_KEYS as readonly string[]).includes(key);
+}
+
 /** Payslip label key of the state income tax line. */
 export function stateIncomeTaxLabelKey(state: string): string {
   return `us.state_income_tax.${state.toUpperCase()}`;

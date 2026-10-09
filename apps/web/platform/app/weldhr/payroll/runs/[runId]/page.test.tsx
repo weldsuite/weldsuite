@@ -106,8 +106,15 @@ function makeRun(overrides: Partial<HrPayRunDetail> = {}): HrPayRunDetail {
     payslips: [
       {
         id: 'ps_1',
+        runId: 'run_1',
         employeeId: 'e1',
         employeeName: 'Anna de Vries',
+        periodStart: '2026-09-01',
+        periodEnd: '2026-09-30',
+        payDate: '2026-09-25',
+        currency: 'EUR',
+        employeeDeductions: '150.00',
+        reimbursements: '0.00',
         status: 'draft',
         number: null,
         grossPay: '3000.00',

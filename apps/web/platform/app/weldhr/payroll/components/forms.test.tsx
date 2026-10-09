@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { I18nProvider } from '@weldsuite/i18n/provider';
 import { en } from '@weldsuite/i18n/locales/en';
 import type { HrPayrollEmployer } from '@weldsuite/app-api-client/domains/weldhr-payroll';
+import { STATE_CERTIFICATE_LABELS } from '@weldsuite/payroll-domain/us/states/certificate-labels';
 import { EmployerDialog } from './employer-dialog';
 import { ScheduleDialog } from './schedule-dialog';
 import { TaxElectionDialog } from './tax-election-dialog';
@@ -222,9 +223,12 @@ describe('TaxElectionDialog', () => {
       <TaxElectionDialog target={{ kind: 'us_state_certificate', state: 'CA' }} mode="self" defaultName="Sam Smith" onSubmit={vi.fn()} onClose={vi.fn()} />,
     );
 
-    // California has a certificate (DE 4); the form shows its name and the certificate's own fields.
+    // California has a certificate (DE 4); the form shows its name and every line of the form once,
+    // with the DE 4's own labels (line 1a, line 2…), including the ones bound to the election itself.
     expect(screen.getByText(/DE 4/)).toBeTruthy();
-    expect(screen.getByLabelText(t.elections.state.extraWithholding)).toBeTruthy();
+    for (const key of ['allowances', 'estimated_deduction_allowances', 'extraWithholding']) {
+      expect(screen.getAllByLabelText(STATE_CERTIFICATE_LABELS[`CA.${key}`]!.en)).toHaveLength(1);
+    }
   });
 
   it('tells the employee that a state without a certificate needs none', () => {

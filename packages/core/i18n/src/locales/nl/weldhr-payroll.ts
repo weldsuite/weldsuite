@@ -834,10 +834,6 @@ export const weldhrPayroll = {
       state: {
         formName: 'Dit is het formulier {form} voor {state}.',
         noCertificate: '{state} kent geen staatsformulier om te ondertekenen. De staat gebruikt de federale W-4 of heft geen loonbelasting.',
-        filingStatus: 'Filing status',
-        allowances: 'Allowances',
-        extraWithholding: 'Extra inhouding per loonperiode',
-        exempt: 'Vrijgesteld van staatsinhouding',
         exemptHint: 'Alleen als de staat dat voor jou toestaat.',
       },
       summary: {
