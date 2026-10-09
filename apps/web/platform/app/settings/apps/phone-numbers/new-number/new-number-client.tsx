@@ -299,7 +299,7 @@ function AvailableNumberRow({
 }: Readonly<AvailableNumberRowProps>) {
   return (
     <div
-      className={`flex items-center justify-between px-3 py-3 hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors gap-2 md:gap-3 ${
+      className={`flex items-center justify-between px-3 hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors gap-2 md:gap-3 ${
         isPreviewed ? 'bg-gray-50 dark:bg-muted/50' : ''
       }`}
     >
@@ -307,7 +307,7 @@ function AvailableNumberRow({
         type="button"
         aria-pressed={isPreviewed}
         onClick={onTogglePreview}
-        className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 text-left md:gap-3"
+        className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 self-stretch py-3 text-left md:gap-3"
       >
         <span className="flex-1 min-w-0 flex items-center gap-2">
           <span className="block text-sm md:text-base font-medium font-mono text-gray-900 dark:text-foreground truncate">
@@ -329,7 +329,7 @@ function AvailableNumberRow({
         type="button"
         variant="ghost"
         size="icon"
-        className={`h-9 w-9 flex items-center justify-center border rounded-md transition-colors flex-shrink-0 ${
+        className={`my-3 h-9 w-9 flex items-center justify-center border rounded-md transition-colors flex-shrink-0 ${
           isInCart
             ? 'bg-primary border-primary'
             : 'border-input hover:bg-gray-50 dark:hover:bg-muted'
