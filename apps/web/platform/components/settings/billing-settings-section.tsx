@@ -1036,8 +1036,8 @@ function PlansView({
             <div className="space-y-2">
               <p className="font-medium">{t('sweep.settings.billing.downgradeBlockersTitle')}</p>
               <ul className="list-disc list-inside space-y-1">
-                {downgradeBlockers.map((blocker, idx) => (
-                  <li key={idx}>{blocker}</li>
+                {downgradeBlockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
                 ))}
               </ul>
             </div>

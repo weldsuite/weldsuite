@@ -686,6 +686,23 @@ function getPlanGridColsClass(planCount: number): string {
   return 'grid-cols-1 sm:grid-cols-2';
 }
 
+/** `text` with every occurrence of `term` emphasised; fragments are keyed by their offset. */
+function highlightTerm(text: string, term: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let from = 0;
+  for (let at = term ? text.indexOf(term) : -1; at !== -1; at = text.indexOf(term, from)) {
+    parts.push(
+      <React.Fragment key={at}>
+        {text.slice(from, at)}
+        <span className="font-medium text-foreground">{term}</span>
+      </React.Fragment>,
+    );
+    from = at + term.length;
+  }
+  parts.push(text.slice(from));
+  return parts;
+}
+
 function FeatureHighlightBanner({
   featureHighlight,
   billingCycle,
@@ -697,7 +714,7 @@ function FeatureHighlightBanner({
 }>) {
   return (
     <div className="rounded-2xl border bg-card px-5 h-[53px] flex items-center justify-between gap-3">
-      <p className="text-sm text-muted-foreground">{featureHighlight.description.split(featureHighlight.feature).map((part, i, arr) => i < arr.length - 1 ? <React.Fragment key={i}>{part}<span className="font-medium text-foreground">{featureHighlight.feature}</span></React.Fragment> : part)}</p>
+      <p className="text-sm text-muted-foreground">{highlightTerm(featureHighlight.description, featureHighlight.feature)}</p>
       <div className="flex items-center gap-3 shrink-0">
         <span className="text-sm font-medium">{billingCycle === 'yearly' ? 'Annual' : 'Monthly'}</span>
         {billingCycle === 'yearly' && <span className="text-sm font-medium text-green-600 -ml-1.5">(Save 17%)</span>}
@@ -978,8 +995,8 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
             <AlertDescription>
               <p className="font-medium mb-2">Cannot downgrade - please reduce usage first:</p>
               <ul className="list-disc list-inside space-y-1">
-                {downgradeBlockers.map((blocker, i) => (
-                  <li key={i}>{blocker}</li>
+                {downgradeBlockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
                 ))}
               </ul>
             </AlertDescription>
