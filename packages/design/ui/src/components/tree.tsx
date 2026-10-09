@@ -138,11 +138,12 @@ export function TreeNode({
   isLast = false,
   className,
 }: TreeNodeProps) {
+  const { isSelected } = useTreeContext();
   const nodeValue = React.useMemo(() => ({ nodeId, level, isLast }), [nodeId, level, isLast]);
 
   return (
     <TreeNodeContext.Provider value={nodeValue}>
-      <div className={cn('relative', className)} role="treeitem">
+      <div className={cn('relative', className)} role="treeitem" aria-selected={isSelected(nodeId)}>
         {children}
       </div>
     </TreeNodeContext.Provider>

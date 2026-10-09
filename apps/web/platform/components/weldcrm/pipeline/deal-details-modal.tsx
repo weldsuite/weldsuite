@@ -251,7 +251,15 @@ export function DealDetailsModal({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[600px] p-0 gap-0 overflow-hidden" showCloseButton={false}>
+      <DialogContent
+        className="sm:max-w-[600px] p-0 gap-0 overflow-hidden"
+        showCloseButton={false}
+        onOpenAutoFocus={(e) => {
+          // Start in the deal name rather than on the header's close button.
+          e.preventDefault();
+          titleTextareaRef.current?.focus();
+        }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-border">
           <DialogTitle className="text-base font-semibold">{t('sweep.weldcrm.dealDetailsModal.createDeal')}</DialogTitle>
@@ -278,7 +286,6 @@ export function DealDetailsModal({
             placeholder={t('sweep.weldcrm.dealDetailsModal.dealNamePlaceholder')}
             className="w-full text-sm font-medium border-none outline-none bg-transparent placeholder:text-gray-400 resize-none overflow-y-auto max-h-[200px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700"
             rows={1}
-            autoFocus
           />
           <div className="border-b border-gray-100 dark:border-border my-2 -mx-4" />
           <textarea
