@@ -1407,6 +1407,14 @@ export function SpreadsheetGrid({
         e.preventDefault();
         onSelectionEndChange(cell);
         startEditing(e.key);
+        return;
+      }
+      // IME / dictation: the browser reports 'Process' or 'Unidentified' instead
+      // of the character. Open the editor without seeding it and let the
+      // composition's text land in it.
+      if (e.key === 'Process' || e.key === 'Unidentified') {
+        onSelectionEndChange(cell);
+        startEditing();
       }
     },
     [totalCols, totalRows, selectCell, clearSelectedCells, startEditing, onEditValueChange, onSelectionEndChange]
@@ -1427,6 +1435,13 @@ export function SpreadsheetGrid({
     [handleCtrlShortcut, handleCommitKey, handleBrowseKey]
   );
 
+
+  // Composition (IME, dictation) on a selected cell that is not being edited:
+  // open the editor so the composed text has somewhere to go.
+  const handleCompositionStart = useCallback(() => {
+    if (isEditingRef.current || !selectedCellRef.current) return;
+    startEditing();
+  }, [startEditing]);
 
   // Apply pending write once the target column exists
   useEffect(() => {
@@ -1465,6 +1480,7 @@ export function SpreadsheetGrid({
       role="grid"
       tabIndex={0}
       onKeyDown={handleKeyDown}
+      onCompositionStart={handleCompositionStart}
       onScroll={handleScroll}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleGridDoubleClick}
