@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { activateOnKey } from '@/lib/activate-on-key';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { NoteActionsMenu } from '@/components/weldcrm/notes/note-actions-menu';
 import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
 import { useCreateCustomerNote, useUpdateCustomerNote, useDeleteCustomerNote } from '@/hooks/queries/use-customer-notes-queries';
@@ -275,103 +275,100 @@ export function NotesSection({ customer, activities }: Readonly<NotesSectionProp
   };
 
   // Row renderer
-  const renderNoteRow = useCallback((note: Note) => (
-    <div key={note.id}>
-      {/* Desktop row - hidden in panel mode */}
-      {!isPanel && <div
-        role="button"
-        tabIndex={0}
-        onClick={() => openEditDialog(note)}
-        onKeyDown={activateOnKey(() => openEditDialog(note))}
-        className="hidden md:flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/50"
-      >
-        {/* Favorite */}
-        <div className="w-[28px] flex items-center -mr-4" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            onClick={() => handleToggleFavorite(note.id)}
-            className="p-1 rounded-md hover:bg-muted h-auto w-auto"
-          >
-            <Star className={cn("h-3.5 w-3.5", note.isPinned ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/50 hover:text-muted-foreground")} />
-          </Button>
-        </div>
+  const renderNoteRow = useCallback((note: Note) => {
+    const noteTitle = getNoteTitle(note.content) === 'Untitled' ? t('sweep.weldcrm.globalPinnedNote.untitled') : getNoteTitle(note.content);
+    return (
+      <div key={note.id}>
+        {/* Desktop row - hidden in panel mode */}
+        {!isPanel && <div
+          className="relative hidden md:flex items-center gap-4 px-4 py-3 border-b border-border/70 group cursor-pointer hover:bg-muted/50"
+        >
+          <RowOverlayButton label={noteTitle} onClick={() => openEditDialog(note)} />
+          {/* Favorite */}
+          <div className="relative z-[1] w-[28px] flex items-center -mr-4">
+            <Button
+              variant="ghost"
+              onClick={() => handleToggleFavorite(note.id)}
+              className="p-1 rounded-md hover:bg-muted h-auto w-auto"
+            >
+              <Star className={cn("h-3.5 w-3.5", note.isPinned ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/50 hover:text-muted-foreground")} />
+            </Button>
+          </div>
 
-        {/* Note Title */}
-        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-          <span className="text-sm font-medium text-foreground truncate">
-            {getNoteTitle(note.content) === 'Untitled' ? t('sweep.weldcrm.globalPinnedNote.untitled') : getNoteTitle(note.content)}
-          </span>
-        </div>
+          {/* Note Title */}
+          <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+            <span className="text-sm font-medium text-foreground truncate">
+              {noteTitle}
+            </span>
+          </div>
 
-        {/* Date */}
-        <div className="w-[140px]">
-          <span className="text-sm text-muted-foreground">
-            {formatNoteDate(new Date(note.createdAt), t)}
-          </span>
-        </div>
+          {/* Date */}
+          <div className="w-[140px]">
+            <span className="text-sm text-muted-foreground">
+              {formatNoteDate(new Date(note.createdAt), t)}
+            </span>
+          </div>
 
-        {/* Actions */}
-        <div className="w-[40px] flex justify-end">
-          <NoteActionsMenu
-            isPinned={!!note.isPinned}
-            onEdit={() => openEditDialog(note)}
-            onToggleFavorite={() => handleToggleFavorite(note.id)}
-            onDelete={() => void handleDelete(note.id)}
-          />
-        </div>
-      </div>}
+          {/* Actions */}
+          <div className="relative z-[1] w-[40px] flex justify-end">
+            <NoteActionsMenu
+              isPinned={!!note.isPinned}
+              onEdit={() => openEditDialog(note)}
+              onToggleFavorite={() => handleToggleFavorite(note.id)}
+              onDelete={() => void handleDelete(note.id)}
+            />
+          </div>
+        </div>}
 
-      {/* Compact row - always in panel mode, mobile-only otherwise */}
-      <div
-        role="button"
-        tabIndex={0}
-        className={cn(
-          isPanel ? "flex" : "md:hidden flex",
-          "group items-center gap-3 px-3 py-3 border-b border-border/70 cursor-pointer hover:bg-muted/50"
-        )}
-        onClick={() => openEditDialog(note)}
-        onKeyDown={activateOnKey(() => openEditDialog(note))}
-      >
-        <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            onClick={() => handleToggleFavorite(note.id)}
-            className="p-1 rounded-md hover:bg-muted inline-flex items-center justify-center h-auto w-auto"
-          >
-            <Star className={cn("h-[15px] w-[15px]", note.isPinned ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/50 hover:text-muted-foreground")} />
-          </Button>
-        </div>
-        <div className="flex-1 min-w-0 -ml-1.5">
-          <span className="text-sm font-medium text-foreground truncate block">
-            {getNoteTitle(note.content) === 'Untitled' ? t('sweep.weldcrm.globalPinnedNote.untitled') : getNoteTitle(note.content)}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 w-[140px] flex-shrink-0">
-          {note.authorName && (
-            <>
-              <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0" title={note.authorName}>
-                {note.authorAvatar && (
-                  <AvatarImage src={note.authorAvatar} alt={note.authorName} className="!rounded-[7px]" />
-                )}
-                <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                  {note.authorName.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <span className="text-sm text-muted-foreground truncate min-w-0">{note.authorName}</span>
-            </>
+        {/* Compact row - always in panel mode, mobile-only otherwise */}
+        <div
+          className={cn(
+            isPanel ? "flex" : "md:hidden flex",
+            "group relative items-center gap-3 px-3 py-3 border-b border-border/70 cursor-pointer hover:bg-muted/50"
           )}
-        </div>
-        <div onClick={(e) => e.stopPropagation()}>
-          <NoteActionsMenu
-            isPinned={!!note.isPinned}
-            onEdit={() => openEditDialog(note)}
-            onToggleFavorite={() => handleToggleFavorite(note.id)}
-            onDelete={() => void handleDelete(note.id)}
-          />
+        >
+          <RowOverlayButton label={noteTitle} onClick={() => openEditDialog(note)} />
+          <div className="relative z-[1] flex items-center">
+            <Button
+              variant="ghost"
+              onClick={() => handleToggleFavorite(note.id)}
+              className="p-1 rounded-md hover:bg-muted inline-flex items-center justify-center h-auto w-auto"
+            >
+              <Star className={cn("h-[15px] w-[15px]", note.isPinned ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/50 hover:text-muted-foreground")} />
+            </Button>
+          </div>
+          <div className="flex-1 min-w-0 -ml-1.5">
+            <span className="text-sm font-medium text-foreground truncate block">
+              {noteTitle}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 w-[140px] flex-shrink-0">
+            {note.authorName && (
+              <>
+                <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0" title={note.authorName}>
+                  {note.authorAvatar && (
+                    <AvatarImage src={note.authorAvatar} alt={note.authorName} className="!rounded-[7px]" />
+                  )}
+                  <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                    {note.authorName.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="text-sm text-muted-foreground truncate min-w-0">{note.authorName}</span>
+              </>
+            )}
+          </div>
+          <div className="relative z-[1]">
+            <NoteActionsMenu
+              isPinned={!!note.isPinned}
+              onEdit={() => openEditDialog(note)}
+              onToggleFavorite={() => handleToggleFavorite(note.id)}
+              onDelete={() => void handleDelete(note.id)}
+            />
+          </div>
         </div>
       </div>
-    </div>
-  ), [openEditDialog, isPanel, t, handleDelete]);
+    );
+  }, [openEditDialog, isPanel, t, handleDelete]);
 
   // Header columns (no Company column since we're already on a customer page)
   const headerColumns: HeaderColumn[] = useMemo(() => [
