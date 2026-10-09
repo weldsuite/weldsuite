@@ -6,6 +6,7 @@ import { ShoppingBag, Star, ArrowRight } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
+import { starSlots } from '../lib/list-keys';
 
 interface FeaturedCollectionSectionProps {
   heading?: string;
@@ -321,12 +322,12 @@ export function FeaturedCollectionSection({
                   {showRatings && !!product.rating && (
                     <div className="flex items-center gap-2">
                       <div className="flex items-center">
-                        {[...new Array(5)].map((_, i) => (
+                        {starSlots(5).map((star) => (
                           <Star
-                            key={i}
+                            key={star}
                             className={cn(
                               "w-3.5 h-3.5",
-                              i < Math.floor(product.rating ?? 0)
+                              star <= Math.floor(product.rating ?? 0)
                                 ? 'fill-primary text-primary'
                                 : 'fill-muted text-muted'
                             )}

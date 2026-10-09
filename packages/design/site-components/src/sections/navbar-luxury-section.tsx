@@ -3,6 +3,7 @@
 import type { StoreData } from '../types';
 import React from 'react';
 import { Search, ShoppingBag, User, ChevronDown, X, Menu } from 'lucide-react';
+import { keyedBy, tupleKey } from '../lib/keyed';
 
 interface NavMenuItem {
   label: string;
@@ -430,9 +431,9 @@ export function NavbarLuxurySection({
         }}
       >
         <div className="flex items-center justify-center gap-8 max-w-7xl mx-auto">
-          {menuItems.map((item, idx) => (
+          {keyedBy(menuItems, (item) => tupleKey(item.href, item.label)).map(({ item, key }) => (
             <a
-              key={idx}
+              key={key}
               href={item.href}
               className="relative text-xs tracking-wider uppercase hover:opacity-70 transition-opacity py-1"
               style={{ color: textColor }}
@@ -463,9 +464,9 @@ export function NavbarLuxurySection({
               borderTop: `1px solid ${navBorderColor}`,
             }}
           >
-            {menuItems.map((item, idx) => (
+            {keyedBy(menuItems, (item) => tupleKey(item.href, item.label)).map(({ item, key }, idx) => (
               <a
-                key={idx}
+                key={key}
                 href={item.href}
                 className="block py-3 text-sm tracking-wider uppercase hover:opacity-70 transition-opacity"
                 style={{

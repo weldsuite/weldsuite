@@ -3,6 +3,7 @@
 import React from 'react';
 import { Package, RotateCcw, Shield } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { keyedBy } from '../lib/keyed';
 
 interface MulticolumnItem {
   heading: string;
@@ -85,12 +86,12 @@ export function MulticolumnSection({
 
         {/* Columns Grid */}
         <div className={`grid grid-cols-1 ${gridCols[columnCount]} gap-4`}>
-          {columns.map((column, index) => {
+          {keyedBy(columns, (c) => c.heading).map(({ item: column, key }) => {
             const Icon = getIcon(column.icon);
 
             return (
               <div
-                key={index}
+                key={key}
                 className="p-8 bg-gray-50 rounded-lg min-h-[200px] border border-gray-200"
               >
                 <div className="flex items-center gap-2.5 mb-3">

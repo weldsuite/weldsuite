@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { keyedBy } from '../lib/keyed';
 
 interface CollapsibleItem {
   question: string;
@@ -59,10 +60,10 @@ export function CollapsibleContentSection({
         )}
 
         <div className="space-y-4">
-          {items.map((item, index) => {
+          {keyedBy(items, (i) => i.question).map(({ item, key }, index) => {
             return (
               <div
-                key={index}
+                key={key}
                 className="border border-gray-200 rounded-lg overflow-hidden"
               >
                 <button

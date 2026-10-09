@@ -10,6 +10,7 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@weldsuite/ui/components/carousel";
+import { keyedBy } from '../lib/keyed';
 
 interface VideoSectionProps {
   videoSrc: string;
@@ -186,9 +187,9 @@ export function VideoCarouselBlock({
           className="w-full"
         >
           <CarouselContent className="-ml-2 md:-ml-4">
-            {videos.map((section, index) => (
+            {keyedBy(videos, (v) => v.videoSrc).map(({ item: section, key }) => (
               <CarouselItem
-                key={index}
+                key={key}
                 className="pl-2 md:basis-4/5 md:pl-4 lg:basis-3/4 xl:basis-2/3"
               >
                 <VideoSection

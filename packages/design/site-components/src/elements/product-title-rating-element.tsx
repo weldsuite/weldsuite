@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Star } from 'lucide-react';
+import { starSlots } from '../lib/list-keys';
 
 export interface ProductTitleRatingElementProps {
   productName?: string;
@@ -30,14 +31,14 @@ export function ProductTitleRatingElement({
       {showRating && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            {[...new Array(5)].map((_, i) => (
+            {starSlots(5).map((star) => (
               <Star
-                key={i}
+                key={star}
                 style={{
                   height: '1rem',
                   width: '1rem',
-                  fill: i < Math.floor(rating) ? 'currentColor' : '#e5e7eb',
-                  color: i < Math.floor(rating) ? 'currentColor' : '#e5e7eb'
+                  fill: star <= Math.floor(rating) ? 'currentColor' : '#e5e7eb',
+                  color: star <= Math.floor(rating) ? 'currentColor' : '#e5e7eb'
                 }}
               />
             ))}

@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { keyedBy } from '../lib/keyed';
 
 interface FormField {
   id: string;
@@ -88,8 +89,8 @@ export function ContactFormModernSection({
           required={field.required}
           style={fieldStyle}
         >
-          {field.options?.map((option, idx) => (
-            <option key={idx} value={option}>{option}</option>
+          {keyedBy(field.options ?? [], (option) => option).map(({ item: option, key }) => (
+            <option key={key} value={option}>{option}</option>
           ))}
         </select>
       );
