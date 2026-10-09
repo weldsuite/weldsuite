@@ -1,17 +1,9 @@
 /**
- * Test database for the payroll services: the pglite tenant schema plus the
- * payroll tables.
- *
- * The payroll tables are in the Drizzle schema (packages/core/db/src/schema/
- * weldhr-payroll.ts) but their migration is generated and approved separately
- * (CLAUDE.md: no migration files without the owner's approval), so the pglite
- * harness, which applies journaled migrations only, does not have them yet.
- * This helper creates what is missing straight from the schema, in memory, via
- * drizzle-kit's programmatic API. Once the migration is journaled the tables
- * already exist and this does nothing.
+ * Test database for the payroll services: the pglite tenant schema, which has
+ * the payroll tables from migration 0206_weldhr_payroll, plus a reset that
+ * empties them (and the HR and accounting rows the tests create) between tests.
  */
 
-import { createRequire } from 'node:module';
 import { sql } from 'drizzle-orm';
 import { getTableName, type Table } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -31,30 +23,9 @@ const PAYROLL_TABLES = [
   payrollSchema.hrPayrollFilings,
 ] as const;
 
-let ensured: Promise<void> | null = null;
-
-async function tableExists(db: Database, name: string): Promise<boolean> {
-  const result = (await db.execute(sql`select to_regclass(${name}) as t`)) as unknown as { rows?: Array<{ t: string | null }> };
-  const rows = result.rows ?? (result as unknown as Array<{ t: string | null }>);
-  return Boolean(rows[0]?.t);
-}
-
-async function ensurePayrollTables(db: Database): Promise<void> {
-  if (await tableExists(db, 'hr_pay_runs')) return;
-  // Loaded through Node's own require: vite would inline drizzle-kit's ESM build, which needs a real `require`.
-  const nodeRequire = createRequire(import.meta.url);
-  const { generateDrizzleJson, generateMigration } = nodeRequire('drizzle-kit/api') as typeof import('drizzle-kit/api');
-  const imports: Record<string, unknown> = {};
-  for (const table of PAYROLL_TABLES) imports[getTableName(table as Table)] = table;
-  const statements = await generateMigration(generateDrizzleJson({}), generateDrizzleJson(imports));
-  for (const statement of statements) await db.execute(sql.raw(statement));
-}
-
 /** A pglite tenant DB with the payroll tables. Shared per test process (as createPgliteDb is). */
 export async function createPayrollDb(): Promise<Database> {
   const { db } = await createPgliteDb();
-  ensured ??= ensurePayrollTables(db);
-  await ensured;
   return db;
 }
 

@@ -3,8 +3,7 @@
  * the US payroll path (NACHA, W-2 employee copy) and the billing ledger.
  */
 
-import { createRequire } from 'node:module';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit/db';
@@ -432,12 +431,6 @@ describe('US payroll', () => {
 describe('billing ledger', () => {
   it('writes one row per payslip and never counts a payslip twice', async () => {
     const master = await createMasterPgliteDb();
-    // The master migration for payroll_usage_events is not part of this change: create the table from the schema.
-    const nodeRequire = createRequire(import.meta.url);
-    const { generateDrizzleJson, generateMigration } = nodeRequire('drizzle-kit/api') as typeof import('drizzle-kit/api');
-    const statements = await generateMigration(generateDrizzleJson({}), generateDrizzleJson({ payrollUsageEvents: masterSchema.payrollUsageEvents }));
-    for (const statement of statements) await master.db.execute(sql.raw(statement));
-
     const events = [
       { workspaceId: 'ws_1', month: '2026-07', country: 'NL' as const, employerId: 'e1', runId: 'r1', payslipId: 'p1' },
       { workspaceId: 'ws_1', month: '2026-07', country: 'NL' as const, employerId: 'e1', runId: 'r1', payslipId: 'p2' },
