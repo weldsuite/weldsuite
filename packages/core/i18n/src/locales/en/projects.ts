@@ -1297,6 +1297,12 @@ export const projects = {
       priorityLabel: 'Priority',
       dueDateLabel: 'Due date',
       appearanceLabel: 'Appearance',
+      descriptionLabel: 'Description',
+      descriptionPlaceholder: 'What is this project about?',
+      noDueDatePlaceholder: 'No due date',
+      savingChanges: 'Saving…',
+      changesSaved: 'All changes saved',
+      autoSaveHint: 'Changes are saved automatically.',
       changeColorTitle: 'Change color',
       changeIconTitle: 'Change icon',
       // Status options
@@ -1379,6 +1385,9 @@ export const projects = {
       deleteStatusBtn: 'Delete',
       editStageMenuItem: 'Edit',
       deleteStageMenuItem: 'Delete',
+      moveStageUpMenuItem: 'Move up',
+      moveStageDownMenuItem: 'Move down',
+      failedToReorderStatuses: 'Failed to reorder statuses',
 
       // import-section.tsx
       importHeading: 'Import tasks from CSV or Excel',
