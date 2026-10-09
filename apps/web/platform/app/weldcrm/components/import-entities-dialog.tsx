@@ -513,6 +513,18 @@ export function ImportEntitiesDialog({
     }).length;
   }, [validRows, mappings, fieldByKey, requiredForCreate]);
 
+  const missingCreateParams = {
+    n: rowsMissingCreateField,
+    fields: requiredForCreate?.map((key) => fieldByKey.get(key)?.header ?? key).join(', ') ?? '',
+  };
+  // A row without every `requiredForCreate` field (e.g. no Name) can only be
+  // imported by matching an existing record, so it does not count as valid.
+  const fileStatsParams = {
+    name: file?.name ?? '',
+    rows: parsedData.length,
+    valid: validRows.length - rowsMissingCreateField,
+  };
+
   const mappedCount = useMemo(() => Object.values(mappings).filter(Boolean).length, [mappings]);
 
   const buildRecords = useCallback(
@@ -719,7 +731,10 @@ export function ImportEntitiesDialog({
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>{t('crm.importExport.someRowsSkipped')}</AlertTitle>
                       <AlertDescription>
-                        {t('crm.importExport.someRowsSkippedDesc', { n: parsedData.length - validRows.length })}
+                        {plural(parsedData.length - validRows.length, {
+                          one: t('crm.importExport.someRowsSkippedDescOne', { n: parsedData.length - validRows.length }),
+                          other: t('crm.importExport.someRowsSkippedDesc', { n: parsedData.length - validRows.length }),
+                        })}
                       </AlertDescription>
                     </Alert>
                   )}
@@ -729,9 +744,9 @@ export function ImportEntitiesDialog({
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>{t('crm.importExport.missingCreateFieldTitle')}</AlertTitle>
                       <AlertDescription>
-                        {t('crm.importExport.missingCreateFieldDesc', {
-                          n: rowsMissingCreateField,
-                          fields: requiredForCreate?.map((key) => fieldByKey.get(key)?.header ?? key).join(', ') ?? '',
+                        {plural(rowsMissingCreateField, {
+                          one: t('crm.importExport.missingCreateFieldDescOne', missingCreateParams),
+                          other: t('crm.importExport.missingCreateFieldDesc', missingCreateParams),
                         })}
                       </AlertDescription>
                     </Alert>
@@ -780,10 +795,9 @@ export function ImportEntitiesDialog({
 
             <div className="flex items-center justify-between gap-4 border-t px-6 py-4">
               <p className="font-mono text-sm text-muted-foreground truncate min-w-0">
-                {t('crm.importExport.fileStats', {
-                  name: file?.name ?? '',
-                  rows: parsedData.length,
-                  valid: validRows.length,
+                {plural(parsedData.length, {
+                  one: t('crm.importExport.fileStatsOne', fileStatsParams),
+                  other: t('crm.importExport.fileStats', fileStatsParams),
                 })}
               </p>
               <div className="flex items-center gap-2 flex-shrink-0">

@@ -4,12 +4,13 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
+  Banknote,
   Building2,
   Calendar,
-  DollarSign,
   Percent,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDealDate, formatDealMoney } from '@/lib/crm/deal-format';
 import { useTranslations } from '@weldsuite/i18n/client';
 
 interface DealCardProps {
@@ -139,7 +140,7 @@ export function DealCard({
   id,
   title,
   value,
-  currency = 'USD',
+  currency,
   company,
   contact,
   owner,
@@ -187,15 +188,10 @@ export function DealCard({
     }
   };
 
+  // The deal's own currency (falls back to the CRM default, not a hardcoded `$`).
   const formatCurrency = (amount: number) => {
     if (amount === 0) return null;
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-      notation: amount >= 1000000 ? 'compact' : 'standard',
-    }).format(amount);
+    return formatDealMoney(amount, currency, { compactMillions: true });
   };
 
   const formattedValue = formatCurrency(value);
@@ -218,7 +214,7 @@ export function DealCard({
 
       {/* Deal Value */}
       <div className="flex items-center gap-2 mt-2">
-        <DollarSign className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+        <Banknote className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
         {formattedValue ? (
           <span className="text-sm text-gray-600 dark:text-muted-foreground">{formattedValue}</span>
         ) : (
@@ -239,13 +235,7 @@ export function DealCard({
         <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
         {expectedCloseDate ? (
           <span className="text-sm text-gray-600 dark:text-muted-foreground">
-            {/* Matches the deal panel's close-date format (opportunity-panel.tsx) so
-                the same date doesn't read "Oct 20" here and "10/20/2026" there (TASK-920). */}
-            {new Date(expectedCloseDate).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-            })}
+            {formatDealDate(expectedCloseDate)}
           </span>
         ) : (
           <span className="text-sm text-gray-400 dark:text-muted-foreground">{t('sweep.weldcrm.dealCard.noDate')}</span>

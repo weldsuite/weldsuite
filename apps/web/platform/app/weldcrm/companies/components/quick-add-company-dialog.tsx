@@ -31,7 +31,7 @@ export function QuickAddCompanyDialog({ open, onOpenChange, initialName, onCreat
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[38rem]" aria-describedby={undefined}>
+      <DialogContent className="sm:max-w-[38rem] max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t('crm.quickAddCompany.dialogTitle')}</DialogTitle>
         </DialogHeader>

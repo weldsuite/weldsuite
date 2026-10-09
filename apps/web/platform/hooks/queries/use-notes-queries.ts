@@ -7,6 +7,7 @@ import {
   updateActivitySchema,
 } from '@weldsuite/core-api-client/schemas/activities';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
 
 type CreateActivityInput = z.infer<typeof createActivitySchema>;
 type UpdateActivityInput = z.infer<typeof updateActivitySchema>;
@@ -145,6 +146,7 @@ export function useCreateNote() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: notesKeys.all });
+      invalidateOnboardingChecklist(qc);
     },
   });
 }

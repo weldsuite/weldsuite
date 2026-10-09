@@ -8,13 +8,13 @@ import type { TemplateFieldSpec } from '@/app/settings/object-templates/types';
  * with a `cf:` prefix.
  */
 export const PERSON_FIELDS: TemplateFieldSpec[] = [
-  { slug: 'firstName', label: 'First Name', group: 'identity', inputType: 'text' },
-  { slug: 'lastName', label: 'Last Name', group: 'identity', inputType: 'text' },
+  { slug: 'firstName', label: 'First Name', group: 'identity', inputType: 'text', maxLength: 100 },
+  { slug: 'lastName', label: 'Last Name', group: 'identity', inputType: 'text', maxLength: 100 },
 
-  { slug: 'email', label: 'Email', group: 'contact', inputType: 'email' },
-  { slug: 'directPhone', label: 'Direct Phone', group: 'contact', inputType: 'phone' },
-  { slug: 'mobilePhone', label: 'Mobile Phone', group: 'contact', inputType: 'phone' },
+  { slug: 'email', label: 'Email', group: 'contact', inputType: 'email', maxLength: 255 },
+  { slug: 'directPhone', label: 'Direct Phone', group: 'contact', inputType: 'phone', maxLength: 50 },
+  { slug: 'mobilePhone', label: 'Mobile Phone', group: 'contact', inputType: 'phone', maxLength: 50 },
 
-  { slug: 'title', label: 'Job Title', group: 'work', inputType: 'text' },
-  { slug: 'department', label: 'Department', group: 'work', inputType: 'text' },
+  { slug: 'title', label: 'Job Title', group: 'work', inputType: 'text', maxLength: 100 },
+  { slug: 'department', label: 'Department', group: 'work', inputType: 'text', maxLength: 100 },
 ];

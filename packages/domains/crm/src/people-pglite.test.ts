@@ -16,6 +16,8 @@ import {
   importPeople,
   findOrCreatePersonByEmail,
   addPersonToCrm,
+  createPersonDetailed,
+  PersonDuplicateEmailError,
   PersonVersionConflictError,
   exportPeople,
   bulkUpdatePeople,
@@ -229,6 +231,83 @@ describe('people service · pglite integration', () => {
       expect(await addPersonToCrm(db, foreign.id, scoped, scoped)).toBeNull();
       expect((await getPerson(db, foreign.id))?.inCrm).toBe(true); // unchanged default
       expect((await getPerson(db, foreign.id))?.ownerId).toBe('other_owner');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Email uniqueness: create promotes hidden identities, update checks CRM dupes
+  // ---------------------------------------------------------------------------
+
+  describe('email uniqueness', () => {
+    it('createPerson promotes a hidden non-CRM identity instead of conflicting', async () => {
+      const email = `Promote-On-Create-${Date.now()}@e2e.test`;
+      const guest = await findOrCreatePersonByEmail(db, { email });
+      expect((await getPerson(db, guest.id))?.inCrm).toBe(false);
+
+      const result = await createPersonDetailed(db, {
+        firstName: 'Pat',
+        lastName: 'Promoted',
+        email: email.toLowerCase(),
+        title: 'CTO',
+        ownerId: 'owner_keep',
+      });
+
+      expect(result.promoted).toBe(true);
+      // Same row — no second person was inserted.
+      expect(result.row.id).toBe(guest.id);
+      expect(result.row.inCrm).toBe(true);
+      expect(result.row.firstName).toBe('Pat');
+      expect(result.row.title).toBe('CTO');
+      expect(result.row.displayName).toBe('Pat Promoted');
+      expect(result.row.ownerId).toBe('owner_keep');
+
+      const crm = await listPeople(db, { limit: 100, inCrm: true, search: 'promote-on-create' });
+      expect(crm.data.map((r) => r.id)).toEqual([guest.id]);
+    });
+
+    it('createPerson keeps the owner of an already-owned hidden identity', async () => {
+      const email = `owned-hidden-${Date.now()}@e2e.test`;
+      const hidden = await createPerson(db, { email, inCrm: false, ownerId: 'other_owner' });
+      const result = await createPersonDetailed(db, { firstName: 'X', email, ownerId: 'owner_keep' });
+      expect(result.promoted).toBe(true);
+      expect(result.row.id).toBe(hidden.id);
+      expect(result.row.ownerId).toBe('other_owner');
+    });
+
+    it('createPerson still throws PersonDuplicateEmailError for a real CRM duplicate', async () => {
+      const email = `crm-dup-${Date.now()}@e2e.test`;
+      const existing = await createPerson(db, { firstName: 'First', email });
+
+      const err = await createPerson(db, { firstName: 'Second', email: email.toUpperCase() }).catch((e) => e);
+      expect(err).toBeInstanceOf(PersonDuplicateEmailError);
+      expect((err as PersonDuplicateEmailError).existingPersonId).toBe(existing.id);
+    });
+
+    it('updatePerson rejects an email already used by another CRM person', async () => {
+      const takenEmail = `taken-${Date.now()}@e2e.test`;
+      const taken = await createPerson(db, { firstName: 'Taken', email: takenEmail });
+      const other = await createPerson(db, { firstName: 'Other', email: `other-${Date.now()}@e2e.test` });
+
+      const err = await updatePerson(db, other.id, { email: takenEmail.toUpperCase() }).catch((e) => e);
+      expect(err).toBeInstanceOf(PersonDuplicateEmailError);
+      expect((err as PersonDuplicateEmailError).existingPersonId).toBe(taken.id);
+      // Nothing was written.
+      expect((await getPerson(db, other.id))?.email).not.toBe(takenEmail.toUpperCase());
+    });
+
+    it('updatePerson allows re-saving the same email (even with different casing) on the same person', async () => {
+      const email = `self-${Date.now()}@e2e.test`;
+      const p = await createPerson(db, { firstName: 'Self', email });
+      const res = await updatePerson(db, p.id, { email: email.toUpperCase(), title: 'Lead' });
+      expect(res?.row.title).toBe('Lead');
+    });
+
+    it('updatePerson allows an email that only matches a hidden non-CRM identity', async () => {
+      const email = `hidden-target-${Date.now()}@e2e.test`;
+      await findOrCreatePersonByEmail(db, { email });
+      const p = await createPerson(db, { firstName: 'Mover' });
+      const res = await updatePerson(db, p.id, { email });
+      expect(res?.row.email).toBe(email);
     });
   });
 

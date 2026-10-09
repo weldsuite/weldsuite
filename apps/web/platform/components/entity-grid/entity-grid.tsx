@@ -138,6 +138,7 @@ export function EntityGrid<TEntity>({
           onLoadMore={onLoadMore}
           hasMore={hasMore}
           isFetchingMore={isFetchingMore}
+          listName={listName}
         />
 
         {/* Selection Bar */}

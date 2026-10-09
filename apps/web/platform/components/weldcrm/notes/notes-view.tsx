@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { cn, stripTags } from '@/lib/utils';
 import { NoteActionsMenu } from './note-actions-menu';
-import { format, isToday, isYesterday, isThisWeek, isThisMonth, isThisYear } from 'date-fns';
+import { format, isToday, isYesterday } from 'date-fns';
+import { getNoteBucket, type NoteBucketId } from './note-buckets';
 import {
   useCreateNote,
   useUpdateNote,
@@ -499,61 +500,17 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
     },
   ], [availableRecords, availableAuthors, t]);
 
-  // Group configurations by time
+  // Group configurations by time. Every note lands in exactly one bucket
+  // (see getNoteBucket), so no note is ever listed twice.
   const groupConfigs: GroupConfig<Note>[] = useMemo(() => {
-    const now = new Date();
-    const _startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
+    const inBucket = (bucket: NoteBucketId) => (n: Note) => getNoteBucket(n.createdAt) === bucket;
     return [
-      {
-        id: 'today',
-        label: t('sweep.weldcrm.notesView.createdToday'),
-        sortOrder: 1,
-        filter: (n) => isToday(new Date(n.createdAt)),
-      },
-      {
-        id: 'yesterday',
-        label: t('sweep.weldcrm.notesView.createdYesterday'),
-        sortOrder: 2,
-        filter: (n) => isYesterday(new Date(n.createdAt)),
-      },
-      {
-        id: 'this-week',
-        label: t('sweep.weldcrm.notesView.createdThisWeek'),
-        sortOrder: 3,
-        filter: (n) => {
-          const d = new Date(n.createdAt);
-          return isThisWeek(d, { weekStartsOn: 1 }) && !isToday(d) && !isYesterday(d);
-        },
-      },
-      {
-        id: 'this-month',
-        label: t('sweep.weldcrm.notesView.createdThisMonth'),
-        sortOrder: 4,
-        filter: (n) => {
-          const d = new Date(n.createdAt);
-          return isThisMonth(d) && !isThisWeek(d, { weekStartsOn: 1 });
-        },
-      },
-      {
-        id: 'this-year',
-        label: t('sweep.weldcrm.notesView.createdThisYear'),
-        sortOrder: 5,
-        filter: (n) => {
-          const d = new Date(n.createdAt);
-          // A date can be outside the current month (e.g. Sep 29 when today
-          // is Oct 5) while still falling in the current ISO week — without
-          // excluding isThisWeek too, that note matched both "this week" and
-          // "this year" and was listed twice.
-          return isThisYear(d) && !isThisMonth(d) && !isThisWeek(d, { weekStartsOn: 1 });
-        },
-      },
-      {
-        id: 'older',
-        label: t('sweep.weldcrm.notesView.older'),
-        sortOrder: 6,
-        filter: (n) => !isThisYear(new Date(n.createdAt)),
-      },
+      { id: 'today', label: t('sweep.weldcrm.notesView.createdToday'), sortOrder: 1, filter: inBucket('today') },
+      { id: 'yesterday', label: t('sweep.weldcrm.notesView.createdYesterday'), sortOrder: 2, filter: inBucket('yesterday') },
+      { id: 'this-week', label: t('sweep.weldcrm.notesView.createdThisWeek'), sortOrder: 3, filter: inBucket('this-week') },
+      { id: 'this-month', label: t('sweep.weldcrm.notesView.createdThisMonth'), sortOrder: 4, filter: inBucket('this-month') },
+      { id: 'this-year', label: t('sweep.weldcrm.notesView.createdThisYear'), sortOrder: 5, filter: inBucket('this-year') },
+      { id: 'older', label: t('sweep.weldcrm.notesView.older'), sortOrder: 6, filter: inBucket('older') },
     ];
   }, [t]);
 

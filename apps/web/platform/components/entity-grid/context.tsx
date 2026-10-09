@@ -20,6 +20,9 @@ import { LucideIcon } from 'lucide-react';
 import { getDefaultWidthForFieldType, getDefaultValueForFieldType } from './utils/calculations';
 import { setEditingCellValue } from './editing-store';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useQueryClient } from '@tanstack/react-query';
+import { gridViewQueryKey } from '@/hooks/queries/use-settings-queries';
+import { useGridViewPersistence, type GridViewPayload } from './use-grid-view-persistence';
 
 // Create the context with a generic type
 const GridContext = createContext<GridContextValue<unknown> | null>(null);
@@ -236,35 +239,31 @@ export function GridProvider<TEntity>({
   const [isExporting, setIsExporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Persist visibility + widths to database (debounced) whenever columns or widths change
-  const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isInitialMount = useRef(true);
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      const visibility: Record<string, boolean> = {};
-      columns.forEach((col) => {
-        visibility[col.id] = col.visible !== false;
-      });
+  // Persist visibility + widths (debounced) — but only when the user actually
+  // changed them relative to the last-saved view, never while hydrating.
+  // Config re-syncs (custom fields / statuses arriving, unrelated row updates)
+  // alter `columns` without being user changes and must not PUT.
+  const queryClient = useQueryClient();
+  const saveGridView = useCallback(
+    async (payload: GridViewPayload) => {
       // app-api PUT /api/grid-views/:gridName (was api-worker
-      // PUT /settings/grid-views/:gridName). Same body, response ignored.
-      getClient().then((client) =>
-        client.put(`/grid-views/${gridName}`, {
-          columnVisibility: visibility,
-          columnWidths,
-        })
-      ).catch(() => {
-        // silent — best-effort persistence
-      });
-    }, 500);
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, [columns, columnWidths, gridName, getClient]);
+      // PUT /settings/grid-views/:gridName).
+      const client = await getClient();
+      await client.put(`/grid-views/${gridName}`, payload);
+      // Keep the cached saved view in step so a remount (navigate away and
+      // back) hydrates from what was just saved, not a stale copy.
+      queryClient.setQueryData(gridViewQueryKey(gridName), payload);
+    },
+    [getClient, gridName, queryClient],
+  );
+  useGridViewPersistence({
+    columns,
+    columnWidths,
+    configColumns: config.columns,
+    initialVisibility: config.initialVisibility,
+    initialColumnWidths: config.initialColumnWidths,
+    save: saveGridView,
+  });
 
   // Sync columns when config.columns changes (e.g. new custom field defs fetched)
   // Preserves user visibility overrides for existing columns, adds new ones

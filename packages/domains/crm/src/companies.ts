@@ -16,8 +16,14 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { computeChanges } from '@weldsuite/entity-events';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { assertValidMemberFields } from './member-validation';
+import {
+  assertValidCustomerStatus,
+  loadCustomerStatusLookup,
+  type CustomerStatusLookup,
+} from './status-validation';
 
 export { InvalidMemberIdError, isValidWorkspaceMember } from './member-validation';
+export { InvalidStatusError } from './status-validation';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
   syncValuesForEntity,
@@ -30,6 +36,7 @@ import {
   customFieldOrderBy,
   customFieldFilter,
 } from '@weldsuite/core-domain/custom-field-query';
+import { importRecordValidationSchema } from '@weldsuite/app-api-client/schemas/companies';
 import type {
   CreateCompanyInput,
   UpdateCompanyInput,
@@ -504,6 +511,7 @@ export async function createCompany(
   input: CreateCompanyInput,
 ): Promise<CompanyRow> {
   await assertValidMemberFields(db, input);
+  await assertValidCustomerStatus(db, input.status);
   const created = await insertCompanyRow(db, input);
   // Phase 1 dual-write: mirror the customFields blob into the typed values table.
   await syncValuesForEntity(db, 'company', created.id, input.customFields);
@@ -513,7 +521,7 @@ export async function createCompany(
 export class CompanyVersionConflictError extends Error {
   readonly isConflict = true as const;
   constructor() {
-    super('Company was modified by someone else; please reload.');
+    super('This record was changed by someone else. Reload to see the latest version.');
     this.name = 'CompanyVersionConflictError';
   }
 }
@@ -529,6 +537,7 @@ export async function updateCompany(
   id: string,
   input: UpdateCompanyInput,
   ownerScope?: string,
+  opts?: { statusLookup?: CustomerStatusLookup },
 ): Promise<UpdateCompanyResult | null> {
   const { companies } = schema;
   const fetchConditions: SQL[] = [eq(companies.id, id), isNull(companies.deletedAt)];
@@ -540,14 +549,18 @@ export async function updateCompany(
     .limit(1);
   if (!existing) return null;
 
-  if (input.ifVersion !== undefined && existing.version !== input.ifVersion) {
+  // `version` is accepted as an alias of `ifVersion`.
+  const expectedVersion = input.ifVersion ?? input.version;
+  if (expectedVersion !== undefined && existing.version !== expectedVersion) {
     throw new CompanyVersionConflictError();
   }
 
   await assertValidMemberFields(db, input);
+  await assertValidCustomerStatus(db, input.status, opts?.statusLookup);
 
   const {
-    ifVersion: _ignored,
+    ifVersion: _ignoredIfVersion,
+    version: _ignoredVersion,
     lastContactDate,
     nextFollowUpDate,
     ...rest
@@ -574,7 +587,20 @@ export async function updateCompany(
     });
   }
 
-  await db.update(companies).set(updates).where(eq(companies.id, id));
+  // When the caller pinned a version the write is conditional on it, so a
+  // concurrent update landing between the read above and this write loses
+  // (409) instead of being silently overwritten.
+  const writeConditions: SQL[] = [eq(companies.id, id)];
+  if (expectedVersion !== undefined) writeConditions.push(eq(companies.version, existing.version));
+  const written = await db
+    .update(companies)
+    .set(updates)
+    .where(and(...writeConditions))
+    .returning({ id: companies.id });
+  if (written.length === 0) {
+    if (expectedVersion !== undefined) throw new CompanyVersionConflictError();
+    return null;
+  }
 
   const updated = await getCompany(db, id);
   if (!updated) return null;
@@ -610,6 +636,39 @@ export interface ImportCompaniesResult {
 }
 
 const normImport = (s?: string | null) => s?.trim() ?? '';
+
+/**
+ * Validate + normalize one import record the same way create/update would:
+ * website / employeeCount / email / lifecycleStage through the shared
+ * validators, `status` against the configured customer statuses (accepting a
+ * status's slug or display name, case-insensitive). Empty cells are dropped so
+ * defaults apply. Returns the cleaned record, or a message for the per-row
+ * error list — never throws, so one bad row cannot abort the batch.
+ */
+function validateImportRecord(
+  rec: ImportCompanyRecord,
+  statuses: CustomerStatusLookup,
+): { record: ImportCompanyRecord } | { error: string } {
+  const parsed = importRecordValidationSchema.safeParse(rec);
+  if (!parsed.success) {
+    return { error: parsed.error.issues.map((i) => i.message).join('; ') };
+  }
+  const record: ImportCompanyRecord = { ...rec };
+  for (const [key, value] of Object.entries(parsed.data)) {
+    if (value === undefined) delete (record as Record<string, unknown>)[key];
+    else (record as Record<string, unknown>)[key] = value;
+  }
+
+  const rawStatus = normImport(rec.status);
+  if (rawStatus) {
+    const key = statuses.byLooseName.get(rawStatus.toLowerCase());
+    if (!key) return { error: `Unknown status "${rawStatus}"` };
+    record.status = key;
+  } else {
+    delete record.status;
+  }
+  return { record };
+}
 
 /** Existing companies an import batch can match against, by party code and by email. */
 interface ImportLookups {
@@ -661,6 +720,7 @@ async function importIntoExisting(
   match: CompanyRow,
   lookups: ImportLookups,
   result: ImportCompaniesResult,
+  statuses: CustomerStatusLookup,
 ): Promise<string | null> {
   // Merge imported custom fields into the existing blob so a partial
   // import doesn't wipe custom fields the row already had (updateCompany
@@ -679,6 +739,8 @@ async function importIntoExisting(
     db,
     match.id,
     recForUpdate as unknown as UpdateCompanyInput,
+    undefined,
+    { statusLookup: statuses },
   );
   if (!updated) return 'Matched company no longer exists';
   result.updated++;
@@ -693,12 +755,15 @@ async function importAsNew(
   rec: ImportCompanyRecord,
   lookups: ImportLookups,
   result: ImportCompaniesResult,
+  defaultOwnerId?: string,
 ): Promise<string | null> {
   if (!normImport(rec.name)) return 'Missing required field: name';
-  const created = await insertCompanyRow(
-    db,
-    rec as unknown as CreateCompanyInput & { partyCode?: string | null },
-  );
+  // Like `POST /companies`, a new row is owned by the importing user (import
+  // records carry no owner column).
+  const created = await insertCompanyRow(db, {
+    ...rec,
+    ownerId: defaultOwnerId ?? null,
+  } as unknown as CreateCompanyInput & { partyCode?: string | null });
   // Phase 1 dual-write: mirror the customFields blob into the typed values table.
   await syncValuesForEntity(db, 'company', created.id, created.customFields);
   result.imported++;
@@ -716,6 +781,7 @@ async function importAsNew(
 export async function importCompanies(
   db: Database,
   records: ImportCompanyRecord[],
+  opts?: { defaultOwnerId?: string },
 ): Promise<ImportCompaniesResult> {
   const result: ImportCompaniesResult = {
     imported: 0,
@@ -727,18 +793,27 @@ export async function importCompanies(
   };
 
   const lookups = await loadImportLookups(db, records);
+  const statuses = await loadCustomerStatusLookup(db);
 
   for (let i = 0; i < records.length; i++) {
-    const rec = records[i]!;
-    const ref = normImport(rec.partyCode) || normImport(rec.email) || normImport(rec.name) || `#${i + 1}`;
+    const original = records[i]!;
+    const ref =
+      normImport(original.partyCode) || normImport(original.email) || normImport(original.name) || `#${i + 1}`;
     try {
+      const validated = validateImportRecord(original, statuses);
+      if ('error' in validated) {
+        result.failed++;
+        result.errors.push({ row: i + 1, ref, error: validated.error });
+        continue;
+      }
+      const rec = validated.record;
       const pc = normImport(rec.partyCode);
       const em = normImport(rec.email).toLowerCase();
       const match = (pc && lookups.byPartyCode.get(pc)) || (em && lookups.byEmail.get(em)) || null;
 
       const failure = match
-        ? await importIntoExisting(db, rec, match, lookups, result)
-        : await importAsNew(db, rec, lookups, result);
+        ? await importIntoExisting(db, rec, match, lookups, result, statuses)
+        : await importAsNew(db, rec, lookups, result, opts?.defaultOwnerId);
       if (failure) {
         result.failed++;
         result.errors.push({ row: i + 1, ref, error: failure });
@@ -1262,6 +1337,7 @@ export async function bulkUpdateCompanies(
   }
 
   await assertValidMemberFields(db, setFields);
+  await assertValidCustomerStatus(db, setFields.status);
 
   // Read the before-snapshot for each id so the route can emit events.
   const beforeConditions: SQL[] = [isNull(companies.deletedAt)];

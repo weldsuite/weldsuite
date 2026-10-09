@@ -20,9 +20,13 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmPipelineStages;
+
+/** SQL for "this stage is a closed (won/lost) stage"; the flags are nullable. */
+const isClosedStage = sql`(COALESCE(${t.isWon}, false) OR COALESCE(${t.isLost}, false))`;
 
 app.get('/', requirePermission('pipelines:read'), async (c) => {
   const db = c.get('tenantDb');
@@ -35,7 +39,20 @@ app.get('/', requirePermission('pipelines:read'), async (c) => {
 
   try {
     const [rows, countRes] = await Promise.all([
-      db.select().from(t).where(where).orderBy(asc(t.position), asc(t.id)).limit(limit + 1),
+      // Ties on `position` (legacy data: a stage added next to Won used to
+      // share its position) list open stages before won/lost ones, then by
+      // creation order, so the board never shows `Stage 3 | Won | Negotiation`.
+      db
+        .select()
+        .from(t)
+        .where(where)
+        .orderBy(
+          asc(t.position),
+          asc(sql`CASE WHEN ${isClosedStage} THEN 1 ELSE 0 END`),
+          asc(t.createdAt),
+          asc(t.id),
+        )
+        .limit(limit + 1),
       db.select({ count: sql<number>`count(*)` }).from(t).where(where),
     ]);
     const hasMore = rows.length > limit;
@@ -63,24 +80,40 @@ app.get('/:id', requirePermission('pipelines:read'), async (c) => {
 });
 
 /**
- * Default `position` for a new stage when the caller doesn't supply one:
- * append after the last *open* stage, before any isWon/isLost stage, instead
- * of always landing on `0` (which used to bump every existing stage to the
- * right of a brand-new one — "Stage adden werkt niet").
+ * Default `position` for a new stage when the caller doesn't supply one.
+ *
+ * - open stage: the slot right after the last *open* stage, i.e. before any
+ *   won/lost stage. `shiftClosedBy` is how far the won/lost stages must move
+ *   right (applied in the same transaction as the insert) so none of them ties
+ *   with, or sits in front of, the new stage. Also repairs legacy pipelines
+ *   where a stage already shares a position with Won.
+ * - won/lost stage: after every existing stage, nothing to shift.
  */
-async function nextOpenStagePosition(
+async function nextStagePosition(
   db: Variables['tenantDb'],
   pipeline: string,
-): Promise<number> {
+  closed: boolean,
+): Promise<{ position: number; shiftClosedBy: number }> {
   const existing = await db
     .select({ position: t.position, isWon: t.isWon, isLost: t.isLost })
     .from(t)
     .where(and(eq(t.pipeline, pipeline), isNull(t.deletedAt)));
+  if (closed) {
+    const all = existing.map((s) => s.position);
+    return { position: all.length > 0 ? Math.max(...all) + 1 : 0, shiftClosedBy: 0 };
+  }
   const openPositions = existing.filter((s) => !s.isWon && !s.isLost).map((s) => s.position);
-  if (openPositions.length > 0) return Math.max(...openPositions) + 1;
+  const closedPositions = existing.filter((s) => s.isWon || s.isLost).map((s) => s.position);
   // No open stages yet: still land before any won/lost stage.
-  const closedPositions = existing.map((s) => s.position);
-  return closedPositions.length > 0 ? Math.min(...closedPositions) : 0;
+  const position =
+    openPositions.length > 0
+      ? Math.max(...openPositions) + 1
+      : closedPositions.length > 0
+        ? Math.min(...closedPositions)
+        : 0;
+  const shiftClosedBy =
+    closedPositions.length > 0 ? Math.max(0, position + 1 - Math.min(...closedPositions)) : 0;
+  return { position, shiftClosedBy };
 }
 
 app.post('/', requirePermission('pipelines:create'), zValidator('json', createPipelineStageSchema), async (c) => {
@@ -90,7 +123,11 @@ app.post('/', requirePermission('pipelines:create'), zValidator('json', createPi
   const now = new Date();
   try {
     const pipeline = data.pipeline ?? 'default';
-    const position = data.position ?? (await nextOpenStagePosition(db, pipeline));
+    const placement =
+      data.position === undefined || data.position === null
+        ? await nextStagePosition(db, pipeline, Boolean(data.isWon || data.isLost))
+        : { position: data.position, shiftClosedBy: 0 };
+    const { position, shiftClosedBy } = placement;
     const values: typeof t.$inferInsert = {
       id,
       name: data.name,
@@ -105,7 +142,19 @@ app.post('/', requirePermission('pipelines:create'), zValidator('json', createPi
       createdAt: now,
       updatedAt: now,
     };
-    await db.insert(t).values(values);
+    // Inserting before the closed stages pushes them right in the same
+    // transaction, so Won/Lost never share a position with the new stage.
+    await atomically(db, (handle) => [
+      ...(shiftClosedBy === 0
+        ? []
+        : [
+            handle
+              .update(t)
+              .set({ position: sql`${t.position} + ${shiftClosedBy}`, updatedAt: now })
+              .where(and(eq(t.pipeline, pipeline), isNull(t.deletedAt), isClosedStage)),
+          ]),
+      handle.insert(t).values(values),
+    ]);
     publishEntityEvent({
       c,
       entityType: 'pipeline_stage',
@@ -191,14 +240,17 @@ app.post('/reorder', requirePermission('pipelines:manage'), zValidator('json', r
   const db = c.get('tenantDb');
   const { pipeline, ids } = c.req.valid('json');
   try {
-    await Promise.all(
-      ids.map((id, position) =>
-        db
-          .update(t)
-          .set({ position, updatedAt: new Date() })
-          .where(and(eq(t.id, id), eq(t.pipeline, pipeline), isNull(t.deletedAt))),
-      ),
-    );
+    const now = new Date();
+    if (ids.length > 0) {
+      await atomically(db, (handle) =>
+        ids.map((id, position) =>
+          handle
+            .update(t)
+            .set({ position, updatedAt: now })
+            .where(and(eq(t.id, id), eq(t.pipeline, pipeline), isNull(t.deletedAt))),
+        ),
+      );
+    }
     ids.forEach((id, position) => {
       publishEntityEvent({
         c,

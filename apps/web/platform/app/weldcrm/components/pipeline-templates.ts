@@ -1,5 +1,10 @@
 export interface StageTemplate {
   name: string;
+  /**
+   * Optional i18n key (under `crm.sidebar.defaultStages`) for a translated
+   * stage name. `name` stays the English fallback.
+   */
+  nameKey?: 'lead' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost';
   color: string;
   probability: number;
   isWon?: boolean;
@@ -147,11 +152,12 @@ export const PIPELINE_TEMPLATES: Record<string, PipelineTemplateConfig> = {
     name: 'Blank Pipeline',
     description: 'Start from scratch with basic stages',
     stages: [
-      { name: 'Stage 1', color: 'bg-gray-500', probability: 25 },
-      { name: 'Stage 2', color: 'bg-blue-500', probability: 50 },
-      { name: 'Stage 3', color: 'bg-yellow-500', probability: 75 },
-      { name: 'Won', color: 'bg-green-500', probability: 100, isWon: true },
-      { name: 'Lost', color: 'bg-red-500', probability: 0, isLost: true },
+      { name: 'Lead', nameKey: 'lead', color: 'bg-gray-500', probability: 10 },
+      { name: 'Qualified', nameKey: 'qualified', color: 'bg-blue-500', probability: 25 },
+      { name: 'Proposal', nameKey: 'proposal', color: 'bg-yellow-500', probability: 50 },
+      { name: 'Negotiation', nameKey: 'negotiation', color: 'bg-orange-500', probability: 75 },
+      { name: 'Won', nameKey: 'won', color: 'bg-green-500', probability: 100, isWon: true },
+      { name: 'Lost', nameKey: 'lost', color: 'bg-red-500', probability: 0, isLost: true },
     ],
   },
 };

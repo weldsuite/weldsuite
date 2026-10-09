@@ -46,7 +46,9 @@ export function ActivityTab({ entityId, entityKind }: Readonly<ActivityTabProps>
       activities={activities}
       totalCount={totalCount}
       emptyDescription={
-        entityKind === 'person' ? t('sweep.weldcrm.activitySection.noActivitiesYetDescriptionPerson') : undefined
+        entityKind === 'person'
+          ? t('sweep.weldcrm.activitySection.noActivitiesYetDescriptionPerson')
+          : t('sweep.weldcrm.activitySection.noActivitiesYetDescriptionCompany')
       }
     />
   );
