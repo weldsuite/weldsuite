@@ -740,7 +740,7 @@ export function LoginScreen({
       } else {
         setFormError(labels.passkeyFailed);
       }
-    } catch (e: any) {
+    } catch (e) {
       if (isPasskeyCancelled(e)) return;
       console.error('Passkey sign in error:', e);
       setFormError(labels.passkeyFailed);
