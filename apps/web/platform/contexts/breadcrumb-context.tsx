@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 
 export interface BreadcrumbSegment {
   label: string;
@@ -21,15 +21,24 @@ interface BreadcrumbProviderProps {
   defaultBreadcrumbs?: BreadcrumbSegment[];
 }
 
-export function BreadcrumbProvider({ children, defaultBreadcrumbs = [] }: Readonly<BreadcrumbProviderProps>) {
+// Shared so a provider without defaults keeps the same array, and so the same
+// context value, across renders.
+const NO_BREADCRUMBS: BreadcrumbSegment[] = [];
+
+export function BreadcrumbProvider({ children, defaultBreadcrumbs = NO_BREADCRUMBS }: Readonly<BreadcrumbProviderProps>) {
   const [breadcrumbs, setBreadcrumbsState] = useState<BreadcrumbSegment[]>(defaultBreadcrumbs);
 
   const setBreadcrumbs = useCallback((segments: BreadcrumbSegment[]) => {
     setBreadcrumbsState(segments);
   }, []);
 
+  const value = useMemo(
+    () => ({ breadcrumbs, setBreadcrumbs, defaultBreadcrumbs }),
+    [breadcrumbs, setBreadcrumbs, defaultBreadcrumbs],
+  );
+
   return (
-    <BreadcrumbContext.Provider value={{ breadcrumbs, setBreadcrumbs, defaultBreadcrumbs }}>
+    <BreadcrumbContext.Provider value={value}>
       {children}
     </BreadcrumbContext.Provider>
   );

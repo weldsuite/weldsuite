@@ -257,8 +257,8 @@ export function ActionStepCard({
         {configSummary.length > 0 && (
           <CardContent className="pt-0 pb-3">
             <div className="pl-11 space-y-1">
-              {configSummary.map((item, i) => (
-                <p key={i} className="text-xs text-muted-foreground font-mono truncate">{item}</p>
+              {configSummary.map((item) => (
+                <p key={item} className="text-xs text-muted-foreground font-mono truncate">{item}</p>
               ))}
             </div>
           </CardContent>

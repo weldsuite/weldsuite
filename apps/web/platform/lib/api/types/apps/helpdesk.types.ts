@@ -415,7 +415,7 @@ export namespace Helpdesk {
     expertise?: string[];
 
     // Permissions
-    permissions?: AgentPermission[];
+    permissions?: string[];
     canAccessAllTickets?: boolean;
     canManageKnowledge?: boolean;
 
@@ -459,7 +459,7 @@ export namespace Helpdesk {
     escalationRules?: EscalationRule[];
 
     // Business Hours
-    businessHours?: BusinessHours;
+    businessHours?: WorkingHours;
 
     // Categories
     categories?: string[];
@@ -487,7 +487,7 @@ export namespace Helpdesk {
 
     // Business Hours
     operationalHours: 'business' | '24x7' | 'custom';
-    businessHours?: BusinessHours;
+    businessHours?: WorkingHours;
 
     // Escalation
     escalationRules?: EscalationRule[];
@@ -571,8 +571,6 @@ export namespace Helpdesk {
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday',
     DayHours
   >;
-
-  export type BusinessHours = WorkingHours;
 
   export interface NotificationPreferences {
     email?: boolean;
@@ -664,8 +662,6 @@ export namespace Helpdesk {
   export type AgentRole = 'agent' | 'senior_agent' | 'team_lead' | 'admin';
 
   export type AgentStatus = 'active' | 'inactive' | 'on_leave';
-
-  export type AgentPermission = string;
 
   export type ConversationStatus =
     | 'active'
@@ -1117,7 +1113,7 @@ export namespace Helpdesk {
         supportEmail: string;
         defaultLanguage: string;
         timezone: string;
-        businessHours: BusinessHours;
+        businessHours: WorkingHours;
       };
       tickets: {
         autoAssignment: boolean;
