@@ -288,7 +288,7 @@ export async function syncZoneRecordsFromCloudflare(
 // ============================================================================
 
 export interface DnsRecordLock {
-  source: 'user' | 'weldmail' | string;
+  source: string;
   sourceId?: string;
   purpose?: string;
   reason: string;

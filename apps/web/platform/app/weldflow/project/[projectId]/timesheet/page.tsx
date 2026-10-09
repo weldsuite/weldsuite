@@ -2021,7 +2021,7 @@ export default function TimesheetPage() {
   const handleTaskDialogSave = async (data: {
     title: string;
     description?: string;
-    status: 'todo' | 'in_progress' | 'done' | string;
+    status: string;
     priority?: 'low' | 'medium' | 'high';
     assigneeId?: string;
     assigneeIds?: string[];

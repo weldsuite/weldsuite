@@ -39,7 +39,7 @@ export interface IntegrationConnection {
   provider: string;
   name: string | null;
   status: string;
-  direction: 'inbound' | 'outbound' | 'bidirectional' | string;
+  direction: string;
   entityConfig?: Record<string, SyncDirection> | null;
   lastSyncAt: string | null;
   lastSyncStatus: string | null;

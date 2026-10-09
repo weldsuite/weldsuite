@@ -32,9 +32,7 @@ export interface Notification {
   timestamp?: string;
 }
 
-export interface NotificationHandler {
-  (notification: Notification): void;
-}
+export type NotificationHandler = (notification: Notification) => void;
 
 export interface TypedNotificationHandler {
   type: NotificationType;
