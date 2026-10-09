@@ -45,7 +45,12 @@ import type {
 } from '../types';
 import { federalRules, futaCreditReductionPercent, type FederalRules } from './federal-rules';
 import { computeOvertime, workweekStart, type HoursEntry, type OvertimeLine } from './overtime';
-import { stateModule as defaultStateModule } from './states';
+import {
+  stateIncomeTaxLabelKey,
+  stateModule as defaultStateModule,
+  stateSuiEmployeeLabelKey,
+  stateSuiEmployerLabelKey,
+} from './states';
 import type { StateCalcInput, StateModule } from './states/types';
 import { effectiveW4, nraAdditionCents, supplementalWithholding, worksheet1A } from './withholding';
 import { US_YTD } from './ytd';
@@ -677,13 +682,15 @@ export function calculateUsPayslipWith(input: UsPayslipInput, deps: UsEngineDeps
         ytd: input.ytd,
         residenceState: input.us.residenceState,
         exemptFromSui: input.us.exemptSui ?? input.us.exemptFuta,
+        // Massachusetts deducts the employee's Social Security and Medicare from wages (Circular M).
+        ficaEmployeeCents: ssEmployeeCents + medicareEmployeeCents,
       };
       const res = mod.calculate(stateInput);
       issues.push(...res.issues);
       ruleSet = `${rules.ruleSet}/${res.ruleSet}`;
-      pushTax('us.state_income_tax', 'us.state_income_tax', res.incomeTaxCents, 'tax', workState);
-      pushTax('us.sui_employee', 'us.sui_employee', res.sui.employeeCents, 'tax', workState);
-      pushTax('us.sui_employer', 'us.sui_employer', res.sui.employerCents, 'employer', workState);
+      pushTax('us.state_income_tax', stateIncomeTaxLabelKey(workState), res.incomeTaxCents, 'tax', workState);
+      pushTax('us.sui_employee', stateSuiEmployeeLabelKey(workState), res.sui.employeeCents, 'tax', workState);
+      pushTax('us.sui_employer', stateSuiEmployerLabelKey(workState), res.sui.employerCents, 'employer', workState);
       const programs: Record<string, { wages: Cents; employee: Cents; employer: Cents }> = {};
       for (const p of res.programs) {
         if (p.employeeCents !== 0) {

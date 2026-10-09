@@ -375,12 +375,30 @@ describe('labels', () => {
         runInput('deduction.net', { amountCents: 500 }),
       ],
     });
-    const federal = r.lines.filter((l) => !l.code.startsWith('us.state_program.'));
+    // This run uses the fake state module; state lines are checked against the real modules below.
+    const federal = r.lines.filter((l) => l.jurisdiction !== 'CA');
     for (const l of federal) {
       expect(US_PAYSLIP_LABELS[l.labelKey], l.labelKey).toBeDefined();
       expect(US_PAYSLIP_LABELS[l.labelKey].en.length).toBeGreaterThan(0);
       expect(US_PAYSLIP_LABELS[l.labelKey].nl.length).toBeGreaterThan(0);
     }
     expect(usPayslipLabels()['us.salary']).toEqual(US_PAYSLIP_LABELS['us.salary']);
+  });
+
+  it('state lines from the real state modules carry the state-named labels', async () => {
+    const { usPayslipLabels } = await import('./labels');
+    const { calculateUsPayslip } = await import('./calculate');
+    const labels = usPayslipLabels();
+    for (const workState of ['CA', 'NY', 'NJ', 'WA']) {
+      const r = calculateUsPayslip(payslip({ us: { flsaStatus: 'exempt', workState } }));
+      const stateLines = r.lines.filter((l) => l.jurisdiction === workState);
+      expect(stateLines.length, workState).toBeGreaterThan(0);
+      for (const l of stateLines) {
+        expect(labels[l.labelKey], l.labelKey).toBeDefined();
+        expect(labels[l.labelKey].en.length).toBeGreaterThan(0);
+        expect(labels[l.labelKey].nl.length).toBeGreaterThan(0);
+      }
+    }
+    expect(labels['us.state_income_tax.CA']?.en).toMatch(/California/);
   });
 });
