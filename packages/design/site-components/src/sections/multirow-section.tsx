@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { keyedBy } from '../lib/keyed';
 
 interface MultirowItem {
   image: string;
@@ -41,9 +42,9 @@ export function MultirowSection({
           className="flex flex-col"
           style={{ gap: `${rowSpacing}px` }}
         >
-          {rows.map((row, index) => (
+          {keyedBy(rows, (r) => r.heading).map(({ item: row, key }) => (
             <a
-              key={index}
+              key={key}
               href={row.link}
               className="group relative aspect-[21/9] overflow-hidden bg-gray-100 rounded-lg"
             >

@@ -1,4 +1,5 @@
 import React from 'react';
+import { keyedBy } from '../lib/keyed';
 
 export interface TabItem {
   title: string;
@@ -63,9 +64,9 @@ export function TabsBlock({
     <div className="w-full">
       {/* Tab Headers */}
       <div className={containerClasses}>
-        {items.map((item, index) => (
+        {keyedBy(items, (t) => t.title).map(({ item, key }, index) => (
           <button
-            key={index}
+            key={key}
             onClick={() => setActiveTab(index)}
             className={getTabClasses(activeTab === index)}
           >

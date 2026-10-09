@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { keyedBy } from '../lib/keyed';
 
 export interface ProductImageGalleryElementProps {
   images?: string[];
@@ -54,9 +55,9 @@ export function ProductImageGalleryElement({
           flex: '1 1 auto',
           overflowX: 'auto'
         }}>
-          {images.map((image: string, index: number) => (
+          {keyedBy(images, (src: string) => src).map(({ item: image, key }, index) => (
             <button
-              key={index}
+              key={key}
               onClick={() => onImageChange(index)}
               style={{
                 position: 'relative',

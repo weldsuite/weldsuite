@@ -5,6 +5,8 @@ import { Heart, Plus } from 'lucide-react';
 import type { Product } from '../types';
 import { toImageUrls } from '../lib/product-images';
 import { toPriceNumber } from '../lib/price';
+import { keyedBy } from '../lib/keyed';
+import { starSlots } from '../lib/list-keys';
 
 interface ProductCardProps {
   product: Product;
@@ -96,10 +98,10 @@ function ProductRating({ rating, reviewCount }: Readonly<ProductRatingProps>) {
   return (
     <div className="flex items-center gap-1">
       <div className="flex">
-        {[...new Array(5)].map((_, i) => (
+        {starSlots(5).map((star) => (
           <svg
-            key={i}
-            className={`w-3 h-3 ${i < Math.floor(rating) ? 'text-black' : 'text-gray-300'}`}
+            key={star}
+            className={`w-3 h-3 ${star <= Math.floor(rating) ? 'text-black' : 'text-gray-300'}`}
             fill="currentColor"
             viewBox="0 0 20 20"
           >
@@ -305,9 +307,9 @@ export function ProductCard({
         {/* Color Swatches (if available) */}
         {productImages.length > 2 && (
           <div className="flex gap-1 mt-2">
-            {productImages.slice(0, 4).map((img, idx) => (
+            {keyedBy(productImages.slice(0, 4), (src) => src).map(({ item: img, key }, idx) => (
               <button
-                key={idx}
+                key={key}
                 className="w-6 h-6 rounded-full border-2 border-gray-200 hover:border-black transition-colors overflow-hidden"
                 aria-label={`View color variant ${idx + 1}`}
               >
