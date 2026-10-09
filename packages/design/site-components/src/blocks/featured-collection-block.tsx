@@ -5,6 +5,7 @@ import React from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Heart, ShoppingBag, ArrowRight, Star, ChevronRight } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
+import { starSlots } from '../lib/list-keys';
 
 export interface FeaturedCollectionBlockProps {
   heading?: string;
@@ -171,12 +172,12 @@ export function FeaturedCollectionBlock({
                   {/* Rating */}
                   <div className="flex items-center gap-2">
                     <div className="flex items-center">
-                      {[...new Array(5)].map((_, i) => (
+                      {starSlots(5).map((star) => (
                         <Star
-                          key={i}
+                          key={star}
                           className={cn(
                             "w-3.5 h-3.5",
-                            i < 4
+                            star <= 4
                               ? 'fill-primary text-primary'
                               : 'fill-muted text-muted'
                           )}

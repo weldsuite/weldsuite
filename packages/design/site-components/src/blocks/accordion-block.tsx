@@ -1,4 +1,5 @@
 import React from 'react';
+import { keyedBy } from '../lib/keyed';
 
 export interface AccordionItem {
   title: string;
@@ -42,11 +43,11 @@ export function AccordionBlock({
 
   return (
     <div className="space-y-2">
-      {items.map((item, index) => {
+      {keyedBy(items, (item) => item.title).map(({ item, key }, index) => {
         const isOpen = openItems.includes(index);
 
         return (
-          <div key={index} className="border border-gray-200 rounded-lg overflow-hidden">
+          <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
             <button
               onClick={() => toggleItem(index)}
               className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-gray-50 transition-colors"
