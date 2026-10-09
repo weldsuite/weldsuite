@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useReducer } from 'react';
+import { useEffect, useRef, useCallback, useReducer } from 'react';
 import { useWeldChatCall, useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useUser } from '@clerk/clerk-react';
@@ -283,6 +283,8 @@ function PiPCallWidgetInner() {
       ref={pipVideoRef}
       autoPlay
       playsInline
+      // Fed only by a canvas capture or a video-only track: there is no audio.
+      muted
       className="fixed top-0 left-0 w-[320px] h-[180px] opacity-0 pointer-events-none -z-50"
     />
   );

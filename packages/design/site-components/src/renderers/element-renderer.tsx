@@ -91,12 +91,15 @@ export function ElementRenderer({
   };
 
   // In the editor, non-interactive elements are selectable by mouse and keyboard.
+  // Keys pressed inside a nested control (video controls, child elements) are
+  // left to that control.
   const selectableProps = isEditing && onSelect
     ? {
         role: 'button' as const,
         tabIndex: 0,
         onClick: handleClick,
         onKeyDown: (e: React.KeyboardEvent) => {
+          if (e.target !== e.currentTarget) return;
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             e.stopPropagation();
@@ -193,7 +196,7 @@ export function ElementRenderer({
       case 'video':
         if (content?.src || content?.url) {
           return (
-            <div style={styles} className={wrapperClasses} onClick={handleClick}>
+            <div style={styles} className={wrapperClasses} {...selectableProps}>
               <video
                 src={content?.src || content?.url || ''}
                 controls
@@ -217,7 +220,7 @@ export function ElementRenderer({
       case 'container':
       case 'section':
         return (
-          <div style={styles} className={wrapperClasses} onClick={handleClick}>
+          <div style={styles} className={wrapperClasses} {...selectableProps}>
             {children?.map((child) => (
               <ElementRenderer
                 key={child.id}
@@ -235,7 +238,7 @@ export function ElementRenderer({
           <div
             style={{...styles, display: 'flex', flexDirection: 'row'}}
             className={wrapperClasses}
-            onClick={handleClick}
+            {...selectableProps}
           >
             {children?.map((child) => (
               <ElementRenderer
@@ -254,7 +257,7 @@ export function ElementRenderer({
           <div
             style={{...styles, display: 'flex', flexDirection: 'column'}}
             className={wrapperClasses}
-            onClick={handleClick}
+            {...selectableProps}
           >
             {children?.map((child) => (
               <ElementRenderer
