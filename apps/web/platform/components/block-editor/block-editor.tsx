@@ -972,7 +972,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       // search input and menu items inside those menus can receive
       // focus and clicks normally (popovers propagate React events back
       // through the component tree even though they render in a portal).
-      role="presentation"
+      role="toolbar"
       onMouseDown={(e) => {
         const target = e.target as Element | null;
         if (target?.closest('[data-slot="popover-content"], [data-slot="dropdown-menu-content"]')) {

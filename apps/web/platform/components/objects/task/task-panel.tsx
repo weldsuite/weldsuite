@@ -10,7 +10,7 @@
  * members / dependencies from the new app-api worker.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import {
   Copy,
   EllipsisVertical,
@@ -36,6 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { InlineTextEditor } from '@/components/shared/inline-text-editor';
 import {
   TaskDetailContent,
   type TaskComment,
@@ -156,78 +157,15 @@ function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: 
 }
 
 function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: boolean; onSave: (next: string) => void }>) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [local, setLocal] = useState(title);
-  const editorRef = React.useRef<HTMLDivElement>(null);
-  const isEditingRef = React.useRef(isEditing);
-  useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
-  useEffect(() => {
-    if (isEditingRef.current) return;
-    setLocal(title);
-  }, [title]);
-  useEffect(() => {
-    if (!isEditing) return;
-    const el = editorRef.current;
-    if (!el) return;
-    el.textContent = local;
-    el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditing]);
-
-  const commit = () => {
-    const next = (editorRef.current?.textContent ?? local).trim();
-    if (next && next !== local) {
-      setLocal(next);
-      onSave(next);
-    } else if (editorRef.current) {
-      editorRef.current.textContent = local;
-    }
-    setIsEditing(false);
-  };
-
   return (
-    <div
-      ref={editorRef}
-      role={isEditing ? 'textbox' : 'button'}
-      tabIndex={isEditing ? undefined : 0}
-      contentEditable={isEditing}
-      suppressContentEditableWarning
-      onClick={() => { if (!isEditing) setIsEditing(true); }}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (!isEditing) {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setIsEditing(true);
-          }
-          return;
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          (e.target as HTMLDivElement).blur();
-        }
-        if (e.key === 'Escape') {
-          if (editorRef.current) editorRef.current.textContent = local;
-          setIsEditing(false);
-        }
-      }}
+    <InlineTextEditor
+      value={title}
+      onSave={onSave}
       className={cn(
-        'text-[15px] font-medium leading-normal text-foreground break-words min-w-0 rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 border outline-none whitespace-pre-wrap',
-        isEditing
-          ? 'border-border focus:ring-1 focus:ring-primary cursor-text'
-          : 'border-transparent hover:border-border transition-colors cursor-text',
+        'text-[15px] font-medium leading-normal text-foreground',
         isDone && 'line-through text-muted-foreground',
       )}
-    >
-      {local}
-    </div>
+    />
   );
 }
 
@@ -659,7 +597,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
           ? <TaskTitle title={task.title} isDone={task.status === 'done'} onSave={(next) => handleUpdate(task.id, { title: next })} />
           : <div className="h-4 w-32 rounded bg-muted animate-pulse" />
       }
-      // `TaskTitle` is a wrapping `contentEditable` — without this the shell's
+      // `TaskTitle` is a wrapping, auto-growing editor — without this the shell's
       // single-line clamp boxes it in and the title scrolls instead of wrapping.
       titleWrap
       actions={

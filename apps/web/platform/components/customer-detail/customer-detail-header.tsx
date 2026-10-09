@@ -1,6 +1,6 @@
 
 import { useRouter } from '@/lib/router';
-import { useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useId, useMemo, useRef, type ReactNode } from 'react';
 import {
   X,
   Building2,
@@ -66,6 +66,7 @@ import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldcha
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { InlineTextEditor } from '@/components/shared/inline-text-editor';
 
 interface CustomerDetailHeaderProps {
   variant?: 'page' | 'panel';
@@ -89,84 +90,7 @@ function EditableHeaderName({
   onSave: (newName: string) => void;
   className?: string;
 }>) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [localName, setLocalName] = useState(name);
-  const editorRef = useRef<HTMLDivElement>(null);
-
-  const isEditingRef = useRef(isEditing);
-  useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
-
-  useEffect(() => {
-    if (isEditingRef.current) return;
-    setLocalName(name);
-  }, [name]);
-
-  useEffect(() => {
-    if (!isEditing) return;
-    const el = editorRef.current;
-    if (!el) return;
-    el.textContent = localName;
-    el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditing]);
-
-  const handleSave = () => {
-    const next = (editorRef.current?.textContent ?? localName).trim();
-    if (next && next !== localName) {
-      setLocalName(next);
-      onSave(next);
-    } else if (editorRef.current) {
-      editorRef.current.textContent = localName;
-    }
-    setIsEditing(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      (e.target as HTMLDivElement).blur();
-    }
-    if (e.key === 'Escape') {
-      if (editorRef.current) editorRef.current.textContent = localName;
-      setIsEditing(false);
-    }
-  };
-
-  const handleIdleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      setIsEditing(true);
-    }
-  };
-
-  return (
-    <div
-      ref={editorRef}
-      role={isEditing ? 'textbox' : 'button'}
-      tabIndex={isEditing ? undefined : 0}
-      contentEditable={isEditing}
-      suppressContentEditableWarning
-      onClick={() => { if (!isEditing) setIsEditing(true); }}
-      onBlur={handleSave}
-      onKeyDown={isEditing ? handleKeyDown : handleIdleKeyDown}
-      className={cn(
-        'rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 border outline-none whitespace-pre-wrap break-words min-w-0',
-        isEditing
-          ? 'border-border focus:ring-1 focus:ring-primary cursor-text'
-          : 'border-transparent hover:border-border transition-colors cursor-text',
-        className,
-      )}
-    >
-      {localName}
-    </div>
-  );
+  return <InlineTextEditor value={name} onSave={onSave} className={className} />;
 }
 
 export function CustomerDetailHeader({
@@ -1328,6 +1252,7 @@ function ShareDialog({
   const [extraMessage, setExtraMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const recipientInputId = useId();
 
   useEffect(() => {
     if (open) {
@@ -1522,12 +1447,12 @@ function ShareDialog({
           {/* Recipient picker — chips render inline INSIDE the input.
               Typing filters live; pressing Enter (or Tab) adds the first
               match as a chip. No dropdown row under the field. */}
-          <div
+          <label
+            htmlFor={recipientInputId}
             className={cn(
               'flex flex-wrap items-center gap-1.5 min-h-9 rounded-md border border-input bg-transparent dark:bg-input/30 px-2 py-1 text-sm transition-[color,box-shadow]',
               'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]',
             )}
-            onClick={() => inputRef.current?.focus()}
           >
                 {selectedList.map((t) => (
                   <span
@@ -1552,6 +1477,8 @@ function ShareDialog({
                 ))}
                 <input
                   ref={inputRef}
+                  id={recipientInputId}
+                  aria-label={st('sweep.weldcrm.customerDetailHeader.addByNamePlaceholder')}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -1569,7 +1496,7 @@ function ShareDialog({
                   placeholder={selectedList.length === 0 ? st('sweep.weldcrm.customerDetailHeader.addByNamePlaceholder') : ''}
                   className="flex-1 min-w-[60px] bg-transparent outline-none placeholder:text-muted-foreground text-sm"
                 />
-          </div>
+          </label>
 
           {/* Message field — record being shared appears as a non-removable
               chip pinned at the start; the user types their message after it. */}
