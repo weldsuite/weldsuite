@@ -28,7 +28,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, or, sql, type Column, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, ilike, isNull, lt, notInArray, or, sql, type Column, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { sendTaskAssignmentNotification } from '@weldsuite/notifications';
@@ -1219,6 +1219,12 @@ const listQuerySchema = z.object({
   labelIds: taskCsvStringArray,
   tags: taskCsvStringArray,
   dueDateBucket: dueDateBucketEnum,
+  // Negated ("is not") counterparts of the filters above
+  excludeStatus: taskCsvStringArray,
+  excludePriority: taskCsvStringArray,
+  excludeAssigneeId: z.string().optional(),
+  excludeLabelIds: taskCsvStringArray,
+  excludeDueDateBucket: dueDateBucketEnum,
   dueDateFrom: z.string().optional(),
   dueDateTo: z.string().optional(),
   // Sort
@@ -1293,6 +1299,14 @@ function taskValueFilters(q: ListQuery, userId: string | undefined): SQL[] {
   if (q.status) filters.push(eq(t.status, q.status));
   if (q.priority) filters.push(eq(t.priority, q.priority));
   if (q.type) filters.push(eq(t.type, q.type));
+  // "is not" filters (status/priority are NOT NULL columns, so plain NOT IN is safe).
+  if (q.excludeStatus) filters.push(notInArray(t.status, q.excludeStatus));
+  if (q.excludePriority) filters.push(notInArray(t.priority, q.excludePriority));
+  if (q.excludeAssigneeId) {
+    filters.push(
+      sql`NOT (coalesce(${t.assigneeId} = ${q.excludeAssigneeId}, false) OR coalesce(${t.assigneeIds}::jsonb @> ${JSON.stringify([q.excludeAssigneeId])}::jsonb, false))`,
+    );
+  }
 
   // Assignee: myTasks shorthand takes precedence over explicit assigneeId
   const effectiveAssigneeId = q.myTasks ? userId : q.assigneeId;
@@ -1312,9 +1326,9 @@ function taskSearchFilters(q: ListQuery): SQL[] {
   if (q.search) {
     const term = `%${q.search}%`;
     const searchClauses = [
-      like(t.title, term),
-      like(t.description, term),
-      like((t as any).key, term),
+      ilike(t.title, term),
+      ilike(t.description, term),
+      ilike((t as any).key, term),
     ];
     // Let users find a task by its number: "TASK-1042", "#1042", or "1042".
     const numberMatch = q.search.trim().replace(/^#/, '').replace(/^task-/i, '');
@@ -1322,6 +1336,15 @@ function taskSearchFilters(q: ListQuery): SQL[] {
       searchClauses.push(eq(t.number, Number(numberMatch)));
     }
     filters.push(or(...searchClauses)!);
+  }
+
+  if (q.excludeLabelIds && q.excludeLabelIds.length > 0) {
+    filters.push(
+      sql`NOT coalesce(${t.labels} ?| array[${sql.join(
+        q.excludeLabelIds.map((id) => sql`${id}`),
+        sql`, `,
+      )}]::text[], false)`,
+    );
   }
 
   if (q.labelIds && q.labelIds.length > 0) {
@@ -1338,6 +1361,10 @@ function taskSearchFilters(q: ListQuery): SQL[] {
 function taskDueDateFilters(q: ListQuery): SQL[] {
   const filters: SQL[] = [];
   if (q.dueDateBucket) filters.push(dueDateBucketCondition(q.dueDateBucket, t.dueDate));
+  if (q.excludeDueDateBucket) {
+    // coalesce: a NULL due date makes most bucket windows NULL, i.e. "not in it".
+    filters.push(sql`coalesce(NOT (${dueDateBucketCondition(q.excludeDueDateBucket, t.dueDate)}), true)`);
+  }
   if (q.dueDateFrom) filters.push(gte(t.dueDate, new Date(q.dueDateFrom)));
   if (q.dueDateTo) filters.push(lt(t.dueDate, new Date(q.dueDateTo)));
   return filters;

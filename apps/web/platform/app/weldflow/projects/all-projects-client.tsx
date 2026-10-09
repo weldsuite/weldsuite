@@ -85,7 +85,10 @@ function mapApiStatusToTableStatus(apiStatus: string): TableStatus {
     'cancelled': 'off-track',
     'archived': 'completed'
   };
-  return statusMap[apiStatus] || 'on-track';
+  // Stored statuses are mixed-case / spaced ("Planning", "On Hold"); key on a
+  // lowercase snake_case form so every spelling resolves.
+  const key = apiStatus.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return statusMap[key] || 'on-track';
 }
 
 function mapHealthToTableStatus(health: string): TableStatus {

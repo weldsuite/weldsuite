@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Label } from '@weldsuite/ui/components/label';
+import { normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
 import { Button } from '@weldsuite/ui/components/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -62,7 +63,9 @@ export function GeneralSection({ projectId, isAdmin }: Readonly<GeneralSectionPr
         setName(p.name || '');
         originalNameRef.current = p.name || '';
         setDescription(p.description || '');
-        setStatus(p.status || 'Planning');
+        // Older rows were stored lowercase ("planning"); show them under the
+        // canonical option so the select is never blank.
+        setStatus(p.status ? normalizeProjectStatus(p.status) : 'Planning');
         setPriority(p.priority || 'medium');
         setDueDate(p.endDate ? new Date(p.endDate) : undefined);
         setColor(p.color || undefined);

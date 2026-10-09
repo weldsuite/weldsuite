@@ -655,10 +655,13 @@ export const projectsApi = {
 
   create: (data: {
     name: string;
+    description?: string;
     status?: string;
     priority?: string;
     color?: string;
     icon?: string;
+    startDate?: string;
+    endDate?: string;
   }) => appApiPost<ApiProject>('/projects', data),
 
   update: (

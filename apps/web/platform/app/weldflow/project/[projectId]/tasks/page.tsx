@@ -7,20 +7,41 @@ import { useDebounce } from '@/hooks/use-debounce';
 import { PageLoader } from '@/components/page-loader';
 import type { ActiveFilter, SortState } from '@/components/entity-list';
 
-function activeFiltersToServer(filters: ActiveFilter[]): Pick<ProjectTaskFilters, 'status' | 'priority' | 'dueDateBucket' | 'labelIds' | 'assigneeId'> {
-  const out: Pick<ProjectTaskFilters, 'status' | 'priority' | 'dueDateBucket' | 'labelIds' | 'assigneeId'> = {};
+type ServerFilterKeys =
+  | 'status' | 'priority' | 'dueDateBucket' | 'labelIds' | 'assigneeId'
+  | 'excludeStatus' | 'excludePriority' | 'excludeLabelIds' | 'excludeAssigneeId' | 'excludeDueDateBucket';
+
+function activeFiltersToServer(filters: ActiveFilter[]): Pick<ProjectTaskFilters, ServerFilterKeys> {
+  const out: Pick<ProjectTaskFilters, ServerFilterKeys> = {};
   const labels: string[] = [];
+  const excludeStatus: string[] = [];
+  const excludePriority: string[] = [];
+  const excludeLabels: string[] = [];
   for (const f of filters) {
-    if (!f.operator || !f.value || f.operator !== 'is') continue;
-    switch (f.field) {
-      case 'status': out.status = f.value; break;
-      case 'priority': out.priority = f.value; break;
-      case 'assignee': out.assigneeId = f.value; break;
-      case 'dueDate': out.dueDateBucket = f.value as ProjectTaskFilters['dueDateBucket']; break;
-      case 'label': labels.push(f.value); break;
+    if (!f.operator || !f.value) continue;
+    // The filter pill emits the operators 'is' and 'is not'.
+    if (f.operator === 'is') {
+      switch (f.field) {
+        case 'status': out.status = f.value; break;
+        case 'priority': out.priority = f.value; break;
+        case 'assignee': out.assigneeId = f.value; break;
+        case 'dueDate': out.dueDateBucket = f.value as ProjectTaskFilters['dueDateBucket']; break;
+        case 'label': labels.push(f.value); break;
+      }
+    } else if (f.operator === 'is not') {
+      switch (f.field) {
+        case 'status': excludeStatus.push(f.value); break;
+        case 'priority': excludePriority.push(f.value); break;
+        case 'assignee': out.excludeAssigneeId = f.value; break;
+        case 'dueDate': out.excludeDueDateBucket = f.value as ProjectTaskFilters['excludeDueDateBucket']; break;
+        case 'label': excludeLabels.push(f.value); break;
+      }
     }
   }
   if (labels.length > 0) out.labelIds = labels;
+  if (excludeStatus.length > 0) out.excludeStatus = excludeStatus;
+  if (excludePriority.length > 0) out.excludePriority = excludePriority;
+  if (excludeLabels.length > 0) out.excludeLabelIds = excludeLabels;
   return out;
 }
 

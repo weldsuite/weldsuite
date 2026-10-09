@@ -76,6 +76,7 @@ import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
+import { buildStatusToStageId } from '@/app/weldflow/lib/stage-resolution';
 
 // ---------- Types ----------
 
@@ -768,13 +769,10 @@ const PipelinePage = () => {
         membersApi.list(projectId),
         stagesApi.list(projectId),
       ]);
-      const statusToStageId = new Map<string, string>();
+      let statusToStageId = new Map<string, string>();
       if (stagesResult.success && stagesResult.data) {
         const stages = stagesResult.data as RawPipelineStage[];
-        for (const s of stages) {
-          statusToStageId.set(s.id, s.id);
-          if (s.systemStatus) statusToStageId.set(s.systemStatus, s.id);
-        }
+        statusToStageId = buildStatusToStageId(stages);
         setColumns(stages.map((s) => ({ id: s.id, name: s.name || '', color: s.color || '#94a3b8', systemStatus: s.systemStatus || s.id })));
       }
       if (tasksResult.success && tasksResult.data) {
@@ -799,14 +797,7 @@ const PipelinePage = () => {
 
   useEffect(() => { void loadData(); }, [loadData]);
 
-  const statusToStageId = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of columns) {
-      m.set(c.id, c.id);
-      if (c.systemStatus) m.set(c.systemStatus, c.id);
-    }
-    return m;
-  }, [columns]);
+  const statusToStageId = useMemo(() => buildStatusToStageId(columns), [columns]);
 
   // Filtered features
   const filteredFeatures = useMemo(() => {
