@@ -10,7 +10,7 @@
  * members / dependencies from the new app-api worker.
  */
 
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Copy,
   EllipsisVertical,
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useAuth } from '@clerk/clerk-react';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
@@ -479,9 +480,15 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     toggleMutation.mutate();
   }, [toggleMutation]);
 
+  // Deleting is destructive and has no undo, so the menu item only opens a
+  // confirmation; `handleDelete` runs once the user confirms.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const requestDelete = useCallback(() => setConfirmDeleteOpen(true), []);
+
   const handleDelete = useCallback(() => {
     deleteMutation.mutate(undefined, {
       onSuccess: () => {
+        setConfirmDeleteOpen(false);
         toast.success(t('sweep.entities.taskDeleted'));
         onClose();
       },
@@ -667,7 +674,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
           onCopyLink={handleCopyLink}
           onEdit={handleEdit}
           onDuplicate={handleDuplicate}
-          onDelete={handleDelete}
+          onDelete={requestDelete}
         />
       }
       sidebar={chatSidebar}
@@ -735,6 +742,17 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onRemoveDependency={projectId ? handleRemoveDependency : undefined}
           />
       )}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title={t('sweep.entities.deleteTask')}
+        description={t('sweep.entities.deleteTaskConfirmDescription')}
+        confirmLabel={t('sweep.entities.deleteTask')}
+        cancelLabel={t('common.actions.cancel')}
+        variant="destructive"
+        loading={deleteMutation.isPending}
+        onConfirm={handleDelete}
+      />
     </EntityDetailView>
   );
 }

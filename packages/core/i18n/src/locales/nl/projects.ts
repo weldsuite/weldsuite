@@ -887,6 +887,9 @@ export const projects = {
       removeFromRoadmap: 'Verwijderen van routekaart',
       addMilestone: 'Mijlpaal toevoegen',
       noTasksWithDates: 'Geen taken met datums',
+      noDates: 'Geen datums',
+      sidebarTasks: 'Taken',
+      sidebarDuration: 'Duur',
       renameTask: 'Taak hernoemen',
       renameMilestone: 'Mijlpaal hernoemen',
       nameLabel: 'Naam',
@@ -1149,6 +1152,9 @@ export const projects = {
       timerStarted: 'Timer gestart',
       failedToStartTimer: 'Timer starten mislukt',
       timerAlreadyRunning: 'Er loopt al een timer. Stop die eerst voordat je een nieuwe start.',
+      timerNeedsTaskOrDescription: 'Koppel een taak of voeg een omschrijving toe om de timer te starten',
+      loggedDuration: '{duration} genoteerd',
+      linkTaskOptional: 'Koppel een taak (optioneel)...',
 
       // Start- en eindtijd op een handmatige invoer
       startEndRange: 'Start / eind',

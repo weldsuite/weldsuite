@@ -887,6 +887,9 @@ export const projects = {
       removeFromRoadmap: 'Remove from roadmap',
       addMilestone: 'Add Milestone',
       noTasksWithDates: 'No tasks with dates',
+      noDates: 'No dates',
+      sidebarTasks: 'Tasks',
+      sidebarDuration: 'Duration',
       renameTask: 'Rename Task',
       renameMilestone: 'Rename Milestone',
       nameLabel: 'Name',
@@ -1149,6 +1152,9 @@ export const projects = {
       timerStarted: 'Timer started',
       failedToStartTimer: 'Failed to start timer',
       timerAlreadyRunning: 'A timer is already running. Stop it before starting another.',
+      timerNeedsTaskOrDescription: 'Link a task or add a description to start the timer',
+      loggedDuration: 'Logged {duration}',
+      linkTaskOptional: 'Link a task (optional)...',
 
       // Start / end clock times on a manual entry
       startEndRange: 'Start / end',
