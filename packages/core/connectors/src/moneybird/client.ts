@@ -214,7 +214,7 @@ export class MoneybirdClient implements ConnectorProviderClient {
     return rows
       .map((row) => ({
         id: row.id !== undefined && row.id !== null ? asText(row.id) : '',
-        name: typeof row.name === 'string' ? row.name : typeof row.company_name === 'string' ? row.company_name : row.id !== undefined ? asText(row.id) : '',
+        name: administrationName(row),
         language: typeof row.language === 'string' ? row.language : null,
         currency: typeof row.currency === 'string' ? row.currency : null,
       }))
@@ -500,4 +500,11 @@ export function createMoneybirdClient(
   options?: { fetchImpl?: typeof fetch; timeoutMs?: number },
 ): MoneybirdClient {
   return new MoneybirdClient(creds, options);
+}
+
+/** Display name of a Moneybird administration: its name, else company name, else id. */
+function administrationName(row: Record<string, unknown>): string {
+  if (typeof row.name === 'string') return row.name;
+  if (typeof row.company_name === 'string') return row.company_name;
+  return row.id === undefined ? '' : asText(row.id);
 }

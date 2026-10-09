@@ -637,8 +637,10 @@ export function PipelineKanban({
       Promise.resolve(onDealMove(activeDealId, fromStageId, toStageId))
         .catch((error) => {
           console.error('Failed to move deal:', error);
-          // Revert the optimistic update on error
-          setStages(prevStages => moveDealBetweenStages(prevStages, activeDealId, toStageId, fromStageId));
+          // Revert the optimistic update on error: move the deal back.
+          const revertFrom = toStageId;
+          const revertTo = fromStageId;
+          setStages(prevStages => moveDealBetweenStages(prevStages, activeDealId, revertFrom, revertTo));
         });
     }
   };
