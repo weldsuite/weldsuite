@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { EllipsisVertical, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '../cn';
 import { Button } from '../button';
@@ -49,6 +50,7 @@ export function PanelEntityList<T extends { id: string }>({
   onLoadMore,
   emptyState,
 }: Readonly<PanelEntityListProps<T>>) {
+  const rowIdPrefix = useId();
   const mergedLabels = { ...DEFAULT_LABELS, ...labels };
   const hasRowMenu = !!onEdit || !!onDelete;
 
@@ -65,26 +67,25 @@ export function PanelEntityList<T extends { id: string }>({
   const renderRow = (item: T) => (
     <div
       key={item.id}
-      onClick={onRowClick ? () => onRowClick(item) : undefined}
-      role={onRowClick ? 'button' : undefined}
-      tabIndex={onRowClick ? 0 : undefined}
-      onKeyDown={
-        onRowClick
-          ? (e) => {
-              if (e.key !== 'Enter' && e.key !== ' ') return;
-              if (e.target !== e.currentTarget) return;
-              e.preventDefault();
-              onRowClick(item);
-            }
-          : undefined
-      }
       className={cn(
         'wui-elist-row',
         onRowClick && 'wui-elist-row--clickable',
       )}
     >
-      {columns.map((column) => (
-        <div key={column.id} className={cn('wui-elist-row__cell', column.width)}>
+      {onRowClick && (
+        <button
+          type="button"
+          className="wui-elist-row__hit"
+          aria-labelledby={`${rowIdPrefix}-${item.id}`}
+          onClick={() => onRowClick(item)}
+        />
+      )}
+      {columns.map((column, columnIndex) => (
+        <div
+          key={column.id}
+          id={columnIndex === 0 ? `${rowIdPrefix}-${item.id}` : undefined}
+          className={cn('wui-elist-row__cell', column.width)}
+        >
           {column.render(item, {
             onEdit: () => onEdit?.(item),
             onDelete: () => onDelete?.(item),
