@@ -850,7 +850,7 @@ dialog.wui-popover-content {
   pointer-events: none;
 }
 
-.wui-elist-row--clickable > .wui-elist-row__cell :is(a[href], button, input, select, textarea, summary, label, [role='button'], [role='link'], [role='checkbox'], [role='switch'], [role='menuitem'], [tabindex]:not([tabindex='-1'])) {
+.wui-elist-row--clickable > .wui-elist-row__cell :is(a[href], button, input, select, textarea, summary, label, [role='button'], [role='link'], [role='checkbox'], [role='switch'], [role='menuitem'], [tabindex]:not([tabindex='-1']), [contenteditable]:not([contenteditable='false'])) {
   pointer-events: auto;
 }
 

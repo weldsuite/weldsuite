@@ -64,6 +64,9 @@ export function PanelEntityList<T extends { id: string }>({
     ...(hasRowMenu ? [{ id: '__actions', header: '', width: 'wui-elist-col-actions' }] : []),
   ];
 
+  // ID-reference lists are whitespace-separated, so encode the item id to keep it one token.
+  const rowLabelId = (item: T) => `${rowIdPrefix}-${encodeURIComponent(String(item.id))}`;
+
   const renderRow = (item: T) => (
     <div
       key={item.id}
@@ -76,14 +79,14 @@ export function PanelEntityList<T extends { id: string }>({
         <button
           type="button"
           className="wui-elist-row__hit"
-          aria-labelledby={`${rowIdPrefix}-${item.id}`}
+          aria-labelledby={rowLabelId(item)}
           onClick={() => onRowClick(item)}
         />
       )}
       {columns.map((column, columnIndex) => (
         <div
           key={column.id}
-          id={columnIndex === 0 ? `${rowIdPrefix}-${item.id}` : undefined}
+          id={columnIndex === 0 ? rowLabelId(item) : undefined}
           className={cn('wui-elist-row__cell', column.width)}
         >
           {column.render(item, {
