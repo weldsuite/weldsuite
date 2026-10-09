@@ -759,6 +759,7 @@ export const weldchat = {
     },
     threadPanel: {
       defaultName: 'Thread',
+      nameLabel: 'Thread name',
       clickToRename: 'Click to rename',
     },
     pipCallWidget: {

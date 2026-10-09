@@ -26,7 +26,10 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftName, setDraftName] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
   const cancelEditRef = useRef(false);
+  // Set when Enter/Escape ends the rename, so focus returns to the title button.
+  const refocusTitleRef = useRef(false);
 
   useEffect(() => {
     const stored = typeof window !== 'undefined' ? localStorage.getItem(THREAD_NAME_KEY(messageId)) : null;
@@ -36,7 +39,13 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
   }, [messageId, t.weldchat.threadPanel.defaultName]);
 
   useEffect(() => {
-    if (!editingTitle) return;
+    if (!editingTitle) {
+      if (refocusTitleRef.current) {
+        refocusTitleRef.current = false;
+        titleButtonRef.current?.focus();
+      }
+      return;
+    }
     titleInputRef.current?.focus();
     titleInputRef.current?.select();
   }, [editingTitle]);
@@ -86,15 +95,17 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
               type="text"
               value={draftName}
               maxLength={50}
-              aria-label={t.weldchat.threadPanel.clickToRename}
+              aria-label={t.weldchat.threadPanel.nameLabel}
               onChange={(e) => setDraftName(e.target.value)}
               onBlur={commitTitle}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
+                  refocusTitleRef.current = true;
                   e.currentTarget.blur();
                 }
                 if (e.key === 'Escape') {
+                  refocusTitleRef.current = true;
                   cancelEditRef.current = true;
                   setEditingTitle(false);
                 }
@@ -103,6 +114,7 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
             />
           ) : (
             <button
+              ref={titleButtonRef}
               type="button"
               onClick={startEditing}
               title={t.weldchat.threadPanel.clickToRename}

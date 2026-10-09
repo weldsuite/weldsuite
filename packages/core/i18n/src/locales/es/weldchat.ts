@@ -750,6 +750,7 @@ export const weldchat = {
     },
     threadPanel: {
       defaultName: 'Hilo',
+      nameLabel: 'Nombre del hilo',
       clickToRename: 'Haz clic para renombrar',
     },
     pipCallWidget: {
