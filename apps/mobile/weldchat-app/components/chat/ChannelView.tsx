@@ -1704,7 +1704,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       const uploaded = await uploadChatAttachment(channelId, result);
       if (!uploaded) return;
       await appApi.chatMessages.create({ channelId, body: '', attachments: [uploaded] });
-      loadMessages();
+      void loadMessages();
       onSend();
     } catch (err) {
       console.error('[WeldChat] Voice message send failed:', err);
@@ -1722,7 +1722,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     draftIdRef.current = null;
     setMessagesLoading(true);
     void loadChannel();
-    loadMessages();
+    void loadMessages();
     // Load draft for this channel if composer is empty. The server scopes
     // drafts to the authenticated caller (JWT) — no client-supplied userId.
     if (userId) {
@@ -1867,11 +1867,11 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
     setEditingMessage(null);
     try {
       await appApi.chatMessages.update(msgId, { content: trimmed });
-      loadMessages();
+      void loadMessages();
     } catch (err) {
       console.error('[WeldChat] Edit failed:', err);
       // Revert on failure
-      loadMessages();
+      void loadMessages();
     }
   }, [editingMessage, input]);
 
@@ -1949,7 +1949,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       });
       const entry = pendingSendsRef.current.get(tempId);
       if (entry) entry.serverId = res.data?.id;
-      loadMessages();
+      void loadMessages();
     } catch (err) {
       console.error('[WeldChat] Send failed:', err);
       pendingSendsRef.current.delete(tempId);
@@ -1971,7 +1971,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       } else {
         await appApi.chatMessages.addReaction(selectedMessage.id, { emoji });
       }
-      loadMessages();
+      void loadMessages();
     } catch (err) {
       console.error(err);
     }
@@ -1992,7 +1992,7 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
       } else {
         await appApi.chatMessages.addReaction(messageId, { emoji });
       }
-      loadMessages();
+      void loadMessages();
     } catch (err) {
       console.error(err);
     }
@@ -2072,11 +2072,11 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
         if (ms > 0) expiresAt = new Date(Date.now() + ms).toISOString();
       }
       await appApi.chatMessages.pin(msg.id, { expiresAt, silent });
-      loadMessages();
+      void loadMessages();
     } catch (err) {
       console.error(err);
       setLocalPinnedIds((prev) => { const next = new Set(prev); next.delete(msg.id); return next; });
-      loadMessages();
+      void loadMessages();
     }
   }, [messageToPin, channelId, pinDuration]);
 
@@ -2112,10 +2112,10 @@ export function ChannelView({ channelId, hideBackButton, hideHeader }: Readonly<
             setMessages((prev) => prev.filter((m) => m.id !== msg.id));
             try {
               await appApi.chatMessages.delete(msg.id);
-              loadMessages();
+              void loadMessages();
             } catch (err) {
               console.error('[WeldChat] Delete failed:', err);
-              loadMessages();
+              void loadMessages();
             }
           },
         },

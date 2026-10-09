@@ -2324,7 +2324,7 @@ export function QuickCreateCard({
           e.target.dataset.enterSubmits === 'true'
         ) {
           e.preventDefault();
-          handleSave();
+          void handleSave();
         }
       }}
     >
@@ -2335,7 +2335,7 @@ export function QuickCreateCard({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.stopPropagation(); handleSave(); }
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.stopPropagation(); void handleSave(); }
           }}
           className="h-10 text-sm font-medium shadow-none"
           autoFocus
