@@ -1129,6 +1129,9 @@ export function WysiwygEditor({
                       <button
                         type="button"
                         key={command.id}
+                        // Keep focus (and the caret after the "/") in the editor:
+                        // insertBlock reads the live selection when the item is clicked.
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => command.action()}
                         className={cn(
                           "relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors",
