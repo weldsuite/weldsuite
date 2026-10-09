@@ -2,8 +2,10 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@weldsuite/ui/components/button';
-import { type Comment } from '@weldsuite/ui/components/entity-detail-panel';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/clerk-react';
+import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
@@ -95,10 +97,6 @@ interface GoalCardType {
 interface GoalsData {
   mission?: MissionCardType;
   goals: GoalCardType[];
-}
-
-interface GoalComment extends Comment {
-  goalId: string;
 }
 
 interface GoalCard {
@@ -286,6 +284,39 @@ function GoalTypeTab({ active, icon, label, onSelect }: Readonly<GoalTypeTabProp
   );
 }
 
+/** Calendar-quarter label for a date, e.g. "Q4 2026". */
+function quarterLabel(date: Date): string {
+  return `Q${Math.floor(date.getMonth() / 3) + 1} ${date.getFullYear()}`;
+}
+
+/** Last day of the calendar quarter containing `date`. */
+function quarterEnd(date: Date): Date {
+  const quarterEndMonth = Math.floor(date.getMonth() / 3) * 3 + 2;
+  return new Date(date.getFullYear(), quarterEndMonth + 1, 0);
+}
+
+function ownerInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  const letters = parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0];
+  return letters.toUpperCase();
+}
+
+/**
+ * Stable string form of the canvas state, used to detect whether the user has
+ * changed anything since the data was loaded / last saved. Autosave is driven
+ * by this diff so merely opening the canvas can never write to the server.
+ */
+function serializeCanvas(mission: MissionCard, goals: GoalCard[]): string {
+  return JSON.stringify({
+    mission,
+    goals: goals.map(goal => ({
+      ...goal,
+      dueDate: goal.dueDate instanceof Date ? goal.dueDate.toISOString() : goal.dueDate,
+    })),
+  });
+}
+
 interface GoalsCanvasViewProps {
   projectId: string;
   initialGoalsData: GoalsData;
@@ -296,6 +327,17 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const st = useTranslations();
   const { canWrite } = useProjectPermissions();
   const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
+  const { user } = useUser();
+  const defaultOwner = useMemo(() => {
+    const name = user?.fullName || user?.primaryEmailAddress?.emailAddress || '';
+    return {
+      name,
+      avatar: user?.imageUrl,
+      initials: ownerInitials(name),
+      color: '#8b5cf6',
+    };
+  }, [user]);
   const { open: openObjectPanel } = useObjectPanel();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [existingTasks] = useState<ExistingTask[]>(initialTasks);
@@ -317,6 +359,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     subGoals: []
   });
   const [goals, setGoals] = useState<GoalCard[]>(initialGoals);
+  // Snapshot of what the server is known to hold (what we loaded, or last saved).
+  const lastSyncedRef = useRef<string>(serializeCanvas(mission, initialGoals));
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [showDetailsPanel, setShowDetailsPanel] = useState(false);
   const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
@@ -393,14 +437,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     {
       field: 'timePeriod',
       label: 'Time Period',
-      options: [
-        { value: 'Q1 2024', label: 'Q1 2024' },
-        { value: 'Q2 2024', label: 'Q2 2024' },
-        { value: 'Q3 2024', label: 'Q3 2024' },
-        { value: 'Q4 2024', label: 'Q4 2024' },
-        { value: 'FY 2024', label: 'FY 2024' },
-        { value: 'FY 2025', label: 'FY 2025' },
-      ],
+      options: Array.from(new Set([quarterLabel(new Date()), ...goals.map(g => g.timePeriod).filter(Boolean)]))
+        .map(period => ({ value: period, label: period })),
     },
     {
       field: 'owner',
@@ -513,8 +551,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }
   }, [isInitialLoad, goals, mission]);
 
-  // Save function
+  // Save function. Returns early (never writes) when there is no project to save to.
   const saveGoals = useCallback(async () => {
+    if (!projectId) return;
+    const snapshot = serializeCanvas(mission, goals);
     try {
       // Convert goals back to GoalCardType for saving (dates as strings)
       const goalsToSave: GoalsData = {
@@ -531,28 +571,34 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       // takes the same `{ mission, goals }` body and answers `{ data: { id } }`.
       // The client throws on a non-2xx, so a resolved promise means the save landed.
       await client.put<{ data: { id: string } }>(
-        `/goals/by-project/${projectId}`,
+        `/goals/by-project/${encodeURIComponent(projectId)}`,
         goalsToSave
       );
+      lastSyncedRef.current = snapshot;
+      // Keep the cached copy in step so re-opening the tab never seeds the canvas
+      // (and therefore the next autosave) with stale pre-edit data.
+      queryClient.setQueryData(projectKeys.goals(projectId), { data: goalsToSave });
       // Silent success - no toast for auto-saves
     } catch (error) {
       console.error('Failed to save goals:', error);
       toast.error(st('sweep.weldflow.goalsCanvas.saveFailed'));
-    } finally {
     }
-  }, [mission, goals, getClient, projectId, st]);
+  }, [mission, goals, getClient, projectId, queryClient, st]);
 
-  // Auto-save when goals or mission change (debounced)
+  // Auto-save when the user changes goals or mission (debounced). Only fires when
+  // the canvas differs from what was loaded/last saved, so loading the page (or
+  // layout-only effects) never overwrites server data, and a canvas without a
+  // project or without write access never saves at all.
   useEffect(() => {
-    // Skip auto-save on initial load
-    if (isInitialLoad) return;
+    if (!projectId || !canWrite) return;
+    if (serializeCanvas(mission, goals) === lastSyncedRef.current) return;
 
     const timeoutId = setTimeout(() => {
       saveGoals();
     }, 1500); // Save 1.5 seconds after last change
 
     return () => clearTimeout(timeoutId);
-  }, [goals, mission, isInitialLoad, saveGoals]);
+  }, [goals, mission, projectId, canWrite, saveGoals]);
 
   // Handle comments section resize
   const commentsHeightRef = useRef(commentsHeight);
@@ -632,20 +678,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }
   }, [isInitialLoad, mission, goals.length, centerCanvasView]);
 
-  
-  // Get status color
-  const getStatusColor = (status: GoalCard['status']) => {
-    switch (status) {
-      case 'on-track': return '#00bf63';
-      case 'at-risk': return '#fcb400';
-      case 'off-track': return '#f06a6a';
-      case 'completed': return '#6a7985';
-      case 'not-started': return '#9ca6af';
-      default: return '#e8ecee';
-    }
-  };
-
-  
   
   // Toggle collapse/expand for a goal's children
   const toggleGoalCollapse = (goalId: string) => {
@@ -816,16 +848,12 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     const newGoal: GoalCard = {
       id: newGoalId,
       title: title || 'New goal',
-      description: 'Goal',
-      owner: {
-        name: 'Weld',
-        initials: 'W',
-        color: '#8b5cf6'
-      },
+      description: '',
+      owner: defaultOwner,
       status: 'not-started',
       progress: 0,
-      dueDate: new Date(),
-      timePeriod: 'Q4 FY25',
+      dueDate: quarterEnd(new Date()),
+      timePeriod: quarterLabel(new Date()),
       type: 'company',
       x: startX + (existingRootGoals.length * (cardWidth + horizontalSpacing)),
       y: missionBottomY + verticalGap,
@@ -888,11 +916,6 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     const totalWidth = (totalChildren * childWidth) + ((totalChildren - 1) * horizontalSpacing);
     const startX = parentX - (totalWidth / 2);
 
-    // Calculate old width (before adding new child)
-    const oldWidth = existingChildren.length > 0
-      ? (existingChildren.length * childWidth) + ((existingChildren.length - 1) * horizontalSpacing)
-      : 0;
-
     // Get all sibling parents (goals with the same parent - could be mission's children or same level)
     const siblingParents = goals.filter(g =>
       g.parentId === parent.parentId &&
@@ -902,16 +925,12 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     const newGoal: GoalCard = {
       id: newGoalId,
       title: title || 'New goal',
-      description: 'Goal',
-      owner: {
-        name: 'Weld',
-        initials: 'W',
-        color: '#8b5cf6'
-      },
+      description: '',
+      owner: defaultOwner,
       status: 'not-started',
       progress: 0,
-      dueDate: new Date(),
-      timePeriod: 'Q4 FY25',
+      dueDate: quarterEnd(new Date()),
+      timePeriod: quarterLabel(new Date()),
       type: 'team',
       x: startX + (existingChildren.length * (childWidth + horizontalSpacing)),
       y: parentY + verticalGap,
@@ -1766,6 +1785,15 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }
   };
 
+  // Confirm the root-level "create goal" dialog
+  const handleConfirmCreateRootGoal = () => {
+    if (!newGoalTitle.trim()) return;
+    addRootGoal(newGoalTitle, newGoalTarget);
+    setShowCreateGoalModal(false);
+    setNewGoalTitle('');
+    setNewGoalTarget('');
+  };
+
   // Confirm the "add child goal" dialog: create a new goal or link an existing task
   const handleConfirmAddChild = () => {
     if (!parentGoalForNewChild) return;
@@ -1915,6 +1943,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
               className="h-8 bg-primary text-primary-foreground hover:bg-primary/90"
               onClick={() => {
                 setParentGoalForNewChild(mission.id);
+                setGoalCreationType('new');
                 setShowAddChildModal(true);
               }}
             >
@@ -2210,7 +2239,11 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       <Dialog open={showAddChildModal} onOpenChange={setShowAddChildModal}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
-            <DialogTitle>{st('sweep.weldflow.goalsCanvas.addChildGoal')}</DialogTitle>
+            <DialogTitle>
+              {parentGoalForNewChild === mission.id
+                ? st('sweep.weldflow.goalsCanvas.createGoal')
+                : st('sweep.weldflow.goalsCanvas.addChildGoal')}
+            </DialogTitle>
           </DialogHeader>
 
           <div className="flex items-center gap-6 mt-1 border-b border-border -mx-6 px-6">
@@ -2237,6 +2270,12 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                     placeholder={st('sweep.weldflow.goalsCanvas.goalTitlePlaceholder')}
                     value={newGoalTitle}
                     onChange={(e) => setNewGoalTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        handleConfirmAddChild();
+                      }
+                    }}
                     autoFocus
                   />
                 </div>
@@ -2339,6 +2378,12 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
                 placeholder={st('sweep.weldflow.goalsCanvas.rootGoalTitlePlaceholder')}
                 value={newGoalTitle}
                 onChange={(e) => setNewGoalTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    handleConfirmCreateRootGoal();
+                  }
+                }}
                 autoFocus
               />
             </div>
@@ -2356,14 +2401,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
               {st('sweep.weldflow.cancel')}
             </Button>
             <Button
-              onClick={() => {
-                if (newGoalTitle.trim()) {
-                  addRootGoal(newGoalTitle, newGoalTarget);
-                  setShowCreateGoalModal(false);
-                  setNewGoalTitle('');
-                  setNewGoalTarget('');
-                }
-              }}
+              onClick={handleConfirmCreateRootGoal}
               disabled={!newGoalTitle.trim()}
             >
               {st('sweep.weldflow.goalsCanvas.createGoal')}
