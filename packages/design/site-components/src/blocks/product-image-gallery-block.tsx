@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
+import { keyedBy } from '../lib/keyed';
 
 export interface ProductImageGalleryBlockProps {
   images?: string[];
@@ -46,9 +47,9 @@ export function ProductImageGalleryBlock({
     return (
       <div className="w-full">
         <div className="grid grid-cols-2 gap-4" style={{ width: '800px' }}>
-          {displayImages.map((image: string, index: number) => (
+          {keyedBy(displayImages, (src: string) => src).map(({ item: image, key: imageKey }, index) => (
             <div
-              key={index}
+              key={imageKey}
               className="relative overflow-hidden bg-muted"
               style={{
                 width: '398px',
@@ -81,9 +82,9 @@ export function ProductImageGalleryBlock({
       <div className="w-full flex gap-4">
         {/* Thumbnail Gallery - Left Side */}
         <div className="flex flex-col gap-2 overflow-y-auto" style={{ maxHeight: '800px' }}>
-          {displayImages.map((image: string, index: number) => (
+          {keyedBy(displayImages, (src: string) => src).map(({ item: image, key: imageKey }, index) => (
             <button
-              key={index}
+              key={imageKey}
               onClick={() => setActiveImage(index)}
               className={cn(
                 "relative w-20 h-20 transition-all flex-shrink-0 cursor-pointer",
@@ -169,9 +170,9 @@ export function ProductImageGalleryBlock({
       {/* Thumbnail Gallery */}
       <div className="flex items-center gap-2.5">
         <div className="flex gap-2 flex-1 overflow-x-auto">
-          {displayImages.map((image: string, index: number) => (
+          {keyedBy(displayImages, (src: string) => src).map(({ item: image, key: imageKey }, index) => (
             <button
-              key={index}
+              key={imageKey}
               onClick={() => setActiveImage(index)}
               className={cn(
                 "relative w-20 h-20 transition-all flex-shrink-0 cursor-pointer",
