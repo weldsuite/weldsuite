@@ -189,8 +189,10 @@ export function ProductCard({
   const productImages = toImageUrls(product.images);
   const imageUrl = product.imageUrl || productImages[0];
   const secondImage = productImages[1];
-  // Same fallback the product list and collection blocks use.
-  const productHref = product.link || `/products/${product.handle || product.id}`;
+  // Same fallback the product list and collection blocks use; a product with
+  // no handle or id (e.g. builder sample data) links to the catalogue instead.
+  const productSlug = product.handle || product.id;
+  const productHref = product.link || (productSlug ? `/products/${productSlug}` : '/products');
 
   const { formattedPrice, formattedComparePrice, onSale, isOutOfStock } = getPricing(product);
 
