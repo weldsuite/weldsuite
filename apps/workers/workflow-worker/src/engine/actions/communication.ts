@@ -99,7 +99,7 @@ export const handleSendEmail: ActionHandler = async (inputs, ctx) => {
 /** Recipient user ids from the step: `userIds` (array or comma list) or a single `userId`. */
 function notificationRecipients(inputs: Record<string, unknown>): string[] {
   const raw = Array.isArray(inputs.userIds) && inputs.userIds.length > 0 ? inputs.userIds : inputs.userId;
-  const ids = Array.isArray(raw) ? raw.map((id) => String(id ?? '')) : String(raw ?? '').split(',');
+  const ids = Array.isArray(raw) ? raw.map((id) => String(id ?? '')) : asText(raw ?? '').split(',');
   // An unresolved {{variable}} arrives as an empty string: drop it.
   return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
 }
@@ -111,7 +111,7 @@ function notificationRecipients(inputs: Record<string, unknown>): string[] {
  * notifications (run-notifications.ts): the row, then a live push.
  */
 export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
-  const title = String(inputs.title || '').trim();
+  const title = asText(inputs.title || '').trim();
   const body = asText(inputs.body || inputs.message || '');
   if (!title) throw new NonRetryableStepError('Notification title is required');
 
@@ -136,12 +136,12 @@ export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
   const publisher = ctx.env.REALTIME ? new RealtimePublisher(ctx.env.REALTIME) : null;
   const notificationIds: string[] = [];
   const now = new Date();
-  const category = String(inputs.category || 'task');
-  const notificationType = String(inputs.notificationType || inputs.type || 'custom');
-  const severity = String(inputs.severity || 'info');
-  const actionUrl = inputs.actionUrl ? String(inputs.actionUrl) : null;
-  const entityType = inputs.entityType ? String(inputs.entityType) : null;
-  const entityId = inputs.entityId ? String(inputs.entityId) : null;
+  const category = asText(inputs.category || 'task');
+  const notificationType = asText(inputs.notificationType || inputs.type || 'custom');
+  const severity = asText(inputs.severity || 'info');
+  const actionUrl = inputs.actionUrl ? asText(inputs.actionUrl) : null;
+  const entityType = inputs.entityType ? asText(inputs.entityType) : null;
+  const entityId = inputs.entityId ? asText(inputs.entityId) : null;
 
   // NOTE: the `notifications` tenant table has no workspaceId column (per-workspace DB).
   for (const userId of userIds) {
@@ -157,7 +157,7 @@ export const handleSendNotification: ActionHandler = async (inputs, ctx) => {
       entityType,
       entityId,
       actionUrl,
-      icon: inputs.icon ? String(inputs.icon) : 'workflow',
+      icon: inputs.icon ? asText(inputs.icon) : 'workflow',
       severity,
       data: (inputs.data as Record<string, unknown>) || null,
       actorType: 'system',
