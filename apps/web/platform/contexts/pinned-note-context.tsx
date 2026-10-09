@@ -44,7 +44,7 @@ export function PinnedNoteProvider({ children }: Readonly<{ children: ReactNode 
   const [isOpen, setIsOpen] = useState(false);
   const [onSave, setOnSave] = useState<((content: string) => Promise<void>) | null>(null);
   const [onDelete, setOnDelete] = useState<(() => void) | null>(null);
-  const [onUnpin, setOnUnpinState] = useState<((note: Note) => void) | null>(null);
+  const [onUnpinState, setOnUnpinState] = useState<((note: Note) => void) | null>(null);
   const [startMinimized, setStartMinimized] = useState(false);
   const [unpinnedNote, setUnpinnedNote] = useState<Note | null>(null);
   const [unpinnedNoteSave, setUnpinnedNoteSave] = useState<((content: string) => Promise<void>) | null>(null);
@@ -77,16 +77,16 @@ export function PinnedNoteProvider({ children }: Readonly<{ children: ReactNode 
     setOnSave(null);
     setOnDelete(null);
 
-    if (onUnpin) {
+    if (onUnpinState) {
       // Notes page is mounted — let it handle showing the dialog
-      onUnpin(note);
+      onUnpinState(note);
     } else {
       // On a different page — show the same NoteEditorDialog via fallback
       setUnpinnedNote(note);
       setUnpinnedNoteSave(() => saveFn);
       setUnpinnedNoteDelete(() => deleteFn);
     }
-  }, [pinnedNote, onUnpin, onSave, onDelete]);
+  }, [pinnedNote, onUnpinState, onSave, onDelete]);
 
   const value = useMemo<PinnedNoteContextType>(
     () => ({
@@ -98,7 +98,7 @@ export function PinnedNoteProvider({ children }: Readonly<{ children: ReactNode 
       setOnSave: (fn) => setOnSave(() => fn),
       onDelete,
       setOnDelete: (fn) => setOnDelete(() => fn),
-      onUnpin,
+      onUnpin: onUnpinState,
       setOnUnpin,
       startMinimized,
       setStartMinimized,
@@ -112,7 +112,7 @@ export function PinnedNoteProvider({ children }: Readonly<{ children: ReactNode 
     }),
     [
       pinnedNote, setPinnedNote, isOpen, setIsOpen, onSave, setOnSave, onDelete, setOnDelete,
-      onUnpin, setOnUnpin, startMinimized, setStartMinimized, closePinnedNote, unpinToDialog,
+      onUnpinState, setOnUnpin, startMinimized, setStartMinimized, closePinnedNote, unpinToDialog,
       unpinnedNote, unpinnedNoteSave, unpinnedNoteDelete, setUnpinnedNote, clearUnpinnedNote,
     ]
   );

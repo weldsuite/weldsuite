@@ -32,24 +32,24 @@ export function LazyI18nProvider({
   initialLanguage,
   adapter = cookieAdapter,
 }: Readonly<LazyI18nProviderProps>) {
-  const [language, setLanguageState] = useState<Language>(() => {
+  const [currentLanguage, setCurrentLanguage] = useState<Language>(() => {
     return initialLanguage ?? adapter.read?.() ?? defaultLanguage;
   });
 
   useEffect(() => {
     return adapter.subscribe?.(next => {
       if ((languages as readonly string[]).includes(next)) {
-        setLanguageState(next);
+        setCurrentLanguage(next);
       }
     });
   }, [adapter]);
 
   const setLanguage = (lang: Language) => {
-    setLanguageState(lang);
+    setCurrentLanguage(lang);
     adapter.write(lang);
   };
 
-  const value = useMemo(() => ({ language, setLanguage }), [language, setLanguage]);
+  const value = useMemo(() => ({ language: currentLanguage, setLanguage }), [currentLanguage, setLanguage]);
 
   return (
     <LazyI18nContext.Provider value={value}>
