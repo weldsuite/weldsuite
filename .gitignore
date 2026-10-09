@@ -91,3 +91,5 @@ gcp-*-key.json
 
 # SonarQube scanner working directory (regenerated each scan)
 .scannerwork/
+# Per-workspace tsconfigs written by scripts/sonar-tsconfigs.mjs for the scan
+tsconfig.sonar.json
