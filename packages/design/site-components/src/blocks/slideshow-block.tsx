@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
+import { keyedBy } from '../lib/keyed';
 
 interface Slide {
   id?: string;
@@ -289,9 +290,9 @@ export function SlideshowBlock({
             {/* Dots */}
             {showDots && (
               <div className="flex gap-2.5">
-                {slides.map((_, index) => (
+                {keyedBy(slides, (s) => s.id ?? s.image).map(({ key }, index) => (
                   <button
-                    key={index}
+                    key={key}
                     onClick={() => goToSlide(index)}
                     disabled={isTransitioning}
                     className={`w-2 h-2 rounded-full transition-all duration-300 disabled:cursor-not-allowed ${

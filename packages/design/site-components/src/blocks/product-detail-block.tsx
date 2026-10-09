@@ -4,6 +4,7 @@ import type { Product } from '../types';
 import { toPriceNumber } from '../lib/price';
 import React, { useState, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
+import { keyedBy } from '../lib/keyed';
 
 type RenderMode = 'live' | 'preview' | 'edit';
 
@@ -93,10 +94,10 @@ export function ProductDetailGalleryBlock({
 
         {/* Desktop Grid */}
         <div className="hidden md:grid md:grid-cols-2 gap-2">
-          {displayImages.slice(0, 5).map((image: ProductImage, index: number) => (
+          {keyedBy(displayImages.slice(0, 5), (i) => i.src).map(({ item: image, key: imageKey }, index) => (
             <button
               type="button"
-              key={index}
+              key={imageKey}
               className={`block w-full p-0 aspect-square bg-gray-100 overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`}
               style={{ borderRadius: `${imageRounding}px` }}
               onClick={() => setCurrentImageIndex(index)}
@@ -120,8 +121,8 @@ export function ProductDetailGalleryBlock({
         <div className="hidden md:flex w-full items-start gap-4">
           {/* Thumbnails */}
           <ul ref={thumbnailRef} className="w-20 shrink-0 flex flex-col gap-2 overflow-y-auto" style={{ maxHeight: '500px' }}>
-            {displayImages.map((img: ProductImage, index: number) => (
-              <li key={`thumbnail-${index}`} className="w-full shrink-0">
+            {keyedBy(displayImages, (i) => i.src).map(({ item: img, key: imageKey }, index) => (
+              <li key={`thumbnail-${imageKey}`} className="w-full shrink-0">
                 <button
                   onClick={() => setCurrentImageIndex(index)}
                   className={`relative block size-20 overflow-hidden transition-all ${
@@ -188,8 +189,8 @@ export function ProductDetailGalleryBlock({
           {/* Sticky thumbnails */}
           <div className="sticky top-5 hidden self-start lg:block">
             <ol className="flex max-h-[calc(100dvh-2.5rem)] w-fit flex-col gap-4 overflow-y-auto p-px">
-              {displayImages.map((img: ProductImage, index: number) => (
-                <li key={`thumbnail-scroll-${index}`} className="w-14 shrink-0 grow-0">
+              {keyedBy(displayImages, (i) => i.src).map(({ item: img, key: imageKey }, index) => (
+                <li key={`thumbnail-scroll-${imageKey}`} className="w-14 shrink-0 grow-0">
                   <button
                     onClick={() => setCurrentImageIndex(index)}
                     className={`block aspect-square w-14 overflow-hidden transition-shadow duration-200 ${
@@ -206,8 +207,8 @@ export function ProductDetailGalleryBlock({
 
           {/* Vertical image list (desktop) */}
           <div className="w-full hidden lg:flex flex-col gap-2">
-            {displayImages.map((img: ProductImage, index: number) => (
-              <div key={`scroll-image-${index}`} className="aspect-square overflow-hidden" style={{ borderRadius: `${imageRounding}px` }}>
+            {keyedBy(displayImages, (i) => i.src).map(({ item: img, key: imageKey }, index) => (
+              <div key={`scroll-image-${imageKey}`} className="aspect-square overflow-hidden" style={{ borderRadius: `${imageRounding}px` }}>
                 <button type="button" className="block size-full p-0" onClick={() => setCurrentImageIndex(index)}>
                   <img src={img.src} alt={img.alt} className="block size-full object-cover object-center cursor-pointer hover:scale-[1.02] transition-transform" />
                 </button>
@@ -222,8 +223,8 @@ export function ProductDetailGalleryBlock({
             </div>
             <div className="flex items-center justify-center mt-4">
               <ol className="flex items-center justify-center">
-                {displayImages.map((_: ProductImage, index: number) => (
-                  <button onClick={() => setCurrentImageIndex(index)} key={`indicator-${index}`} className="flex size-5.5 p-1">
+                {keyedBy(displayImages, (i) => i.src).map(({ key: imageKey }, index) => (
+                  <button onClick={() => setCurrentImageIndex(index)} key={`indicator-${imageKey}`} className="flex size-5.5 p-1">
                     <span className={`m-auto block size-1.5 rounded-full transition-colors ${index === currentImageIndex ? 'bg-gray-900' : 'bg-gray-300'}`} />
                   </button>
                 ))}
@@ -241,8 +242,8 @@ export function ProductDetailGalleryBlock({
       {/* Desktop Masonry Grid */}
       <div className="hidden md:flex flex-col gap-0">
         <div className="w-full grid grid-cols-2">
-          {displayImages.map((img: ProductImage, index: number) => (
-            <div key={`masonry-${index}`} className={`overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`} style={{ borderRadius: `${imageRounding}px` }}>
+          {keyedBy(displayImages, (i) => i.src).map(({ item: img, key: imageKey }, index) => (
+            <div key={`masonry-${imageKey}`} className={`overflow-hidden cursor-pointer ${index === 0 ? 'col-span-2' : ''}`} style={{ borderRadius: `${imageRounding}px` }}>
               <div className="aspect-[4/5]">
                 <button type="button" className="block size-full p-0 cursor-pointer" onClick={() => setCurrentImageIndex(index)}>
                   <img src={img.src} alt={img.alt} className="block size-full object-cover object-center hover:scale-[1.02] transition-transform" />
@@ -260,8 +261,8 @@ export function ProductDetailGalleryBlock({
         </div>
         <div className="my-3 flex items-center justify-center">
           <ol className="flex items-center justify-center">
-            {displayImages.map((_: ProductImage, index: number) => (
-              <button onClick={() => setCurrentImageIndex(index)} key={`masonry-indicator-${index}`} className="flex size-4 p-0.5">
+            {keyedBy(displayImages, (i) => i.src).map(({ key: imageKey }, index) => (
+              <button onClick={() => setCurrentImageIndex(index)} key={`masonry-indicator-${imageKey}`} className="flex size-4 p-0.5">
                 <span className={`m-auto block size-2 rounded-full transition-colors ${index === currentImageIndex ? 'bg-gray-900' : 'bg-gray-300'}`} />
               </button>
             ))}
