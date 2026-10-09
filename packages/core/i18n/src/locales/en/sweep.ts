@@ -3462,7 +3462,8 @@ export const sweep = {
     "videoPlayer": {
       "recordingNotAvailable": "Audio/Video recording not available",
       "browserNotSupported": "Your browser does not support the video tag.",
-      "playPause": "Play or pause"
+      "playPause": "Play or pause",
+      "seek": "Seek"
     },
     "globalPinnedNote": {
       "untitled": "Untitled",

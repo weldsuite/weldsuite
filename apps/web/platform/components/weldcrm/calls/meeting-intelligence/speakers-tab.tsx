@@ -90,9 +90,11 @@ export function SpeakersTabContent({
                     else if (isPartiallyPlayed) playedPercent = ((smoothTime - seg.start) / segDuration) * 100;
                     const showProgress = smoothTime > 0;
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={`${seg.start}-${seg.end}`}
-                        className="absolute cursor-pointer transition-[height] duration-150 ease-out group/seg h-1.5 hover:h-3.5 rounded-full"
+                        aria-label={`${formatSegmentTime(seg.start)} – ${formatSegmentTime(seg.end)}`}
+                        className="absolute m-0 block cursor-pointer p-0 transition-[height] duration-150 ease-out group/seg h-1.5 hover:h-3.5 rounded-full"
                         style={{ left: `${left}%`, width: `${width}%`, top: '50%', transform: 'translateY(-50%)' }}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -145,7 +147,7 @@ export function SpeakersTabContent({
                           data-cursor
                           className="absolute top-0 bottom-0 w-px bg-gray-900 dark:bg-gray-100 opacity-0 group-hover/seg:opacity-40 transition-opacity pointer-events-none"
                         />
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
