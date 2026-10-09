@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Info, MessageSquare, Users, LayoutGrid } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@weldsuite/ui/lib/utils';
@@ -64,7 +64,9 @@ export function MeetingHeader({
   mobileOverflowActions = false,
 }: Readonly<MeetingHeaderProps>) {
   const [editingTitle, setEditingTitle] = useState(false);
-  const titleInputRef = useRef<HTMLSpanElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const cancelTitleEditRef = useRef(false);
+  const [draftTitle, setDraftTitle] = useState('');
   const [localTitle, setLocalTitle] = useState(meetingTitle);
 
   useEffect(() => {
@@ -75,29 +77,42 @@ export function MeetingHeader({
   const titleEditable = !!onRenameMeeting;
   const isMobile = useIsMobile();
 
-  let titleBorderClass = "border-transparent cursor-default";
-  if (editingTitle) {
-    titleBorderClass = "border-gray-400 dark:border-gray-500";
-  } else if (titleEditable) {
-    titleBorderClass = "border-transparent hover:border-border cursor-text";
-  }
+  const titleBaseClass = cn(
+    "rounded-md px-2 py-0.5 -mx-2 border transition-colors text-[16px] font-semibold outline-none",
+    isMobile && "py-0 text-[15px] leading-tight",
+  );
+  // Mobile: keep the title on one line so it can't push the action
+  // buttons off-screen — desktop layout is unchanged.
+  const titleTruncateClass = isMobile && "truncate min-w-0";
 
   const startEditingTitle = () => {
     if (!titleEditable) return;
     if (!editingTitle) {
+      cancelTitleEditRef.current = false;
+      setDraftTitle(displayTitle);
       setEditingTitle(true);
       setTimeout(() => {
         const el = titleInputRef.current;
         if (el) {
           el.focus();
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          const sel = window.getSelection();
-          sel?.removeAllRanges();
-          sel?.addRange(range);
+          el.select();
         }
       }, 0);
     }
+  };
+
+  const commitTitleEdit = () => {
+    if (cancelTitleEditRef.current) {
+      cancelTitleEditRef.current = false;
+      return;
+    }
+    if (!titleEditable || !editingTitle) return;
+    const trimmed = draftTitle.trim();
+    if (trimmed && trimmed !== displayTitle) {
+      setLocalTitle(trimmed);
+      onRenameMeeting?.(trimmed);
+    }
+    setEditingTitle(false);
   };
 
   const overflowed = isMobile && mobileOverflowActions;
@@ -119,79 +134,58 @@ export function MeetingHeader({
       {isRecording && (
         // A visible label, not just a dot: everyone in the call, guests
         // included, must be able to tell the meeting is being recorded.
-        <span
-          role="status"
+        <output
           className="flex items-center gap-1.5 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-500 flex-shrink-0"
         >
           <span className={cn('h-2 w-2 rounded-full bg-red-500', recordingState !== 'PAUSED' && 'animate-pulse')} />
           {recordingState === 'PAUSED'
             ? (recordingLabels?.paused ?? 'Recording paused')
             : (recordingLabels?.active ?? 'Recording')}
-        </span>
+        </output>
       )}
     </>
   );
 
-  const title = (
-    <span
-      ref={titleInputRef}
-      contentEditable={editingTitle}
-      suppressContentEditableWarning
-      className={cn(
-        "rounded-md px-2 py-0.5 -mx-2 border transition-colors text-[16px] font-semibold outline-none",
-        titleBorderClass,
-        // Mobile: keep the title on one line so it can't push the action
-        // buttons off-screen — desktop layout is unchanged.
-        !editingTitle && isMobile && "truncate min-w-0",
-        isMobile && "py-0 text-[15px] leading-tight",
-      )}
-      role={titleEditable && !editingTitle ? 'button' : undefined}
-      tabIndex={titleEditable && !editingTitle ? 0 : undefined}
-      onClick={startEditingTitle}
-      onBlur={() => {
-        if (!titleEditable || !editingTitle) return;
-        const el = titleInputRef.current;
-        const trimmed = (el?.innerText ?? '').trim();
-        if (trimmed && trimmed !== displayTitle) {
-          setLocalTitle(trimmed);
-          onRenameMeeting?.(trimmed);
-        } else if (el) {
-          el.innerText = displayTitle;
-        }
-        setEditingTitle(false);
-      }}
-      onInput={(e) => {
-        const el = e.currentTarget;
-        if (el.innerText.length > 50) {
-          el.innerText = el.innerText.slice(0, 50);
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          range.collapse(false);
-          const sel = window.getSelection();
-          sel?.removeAllRanges();
-          sel?.addRange(range);
-        }
-      }}
-      onKeyDown={(e) => {
-        if (titleEditable && !editingTitle) {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            startEditingTitle();
+  let title: ReactNode;
+  if (editingTitle) {
+    title = (
+      <input
+        ref={titleInputRef}
+        type="text"
+        value={draftTitle}
+        maxLength={50}
+        aria-label={displayTitle}
+        size={Math.max(draftTitle.length, 8)}
+        className={cn(titleBaseClass, "border-gray-400 bg-transparent dark:border-gray-500", isMobile && "min-w-0")}
+        onChange={(e) => setDraftTitle(e.target.value)}
+        onBlur={commitTitleEdit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+          if (e.key === 'Escape') {
+            cancelTitleEditRef.current = true;
+            setEditingTitle(false);
           }
-          return;
-        }
-        if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLElement).blur(); }
-        if (e.key === 'Escape') {
-          const el = titleInputRef.current;
-          if (el) el.innerText = displayTitle;
-          setEditingTitle(false);
-        }
-      }}
-      title={editingTitle || !titleEditable ? undefined : "Click to rename"}
-    >
-      {displayTitle}
-    </span>
-  );
+        }}
+      />
+    );
+  } else if (titleEditable) {
+    title = (
+      <button
+        type="button"
+        className={cn(titleBaseClass, "border-transparent text-left hover:border-border cursor-text", titleTruncateClass)}
+        onClick={startEditingTitle}
+        title="Click to rename"
+      >
+        {displayTitle}
+      </button>
+    );
+  } else {
+    title = (
+      <span className={cn(titleBaseClass, "border-transparent cursor-default", titleTruncateClass)}>
+        {displayTitle}
+      </span>
+    );
+  }
 
   return (
     <div className="flex items-center justify-between gap-2 px-3 md:px-4 border-b flex-shrink-0 h-[53px]">

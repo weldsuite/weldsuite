@@ -244,20 +244,8 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
         isSpeaking,
         isHandRaised: !!isHandRaised,
       })}
-      // Clicking the tile body promotes this participant to the main stage (and
-      // clicking again returns to the grid). Buttons, the name tag and the
-      // context-menu overlay all stop propagation, so only "empty" tile clicks
-      // toggle focus. Ringing placeholders stay inert.
-      onClick={ringing || !onTogglePin ? undefined : () => onTogglePin(participant.id)}
-      role={ringing || !onTogglePin ? undefined : 'button'}
-      tabIndex={ringing || !onTogglePin ? undefined : 0}
-      onKeyDown={ringing || !onTogglePin ? undefined : (e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onTogglePin(participant.id);
-        }
-      }}
+      // Right-click opens the participant menu (keyboard users get the same
+      // menu from the "More options" button).
       onContextMenu={(e) => {
         e.preventDefault();
         if (ringing) return; // placeholder — no participant actions
@@ -266,6 +254,19 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
       }}
       style={showColoredTile ? { backgroundColor: theme.tile } : undefined}
     >
+      {/* Clicking the tile body promotes this participant to the main stage (and
+          clicking again returns to the grid). A stretched button sits behind the
+          buttons, the name tag and the context-menu overlay, so only "empty"
+          tile clicks toggle focus. Ringing placeholders stay inert. */}
+      {!ringing && onTogglePin && (
+        <button
+          type="button"
+          aria-label={name}
+          aria-pressed={!!pinned}
+          onClick={() => onTogglePin(participant.id)}
+          className="absolute inset-0 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+        />
+      )}
       {/* Outgoing-call ringing halo — a pulse emanating from the avatar. */}
       {ringing && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -495,7 +496,7 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Reado
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (view.scale <= 1) return;
-    if ((e.target as HTMLElement).closest('button')) return; // let overlay buttons click
+    if ((e.target as HTMLElement).closest('button:not([data-screen-surface])')) return; // let overlay buttons click
     e.currentTarget.setPointerCapture?.(e.pointerId);
     dragRef.current = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y, moved: false };
     setDragging(true);
@@ -537,22 +538,24 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Reado
         onClick && !zoomed && 'cursor-pointer',
         focused && 'ring-2 ring-primary ring-offset-1 ring-offset-background',
       )}
-      onClick={handleClick}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={onClick ? (e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleClick();
-        }
-      } : undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onDoubleClick={(e) => { e.stopPropagation(); setView({ scale: 1, x: 0, y: 0 }); }}
     >
+      {/* Click target (focus toggle): stretched button behind the overlay buttons. */}
+      {onClick && (
+        <button
+          type="button"
+          data-screen-surface=""
+          aria-label={isSelf ? 'You are presenting' : `${name}'s screen`}
+          aria-pressed={!!focused}
+          onClick={handleClick}
+          className="absolute inset-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+          style={{ cursor: zoomCursor ?? 'pointer' }}
+        />
+      )}
       <video
         ref={videoRef}
         autoPlay
@@ -564,6 +567,9 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Reado
           transformOrigin: 'center center',
           transition: dragging ? 'none' : 'transform 90ms ease-out',
           cursor: zoomCursor,
+          // The transform puts the video above the click-target button; let
+          // pointer events fall through to it (pan/zoom live on the container).
+          pointerEvents: onClick ? 'none' : undefined,
         }}
       />
 

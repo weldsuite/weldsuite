@@ -275,7 +275,7 @@ export function EntityList<T extends { id: string }>({
       )}
     >
       {columns?.map((column) => (
-        <div key={column.id} className={column.width} onClick={(e) => e.stopPropagation()}>
+        <div key={column.id} className={column.width}>
           {column.render(item, rowHandlers)}
         </div>
       ))}
