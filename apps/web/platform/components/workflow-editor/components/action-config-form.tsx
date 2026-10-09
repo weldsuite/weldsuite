@@ -4359,6 +4359,21 @@ const CONFIG_ONLY_FORMS = new Map<string, ConfigOnlyForm>([
   ['collect_customer_info', CollectCustomerInfoForm],
 ]);
 
+/** Action types whose form takes the step config plus the variable-picker inputs. */
+const VARIABLE_STEP_FORMS = new Map<string, ComponentType<VariableStepFormProps>>([
+  ['create_customer', CreateCustomerForm],
+  ['create_lead', LeadForm],
+  ['create_deal', DealForm],
+  ['move_deal_stage', MoveDealStageForm],
+  ['log_activity', LogActivityForm],
+  ['post_chat_message', PostChatMessageForm],
+  ['slack.post_message', SlackPostMessageForm],
+  // Re-enabled AI action types (see apps/workers/workflow-worker/src/engine/actions/ai.ts).
+  // Only these two — ai_extract/ai_summarize/ai_auto_reply/ai_agent stay unavailable.
+  ['ai_generate', AiGenerateForm],
+  ['ai_classify', AiClassifyForm],
+]);
+
 export function ActionConfigForm({
   actionType,
   config,
@@ -4380,6 +4395,20 @@ export function ActionConfigForm({
   const renderForm = () => {
     const ConfigForm = CONFIG_ONLY_FORMS.get(actionType);
     if (ConfigForm) return <ConfigForm config={config} onChange={onChange} />;
+    const VariableForm = VARIABLE_STEP_FORMS.get(actionType);
+    if (VariableForm) {
+      return (
+        <VariableForm
+          config={config}
+          onChange={onChange}
+          triggerType={triggerType}
+          steps={previousSteps}
+          workflowVariables={workflowVariables}
+          extraVariableGroups={extraVariableGroups}
+          excludeGroups={excludeGroups}
+        />
+      );
+    }
 
     switch (actionType) {
       case 'send_email':
@@ -4450,19 +4479,6 @@ export function ActionConfigForm({
           />
         );
 
-      case 'create_customer':
-        return (
-          <CreateCustomerForm
-            config={config}
-            onChange={onChange}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
-
       case 'create_contact':
       case 'update_contact':
         return (
@@ -4470,84 +4486,6 @@ export function ActionConfigForm({
             config={config}
             onChange={onChange}
             isUpdate={actionType === 'update_contact'}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
-
-      case 'create_lead':
-        return (
-          <LeadForm
-            config={config}
-            onChange={onChange}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
-
-      case 'create_deal':
-        return (
-          <DealForm
-            config={config}
-            onChange={onChange}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
-
-      case 'move_deal_stage':
-        return (
-          <MoveDealStageForm
-            config={config}
-            onChange={onChange}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
-
-      case 'log_activity':
-        return (
-          <LogActivityForm
-            config={config}
-            onChange={onChange}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
-
-      case 'post_chat_message':
-        return (
-          <PostChatMessageForm
-            config={config}
-            onChange={onChange}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
-
-      case 'slack.post_message':
-        return (
-          <SlackPostMessageForm
-            config={config}
-            onChange={onChange}
             triggerType={triggerType}
             steps={previousSteps}
             workflowVariables={workflowVariables}
@@ -4739,33 +4677,6 @@ export function ActionConfigForm({
         // AI has been removed platform-wide — this step type can no longer
         // be configured. <AiAutoReplyForm> is left defined but unreachable.
         return <AiUnavailable variant="inline" />;
-
-      // Re-enabled AI action types (see apps/workers/workflow-worker/src/engine/actions/ai.ts).
-      // Only these two — ai_extract/ai_summarize/ai_auto_reply/ai_agent stay unavailable.
-      case 'ai_generate':
-        return (
-          <AiGenerateForm
-            config={config}
-            onChange={onChange}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
-      case 'ai_classify':
-        return (
-          <AiClassifyForm
-            config={config}
-            onChange={onChange}
-            triggerType={triggerType}
-            steps={previousSteps}
-            workflowVariables={workflowVariables}
-            extraVariableGroups={extraVariableGroups}
-            excludeGroups={excludeGroups}
-          />
-        );
 
       // AI Agent — AI has been removed platform-wide, this step type can no
       // longer be configured. <AiAgentForm> is left defined but unreachable.

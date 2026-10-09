@@ -69,7 +69,7 @@ export default function CustomObjectsSettingsPage() {
                 <LucideDynamicIcon
                   name={object.icon}
                   className="h-5 w-5"
-                  fallback={BoxFallback}
+                  fallback={<BoxFallback />}
                 />
               </div>
 

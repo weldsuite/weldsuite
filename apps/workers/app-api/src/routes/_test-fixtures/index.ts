@@ -1277,8 +1277,7 @@ testFixturesRoutes.post(
           htmlBody: body.htmlBody,
           attachments: body.attachments,
         },
-        c.executionCtx?.waitUntil?.bind(c.executionCtx),
-        { dryRun: body.live !== true },
+        { dryRun: body.live !== true, waitUntil: c.executionCtx?.waitUntil?.bind(c.executionCtx) },
       );
       await markSentMessage(db, result.messageId);
       const persisted = await loadMessageWithAttachments(db, result.messageId);
@@ -1315,8 +1314,7 @@ testFixturesRoutes.post(
         userId,
         body.originalMessageId,
         { body: body.body, htmlBody: body.htmlBody, replyAll: body.replyAll },
-        c.executionCtx?.waitUntil?.bind(c.executionCtx),
-        { dryRun: body.live !== true },
+        { dryRun: body.live !== true, waitUntil: c.executionCtx?.waitUntil?.bind(c.executionCtx) },
       );
       await markSentMessage(db, result.messageId);
       const persisted = await loadMessageWithAttachments(db, result.messageId);
@@ -1359,8 +1357,7 @@ testFixturesRoutes.post(
         userId,
         body.originalMessageId,
         { to: body.to, body: body.body, htmlBody: body.htmlBody, attachments: body.attachments },
-        c.executionCtx?.waitUntil?.bind(c.executionCtx),
-        { dryRun: body.live !== true },
+        { dryRun: body.live !== true, waitUntil: c.executionCtx?.waitUntil?.bind(c.executionCtx) },
       );
       await markSentMessage(db, result.messageId);
       const persisted = await loadMessageWithAttachments(db, result.messageId);

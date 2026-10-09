@@ -46,7 +46,7 @@ function navIcon(name?: string): ComponentType<{ className?: string }> {
       <LucideDynamicIcon
         name={iconName}
         className={className}
-        fallback={() => <Puzzle className={className} />}
+        fallback={<Puzzle className={className} />}
       />
     );
   };

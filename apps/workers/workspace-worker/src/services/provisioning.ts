@@ -100,11 +100,7 @@ export async function provisionWorkspaceDatabase(
       workspaceId,
       workspaceName,
       planSlug,
-      initialMember,
-      selectedApps,
-      slug,
-      latestSchemaVersion,
-      seedSampleData,
+      { initialMember, selectedApps, slug, latestSchemaVersion, seedSampleData },
     );
 
     if (!result.success) {

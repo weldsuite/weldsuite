@@ -270,8 +270,7 @@ app.post('/mail-accounts/:id/send', requireScope('mail_messages:send'), zValidat
       principal,
       accountId,
       { ...data, attachments, idempotencyKey: idem.key },
-      waitUntilOf(c),
-      API_SEND_POLICY,
+      { ...API_SEND_POLICY, waitUntil: waitUntilOf(c) },
     );
     await publishSent(c, result, 'email_sent', { to: data.to });
     return sentResponse(c, result, false);
@@ -304,8 +303,7 @@ app.post('/mail-messages/:id/reply', requireScope('mail_messages:send'), zValida
       principal,
       id,
       { ...data, attachments, idempotencyKey: idem.key },
-      waitUntilOf(c),
-      API_SEND_POLICY,
+      { ...API_SEND_POLICY, waitUntil: waitUntilOf(c) },
     );
     await publishSent(c, result, 'reply_sent', { conversationId: result.repliedTo });
     return sentResponse(c, result, false, { repliedTo: result.repliedTo });
@@ -338,8 +336,7 @@ app.post('/mail-messages/:id/forward', requireScope('mail_messages:send'), zVali
       principal,
       id,
       { ...data, attachments, idempotencyKey: idem.key },
-      waitUntilOf(c),
-      API_SEND_POLICY,
+      { ...API_SEND_POLICY, waitUntil: waitUntilOf(c) },
     );
     await publishSent(c, result, 'email_sent', { to: data.to, conversationId: result.forwardedFrom });
     return sentResponse(c, result, false, { forwardedFrom: result.forwardedFrom });
@@ -391,8 +388,7 @@ app.post('/mail-drafts/:id/send', requireScope('mail_messages:send'), zValidator
       principal,
       id,
       { attachments, idempotencyKey: idem.key },
-      waitUntilOf(c),
-      API_SEND_POLICY,
+      { ...API_SEND_POLICY, waitUntil: waitUntilOf(c) },
     );
     await publishSent(c, result, 'email_sent', { to: (draft.to as string[] | null) ?? null });
     publishEntityEvent({

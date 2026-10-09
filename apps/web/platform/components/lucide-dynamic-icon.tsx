@@ -35,18 +35,13 @@ export function LucideDynamicIcon({
   className?: string;
   size?: number;
   /** Rendered for an unknown icon name. Defaults to a `Hash` icon. */
-  fallback?: () => ReactNode;
+  fallback?: ReactNode;
 }>) {
   const kebab = lucideKey(name);
-  // `name` is loosely typed here — lucide's DynamicIcon throws on unknown
-  // names. We use a Hash fallback (by default) to keep the UI rendering
-  // instead of surfacing a console error during sidebar resolution.
-  return (
-    <LucideDynamic
-      name={kebab as never}
-      className={className}
-      size={size}
-      fallback={fallback ?? (() => <Hash className={className} />)}
-    />
-  );
+  // lucide's DynamicIcon logs an error for an unknown name, so an unknown name
+  // never reaches it: the fallback (a Hash by default) renders instead.
+  if (!Object.hasOwn(dynamicIconImports, kebab)) {
+    return <>{fallback ?? <Hash className={className} />}</>;
+  }
+  return <LucideDynamic name={kebab as never} className={className} size={size} />;
 }

@@ -27,7 +27,7 @@ function CustomAppIcon({ icon, className = 'h-5 w-5' }: Readonly<{ icon?: string
   }
   const fallbackIcon = <Puzzle className={className} />;
   if (!icon) return fallbackIcon;
-  return <LucideDynamicIcon name={icon} className={className} fallback={() => fallbackIcon} />;
+  return <LucideDynamicIcon name={icon} className={className} fallback={fallbackIcon} />;
 }
 
 function isInstalled(app: StoreUserApp): boolean {

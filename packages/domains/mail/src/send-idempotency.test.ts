@@ -60,8 +60,8 @@ beforeAll(async () => {
 describe('sendAndPersist · idempotency (pglite, dryRun)', () => {
   it('a replayed send with the same key returns the original message and does not double-record', async () => {
     const accountId = await seedAccount();
-    const first = await sendAndPersist(env, db, ORG, USER, accountId, { ...base, idempotencyKey: 'key-1' }, undefined, { dryRun: true });
-    const second = await sendAndPersist(env, db, ORG, USER, accountId, { ...base, idempotencyKey: 'key-1' }, undefined, { dryRun: true });
+    const first = await sendAndPersist(env, db, ORG, USER, accountId, { ...base, idempotencyKey: 'key-1' }, { dryRun: true });
+    const second = await sendAndPersist(env, db, ORG, USER, accountId, { ...base, idempotencyKey: 'key-1' }, { dryRun: true });
 
     expect(second.messageId).toBe(first.messageId);
     expect(second.smtpMessageId).toBe(first.smtpMessageId);
@@ -70,8 +70,8 @@ describe('sendAndPersist · idempotency (pglite, dryRun)', () => {
 
   it('different keys produce distinct sent messages', async () => {
     const accountId = await seedAccount();
-    const a = await sendAndPersist(env, db, ORG, USER, accountId, { ...base, idempotencyKey: 'k-a' }, undefined, { dryRun: true });
-    const b = await sendAndPersist(env, db, ORG, USER, accountId, { ...base, idempotencyKey: 'k-b' }, undefined, { dryRun: true });
+    const a = await sendAndPersist(env, db, ORG, USER, accountId, { ...base, idempotencyKey: 'k-a' }, { dryRun: true });
+    const b = await sendAndPersist(env, db, ORG, USER, accountId, { ...base, idempotencyKey: 'k-b' }, { dryRun: true });
 
     expect(b.messageId).not.toBe(a.messageId);
     expect(await countSent(accountId)).toBe(2);
@@ -79,8 +79,8 @@ describe('sendAndPersist · idempotency (pglite, dryRun)', () => {
 
   it('without a key every send records a new message (no dedup)', async () => {
     const accountId = await seedAccount();
-    await sendAndPersist(env, db, ORG, USER, accountId, base, undefined, { dryRun: true });
-    await sendAndPersist(env, db, ORG, USER, accountId, base, undefined, { dryRun: true });
+    await sendAndPersist(env, db, ORG, USER, accountId, base, { dryRun: true });
+    await sendAndPersist(env, db, ORG, USER, accountId, base, { dryRun: true });
 
     expect(await countSent(accountId)).toBe(2);
   });

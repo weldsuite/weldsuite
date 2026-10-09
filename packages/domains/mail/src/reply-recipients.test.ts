@@ -82,7 +82,7 @@ describe('replyAndPersist · recipients (pglite, dryRun)', () => {
     const accountId = await seedAccount();
     const original = await seedIncoming(accountId);
 
-    const result = await replyAndPersist(env, db, ORG, USER, original, { body: 'Thanks' }, undefined, { dryRun: true });
+    const result = await replyAndPersist(env, db, ORG, USER, original, { body: 'Thanks' }, { dryRun: true });
 
     expect(await sentRecipients(result.messageId)).toEqual({ to: ['sender@example.com'], cc: [] });
   });
@@ -98,7 +98,6 @@ describe('replyAndPersist · recipients (pglite, dryRun)', () => {
       USER,
       original,
       { body: 'Thanks all', replyAll: true },
-      undefined,
       { dryRun: true },
     );
 
@@ -121,7 +120,7 @@ describe('replyAndPersist · recipients (pglite, dryRun)', () => {
       sentDate: new Date(),
     });
 
-    const result = await replyAndPersist(env, db, ORG, USER, id, { body: 'Hi', replyAll: true }, undefined, { dryRun: true });
+    const result = await replyAndPersist(env, db, ORG, USER, id, { body: 'Hi', replyAll: true }, { dryRun: true });
 
     expect(await sentRecipients(result.messageId)).toEqual({ to: ['solo@example.com'], cc: [] });
   });
