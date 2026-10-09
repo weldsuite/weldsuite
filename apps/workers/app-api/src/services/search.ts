@@ -111,7 +111,7 @@ export function buildResultUrl(type: SearchEntityType, id: string): string {
     case 'project':
       return `/weldflow/projects/${id}`;
     case 'task':
-      return `/weldflow/tasks/${id}`;
+      return `/weldflow/task/${id}`;
     case 'domain':
       return `/weldhost/domains/${id}`;
   }

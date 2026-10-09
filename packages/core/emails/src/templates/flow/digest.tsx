@@ -17,6 +17,8 @@ export interface DigestTask {
   personal?: boolean;
   /** ISO date-time. */
   dueDate?: string | null;
+  /** Absolute link that opens the task (`/weldflow/task/{id}`). */
+  url?: string | null;
 }
 
 export interface FlowDigestEmailProps {
@@ -57,6 +59,7 @@ export default defineTemplate<FlowDigestEmailProps>({
     const items = (tasks: DigestTask[]) =>
       tasks.map((task) => ({
         primary: task.title,
+        href: task.url ?? undefined,
         secondary: task.projectName?.trim() || (task.personal ? t.personal : undefined),
         aside: task.dueDate ? shortDate(task.dueDate, locale, zone) : undefined,
       }));

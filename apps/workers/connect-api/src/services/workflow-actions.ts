@@ -399,7 +399,7 @@ export async function sendTaskAssignmentNotificationsForWorkflow(
     // non-fatal — the email template falls back without a workspace name.
   }
 
-  const actionUrl = `/weldflow/project/${opts.projectId}/tasks`;
+  const actionUrl = `/weldflow/task/${opts.taskId}`;
   for (const assigneeId of opts.assigneeIds) {
     try {
       await sendTaskAssignmentNotification({

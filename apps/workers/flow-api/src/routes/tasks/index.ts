@@ -516,10 +516,12 @@ function dispatchAssignmentNotifications(
   const userId = c.get('userId');
   const workspaceId = c.get('workspaceId');
   const category: 'projects' | 'crm' = opts.projectId ? 'projects' : 'crm';
-  // Web in-app opens the project task list; mobile push uses projectId/taskId
-  // from the Expo data payload for a direct `/task/{projectId}/{taskId}` deep link.
+  // Web in-app opens the task itself via the stable `/weldflow/task/{id}` link
+  // (it resolves the project and opens the panel); mobile push uses
+  // projectId/taskId from the Expo data payload for a direct
+  // `/task/{projectId}/{taskId}` deep link.
   const actionUrl = opts.projectId
-    ? `/weldflow/project/${opts.projectId}/tasks`
+    ? `/weldflow/task/${opts.taskId}`
     : `/weldcrm/tasks`;
 
   const enrichment = (async () => {
@@ -1422,7 +1424,9 @@ async function loadEnrichedDescendants(db: TaskDb, projectId: string, roots: any
           isNull(t.deletedAt),
         ),
       )
-      .orderBy(desc(t.position), desc(t.createdAt), desc(t.id));
+      // Oldest first, like the task panel's subtask list (and like a subtask
+      // appended in the client), so both surfaces agree.
+      .orderBy(asc(t.position), asc(t.createdAt), asc(t.id));
     if (children.length === 0) break;
     allDescendants.push(...children);
     frontier = children.map((child: any) => child.id);
