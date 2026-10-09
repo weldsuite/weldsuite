@@ -10,7 +10,7 @@ import type { Env, Variables } from '../../types';
 import { ensureDefaultTemplates } from '../../services/weldhr/lifecycle';
 import { ensureDefaultEvaluationForm, ensureDefaultKpis } from '../../services/weldhr/performance';
 import { notifyPortal } from '../../services/weldhr/portal-realtime';
-import { HrConflictError, HrNotFoundError, HrValidationError } from '../../services/weldhr/shared';
+import { HrConflictError, HrNotFoundError, HrPayrollError, HrValidationError } from '../../services/weldhr/shared';
 import { ensureDefaultLeaveTypes } from '../../services/weldhr/time';
 
 export type HrContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -95,6 +95,9 @@ export function toHrErrorResponse(err: unknown, c: HrContext): Response | null {
   if (err instanceof HrNotFoundError) return error.notFound(c, err.resource, err.id);
   if (err instanceof HrValidationError) return error.badRequest(c, err.message, err.details);
   if (err instanceof HrConflictError) return error.conflict(c, err.message);
+  if (err instanceof HrPayrollError) {
+    return c.json({ error: { code: err.code, message: err.message, details: err.details } }, err.status);
+  }
   return null;
 }
 

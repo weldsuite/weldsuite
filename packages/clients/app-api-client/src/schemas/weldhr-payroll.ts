@@ -148,6 +148,10 @@ export const hrPayrollProfileNlSchema = z.object({
   insuredWao: z.boolean().nullable().optional(),
   incomeRelationshipNumber: z.number().int().min(1).max(999_999_999).nullable().optional(),
   caoCode: z.number().int().min(0).max(9999).nullable().optional(),
+  /** Code reden einde arbeidsverhouding (two digits, e.g. `30` end of a fixed-term contract). */
+  endReasonCode: z.string().regex(/^\d{2}$/, 'Expected a two-digit code').nullable().optional(),
+  /** Days per week the employee usually works; empty = 5 from 36 contract hours, otherwise 4. */
+  usualWorkDaysPerWeek: z.number().min(1).max(7).nullable().optional(),
   expatRuling: z
     .object({ from: isoDate, to: isoDate.nullable().optional(), percent: percent })
     .nullable()
@@ -188,6 +192,12 @@ export const createHrCompensationSchema = z.object({
   currency: z.string().length(3).optional(),
   hoursPerWeek: z.number().min(0).max(80).nullable().optional(),
   reason: z.string().max(1000).nullable().optional(),
+  /**
+   * A compensation that starts on or before the last approved pay period is refused
+   * (it would change pay that was already paid). Set this to confirm it is retroactive,
+   * e.g. to back-date a raise before correcting the affected pay runs.
+   */
+  allowRetroactive: z.boolean().optional(),
 });
 
 const componentParams = z.record(z.string().max(60), z.union([z.number(), z.string().max(200), z.boolean(), z.null()]));

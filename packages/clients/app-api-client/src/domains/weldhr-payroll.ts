@@ -174,6 +174,10 @@ export interface HrPayrollProfileNl {
   insuredWao?: boolean | null;
   incomeRelationshipNumber?: number | null;
   caoCode?: number | null;
+  endReasonCode?: string | null;
+  usualWorkDaysPerWeek?: number | null;
+  /** Read only: allocated by WeldSuite when a transitievergoeding is paid (a second income relationship). */
+  transitionIncomeRelationshipNumber?: number | null;
   expatRuling?: { from: string; to?: string | null; percent: number } | null;
   surnamePrefix?: string | null;
   initials?: string | null;
@@ -362,6 +366,14 @@ export interface HrPayslipSummary {
   issues: HrPayrollIssue[];
   /** Net pay of the employee's previous final payslip, for the variance column. */
   previousNetPay: string | null;
+  // Additive: enough to render a payslip list row without fetching each payslip.
+  runId: string;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  currency: string;
+  employeeDeductions: string;
+  reimbursements: string;
 }
 
 export interface HrPayRunDetail extends HrPayRun {
@@ -453,9 +465,17 @@ export interface HrPayrollFiling {
   dueDate: string | null;
   status: HrPayrollFilingStatus;
   version: number;
-  /** Line → cents. Line keys are filing-specific (`941.line2`, `nl.TotTeBet`, …). */
+  /** Line → CENTS (integers), whatever the currency. Line keys are filing-specific (`941.line2`, `TotTeBet`, …). */
   summary: Record<string, number>;
+  /** Decimal string in `currency` units. */
   amountDue: string;
+  /** Additive: the employer's currency (`EUR` / `USD`), for `amountDue` and the cents in `summary`. */
+  currency: string;
+  /**
+   * Additive: problems found when the filing was last generated (the builder's errors, which stop it from being
+   * stored, and its warnings). Translate as `weldhr.payroll.issues.<code>`; `employeeId` is set where known.
+   */
+  issues: HrPayrollIssue[];
   paymentReference: string | null;
   fileName: string | null;
   generatedAt: string | null;
@@ -519,10 +539,43 @@ export interface HrMyPayrollDetails {
   paymentDetails: HrPayrollPaymentDetailsMasked;
   /** Elections in force today. */
   elections: HrTaxElection[];
-  /** Which election kinds (and states) the employee still has to sign. */
-  requiredElections: Array<{ kind: HrTaxElectionKind; state: string | null }>;
-  /** Fields payroll still needs (`nationalId`, `bankIban`, `dateOfBirth`, …). */
+  /**
+   * Which election kinds (and states) the employee still has to sign: anything
+   * with an election in force is left out. State codes are upper case.
+   */
+  requiredElections: HrRequiredElection[];
+  /**
+   * Fields payroll still needs, only those relevant to the employee's country.
+   * Codes: `nationalId`, `dateOfBirth`, `bankIban`, `bankBic`, `bankRoutingNumber`,
+   * `bankAccountNumber`, `bankAccountType`, `homeAddress`, `idDocument`.
+   * NL asks for nationalId, dateOfBirth, bankIban and idDocument; US for nationalId,
+   * bankRoutingNumber, bankAccountNumber, bankAccountType and homeAddress. (`bankBic`
+   * is never required today: SEPA salary batches do not need it.)
+   */
   missing: string[];
+}
+
+/** A state's withholding certificate (DE 4, IT-2104, …): what to render so the employee can fill it in. */
+export interface HrStateCertificateDefinition {
+  formName: string;
+  filingStatuses?: string[];
+  usesAllowances: boolean;
+  fields: Array<{
+    key: string;
+    type: 'select' | 'number' | 'money' | 'boolean';
+    options?: string[];
+    required?: boolean;
+    /** Translation key under `weldhr.payroll.stateCertificates.<state>.<key>`. */
+    labelKey: string;
+  }>;
+}
+
+export interface HrRequiredElection {
+  kind: HrTaxElectionKind;
+  /** Upper-case state code for `us_state_certificate`, else null. */
+  state: string | null;
+  /** For `us_state_certificate`: the state's certificate definition, so clients need not import the domain package. */
+  certificate?: HrStateCertificateDefinition | null;
 }
 
 // ---------------------------------------------------------------------------

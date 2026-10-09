@@ -148,6 +148,15 @@ export interface HrPayrollProfileNl {
   incomeRelationshipNumber?: number | null;
   /** CAO code for the loonaangifte; v1 uses 9999 (no CAO). */
   caoCode?: number | null;
+  /** Code reden einde arbeidsverhouding (GS 5.1, two digits) for the loonaangifte once the employment ended; `99` when empty. */
+  endReasonCode?: string | null;
+  /** Days per week the employee usually works (prorating a partial month); empty = 5 from 36 contract hours, else 4. */
+  usualWorkDaysPerWeek?: number | null;
+  /**
+   * Second income relationship number, allocated the first time a transitievergoeding is paid: that payment is
+   * loon uit vroegere dienstbetrekking and is reported in an income relationship of its own. Set by WeldSuite.
+   */
+  transitionIncomeRelationshipNumber?: number | null;
   /** 30% ruling (expatregeling). */
   expatRuling?: { from: string; to?: string | null; percent: number } | null;
   /** Surname prefix ("van der"), kept apart for the loonaangifte. */
@@ -599,6 +608,8 @@ export const hrPayrollFilings = pgTable('hr_payroll_filings', {
   submittedBy: varchar('submitted_by', { length: 255 }),
   submittedAt: timestamp('submitted_at'),
   history: jsonb('history').$type<HrPayrollFilingEvent[]>().notNull().default([]),
+  /** Problems the builder found when the filing was last generated: its errors (nothing was stored) and warnings. */
+  issues: jsonb('issues').$type<HrPayrollIssue[]>().notNull().default([]),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
