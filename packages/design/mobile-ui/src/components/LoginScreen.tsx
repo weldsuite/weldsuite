@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useClerk, useAuth, useSSO, useOrganizationList } from '@clerk/expo';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import { Eye, EyeOff } from 'lucide-react-native';
+import { Eye, EyeOff, Fingerprint } from 'lucide-react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 import { Colors, Radii, Spacing } from '../constants/theme';
@@ -73,6 +73,35 @@ async function activateSsoSession(
   await result.setActive({ session: sessionId });
   await onOrgSelect();
   return true;
+}
+
+type PasskeyAttribute = { enabled?: boolean; used_for_first_factor?: boolean };
+
+/**
+ * Whether the Clerk instance accepts a passkey as a first factor. Read from the
+ * loaded environment, which clerk-js exposes untyped; if that field ever moves,
+ * the button simply shows again.
+ */
+function instanceAllowsPasskeys(clerk: unknown): boolean {
+  const env = (clerk as {
+    __internal_environment?: { userSettings?: { attributes?: { passkey?: PasskeyAttribute } } };
+  }).__internal_environment;
+  const passkey = env?.userSettings?.attributes?.passkey;
+  if (!passkey) return true;
+  return passkey.enabled === true && passkey.used_for_first_factor === true;
+}
+
+/**
+ * The user closed the system passkey sheet. @clerk/expo-passkeys reports a
+ * cancelled sign-in as `passkey_registration_cancelled` too, not only `…retrieval…`.
+ */
+function isPasskeyCancelled(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code;
+  return (
+    code === 'passkey_registration_cancelled' ||
+    code === 'passkey_retrieval_cancelled' ||
+    code === 'passkey_operation_aborted'
+  );
 }
 
 // Silent error boundary — hides children if a hook throws during render
@@ -323,6 +352,7 @@ export interface LoginScreenCopy {
   showPassword: string;
   continueGoogle: string;
   continueApple: string;
+  continuePasskey: string;
   twoStepTitle: string;
   totpHint: string;
   phoneHint: string;
@@ -340,6 +370,7 @@ export interface LoginScreenCopy {
   noAccount: string;
   googleFailed: string;
   appleFailed: string;
+  passkeyFailed: string;
   loginFailed: string;
   invalidCredentials: string;
   enterCode: string;
@@ -373,6 +404,7 @@ const DEFAULT_COPY: LoginScreenCopy = {
   showPassword: 'Show password',
   continueGoogle: 'Continue with Google',
   continueApple: 'Continue with Apple',
+  continuePasskey: 'Sign in with a passkey',
   twoStepTitle: 'Two-step verification',
   totpHint: 'Enter the 6-digit code from your authenticator app.',
   phoneHint: 'Enter the code we sent to {phone}.',
@@ -390,6 +422,7 @@ const DEFAULT_COPY: LoginScreenCopy = {
   noAccount: 'No account found. Please create an account at app.weldsuite.org first.',
   googleFailed: 'Google sign in failed',
   appleFailed: 'Apple sign in failed',
+  passkeyFailed: "Couldn't sign in with a passkey. Check that one is saved for your account, or sign in another way.",
   loginFailed: 'Login failed',
   invalidCredentials: 'Invalid email or password',
   enterCode: 'Please enter the verification code',
@@ -429,6 +462,13 @@ export interface LoginScreenProps {
   showGoogleLogin?: boolean;
   /** Show Apple OAuth button on iOS (default: true) */
   showAppleLogin?: boolean;
+  /**
+   * Show "Sign in with a passkey" (default: false). Only for an app that hands
+   * Clerk's native adapter to `<ClerkProvider __experimental_passkeys>` and lists
+   * its Clerk Frontend API host under iOS `webcredentials:`. Hidden anyway while
+   * the Clerk instance has passkeys off.
+   */
+  showPasskeyLogin?: boolean;
   /** Brand accent for CTA, focus rings, and links (default: '#3B82F6') */
   accentColor?: string;
 }
@@ -540,6 +580,7 @@ export function LoginScreen({
   showEmailLogin = true,
   showGoogleLogin = true,
   showAppleLogin = true,
+  showPasskeyLogin = false,
   accentColor = '#3B82F6',
 }: Readonly<LoginScreenProps>) {
   useWarmUpBrowser();
@@ -558,6 +599,7 @@ export function LoginScreen({
 
   const isAppleDevice = Platform.OS === 'ios';
   const isNativePlatform = Platform.OS === 'ios' || Platform.OS === 'android';
+  const showPasskey = showPasskeyLogin && isNativePlatform && instanceAllowsPasskeys(clerk);
 
   const [mode, setMode] = useState<AuthMode>('signin');
   const [email, setEmail] = useState('');
@@ -567,6 +609,7 @@ export function LoginScreen({
   const [isValidating, setIsValidating] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isAppleLoading, setIsAppleLoading] = useState(false);
+  const [isPasskeyLoading, setIsPasskeyLoading] = useState(false);
 
   // Reset-password fields
   const [resetCode, setResetCode] = useState('');
@@ -677,6 +720,32 @@ export function LoginScreen({
       toast.error(labels.loginFailed);
     } finally {
       setIsValidating(false);
+    }
+  };
+
+  // A passkey covers the first factor only: an account with 2FA still gets the
+  // code step, unless the Clerk instance lets passkeys satisfy both.
+  const onPasskeySignIn = async () => {
+    setFormError(null);
+    setIsPasskeyLoading(true);
+
+    try {
+      const result = await clerk.client.signIn.authenticateWithPasskey({ flow: 'discoverable' });
+
+      if (result.status === 'complete') {
+        await clerk.setActive({ session: result.createdSessionId });
+        await autoSelectOrg();
+      } else if (result.status === 'needs_second_factor') {
+        await enterMfa(result);
+      } else {
+        setFormError(labels.passkeyFailed);
+      }
+    } catch (e) {
+      if (isPasskeyCancelled(e)) return;
+      console.error('Passkey sign in error:', e);
+      setFormError(labels.passkeyFailed);
+    } finally {
+      setIsPasskeyLoading(false);
     }
   };
 
@@ -828,7 +897,8 @@ export function LoginScreen({
     );
   }
 
-  const anyLoading = isValidating || isGoogleLoading || isAppleLoading || isSendingReset || isResetting;
+  const anyLoading =
+    isValidating || isGoogleLoading || isAppleLoading || isPasskeyLoading || isSendingReset || isResetting;
   const iconW = logoSize?.width ?? 40;
   const iconH = logoSize?.height ?? 40;
 
@@ -1106,7 +1176,8 @@ export function LoginScreen({
                 <SubmitButton accentColor={accentColor} loading={isValidating} onPress={onSignIn} label={labels.signIn} />
               )}
 
-              {showEmailLogin && ((showGoogleLogin && isNativePlatform) || (showAppleLogin && isAppleDevice)) && (
+              {showEmailLogin &&
+                ((showGoogleLogin && isNativePlatform) || (showAppleLogin && isAppleDevice) || showPasskey) && (
                 <View style={styles.dividerContainer}>
                   <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
                   <Text style={[styles.dividerText, { color: colors.mutedForeground }]}>{labels.or}</Text>
@@ -1144,6 +1215,27 @@ export function LoginScreen({
                     colors={colors}
                   />
                 </OAuthErrorBoundary>
+              )}
+
+              {showPasskey && (
+                <TouchableOpacity
+                  style={[styles.oauthButton, { backgroundColor: colors.secondary }, isPasskeyLoading && styles.buttonDisabled]}
+                  onPress={onPasskeySignIn}
+                  activeOpacity={0.8}
+                  disabled={anyLoading}
+                  accessibilityRole="button"
+                >
+                  {isPasskeyLoading ? (
+                    <ActivityIndicator color={colors.text} />
+                  ) : (
+                    <View style={styles.oauthButtonContent}>
+                      <Fingerprint size={20} color={colors.text} />
+                      <Text style={[styles.oauthButtonText, { color: colors.text }]}>
+                        {labels.continuePasskey}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
               )}
             </View>
             )}
