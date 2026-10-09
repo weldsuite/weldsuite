@@ -86,25 +86,32 @@ export function GridHeader() {
   const showAddButton = hasHiddenColumns || availableEnrichFields.length > 0 || !!config.onCreateAttribute;
 
   // Column resize handling
-  const handleMouseDown = (e: React.MouseEvent, fieldId: string) => {
+  const handleResizePointerDown = (e: React.PointerEvent, fieldId: string) => {
     e.preventDefault();
     const startX = e.clientX;
     const column = visibleColumns.find((c) => c.id === fieldId);
     const startWidth = columnWidths[fieldId] || column?.width || 150;
+    // Pointer events do not suppress the browser's text selection the way
+    // mousedown's preventDefault does, so block it for the length of the drag.
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const diff = e.clientX - startX;
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const diff = moveEvent.clientX - startX;
       const newWidth = Math.max(80, startWidth + diff);
       handleColumnResize(fieldId, newWidth);
     };
 
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+    const handlePointerUp = () => {
+      document.body.style.userSelect = previousUserSelect;
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerUp);
   };
 
   // Inset box-shadow gives the sticky <thead> a stable 1px bottom rule.
@@ -324,8 +331,8 @@ export function GridHeader() {
 
             {/* Resize handle */}
             <div
-              className="absolute right-0 top-0 w-1 h-full cursor-col-resize hover:bg-muted-foreground/50 bg-transparent transition-colors"
-              onMouseDown={(e) => handleMouseDown(e, column.id)}
+              className="absolute right-0 top-0 w-1 h-full cursor-col-resize touch-none hover:bg-muted-foreground/50 bg-transparent transition-colors"
+              onPointerDown={(e) => handleResizePointerDown(e, column.id)}
             />
           </th>
         ))}

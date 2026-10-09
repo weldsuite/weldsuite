@@ -26,7 +26,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { activateOnKey } from '@/lib/activate-on-key';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import {
   useCrmTasks,
   useCreateTask,
@@ -351,17 +351,14 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
       {/* Desktop row - hidden in panel mode. Matches the canonical WeldFlow
           tasks page row design (apps/web/platform/app/weldflow/project/[id]/tasks). */}
       {!isPanel && <div
-        role="button"
-        tabIndex={0}
-        onClick={() => openTaskPanel(task)}
-        onKeyDown={activateOnKey(() => openTaskPanel(task))}
         className={cn(
-          "hidden md:flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50",
+          "relative hidden md:flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50",
           task.status === 'done' && 'opacity-50'
         )}
       >
+        <RowOverlayButton label={task.title} onClick={() => openTaskPanel(task)} />
         {/* Checkbox */}
-        <div className="flex-shrink-0 translate-y-[1px]" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] flex-shrink-0 translate-y-[1px]">
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}
@@ -386,7 +383,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[120px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn(
@@ -415,7 +412,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
 
         {/* Priority — always renders, falls back to medium when unset
             (matches the canonical WeldFlow tasks page). */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn(
@@ -443,7 +440,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow h-auto">
@@ -478,7 +475,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
         </div>
 
         {/* Assignee */}
-        <div className="w-[120px]" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[120px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -549,7 +546,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end flex-shrink-0">
+        <div className="relative z-[1] w-[40px] flex justify-end flex-shrink-0">
           <DropdownMenu>
             <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -591,17 +588,14 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
 
       {/* Compact row - always in panel mode, mobile-only otherwise */}
       <div
-        role="button"
-        tabIndex={0}
         className={cn(
           isPanel ? "flex" : "md:hidden flex",
-          "group items-center gap-3 px-4 py-3 border-b border-border/70 hover:bg-gray-50 dark:hover:bg-secondary/40 active:bg-muted/50 cursor-pointer transition-colors",
+          "group relative items-center gap-3 px-4 py-3 border-b border-border/70 hover:bg-gray-50 dark:hover:bg-secondary/40 active:bg-muted/50 cursor-pointer transition-colors",
           task.status === 'done' && 'opacity-50'
         )}
-        onClick={() => openTaskPanel(task)}
-        onKeyDown={activateOnKey(() => openTaskPanel(task))}
       >
-        <div onClick={(e) => e.stopPropagation()}>
+        <RowOverlayButton label={task.title} onClick={() => openTaskPanel(task)} />
+        <div className="relative z-[1]">
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}
@@ -638,7 +632,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
             )}
           </div>
         </div>
-        <div onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1]">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
