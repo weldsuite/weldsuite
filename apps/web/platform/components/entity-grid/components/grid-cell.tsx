@@ -43,60 +43,70 @@ function cellPadding(isFirstColumn?: boolean, compact?: boolean): string {
   return compact ? '0 6px' : '0 12px';
 }
 
-// Cell wrapper component
+const CELL_FOCUS_CLASS =
+  'group/cell focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring';
+
+const CELL_CONTENT_STYLE: React.CSSProperties = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+};
+
+// Cell wrapper component. A clickable cell is a native <button> (display
+// cells) or, when it hosts its own controls (checkbox, favourite star), a
+// plain box with a stretched button behind them.
 const CellWrapper: React.FC<{
   children: React.ReactNode;
   onClick?: () => void;
   isFirstColumn?: boolean;
   compact?: boolean;
   isEditing?: boolean;
-}> = ({ children, onClick, isFirstColumn, compact, isEditing }) => (
-  <div
-    role={onClick ? 'button' : undefined}
-    tabIndex={onClick ? 0 : undefined}
-    onClick={onClick}
-    onKeyDown={
-      onClick
-        ? (e) => {
-            if (e.target !== e.currentTarget) return;
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onClick();
-            }
-          }
-        : undefined
-    }
-    className="group/cell focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-    style={{
-      height: compact ? '21px' : '40px',
-      width: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      overflow: 'hidden',
-      padding: cellPadding(isFirstColumn, compact),
-      cursor: onClick ? 'pointer' : 'default',
-      fontSize: compact ? '12px' : undefined,
-      boxShadow: isEditing ? '0 0 0 1px color-mix(in srgb, var(--border) 70%, var(--foreground) 30%)' : undefined,
-      position: isEditing ? 'relative' : undefined,
-      zIndex: isEditing ? 1 : undefined,
-    }}
-  >
-    <div
-      style={{
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-      }}
-    >
-      {children}
+  /** Accessible name for the stretched button; required with `hasControls`. */
+  label?: string;
+  /** The cell contains interactive children, so it cannot itself be a button. */
+  hasControls?: boolean;
+}> = ({ children, onClick, isFirstColumn, compact, isEditing, label, hasControls }) => {
+  const style: React.CSSProperties = {
+    height: compact ? '21px' : '40px',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    overflow: 'hidden',
+    padding: cellPadding(isFirstColumn, compact),
+    cursor: onClick ? 'pointer' : 'default',
+    fontSize: compact ? '12px' : undefined,
+    boxShadow: isEditing ? '0 0 0 1px color-mix(in srgb, var(--border) 70%, var(--foreground) 30%)' : undefined,
+    position: isEditing || (onClick && hasControls) ? 'relative' : undefined,
+    zIndex: isEditing ? 1 : undefined,
+  };
+
+  if (onClick && !hasControls) {
+    return (
+      <button type="button" onClick={onClick} className={cn(CELL_FOCUS_CLASS, 'text-left')} style={style}>
+        <span style={CELL_CONTENT_STYLE}>{children}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className={CELL_FOCUS_CLASS} style={style}>
+      {onClick && (
+        <button
+          type="button"
+          aria-label={label}
+          onClick={onClick}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        />
+      )}
+      <div style={CELL_CONTENT_STYLE}>{children}</div>
     </div>
-  </div>
-);
+  );
+};
 
 interface FavoriteButtonProps<TEntity> {
   entity: TEntity;
@@ -146,7 +156,7 @@ function FavoriteButton<TEntity>({ entity, entityId, field }: Readonly<FavoriteB
       data-testid="entity-grid-favorite"
       aria-pressed={isFavorite}
       className={cn(
-        "p-0.5 rounded-[5px] transition-colors hover:bg-muted flex-shrink-0",
+        "relative z-[1] p-0.5 rounded-[5px] transition-colors hover:bg-muted flex-shrink-0",
         isFavorite ? "inline-flex" : "hidden group-hover:inline-flex"
       )}
     >
@@ -190,14 +200,14 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
   };
 
   const cell = (
-    <CellWrapper onClick={() => actions.onRowClick?.(entity)} isFirstColumn compact={compact}>
-      <div className="flex items-center gap-2.5 min-w-0 flex-1 group">
+    <CellWrapper onClick={() => actions.onRowClick?.(entity)} isFirstColumn compact={compact} label={name} hasControls>
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
         {config.enableRowSelection !== false && (
           <Checkbox
             checked={selectedRows.has(entityId)}
             onCheckedChange={toggleRowSelected}
             onClick={(e) => e.stopPropagation()}
-            className="flex-shrink-0 rounded-[5px]"
+            className="relative z-[1] flex-shrink-0 rounded-[5px]"
           />
         )}
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -208,7 +218,7 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <span className="font-medium text-[14px] text-foreground group-hover:text-primary truncate block">
+            <span className="font-medium text-[14px] text-foreground group-hover/cell:text-primary truncate block">
               {name}
             </span>
             {subtitle && (
