@@ -71,6 +71,8 @@ import { MentionAutocomplete, type MentionSelection } from '@/app/weldchat/compo
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
+import { InlineLabelCreator } from '@/components/tasks/inline-label-creator';
+import { Link } from '@/lib/router';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
@@ -1171,6 +1173,19 @@ export function TaskDetailContent({
                 })()}
               </PopoverTrigger>
               <PopoverContent className="w-auto p-1 min-w-[200px]" align="start">
+                {availableLabels.length === 0 && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {t('sweep.shared.noLabelsYet')}
+                    {!onCreateLabel && projectId && (
+                      <Link
+                        href={`/weldflow/project/${projectId}/settings`}
+                        className="mt-1 block text-foreground underline underline-offset-2"
+                      >
+                        {t('sweep.shared.manageLabelsInSettings')}
+                      </Link>
+                    )}
+                  </div>
+                )}
                 {availableLabels.map((label) => {
                   const isSelected = task.labels?.includes(label.id) ?? false;
                   return (
@@ -1199,6 +1214,21 @@ export function TaskDetailContent({
                     </Button>
                   );
                 })}
+                {onCreateLabel && (
+                  <>
+                    {availableLabels.length > 0 && <div className="h-px bg-border my-1" />}
+                    <InlineLabelCreator
+                      existingNames={availableLabels.map((l) => l.name)}
+                      onCreate={async (data) => {
+                        const created = await onCreateLabel(data);
+                        if (created) {
+                          onUpdate(task.id, { labels: [...(task.labels ?? []), created.id] });
+                        }
+                        return created;
+                      }}
+                    />
+                  </>
+                )}
                 {task.labels && task.labels.length > 0 && (
                   <>
                     <div className="h-px bg-border my-1" />
@@ -1651,8 +1681,9 @@ export function SubtasksSection({
   // root AND prepend the selected task into the list at depth 0 (shifting
   // the originally-loaded descendants down by one level). Effect: the panel
   // reads as "parent → selected → selected's children". Top-level tasks
-  // (no parent) keep the previous shape: selected as root, children below.
-  const effectiveRoot = parentTask ?? rootTask;
+  // (no parent) show only their children: repeating the open task as the
+  // first row made it read like the task was its own subtask.
+  const effectiveRoot = parentTask ?? undefined;
 
   // "Add subtask" only reveals an inline title field; the subtask is created
   // when the user submits a title (see InlineSubtaskInput).
@@ -1823,10 +1854,13 @@ export function SubtasksSection({
                     ))}
                     {/* Tree connector with rounded corner */}
                     <div style={{ width: 18, flexShrink: 0, position: 'relative' }}>
-                      {/* Vertical line above the curve */}
-                      <div
-                        style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
-                      />
+                      {/* Vertical line above the curve — nothing sits above the very first
+                          row when the list has no root row, so skip it there. */}
+                      {(index > 0 || !!effectiveRoot) && (
+                        <div
+                          style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
+                        />
+                      )}
                       {/* Rounded corner */}
                       <div
                         style={{
@@ -1905,10 +1939,9 @@ export function SubtasksSection({
         <div className="py-1">
           <InlineSubtaskInput
             placeholder={t('sweep.shared.subtaskTitlePlaceholder')}
-            onSubmit={(title) => {
-              setIsAdding(false);
-              onCreateSubtask(title);
-            }}
+            // The field stays open (and focused) after each Enter so several
+            // subtasks can be typed in a row; Escape or blurring it empty closes it.
+            onSubmit={onCreateSubtask}
             onCancel={() => setIsAdding(false)}
           />
         </div>
