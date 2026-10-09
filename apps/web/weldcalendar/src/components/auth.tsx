@@ -5,7 +5,7 @@ import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { setPersonalApiTokenGetter } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-export function TokenBridge({ children }: { children: ReactNode }) {
+export function TokenBridge({ children }: Readonly<{ children: ReactNode }>) {
   const { getToken, isSignedIn } = useAuth();
 
   if (isSignedIn) {
