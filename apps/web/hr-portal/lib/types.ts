@@ -12,6 +12,7 @@ export type PortalAccessKind = 'employee' | 'client';
 export interface PortalFeatures {
   selfClockIn: boolean;
   leaveRequests: boolean;
+  declarations: boolean;
   individualScores: boolean;
 }
 
@@ -190,6 +191,40 @@ export interface EmployeeLeave {
   types: LeaveType[];
   balances: LeaveBalance[];
   requests: LeaveRequest[];
+}
+
+export type DeclarationCategory = 'travel' | 'meals' | 'accommodation' | 'equipment' | 'training' | 'other';
+export type DeclarationStatus = 'pending' | 'approved' | 'rejected' | 'paid' | 'cancelled';
+export type DeclarationCurrency = 'EUR' | 'USD' | 'GBP';
+
+export interface Declaration {
+  id: string;
+  expenseDate: string;
+  category: DeclarationCategory;
+  description: string;
+  /** Major units, two decimals. */
+  amount: number;
+  /** ISO 4217. */
+  currency: string;
+  status: DeclarationStatus;
+  hasReceipt: boolean;
+  receiptFileName: string | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+/** Money still outstanding in one currency: awaiting a decision, or approved but not yet paid. */
+export interface OpenDeclarationTotal {
+  currency: string;
+  pending: number;
+  approved: number;
+}
+
+export interface EmployeeDeclarations {
+  declarations: Declaration[];
+  open: OpenDeclarationTotal[];
 }
 
 export interface CoachingActionItem {

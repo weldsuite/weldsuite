@@ -113,10 +113,12 @@ export const navigation = {
         employees: 'Employees',
         attendance: 'Attendance',
         leave: 'Leave',
+        declarations: 'Declarations',
         portal: 'Workforce portal',
         groups: {
           people: 'People',
           time: 'Time',
+          expenses: 'Expenses',
         },
       },
       weldhost: {

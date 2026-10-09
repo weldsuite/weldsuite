@@ -4,6 +4,7 @@
  * Per onderdeel opgesplitst, zie en/weldhr.ts voor de indeling.
  */
 import { weldhrAdmin } from './weldhr-admin';
+import { weldhrDeclarations } from './weldhr-declarations';
 import { weldhrPeople } from './weldhr-people';
 import { weldhrSelf } from './weldhr-self';
 import { weldhrTime } from './weldhr-time';
@@ -69,6 +70,13 @@ export const weldhr = {
       pending: 'In afwachting',
       approved: 'Goedgekeurd',
       rejected: 'Afgewezen',
+      cancelled: 'Geannuleerd',
+    },
+    declaration: {
+      pending: 'In afwachting',
+      approved: 'Goedgekeurd',
+      rejected: 'Afgewezen',
+      paid: 'Uitbetaald',
       cancelled: 'Geannuleerd',
     },
     coaching: {
@@ -141,6 +149,7 @@ export const weldhr = {
 
   ...weldhrPeople,
   ...weldhrTime,
+  ...weldhrDeclarations,
   ...weldhrAdmin,
   ...weldhrSelf,
 };

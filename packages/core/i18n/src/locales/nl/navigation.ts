@@ -113,10 +113,12 @@ export const navigation = {
         employees: 'Medewerkers',
         attendance: 'Aanwezigheid',
         leave: 'Verlof',
+        declarations: 'Declaraties',
         portal: 'Medewerkersportaal',
         groups: {
           people: 'Mensen',
           time: 'Tijd',
+          expenses: 'Onkosten',
         },
       },
       weldhost: {

@@ -4,11 +4,13 @@
  * Split per area so each screen group owns its own file:
  *   weldhr-people.ts       dashboard, employees
  *   weldhr-time.ts         attendance, shifts, leave
+ *   weldhr-declarations.ts expense declarations
  *   weldhr-admin.ts        settings and the workforce portal
  *   weldhr-self.ts         My HR, the employee self-service page
  * Shared labels (status chips, pickers, generic actions) live here.
  */
 import { weldhrAdmin } from './weldhr-admin';
+import { weldhrDeclarations } from './weldhr-declarations';
 import { weldhrPeople } from './weldhr-people';
 import { weldhrSelf } from './weldhr-self';
 import { weldhrTime } from './weldhr-time';
@@ -74,6 +76,13 @@ export const weldhr = {
       pending: 'Pending',
       approved: 'Approved',
       rejected: 'Rejected',
+      cancelled: 'Cancelled',
+    },
+    declaration: {
+      pending: 'Pending',
+      approved: 'Approved',
+      rejected: 'Rejected',
+      paid: 'Paid',
       cancelled: 'Cancelled',
     },
     coaching: {
@@ -146,6 +155,7 @@ export const weldhr = {
 
   ...weldhrPeople,
   ...weldhrTime,
+  ...weldhrDeclarations,
   ...weldhrAdmin,
   ...weldhrSelf,
 };

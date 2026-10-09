@@ -10,8 +10,9 @@
  *
  * Gated on `employees:self`. A member with no linked employee (or a
  * terminated one) gets `{ employee: null }` from GET /me and a 404 elsewhere.
- * Clock-in and leave requests honour the same switches as the portal
- * (`hr_portal_settings.employee_self_clock_in` / `employee_leave_requests`).
+ * Clock-in, leave requests and expense declarations honour the same switches
+ * as the portal (`hr_portal_settings.employee_self_clock_in` /
+ * `employee_leave_requests` / `employee_declarations`).
  */
 
 import { Hono } from 'hono';
@@ -20,10 +21,21 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import {
   hrPortalAcknowledgeSchema,
   hrPortalClockSchema,
+  hrPortalDeclarationSchema,
   hrPortalLeaveRequestSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import { error, success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
+import {
+  attachDeclarationReceipt,
+  cancelDeclaration,
+  createDeclaration,
+  employeeDeclarations,
+  loadDeclarationReceipt,
+  receiptFileFrom,
+  receiptResponse,
+  toPublicDeclaration,
+} from '../../services/weldhr/declarations';
 import { employeeForUser } from '../../services/weldhr/employees';
 import { acknowledgeCoachingLog, acknowledgeEvaluation } from '../../services/weldhr/performance';
 import { loadPortalSettings } from '../../services/weldhr/portal';
@@ -40,7 +52,7 @@ import {
 } from '../../services/weldhr/portal-self-service';
 import { HrNotFoundError, addDays, todayIso } from '../../services/weldhr/shared';
 import { cancelLeaveRequest, clock, createLeaveRequest } from '../../services/weldhr/time';
-import { actor, db, emit, param, type HrContext } from './helpers';
+import { actor, db, emit, param, receiptBucket, workspaceIdOf, type HrContext } from './helpers';
 
 export const meRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -55,7 +67,11 @@ async function selfEmployeeId(c: HrContext): Promise<string> {
 
 async function features(c: HrContext) {
   const settings = await loadPortalSettings(db(c));
-  return { selfClockIn: settings.employeeSelfClockIn, leaveRequests: settings.employeeLeaveRequests };
+  return {
+    selfClockIn: settings.employeeSelfClockIn,
+    leaveRequests: settings.employeeLeaveRequests,
+    declarations: settings.employeeDeclarations,
+  };
 }
 
 meRoutes.get('/', async (c) => {
@@ -112,6 +128,38 @@ meRoutes.post('/leave/:leaveRequestId/cancel', async (c) => {
   const row = await cancelLeaveRequest(db(c), param(c, 'leaveRequestId'), employeeId);
   emit(c, 'hr_leave_request', 'updated', row.id, { employeeId, status: row.status });
   return success(c, row);
+});
+
+meRoutes.get('/declarations', async (c) => success(c, await employeeDeclarations(db(c), await selfEmployeeId(c))));
+
+meRoutes.post('/declarations', zValidator('json', hrPortalDeclarationSchema), async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  if (!(await features(c)).declarations) return error.forbidden(c, 'Expense declarations are turned off');
+  const row = await createDeclaration(db(c), { ...c.req.valid('json'), employeeId }, actor(c));
+  emit(c, 'hr_declaration', 'created', row.id, { employeeId, status: row.status });
+  return success(c, toPublicDeclaration(row), 201);
+});
+
+meRoutes.post('/declarations/:declarationId/cancel', async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const row = await cancelDeclaration(db(c), param(c, 'declarationId'), employeeId);
+  emit(c, 'hr_declaration', 'updated', row.id, { employeeId, status: row.status });
+  return success(c, toPublicDeclaration(row));
+});
+
+meRoutes.post('/declarations/:declarationId/receipt', async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const file = receiptFileFrom(await c.req.parseBody());
+  const row = await attachDeclarationReceipt(db(c), receiptBucket(c), workspaceIdOf(c), param(c, 'declarationId'), file, employeeId);
+  emit(c, 'hr_declaration', 'updated', row.id, { employeeId, status: row.status });
+  return success(c, toPublicDeclaration(row));
+});
+
+meRoutes.get('/declarations/:declarationId/receipt', async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  return receiptResponse(
+    await loadDeclarationReceipt(db(c), receiptBucket(c), workspaceIdOf(c), param(c, 'declarationId'), employeeId),
+  );
 });
 
 meRoutes.get('/tasks', async (c) => success(c, await employeeTasks(db(c), await selfEmployeeId(c))));

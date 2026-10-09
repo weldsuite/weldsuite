@@ -1429,6 +1429,13 @@
       "when": 1791493335518,
       "tag": "0203_weldhr_shift_work_type_breaks",
       "breakpoints": true
+    },
+    {
+      "idx": 204,
+      "version": "7",
+      "when": 1791541552732,
+      "tag": "0204_weldhr_declarations",
+      "breakpoints": true
     }
   ]
 }

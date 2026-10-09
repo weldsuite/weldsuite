@@ -19,7 +19,8 @@ async function forward(req: NextRequest, slug: string, path: string) {
 
   const init: RequestInit = { method: req.method, headers };
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    init.body = await req.text();
+    // Raw bytes, not text: a receipt upload is a binary multipart body.
+    init.body = await req.arrayBuffer();
   }
 
   const res = await fetch(dest.toString(), init);
