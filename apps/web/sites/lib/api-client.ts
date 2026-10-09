@@ -132,20 +132,6 @@ export async function resolveDomain(domain: string): Promise<any> {
 }
 
 /**
- * Track page view (Server Action - fire and forget)
- */
-export async function trackPageView(websiteId: string, page: string): Promise<void> {
-  try {
-    // This would need to be implemented in the Sites API if needed
-    // For now, just log it
-    console.log(`[Server] Tracking page view: ${websiteId} - ${page}`);
-  } catch (error) {
-    // Silently fail analytics
-    console.debug('[Server] Failed to track page view:', error);
-  }
-}
-
-/**
  * Fetch products for a domain (Server Action)
  */
 export async function getProducts(

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getWebsiteByDomain, trackPageView, getProducts, getCollections } from "@/lib/api-client";
+import { getWebsiteByDomain, getProducts, getCollections } from "@/lib/api-client";
 import SiteRenderer from "@/components/site-renderer";
 
 interface PageProps {
@@ -77,13 +77,6 @@ export default async function DomainPage({ params, searchParams }: Readonly<Page
     products: products || [],
     collections: collections || []
   };
-
-  // Track page view (fire and forget)
-  if (website.id) {
-    trackPageView(website.id, '/').catch(() => {
-      // Silently fail analytics
-    });
-  }
 
   // Create a website object with the home page sections
   const websiteWithHomePage = {

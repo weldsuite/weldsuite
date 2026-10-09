@@ -111,7 +111,7 @@ const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0,
   isConnected: false,
   isPermissionGranted: false,
-  requestPermissions: async () => false,
+  requestPermissions: () => Promise.resolve(false),
   openNotificationSettings: async () => {},
   refreshBadgeCount: async () => {},
   unregisterDevice: async () => {},
