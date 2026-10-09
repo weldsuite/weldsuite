@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { InlineTextEditor } from '@/components/shared/inline-text-editor';
 import type { Task } from '@/hooks/use-crm-tasks';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { TaskDetailContent, DescriptionField, type TaskAttachment, type TaskComment, type SubtaskItem, type DependencyTask, type TaskUpdateData } from './task-detail-content';
@@ -86,95 +87,15 @@ function EditableTitle({
   isDone: boolean;
   onSave: (newTitle: string) => void;
 }>) {
-  const [isEditing, setIsEditing] = useState(false);
-  // Local mirror of the title so saves are optimistic — on blur we commit the
-  // new value to `localTitle` immediately, the render uses it for the div's
-  // children, and nothing flashes back to the stale parent prop while the API
-  // update is in flight.
-  const [localTitle, setLocalTitle] = useState(title);
-  const editorRef = useRef<HTMLDivElement>(null);
-
-  // Keep the latest `isEditing` in a ref so the `title` sync effect below
-  // never fires on edit-mode transitions — it should only react to genuine
-  // changes in the `title` prop.
-  const isEditingRef = useRef(isEditing);
-  useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
-
-  // Pull in server-side changes when the prop updates (e.g. other user edits,
-  // or the API response rewrites the value). Skips the sync while the user is
-  // actively editing or just committed an optimistic save that the parent has
-  // yet to propagate.
-  useEffect(() => {
-    if (isEditingRef.current) return;
-    setLocalTitle(title);
-  }, [title]);
-
-  // Seed editor content with the current local value when entering edit mode
-  // and move the caret to the end.
-  useEffect(() => {
-    if (!isEditing) return;
-    const el = editorRef.current;
-    if (!el) return;
-    el.textContent = localTitle;
-    el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditing]);
-
-  const handleSave = () => {
-    const next = (editorRef.current?.textContent ?? localTitle).trim();
-    if (next && next !== localTitle) {
-      setLocalTitle(next); // optimistic — render uses localTitle below
-      onSave(next);
-    } else if (editorRef.current) {
-      // No change — restore DOM text to the current local value.
-      editorRef.current.textContent = localTitle;
-    }
-    setIsEditing(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      (e.target as HTMLDivElement).blur();
-    }
-    if (e.key === 'Escape') {
-      if (editorRef.current) editorRef.current.textContent = localTitle;
-      setIsEditing(false);
-    }
-  };
-
   return (
-    <div
-      ref={editorRef}
-      contentEditable={isEditing}
-      suppressContentEditableWarning
-      role={isEditing ? undefined : 'button'}
-      tabIndex={isEditing ? undefined : 0}
-      onClick={() => { if (!isEditing) setIsEditing(true); }}
-      onBlur={handleSave}
-      onKeyDown={isEditing ? handleKeyDown : (e) => {
-        // Keyboard entry into title edit mode.
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          setIsEditing(true);
-        }
-      }}
+    <InlineTextEditor
+      value={title}
+      onSave={onSave}
       className={cn(
-        'translate-y-[0.5px] text-[15px] font-medium leading-normal text-foreground break-words min-w-0 rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 border outline-none whitespace-pre-wrap',
-        isEditing
-          ? 'border-border focus:ring-1 focus:ring-primary cursor-text'
-          : 'border-transparent hover:border-border transition-colors cursor-text',
+        'translate-y-[0.5px] text-[15px] font-medium leading-normal text-foreground',
         isDone && 'line-through text-muted-foreground',
       )}
-    >
-      {localTitle}
-    </div>
+    />
   );
 }
 
