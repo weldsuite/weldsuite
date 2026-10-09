@@ -1,34 +1,11 @@
 /**
- * US payroll engine. Placeholder until the engine lands: every calculation
- * reports `unsupported_tax_year`.
+ * US payroll engine: federal calculation (calculate.ts), the per-year federal
+ * rules (federal-2026.ts), state modules (states/), labels, and the filings
+ * built from final payslips (forms.ts).
  */
 
-import type { PayslipResult, UsPayslipInput } from '../types';
-
-export function calculateUsPayslip(input: UsPayslipInput): PayslipResult {
-  return {
-    lines: [],
-    grossCents: 0,
-    taxableWageCents: 0,
-    employeeTaxesCents: 0,
-    employeeDeductionsCents: 0,
-    reimbursementsCents: 0,
-    netCents: 0,
-    employerTaxesCents: 0,
-    employerCostCents: 0,
-    ytd: { ...input.ytd },
-    filingData: {
-      kind: 'us',
-      federal: {
-        fitWages: 0, federalIncomeTax: 0, ssWages: 0, ssTaxEmployee: 0, ssTaxEmployer: 0,
-        medicareWages: 0, medicareTaxEmployee: 0, medicareTaxEmployer: 0, additionalMedicareWages: 0,
-        additionalMedicareTax: 0, futaGrossWages: 0, futaWages: 0, futaTax: 0, ssTips: 0, box12: {}, dependentCare: 0,
-      },
-      states: {},
-      qualifiedOvertimePremium: 0,
-      hoursWorked: 0,
-    },
-    issues: [{ severity: 'error', code: 'unsupported_tax_year', params: { year: input.period.taxYear } }],
-    ruleSet: 'us-none',
-  };
-}
+export { calculateUsPayslip, calculateUsPayslipWith, workweekEnd, type UsEngineDeps } from './calculate';
+export { federalRules, futaCreditReductionPercent, SUPPORTED_FEDERAL_YEARS, FUTA_CREDIT_REDUCTION, type FederalRules } from './federal-rules';
+export { US_PAYSLIP_LABELS, usPayslipLabels } from './labels';
+export { US_YTD, US_YTD_KEYS, US_OT_CARRY_PREFIX } from './ytd';
+export { workweekStart } from './overtime';
