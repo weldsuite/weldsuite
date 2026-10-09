@@ -135,8 +135,11 @@ async function renewCompCredits(masterDb: ReturnType<typeof getMasterDb>, now: D
   return renewed;
 }
 
-export async function runCompSweep(env: Env, now: Date = new Date()): Promise<CompSweepResult> {
-  const masterDb = getMasterDb(env);
+export async function runCompSweep(
+  env: Env,
+  now: Date = new Date(),
+  masterDb: ReturnType<typeof getMasterDb> = getMasterDb(env),
+): Promise<CompSweepResult> {
   const { ended, failed } = await endExpiredComps(env, masterDb, now);
   const creditsRenewed = await renewCompCredits(masterDb, now);
   console.log(`[Comp Sweep] ended=${ended} failed=${failed} creditsRenewed=${creditsRenewed}`);
