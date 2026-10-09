@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { ShoppingCart } from "lucide-react";
 import { activateOnKey } from "../lib/activate-on-key";
+import { keyedBy } from '../lib/keyed';
 
 export interface AccordionGalleryBlockProps {
   images?: Array<{ src: string; title: string; code: string }>;
@@ -41,9 +42,9 @@ export function AccordionGalleryBlock({
 
   return (
     <div className="flex flex-col items-center justify-center gap-1">
-      {images.map((image, index) => (
+      {keyedBy(images, (image) => image.src).map(({ item: image, key }, index) => (
         <div
-          key={index}
+          key={key}
           className="group relative cursor-pointer overflow-hidden border rounded-3xl"
           style={{
             height: activeImage === index ? '24rem' : '2.5rem',

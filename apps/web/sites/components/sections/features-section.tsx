@@ -1,6 +1,7 @@
 "use client";
 
 import { Truck, Shield, CreditCard, Headphones } from "lucide-react";
+import { keyedBy } from '@weldsuite/site-components';
 
 interface FeaturesectionProps {
   title?: string;
@@ -62,8 +63,8 @@ export default function FeaturesSection({
       <div className="container mx-auto">
         <h2 className="text-3xl font-bold text-center mb-12">{title}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {features.map((feature, index) => (
-            <div key={index} className="text-center">
+          {keyedBy(features, (feature) => feature.title).map(({ item: feature, key }) => (
+            <div key={key} className="text-center">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4">
                 <IconComponent icon={feature.icon} />
               </div>

@@ -3,6 +3,7 @@
 import React from 'react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { ChevronRight } from 'lucide-react';
+import { keyedBy } from '../lib/keyed';
 
 interface BreadcrumbLink {
   label: string;
@@ -56,8 +57,8 @@ export function CategoryHeaderBlock({
         {breadcrumb && breadcrumb.length > 0 && (
           <nav className="mb-6">
             <ol className="flex items-center gap-1 text-sm">
-              {breadcrumb.map((link, index) => (
-                <li key={index} className="flex items-center gap-1">
+              {keyedBy(breadcrumb, (link) => link.href).map(({ item: link, key }, index) => (
+                <li key={key} className="flex items-center gap-1">
                   {index > 0 && (
                     <ChevronRight
                       className="h-4 w-4 opacity-60"
