@@ -136,6 +136,203 @@ describe('/api/time-entries · pglite integration', () => {
   });
 
   // -----------------------------------------------------------------------
+  // Daily limit — no user can log more than 24h on a single day
+  // -----------------------------------------------------------------------
+
+  function appFor(userId: string, ...perms: Parameters<typeof permissions>) {
+    return createTestApp('/api/time-entries', timeEntriesRoutes, {
+      context: { permissions: permissions(...perms), userId, tenantDb: db },
+    }).request;
+  }
+
+  async function post(
+    request: ReturnType<typeof appFor>,
+    body: Record<string, unknown>,
+  ) {
+    return request('/api/time-entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('POST / rejects a single entry longer than 24h', async () => {
+    const request = appFor('user_cap_single', 'time:create');
+    // 31h 30m — the exact value from the QA report.
+    const res = await post(request, { date: '2026-10-08', duration: '1890' });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/24 hours/);
+
+    const rows = await db
+      .select()
+      .from(schema.timeEntries)
+      .where(eq(schema.timeEntries.userId, 'user_cap_single'));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('POST / accepts a full 24h day but rejects any further time that day', async () => {
+    const request = appFor('user_cap_full', 'time:create');
+    expect((await post(request, { date: '2026-10-08', duration: 1440 })).status).toBe(201);
+
+    const res = await post(request, { date: '2026-10-08', duration: 1 });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/already has 24h logged/);
+  });
+
+  it('POST / rejects an entry that pushes the day total past 24h', async () => {
+    const request = appFor('user_cap_sum', 'time:create');
+    expect((await post(request, { date: '2026-10-08', duration: 600 })).status).toBe(201);
+    expect((await post(request, { date: '2026-10-08', duration: 600 })).status).toBe(201);
+    // 20h logged; 5h more would make 25h.
+    expect((await post(request, { date: '2026-10-08', duration: 300 })).status).toBe(400);
+    // Exactly 4h more lands on 24h.
+    expect((await post(request, { date: '2026-10-08', duration: 240 })).status).toBe(201);
+  });
+
+  it('POST / counts each day and each user separately', async () => {
+    const request = appFor('user_cap_scope', 'time:create');
+    await seedEntry(db, 'time_cap_scope_other_user', 'user_cap_scope_other', {
+      date: '2026-10-08',
+      duration: '1000',
+    });
+    expect((await post(request, { date: '2026-10-08', duration: 1000 })).status).toBe(201);
+    // A different day starts from zero.
+    expect((await post(request, { date: '2026-10-09', duration: 1000 })).status).toBe(201);
+  });
+
+  it('POST / ignores soft-deleted entries when summing the day', async () => {
+    const request = appFor('user_cap_deleted', 'time:create');
+    await seedEntry(db, 'time_cap_deleted', 'user_cap_deleted', {
+      date: '2026-10-08',
+      duration: '1400',
+      deletedAt: new Date(),
+    });
+    expect((await post(request, { date: '2026-10-08', duration: 1000 })).status).toBe(201);
+  });
+
+  it('POST / rejects a negative or non-numeric duration', async () => {
+    const request = appFor('user_cap_invalid', 'time:create');
+    expect((await post(request, { date: '2026-10-08', duration: -5 })).status).toBe(400);
+    expect((await post(request, { date: '2026-10-08', duration: 'abc' })).status).toBe(400);
+    expect((await post(request, { date: '2026-10-08', duration: '' })).status).toBe(400);
+  });
+
+  it('PATCH /:id rejects a duration that takes the day past 24h', async () => {
+    await seedEntry(db, 'time_cap_patch_a', 'user_cap_patch', { date: '2026-10-08', duration: '600' });
+    await seedEntry(db, 'time_cap_patch_b', 'user_cap_patch', { date: '2026-10-08', duration: '300' });
+    const request = appFor('user_cap_patch', 'time:update');
+
+    const tooLong = await request('/api/time-entries/time_cap_patch_a', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration: 1200 }),
+    });
+    expect(tooLong.status).toBe(400);
+
+    // The entry being edited is excluded from its own day total: 1140 + 300 = 24h.
+    const fits = await request('/api/time-entries/time_cap_patch_a', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration: 1140 }),
+    });
+    expect(fits.status).toBe(200);
+  });
+
+  it('PATCH /:id rejects moving an entry onto a day that would overflow', async () => {
+    await seedEntry(db, 'time_cap_move_full', 'user_cap_move', { date: '2026-10-09', duration: '1400' });
+    await seedEntry(db, 'time_cap_move_src', 'user_cap_move', { date: '2026-10-08', duration: '120' });
+    const request = appFor('user_cap_move', 'time:update');
+
+    const res = await request('/api/time-entries/time_cap_move_src', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: '2026-10-09' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('PATCH /:id leaves non-duration edits alone on an already-overfull day', async () => {
+    // Legacy data (logged before the cap existed) must stay editable.
+    await seedEntry(db, 'time_cap_legacy', 'user_cap_legacy', { date: '2026-10-08', duration: '1890' });
+    const request = appFor('user_cap_legacy', 'time:update');
+
+    const res = await request('/api/time-entries/time_cap_legacy', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: 'Fix the typo later' }),
+    });
+    expect(res.status).toBe(200);
+
+    // ...and shrinking it to a sane value works.
+    const shrink = await request('/api/time-entries/time_cap_legacy', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration: 60 }),
+    });
+    expect(shrink.status).toBe(200);
+  });
+
+  // -----------------------------------------------------------------------
+  // GET / — own scope labels entries with their task and author
+  // -----------------------------------------------------------------------
+
+  it('GET / resolves the task title and the author on the caller\'s own entries', async () => {
+    const now = new Date();
+    await db
+      .insert(schema.workspaceMembers)
+      .values({
+        id: 'wm_label_user',
+        userId: 'user_label',
+        name: 'Gert van den Berg',
+        email: 'gert@example.com',
+        createdAt: now,
+        updatedAt: now,
+      } as typeof schema.workspaceMembers.$inferInsert)
+      .onConflictDoNothing();
+    await db
+      .insert(schema.tasks)
+      .values({
+        id: 'task_label_one',
+        title: 'E2E task one',
+        createdAt: now,
+        updatedAt: now,
+      } as typeof schema.tasks.$inferInsert)
+      .onConflictDoNothing();
+    await seedEntry(db, 'time_label_a', 'user_label', {
+      taskId: 'task_label_one',
+      description: 'E2E time entry',
+    });
+    await seedEntry(db, 'time_label_b', 'user_label', {
+      taskId: 'task_label_one',
+      description: 'Timer run',
+    });
+    await seedEntry(db, 'time_label_c', 'user_label', { description: 'No task here' });
+
+    const request = appFor('user_label', 'time:read');
+    const res = await request('/api/time-entries');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        id: string;
+        description: string;
+        duration: string;
+        user: { name: string };
+        task?: { id: string; title: string };
+      }[];
+    };
+    const byId = new Map(body.data.map((r) => [r.id, r]));
+    for (const id of ['time_label_a', 'time_label_b']) {
+      expect(byId.get(id)?.task).toEqual({ id: 'task_label_one', title: 'E2E task one' });
+      expect(byId.get(id)?.user.name).toBe('Gert van den Berg');
+    }
+    expect(byId.get('time_label_c')?.task).toBeUndefined();
+    // The full row is still returned for the personal timesheet.
+    expect(byId.get('time_label_a')?.duration).toBeDefined();
+  });
+
+  // -----------------------------------------------------------------------
   // GET / — list is always scoped to own entries
   // -----------------------------------------------------------------------
 

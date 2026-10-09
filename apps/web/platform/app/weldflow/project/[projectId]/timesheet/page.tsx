@@ -138,6 +138,25 @@ const ROUND_TO_OPTIONS = [
   { value: '60', label: '1 hour' },
 ];
 
+/** A calendar day holds 24h; the API rejects any day that would total more. */
+const MAX_DAY_MINUTES = 24 * 60;
+/** Soft threshold: past this a day total is probably a typo (30 instead of 3). */
+const LONG_DAY_MINUTES = 12 * 60;
+
+/** Minutes already logged on `date` by the entries in view, `excludeId` aside. */
+function minutesLoggedOnDay(entries: TimeEntry[], date: Date, excludeId?: string | null): number {
+  const key = format(date, 'yyyy-MM-dd');
+  return entries.reduce(
+    (sum, e) => (e.id !== excludeId && format(e.date, 'yyyy-MM-dd') === key ? sum + e.duration : sum),
+    0,
+  );
+}
+
+/** Hours rounded to 2dp for display in messages. */
+function hoursLabel(minutes: number): string {
+  return String(Math.round((minutes / 60) * 100) / 100);
+}
+
 /** Format elapsed seconds as HH:MM:SS. */
 function formatTimer(seconds: number): string {
   const hrs = Math.floor(seconds / 3600);
@@ -287,6 +306,7 @@ function DurationPopover({
               id={`${idPrefix}-hours`}
               type="number"
               min="0"
+              max="24"
               step="1"
               placeholder="0"
               value={hours}
@@ -1098,6 +1118,7 @@ function AddEntryDialog({
   setSelectedDate,
   isSubmitting,
   handleAddEntry,
+  otherMinutesOnDay,
 }: Readonly<{
   tasks: ProjectTask[];
   showAddDialog: boolean;
@@ -1127,8 +1148,14 @@ function AddEntryDialog({
   setSelectedDate: (date: Date | null) => void;
   isSubmitting: boolean;
   handleAddEntry: () => void;
+  /** Minutes already logged on the selected date, excluding the entry being edited. */
+  otherMinutesOnDay: number;
 }>) {
   const st = useTranslations();
+  const entryMinutes = resolveEntryMinutes(newEntryHours, newEntryMinutes, newEntryStartTime, newEntryEndTime);
+  const projectedDayMinutes = otherMinutesOnDay + entryMinutes;
+  const exceedsDayLimit = entryMinutes > 0 && projectedDayMinutes > MAX_DAY_MINUTES;
+  const isLongDay = entryMinutes > 0 && !exceedsDayLimit && projectedDayMinutes > LONG_DAY_MINUTES;
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState<Date | undefined>(undefined);
   const [taskSelectorOpen, setTaskSelectorOpen] = useState(false);
@@ -1276,6 +1303,29 @@ function AddEntryDialog({
           </Popover>
         </div>
 
+        {/* Daily-total guard: hard stop past 24h, soft warning past 12h. */}
+        {selectedDate && (exceedsDayLimit || isLongDay) && (
+          <div
+            role={exceedsDayLimit ? 'alert' : 'status'}
+            className={cn(
+              'flex items-start gap-1.5 px-4 py-2 border-t text-xs',
+              exceedsDayLimit
+                ? 'border-red-100 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400'
+                : 'border-amber-100 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400',
+            )}
+          >
+            <AlertCircle className="h-3.5 w-3.5 mt-px shrink-0" />
+            <span>
+              {st(
+                exceedsDayLimit
+                  ? 'sweep.weldflow.timesheetPage.dayLimitExceeded'
+                  : 'sweep.weldflow.timesheetPage.dayLongWarning',
+                { date: format(selectedDate, 'EEE, MMM d'), hours: hoursLabel(projectedDayMinutes) },
+              )}
+            </span>
+          </div>
+        )}
+
         {/* Bottom Bar */}
         <div className="flex items-end justify-between px-4 py-2 border-t border-gray-100 dark:border-border gap-2 w-full">
           <div className="flex items-center gap-1 flex-wrap min-w-0 flex-shrink py-2.5">
@@ -1345,7 +1395,7 @@ function AddEntryDialog({
                   const mins = resolveEntryMinutes(newEntryHours, newEntryMinutes, newEntryStartTime, newEntryEndTime);
                   if (!mins) missing.push('Duration');
                   if (!selectedDate) missing.push('Date');
-                  const disabled = isSubmitting || !mins || !selectedDate;
+                  const disabled = isSubmitting || !mins || !selectedDate || exceedsDayLimit;
                   const btn = (
                     <Button
                       size="sm"
@@ -1355,8 +1405,10 @@ function AddEntryDialog({
                     >
                       {isSubmitting ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : editingEntryId ? (
+                        st('sweep.weldflow.timesheetPage.save')
                       ) : (
-                        'Log time'
+                        st('sweep.weldflow.timesheetPage.logTime')
                       )}
                     </Button>
                   );
@@ -1695,22 +1747,40 @@ export default function TimesheetPage() {
         const rawEntries = (Array.isArray(entriesResult.data)
           ? entriesResult.data
           : entriesResult.data?.items || []) as unknown as RawTimeEntry[];
-        const transformedEntries = rawEntries.map((entry) => ({
-          id: entry.id,
-          taskId: entry.taskId,
-          taskName: entry.task?.title || entry.description || 'Untitled',
-          description: entry.description,
-          date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
-          duration: Number(entry.duration) || entry.durationMinutes || 0,
-          startTime: entry.startTime ?? null,
-          endTime: entry.endTime ?? null,
-          userId: entry.userId,
-          userName: entry.user?.name || 'Unknown',
-          billable: entry.billable ?? entry.isBillable ?? true,
-          status: entry.status || 'draft',
-          task: entry.task,
-          user: entry.user,
-        }));
+        // The list payload nests `task` / `user`, but resolve against the
+        // project's task and member lists too so a row is never labelled with an
+        // entry description or "Unknown" when the lookup is simply absent.
+        const taskTitleById = new Map(
+          (tasksResult.success ? ((tasksResult.data || []) as RawProjectTask[]) : []).map((tk) => [tk.id, tk.title]),
+        );
+        const memberNameById = new Map(
+          (membersResult.success ? ((membersResult.data || []) as ProjectMember[]) : [])
+            .filter((m) => m.user?.name)
+            .map((m) => [m.userId, m.user!.name]),
+        );
+        const transformedEntries = rawEntries.map((entry) => {
+          const taskTitle = entry.task?.title || (entry.taskId ? taskTitleById.get(entry.taskId) : undefined);
+          return {
+            id: entry.id,
+            taskId: entry.taskId,
+            // An entry linked to a task is labelled by that task, never by its own
+            // description (which differs per entry and would rename the row).
+            taskName: taskTitle || (entry.taskId ? undefined : entry.description) || 'Untitled',
+            description: entry.description,
+            date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
+            duration: Number(entry.duration) || entry.durationMinutes || 0,
+            startTime: entry.startTime ?? null,
+            endTime: entry.endTime ?? null,
+            userId: entry.userId,
+            // Left undefined when unresolvable: the popover then omits the "by …"
+            // line instead of printing a misleading "by Unknown".
+            userName: entry.user?.name || memberNameById.get(entry.userId),
+            billable: entry.billable ?? entry.isBillable ?? true,
+            status: entry.status || 'draft',
+            task: entry.task ?? (entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined),
+            user: entry.user,
+          };
+        });
         setEntries(transformedEntries);
       } else {
         setError(entriesResult.error || 'Failed to load time entries');
@@ -1871,6 +1941,19 @@ export default function TimesheetPage() {
     if (newEntryRoundTo !== 'none') {
       const roundToMinutes = Number.parseInt(newEntryRoundTo);
       totalMinutes = Math.round(totalMinutes / roundToMinutes) * roundToMinutes;
+    }
+
+    // Mirror of the API's 24h/day cap (it also counts entries from other
+    // projects, which are not loaded here), so a typo fails fast and readable.
+    const projectedDayMinutes = minutesLoggedOnDay(entries, submitDate, editingEntryId) + totalMinutes;
+    if (projectedDayMinutes > MAX_DAY_MINUTES) {
+      toast.error(
+        st('sweep.weldflow.timesheetPage.dayLimitExceeded', {
+          date: format(submitDate, 'EEE, MMM d'),
+          hours: hoursLabel(projectedDayMinutes),
+        }),
+      );
+      return;
     }
 
     setIsSubmitting(true);
@@ -2462,6 +2545,7 @@ export default function TimesheetPage() {
         setSelectedDate={setSelectedDate}
         isSubmitting={isSubmitting}
         handleAddEntry={handleAddEntry}
+        otherMinutesOnDay={selectedDate ? minutesLoggedOnDay(entries, selectedDate, editingEntryId) : 0}
       />
 
       <StartTimerDialog
