@@ -67,7 +67,7 @@ export class AwsWebSocketClient {
         this.ws.onerror = (error) => {
           console.error('[AwsWebSocket] Connection error:', error);
           this.updateStatus('error');
-          reject(error);
+          reject(new Error('WebSocket connection error'));
         };
 
         this.ws.onmessage = (event) => {

@@ -231,5 +231,5 @@ export function DropdownMenuItem({ className, onClick, children, ...props }: Dro
 }
 
 export function DropdownMenuSeparator({ className, ...props }: HTMLAttributes<HTMLHRElement>) {
-  return <hr className={cn('wui-dropdown-separator', className)} role="separator" {...props} />;
+  return <hr className={cn('wui-dropdown-separator', className)} {...props} />;
 }

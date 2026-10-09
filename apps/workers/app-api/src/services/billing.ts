@@ -56,7 +56,7 @@ export function calculateEffectiveSeatLimit(
   }
 
   // Per-user pricing → dynamic limit
-  const pricePerUser = plan.pricePerUser ? parseFloat(plan.pricePerUser) : 0;
+  const pricePerUser = plan.pricePerUser ? Number.parseFloat(plan.pricePerUser) : 0;
   if (pricePerUser > 0) {
     const includedUsers = plan.includedUsers ?? 1;
     const prepaid = includedUsers + purchasedSeats;

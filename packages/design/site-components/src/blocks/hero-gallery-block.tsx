@@ -90,7 +90,7 @@ export function HeroGalleryBlock({
               >
                 <img
                   src={image}
-                  alt={`Gallery image ${imageIndex + 1}`}
+                  alt={`Gallery item ${imageIndex + 1}`}
                   className="h-full w-full object-cover"
                 />
               </motion.div>

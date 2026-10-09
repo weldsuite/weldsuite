@@ -119,7 +119,7 @@ export function FeatureDottedBlock({
                 <div className="relative h-full w-full overflow-hidden rounded-3xl">
                   <img
                     src={cardImage}
-                    alt="Feature image"
+                    alt=""
                     className="h-full w-full object-cover"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>

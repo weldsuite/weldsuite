@@ -63,11 +63,11 @@ function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: u
   );
 }
 
-const HIDDEN_DATA_KEYS = ['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId'];
+const HIDDEN_DATA_KEYS = new Set(['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId']);
 
 function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
   const entries = Object.entries(data).filter(
-    ([key, value]) => !HIDDEN_DATA_KEYS.includes(key) && value !== null && value !== undefined && value !== '',
+    ([key, value]) => !HIDDEN_DATA_KEYS.has(key) && value !== null && value !== undefined && value !== '',
   );
   if (entries.length === 0) return null;
 
