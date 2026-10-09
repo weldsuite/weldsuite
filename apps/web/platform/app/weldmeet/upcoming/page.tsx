@@ -310,7 +310,9 @@ export default function UpcomingMeetingsPage() {
     const scheduled = getScheduledDate(meeting);
     const shareUrl = buildMeetingShareUrl(workspaceId, meeting.joinCode);
 
-    const openMeeting = () => navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } });
+    const openMeeting = () => {
+      void navigate({ to: '/weldmeet/$meetingId', params: { meetingId: meeting.id } });
+    };
 
     let dateLabel = '—';
     if (scheduled) {
