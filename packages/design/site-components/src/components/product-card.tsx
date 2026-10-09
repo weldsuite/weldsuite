@@ -5,8 +5,6 @@ import { Heart, Plus } from 'lucide-react';
 import type { Product } from '../types';
 import { toImageUrls } from '../lib/product-images';
 import { toPriceNumber } from '../lib/price';
-import { keyedBy } from '../lib/keyed';
-import { starSlots } from '../lib/list-keys';
 
 interface ProductCardProps {
   product: Product;
@@ -98,10 +96,10 @@ function ProductRating({ rating, reviewCount }: Readonly<ProductRatingProps>) {
   return (
     <div className="flex items-center gap-1">
       <div className="flex">
-        {starSlots(5).map((star) => (
+        {[...new Array(5)].map((_, i) => (
           <svg
-            key={star}
-            className={`w-3 h-3 ${star <= Math.floor(rating) ? 'text-black' : 'text-gray-300'}`}
+            key={i}
+            className={`w-3 h-3 ${i < Math.floor(rating) ? 'text-black' : 'text-gray-300'}`}
             fill="currentColor"
             viewBox="0 0 20 20"
           >
@@ -191,6 +189,8 @@ export function ProductCard({
   const productImages = toImageUrls(product.images);
   const imageUrl = product.imageUrl || productImages[0];
   const secondImage = productImages[1];
+  // Same fallback the product list and collection blocks use.
+  const productHref = product.link || `/products/${product.handle || product.id}`;
 
   const { formattedPrice, formattedComparePrice, onSale, isOutOfStock } = getPricing(product);
 
@@ -212,7 +212,7 @@ export function ProductCard({
     >
       {/* Image Container */}
       <div className={`relative ${imageRatioClass} overflow-hidden bg-gray-200 mb-4 ${imageShapeClass}`}>
-        <a href="#" className="block w-full h-full">
+        <a href={productHref} className="block w-full h-full">
           <ProductCardImages
             name={product.name}
             imageUrl={imageUrl}
@@ -283,7 +283,7 @@ export function ProductCard({
         )}
 
         {/* Product Name */}
-        <a href="#" className="group-hover:underline">
+        <a href={productHref} className="group-hover:underline">
           <h3 className={`${titleSizeClass} font-normal line-clamp-2`} style={{ color: textColor || '#111827' }}>
             {product.name}
           </h3>
@@ -307,9 +307,9 @@ export function ProductCard({
         {/* Color Swatches (if available) */}
         {productImages.length > 2 && (
           <div className="flex gap-1 mt-2">
-            {keyedBy(productImages.slice(0, 4), (src) => src).map(({ item: img, key }, idx) => (
+            {productImages.slice(0, 4).map((img, idx) => (
               <button
-                key={key}
+                key={idx}
                 className="w-6 h-6 rounded-full border-2 border-gray-200 hover:border-black transition-colors overflow-hidden"
                 aria-label={`View color variant ${idx + 1}`}
               >
