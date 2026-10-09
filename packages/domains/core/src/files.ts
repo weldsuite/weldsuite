@@ -129,10 +129,10 @@ export async function createFile(db: Database, params: CreateFileParams) {
     thumbnailUrl: params.thumbnailUrl || null,
     folderId: params.folderId || null,
     uploadedById: params.uploadedById,
-    isPublic: params.isPublic || false,
+    isPublic: params.isPublic ?? false,
     entityType: params.entityType || null,
     entityId: params.entityId || null,
-    metadata: params.metadata || null,
+    metadata: params.metadata ?? null,
     createdAt: now,
     updatedAt: now,
   });

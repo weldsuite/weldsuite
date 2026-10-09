@@ -179,8 +179,8 @@ async function findInvitationInTenantDbs(
           workspaceId: workspace.clerkOrgId,
           workspaceName: workspace.name,
           role: member.role,
-          inviteeEmail: member.email || '',
-          inviteeName: member.name || '',
+          inviteeEmail: member.email ?? '',
+          inviteeName: member.name ?? '',
           isExpired: false,
           isUsed: member.status === 'ACTIVE',
         };
