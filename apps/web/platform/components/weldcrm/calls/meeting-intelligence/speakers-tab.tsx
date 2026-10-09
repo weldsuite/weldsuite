@@ -119,33 +119,33 @@ export function SpeakersTabContent({
                         }}
                       >
                         {/* Hover tooltip */}
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover/seg:opacity-100 transition-opacity pointer-events-none z-10">
-                          <div className="bg-popover border border-border shadow-lg rounded-md px-2.5 py-1.5 flex items-center gap-2 whitespace-nowrap">
+                        <span className="block absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover/seg:opacity-100 transition-opacity pointer-events-none z-10">
+                          <span className="bg-popover border border-border shadow-lg rounded-md px-2.5 py-1.5 flex items-center gap-2 whitespace-nowrap">
                             <span className="text-[11px] font-mono text-foreground">{formatSegmentTime(seg.start)} – {formatSegmentTime(seg.end)}</span>
                             <span className="w-px h-3 bg-border" />
                             <span className="text-[11px] text-muted-foreground">{formatDurationMin(seg.end - seg.start)}</span>
-                          </div>
-                          <div className="flex justify-center -mt-px">
-                            <div className="w-2 h-2 bg-popover border-b border-r border-border rotate-45 -mt-1" />
-                          </div>
-                        </div>
+                          </span>
+                          <span className="flex justify-center -mt-px">
+                            <span className="block w-2 h-2 bg-popover border-b border-r border-border rotate-45 -mt-1" />
+                          </span>
+                        </span>
                         {/* Light base (full width) */}
-                        <div className={cn(
-                          "absolute inset-0 rounded-full pointer-events-none",
+                        <span className={cn(
+                          "block absolute inset-0 rounded-full pointer-events-none",
                           colors.bg,
                           showProgress && !isFullyPlayed ? "opacity-25" : "opacity-80"
                         )} />
                         {/* Played portion overlay */}
                         {showProgress && playedPercent > 0 && (
-                          <div
-                            className={cn("absolute inset-y-0 left-0 rounded-full pointer-events-none opacity-80", colors.bg)}
+                          <span
+                            className={cn("block absolute inset-y-0 left-0 rounded-full pointer-events-none opacity-80", colors.bg)}
                             style={{ width: `${playedPercent}%` }}
                           />
                         )}
                         {/* Hover cursor */}
-                        <div
+                        <span
                           data-cursor
-                          className="absolute top-0 bottom-0 w-px bg-gray-900 dark:bg-gray-100 opacity-0 group-hover/seg:opacity-40 transition-opacity pointer-events-none"
+                          className="block absolute top-0 bottom-0 w-px bg-gray-900 dark:bg-gray-100 opacity-0 group-hover/seg:opacity-40 transition-opacity pointer-events-none"
                         />
                       </button>
                     );
