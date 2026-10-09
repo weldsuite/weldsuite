@@ -581,11 +581,9 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
   useEffect(() => {
     if (status === 'connected') {
       durationTimerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
-    } else {
-      if (durationTimerRef.current) {
-        clearInterval(durationTimerRef.current);
-        durationTimerRef.current = null;
-      }
+    } else if (durationTimerRef.current) {
+      clearInterval(durationTimerRef.current);
+      durationTimerRef.current = null;
     }
     return () => { if (durationTimerRef.current) clearInterval(durationTimerRef.current); };
   }, [status]);
