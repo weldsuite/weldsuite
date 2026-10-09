@@ -82,11 +82,10 @@ function Marquee({
         className
       )}
     >
-      {new Array(repeat)
-        .fill(0)
-        .map((_, i) => (
+      {Array.from({ length: repeat }, (_, i) => `copy-${i}`)
+        .map((copyKey) => (
           <div
-            key={i}
+            key={copyKey}
             className={cn("flex shrink-0 justify-around [gap:var(--gap)]", {
               "flex-row": !vertical,
               "flex-col": vertical,

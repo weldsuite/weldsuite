@@ -41,7 +41,6 @@ export interface OpenAIContent {
 type Money = { amount: number; currency: string } | { amount?: undefined; currency?: undefined };
 
 type ContentsData = Money & { contents?: OpenAIContent[] };
-type CustomerActionData = Money;
 type PlanEnrollmentData = Money & { plan_id?: string; contents?: OpenAIContent[] };
 
 interface EventDataMap {
@@ -50,9 +49,9 @@ interface EventDataMap {
   items_added: ContentsData;
   checkout_started: ContentsData;
   order_created: ContentsData;
-  lead_created: CustomerActionData;
-  appointment_scheduled: CustomerActionData;
-  registration_completed: CustomerActionData;
+  lead_created: Money;
+  appointment_scheduled: Money;
+  registration_completed: Money;
   subscription_created: PlanEnrollmentData;
   trial_started: PlanEnrollmentData;
 }

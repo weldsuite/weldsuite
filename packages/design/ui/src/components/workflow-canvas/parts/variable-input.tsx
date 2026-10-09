@@ -316,13 +316,20 @@ export function VariableInput({
 }
 
 export function VariableText({ value, className }: Readonly<{ value: string; className?: string }>) {
-  const parts = value.split(/(\{\{[^{}]+\}\})/g);
+  // Each part's character offset is its key: variables are never empty, so no
+  // two of them start at the same offset.
+  let offset = 0;
+  const parts = value.split(/(\{\{[^{}]+\}\})/g).map((part) => {
+    const start = offset;
+    offset += part.length;
+    return { part, start };
+  });
   return (
     <span className={className}>
-      {parts.map((part, index) => {
+      {parts.map(({ part, start }) => {
         if (/^\{\{[^}]+\}\}$/.exec(part)) {
           return (
-            <code key={index} className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1 rounded text-xs">
+            <code key={start} className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1 rounded text-xs">
               {part}
             </code>
           );
