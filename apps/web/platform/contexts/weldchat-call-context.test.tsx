@@ -39,6 +39,7 @@ const toast = vi.hoisted(() => ({
 const sounds = vi.hoisted(() => ({
   playCallJoinSound: vi.fn(),
   playCallLeaveSound: vi.fn(),
+  playIncomingRingSound: vi.fn(),
   playMuteSound: vi.fn(),
   playUnmuteSound: vi.fn(),
   playCameraToggleSound: vi.fn(),
@@ -142,6 +143,7 @@ vi.mock('@/lib/api/public-env', () => ({
   getRealtimeWsOrigin: () => 'wss://realtime.test',
 }));
 
+import { useTopic } from '@weldsuite/realtime/react';
 import { WeldChatCallProvider, useWeldChatCall } from './weldchat-call-context';
 
 const RECONNECT_TOAST = 'weldchat-reconnecting';
@@ -317,5 +319,57 @@ describe('WeldChatCallProvider · in-call toggles', () => {
 
     expect(call.isScreenSharing).toBe(false);
     expect(sounds.playScreenShareSound).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('WeldChatCallProvider · an incoming call', () => {
+  /** Mount the provider idle and deliver a `call_incoming` event on the user topic. */
+  function ringIncoming() {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={new QueryClient()}>
+        <WeldChatCallProvider>{children}</WeldChatCallProvider>
+      </QueryClientProvider>
+    );
+    render(<Probe />, { wrapper });
+    const onTopicEvent = vi.mocked(useTopic).mock.calls.at(-1)?.[1];
+    if (!onTopicEvent) throw new Error('no topic handler registered');
+    act(() => {
+      onTopicEvent({
+        event: 'call_incoming',
+        data: { callId: 'call_9', channelId: 'ch_9', callType: 'voice', callerName: 'Sam' },
+      } as Parameters<typeof onTopicEvent>[0]);
+    });
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rings on a loop while the popup is up, and goes quiet after 30s', () => {
+    vi.useFakeTimers();
+    ringIncoming();
+    expect(call.status).toBe('ringing-incoming');
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
+
+    act(() => vi.advanceTimersByTime(2600 * 2));
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(3);
+
+    act(() => vi.advanceTimersByTime(60_000));
+    const ringsAt30s = sounds.playIncomingRingSound.mock.calls.length;
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(ringsAt30s);
+    expect(call.status).toBe('ringing-incoming');
+  });
+
+  it('stops ringing as soon as the call is declined', async () => {
+    vi.useFakeTimers();
+    ringIncoming();
+    await act(async () => {
+      await call.declineCall();
+    });
+    expect(call.status).toBe('idle');
+
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(sounds.playIncomingRingSound).toHaveBeenCalledTimes(1);
   });
 });
