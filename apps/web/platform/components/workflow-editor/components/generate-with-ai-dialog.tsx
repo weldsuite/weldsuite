@@ -122,8 +122,8 @@ export function GenerateWithAiDialog({ open, onOpenChange, onApply }: Readonly<G
                 <AlertTitle className="text-amber-800 dark:text-amber-300">{tg.warningsIntro}</AlertTitle>
                 <AlertDescription>
                   <ul className="list-disc pl-4 space-y-0.5 text-amber-700 dark:text-amber-400">
-                    {result.warnings.map((warning, i) => (
-                      <li key={i}>{warning}</li>
+                    {result.warnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
                     ))}
                   </ul>
                 </AlertDescription>

@@ -149,6 +149,16 @@ interface WhiteboardViewProps {
   initialElements?: WhiteboardElement[];
 }
 
+/** The lines of a text element, each with the offset it starts at in the text. */
+function textLines(text: string): { offset: number; line: string }[] {
+  let offset = 0;
+  return text.split('\n').map((line) => {
+    const entry = { offset, line };
+    offset += line.length + 1;
+    return entry;
+  });
+}
+
 export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }: Readonly<WhiteboardViewProps>) {
   const st = useTranslations();
   const { canWrite } = useProjectPermissions();
@@ -2789,11 +2799,11 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       className="pointer-events-none select-none"
       style={element.link ? { textDecoration: 'underline' } : {}}
     >
-      {(element.text || 'Type something...').split('\n').map((line, index) => (
+      {textLines(element.text || 'Type something...').map(({ offset, line }) => (
         <tspan
-          key={index}
+          key={offset}
           x={element.x}
-          dy={index === 0 ? 0 : textFontSize * 1.5}
+          dy={offset === 0 ? 0 : textFontSize * 1.5}
         >
           {line || ' '}
         </tspan>
