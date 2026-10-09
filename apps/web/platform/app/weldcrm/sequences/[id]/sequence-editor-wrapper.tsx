@@ -35,17 +35,24 @@ export function SequenceEditorWrapper({ sequenceId, isDraft = false, actionsPort
   }], [t]);
   // Always hide built-in nav tabs — wizard nav (draft) or sequence nav (active) handles navigation
   // Pause/Resume buttons are rendered by the parent page in the wizard nav's rightContent
-  const draftOverrides = isDraft
-    ? {
-        hideNavTabs: true,
-        hidePublish: true,
-        replaceExecutionsTab: undefined as { label: string; href: string; icon: LucideIcon } | undefined,
-      }
-    : {
-        hideNavTabs: true,
-        hidePublish: true,
-        replaceExecutionsTab: { label: t('sweep.weldcrm.sequenceEditorWrapper.peopleTab'), href: `/weldcrm/sequences/${sequenceId}/people`, icon: Users },
-      };
+  // Memoised like the variable groups: a fresh `replaceExecutionsTab` object per
+  // render re-runs every effect downstream that depends on it.
+  const peopleTabLabel = t('sweep.weldcrm.sequenceEditorWrapper.peopleTab');
+  const draftOverrides = useMemo(
+    () =>
+      isDraft
+        ? {
+            hideNavTabs: true,
+            hidePublish: true,
+            replaceExecutionsTab: undefined as { label: string; href: string; icon: LucideIcon } | undefined,
+          }
+        : {
+            hideNavTabs: true,
+            hidePublish: true,
+            replaceExecutionsTab: { label: peopleTabLabel, href: `/weldcrm/sequences/${sequenceId}/people`, icon: Users },
+          },
+    [isDraft, peopleTabLabel, sequenceId],
+  );
 
   return (
     <WorkflowEditorClient

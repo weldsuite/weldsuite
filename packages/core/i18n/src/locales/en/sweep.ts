@@ -869,6 +869,13 @@ export const sweep = {
     "searchCustomerPlaceholder": "Search customer...",
     "setCustomer": "Set Customer",
     "noCustomerFound": "No customer found.",
+    "record": "Record",
+    "searchRecordPlaceholder": "Search companies and people...",
+    "setRecord": "Set record",
+    "noRecordFound": "No records found.",
+    "openRecord": "Open record",
+    "recordCompanies": "Companies",
+    "recordPeople": "People",
     "labels": "Labels",
     "setLabels": "Set Labels",
     "repeat": "Repeat",
@@ -1396,6 +1403,10 @@ export const sweep = {
     "comingSoonDescription": "This tab will populate once the underlying module finishes its migration. The data layer is ready — the UI just hasn't been wired up here yet.",
     "comingSoonToast": "{label} — coming soon",
     "companyDeleted": "Company deleted",
+    "companyDeleteConfirm": "Delete this company?",
+    "companyDeleteOpenDealsOne": "This company has 1 open deal. The deal stays on the pipeline board without a company. Delete the company anyway?",
+    "companyDeleteOpenDealsOther": "This company has {count} open deals. The deals stay on the pipeline board without a company. Delete the company anyway?",
+    "companyDeleteBulkOpenDeals": "{count} of the selected companies have open deals ({deals} in total). The deals stay on the pipeline board without a company. Delete the companies anyway?",
     "companyLabel": "Company",
     "companyLinked": "{name} linked",
     "compose": "Compose",
@@ -1411,6 +1422,7 @@ export const sweep = {
     "createNoteFailed": "Failed to create note",
     "createPersonFailed": "Failed to create person",
     "createPersonFromSearch": "Add \"{name}\" as a new person",
+    "createOptionFromSearch": "Create \"{value}\"",
     "personCreatedNeedsEmail": "Person created. Add an email address to use them here.",
     "createSubtaskFailed": "Failed to create subtask",
     "customAttributesHeading": "Custom attributes",
@@ -1419,6 +1431,8 @@ export const sweep = {
     "deleteColumn": "Delete column",
     "deleteCompanyFailed": "Failed to delete company",
     "deleteFailed": "Failed to delete",
+    "deleteFileDescription": "\"{fileName}\" will be permanently deleted. This action cannot be undone.",
+    "deleteFileTitle": "Delete file?",
     "deleteItemsDescriptionPlural": "This action cannot be undone. The selected items will be permanently deleted.",
     "deleteItemsDescriptionSingular": "This action cannot be undone. The selected item will be permanently deleted.",
     "deleteItemsTitlePlural": "Delete {count} items?",
@@ -1853,6 +1867,7 @@ export const sweep = {
     "untitledCompany": "Untitled company",
     "untitledPerson": "Untitled person",
     "updateCompanyFailed": "Failed to update company",
+    "recordChangedByOther": "This record was changed by someone else. Reload to see the latest version.",
     "updateFailed": "Failed to update",
     "updateFieldFailed": "Failed to update field",
     "updatePersonFailed": "Failed to update person",
@@ -2760,7 +2775,7 @@ export const sweep = {
       "durationMinutes": "{count} min",
       "minutesAbbreviation": "min",
       "taskNamePlaceholder": "Task name",
-      "title": "New Task"
+      "title": "New task"
     },
     "noteEditorModal": {
       "actions": "Actions",
@@ -3059,7 +3074,7 @@ export const sweep = {
       "updatedSuccessfully": "Task updated successfully"
     },
     "timeline": {
-      "addTask": "Add Task",
+      "addTask": "Add task",
       "allTasks": "All tasks",
       "assignee": "Assignee",
       "atRisk": "At risk",
@@ -3555,7 +3570,8 @@ export const sweep = {
       "searchRecords": "Search records...",
       "searching": "Searching…",
       "noRecordsFound": "No records found.",
-      "clearAll": "Clear all"
+      "clearAll": "Clear all",
+      "currency": "Currency"
     },
     "pipelineKanban": {
       "filterStage": "Stage",
@@ -3563,8 +3579,8 @@ export const sweep = {
       "filterProbability": "Probability",
       "filterCompany": "Company",
       "searchDeals": "Search deals...",
-      "addDeal": "Add Deal",
-      "newDeal": "New Deal",
+      "addDeal": "Add deal",
+      "newDeal": "New deal",
       "addNewStage": "Add new stage",
       "calcTotal": "Total:",
       "calcAvg": "Avg:",
@@ -3655,6 +3671,7 @@ export const sweep = {
     },
     "serverPipelineKanban": {
       "unknownCompany": "Unknown Company",
+      "deletedCompany": "(deleted company)",
       "failedToMoveDeal": "Failed to move deal",
       "failedToCreateDeal": "Failed to create deal"
     },
@@ -3881,7 +3898,7 @@ export const sweep = {
       "dealCountOne": "{count} deal",
       "dealCreated": "Deal created",
       "dealCreateFailed": "Failed to create deal",
-      "newDeal": "New Deal",
+      "newDeal": "New deal",
       "openPipeline": "Open Pipeline",
       "won": "Won",
       "totalValue": "Total Value",
@@ -3904,6 +3921,7 @@ export const sweep = {
     "activitySection": {
       "noActivitiesYet": "No activities yet",
       "noActivitiesYetDescriptionPerson": "Activity with this person will appear here.",
+      "noActivitiesYetDescriptionCompany": "Activity with this company will appear here.",
       "noActivitiesYetDescription": "Activity with this customer will appear here.",
       "changeCountSingular": "{count} change",
       "changeCountPlural": "{count} changes"

@@ -102,6 +102,10 @@ function ScreenTile({
   );
 }
 
+/** The row of thumbnails under a focused tile: compact on phones. */
+const STRIP_CLASS = 'flex gap-2 h-[96px] md:h-[160px] flex-shrink-0 overflow-x-auto overflow-y-hidden p-1';
+const STRIP_TILE_CLASS = 'w-[128px] md:w-[240px] flex-shrink-0';
+
 function gridColsClass(totalTiles: number): string {
   if (totalTiles <= 1) return 'grid-cols-1';
   if (totalTiles <= 4) return 'grid-cols-2';
@@ -200,18 +204,18 @@ function FocusedScreenLayout({
 }: LayoutProps & { focusedScreen: Entry }) {
   const otherScreens = screenShareEntries.filter(({ p }) => p.id !== focusedScreen.p.id);
   return (
-    <div className="flex flex-col gap-2 p-4 h-full">
+    <div className="flex flex-col gap-2 p-2 md:p-4 h-full">
       <div className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
         <ScreenTile ctx={ctx} entry={focusedScreen} interactive focused />
       </div>
-      <div className="flex gap-2 h-[160px] flex-shrink-0 overflow-x-auto overflow-y-hidden p-1">
+      <div className={STRIP_CLASS}>
         {otherScreens.map((entry) => (
-          <div key={`${entry.p.id}-screen`} className="w-[240px] flex-shrink-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
+          <div key={`${entry.p.id}-screen`} className={`${STRIP_TILE_CLASS} rounded-xl overflow-hidden bg-[#1a1a1a]`}>
             <ScreenTile ctx={ctx} entry={entry} interactive />
           </div>
         ))}
         {allParticipants.map((entry) => (
-          <div key={entry.p.id} className="w-[240px] flex-shrink-0">
+          <div key={entry.p.id} className={STRIP_TILE_CLASS}>
             <CameraTile ctx={ctx} entry={entry} />
           </div>
         ))}
@@ -231,19 +235,22 @@ function CameraFocusLayout({
   allParticipants,
   viewMode,
   pinnedParticipantId,
+  isMobile,
 }: Readonly<{
   ctx: TileContext;
   focused: Entry;
   allParticipants: Entry[];
   viewMode: ViewMode;
   pinnedParticipantId: string | undefined;
+  isMobile: boolean;
 }>) {
   const others = allParticipants.filter(({ p }) => p.id !== focused.p.id);
   const mainTile = (
     <CameraTile ctx={ctx} entry={focused} pinned={pinnedParticipantId === focused.p.id} />
   );
 
-  if (viewMode === 'sidebar') {
+  // A phone is too narrow for a side strip: sidebar falls back to the row below.
+  if (viewMode === 'sidebar' && !isMobile) {
     return (
       <div className="flex gap-2 p-4 h-full">
         <div className="flex-1 min-w-0">{mainTile}</div>
@@ -261,12 +268,12 @@ function CameraFocusLayout({
   }
 
   return (
-    <div className="flex flex-col gap-2 p-4 h-full">
+    <div className="flex flex-col gap-2 p-2 md:p-4 h-full">
       <div className="flex-1 min-h-0">{mainTile}</div>
       {others.length > 0 && (
-        <div className="flex gap-2 h-[160px] flex-shrink-0 overflow-x-auto overflow-y-hidden p-1">
+        <div className={STRIP_CLASS}>
           {others.map((entry) => (
-            <div key={entry.p.id} className="w-[240px] flex-shrink-0">
+            <div key={entry.p.id} className={STRIP_TILE_CLASS}>
               <CameraTile ctx={ctx} entry={entry} />
             </div>
           ))}
@@ -296,15 +303,15 @@ function SoloPresenterLayout({
   isVideoOff: boolean;
 }>) {
   return (
-    <div className="relative h-full w-full p-3">
-      {/* Shared screen — full area (inside the p-3 wrapper so it
+    <div className="relative h-full w-full p-2 md:p-3">
+      {/* Shared screen — full area (inside the padded wrapper so it
           matches the inset of every other layout). */}
       <div className="relative h-full w-full rounded-xl overflow-hidden bg-[#1a1a1a]">
         <ScreenTile ctx={ctx} entry={{ p: selfPeer, isSelf: true }} />
 
         {/* Local camera PiP — bottom-right, hidden when video is off */}
         {!isVideoOff && (
-          <div className="absolute bottom-4 right-4 z-10 w-[300px] h-[195px] rounded-lg shadow-lg overflow-hidden ring-1 ring-white/20">
+          <div className="absolute bottom-2 right-2 z-10 w-[132px] h-[88px] md:bottom-4 md:right-4 md:w-[300px] md:h-[195px] rounded-lg shadow-lg overflow-hidden ring-1 ring-white/20">
             <ParticipantTile
               participant={selfPeer}
               isSelf
@@ -335,7 +342,7 @@ function SoloPresenterLayout({
  */
 function PresenterLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
   return (
-    <div className="flex max-md:flex-col-reverse gap-2 p-3 h-full">
+    <div className="flex max-md:flex-col-reverse gap-2 p-2 md:p-3 h-full">
       {/* Main share area */}
       <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-2">
         {screenShareEntries.map((entry) => (
@@ -378,7 +385,7 @@ function PresenterLayout({ ctx, allParticipants, screenShareEntries }: Readonly<
  */
 function SpotlightShareLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
   return (
-    <div className="flex flex-col gap-2 p-3 h-full">
+    <div className="flex flex-col gap-2 p-2 md:p-3 h-full">
       {screenShareEntries.map((entry) => (
         <div key={`${entry.p.id}-screen`} className="flex-1 min-h-0 rounded-xl overflow-hidden bg-[#1a1a1a]">
           <ScreenTile ctx={ctx} entry={entry} />
@@ -393,6 +400,27 @@ function SpotlightShareLayout({ ctx, allParticipants, screenShareEntries }: Read
           .map(({ p }) => (
             <RemoteParticipantAudio key={p.id} participant={p} />
           ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mobile one-to-one layout, as phone call apps do it: one person fills the
+ * stage and the other floats as a thumbnail in the corner. Tapping the
+ * thumbnail pins that tile, which swaps the two.
+ */
+function MobileDuoLayout({
+  ctx,
+  main,
+  thumbnail,
+  pinned,
+}: Readonly<{ ctx: TileContext; main: Entry; thumbnail: Entry; pinned: boolean }>) {
+  return (
+    <div className="relative h-full w-full p-2">
+      <CameraTile ctx={ctx} entry={main} pinned={pinned} />
+      <div className="absolute bottom-4 right-4 z-10 h-[132px] w-[99px] rounded-lg shadow-lg ring-1 ring-white/20">
+        <CameraTile ctx={ctx} entry={thumbnail} />
       </div>
     </div>
   );
@@ -427,7 +455,7 @@ function MobileGridLayout({ ctx, allParticipants, screenShareEntries }: Readonly
   const cols = shown.length <= 4 ? 'grid-cols-1' : 'grid-cols-2';
 
   return (
-    <div className={`grid ${cols} gap-2 p-4 h-full auto-rows-fr`}>
+    <div className={`grid ${cols} gap-2 p-2 h-full auto-rows-fr`}>
       {shown.map((t, i) => {
         const showBadge = overflow > 0 && i === shown.length - 1;
         return (
@@ -515,8 +543,22 @@ function StageLayout(props: Readonly<StageLayoutProps>) {
       allParticipants={allParticipants}
       viewMode={viewMode}
       pinnedParticipantId={pinnedParticipant?.p.id}
+      isMobile={isMobile}
     />
   );
+  // Two people on a phone, nobody sharing: full-stage tile + floating thumbnail.
+  const [first, second] = allParticipants;
+  if (isMobile && first && second && allParticipants.length === 2 && screenShareEntries.length === 0) {
+    const main = pinnedParticipant ?? focusedParticipant ?? second;
+    return (
+      <MobileDuoLayout
+        ctx={ctx}
+        main={main}
+        thumbnail={main.p.id === first.p.id ? second : first}
+        pinned={pinnedParticipant?.p.id === main.p.id}
+      />
+    );
+  }
   // An explicit camera pin wins over the auto screen-share presenter.
   if (pinnedParticipant) return cameraFocus(pinnedParticipant);
 
@@ -533,7 +575,7 @@ function StageLayout(props: Readonly<StageLayoutProps>) {
 /** Live captions overlay (last two lines). */
 function CaptionsOverlay({ captions }: Readonly<{ captions: NonNullable<MeetingRoomViewProps['captions']> }>) {
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-w-[80%] pointer-events-none">
+    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 max-w-[80%] max-md:w-max max-md:max-w-[calc(100%-1rem)] pointer-events-none">
       <div className="rounded-2xl bg-black/70 px-4 py-2 text-white backdrop-blur shadow-lg ring-1 ring-white/10">
         {captions.slice(-2).map((c) => (
           <div key={c.id} className="text-[13px] leading-snug">
@@ -786,6 +828,7 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
   });
 
   const showChatButton = showChatButtonProp ?? !!chatPanelSlot;
+  const hideShareCard = isMobile && allParticipants.length > 1;
 
   const tileContext: TileContext = {
     meeting,
@@ -834,6 +877,7 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
           showPeopleButton={showPeopleButton}
           showChatButton={showChatButton}
           showToolsButton={showToolsButton}
+          mobileOverflowActions
         />
 
         <div className="flex-1 min-h-0 overflow-hidden relative">
@@ -849,13 +893,20 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
             isVideoOff={isVideoOff}
           />
 
-          {shareUrl && <ShareLinkCard shareUrl={shareUrl} addPeopleDialogContent={addPeopleDialogContent} />}
+          {/* On a phone the card spans the stage, so it steps aside while
+              someone else is in the call (the link stays in Meeting details).
+              Hidden rather than unmounted, so a dismissed card stays dismissed. */}
+          {shareUrl && (
+            <div hidden={hideShareCard} className={hideShareCard ? undefined : 'contents'}>
+              <ShareLinkCard shareUrl={shareUrl} addPeopleDialogContent={addPeopleDialogContent} />
+            </div>
+          )}
 
-          {/* Chat-notification host — mirrors ShareLinkCard's bottom-6/left-6
-              corner distance on the right edge. Toasts portal in here. */}
+          {/* Chat-notification host — mirrors ShareLinkCard's corner distance
+              on the right edge. Toasts portal in here. */}
           <div
             ref={setNotificationHost}
-            className="absolute bottom-6 right-6 z-10 flex flex-col items-end gap-2 pointer-events-none"
+            className="absolute bottom-2 right-2 md:bottom-6 md:right-6 z-10 flex flex-col items-end gap-2 pointer-events-none"
           />
 
           {meeting && <AdmitGuestsPill meeting={meeting} />}
@@ -893,6 +944,8 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
           onToggleFullscreen={onToggleFullscreen}
           onPictureInPicture={onPictureInPicture}
           onOpenSettings={showHostControlsButton ? () => toggleRightPanel('settings') : undefined}
+          onOpenInfo={showInfoButton ? () => toggleRightPanel('info') : undefined}
+          onOpenTools={showToolsButton ? () => toggleRightPanel('tools') : undefined}
           gates={{
             screenShare: gate.screenShare,
             handRaise: gate.handRaise,

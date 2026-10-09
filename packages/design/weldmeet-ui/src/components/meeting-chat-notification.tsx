@@ -144,23 +144,19 @@ export function MeetingChatNotification({
       {notes.map((note) => (
         <div
           key={note.id}
-          role="button"
-          tabIndex={0}
-          onClick={() => {
-            onOpenChat?.();
-            setNotes([]);
-          }}
-          onKeyDown={(e) => {
-            if (e.target !== e.currentTarget) return;
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
+          style={{ animation: 'meet-chat-note-in 200ms ease-out' }}
+          className="group pointer-events-auto relative flex w-[300px] max-w-[calc(100vw-2rem)] cursor-pointer items-start gap-2.5 rounded-2xl border border-border bg-background/95 px-3 py-2.5 text-left shadow-lg backdrop-blur transition-colors hover:bg-muted/60"
+        >
+          {/* Notification click target: stretched button; the dismiss button sits above it */}
+          <button
+            type="button"
+            aria-label={`${note.authorName}: ${note.content}`}
+            onClick={() => {
               onOpenChat?.();
               setNotes([]);
-            }
-          }}
-          style={{ animation: 'meet-chat-note-in 200ms ease-out' }}
-          className="group pointer-events-auto flex w-[300px] cursor-pointer items-start gap-2.5 rounded-2xl border border-border bg-background/95 px-3 py-2.5 text-left shadow-lg backdrop-blur transition-colors hover:bg-muted/60"
-        >
+            }}
+            className="absolute inset-0 cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
           <Avatar className="h-8 w-8 flex-shrink-0 !rounded-[10px]">
             {note.authorAvatar && (
               <AvatarImage src={note.authorAvatar} className="!rounded-[10px]" />
@@ -185,7 +181,7 @@ export function MeetingChatNotification({
               e.stopPropagation();
               dismiss(note.id);
             }}
-            className="flex-shrink-0 rounded-md p-1 text-muted-foreground/60 opacity-0 transition-all hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+            className="relative z-[1] flex-shrink-0 rounded-md p-1 text-muted-foreground/60 opacity-0 transition-all hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
             aria-label="Dismiss notification"
           >
             <X className="h-3.5 w-3.5" />

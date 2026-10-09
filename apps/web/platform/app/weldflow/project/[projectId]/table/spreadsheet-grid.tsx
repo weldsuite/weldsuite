@@ -184,6 +184,7 @@ const Cell = memo(function Cell({
           rel="noopener noreferrer"
           className="text-blue-600 underline hover:text-blue-700"
           onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {inner}
@@ -315,6 +316,7 @@ const DropdownChip = memo(function DropdownChip({
         variant="ghost"
         size="icon"
         className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent"
+        onPointerDown={(e) => e.stopPropagation()}
         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
         onClick={(e) => {
           e.preventDefault();
@@ -971,10 +973,13 @@ export function SpreadsheetGrid({
   }, [getRawCellValue, commitValue, onSelectionEndChange]);
 
   useEffect(() => {
-    const up = () => {
+    // A cancelled gesture (pointercancel) ends the drag like a release but never
+    // commits a fill: only a real release applies it.
+    const finish = (commit: boolean) => {
       if (isFillDraggingRef.current) {
         isFillDraggingRef.current = false;
-        applyFill();
+        if (commit) applyFill();
+        else setFillDragEnd(null);
       }
       isDraggingRef.current = false;
       if (resizeStartRef.current) {
@@ -989,7 +994,9 @@ export function SpreadsheetGrid({
         rowResizeStartRef.current = null;
       }
     };
-    const move = (e: MouseEvent) => {
+    const up = () => finish(true);
+    const cancel = () => finish(false);
+    const move = (e: PointerEvent) => {
       if (resizeStartRef.current) {
         const { col, startX, startWidth } = resizeStartRef.current;
         const delta = e.clientX - startX;
@@ -1003,9 +1010,14 @@ export function SpreadsheetGrid({
         setRowHeights(prev => ({ ...prev, [row]: newHeight }));
       }
     };
-    window.addEventListener('mouseup', up);
-    window.addEventListener('mousemove', move);
-    return () => { window.removeEventListener('mouseup', up); window.removeEventListener('mousemove', move); };
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('pointermove', move);
+    return () => {
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('pointermove', move);
+    };
   }, [applyFill, colWidths, sortedCols, onUpdateColumn]);
 
   // --- Column resize ---
@@ -1024,6 +1036,17 @@ export function SpreadsheetGrid({
     setHeaderEditValue(col.name);
     requestAnimationFrame(() => headerInputRef.current?.focus());
   }, [sortedCols]);
+
+  // Double-click is delegated from the grid container: a column header starts a
+  // rename, anything else is handled as a cell double-click (start editing).
+  const handleGridDoubleClick = useCallback((e: React.MouseEvent) => {
+    const headerEl = (e.target as HTMLElement).closest<HTMLElement>('[data-col-header]');
+    if (headerEl) {
+      handleHeaderDoubleClick(Number(headerEl.dataset.colHeader));
+      return;
+    }
+    handleCellDoubleClick(e);
+  }, [handleHeaderDoubleClick, handleCellDoubleClick]);
 
   const commitHeaderRename = useCallback(() => {
     if (editingHeader !== null && headerEditValue.trim() && onUpdateColumn) {
@@ -1438,6 +1461,7 @@ export function SpreadsheetGrid({
       onKeyDown={handleKeyDown}
       onScroll={handleScroll}
       onContextMenu={handleContextMenu}
+      onDoubleClick={handleGridDoubleClick}
       style={{ position: 'relative' }}
     >
       <div style={{ width: totalWidth, minWidth: '100%', height: totalHeight + HEADER_H, position: 'relative' }}>
@@ -1460,13 +1484,11 @@ export function SpreadsheetGrid({
               return (
                 <div
                   key={ci}
-                  role="presentation"
                   data-col-header={ci}
                   className={`border-r border-b border-border flex items-center justify-center text-[11px] font-medium select-none ${
                     isSelected ? 'bg-[#d3e3fd] dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'bg-[#f8f9fa] dark:bg-muted/50 text-muted-foreground'
                   }`}
                   style={{ position: 'absolute', left, top: 0, width: w, height: HEADER_H }}
-                  onDoubleClick={() => handleHeaderDoubleClick(ci)}
                 >
                   {isEditingThis ? (
                     <input
@@ -1509,9 +1531,8 @@ export function SpreadsheetGrid({
                     )}
                   {/* Resize handle */}
                   <div
-                    role="presentation"
-                    className="absolute top-0 right-0 w-[4px] h-full cursor-col-resize hover:bg-blue-400/50"
-                    onMouseDown={(e) => handleResizeMouseDown(e, ci)}
+                    className="absolute top-0 right-0 w-[4px] h-full cursor-col-resize touch-none hover:bg-blue-400/50"
+                    onPointerDown={(e) => handleResizeMouseDown(e, ci)}
                   />
                 </div>
               );
@@ -1521,10 +1542,8 @@ export function SpreadsheetGrid({
 
         {/* Grid body */}
         <div
-          role="presentation"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onDoubleClick={handleCellDoubleClick}
+          onPointerDown={handleMouseDown}
+          onPointerMove={handleMouseMove}
           style={{ position: 'relative' }}
         >
           {/* Row numbers (sticky left) */}
@@ -1551,9 +1570,8 @@ export function SpreadsheetGrid({
                   {ri + 1}
                   {/* Row resize handle */}
                   <div
-                    role="presentation"
-                    className="absolute left-0 right-0 bottom-0 h-[3px] cursor-row-resize hover:bg-blue-400/50 z-20"
-                    onMouseDown={(e) => {
+                    className="absolute left-0 right-0 bottom-0 h-[3px] cursor-row-resize touch-none hover:bg-blue-400/50 z-20"
+                    onPointerDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       rowResizeStartRef.current = { row: ri, startY: e.clientY, startHeight: getRowHeight(ri) };
@@ -1663,10 +1681,9 @@ export function SpreadsheetGrid({
                 }}
               >
                 <div
-                  role="presentation"
-                  className="absolute bg-[#1a73e8]"
+                  className="absolute touch-none bg-[#1a73e8]"
                   style={{ width: 6, height: 6, right: -4, bottom: -4, cursor: 'crosshair', pointerEvents: 'auto' }}
-                  onMouseDown={handleFillHandleMouseDown}
+                  onPointerDown={handleFillHandleMouseDown}
                 />
               </div>
               {isMulti && selectedCell && (
@@ -1724,10 +1741,8 @@ export function SpreadsheetGrid({
         <>
           <div aria-hidden="true" className="fixed inset-0 z-40" onMouseDown={() => setOpenDropdown(null)} />
           <div
-            role="presentation"
             className="fixed z-50 max-h-60 w-44 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
             style={{ left: Math.min(openDropdown.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 190), top: openDropdown.y }}
-            onMouseDown={(e) => e.stopPropagation()}
           >
             <Button
               variant="ghost"

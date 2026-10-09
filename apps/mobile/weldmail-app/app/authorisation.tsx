@@ -1,3 +1,4 @@
+import { passkeys } from '@clerk/expo/passkeys';
 import { LoginScreen } from '@weldsuite/mobile-ui/components/LoginScreen';
 import { useObserve } from 'expo-observe';
 import { useEffect } from 'react';
@@ -18,6 +19,8 @@ export default function AuthorisationScreen() {
       appName="WeldMail"
       subtitle="Professional email client"
       showEmailLogin={true}
+      // iOS 16+ / Android 9+; older Android versions have no passkey API.
+      showPasskeyLogin={passkeys.isSupported()}
       accentColor="#F06543"
     />
   );

@@ -3,7 +3,7 @@ import { useState, type ComponentProps } from 'react';
 import { useParams, useRouter, Link } from '@/lib/router';
 import { SequenceEditorWrapper } from './sequence-editor-wrapper';
 import { useWorkflowEditorData } from '@/hooks/use-workflow-editor-data';
-import { useSequence, useLaunchSequence, useStartSequence, usePauseSequence } from '@/hooks/queries/use-sequences-queries';
+import { useSequence, useLaunchSequence, useResumeSequence, usePauseSequence } from '@/hooks/queries/use-sequences-queries';
 import { SequenceWizardNav } from './components/sequence-wizard-nav';
 import { WorkflowEditorShell } from '@/components/workflow-editor';
 import type { WorkflowEditorShellProps } from '@/components/workflow-editor/workflow-editor-shell';
@@ -14,6 +14,10 @@ import { CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
+
+// One shared empty array: `x || []` built a new array on every render, which
+// the editor's canvas effects saw as changed props (React #185 loop).
+const EMPTY_LIST: never[] = [];
 
 type ShellRenderProps = Parameters<WorkflowEditorShellProps['nav']>[0];
 
@@ -193,14 +197,18 @@ export default function SequenceEditorPage() {
     webhookData,
     isLoading,
     isError: isWorkflowError,
+    isFetching: isWorkflowFetching,
   } = useWorkflowEditorData(id);
   const { data: sequenceResp } = useSequence(id);
   const launchSequence = useLaunchSequence();
-  const startSequence = useStartSequence();
+  const resumeSequence = useResumeSequence();
   const pauseSequence = usePauseSequence();
   const [launchOpen, setLaunchOpen] = useState(false);
 
-  if (isLoading) {
+  // Never show "not found" while the sequence is still on its way: the route
+  // param can be empty for a render and the workflow query is disabled (and so
+  // not "loading") until it arrives.
+  if (isLoading || !id || (!workflow && !isWorkflowError && isWorkflowFetching)) {
     return <PageLoader />;
   }
 
@@ -238,9 +246,12 @@ export default function SequenceEditorPage() {
     }
   };
 
+  // Resume = set the sequence back to active AND start its pending enrollments.
+  // (`/start` alone only re-triggers already-active enrollments and left the
+  // sequence paused.)
   const handleStart = async () => {
     try {
-      await startSequence.mutateAsync(id);
+      await resumeSequence.mutateAsync(id);
       toast.success(t.sequenceEditorPage.resumedSuccess);
     } catch {
       toast.error(t.sequenceEditorPage.resumeFailed);
@@ -266,7 +277,7 @@ export default function SequenceEditorPage() {
     setLaunchOpen,
     isLaunchPending: launchSequence.isPending,
     isPausePending: pauseSequence.isPending,
-    isStartPending: startSequence.isPending,
+    isStartPending: resumeSequence.isPending,
     hasSteps,
     hasPeople,
     isReady,
@@ -280,13 +291,13 @@ export default function SequenceEditorPage() {
     sequenceId: id,
     isDraft,
     workflow,
-    actionTypes: actionTypes || [],
-    triggerTypes: triggerTypes || [],
-    entityEvents: entityEvents || [],
-    emailAccounts: emailAccounts || [],
-    workspaceMembers: workspaceMembers || [],
-    workflowVariables: workflowVariables || [],
-    workflowsForChaining: workflowsForChaining || [],
+    actionTypes: actionTypes || EMPTY_LIST,
+    triggerTypes: triggerTypes || EMPTY_LIST,
+    entityEvents: entityEvents || EMPTY_LIST,
+    emailAccounts: emailAccounts || EMPTY_LIST,
+    workspaceMembers: workspaceMembers || EMPTY_LIST,
+    workflowVariables: workflowVariables || EMPTY_LIST,
+    workflowsForChaining: workflowsForChaining || EMPTY_LIST,
     webhookData: webhookData || null,
     basePath: '/weldcrm/sequences',
     parentLabel: st('sweep.weldcrm.sequences.parentLabel'),

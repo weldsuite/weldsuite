@@ -42,6 +42,7 @@ export interface GridColumnDef<TEntity> {
   creditCost?: number; // Credit cost for enrichment columns
   options?: string[]; // For select fields
   selectConfig?: Record<string, StatusStyle>; // For styled select fields
+  allowCreateOption?: boolean; // multi-select: let the user add a new value by typing it (free-form tags)
   favoriteField?: string; // Entity field name for star toggle (used in company columns)
   // Get the value from the entity for this column
   getValue: (entity: TEntity) => unknown;
@@ -335,6 +336,8 @@ export interface SelectEditorProps extends EditorProps<string | null> {
 export interface MultiSelectEditorProps extends EditorProps<string[]> {
   options: string[];
   optionConfig?: Record<string, StatusStyle>;
+  /** Offer "Create \"<typed>\"" so a value that is not in `options` can be added. */
+  allowCreate?: boolean;
 }
 
 // Props for location editor. Location is now a free-form string populated via

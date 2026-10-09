@@ -1,12 +1,14 @@
-import { useState } from 'react';
-import { Check, Plus, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { BarChart3, Check, Plus, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Switch } from '@weldsuite/ui/components/switch';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { toast } from 'sonner';
 import { formatLabel, type MeetingToolsLabels } from '../../tools/labels';
 import type { MeetingPoll, MeetingPolls } from '../../tools/use-meeting-tools';
+import { EntityList, type ActiveFilter, type FilterConfig } from '../entity-list';
 
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 6;
@@ -25,39 +27,93 @@ export function PollsTool({ polls, canCreate, labels }: PollsToolProps) {
   const [creating, setCreating] = useState(false);
   const allowCreate = canCreate && polls.canCreate;
   // Newest first: the poll that was just started is the one people came for.
-  const ordered = [...polls.polls].reverse();
+  const ordered = useMemo(() => [...polls.polls].reverse(), [polls.polls]);
+  const { selfIds } = polls;
+
+  const filterConfigs: FilterConfig[] = useMemo(() => [
+    {
+      field: 'vote',
+      label: t.filterVote,
+      options: [
+        { value: 'voted', label: t.filterVoted },
+        { value: 'not-voted', label: t.filterNotVoted },
+      ],
+    },
+    {
+      field: 'voting',
+      label: t.filterVoting,
+      options: [
+        { value: 'anonymous', label: t.filterAnonymous },
+        { value: 'named', label: t.filterNamed },
+      ],
+    },
+  ], [t]);
+
+  const applyFilters = useCallback((rows: MeetingPoll[], filters: ActiveFilter[]) => {
+    let result = rows;
+    filters.forEach((f) => {
+      if (!f.operator || !f.value) return;
+      const isOp = f.operator === 'is';
+      if (f.field === 'vote') {
+        const want = f.value === 'voted';
+        result = result.filter((poll) => (selfIds.some((id) => poll.voted?.includes(id)) === want) === isOp);
+      } else if (f.field === 'voting') {
+        const want = f.value === 'anonymous';
+        result = result.filter((poll) => (poll.anonymous === want) === isOp);
+      }
+    });
+    return result;
+  }, [selfIds]);
+
+  const openCreate = () => setCreating(true);
 
   return (
-    <div className="p-4 space-y-4">
-      {allowCreate && !creating && (
-        <Button type="button" className="w-full" onClick={() => setCreating(true)}>
-          <Plus className="h-4 w-4" />
-          {t.newPoll}
-        </Button>
-      )}
-      {allowCreate && creating && (
-        <NewPollForm
-          labels={labels}
-          onCancel={() => setCreating(false)}
-          onCreate={async (question, options, anonymous) => {
-            try {
-              await polls.create(question, options, anonymous);
-              setCreating(false);
-            } catch (err) {
-              console.error('[WeldMeet] create poll failed:', err);
-              toast.error(t.failed);
-            }
-          }}
-        />
-      )}
+    <div className="flex flex-col min-w-0 w-full overflow-x-hidden">
+      <EntityList<MeetingPoll>
+        items={ordered}
+        isLoading={false}
+        filters={filterConfigs}
+        applyFilters={applyFilters}
+        searchPlaceholder={t.searchPlaceholder}
+        searchFields={['question']}
+        itemsClassName="p-4 space-y-4"
+        renderRow={(poll) => <PollCard key={poll.id} poll={poll} polls={polls} labels={labels} />}
+        createButton={allowCreate ? { label: t.newPoll, onClick: openCreate } : undefined}
+        emptyState={{
+          icon: (
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <BarChart3 className="h-5 w-5 text-muted-foreground" />
+            </div>
+          ),
+          title: t.emptyTitle,
+          description: allowCreate ? t.emptyHost : t.empty,
+          action: allowCreate ? { label: t.newPoll, onClick: openCreate } : undefined,
+        }}
+        noResultsState={{ title: t.noResultsTitle, description: t.noResultsDescription }}
+      />
 
-      {ordered.length === 0 && !creating && (
-        <p className="text-sm text-muted-foreground">{allowCreate ? t.emptyHost : t.empty}</p>
+      {allowCreate && (
+        <Dialog open={creating} onOpenChange={setCreating}>
+          <DialogContent className="sm:max-w-[480px]" aria-describedby={undefined}>
+            <DialogHeader>
+              <DialogTitle>{t.newPoll}</DialogTitle>
+            </DialogHeader>
+            <NewPollForm
+              labels={labels}
+              onCancel={() => setCreating(false)}
+              onCreate={async (question, options, anonymous) => {
+                try {
+                  await polls.create(question, options, anonymous);
+                  setCreating(false);
+                } catch (err) {
+                  console.error('[WeldMeet] create poll failed:', err);
+                  toast.error(t.failed);
+                }
+              }}
+            />
+          </DialogContent>
+        </Dialog>
       )}
-
-      {ordered.map((poll) => (
-        <PollCard key={poll.id} poll={poll} polls={polls} labels={labels} />
-      ))}
     </div>
   );
 }
@@ -82,7 +138,7 @@ function NewPollForm({
 
   return (
     <form
-      className="space-y-3 rounded-xl bg-muted/40 p-3"
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (!valid || saving) return;
@@ -142,7 +198,7 @@ function NewPollForm({
       </label>
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           {t.cancel}
         </Button>
         <Button type="submit" size="sm" disabled={!valid || saving}>

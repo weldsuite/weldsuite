@@ -74,6 +74,7 @@ export const weldchat = {
       reconnecting: 'Verbinding verbroken. Opnieuw verbinden…',
       reconnected: 'Je bent weer in het gesprek',
       connectionLost: 'Opnieuw verbinden met het gesprek is niet gelukt. Bel opnieuw om verder te gaan.',
+      supersededByOtherCall: 'Je hebt dit gesprek verlaten omdat je aan een ander gesprek of een andere vergadering bent begonnen.',
     },
     callOverlay: {
       microphone: 'Microfoon',
@@ -668,6 +669,8 @@ export const weldchat = {
     incomingCall: {
       incomingVideo: 'Inkomend videogesprek...',
       incomingVoice: 'Inkomend audiogesprek...',
+      accept: 'Opnemen',
+      decline: 'Weigeren',
     },
     dm: {
       selectConversation: 'Selecteer een gesprek of start een nieuw gesprek',
@@ -798,10 +801,19 @@ export const weldchat = {
       none: 'Geen',
     },
     switchCallDialog: {
-      title: 'Huidig gesprek verlaten?',
-      description: 'Je bent al in een gesprek. Wil je dit verlaten en een nieuw gesprek starten?',
-      stayInCall: 'In gesprek blijven',
-      leaveAndCall: 'Verlaten & bellen',
+      title: 'Van gesprek wisselen?',
+      titleMeeting: 'Naar deze vergadering overstappen?',
+      description: 'Je kunt maar in één gesprek of vergadering tegelijk zijn. Wil je {current} verlaten en deelnemen aan {target}?',
+      stay: 'Blijven',
+      leaveAndJoin: 'Verlaten en deelnemen',
+      currentCall: 'je huidige gesprek',
+      newCall: 'het nieuwe gesprek',
+      callInChannel: 'het gesprek in {name}',
+      callWithPerson: 'het gesprek met {name}',
+      callFromPerson: 'het gesprek van {name}',
+      currentMeeting: 'je huidige vergadering',
+      newMeeting: 'een nieuwe vergadering',
+      meetingNamed: 'de vergadering "{title}"',
     },
     dropZone: {
       uploadFile: 'Bestand uploaden',

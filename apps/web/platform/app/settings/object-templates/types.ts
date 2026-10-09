@@ -29,6 +29,8 @@ export interface TemplateFieldSpec {
   inputType: TemplateInputType;
   required?: boolean;
   placeholder?: string;
+  /** Mirrors the API's max length so the input stops typing at the limit. */
+  maxLength?: number;
 }
 
 /**

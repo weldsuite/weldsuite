@@ -34,6 +34,7 @@ import {
   GridColumnDef,
   StatusStyle,
 } from '@/components/entity-grid';
+import { LIFECYCLE_STAGES } from '@weldsuite/app-api-client/schemas/companies';
 
 export const companyStatusConfig: Record<string, StatusStyle> = {
   active: { label: 'Active', color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
@@ -42,6 +43,19 @@ export const companyStatusConfig: Record<string, StatusStyle> = {
   churned: { label: 'Churned', color: 'text-red-700 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
   suspended: { label: 'Suspended', color: 'text-amber-700 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
 };
+
+const LIFECYCLE_STAGE_STYLE = { color: 'text-foreground', bg: 'bg-muted' };
+
+/** Lifecycle stage select, limited to the values the API accepts. */
+export const lifecycleStageSelectConfig: Record<string, StatusStyle> = Object.fromEntries(
+  LIFECYCLE_STAGES.map((stage) => [
+    stage,
+    {
+      ...LIFECYCLE_STAGE_STYLE,
+      label: stage.replace(/_/g, ' ').replace(/^./, (ch) => ch.toUpperCase()),
+    },
+  ]),
+);
 
 function extractDomain(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -226,7 +240,9 @@ export const companyColumns: GridColumnDef<Company>[] = [
   {
     id: 'lifecycleStage',
     name: 'Lifecycle Stage',
-    type: 'text',
+    type: 'single-select',
+    options: [...LIFECYCLE_STAGES],
+    selectConfig: lifecycleStageSelectConfig,
     width: 160,
     icon: Target,
     visible: false,
@@ -291,6 +307,9 @@ export const companyColumns: GridColumnDef<Company>[] = [
     visible: false,
     editable: true,
     sortable: false,
+    // Free-form: suggestions are the tags other companies already use
+    // (injected by CompaniesGrid), and a typed value can be created inline.
+    allowCreateOption: true,
     getValue: (c) => c.tags ?? [],
     setValue: (_c, v) => ({ tags: (v as string[]) ?? [] }),
   },

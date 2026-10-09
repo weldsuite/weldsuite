@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Handshake, Plus, MoreHorizontal, DollarSign, Calendar, TrendingUp } from 'lucide-react';
+import { Handshake, Plus, MoreHorizontal, Banknote, Calendar, TrendingUp } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -18,6 +18,12 @@ import { DealDetailsModal } from '@/components/weldcrm/pipeline/deal-details-mod
 import { usePipelines, usePipelineStages, type PipelineStage } from '@/hooks/queries/use-pipelines-queries';
 import { useCreateOpportunity } from '@/hooks/queries/use-opportunities-queries';
 import { useCompany } from '@/components/objects/company/use-company-data';
+import {
+  DEFAULT_DEAL_CURRENCY,
+  formatDealDate,
+  formatDealMoney,
+  resolveDealCurrency,
+} from '@/lib/crm/deal-format';
 
 const stageColors: Record<string, string> = {
   lead: 'bg-muted text-foreground',
@@ -28,21 +34,31 @@ const stageColors: Record<string, string> = {
   closed_lost: 'bg-red-100 text-red-700',
 };
 
-function formatCurrency(amount: number, currency = 'USD'): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
+/** Won/lost deals read green/red regardless of what their stage is called. */
+function statusBadgeClass(status: string): string | undefined {
+  if (status === 'won') return 'bg-green-100 text-green-700';
+  if (status === 'lost') return 'bg-red-100 text-red-700';
+  return undefined;
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+function dealAmount(deal: Opportunity): number {
+  const parsed = deal.amount ? Number.parseFloat(deal.amount) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : deal.value || 0;
+}
+
+/**
+ * Sum deals per currency and format each total in its own currency
+ * ("€1,200 + $500"). Adding amounts of different currencies into one number
+ * and labelling it with a single symbol is wrong.
+ */
+function formatTotals(deals: Opportunity[]): string {
+  const totals = new Map<string, number>();
+  for (const deal of deals) {
+    const code = resolveDealCurrency(deal.currency);
+    totals.set(code, (totals.get(code) ?? 0) + dealAmount(deal));
+  }
+  if (totals.size === 0) return formatDealMoney(0, DEFAULT_DEAL_CURRENCY);
+  return [...totals.entries()].map(([code, sum]) => formatDealMoney(sum, code)).join(' + ');
 }
 
 /** Deal-count label, pluralised per locale ("1 deal" / "3 deals"). */
@@ -70,9 +86,10 @@ export function DealsSection({ opportunities, totalCount, customer }: Readonly<D
   // unlocked customer picker.
   const companyQuery = useCompany(customer.id, !!customer.id);
   const company = companyQuery.data?.data;
-  const lockedCustomer = company
-    ? { id: company.id, name: company.displayName || company.name }
-    : undefined;
+  const lockedCustomer = useMemo(
+    () => (company ? { id: company.id, name: company.displayName || company.name } : undefined),
+    [company],
+  );
 
   // Stages for the create-deal dialog — same dialog the pipeline board
   // uses, seeded from the workspace's default pipeline.
@@ -83,8 +100,15 @@ export function DealsSection({ opportunities, totalCount, customer }: Readonly<D
     () => [...(stagesResult?.data ?? [])].sort((a, b) => a.position - b.position),
     [stagesResult],
   );
-  const stagesById = useMemo(() => new Map(dealStages.map((s) => [s.id, s])), [dealStages]);
+  // Deals can sit in any pipeline, so resolve a deal's stage name from every
+  // stage, not just the default pipeline's (which feeds the create dialog).
+  const { data: allStagesResult } = usePipelineStages(undefined);
+  const stagesById = useMemo(
+    () => new Map([...(allStagesResult?.data ?? []), ...dealStages].map((s) => [s.id, s])),
+    [allStagesResult, dealStages],
+  );
   const firstOpenStage = dealStages.find((s) => !s.isWon && !s.isLost) ?? dealStages[0];
+  const pipelineCurrency = (defaultPipeline?.settings as { defaultCurrency?: string } | undefined)?.defaultCurrency;
 
   const handleCreateDeal = async (data: Record<string, unknown>) => {
     try {
@@ -112,6 +136,7 @@ export function DealsSection({ opportunities, totalCount, customer }: Readonly<D
       selectedStageId={firstOpenStage.id}
       onSubmit={handleCreateDeal}
       lockedCustomer={lockedCustomer}
+      defaultCurrency={pipelineCurrency}
     />
   ) : null;
 
@@ -130,15 +155,11 @@ export function DealsSection({ opportunities, totalCount, customer }: Readonly<D
     );
   }
 
-  // Calculate totals. Deals can carry different currencies; summing them
-  // raw and labelling the total with a hardcoded symbol used to produce a
-  // mismatched "$1,234" over a list of "€" cards. Use the currency the
-  // deals actually carry instead.
-  const primaryCurrency = opportunities.find((o) => o.currency)?.currency || 'EUR';
-  const totalValue = opportunities.reduce((sum, opp) => sum + (opp.amount ? Number.parseFloat(opp.amount) : opp.value || 0), 0);
-  const openDeals = opportunities.filter(o => o.stage !== 'closed_won' && o.stage !== 'closed_lost');
-  const wonDeals = opportunities.filter(o => o.stage === 'closed_won');
-  const wonValue = wonDeals.reduce((sum, opp) => sum + (opp.amount ? Number.parseFloat(opp.amount) : opp.value || 0), 0);
+  // Classify by the deal's real `status` (open / won / lost), not the legacy
+  // free-text `stage`, which is a stage id for stage-based deals. Totals are
+  // formatted per currency because deals may carry different ones.
+  const openDeals = opportunities.filter((o) => o.status === 'open');
+  const wonDeals = opportunities.filter((o) => o.status === 'won');
 
   return (
     <div>
@@ -161,18 +182,18 @@ export function DealsSection({ opportunities, totalCount, customer }: Readonly<D
             <span className="text-sm">{t('sweep.weldcrm.dealsSection.openPipeline')}</span>
           </div>
           <p className="text-xl font-semibold text-foreground">
-            {formatCurrency(totalValue - wonValue, primaryCurrency)}
+            {formatTotals(openDeals)}
           </p>
           <p className="text-xs text-muted-foreground">{dealCountLabel(openDeals.length)}</p>
         </div>
 
         <div className="bg-background border border-border rounded-lg p-4">
           <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <DollarSign className="h-4 w-4" />
+            <Banknote className="h-4 w-4" />
             <span className="text-sm">{t('sweep.weldcrm.dealsSection.won')}</span>
           </div>
           <p className="text-xl font-semibold text-green-600">
-            {formatCurrency(wonValue, primaryCurrency)}
+            {formatTotals(wonDeals)}
           </p>
           <p className="text-xs text-muted-foreground">{dealCountLabel(wonDeals.length)}</p>
         </div>
@@ -183,7 +204,7 @@ export function DealsSection({ opportunities, totalCount, customer }: Readonly<D
             <span className="text-sm">{t('sweep.weldcrm.dealsSection.totalValue')}</span>
           </div>
           <p className="text-xl font-semibold text-foreground">
-            {formatCurrency(totalValue, primaryCurrency)}
+            {formatTotals(opportunities)}
           </p>
           <p className="text-xs text-muted-foreground">{dealCountLabel(totalCount)}</p>
         </div>
@@ -202,8 +223,9 @@ export function DealsSection({ opportunities, totalCount, customer }: Readonly<D
 
 function DealCard({ deal, stage: pipelineStage }: Readonly<{ deal: Opportunity; stage?: PipelineStage }>) {
   const t = useTranslations();
-  const value = deal.amount ? Number.parseFloat(deal.amount) : deal.value || 0;
+  const value = dealAmount(deal);
   const stage = deal.stage || 'lead';
+  const closeDate = deal.closeDate ?? deal.expectedCloseDate;
   // Prefer the real pipeline stage's name (resolved via `stageId`) over the
   // legacy free-text `stage` id, which used to render raw (e.g. "pls_abc123"
   // instead of "Negotiation").
@@ -217,27 +239,27 @@ function DealCard({ deal, stage: pipelineStage }: Readonly<{ deal: Opportunity; 
           <span className="font-medium text-foreground">{deal.name || deal.title}</span>
           <span className={cn(
             "text-xs px-2 py-0.5 rounded-full",
-            stageColors[stage] || 'bg-muted text-foreground'
+            statusBadgeClass(deal.status) ?? stageColors[stage] ?? 'bg-muted text-foreground'
           )}>
             {stageLabel}
           </span>
         </div>
         <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">
-            {formatCurrency(value, deal.currency)}
+            {formatDealMoney(value, deal.currency)}
           </span>
-          {deal.probability && (
+          {typeof deal.probability === 'number' && deal.probability > 0 && (
             <>
               <span>·</span>
               <span>{t('sweep.weldcrm.dealsSection.probability', { percent: deal.probability })}</span>
             </>
           )}
-          {deal.expectedCloseDate && (
+          {closeDate && (
             <>
               <span>·</span>
               <span className="flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />
-                {t('sweep.weldcrm.dealsSection.closeDate', { date: formatDate(deal.expectedCloseDate) })}
+                {t('sweep.weldcrm.dealsSection.closeDate', { date: formatDealDate(closeDate) ?? '' })}
               </span>
             </>
           )}

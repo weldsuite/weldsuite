@@ -317,7 +317,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldmeet.newMeeting, href: '/weldmeet', icon: Plus },
           { title: t.navigation.moduleSidebar.weldmeet.upcoming, href: '/weldmeet/upcoming', icon: Calendar },
           { title: t.navigation.moduleSidebar.weldmeet.history, href: '/weldmeet/history', icon: History },
-          { title: t.navigation.moduleSidebar.weldmeet.people, href: '/weldmeet/people', icon: Users },
+          { title: t.navigation.moduleSidebar.weldmeet.people, href: '/weldmeet/people', icon: User },
         ],
       },
     ],

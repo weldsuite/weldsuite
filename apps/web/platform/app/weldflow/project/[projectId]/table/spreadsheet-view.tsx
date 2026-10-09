@@ -1551,10 +1551,8 @@ function ColumnFilterPopover({ x, y, columnName, values, allowed, onApply, onClo
     <>
       <div className="fixed inset-0 z-40" aria-hidden="true" onMouseDown={onClose} />
       <div
-        role="presentation"
         className="fixed z-50 w-64 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
         style={{ left: Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 270), top: y }}
-        onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-1 truncate px-1 text-xs font-medium text-muted-foreground" title={columnName}>
           {columnName}

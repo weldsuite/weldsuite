@@ -67,7 +67,7 @@ const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', da
 const taskFilterFieldGetters = new Map<string, (task: Task) => string | undefined>([
   ['status', (task) => task.status],
   ['priority', (task) => task.priority],
-  ['company', (task) => task.linkedCompany?.name],
+  ['company', (task) => task.linkedCompany?.name ?? task.linkedPerson?.name],
   ['assignee', (task) => task.assignee?.name],
 ]);
 
@@ -76,7 +76,8 @@ function taskMatchesSearch(task: Task, query: string): boolean {
     task.title.toLowerCase().includes(query) ||
     task.description?.toLowerCase().includes(query) ||
     task.assignee?.name?.toLowerCase().includes(query) ||
-    task.linkedCompany?.name?.toLowerCase().includes(query)
+    task.linkedCompany?.name?.toLowerCase().includes(query) ||
+    task.linkedPerson?.name?.toLowerCase().includes(query)
   );
 }
 
@@ -192,10 +193,10 @@ function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; prio
       </div>
 
       {/* Company */}
-      {task.linkedCompany && (
+      {(task.linkedCompany ?? task.linkedPerson) && (
         <div className="mt-1.5">
           <span className="text-xs text-gray-500 dark:text-muted-foreground truncate block">
-            {task.linkedCompany.name}
+            {(task.linkedCompany ?? task.linkedPerson)?.name}
           </span>
         </div>
       )}

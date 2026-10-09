@@ -191,9 +191,10 @@ export function SharedMeetingChatPanel(props: Readonly<SharedMeetingChatPanelPro
     <div
       className={cn(
         'flex flex-col min-h-0 overflow-hidden',
-        // Mobile: full-screen sheet over the call. Desktop: fixed-width right dock.
+        // Mobile: a sheet over the whole meeting view (absolute, so it stays
+        // below any app chrome above the room). Desktop: fixed-width right dock.
         isMobile
-          ? 'fixed inset-0 z-50 bg-background'
+          ? 'absolute inset-0 z-40 bg-background'
           : 'flex-shrink-0 border-l border-gray-200 dark:border-border',
       )}
       style={isMobile ? undefined : { width }}
@@ -214,7 +215,7 @@ export function SharedMeetingChatPanel(props: Readonly<SharedMeetingChatPanelPro
           <span className="text-sm font-semibold">Chat</span>
           <button
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-muted transition-colors"
+            className="p-1 max-md:p-2.5 max-md:-mr-1.5 rounded-md hover:bg-muted transition-colors"
             aria-label="Close chat"
           >
             <X className="h-4 w-4 text-muted-foreground" />

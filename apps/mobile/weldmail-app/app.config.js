@@ -3,6 +3,7 @@ const {
   withAppBuildGradle,
   withGradleProperties,
 } = require('@expo/config-plugins');
+const { Buffer } = require('node:buffer');
 
 // Match weldflow/weldchat. Fresh prebuild defaults to 2 GiB heap / 512 MiB
 // Metaspace, which OOMs mid-lintVital on GitHub runners
@@ -47,6 +48,27 @@ const withGoogleSignInUrlScheme = (config) => {
 
     return config;
   });
+};
+
+// Passkeys: iOS only offers the app passkeys for a domain listed under
+// `webcredentials:`. Clerk serves the apple-app-site-association file on its
+// Frontend API host (Clerk Dashboard → Native applications), which differs per
+// instance, so read it from this build's publishable key. Android needs no
+// manifest entry: Credential Manager checks the assetlinks.json on that host.
+const clerkFrontendApiHost = () => {
+  const encoded = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY?.split('_')[2];
+  if (!encoded) return null;
+  return Buffer.from(encoded, 'base64').toString('utf8').replace(/\$$/, '') || null;
+};
+
+const withPasskeyDomain = (config) => {
+  const host = clerkFrontendApiHost();
+  if (!host) return config;
+  const entry = `webcredentials:${host}`;
+  const domains = config.ios?.associatedDomains ?? [];
+  if (domains.includes(entry)) return config;
+  config.ios = { ...config.ios, associatedDomains: [...domains, entry] };
+  return config;
 };
 
 // Disable Android cleartext (HTTP) traffic for packaged builds. Only local dev
@@ -99,6 +121,7 @@ const appConfig = ({ config }) => {
 
   config = withIncreasedGradleMemory(config);
   config = withGoogleSignInUrlScheme(config);
+  config = withPasskeyDomain(config);
   config = withCleartextPolicy(config);
   config = withAndroidPackagingExcludes(config);
   return config;

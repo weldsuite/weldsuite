@@ -29,6 +29,8 @@ import {
   GridColumnDef,
   StatusStyle,
 } from '@/components/entity-grid';
+import { LIFECYCLE_STAGES } from '@weldsuite/app-api-client/schemas/companies';
+import { lifecycleStageSelectConfig } from '@/app/weldcrm/companies/config/company-grid-config';
 
 export const personStatusConfig: Record<string, StatusStyle> = {
   active: { label: 'Active', color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
@@ -199,7 +201,9 @@ export const personColumns: GridColumnDef<Person>[] = [
   {
     id: 'lifecycleStage',
     name: 'Lifecycle Stage',
-    type: 'text',
+    type: 'single-select',
+    options: [...LIFECYCLE_STAGES],
+    selectConfig: lifecycleStageSelectConfig,
     width: 160,
     icon: Target,
     visible: false,

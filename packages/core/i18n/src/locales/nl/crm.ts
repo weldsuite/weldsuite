@@ -684,13 +684,13 @@ export const crm = {
       groupBy: {
         noPriority: 'Geen prioriteit',
         unassigned: 'Niet toegewezen',
-        noCompany: 'Geen bedrijf',
+        noCompany: 'Geen record',
         options: {
           dueDate: 'Vervaldatum',
           status: 'Status',
           priority: 'Prioriteit',
           assignee: 'Toegewezene',
-          company: 'Bedrijf',
+          company: 'Record',
           none: 'Geen',
         },
       },
@@ -709,7 +709,7 @@ export const crm = {
       columns: {
         task: 'Taak',
         description: 'Omschrijving',
-        company: 'Bedrijf',
+        company: 'Record',
         status: 'Status',
         priority: 'Prioriteit',
         due: 'Vervaldatum',
@@ -725,10 +725,10 @@ export const crm = {
       },
       noRecords: 'Geen records beschikbaar',
       actions: {
-        newTask: 'Nieuwe Taak',
-        editTask: 'Taak Bewerken',
-        deleteTask: 'Taak Verwijderen',
-        completeTask: 'Taak Voltooien'
+        newTask: 'Nieuwe taak',
+        editTask: 'Taak bewerken',
+        deleteTask: 'Taak verwijderen',
+        completeTask: 'Taak voltooien'
       }
     },
 
@@ -846,7 +846,7 @@ export const crm = {
         failedToDelete: 'Notitie verwijderen mislukt',
       },
       actions: {
-        newNote: 'Nieuwe Notitie',
+        newNote: 'Nieuwe notitie',
         editNote: 'Notitie Bewerken',
         deleteNote: 'Notitie Verwijderen',
         pinNote: 'Notitie Vastpinnen'
@@ -866,7 +866,7 @@ export const crm = {
         completed: 'Voltooid'
       },
       actions: {
-        newSequence: 'Nieuwe Sequentie',
+        newSequence: 'Nieuwe sequentie',
         editSequence: 'Sequentie Bewerken',
         pauseSequence: 'Sequentie Pauzeren',
         resumeSequence: 'Sequentie Hervatten',
@@ -982,6 +982,14 @@ export const crm = {
       listRenameFailed: 'Lijst hernoemen mislukt',
       listColorUpdateFailed: 'Kleur van lijst bijwerken mislukt',
       listIconUpdateFailed: 'Pictogram van lijst bijwerken mislukt',
+      defaultStages: {
+        lead: 'Lead',
+        qualified: 'Gekwalificeerd',
+        proposal: 'Voorstel',
+        negotiation: 'Onderhandeling',
+        won: 'Gewonnen',
+        lost: 'Verloren',
+      },
       dealCreated: 'Deal aangemaakt',
       dealCreateFailed: 'Deal aanmaken mislukt',
       dealDeleted: 'Deal verwijderd',
@@ -1915,6 +1923,8 @@ export const crm = {
       saveButton: 'Bedrijf opslaan',
       savingLabel: 'Opslaan...',
       createdSuccess: 'Bedrijf aangemaakt',
+      nameRequired: 'Naam is verplicht',
+      nameTooLong: 'Naam mag maximaal {max} tekens bevatten',
     },
 
     companiesGrid: {
@@ -1980,9 +1990,12 @@ export const crm = {
       noKeyMappedDesc: 'Koppel minstens één van: {fields}, zodat rijen kunnen worden aangemaakt of gematcht.',
       someRowsSkipped: 'Sommige rijen worden overgeslagen',
       someRowsSkippedDesc: '{n} rijen hebben geen bruikbare waarde en worden overgeslagen.',
+      someRowsSkippedDescOne: '{n} rij heeft geen bruikbare waarde en wordt overgeslagen.',
       missingCreateFieldTitle: 'Sommige rijen kunnen worden overgeslagen',
       missingCreateFieldDesc: '{n} rijen hebben geen {fields} — deze worden alleen geïmporteerd als ze overeenkomen met een bestaand record, anders worden ze overgeslagen.',
+      missingCreateFieldDescOne: '{n} rij heeft geen {fields} — deze wordt alleen geïmporteerd als ze overeenkomt met een bestaand record, anders wordt ze overgeslagen.',
       fileStats: '{name} — {rows} rijen, {valid} geldig',
+      fileStatsOne: '{name} — {rows} rij, {valid} geldig',
       backBtn: 'Terug',
       importBtn: '{n} importeren',
       importingBtn: 'Importeren…',
@@ -2103,6 +2116,9 @@ export const crm = {
       saveButton: 'Persoon aanmaken',
       savingLabel: 'Aanmaken…',
       createdSuccess: 'Persoon aangemaakt',
+      fieldTooLong: '{field} mag maximaal {max} tekens bevatten',
+      duplicateEmail: 'Er bestaat al een persoon met dit e-mailadres.',
+      openExistingPerson: 'Bestaande persoon openen',
     },
 
     activityForm: {
@@ -2276,6 +2292,8 @@ export const crm = {
       notFoundDescription: 'Deze lijst is mogelijk verwijderd of u heeft geen toegang.',
       backToWeldCRM: 'Terug naar WeldCRM',
       removeFromListFailed: 'Verwijderen uit "{listName}" mislukt',
+      emptyCompanies: 'Deze lijst is leeg — voeg er bedrijven aan toe',
+      emptyPeople: 'Deze lijst is leeg — voeg er personen aan toe',
     },
 
     addMemberPicker: {

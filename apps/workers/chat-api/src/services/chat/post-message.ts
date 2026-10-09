@@ -28,6 +28,7 @@ import {
   checkSlowMode,
   getChannelFeatureFlags,
 } from './channel-features';
+import { isCrmEntityChannel, logEntityChannelMessageActivity } from './entity-activity';
 
 /** Thrown when a channel feature flag / slow-mode check rejects the send. */
 export class ChatFeatureError extends Error {
@@ -554,7 +555,7 @@ export async function postChatMessage(
   });
 
   const preview = input.content.length > 100 ? input.content.slice(0, 100) + '...' : input.content;
-  await db
+  const [channelRef] = await db
     .update(chatChannels)
     .set({
       lastMessageAt: now,
@@ -562,7 +563,23 @@ export async function postChatMessage(
       messageCount: sql`${chatChannels.messageCount} + 1`,
       updatedAt: now,
     })
-    .where(eq(chatChannels.id, channelId));
+    .where(eq(chatChannels.id, channelId))
+    .returning({
+      entityType: chatChannels.entityType,
+      entityId: chatChannels.entityId,
+      entityDisplayName: chatChannels.entityDisplayName,
+    });
+
+  // A message in a company / person channel (the CRM record composer) is also
+  // an entry in that record's Activity feed. Best-effort: never block the send.
+  if (channelRef && isCrmEntityChannel(channelRef)) {
+    await logEntityChannelMessageActivity(db, {
+      channel: channelRef,
+      authorUserId,
+      content: input.content,
+      createdAt: now,
+    }).catch((e) => console.error('[app-api/chat] entity activity log failed:', e));
+  }
 
   // Advance the author's own read marker to their just-sent message. Without
   // this, lastMessageAt jumps past the author's lastReadAt and their own DM/

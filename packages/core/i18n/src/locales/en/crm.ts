@@ -82,7 +82,7 @@ export const crm = {
         mergeContacts: 'Merge Contacts',
         sendEmail: 'Send Email',
         scheduleCall: 'Schedule Call',
-        addNote: 'Add Note',
+        addNote: 'Add note',
         viewHistory: 'View History'
       },
       messages: {
@@ -247,10 +247,10 @@ export const crm = {
       },
 
       header: {
-        addNote: 'Add Note',
+        addNote: 'Add note',
         email: 'Email',
         call: 'Call',
-        createDeal: 'Create Deal',
+        createDeal: 'Create deal',
         newOrder: 'New Order',
         industryNotSpecified: 'Industry not specified',
         contactsSubtitle: '{industry} • {count} contacts',
@@ -683,13 +683,13 @@ export const crm = {
       groupBy: {
         noPriority: 'No Priority',
         unassigned: 'Unassigned',
-        noCompany: 'No Company',
+        noCompany: 'No record',
         options: {
           dueDate: 'Due Date',
           status: 'Status',
           priority: 'Priority',
           assignee: 'Assignee',
-          company: 'Company',
+          company: 'Record',
           none: 'None',
         },
       },
@@ -708,7 +708,7 @@ export const crm = {
       columns: {
         task: 'Task',
         description: 'Description',
-        company: 'Company',
+        company: 'Record',
         status: 'Status',
         priority: 'Priority',
         due: 'Due',
@@ -724,10 +724,10 @@ export const crm = {
       },
       noRecords: 'No records available',
       actions: {
-        newTask: 'New Task',
-        editTask: 'Edit Task',
-        deleteTask: 'Delete Task',
-        completeTask: 'Complete Task'
+        newTask: 'New task',
+        editTask: 'Edit task',
+        deleteTask: 'Delete task',
+        completeTask: 'Complete task'
       }
     },
 
@@ -818,10 +818,10 @@ export const crm = {
         cancel: 'Cancel',
         saving: 'Saving...',
         saveChanges: 'Save Changes',
-        addNote: 'Add Note',
+        addNote: 'Add note',
       },
       newNoteModal: {
-        title: 'New Note',
+        title: 'New note',
         titleLabel: 'Title (optional)',
         titlePlaceholder: 'Note title...',
         contentLabel: 'Content',
@@ -845,7 +845,7 @@ export const crm = {
         failedToDelete: 'Failed to delete note',
       },
       actions: {
-        newNote: 'New Note',
+        newNote: 'New note',
         editNote: 'Edit Note',
         deleteNote: 'Delete Note',
         pinNote: 'Pin Note'
@@ -865,7 +865,7 @@ export const crm = {
         completed: 'Completed'
       },
       actions: {
-        newSequence: 'New Sequence',
+        newSequence: 'New sequence',
         editSequence: 'Edit Sequence',
         pauseSequence: 'Pause Sequence',
         resumeSequence: 'Resume Sequence',
@@ -875,7 +875,7 @@ export const crm = {
       breadcrumbCRM: 'CRM',
       breadcrumbSequences: 'Sequences',
       searchPlaceholder: 'Search sequences...',
-      newSequence: 'New Sequence',
+      newSequence: 'New sequence',
       noSequencesYet: 'No sequences yet',
       noSequencesDescription: 'Create your first sequence to automate customer engagement with email steps and delays.',
       noMatchingSequences: 'No matching sequences',
@@ -903,7 +903,7 @@ export const crm = {
       pausedSuccess: 'Sequence paused',
       pauseFailed: 'Failed to pause sequence',
       createDialog: {
-        title: 'New Sequence',
+        title: 'New sequence',
         nameLabel: 'Name',
         namePlaceholder: 'e.g., Welcome onboarding',
         cancel: 'Cancel',
@@ -924,7 +924,7 @@ export const crm = {
       loading: 'Loading pipeline…',
       actions: {
         customize: 'Customize Pipeline',
-        addStage: 'Add Stage',
+        addStage: 'Add stage',
         reorderStages: 'Reorder Stages'
       }
     },
@@ -981,6 +981,14 @@ export const crm = {
       listRenameFailed: 'Failed to rename list',
       listColorUpdateFailed: 'Failed to update list color',
       listIconUpdateFailed: 'Failed to update list icon',
+      defaultStages: {
+        lead: 'Lead',
+        qualified: 'Qualified',
+        proposal: 'Proposal',
+        negotiation: 'Negotiation',
+        won: 'Won',
+        lost: 'Lost',
+      },
       dealCreated: 'Deal created',
       dealCreateFailed: 'Failed to create deal',
       dealDeleted: 'Deal deleted',
@@ -1009,8 +1017,8 @@ export const crm = {
       cannotExportAll: 'Cannot export all pipelines at once',
       importComingSoon: 'Import feature coming soon',
       exportComingSoon: 'Export feature coming soon',
-      createNewPipeline: 'Create New Pipeline',
-      createPipeline: 'Create Pipeline',
+      createNewPipeline: 'Create new pipeline',
+      createPipeline: 'Create pipeline',
       myPipeline: 'My Pipeline',
       addList: 'Add list',
       addPipeline: 'Add pipeline',
@@ -1101,7 +1109,7 @@ export const crm = {
       organisation: 'Organisation',
       owner: 'Deal Owner',
       modal: {
-        addTitle: 'Add New Deal',
+        addTitle: 'Add new deal',
         addDescription: 'Create a new deal in the {stageName} stage',
         editTitle: 'Edit Deal',
         editDescription: 'Update deal information',
@@ -1131,7 +1139,7 @@ export const crm = {
         },
         buttons: {
           cancel: 'Cancel',
-          create: 'Create Deal',
+          create: 'Create deal',
           update: 'Update Deal',
         },
       },
@@ -1155,7 +1163,7 @@ export const crm = {
         customFieldSelectPrefix: 'Select',
         requiredFieldIndicator: '*',
         cancelButton: 'Cancel',
-        createDealButton: 'Create Deal',
+        createDealButton: 'Create deal',
       },
       stages: {
         qualification: 'Qualification',
@@ -1172,13 +1180,13 @@ export const crm = {
         abandoned: 'Abandoned',
       },
       actions: {
-        newDeal: 'New Deal',
+        newDeal: 'New deal',
         editDeal: 'Edit Deal',
         deleteDeal: 'Delete Deal',
         moveDeal: 'Move Deal',
         closeDeal: 'Close Deal',
         reopenDeal: 'Reopen Deal',
-        addNote: 'Add Note',
+        addNote: 'Add note',
         scheduleActivity: 'Schedule Activity',
       },
       messages: {
@@ -1213,10 +1221,10 @@ export const crm = {
     },
 
     createListDialog: {
-      title: 'Create New List',
+      title: 'Create new list',
       nameLabel: 'Name',
       namePlaceholder: 'My List',
-      createButton: 'Create List',
+      createButton: 'Create list',
       cancel: 'Cancel',
       listTypeLabel: 'List type',
       listTypeCompanies: 'Companies',
@@ -1325,7 +1333,7 @@ export const crm = {
     pipelines: {
       title: 'Deals',
       subtitle: 'Manage your deal pipelines and track progress',
-      newDeal: 'New Deal',
+      newDeal: 'New deal',
       statsDeals: 'Deals',
       statsActiveDeals: 'Active Deals',
       statsTotalValue: 'Total Value',
@@ -1335,7 +1343,7 @@ export const crm = {
       noDealsYet: 'No deals yet',
       adjustSearchTerms: 'Try adjusting your search terms',
       createFirstDeal: 'Create your first deal to start tracking progress',
-      createDeal: 'Create Deal',
+      createDeal: 'Create deal',
       menuOpen: 'Open',
       menuDuplicate: 'Duplicate',
       menuExport: 'Export',
@@ -1646,7 +1654,7 @@ export const crm = {
     },
 
     dealDialog: {
-      titleCreate: 'Create Deal',
+      titleCreate: 'Create deal',
       titleEdit: 'Edit Deal',
       fieldDealName: 'Deal Name',
       fieldDealNamePlaceholder: 'Enter deal name...',
@@ -1659,7 +1667,7 @@ export const crm = {
       fieldDescriptionPlaceholder: 'Add notes about this deal...',
       cancelButton: 'Cancel',
       saveButton: 'Save Changes',
-      createButton: 'Create Deal',
+      createButton: 'Create deal',
       savingLabel: 'Saving...',
       stageQualification: 'Qualification',
       stageDiscovery: 'Discovery',
@@ -1914,6 +1922,8 @@ export const crm = {
       saveButton: 'Save company',
       savingLabel: 'Saving...',
       createdSuccess: 'Company created',
+      nameRequired: 'Name is required',
+      nameTooLong: 'Name can be at most {max} characters',
     },
 
     companiesGrid: {
@@ -1979,9 +1989,12 @@ export const crm = {
       noKeyMappedDesc: 'Map at least one of: {fields}, so rows can be created or matched.',
       someRowsSkipped: 'Some rows will be skipped',
       someRowsSkippedDesc: '{n} rows have no usable value and will be skipped.',
+      someRowsSkippedDescOne: '{n} row has no usable value and will be skipped.',
       missingCreateFieldTitle: 'Some rows may be skipped',
       missingCreateFieldDesc: '{n} rows have no {fields} — they will only import if they match an existing record; otherwise they will be skipped.',
+      missingCreateFieldDescOne: '{n} row has no {fields} — it will only import if it matches an existing record; otherwise it will be skipped.',
       fileStats: '{name} — {rows} rows, {valid} valid',
+      fileStatsOne: '{name} — {rows} row, {valid} valid',
       backBtn: 'Back',
       importBtn: 'Import {n}',
       importingBtn: 'Importing…',
@@ -2103,6 +2116,9 @@ export const crm = {
       saveButton: 'Create person',
       savingLabel: 'Creating…',
       createdSuccess: 'Person created',
+      fieldTooLong: '{field} can be at most {max} characters',
+      duplicateEmail: 'A person with this email already exists.',
+      openExistingPerson: 'Open existing person',
     },
 
     activityForm: {
@@ -2276,6 +2292,8 @@ export const crm = {
       notFoundDescription: "This list may have been deleted or you don't have access.",
       backToWeldCRM: 'Back to WeldCRM',
       removeFromListFailed: 'Failed to remove from "{listName}"',
+      emptyCompanies: 'This list is empty — add companies to it',
+      emptyPeople: 'This list is empty — add people to it',
     },
 
     addMemberPicker: {

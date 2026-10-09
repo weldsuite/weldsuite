@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleAlert, Mic, MicOff, VideoOff, MonitorUp, MonitorX, Phone, ChevronUp, Check, Hand, LayoutGrid, GalleryHorizontalEnd, User, PanelRight, Image, Circle, Square, Pause, Play, EllipsisVertical, Maximize, Minimize, PictureInPicture2, Settings, Volume2, VolumeX, LogOut } from 'lucide-react';
-import { toast } from 'sonner';
+import { CircleAlert, Mic, MicOff, VideoOff, MonitorUp, MonitorX, Phone, ChevronUp, Check, Hand, Image, Circle, Square, Pause, Play, EllipsisVertical, Maximize, Minimize, PictureInPicture2, Settings, Volume2, VolumeX, LogOut } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -21,6 +20,9 @@ import {
   type PermissionKind,
 } from './permission-help';
 import { refreshSpeakerDevices, useSpeakerDevices } from '../hooks/use-speaker-output';
+import { useIsMobile } from '../hooks/use-is-mobile';
+import { CallControlsMoreSheet } from './call-controls-more-sheet';
+import { LAYOUT_OPTIONS, stopRecordingWithToast, toggleRecordingPause } from './call-controls-shared';
 
 // ─── Tooltip ─────────────────────────────────────────────────────────────────
 
@@ -143,6 +145,11 @@ export interface CallControlsBarProps {
   // Host controls / settings (optional — when provided adds an item to the
   // More-options dropdown that opens the right-side settings panel).
   onOpenSettings?: () => void;
+
+  // Meeting details / meeting tools panels (optional). Only offered in the
+  // phone "More options" sheet: on wider screens the header has these buttons.
+  onOpenInfo?: () => void;
+  onOpenTools?: () => void;
 
   /**
    * Per-control visibility gates. When a gate is `false` the corresponding
@@ -319,6 +326,19 @@ function useShareScreenAudio(meeting: MeetingClient | null, isScreenSharing: boo
   }, [isScreenSharing, meeting, shareScreenAudio]);
 
   return { shareScreenAudio, toggleShareScreenAudio };
+}
+
+/**
+ * Whether this browser can capture a screen at all. Phone browsers cannot
+ * (no `getDisplayMedia`), so the share button is left out there instead of
+ * failing on tap. Starts `true` so the server and first client render agree.
+ */
+function useCanShareScreen(): boolean {
+  const [canShare, setCanShare] = useState(true);
+  useEffect(() => {
+    setCanShare(typeof navigator.mediaDevices?.getDisplayMedia === 'function');
+  }, []);
+  return canShare;
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -535,6 +555,7 @@ function ScreenShareControl({
         <Button
           variant={isScreenSharing ? 'default' : 'secondary'}
           size="icon"
+          aria-label={isScreenSharing ? 'Stop sharing screen' : 'Share screen'}
           className={cn("group/icon h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isScreenSharing ? "hover:bg-primary" : "hover:bg-secondary")}
           onClick={isScreenSharing ? stopScreenShare : () => {
             const res = SCREEN_RESOLUTIONS[selectedResolutionIdx]!;
@@ -625,46 +646,31 @@ function RecordingMenuSection({
       <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Recording</DropdownMenuLabel>
       {isRecording ? (
         <>
-          <DropdownMenuItem onClick={() => {
-            if (paused) {
-              resumeRecording?.();
-              toast.success('Recording resumed');
-            } else {
-              pauseRecording?.();
-              toast('Recording paused');
-            }
-          }}>
+          <DropdownMenuItem onClick={() => toggleRecordingPause(paused, pauseRecording, resumeRecording)}>
             {paused ? <Play className="h-4 w-4 mr-0.5" /> : <Pause className="h-4 w-4 mr-0.5" />}
             {paused ? 'Resume recording' : 'Pause recording'}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => { stopRecording?.(); toast('Recording stopped. It will be available shortly.'); }} className="text-red-500 focus:text-red-500">
+          <DropdownMenuItem onClick={() => stopRecordingWithToast(stopRecording)} className="text-red-500 focus:text-red-500">
             <Square className="h-4 w-4 mr-0.5 fill-current" />
             Stop recording
           </DropdownMenuItem>
         </>
       ) : (
-        // No "started" toast here: the click only *requests* the recording. The
-        // host app confirms it (toast) once the recorder actually reports
-        // RECORDING, so a failed or slow start never claims success.
-        <DropdownMenuItem
-          onClick={() => runAfterClose(() => startRecording?.())}
-          disabled={recordingState === 'STARTING' || recordingState === 'STOPPING'}
-        >
-          <Circle className="h-4 w-4 mr-0.5 text-red-500 fill-red-500" />
-          Start recording
-        </DropdownMenuItem>
+          // No "started" toast here: the click only *requests* the recording. The
+          // host app confirms it (toast) once the recorder actually reports
+          // RECORDING, so a failed or slow start never claims success.
+          <DropdownMenuItem
+            onClick={() => runAfterClose(() => startRecording?.())}
+            disabled={recordingState === 'STARTING' || recordingState === 'STOPPING'}
+          >
+            <Circle className="h-4 w-4 mr-0.5 text-red-500 fill-red-500" />
+            Start recording
+          </DropdownMenuItem>
       )}
       <DropdownMenuSeparator />
     </>
   );
 }
-
-const LAYOUT_OPTIONS = [
-  { value: 'grid', label: 'Grid', icon: LayoutGrid },
-  { value: 'spotlight', label: 'Spotlight', icon: User },
-  { value: 'speaker', label: 'Speaker', icon: GalleryHorizontalEnd },
-  { value: 'sidebar', label: 'Sidebar', icon: PanelRight },
-] as const;
 
 /** Layout section of the More-options dropdown. */
 function LayoutMenuSection({ viewMode, setViewMode }: Readonly<{ viewMode: ViewMode; setViewMode: (mode: ViewMode) => void }>) {
@@ -877,10 +883,14 @@ export function CallControlsBar({
   onToggleFullscreen,
   onPictureInPicture,
   onOpenSettings,
+  onOpenInfo,
+  onOpenTools,
   gates,
   extraControls,
 }: Readonly<CallControlsBarProps>) {
-  const showScreenShare = gates?.screenShare !== false;
+  const isMobile = useIsMobile();
+  const canShareScreen = useCanShareScreen();
+  const showScreenShare = gates?.screenShare !== false && canShareScreen;
   const showHandRaise = gates?.handRaise !== false;
   const showVirtualBackgrounds = gates?.virtualBackgrounds !== false;
   const {
@@ -910,7 +920,7 @@ export function CallControlsBar({
   }, []);
 
   return (
-    <div className="flex items-center justify-center gap-3 p-4 bg-background/80 backdrop-blur">
+    <div className="flex items-center justify-center gap-2 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:gap-3 md:p-4 bg-background/80 backdrop-blur">
       <MicControl
         isMuted={isMuted}
         micBlocked={micBlocked}
@@ -953,6 +963,7 @@ export function CallControlsBar({
             <Button
               variant={handRaised ? 'default' : 'secondary'}
               size="icon"
+              aria-label={handRaised ? 'Lower hand' : 'Raise hand'}
               className={cn("group/icon h-12 w-12 rounded-[18px] border-0 transition-all", handRaised ? "hover:bg-primary" : "hover:bg-secondary")}
               onClick={toggleHandRaise}
             >
@@ -964,7 +975,50 @@ export function CallControlsBar({
         </div>
       )}
 
-      {/* More options */}
+      {/* More options — a bottom sheet on phones, a dropdown elsewhere */}
+      {isMobile ? (
+        <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label="More options"
+            aria-haspopup="dialog"
+            aria-expanded={moreOpen}
+            className="group/icon h-12 w-12 rounded-[18px] border-0 transition-all hover:bg-secondary"
+            onClick={() => setMoreOpen(true)}
+          >
+            <IconHighlight tone="default" fill>
+              <EllipsisVertical className="!h-[20px] !w-[20px]" />
+            </IconHighlight>
+          </Button>
+          <CallControlsMoreSheet
+            open={moreOpen}
+            onOpenChange={setMoreOpen}
+            runAfterClose={runAfterClose}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            onOpenInfo={onOpenInfo}
+            onOpenTools={onOpenTools}
+            onToggleEffects={showVirtualBackgrounds ? onToggleEffects : undefined}
+            effectsOpen={effectsOpen}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={onToggleFullscreen}
+            onPictureInPicture={onPictureInPicture}
+            onOpenSettings={onOpenSettings}
+            deviceGroups={[
+              { label: 'Camera', fallbackPrefix: 'Camera', devices: videoDevices, activeId: activeVideoDeviceId, onChange: handleVideoDeviceChange },
+              { label: 'Microphone', fallbackPrefix: 'Microphone', devices: audioDevices, activeId: activeDeviceId, onChange: handleDeviceChange },
+              { label: 'Speaker', fallbackPrefix: 'Speaker', devices: speaker.devices, activeId: speaker.activeDeviceId, onChange: speaker.setDeviceId },
+            ]}
+            isRecording={isRecording}
+            recordingState={recordingState}
+            startRecording={startRecording}
+            stopRecording={stopRecording}
+            pauseRecording={pauseRecording}
+            resumeRecording={resumeRecording}
+          />
+        </div>
+      ) : (
       <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
         <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
           <CallTooltip label="More options">
@@ -1025,6 +1079,7 @@ export function CallControlsBar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      )}
 
       {/* Leave/End */}
       {onEndForAll ? (
@@ -1035,7 +1090,7 @@ export function CallControlsBar({
                 variant="destructive"
                 size="icon"
                 aria-label={leaveLabels?.leave ?? 'Leave call'}
-                className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+                className="h-12 w-14 md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
               >
                 <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
               </Button>
@@ -1058,7 +1113,7 @@ export function CallControlsBar({
             variant="destructive"
             size="icon"
             aria-label={leaveLabels?.leave ?? 'Leave call'}
-            className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+            className="h-12 w-14 md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
             onClick={onLeave}
           >
             <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />

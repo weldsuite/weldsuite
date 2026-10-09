@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const mutateAsync = vi.fn();
+const openPanel = vi.fn();
+
+vi.mock('@/components/object-panel/use-object-panel', () => ({
+  useObjectPanel: () => ({ open: openPanel }),
+}));
 
 vi.mock('@weldsuite/i18n/client', () => ({
   useTranslations: () => (key: string) => key,
@@ -30,6 +35,7 @@ vi.mock('@/app/settings/object-templates/use-template-picker', () => ({
   }),
 }));
 
+import { ApiError } from '@weldsuite/api-client';
 import { QuickAddPersonForm } from './quick-add-person-form';
 
 describe('QuickAddPersonForm', () => {
@@ -70,5 +76,32 @@ describe('QuickAddPersonForm', () => {
     expect(screen.getByLabelText('Email')).toHaveValue('');
     expect(screen.getByLabelText('Mobile Phone')).toBeInTheDocument();
     expect(screen.getByLabelText('Department')).toBeInTheDocument();
+  });
+
+  it('offers "Open existing person" when the email already belongs to a CRM person (409)', async () => {
+    mutateAsync.mockRejectedValueOnce(
+      new ApiError('A person with this email already exists.', 409, {
+        error: { code: 'CONFLICT', details: { existingPersonId: 'per_existing' } },
+      }),
+    );
+    const onCancel = vi.fn();
+    render(<QuickAddPersonForm initialName="jane.doe@acme.com" onCreated={vi.fn()} onCancel={onCancel} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'crm.quickAddPerson.saveButton' }));
+
+    const open = await screen.findByRole('button', { name: 'crm.quickAddPerson.openExistingPerson' });
+    expect(screen.getByText('crm.quickAddPerson.duplicateEmail')).toBeInTheDocument();
+
+    fireEvent.click(open);
+    expect(openPanel).toHaveBeenCalledWith({ type: 'person', id: 'per_existing' });
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it('does not show the duplicate action for other failures', async () => {
+    mutateAsync.mockRejectedValueOnce(new ApiError('boom', 500, { error: { message: 'boom' } }));
+    render(<QuickAddPersonForm initialName="jane.doe@acme.com" onCreated={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'crm.quickAddPerson.saveButton' }));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(screen.queryByText('crm.quickAddPerson.duplicateEmail')).not.toBeInTheDocument();
   });
 });

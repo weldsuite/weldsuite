@@ -33,6 +33,7 @@ import {
 } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import type { StatusStyle } from '@/components/entity-grid';
 import { QuickAddCompanyDialog } from './quick-add-company-dialog';
+import { useCompanyDeleteGuard } from '@/components/objects/company/use-company-delete-guard';
 import { ImportEntitiesDialog } from '@/app/weldcrm/components/import-entities-dialog';
 import {
   getCompanyImportFields,
@@ -96,6 +97,7 @@ export function CompaniesGrid({
   const t = useTranslations();
   const updateMut = useUpdateCompany();
   const deleteMut = useDeleteCompany();
+  const { confirmDelete: confirmCompanyDelete, dialog: companyDeleteDialog } = useCompanyDeleteGuard();
   const exportMut = useExportCompanies();
   const importMut = useImportCompanies();
   const { open: openObjectPanel } = useObjectPanel();
@@ -148,19 +150,28 @@ export function CompaniesGrid({
   // built-ins plus any custom ones — not the hardcoded 5-value list, so a
   // custom status shows its real label and can be filtered/edited to.
   const { options: statusOptions } = useCustomerStatusOptions();
+  // Tags are free-form; suggest the ones other loaded companies already use.
+  // Keyed on the joined list so the columns are only rebuilt when the set of
+  // tags changes, not on every row update.
+  const tagOptionsKey = useMemo(
+    () => JSON.stringify([...new Set(companies.flatMap((c) => c.tags ?? []))].sort((a, b) => a.localeCompare(b))),
+    [companies],
+  );
   const companyColumnsWithStatus = useMemo(() => {
-    if (statusOptions.length === 0) return companyColumns;
+    const tagOptions = JSON.parse(tagOptionsKey) as string[];
     const selectConfig: Record<string, StatusStyle> = {};
     for (const option of statusOptions) {
       const style = STATUS_STYLE_MAP[option.color] ?? STATUS_STYLE_MAP.gray!;
       selectConfig[option.value] = { label: option.label, color: style.color, bg: style.bg };
     }
-    return companyColumns.map((column) =>
-      column.id === 'status'
-        ? { ...column, options: statusOptions.map((o) => o.value), selectConfig }
-        : column,
-    );
-  }, [statusOptions]);
+    return companyColumns.map((column) => {
+      if (column.id === 'tags') return { ...column, options: tagOptions };
+      if (column.id === 'status' && statusOptions.length > 0) {
+        return { ...column, options: statusOptions.map((o) => o.value), selectConfig };
+      }
+      return column;
+    });
+  }, [statusOptions, tagOptionsKey]);
 
   const gridConfig = useMemo(() => ({
     ...companyGridConfig,
@@ -242,6 +253,8 @@ export function CompaniesGrid({
         else toast.error(t('crm.companiesGrid.removeFromListPartial', { succeeded: ok, failed: fail }));
         return;
       }
+      // Warn first when any selected company still has open deals (TASK-1040).
+      if (!(await confirmCompanyDelete(ids))) return;
       const { ok, fail } = await runSequentially(ids, (id) => deleteMut.mutateAsync(id));
       if (fail === 0) toast.success(ok === 1 ? t('crm.companiesGrid.bulkDeleteSuccess', { count: ok }) : t('crm.companiesGrid.bulkDeleteSuccessPlural', { count: ok }));
       else toast.error(t('crm.companiesGrid.bulkDeletePartial', { succeeded: ok, failed: fail }));
@@ -257,7 +270,7 @@ export function CompaniesGrid({
     onImport: () => setIsImportOpen(true),
     onExportCSV: () => handleExport('csv'),
     onExportExcel: () => handleExport('xlsx'),
-  }), [updateMut, deleteMut, openObjectPanel, t, listContext, handleExport]);
+  }), [updateMut, deleteMut, confirmCompanyDelete, openObjectPanel, t, listContext, handleExport]);
 
   const pagination: GridPaginationState = {
     page: 1,
@@ -283,6 +296,7 @@ export function CompaniesGrid({
           listName={listContext?.listName}
         />
       )}
+      {companyDeleteDialog}
       <QuickAddCompanyDialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen} />
       <ImportEntitiesDialog
         open={isImportOpen}

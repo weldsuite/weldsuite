@@ -10,6 +10,7 @@
  * the tools stay in sync.
  */
 import { useMemo, useState } from 'react';
+import { MeetingRightPanel } from '../../src/components/meeting-right-panel';
 import { MeetingToolsPanel } from '../../src/components/meeting-tools-panel';
 import { StageIndicators } from '../../src/components/tools/stage-indicators';
 import { filterBreakoutParticipants } from '../../src/tools/tools-store';
@@ -172,7 +173,7 @@ function toMeetingPeer(peer: FakePeer): MeetingPeer {
   };
 }
 
-function PeerView({ peer, everyone }: { peer: FakePeer; everyone: FakePeer[] }) {
+function PeerView({ peer, everyone, inRightPanel }: { peer: FakePeer; everyone: FakePeer[]; inRightPanel?: boolean }) {
   // The local participant comes first, as everywhere in this package.
   const participants = useMemo(
     () => [peer, ...everyone.filter((other) => other !== peer)].map(toMeetingPeer),
@@ -205,12 +206,23 @@ function PeerView({ peer, everyone }: { peer: FakePeer; everyone: FakePeer[] }) 
         )}
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
-        <MeetingToolsPanel
-          tools={tools}
-          recordingAvailable={peer.isHost}
-          startRecording={() => {}}
-          stopRecording={() => {}}
-        />
+        {inRightPanel ? (
+          <MeetingRightPanel
+            panel="tools"
+            onClose={() => {}}
+            meetingTitle="Weekly sync"
+            participants={participants}
+            meeting={peer.meeting}
+            tools={tools}
+          />
+        ) : (
+          <MeetingToolsPanel
+            tools={tools}
+            recordingAvailable={peer.isHost}
+            startRecording={() => {}}
+            stopRecording={() => {}}
+          />
+        )}
       </div>
     </section>
   );
@@ -219,13 +231,15 @@ function PeerView({ peer, everyone }: { peer: FakePeer; everyone: FakePeer[] }) 
 export interface ToolsHarnessProps {
   /** Install a stand-in for the browser's Translator API that upper-cases text. */
   fakeTranslator?: boolean;
+  /** Show the tools the way the meeting room does: inside its right panel. */
+  inRightPanel?: boolean;
 }
 
 /**
  * A host (Ada) and a guest (Ben) in one room, each with their own Meeting
  * tools panel. "Add late joiner" lets Cy walk in after things have started.
  */
-export function ToolsHarness({ fakeTranslator }: ToolsHarnessProps) {
+export function ToolsHarness({ fakeTranslator, inRightPanel }: ToolsHarnessProps) {
   const [room] = useState(() => {
     if (fakeTranslator) {
       (globalThis as { Translator?: unknown }).Translator = {
@@ -258,7 +272,7 @@ export function ToolsHarness({ fakeTranslator }: ToolsHarnessProps) {
       </div>
       <div style={{ display: 'flex', gap: 12 }}>
         {peers.map((peer) => (
-          <PeerView key={peer.key} peer={peer} everyone={peers} />
+          <PeerView key={peer.key} peer={peer} everyone={peers} inRightPanel={inRightPanel} />
         ))}
       </div>
     </div>
