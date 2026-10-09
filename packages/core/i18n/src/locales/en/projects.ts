@@ -565,6 +565,8 @@ export const projects = {
       noPeriodFound: 'No period found.',
       titlePlaceholderEdit: 'Page title',
       descriptionPlaceholderEdit: 'Page description',
+      backToReports: 'Back to reports',
+      reportActions: 'Report actions',
     },
 
     analyticsBuilder: {
@@ -573,6 +575,8 @@ export const projects = {
       chartDescription: 'Chart description',
       chartConfiguration: 'Chart Configuration',
       saveChartFailed: 'Failed to add chart',
+      previewSelectData: 'Select an entity and a metric to preview your data',
+      previewFailed: 'Could not load preview data',
       close: 'Close',
       basicInformation: 'Basic Information',
       dataSource: 'Data Source',

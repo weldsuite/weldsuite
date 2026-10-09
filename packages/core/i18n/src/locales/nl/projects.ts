@@ -565,6 +565,8 @@ export const projects = {
       noPeriodFound: 'Geen periode gevonden.',
       titlePlaceholderEdit: 'Paginatitel',
       descriptionPlaceholderEdit: 'Paginabeschrijving',
+      backToReports: 'Terug naar rapporten',
+      reportActions: 'Rapportacties',
     },
 
     analyticsBuilder: {
@@ -573,6 +575,8 @@ export const projects = {
       chartDescription: 'Grafiekbeschrijving',
       chartConfiguration: 'Grafiekconfiguratie',
       saveChartFailed: 'Grafiek toevoegen mislukt',
+      previewSelectData: 'Kies een entiteit en een meetwaarde om je gegevens te bekijken',
+      previewFailed: 'Voorbeeldgegevens laden mislukt',
       close: 'Sluiten',
       basicInformation: 'Basisinformatie',
       dataSource: 'Gegevensbron',

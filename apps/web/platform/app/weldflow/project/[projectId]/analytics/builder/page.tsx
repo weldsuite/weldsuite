@@ -3,6 +3,8 @@ import React, { useState, useTransition } from 'react';
 import { useRouter, useSearchParams, useParams } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
+import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { analyticsApi } from '@/app/weldflow/lib/api-client';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -21,67 +23,13 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart as RechartsBarChart,
-  CartesianGrid,
-  Pie,
-  PieChart as RechartsPieChart,
-  Label as RechartsLabel,
-  XAxis,
-} from "recharts"
-import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@weldsuite/ui/components/card"
-import {
-  ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@weldsuite/ui/components/chart"
-
-const chartData = [
-  { month: "January", desktop: 186 },
-  { month: "February", desktop: 305 },
-  { month: "March", desktop: 237 },
-  { month: "April", desktop: 73 },
-  { month: "May", desktop: 209 },
-  { month: "June", desktop: 214 },
-]
-
-const multiSeriesData = [
-  { month: "January", desktop: 186, mobile: 80 },
-  { month: "February", desktop: 305, mobile: 200 },
-  { month: "March", desktop: 237, mobile: 120 },
-  { month: "April", desktop: 73, mobile: 190 },
-  { month: "May", desktop: 209, mobile: 130 },
-  { month: "June", desktop: 214, mobile: 140 },
-]
-
-const mixedBarChartData = [
-  { browser: "chrome", visitors: 275, fill: "var(--chart-1)" },
-  { browser: "safari", visitors: 200, fill: "var(--chart-2)" },
-  { browser: "firefox", visitors: 187, fill: "var(--chart-3)" },
-  { browser: "edge", visitors: 173, fill: "var(--chart-4)" },
-  { browser: "other", visitors: 90, fill: "var(--chart-5)" },
-]
-
-// Centre label for the donut preview. Recharts clones this element and injects `viewBox`.
-function DonutTotalLabel({ viewBox, totalLabel }: Readonly<{ viewBox?: { cx?: number; cy?: number }; totalLabel: string }>) {
-  if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null;
-  const total = mixedBarChartData.reduce((a, c) => a + c.visitors, 0);
-  return (
-    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-      <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-3xl font-bold">{total}</tspan>
-      <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">{totalLabel}</tspan>
-    </text>
-  );
-}
+import { ChartPreview } from '@/app/weldflow/analytics/_components/chart-preview';
 
 const chartTypes = [
   { id: 'area-chart', name: 'Area Chart', icon: AreaChartIcon },
@@ -121,7 +69,7 @@ const metrics: Record<string, Array<{ id: string; name: string; description: str
     { id: 'completed_tasks', name: 'Completed Tasks', description: 'Tasks marked as done' },
     { id: 'overdue_tasks', name: 'Overdue Tasks', description: 'Tasks past due date' },
     { id: 'tasks_by_status', name: 'Tasks by Status', description: 'Breakdown by status' },
-    { id: 'tasks_by_priority', name: 'Tasks by Priority', description: 'Critical/High/Medium/Low' },
+    { id: 'tasks_by_priority', name: 'Tasks by Priority', description: 'Urgent/High/Medium/Low' },
     { id: 'tasks_by_type', name: 'Tasks by Type', description: 'Task/Bug/Story/Epic' },
     { id: 'throughput', name: 'Throughput', description: 'Tasks completed per period' },
     { id: 'estimation_accuracy', name: 'Estimation Accuracy', description: 'Actual vs estimated hours' },
@@ -150,12 +98,16 @@ export default function ProjectAnalyticsBuilderPage() {
   const searchParams = useSearchParams();
   const projectId = params.projectId as string;
   const reportId = searchParams.get('reportId');
+  const queryClient = useQueryClient();
   const [isPending, startTransition] = useTransition();
 
   const basePath = `/weldflow/project/${projectId}/analytics`;
 
   const [selectedChart, setSelectedChart] = useState(chartTypes[0]);
   const [chartTitle, setChartTitle] = useState('');
+  // Once the user types their own title/description, picking a metric must not overwrite it.
+  const [titleEdited, setTitleEdited] = useState(false);
+  const [descriptionEdited, setDescriptionEdited] = useState(false);
   const [chartDescription, setChartDescription] = useState('');
   const [selectedEntity, setSelectedEntity] = useState('');
   const [selectedMetric, setSelectedMetric] = useState('');
@@ -169,17 +121,6 @@ export default function ProjectAnalyticsBuilderPage() {
   const [aggregation] = useState('sum');
   const [sortOrder] = useState('asc');
   const [limit] = useState('10');
-
-  const chartConfig = {
-    desktop: { label: "Value", color: chartColor },
-    mobile: { label: "Mobile", color: "#93c5fd" },
-    visitors: { label: "Visitors", color: chartColor },
-    chrome: { label: "Chrome", color: "#3b82f6" },
-    safari: { label: "Safari", color: "#93c5fd" },
-    firefox: { label: "Firefox", color: "#60a5fa" },
-    edge: { label: "Edge", color: "#2563eb" },
-    other: { label: "Other", color: "#1d4ed8" },
-  } satisfies ChartConfig;
 
   const handleSave = () => {
     if (!reportId) {
@@ -208,6 +149,9 @@ export default function ProjectAnalyticsBuilderPage() {
         });
 
         if (result.success) {
+          void queryClient.invalidateQueries({ queryKey: projectKeys.analyticsCharts(reportId) });
+          void queryClient.invalidateQueries({ queryKey: projectKeys.analyticsReport(reportId) });
+          void queryClient.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
           router.push(`${basePath}/${reportId}`);
         } else {
           toast.error(result.error || t.projects.analyticsBuilder.saveChartFailed);
@@ -259,42 +203,16 @@ export default function ProjectAnalyticsBuilderPage() {
                   <CardDescription className="text-sm">{chartDescription || t.projects.analyticsBuilder.chartDescription}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={chartConfig}>
-                    {selectedChart.id === 'area-chart' && (
-                      <AreaChart data={chartData} margin={{ left: 12, right: 12 }}>
-                        <CartesianGrid vertical={false} />
-                        <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v) => typeof v === 'string' ? v.slice(0, 3) : String(v)} />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Area dataKey="desktop" type={smoothLines ? "natural" : "linear"} fill={fillArea ? chartColor : "transparent"} fillOpacity={fillArea ? 0.2 : 0} stroke={chartColor} strokeWidth={2} dot={showDataPoints} />
-                      </AreaChart>
-                    )}
-                    {selectedChart.id === 'bar-multiple' && (
-                      <RechartsBarChart data={multiSeriesData}>
-                        <CartesianGrid vertical={false} />
-                        <XAxis dataKey="month" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={(v) => typeof v === 'string' ? v.slice(0, 3) : String(v)} />
-                        <ChartTooltip content={<ChartTooltipContent indicator="dashed" />} />
-                        <Bar dataKey="desktop" fill="var(--color-desktop)" radius={4} />
-                        <Bar dataKey="mobile" fill="var(--color-mobile)" radius={4} />
-                      </RechartsBarChart>
-                    )}
-                    {selectedChart.id === 'pie-donut' && (
-                      <RechartsPieChart>
-                        <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                        <Pie data={mixedBarChartData} dataKey="visitors" nameKey="browser" innerRadius={60} strokeWidth={5}>
-                          <RechartsLabel content={<DonutTotalLabel totalLabel={t.projects.analyticsBuilder.total} />} />
-                        </Pie>
-                      </RechartsPieChart>
-                    )}
-                    {/* Simplified preview for other chart types */}
-                    {!['area-chart', 'bar-multiple', 'pie-donut'].includes(selectedChart.id) && (
-                      <RechartsBarChart data={chartData}>
-                        <CartesianGrid vertical={false} />
-                        <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} tickFormatter={(v) => typeof v === 'string' ? v.slice(0, 3) : String(v)} />
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                        <Bar dataKey="desktop" fill={chartColor} radius={4} />
-                      </RechartsBarChart>
-                    )}
-                  </ChartContainer>
+                  <ChartPreview
+                    reportId={reportId}
+                    query={{ entity: selectedEntity, metric: selectedMetric, timeRange, groupBy, aggregation, sortOrder, limit: limit === 'All' ? undefined : Number.parseInt(limit, 10) }}
+                    chartType={selectedChart.id}
+                    color={chartColor}
+                    showLegend={showLegend}
+                    smoothCurve={smoothLines}
+                    fillArea={fillArea}
+                    showDataLabels={showDataPoints}
+                  />
                 </CardContent>
               </Card>
             </div>
@@ -323,11 +241,11 @@ export default function ProjectAnalyticsBuilderPage() {
             <div className="space-y-4">
               <div>
                 <Label htmlFor="title" className="text-xs mb-1.5 block">{t.projects.analyticsBuilder.titleLabel}</Label>
-                <Input id="title" value={chartTitle} onChange={(e) => setChartTitle(e.target.value)} placeholder={t.projects.analyticsBuilder.titlePlaceholder} className="h-9 text-sm" />
+                <Input id="title" value={chartTitle} onChange={(e) => { setTitleEdited(true); setChartTitle(e.target.value); }} placeholder={t.projects.analyticsBuilder.titlePlaceholder} className="h-9 text-sm" />
               </div>
               <div>
                 <Label htmlFor="description" className="text-xs mb-1.5 block">{t.projects.analyticsBuilder.descriptionLabel}</Label>
-                <Textarea id="description" value={chartDescription} onChange={(e) => setChartDescription(e.target.value)} placeholder={t.projects.analyticsBuilder.descriptionPlaceholder} className="min-h-[60px] text-sm resize-none" />
+                <Textarea id="description" value={chartDescription} onChange={(e) => { setDescriptionEdited(true); setChartDescription(e.target.value); }} placeholder={t.projects.analyticsBuilder.descriptionPlaceholder} className="min-h-[60px] text-sm resize-none" />
               </div>
             </div>
           </div>
@@ -367,7 +285,7 @@ export default function ProjectAnalyticsBuilderPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="max-h-[300px] overflow-y-auto" style={{ width: 'var(--radix-dropdown-menu-trigger-width)' }}>
                       {metrics[selectedEntity]?.map((metric) => (
-                        <DropdownMenuItem key={metric.id} onClick={() => { setSelectedMetric(metric.id); const entity = entities.find(e => e.id === selectedEntity); setChartTitle(`${entity?.name} - ${metric.name}`); setChartDescription(metric.description); }} className="flex flex-col items-start py-2">
+                        <DropdownMenuItem key={metric.id} onClick={() => { setSelectedMetric(metric.id); const entity = entities.find(e => e.id === selectedEntity); if (!titleEdited) setChartTitle(`${entity?.name} - ${metric.name}`); if (!descriptionEdited) setChartDescription(metric.description); }} className="flex flex-col items-start py-2">
                           <span className="text-sm font-medium">{metric.name}</span>
                           <span className="text-xs text-gray-500">{metric.description}</span>
                         </DropdownMenuItem>
