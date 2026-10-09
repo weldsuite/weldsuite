@@ -18,6 +18,7 @@ function mapStage(stage: string | undefined): PipelineStageId {
 
 function mapDeal(api: Opportunity): PipelineDealRow {
   return {
+    id: api.id,
     stage: mapStage(api.stage),
     title: api.name,
     company: api.company?.name ?? api.customerName ?? '—',

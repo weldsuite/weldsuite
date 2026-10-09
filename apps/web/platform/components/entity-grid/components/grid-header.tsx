@@ -34,6 +34,7 @@ import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { useGridContext } from '../context';
+import { SPREADSHEET_EXTRA_COLUMNS } from '../spreadsheet';
 
 function colIndexToLetter(index: number): string {
   let result = '';
@@ -332,11 +333,11 @@ export function GridHeader() {
         {/* Spreadsheet mode: empty column headers extending to the right */}
         {config.fillViewport && config.onCreateAttribute ? (
           <>
-            {Array.from({ length: 8 }).map((_, i) => {
-              const letterIndex = visibleColumns.length + i;
+            {SPREADSHEET_EXTRA_COLUMNS.map((slot) => {
+              const letterIndex = visibleColumns.length + slot;
               return (
                 <th
-                  key={`empty-col-${i}`}
+                  key={`empty-col-${slot}`}
                   className="bg-muted/30 border-r border-border cursor-pointer hover:bg-muted/60 transition-colors text-center text-[13px] font-medium text-muted-foreground"
                   style={{ width: 100, height: '21px', padding: 0, boxShadow: headerShadow }}
                   onClick={() => config.onCreateAttribute!()}

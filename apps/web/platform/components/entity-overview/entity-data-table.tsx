@@ -438,8 +438,8 @@ export function EntityDataTable<T extends { id: string } = { id: string }>({
   let tableRows: ReactNode;
   if (loading && !initialData.length) {
     // Skeleton loading rows
-    tableRows = Array.from({ length: pagination.pageSize || 10 }).map((_, index) => (
-      <TableRow key={`skeleton-${index}`} className="border-b border-border/30">
+    tableRows = Array.from({ length: pagination.pageSize || 10 }, (_, index) => `skeleton-${index}`).map((rowKey) => (
+      <TableRow key={rowKey} className="border-b border-border/30">
         {visibleColumnsArray.map((col) => (
           <TableCell key={col.key} className="px-3 py-3">
             <div className="h-4 bg-muted animate-pulse rounded w-24"></div>

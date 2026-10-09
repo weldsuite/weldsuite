@@ -636,12 +636,12 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
               minHeight: `${pageCount * PAGE_STRIDE_PX - PAGE_GAP_PX}px`,
             }}
           >
-            {Array.from({ length: pageCount }).map((_, i) => (
+            {Array.from({ length: pageCount }, (_, i) => i).map((page) => (
               <div
-                key={i}
+                key={page}
                 aria-hidden
                 className="pgn-page-bg absolute left-0 right-0 bg-white border border-gray-200 dark:bg-[#26282c] dark:border-[#383e47] shadow-[0_1px_3px_rgba(0,0,0,0.08)] dark:shadow-[0_1px_3px_rgba(0,0,0,0.4)]"
-                style={{ top: `${i * PAGE_STRIDE_PX}px`, height: `${PAGE_HEIGHT_PX}px` }}
+                style={{ top: `${page * PAGE_STRIDE_PX}px`, height: `${PAGE_HEIGHT_PX}px` }}
               />
             ))}
 
@@ -1101,7 +1101,8 @@ function BlockTypeMenu({ current, onPick }: Readonly<{ current: BlockKind; onPic
       >
         {blockItems.map((item, idx) => {
           if (item.label === '__separator__') {
-            return <div key={idx} className="my-1 h-px bg-border" />;
+            // A separator has no kind; it is named after the item it follows.
+            return <div key={`separator-${blockItems[idx - 1]?.kind}`} className="my-1 h-px bg-border" />;
           }
           const { kind, label, Icon } = item;
           const match = kind === current;

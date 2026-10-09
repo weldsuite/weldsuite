@@ -8,6 +8,7 @@ import { GridRow } from './grid-row';
 import { GridFooter } from './grid-footer';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import { Button } from '@weldsuite/ui/components/button';
+import { SPREADSHEET_EXTRA_COLUMNS } from '../spreadsheet';
 
 interface GridTableProps {
   onLoadMore?: () => void;
@@ -144,10 +145,9 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<Grid
           ))}
 
           {/* Empty filler rows for spreadsheet mode */}
-          {config.fillViewport && Array.from({ length: fillerRowCount }).map((_, i) => {
-            const rowNum = filteredEntities.length + i + 1;
+          {config.fillViewport && Array.from({ length: fillerRowCount }, (_, i) => filteredEntities.length + i + 1).map((rowNum) => {
             return (
-              <tr key={`empty-${i}`} className="border-b border-border" style={{ height: `${ROW_HEIGHT}px` }}>
+              <tr key={`empty-${rowNum}`} className="border-b border-border" style={{ height: `${ROW_HEIGHT}px` }}>
                 {showRowNumbers && (
                   <td
                     className="border-r border-border bg-muted/30 text-center text-xs text-muted-foreground select-none"
@@ -165,8 +165,8 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore }: Readonly<Grid
                   />
                 ))}
                 {/* Extra empty columns matching header */}
-                {Array.from({ length: 8 }).map((_, j) => (
-                  <td key={`empty-col-${j}`} className="border-r border-border" style={{ width: 100, height: ROW_HEIGHT, padding: 0 }} />
+                {SPREADSHEET_EXTRA_COLUMNS.map((slot) => (
+                  <td key={`empty-col-${slot}`} className="border-r border-border" style={{ width: 100, height: ROW_HEIGHT, padding: 0 }} />
                 ))}
               </tr>
             );
