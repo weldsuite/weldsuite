@@ -136,13 +136,10 @@ export default function EntitiesPage() {
       width: 'w-[120px]',
       render: (e) =>
         jurisdictionOf(e)?.features.smallBusinessScheme ? (
-          <div
-            role="presentation"
-            title={e.jurisdictionSettings?.kor?.enabled ? te.korEnabled : te.korDisabled}
-            onClick={(ev) => ev.stopPropagation()}
-          >
+          <div title={e.jurisdictionSettings?.kor?.enabled ? te.korEnabled : te.korDisabled}>
             <Switch
               aria-label={te.colKor}
+              onClick={(ev) => ev.stopPropagation()}
               checked={e.jurisdictionSettings?.kor?.enabled ?? false}
               disabled={!canUpdate || korMutation.isPending}
               onCheckedChange={(enabled) => korMutation.mutate({ entity: e, enabled })}
