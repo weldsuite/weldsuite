@@ -114,6 +114,9 @@ function isImageFile(fileName: string): boolean {
   return imageExtensions.some(ext => fileName.toLowerCase().endsWith(ext));
 }
 
+/** Bar positions of the recording waveform; each bar keeps its slot as the levels scroll. */
+const WAVEFORM_SLOTS = Array.from({ length: 60 }, (_, slot) => slot);
+
 export function MessageInput({
   channelId,
   parentId,
@@ -1236,11 +1239,11 @@ export function MessageInput({
                         {/* Waveform */}
                         <div className="flex-1 flex items-center gap-2 overflow-hidden">
                           <div className="flex-1 flex items-center gap-[2px] h-8 overflow-hidden" style={{ willChange: 'contents' }}>
-                            {waveformBars.map((level, i) => (
+                            {WAVEFORM_SLOTS.map((slot) => (
                               <div
-                                key={i}
+                                key={slot}
                                 className="bg-blue-400 flex-shrink-0"
-                                style={{ width: 1, height: `${Math.min(1, level) * 100}%`, minHeight: 1 }}
+                                style={{ width: 1, height: `${Math.min(1, waveformBars[slot] ?? 0) * 100}%`, minHeight: 1 }}
                               />
                             ))}
                           </div>

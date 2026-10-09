@@ -4,6 +4,7 @@ import { useGridContext } from '../context';
 import { useCellSelectionActions, useCellSelectionState } from '../cell-selection-context';
 import { GridCell } from './grid-cell';
 import { cn } from '@/lib/utils';
+import { SPREADSHEET_EXTRA_COLUMNS } from '../spreadsheet';
 
 interface GridRowProps<TEntity> {
   entity: TEntity;
@@ -97,8 +98,8 @@ export function GridRow<TEntity>({ entity, rowIndex }: Readonly<GridRowProps<TEn
       {/* Empty cells for spreadsheet mode or spacer for normal mode */}
       {/* (SelectableCell defined below the row component) */}
       {config.fillViewport ? (
-        Array.from({ length: 8 }).map((_, i) => (
-          <td key={`empty-${i}`} className="border-r border-border" style={{ width: 100, height: `${rowH}px`, padding: 0 }} />
+        SPREADSHEET_EXTRA_COLUMNS.map((slot) => (
+          <td key={`empty-${slot}`} className="border-r border-border" style={{ width: 100, height: `${rowH}px`, padding: 0 }} />
         ))
       ) : (
         <>

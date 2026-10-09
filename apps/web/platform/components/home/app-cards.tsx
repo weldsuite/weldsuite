@@ -1622,6 +1622,7 @@ const PIPELINE_STAGES: Array<{ id: PipelineStageId; label: string; dot: string }
 ];
 
 export type PipelineDealRow = {
+  id?: string;
   stage: PipelineStageId;
   title: string;
   company: string;
@@ -1681,9 +1682,9 @@ export function PipelineCard({
               </div>
               {/* Deal cards */}
               <div className="flex flex-col gap-2">
-                {stageDeals.map((deal, idx) => (
+                {stageDeals.map((deal) => (
                   <div
-                    key={idx}
+                    key={deal.id ?? `${deal.company}-${deal.title}`}
                     className="bg-card rounded-md border border-gray-125 dark:border-border hover:bg-gray-50 dark:hover:bg-secondary/70 p-2 cursor-pointer transition-colors"
                   >
                     <div className="text-sm font-medium text-gray-900 dark:text-foreground truncate leading-snug">
@@ -2164,6 +2165,9 @@ export type MeetingHistoryRow = {
   recorded: boolean;
 };
 
+/** The first three participants show as stacked avatars, one per slot. */
+const PARTICIPANT_AVATAR_SLOTS = [0, 1, 2];
+
 const DEMO_MEETING_HISTORY: MeetingHistoryRow[] = [
   { title: 'Weekly leadership sync', type: 'video', date: 'Today, 10:00 AM', participants: ['L', 'T', 'S'], totalParticipants: 6, duration: '58m 12s', recorded: true },
   { title: 'Demo — Acme Logistics', type: 'video', date: 'Today, 11:30 AM', participants: ['S', 'A', 'T'], totalParticipants: 3, duration: '32m 04s', recorded: true },
@@ -2221,13 +2225,13 @@ export function MeetHistoryCard({
             {/* Participants — stacked avatars with +N */}
             <div className="w-[100px]">
               <div className="flex -space-x-1.5">
-                {m.participants.slice(0, 3).map((initial, i) => (
+                {PARTICIPANT_AVATAR_SLOTS.slice(0, m.participants.length).map((slot) => (
                   <div
-                    key={i}
+                    key={slot}
                     className="w-[23px] h-[23px] rounded-md bg-gray-200 dark:bg-accent flex items-center justify-center ring-2 ring-card"
                   >
                     <span className="text-[10px] font-medium text-gray-600 dark:text-muted-foreground">
-                      {initial}
+                      {m.participants[slot]}
                     </span>
                   </div>
                 ))}
@@ -2308,7 +2312,7 @@ export function ChatCard({
         const Icon = CATEGORY_ICONS[a.category];
         return (
           <div
-            key={a.title + i}
+            key={`${a.actor}-${a.when}-${a.title}`}
             className={cn(ROW_CLASS, 'relative', a.unread && 'bg-blue-50/40 dark:bg-blue-950/20')}
           >
             {a.unread && (
