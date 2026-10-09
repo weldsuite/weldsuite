@@ -132,7 +132,7 @@ export function AdmitGuestsPill({ meeting }: Readonly<AdmitGuestsPillProps>) {
     <Card
       role="dialog"
       aria-label="Lobby notification"
-      className="absolute top-4 right-4 z-30 w-[340px] gap-0 py-0 shadow-lg animate-in fade-in slide-in-from-top-2 duration-200"
+      className="absolute top-4 right-4 z-30 w-[340px] max-md:top-2 max-md:right-2 max-md:w-auto max-md:left-2 gap-0 py-0 shadow-lg animate-in fade-in slide-in-from-top-2 duration-200"
     >
       <Button
         variant="ghost"

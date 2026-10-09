@@ -153,7 +153,7 @@ function getContextMenuPosition(clientX: number, clientY: number) {
   const menuW = 220;
   const menuH = 340;
   return {
-    x: Math.min(clientX, window.innerWidth - menuW),
+    x: Math.max(0, Math.min(clientX, window.innerWidth - menuW)),
     y: clientY + menuH > window.innerHeight ? Math.max(0, clientY - menuH) : clientY,
   };
 }
@@ -284,9 +284,10 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
         </div>
       )}
 
-      {/* Top-right hover actions */}
+      {/* Top-right actions: on hover, or always on touch screens (which have
+          no hover) once the tile is big enough to carry them. */}
       <div className={cn(
-        'absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover/tile:opacity-100 transition-opacity',
+        'absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover/tile:opacity-100 [@media(hover:none)]:@[180px]:opacity-100 transition-opacity',
         ringing && 'hidden',
       )}>
         {pinned && (
@@ -302,7 +303,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
             onClick={(e) => {
               e.stopPropagation();
               const rect = e.currentTarget.getBoundingClientRect();
-              setContextPos({ x: rect.right - 220, y: rect.bottom + 4 });
+              setContextPos(getContextMenuPosition(rect.right - 220, rect.bottom + 4));
               setShowControls(true);
             }}
             className="bg-black/60 hover:bg-black/80 text-white rounded-[7.5px] p-1.5 transition-colors cursor-pointer"

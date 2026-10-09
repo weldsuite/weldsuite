@@ -131,7 +131,7 @@ export function useMeetingToolsController(options: ControllerOptions): MeetingTo
           toast(formatLabel(l.timer.started, { time: formatCountdown(event.durationMs) }));
           break;
         case 'timer-ended':
-          playTimerEndSound();
+          if (store.getState().prefs.timerSound) playTimerEndSound();
           toast(l.timer.timeUp);
           break;
         case 'question-asked':
