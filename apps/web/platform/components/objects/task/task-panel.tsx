@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useMemo } from 'react';
 import {
   Copy,
   EllipsisVertical,
+  Link2,
   Pencil,
   Trash2,
 } from 'lucide-react';
@@ -180,11 +181,13 @@ function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: 
 
 function TaskActions({
   taskNumber,
+  onCopyLink,
   onEdit,
   onDuplicate,
   onDelete,
 }: Readonly<{
   taskNumber?: number | null;
+  onCopyLink: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -208,6 +211,10 @@ function TaskActions({
           <DropdownMenuItem onClick={onEdit}>
             <Pencil className="h-4 w-4 mr-0.5" />
             {t('sweep.entities.editTask')}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onCopyLink}>
+            <Link2 className="h-4 w-4 mr-0.5" />
+            {t('sweep.entities.copyLink')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onDuplicate}>
             <Copy className="h-4 w-4 mr-0.5" />
@@ -526,6 +533,19 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     );
   }, [apiTask]);
 
+  /**
+   * Copy link — the stable `/weldflow/task/{id}` URL, which resolves the
+   * task's project and opens it in the panel.
+   */
+  const handleCopyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/weldflow/task/${id}`);
+      toast.success(t('sweep.entities.linkCopied'));
+    } catch {
+      toast.error(t('sweep.entities.copyLinkFailed'));
+    }
+  }, [id, t]);
+
   const addAttachmentMutation = useAddTaskAttachment(id);
   const removeAttachmentMutation = useRemoveTaskAttachment(id);
 
@@ -640,13 +660,14 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       actions={
         <TaskActions
           taskNumber={task?.number}
+          onCopyLink={handleCopyLink}
           onEdit={handleEdit}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
         />
       }
       sidebar={chatSidebar}
-      sidebarDefaultSize={mode === 'panel' ? 320 : 500}
+      sidebarDefaultSize={mode === 'panel' ? 240 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}
       // Panel mode: no persistKey so the chat always opens fresh at the

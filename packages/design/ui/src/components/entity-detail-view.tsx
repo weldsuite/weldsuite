@@ -354,6 +354,23 @@ function AnimatedShell({
   const isFullscreen = mode === "fullscreen";
   const shellRef = React.useRef<HTMLDivElement>(null);
 
+  // On phones the panel covers the whole viewport (see the panel-mode classes
+  // below), so there is no page strip left to tap on. Escape closes it, unless
+  // an inner layer (popover, dialog, inline editor) already handled the key or
+  // the user is typing in a field.
+  React.useEffect(() => {
+    if (!onClose || typeof window === "undefined") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (!window.matchMedia("(max-width: 767px)").matches) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [contenteditable='']")) return;
+      onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const header = (
     <HeaderRow
       avatar={avatar}
@@ -386,6 +403,10 @@ function AnimatedShell({
           // the module content and attaches to it (or to the panel before it)
           // with a left divider.
           "relative flex shrink-0 flex-col overflow-hidden border-l border-border bg-background",
+          // Phones: a side column would overflow the viewport (pushing the
+          // header buttons off-screen), so the panel becomes a full-screen
+          // layer instead. The inline `width` is overridden with `!w-full`.
+          "max-md:fixed max-md:inset-0 max-md:z-50 max-md:!w-full max-md:border-l-0",
           className,
         )}
         style={{ width: widthCss }}

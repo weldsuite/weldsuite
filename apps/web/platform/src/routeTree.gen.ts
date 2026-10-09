@@ -274,6 +274,7 @@ import { Route as WeldhostDomainsSearchIndexRouteImport } from './routes/weldhos
 import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldhost/domains/register/index'
 import { Route as WeldhostDomainsExternalIndexRouteImport } from './routes/weldhost/domains/external/index'
 import { Route as WeldhostDomainsIdIndexRouteImport } from './routes/weldhost/domains/$id/index'
+import { Route as WeldflowTaskTaskIdIndexRouteImport } from './routes/weldflow/task/$taskId/index'
 import { Route as WeldflowSpaceSpaceIdIndexRouteImport } from './routes/weldflow/space/$spaceId/index'
 import { Route as WeldflowProjectProjectIdIndexRouteImport } from './routes/weldflow/project/$projectId/index'
 import { Route as WeldflowAnalyticsBuilderIndexRouteImport } from './routes/weldflow/analytics/builder/index'
@@ -1835,6 +1836,11 @@ const WeldhostDomainsIdIndexRoute = WeldhostDomainsIdIndexRouteImport.update({
   path: '/domains/$id/',
   getParentRoute: () => WeldhostRouteRoute,
 } as any)
+const WeldflowTaskTaskIdIndexRoute = WeldflowTaskTaskIdIndexRouteImport.update({
+  id: '/task/$taskId/',
+  path: '/task/$taskId/',
+  getParentRoute: () => WeldflowRouteRoute,
+} as any)
 const WeldflowSpaceSpaceIdIndexRoute =
   WeldflowSpaceSpaceIdIndexRouteImport.update({
     id: '/space/$spaceId/',
@@ -3295,6 +3301,7 @@ export interface FileRoutesByFullPath {
   '/weldflow/analytics/builder/': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/space/$spaceId/': typeof WeldflowSpaceSpaceIdIndexRoute
+  '/weldflow/task/$taskId/': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id/': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external/': typeof WeldhostDomainsExternalIndexRoute
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
@@ -3709,6 +3716,7 @@ export interface FileRoutesByTo {
   '/weldflow/analytics/builder': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/space/$spaceId': typeof WeldflowSpaceSpaceIdIndexRoute
+  '/weldflow/task/$taskId': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external': typeof WeldhostDomainsExternalIndexRoute
   '/weldhost/domains/register': typeof WeldhostDomainsRegisterIndexRoute
@@ -4163,6 +4171,7 @@ export interface FileRoutesById {
   '/weldflow/analytics/builder/': typeof WeldflowAnalyticsBuilderIndexRoute
   '/weldflow/project/$projectId/': typeof WeldflowProjectProjectIdIndexRoute
   '/weldflow/space/$spaceId/': typeof WeldflowSpaceSpaceIdIndexRoute
+  '/weldflow/task/$taskId/': typeof WeldflowTaskTaskIdIndexRoute
   '/weldhost/domains/$id/': typeof WeldhostDomainsIdIndexRoute
   '/weldhost/domains/external/': typeof WeldhostDomainsExternalIndexRoute
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
@@ -4617,6 +4626,7 @@ export interface FileRouteTypes {
     | '/weldflow/analytics/builder/'
     | '/weldflow/project/$projectId/'
     | '/weldflow/space/$spaceId/'
+    | '/weldflow/task/$taskId/'
     | '/weldhost/domains/$id/'
     | '/weldhost/domains/external/'
     | '/weldhost/domains/register/'
@@ -5031,6 +5041,7 @@ export interface FileRouteTypes {
     | '/weldflow/analytics/builder'
     | '/weldflow/project/$projectId'
     | '/weldflow/space/$spaceId'
+    | '/weldflow/task/$taskId'
     | '/weldhost/domains/$id'
     | '/weldhost/domains/external'
     | '/weldhost/domains/register'
@@ -5484,6 +5495,7 @@ export interface FileRouteTypes {
     | '/weldflow/analytics/builder/'
     | '/weldflow/project/$projectId/'
     | '/weldflow/space/$spaceId/'
+    | '/weldflow/task/$taskId/'
     | '/weldhost/domains/$id/'
     | '/weldhost/domains/external/'
     | '/weldhost/domains/register/'
@@ -7490,6 +7502,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldhost/domains/$id/'
       preLoaderRoute: typeof WeldhostDomainsIdIndexRouteImport
       parentRoute: typeof WeldhostRouteRoute
+    }
+    '/weldflow/task/$taskId/': {
+      id: '/weldflow/task/$taskId/'
+      path: '/task/$taskId'
+      fullPath: '/weldflow/task/$taskId/'
+      preLoaderRoute: typeof WeldflowTaskTaskIdIndexRouteImport
+      parentRoute: typeof WeldflowRouteRoute
     }
     '/weldflow/space/$spaceId/': {
       id: '/weldflow/space/$spaceId/'
@@ -9648,6 +9667,7 @@ interface WeldflowRouteRouteChildren {
   WeldflowAnalyticsIdIndexRoute: typeof WeldflowAnalyticsIdIndexRoute
   WeldflowAnalyticsBuilderIndexRoute: typeof WeldflowAnalyticsBuilderIndexRoute
   WeldflowSpaceSpaceIdIndexRoute: typeof WeldflowSpaceSpaceIdIndexRoute
+  WeldflowTaskTaskIdIndexRoute: typeof WeldflowTaskTaskIdIndexRoute
   WeldflowSpaceSpaceIdModuleTypeIndexRoute: typeof WeldflowSpaceSpaceIdModuleTypeIndexRoute
 }
 
@@ -9670,6 +9690,7 @@ const WeldflowRouteRouteChildren: WeldflowRouteRouteChildren = {
   WeldflowAnalyticsIdIndexRoute: WeldflowAnalyticsIdIndexRoute,
   WeldflowAnalyticsBuilderIndexRoute: WeldflowAnalyticsBuilderIndexRoute,
   WeldflowSpaceSpaceIdIndexRoute: WeldflowSpaceSpaceIdIndexRoute,
+  WeldflowTaskTaskIdIndexRoute: WeldflowTaskTaskIdIndexRoute,
   WeldflowSpaceSpaceIdModuleTypeIndexRoute:
     WeldflowSpaceSpaceIdModuleTypeIndexRoute,
 }

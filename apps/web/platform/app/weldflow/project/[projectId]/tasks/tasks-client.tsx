@@ -1542,7 +1542,9 @@ export function TasksClient({
       <div
         key={task.id}
         className={cn(
-          "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group",
+          // Phones: let the metadata columns wrap under the title instead of
+          // running past the viewport edge (the list container clips overflow).
+          "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-1.5",
           !isSubtask && "border-b border-gray-200/70 dark:border-border",
           isVisuallyDone && !isCompleting && "opacity-50",
           isCompleting && "task-completing-inner"
@@ -1553,7 +1555,13 @@ export function TasksClient({
         <button
           type="button"
           aria-label={task.title}
-          onClick={() => setSelectedTask(task)}
+          onClick={() => {
+            setSelectedTask(task);
+            // Open directly as well: the selection effect is keyed on the id, so
+            // it would not fire again for a task that is still "selected" after
+            // its panel was closed.
+            openTaskPanel({ type: 'task', id: task.id });
+          }}
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         />
         {/* Checkbox */}
@@ -1567,7 +1575,7 @@ export function TasksClient({
         </div>
 
         {/* Task Title */}
-        <div className="min-w-[200px] flex-1 flex items-center gap-2">
+        <div className="min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]">
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="flex-shrink-0" />
           )}
@@ -1618,7 +1626,7 @@ export function TasksClient({
         </div>
 
         {/* Attachments & Subtask count */}
-        <div className="w-[60px] flex justify-end gap-1">
+        <div className="w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden">
           {(task.attachmentCount ?? 0) > 0 && (
             <span className="-translate-y-[1.5px] inline-flex items-center justify-center gap-1.5 h-[22px] px-1.5 text-[11px] leading-none font-mono tabular-nums text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] flex-shrink-0">
               <Paperclip className="h-3 w-3 shrink-0" />
@@ -1634,7 +1642,7 @@ export function TasksClient({
         </div>
 
         {/* Status */}
-        <div className="relative z-[1] w-[120px]">
+        <div className="relative z-[1] w-[120px] max-md:w-auto">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
@@ -1675,7 +1683,7 @@ export function TasksClient({
         </div>
 
         {/* Priority */}
-        <div className="relative z-[1] w-[100px]">
+        <div className="relative z-[1] w-[100px] max-md:w-auto">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1699,7 +1707,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className="relative z-[1] w-[100px]">
+        <div className="relative z-[1] w-[100px] max-md:w-auto">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1734,7 +1742,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className="relative z-[1] w-[120px]">
+        <div className="relative z-[1] w-[120px] max-md:w-auto">
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1862,7 +1870,7 @@ export function TasksClient({
         </div>
       </div>
     );
-  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, pendingParentCompletionIds, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig]);
+  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, pendingParentCompletionIds, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig, openTaskPanel]);
 
   // Subtask container — keeps the rows mounted and toggles visibility via
   // `hidden`. Unmounting/remounting dozens of nested rows on every click is
