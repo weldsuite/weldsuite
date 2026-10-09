@@ -37,11 +37,11 @@ const apiOrigins = createApiOriginResolver({
   enabled: parseModuleList(process.env.EXPO_PUBLIC_API_MODULES),
 });
 
-let tokenGetter: () => Promise<string | null> = async () => null;
+let tokenGetter: () => Promise<string | null> = () => Promise.resolve(null);
 
 /** Wire the Clerk token getter. Called from `app/_layout.tsx`. */
 export function setAppApiTokenGetter(fn: (() => Promise<string | null>) | null) {
-  tokenGetter = fn ?? (async () => null);
+  tokenGetter = fn ?? (() => Promise.resolve(null));
 }
 
 const client = createClientApi({
