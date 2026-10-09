@@ -21,7 +21,7 @@ import { useAuth, useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
-import { playCallJoinSound, playCallLeaveSound, playMuteSound, playUnmuteSound, playCameraToggleSound, playScreenShareSound, playHandRaiseSound, playHandLowerSound } from '@/lib/utils/notification-sound';
+import { playCallJoinSound, playCallLeaveSound, playIncomingRingSound, playMuteSound, playUnmuteSound, playCameraToggleSound, playScreenShareSound, playHandRaiseSound, playHandLowerSound } from '@/lib/utils/notification-sound';
 import { useVirtualBackground, type VirtualBackgroundType } from '@/hooks/use-virtual-background';
 import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
@@ -408,6 +408,19 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   );
 
   useTopic(user?.id ? `chat.user.${user.id}` : '', handleIncomingCallEvent);
+
+  // The callee hears a ringtone while the incoming call popup is up. It goes
+  // quiet after 30s, the same window the caller's "calling" tiles ring for.
+  useEffect(() => {
+    if (status !== 'ringing-incoming') return;
+    playIncomingRingSound();
+    const iv = setInterval(() => playIncomingRingSound(), 2600);
+    const quiet = setTimeout(() => clearInterval(iv), 30_000);
+    return () => {
+      clearInterval(iv);
+      clearTimeout(quiet);
+    };
+  }, [status]);
 
   // RoomClient for hand-raise events via realtime-worker
   const handRaiseRoomRef = useRef<RoomClient | null>(null);
