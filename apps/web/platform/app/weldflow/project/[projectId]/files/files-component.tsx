@@ -281,11 +281,11 @@ function FilePreviewOverlay({ file, url, loading, onClose, onDownload }: Readonl
   }
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-modal="true"
       aria-label={file.fileName}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      className="fixed inset-0 z-50 m-0 flex h-full max-h-none w-full max-w-none items-center justify-center border-0 bg-black/80 p-0 text-inherit"
     >
       <button
         type="button"
@@ -327,7 +327,7 @@ function FilePreviewOverlay({ file, url, loading, onClose, onDownload }: Readonl
       <div className="relative max-w-[90vw] max-h-[85vh] flex items-center justify-center">
         {content}
       </div>
-    </div>
+    </dialog>
   );
 }
 

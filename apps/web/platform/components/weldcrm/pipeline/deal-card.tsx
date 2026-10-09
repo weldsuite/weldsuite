@@ -44,6 +44,97 @@ interface DealCardProps {
   onContactClick?: (contactId: string) => void;
 }
 
+/**
+ * A card row that links to another record. A native button (so it is focusable
+ * and keyboard-operable) that keeps its press from starting a card drag or
+ * opening the deal; a plain div when there is nothing to open.
+ */
+function CardLinkRow({
+  onActivate,
+  className,
+  children,
+}: Readonly<{ onActivate?: () => void; className: string; children: React.ReactNode }>) {
+  if (!onActivate) return <div className={className}>{children}</div>;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onActivate();
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      className={cn(
+        'relative z-[1] w-full text-left hover:text-gray-900 dark:hover:text-gray-100 cursor-pointer',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function getInitials(name: string) {
+  return name
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 1);
+}
+
+function DealCompanyRow({
+  company,
+  onCompanyClick,
+}: Readonly<{ company: NonNullable<DealCardProps['company']>; onCompanyClick?: (companyId: string) => void }>) {
+  const activate = company.id && onCompanyClick ? () => onCompanyClick(company.id) : undefined;
+  const isClickable = !!activate;
+  return (
+    <CardLinkRow className="flex items-center gap-2 mt-2.5" onActivate={activate}>
+      <Building2 className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+      <span className={cn(
+        "text-sm text-gray-600 dark:text-muted-foreground truncate",
+        isClickable && "hover:underline underline-offset-2"
+      )}>
+        {company.name}
+      </span>
+    </CardLinkRow>
+  );
+}
+
+function DealOwnerRow({
+  displayOwner,
+  contact,
+  owner,
+  onContactClick,
+}: Readonly<{
+  displayOwner: NonNullable<DealCardProps['owner']>;
+  contact?: DealCardProps['contact'];
+  owner?: DealCardProps['owner'];
+  onContactClick?: (contactId: string) => void;
+}>) {
+  const clickId = contact?.id || owner?.id;
+  const activate = clickId && onContactClick ? () => onContactClick(clickId) : undefined;
+  const isClickable = !!activate;
+  return (
+    <CardLinkRow className="flex items-center gap-2 mt-2" onActivate={activate}>
+      <Avatar className="h-4 w-4 rounded">
+        <AvatarImage src={displayOwner.avatarUrl} />
+        <AvatarFallback className="text-[9px] bg-cyan-500 text-white rounded">
+          {getInitials(displayOwner.name || displayOwner.email || 'U')}
+        </AvatarFallback>
+      </Avatar>
+      <span className={cn(
+        "text-sm text-gray-600 dark:text-muted-foreground truncate",
+        isClickable && "hover:underline underline-offset-2"
+      )}>
+        {displayOwner.name || displayOwner.email}
+      </span>
+    </CardLinkRow>
+  );
+}
+
 export function DealCard({
   id,
   title,
@@ -61,7 +152,6 @@ export function DealCard({
 }: Readonly<DealCardProps>) {
   const t = useTranslations();
   const {
-    attributes,
     listeners,
     setNodeRef,
     transform,
@@ -97,15 +187,6 @@ export function DealCard({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // Ignore keys bubbling up from the nested company / contact controls.
-    if (e.target !== e.currentTarget || !onClick || isSortableDragging) return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onClick();
-    }
-  };
-
   const formatCurrency = (amount: number) => {
     if (amount === 0) return null;
     return new Intl.NumberFormat('en-US', {
@@ -117,19 +198,8 @@ export function DealCard({
     }).format(amount);
   };
 
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 1);
-  };
-
   const formattedValue = formatCurrency(value);
   const displayOwner = owner || contact;
-  const isCompanyClickable = company?.id && onCompanyClick;
-  const isContactClickable = (contact?.id || owner?.id) && onContactClick;
 
   const cardContent = (
     <>
@@ -139,84 +209,11 @@ export function DealCard({
       </span>
 
       {/* Company/Record */}
-      {company && (
-        <div
-          className={cn(
-            "flex items-center gap-2 mt-2.5",
-            isCompanyClickable && "hover:text-gray-900 dark:hover:text-gray-100 cursor-pointer"
-          )}
-          role={isCompanyClickable ? 'button' : undefined}
-          tabIndex={isCompanyClickable ? 0 : undefined}
-          onClick={(e) => {
-            if (isCompanyClickable) {
-              e.stopPropagation();
-              e.preventDefault();
-              onCompanyClick!(company.id);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (!isCompanyClickable || e.target !== e.currentTarget) return;
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.stopPropagation();
-              e.preventDefault();
-              onCompanyClick!(company.id);
-            }
-          }}
-          onMouseDown={(e) => isCompanyClickable && e.stopPropagation()}
-          onPointerDown={(e) => isCompanyClickable && e.stopPropagation()}
-        >
-          <Building2 className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <span className={cn(
-            "text-sm text-gray-600 dark:text-muted-foreground truncate",
-            isCompanyClickable && "hover:underline underline-offset-2"
-          )}>
-            {company.name}
-          </span>
-        </div>
-      )}
+      {company && <DealCompanyRow company={company} onCompanyClick={onCompanyClick} />}
 
       {/* Owner/Contact */}
       {displayOwner && (
-        <div
-          className={cn(
-            "flex items-center gap-2 mt-2",
-            isContactClickable && "hover:text-gray-900 dark:hover:text-gray-100 cursor-pointer"
-          )}
-          role={isContactClickable ? 'button' : undefined}
-          tabIndex={isContactClickable ? 0 : undefined}
-          onClick={(e) => {
-            if (isContactClickable) {
-              e.stopPropagation();
-              e.preventDefault();
-              const clickId = contact?.id || owner?.id;
-              if (clickId) onContactClick!(clickId);
-            }
-          }}
-          onKeyDown={(e) => {
-            if (!isContactClickable || e.target !== e.currentTarget) return;
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.stopPropagation();
-              e.preventDefault();
-              const clickId = contact?.id || owner?.id;
-              if (clickId) onContactClick!(clickId);
-            }
-          }}
-          onMouseDown={(e) => isContactClickable && e.stopPropagation()}
-          onPointerDown={(e) => isContactClickable && e.stopPropagation()}
-        >
-          <Avatar className="h-4 w-4 rounded">
-            <AvatarImage src={displayOwner.avatarUrl} />
-            <AvatarFallback className="text-[9px] bg-cyan-500 text-white rounded">
-              {getInitials(displayOwner.name || displayOwner.email || 'U')}
-            </AvatarFallback>
-          </Avatar>
-          <span className={cn(
-            "text-sm text-gray-600 dark:text-muted-foreground truncate",
-            isContactClickable && "hover:underline underline-offset-2"
-          )}>
-            {displayOwner.name || displayOwner.email}
-          </span>
-        </div>
+        <DealOwnerRow displayOwner={displayOwner} contact={contact} owner={owner} onContactClick={onContactClick} />
       )}
 
       {/* Deal Value */}
@@ -261,12 +258,7 @@ export function DealCard({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
       {...listeners}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
       className={cn(
         "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
         "hover:bg-gray-50 dark:hover:bg-secondary/70 cursor-grab active:cursor-grabbing w-full",
@@ -276,6 +268,16 @@ export function DealCard({
         onClick && "cursor-pointer"
       )}
     >
+      {onClick && !isSortableDragging ? (
+        <button
+          type="button"
+          aria-label={title || t('sweep.weldcrm.dealCard.untitledDeal')}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onClick={handleClick}
+          className="absolute inset-0 rounded-lg cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      ) : null}
       {isSortableDragging ? (
         <div className="invisible">{cardContent}</div>
       ) : (

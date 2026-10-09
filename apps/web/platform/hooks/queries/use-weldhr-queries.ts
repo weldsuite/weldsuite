@@ -22,6 +22,7 @@ import type {
 import type {
   CreateHrAbsenceInput,
   CreateHrAttendanceInput,
+  CreateHrDeclarationInput,
   CreateHrDepartmentInput,
   CreateHrEmployeeFromMemberInput,
   CreateHrEmployeeInput,
@@ -32,13 +33,16 @@ import type {
   HrSelfServiceAbsenceInput,
   HrSelfServiceAcknowledgeInput,
   HrSelfServiceClockInput,
+  HrSelfServiceDeclarationInput,
   HrSelfServiceLeaveRequestInput,
   ImportHrAttendanceInput,
   InviteHrPortalAccessInput,
   RecoverHrAbsenceInput,
+  ReviewHrDeclarationInput,
   ReviewHrLeaveRequestInput,
   UpdateHrAbsenceInput,
   UpdateHrAttendanceInput,
+  UpdateHrDeclarationInput,
   UpdateHrEmployeeInput,
   UpdateHrPortalSettingsInput,
 } from '@weldsuite/app-api-client/schemas/weldhr';
@@ -57,6 +61,7 @@ export const weldhrKeys = {
   leaveBalances: (employeeId: string, year: number) => [...weldhrKeys.all, 'leave-balances', employeeId, year] as const,
   leaveRequests: (params: object) => [...weldhrKeys.all, 'leave-requests', params] as const,
   absences: (params: object) => [...weldhrKeys.all, 'absences', params] as const,
+  declarations: (params: object) => [...weldhrKeys.all, 'declarations', params] as const,
   portalSettings: () => [...weldhrKeys.all, 'portal-settings'] as const,
   portalAccess: (params: object) => [...weldhrKeys.all, 'portal-access', params] as const,
   availableMembers: (params: object) => [...weldhrKeys.all, 'available-members', params] as const,
@@ -361,6 +366,89 @@ export function useDeleteHrAbsence() {
 }
 
 // ---------------------------------------------------------------------------
+// Declarations (expense claims)
+// ---------------------------------------------------------------------------
+
+export function useHrDeclarations(params: { employeeId?: string; status?: string; category?: string; from?: string; to?: string } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({ queryKey: weldhrKeys.declarations(params), queryFn: () => weldhr.listDeclarations(params), select: (r) => r.data });
+}
+
+/**
+ * File a declaration. The receipt is a second request to the new record; when
+ * only that part fails the declaration is kept and `receiptFailed` says so.
+ */
+export function useCreateHrDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(async ({ receipt, ...input }: CreateHrDeclarationInput & { receipt?: File | null }) => {
+    const { data } = await weldhr.createDeclaration(input);
+    if (!receipt) return { declaration: data, receiptFailed: false };
+    try {
+      return { declaration: (await weldhr.uploadDeclarationReceipt(data.id, receipt)).data, receiptFailed: false };
+    } catch {
+      return { declaration: data, receiptFailed: true };
+    }
+  });
+}
+
+export function useUpdateHrDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: UpdateHrDeclarationInput & { id: string }) => weldhr.updateDeclaration(id, input));
+}
+
+export function useUploadHrDeclarationReceipt() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, file }: { id: string; file: File }) => weldhr.uploadDeclarationReceipt(id, file));
+}
+
+export function useReviewHrDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: ReviewHrDeclarationInput & { id: string }) => weldhr.reviewDeclaration(id, input));
+}
+
+export function useMarkHrDeclarationPaid() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.markDeclarationPaid(id));
+}
+
+export function useCancelHrDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.cancelDeclaration(id));
+}
+
+export function useDeleteHrDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.deleteDeclaration(id));
+}
+
+/**
+ * Receipts are private files behind the session, so there is no URL to link
+ * to: fetch the bytes and hand them to the browser as a download.
+ */
+function saveReceipt(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+type ReceiptRef = { id: string; receiptFileName: string | null };
+
+export function useOpenHrDeclarationReceipt() {
+  const { weldhr } = useAppApi();
+  return useMutation<void, Error, ReceiptRef>({
+    mutationFn: async ({ id, receiptFileName }) => {
+      const response = await weldhr.declarationReceipt(id);
+      saveReceipt(await response.blob(), receiptFileName ?? 'receipt');
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Portal
 // ---------------------------------------------------------------------------
 
@@ -478,6 +566,16 @@ export function useMyHrAbsences(opts: { enabled?: boolean } = {}) {
   });
 }
 
+export function useMyHrDeclarations(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('declarations'),
+    queryFn: () => weldhr.meDeclarations(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
 export function useMyHrReportSick() {
   const { weldhr } = useAppApi();
   return useHrMutation((input: HrSelfServiceAbsenceInput) => weldhr.meReportSick(input));
@@ -486,6 +584,35 @@ export function useMyHrReportSick() {
 export function useMyHrReportRecovered() {
   const { weldhr } = useAppApi();
   return useHrMutation(({ id, ...input }: RecoverHrAbsenceInput & { id: string }) => weldhr.meReportRecovered(id, input));
+}
+
+/** Same two-step filing as `useCreateHrDeclaration`, for the caller's own record. */
+export function useMyHrCreateDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(async ({ receipt, ...input }: HrSelfServiceDeclarationInput & { receipt?: File | null }) => {
+    const { data } = await weldhr.meCreateDeclaration(input);
+    if (!receipt) return { declaration: data, receiptFailed: false };
+    try {
+      return { declaration: (await weldhr.meUploadDeclarationReceipt(data.id, receipt)).data, receiptFailed: false };
+    } catch {
+      return { declaration: data, receiptFailed: true };
+    }
+  });
+}
+
+export function useMyHrCancelDeclaration() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.meCancelDeclaration(id));
+}
+
+export function useMyHrOpenDeclarationReceipt() {
+  const { weldhr } = useAppApi();
+  return useMutation<void, Error, ReceiptRef>({
+    mutationFn: async ({ id, receiptFileName }) => {
+      const response = await weldhr.meDeclarationReceipt(id);
+      saveReceipt(await response.blob(), receiptFileName ?? 'receipt');
+    },
+  });
 }
 
 export function useMyHrTasks(opts: { enabled?: boolean } = {}) {

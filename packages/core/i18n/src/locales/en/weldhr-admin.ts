@@ -74,6 +74,7 @@ export const weldhrAdmin = {
       clientPortalEnabled: 'Client portal enabled',
       employeeSelfClockIn: 'Employees can clock in/out from the portal',
       employeeLeaveRequests: 'Employees can request leave from the portal',
+      employeeDeclarations: 'Employees can submit expense declarations from the portal',
       clientCanSeeIndividualScores: 'Clients can see individual scores',
       clientCanSeeIndividualScoresHint: 'Off shows clients team averages only, never a named employee’s score.',
       saved: 'Portal settings saved',

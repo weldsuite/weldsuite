@@ -114,10 +114,12 @@ export const navigation = {
         attendance: 'Attendance',
         absenteeism: 'Absenteeism',
         leave: 'Leave',
+        declarations: 'Declarations',
         portal: 'Workforce portal',
         groups: {
           people: 'People',
           time: 'Time',
+          expenses: 'Expenses',
         },
       },
       weldhost: {

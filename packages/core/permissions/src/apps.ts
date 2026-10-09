@@ -151,7 +151,7 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
   {
     code: 'weldhr',
     label: 'WeldHR',
-    objects: ['employees', 'attendance', 'leave', 'absences', 'coaching', 'evaluations', 'companies', 'people'],
+    objects: ['employees', 'attendance', 'leave', 'declarations', 'absences', 'coaching', 'evaluations', 'companies', 'people'],
   },
 ];
 

@@ -202,7 +202,7 @@ export function EntityDataTable<T extends { id: string } = { id: string }>({
 
   // Handle column resize start
   const handleResizeStart = useCallback(
-    (e: React.MouseEvent, columnKey: string) => {
+    (e: React.PointerEvent, columnKey: string) => {
       e.preventDefault();
       e.stopPropagation();
       const column = columns.find((c) => c.key === columnKey);
@@ -222,7 +222,7 @@ export function EntityDataTable<T extends { id: string } = { id: string }>({
   useEffect(() => {
     if (!isResizing) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!resizingRef.current) return;
 
       const { columnKey, startX, startWidth } = resizingRef.current;
@@ -238,17 +238,19 @@ export function EntityDataTable<T extends { id: string } = { id: string }>({
       }));
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       resizingRef.current = null;
       setIsResizing(false);
     };
 
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerUp);
 
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [isResizing, columns]);
 
@@ -827,7 +829,7 @@ export function EntityDataTable<T extends { id: string } = { id: string }>({
                         {isResizable && !isLastColumn && (
                           <div
                             className="absolute right-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
-                            onMouseDown={(e) => handleResizeStart(e, col.key)}
+                            onPointerDown={(e) => handleResizeStart(e, col.key)}
                             style={{ touchAction: "none" }}
                           />
                         )}

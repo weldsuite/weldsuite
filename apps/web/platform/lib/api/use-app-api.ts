@@ -116,6 +116,7 @@ export function useAppApi() {
       put: handler('put'),
       patch: handler('patch'),
       delete: handler('delete'),
+      postForm: handler('postForm'),
     } as ClientApi;
   }, [getClient]);
 

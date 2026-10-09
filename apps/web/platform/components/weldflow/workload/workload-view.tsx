@@ -43,7 +43,6 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 // Internal types derived from API data
 interface TeamMember {
@@ -238,39 +237,38 @@ const TeamMemberSidebarItem = memo(({
   }, [tasks, member.id]);
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="border-b border-border/50 flex items-center gap-3 px-3 cursor-pointer hover:bg-secondary/50"
+    <button
+      type="button"
+      aria-expanded={isExpanded}
+      className="w-full text-left border-b border-border/50 flex items-center gap-3 px-3 cursor-pointer hover:bg-secondary/50"
       style={{ height: rowHeight }}
       onClick={onToggle}
-      onKeyDown={activateOnKey(() => onToggle())}
     >
-      <Button variant="ghost" className="h-5 w-5 flex items-center justify-center text-muted-foreground rounded-[5px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors p-0">
+      <span className="h-5 w-5 flex items-center justify-center text-muted-foreground rounded-[5px] hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
         {isExpanded ? (
           <ChevronDown className="h-3.5 w-3.5" />
         ) : (
           <ChevronRight className="h-3.5 w-3.5" />
         )}
-      </Button>
+      </span>
       <Avatar className="h-[30px] w-[30px] rounded-lg -ml-1">
         {member.image && <AvatarImage src={member.image} className="rounded-lg" />}
         <AvatarFallback className="rounded-lg text-xs">{(member.name ?? '?').slice(0, 2)}</AvatarFallback>
       </Avatar>
-      <div className="flex-1 min-w-0 -space-y-px -ml-1">
-        <p className="text-sm font-medium truncate">{member.name}</p>
-        <p className="text-xs text-muted-foreground">{member.role}</p>
-      </div>
-      <div className="text-right space-y-0.5">
-        <p className={cn(
-          "text-xs font-medium",
+      <span className="block flex-1 min-w-0 -space-y-px -ml-1">
+        <span className="block text-sm font-medium truncate">{member.name}</span>
+        <span className="block text-xs text-muted-foreground">{member.role}</span>
+      </span>
+      <span className="block text-right space-y-0.5">
+        <span className={cn(
+          "block text-xs font-medium",
           workloadTextClass(avgWorkload, member.hoursPerDay)
         )}>
           {avgWorkload.toFixed(1)}h / {member.hoursPerDay}h
-        </p>
-        <p className="text-xs text-muted-foreground">{memberTasks.length} tasks</p>
-      </div>
-    </div>
+        </span>
+        <span className="block text-xs text-muted-foreground">{memberTasks.length} tasks</span>
+      </span>
+    </button>
   );
 });
 
@@ -1192,21 +1190,20 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
               return (
                 <div key={member.id}>
                   {/* Mobile team member header - only visible on mobile */}
-                  <div
-                    className="md:hidden flex items-center gap-2 px-3 py-2 bg-background border-b border-border cursor-pointer sticky left-0 z-20"
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    className="md:hidden flex items-center gap-2 px-3 py-2 bg-background border-b border-border cursor-pointer sticky left-0 z-20 text-left"
                     style={{ width: '100vw', maxWidth: '100vw' }}
-                    role="button"
-                    tabIndex={0}
                     onClick={() => toggleMember(member.id)}
-                    onKeyDown={activateOnKey(() => toggleMember(member.id))}
                   >
-                    <Button variant="ghost" className="h-5 w-5 flex items-center justify-center text-muted-foreground p-0">
+                    <span className="h-5 w-5 flex items-center justify-center text-muted-foreground">
                       {isExpanded ? (
                         <ChevronDown className="h-3.5 w-3.5" />
                       ) : (
                         <ChevronRight className="h-3.5 w-3.5" />
                       )}
-                    </Button>
+                    </span>
                     <Avatar className="h-6 w-6 rounded-md">
                       {member.image && <AvatarImage src={member.image} className="rounded-md" />}
                       <AvatarFallback className="rounded-md text-[10px]">{member.name.slice(0, 2)}</AvatarFallback>
@@ -1218,7 +1215,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                     )}>
                       {avgWorkload.toFixed(1)}h / {member.hoursPerDay}h
                     </span>
-                  </div>
+                  </button>
                   {/* Workload area chart row */}
                   <div
                     className="relative border-b border-border"

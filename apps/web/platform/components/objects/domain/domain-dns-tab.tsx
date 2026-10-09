@@ -650,11 +650,11 @@ export function DomainDnsTab({
                 <div className="flex items-center justify-end gap-0.5">
                   {record.syncError && (
                     <span
-                      role="img"
-                      aria-label={record.syncError}
                       className="mr-0.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-red-500"
                       title={record.syncError}
-                    />
+                    >
+                      <span className="sr-only">{record.syncError}</span>
+                    </span>
                   )}
                   {(canEdit || canDelete) && (
                     <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

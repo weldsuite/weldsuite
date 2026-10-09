@@ -75,6 +75,7 @@ export const weldhrAdmin = {
       clientPortalEnabled: 'Klantportaal ingeschakeld',
       employeeSelfClockIn: 'Medewerkers kunnen in-/uitklokken vanuit het portaal',
       employeeLeaveRequests: 'Medewerkers kunnen verlof aanvragen vanuit het portaal',
+      employeeDeclarations: 'Medewerkers kunnen declaraties indienen vanuit het portaal',
       clientCanSeeIndividualScores: 'Klanten kunnen individuele scores zien',
       clientCanSeeIndividualScoresHint: 'Uit toont klanten alleen teamgemiddelden, nooit de score van een met naam genoemde medewerker.',
       saved: 'Portaalinstellingen opgeslagen',

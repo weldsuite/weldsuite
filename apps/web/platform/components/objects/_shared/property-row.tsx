@@ -28,6 +28,7 @@ import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } f
 import { Check, Flag, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
+import { RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -42,6 +43,9 @@ import { MemberSelect } from '@/components/team/member-select';
 import { STATUS_STYLE_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
 
 type PropertyRowType = 'text' | 'email' | 'phone' | 'url' | 'address';
+
+/** Links and buttons in read-only values stay clickable above the "edit" overlay button. */
+const KEEP_CONTROLS_ABOVE_OVERLAY = '[&_:is(a,button)]:relative [&_:is(a,button)]:z-[1]';
 
 export interface PropertyRowProps {
   icon: ComponentType<{ className?: string }>;
@@ -218,23 +222,11 @@ export function PropertyRow({
           // identical once the border is drawn (the border eats into the
           // padding rather than growing the box).
           'text-sm min-w-0 flex items-center min-h-[32px] rounded-[9px] -mx-2 px-2 box-border',
-          editable && !isEditing && 'cursor-text hover:bg-muted/50 transition-colors',
+          editable && !isEditing && cn('relative cursor-text hover:bg-muted/50 transition-colors', KEEP_CONTROLS_ABOVE_OVERLAY),
           isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
-        onClick={() => {
-          if (editable && !isEditing) setIsEditing(true);
-        }}
-        role={editable && !isEditing ? 'button' : undefined}
-        tabIndex={editable && !isEditing ? 0 : undefined}
-        onKeyDown={(e) => {
-          if (!editable || isEditing) return;
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setIsEditing(true);
-          }
-        }}
       >
+        {editable && !isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
         {isEditing ? renderEditor() : renderReadMode()}
       </div>
       <div className="text-muted-foreground">
@@ -402,16 +394,11 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
       <div
         className={cn(
           'min-w-0 -mx-2 px-2 rounded-[9px] box-border flex flex-wrap items-center gap-1 min-h-[32px] py-1',
-          !isEditing && 'cursor-text hover:bg-muted/50 transition-colors',
+          !isEditing && 'relative cursor-text hover:bg-muted/50 transition-colors',
           isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
-        onClick={() => setIsEditing(true)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (!isEditing && e.key === 'Enter') setIsEditing(true);
-        }}
       >
+        {!isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
         {tags.length === 0 && !isEditing && (
           <span className="text-muted-foreground/70 text-sm">
             {placeholder ?? t('sweep.entities.setFieldPlaceholder', { label })}

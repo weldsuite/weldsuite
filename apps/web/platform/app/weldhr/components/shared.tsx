@@ -87,6 +87,15 @@ export function formatKpiValue(value: number | null | undefined, unit: HrKpiUnit
   }
 }
 
+/** 12.5 + "EUR" → "€12.50" in the viewer's locale; an unknown currency code falls back to "12.50 XYZ". */
+export function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+  } catch {
+    return `${amount.toFixed(2)} ${currency}`;
+  }
+}
+
 export function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -134,6 +143,8 @@ const STATUS_TONE: Record<string, Tone> = {
   cancelled: 'secondary',
   // sick reports (`completed` is shared with checklists below)
   ongoing: 'outline',
+  // declarations (shares pending / approved / rejected / cancelled with leave)
+  paid: 'secondary',
   // coaching / evaluations
   open: 'outline',
   acknowledged: 'default',

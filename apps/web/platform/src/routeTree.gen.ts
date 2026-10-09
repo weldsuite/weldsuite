@@ -110,6 +110,7 @@ import { Route as WeldhrPortalIndexRouteImport } from './routes/weldhr/portal/in
 import { Route as WeldhrMeIndexRouteImport } from './routes/weldhr/me/index'
 import { Route as WeldhrLeaveIndexRouteImport } from './routes/weldhr/leave/index'
 import { Route as WeldhrEmployeesIndexRouteImport } from './routes/weldhr/employees/index'
+import { Route as WeldhrDeclarationsIndexRouteImport } from './routes/weldhr/declarations/index'
 import { Route as WeldhrAttendanceIndexRouteImport } from './routes/weldhr/attendance/index'
 import { Route as WeldhrAbsenteeismIndexRouteImport } from './routes/weldhr/absenteeism/index'
 import { Route as WeldhostDomainsIndexRouteImport } from './routes/weldhost/domains/index'
@@ -965,6 +966,11 @@ const WeldhrLeaveIndexRoute = WeldhrLeaveIndexRouteImport.update({
 const WeldhrEmployeesIndexRoute = WeldhrEmployeesIndexRouteImport.update({
   id: '/employees/',
   path: '/employees/',
+  getParentRoute: () => WeldhrRouteRoute,
+} as any)
+const WeldhrDeclarationsIndexRoute = WeldhrDeclarationsIndexRouteImport.update({
+  id: '/declarations/',
+  path: '/declarations/',
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
 const WeldhrAttendanceIndexRoute = WeldhrAttendanceIndexRouteImport.update({
@@ -3155,6 +3161,7 @@ export interface FileRoutesByFullPath {
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism/': typeof WeldhrAbsenteeismIndexRoute
   '/weldhr/attendance/': typeof WeldhrAttendanceIndexRoute
+  '/weldhr/declarations/': typeof WeldhrDeclarationsIndexRoute
   '/weldhr/employees/': typeof WeldhrEmployeesIndexRoute
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/me/': typeof WeldhrMeIndexRoute
@@ -3570,6 +3577,7 @@ export interface FileRoutesByTo {
   '/weldhost/domains': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism': typeof WeldhrAbsenteeismIndexRoute
   '/weldhr/attendance': typeof WeldhrAttendanceIndexRoute
+  '/weldhr/declarations': typeof WeldhrDeclarationsIndexRoute
   '/weldhr/employees': typeof WeldhrEmployeesIndexRoute
   '/weldhr/leave': typeof WeldhrLeaveIndexRoute
   '/weldhr/me': typeof WeldhrMeIndexRoute
@@ -4021,6 +4029,7 @@ export interface FileRoutesById {
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism/': typeof WeldhrAbsenteeismIndexRoute
   '/weldhr/attendance/': typeof WeldhrAttendanceIndexRoute
+  '/weldhr/declarations/': typeof WeldhrDeclarationsIndexRoute
   '/weldhr/employees/': typeof WeldhrEmployeesIndexRoute
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/me/': typeof WeldhrMeIndexRoute
@@ -4474,6 +4483,7 @@ export interface FileRouteTypes {
     | '/weldhost/domains/'
     | '/weldhr/absenteeism/'
     | '/weldhr/attendance/'
+    | '/weldhr/declarations/'
     | '/weldhr/employees/'
     | '/weldhr/leave/'
     | '/weldhr/me/'
@@ -4889,6 +4899,7 @@ export interface FileRouteTypes {
     | '/weldhost/domains'
     | '/weldhr/absenteeism'
     | '/weldhr/attendance'
+    | '/weldhr/declarations'
     | '/weldhr/employees'
     | '/weldhr/leave'
     | '/weldhr/me'
@@ -5339,6 +5350,7 @@ export interface FileRouteTypes {
     | '/weldhost/domains/'
     | '/weldhr/absenteeism/'
     | '/weldhr/attendance/'
+    | '/weldhr/declarations/'
     | '/weldhr/employees/'
     | '/weldhr/leave/'
     | '/weldhr/me/'
@@ -6329,6 +6341,13 @@ declare module '@tanstack/react-router' {
       path: '/employees'
       fullPath: '/weldhr/employees/'
       preLoaderRoute: typeof WeldhrEmployeesIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
+    '/weldhr/declarations/': {
+      id: '/weldhr/declarations/'
+      path: '/declarations'
+      fullPath: '/weldhr/declarations/'
+      preLoaderRoute: typeof WeldhrDeclarationsIndexRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
     '/weldhr/attendance/': {
@@ -9691,6 +9710,7 @@ interface WeldhrRouteRouteChildren {
   WeldhrIndexRoute: typeof WeldhrIndexRoute
   WeldhrAbsenteeismIndexRoute: typeof WeldhrAbsenteeismIndexRoute
   WeldhrAttendanceIndexRoute: typeof WeldhrAttendanceIndexRoute
+  WeldhrDeclarationsIndexRoute: typeof WeldhrDeclarationsIndexRoute
   WeldhrEmployeesIndexRoute: typeof WeldhrEmployeesIndexRoute
   WeldhrLeaveIndexRoute: typeof WeldhrLeaveIndexRoute
   WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
@@ -9703,6 +9723,7 @@ const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
   WeldhrIndexRoute: WeldhrIndexRoute,
   WeldhrAbsenteeismIndexRoute: WeldhrAbsenteeismIndexRoute,
   WeldhrAttendanceIndexRoute: WeldhrAttendanceIndexRoute,
+  WeldhrDeclarationsIndexRoute: WeldhrDeclarationsIndexRoute,
   WeldhrEmployeesIndexRoute: WeldhrEmployeesIndexRoute,
   WeldhrLeaveIndexRoute: WeldhrLeaveIndexRoute,
   WeldhrMeIndexRoute: WeldhrMeIndexRoute,
