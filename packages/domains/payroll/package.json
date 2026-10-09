@@ -17,7 +17,8 @@
     "./sepa": "./src/sepa.ts",
     "./nacha": "./src/nacha.ts",
     "./payslip-pdf": "./src/payslip-pdf.ts",
-    "./documents": "./src/documents.ts"
+    "./documents": "./src/documents.ts",
+    "./labels": "./src/labels.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
