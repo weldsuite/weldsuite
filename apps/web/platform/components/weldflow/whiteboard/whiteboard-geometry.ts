@@ -1214,7 +1214,8 @@ function createTouchCircle(start: Point, end: Point, style: ShapeStyle): Whitebo
 }
 
 function createTouchArrow(start: Point, end: Point, style: ShapeStyle): WhiteboardElement | null {
-  if (!(distanceBetween(start, end) > MIN_TOUCH_SHAPE_SIZE)) return null;
+  const length = distanceBetween(start, end);
+  if (Number.isNaN(length) || length <= MIN_TOUCH_SHAPE_SIZE) return null;
   return {
     id: Date.now().toString(),
     type: 'arrow',
