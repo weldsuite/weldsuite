@@ -4,6 +4,7 @@ import { Menu, Home } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import { useMobileNav } from '@/contexts/mobile-nav-context';
+import { useWeldMeetCallOptional } from '@/contexts/weldmeet-call-context';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -15,6 +16,9 @@ export function MobileHeader({ className }: Readonly<MobileHeaderProps>) {
   const t = useTranslations();
   const { isOpen, toggleOpen, moduleInfo, showWeldAgent, toggleWeldAgent, headerVariant } = useMobileNav();
   const { resolvedTheme } = useTheme();
+  const meetCall = useWeldMeetCallOptional();
+  const meetingFullscreen =
+    !!meetCall?.isFullscreen && meetCall.status !== 'idle' && meetCall.status !== 'ended';
   const isDark = resolvedTheme === 'dark';
 
   const Icon = moduleInfo?.icon || Home;
@@ -25,6 +29,10 @@ export function MobileHeader({ className }: Readonly<MobileHeaderProps>) {
   // Not every module has a wordmark (see the icon-only logos in app-registry).
   const wordmark = useDarkLogo ? logo?.textDark : logo?.textLight;
   const logoIcon = useDarkLogo ? logo?.iconDark : logo?.iconLight;
+
+  // A fullscreen meeting brings its own header and sits in the content layer,
+  // below this one: step aside instead of covering its title and buttons.
+  if (meetingFullscreen) return null;
 
   return (
     <header

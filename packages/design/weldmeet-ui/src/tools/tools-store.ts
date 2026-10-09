@@ -95,6 +95,8 @@ export interface BreakoutState {
 export interface ToolsPrefs {
   /** Show captions on this viewer's screen, whatever the host policy says. */
   captions: boolean;
+  /** Play the tones on this viewer's device when the countdown ends. */
+  timerSound: boolean;
   translationEnabled: boolean;
   /** BCP 47 codes of the spoken language and the language to read it in. */
   translateFrom: string;
@@ -124,7 +126,7 @@ export function createInitialToolsState(): MeetingToolsState {
     timer: { status: 'idle', rev: 0, by: '', durationMs: 0, remainingMs: 0, endsAt: null, endedAt: null },
     questions: [],
     breakout: { active: false, rev: 0, by: '', rooms: [] },
-    prefs: { captions: false, translationEnabled: false, translateFrom: 'en', translateTo: defaultTargetLanguage() },
+    prefs: { captions: false, timerSound: true, translationEnabled: false, translateFrom: 'en', translateTo: defaultTargetLanguage() },
   };
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ImagePlus, Ban, Loader2, X, User, VideoOff } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import type { VirtualBackgroundType } from '../hooks/use-virtual-background';
+import { useIsMobile } from '../hooks/use-is-mobile';
 import type { MeetingPeer } from '../types';
 
 const PROFESSIONAL_BACKGROUNDS = [
@@ -184,23 +185,32 @@ export function BackgroundEffectsPanel({
   onRemove,
   onClose,
 }: Readonly<BackgroundEffectsPanelProps>) {
+  const isMobile = useIsMobile();
+
+  // Phone: a sheet over the whole meeting view, like the other meeting panels
+  // (a 380px dock is wider than the screen).
+  if (isMobile && !isOpen) return null;
+
   return (
     <div
-      className="flex-shrink-0 border-l flex flex-col min-h-0 overflow-hidden"
-      style={{
+      className={cn(
+        'flex flex-col min-h-0 overflow-hidden',
+        isMobile ? 'absolute inset-0 z-40 bg-background' : 'flex-shrink-0 border-l',
+      )}
+      style={isMobile ? undefined : {
         width: isOpen ? 380 : 0,
         opacity: isOpen ? 1 : 0,
         transition: 'width 300ms cubic-bezier(0.25, 0.1, 0.25, 1), opacity 200ms ease',
         willChange: 'width, opacity',
       }}
     >
-      <div className="w-[380px] flex flex-col min-h-0 h-full">
+      <div className={cn('flex flex-col min-h-0 h-full', isMobile ? 'w-full' : 'w-[380px]')}>
         {/* Header */}
         <div className="px-4 border-b flex-shrink-0 h-[53px] flex items-center justify-between">
           <span className="text-sm font-semibold">Backgrounds and effects</span>
           <div className="flex items-center gap-2">
             {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
-            <button onClick={onClose} className="p-1 rounded-md hover:bg-muted transition-colors">
+            <button onClick={onClose} className="p-1 max-md:p-2.5 max-md:-mr-1.5 rounded-md hover:bg-muted transition-colors">
               <X className="h-4 w-4 text-muted-foreground" />
             </button>
           </div>

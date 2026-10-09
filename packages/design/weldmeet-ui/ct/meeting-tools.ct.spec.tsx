@@ -38,8 +38,9 @@ test.describe('Meeting tools', () => {
     const guest = comp.getByTestId('peer-ben');
 
     await host.getByRole('button', { name: /^Timer/ }).click();
-    await host.getByRole('button', { name: '10 min' }).click();
-    await host.getByRole('button', { name: 'Start timer' }).click();
+    await expect(host.getByText('Enter time')).toBeVisible();
+    await host.getByRole('spinbutton', { name: 'Minutes' }).fill('10');
+    await host.getByRole('button', { name: 'Start', exact: true }).click();
 
     // The guest gets the countdown on the stage and on the Timer row.
     await expect(guest.getByRole('timer').first()).toContainText(/^(10:00|9:5\d)/);
@@ -47,14 +48,76 @@ test.describe('Meeting tools', () => {
 
     // The guest can look, but not control.
     await guest.getByRole('button', { name: /^Timer/ }).click();
-    await expect(guest.getByRole('button', { name: 'Stop' })).toHaveCount(0);
+    await expect(guest.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
     await expect(guest.getByRole('button', { name: 'Pause' })).toHaveCount(0);
 
     await host.getByRole('button', { name: 'Pause' }).click();
     await expect(guest.getByText('Paused').first()).toBeVisible();
+    await host.getByRole('button', { name: 'Resume' }).click();
+    await expect(host.getByRole('button', { name: 'Pause' })).toBeVisible();
 
-    await host.getByRole('button', { name: 'Stop' }).click();
+    // Cancel ends the countdown for everyone and brings the form back.
+    await host.getByRole('button', { name: 'Cancel' }).click();
     await expect(guest.getByRole('timer')).toHaveCount(0);
+    await expect(host.getByText('Enter time')).toBeVisible();
+  });
+
+  test('timer: minutes and seconds, the sound toggle, and +1 minute / Cancel only while it runs', async ({ mount, page }) => {
+    const comp = await mount(<ToolsHarness />);
+    const host = comp.getByTestId('peer-ada');
+    const guest = comp.getByTestId('peer-ben');
+
+    await host.getByRole('button', { name: /^Timer/ }).click();
+    const minutes = host.getByRole('spinbutton', { name: 'Minutes' });
+    const seconds = host.getByRole('spinbutton', { name: 'Seconds' });
+    const start = host.getByRole('button', { name: 'Start', exact: true });
+
+    // Nothing to count down from, or seconds that are not seconds: no start.
+    await minutes.fill('0');
+    await expect(start).toBeDisabled();
+    await seconds.fill('75');
+    await expect(start).toBeDisabled();
+
+    // With no countdown there is nothing to extend or cancel.
+    const addMinute = host.getByRole('button', { name: 'Add 1 minute' });
+    await expect(addMinute).toBeDisabled();
+    // Hovering still says what the button is for.
+    await addMinute.hover({ force: true });
+    await expect(page.getByRole('tooltip')).toHaveText('Add 1 minute');
+    await expect(host.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+    // The sound is this viewer's own choice, on until they turn it off.
+    const sound = host.getByRole('button', { name: 'Play a sound when the timer ends' });
+    await expect(sound).toHaveAttribute('aria-pressed', 'true');
+    await sound.click();
+    await expect(sound).toHaveAttribute('aria-pressed', 'false');
+
+    await minutes.fill('1');
+    await seconds.fill('30');
+    await start.click();
+    await expect(guest.getByRole('timer').first()).toContainText(/^1:(30|2\d)/);
+
+    // While it runs, "+" extends the countdown for everyone.
+    await host.getByRole('button', { name: 'Add 1 minute' }).click();
+    await expect(guest.getByRole('timer').first()).toContainText(/^2:(30|2\d)/);
+  });
+
+  test('in the right panel an open tool takes over the header, with one way back', async ({ mount }) => {
+    const comp = await mount(<ToolsHarness inRightPanel />);
+    const host = comp.getByTestId('peer-ada');
+
+    await expect(host.getByText('Meeting tools', { exact: true })).toBeVisible();
+    await host.getByRole('button', { name: /^Timer/ }).click();
+
+    // The panel title is now the tool's name; there is no second row for it.
+    await expect(host.getByText('Meeting tools', { exact: true })).toHaveCount(0);
+    await expect(host.getByText('Timer', { exact: true })).toHaveCount(1);
+    await expect(host.getByText('Enter time')).toBeVisible();
+    await expect(host.getByRole('button', { name: 'Back to meeting tools' })).toHaveCount(1);
+
+    await host.getByRole('button', { name: 'Back to meeting tools' }).click();
+    await expect(host.getByText('Meeting tools', { exact: true })).toBeVisible();
+    await expect(host.getByRole('button', { name: /^Q&A/ })).toBeVisible();
   });
 
   test('Q&A: a guest asks, the host upvotes and marks it answered', async ({ mount }) => {
@@ -85,20 +148,26 @@ test.describe('Meeting tools', () => {
     await expect(host.getByText('When do we ship?')).toHaveCount(0);
   });
 
-  test('polls: the host starts a poll, the guest votes, both see the result', async ({ mount }) => {
+  test('polls: the host starts a poll, the guest votes, both see the result', async ({ mount, page }) => {
     const comp = await mount(<ToolsHarness />);
     const host = comp.getByTestId('peer-ada');
     const guest = comp.getByTestId('peer-ben');
 
+    // Everyone gets the list toolbar; only the host gets "New poll" on it.
     await guest.getByRole('button', { name: /^Polls/ }).click();
+    await expect(guest.getByRole('button', { name: 'Filter' })).toBeVisible();
+    await expect(guest.getByText('No polls yet')).toBeVisible();
     await expect(guest.getByRole('button', { name: 'New poll' })).toHaveCount(0);
 
+    // The form opens in a dialog, which renders outside the host's panel.
     await host.getByRole('button', { name: /^Polls/ }).click();
-    await host.getByRole('button', { name: 'New poll' }).click();
-    await host.getByRole('textbox', { name: 'Question' }).fill('Coffee or tea?');
-    await host.getByRole('textbox', { name: 'Option 1' }).fill('Coffee');
-    await host.getByRole('textbox', { name: 'Option 2' }).fill('Tea');
-    await host.getByRole('button', { name: 'Start poll' }).click();
+    await host.getByRole('button', { name: 'New poll' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'New poll' });
+    await dialog.getByRole('textbox', { name: 'Question' }).fill('Coffee or tea?');
+    await dialog.getByRole('textbox', { name: 'Option 1' }).fill('Coffee');
+    await dialog.getByRole('textbox', { name: 'Option 2' }).fill('Tea');
+    await dialog.getByRole('button', { name: 'Start poll' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
 
     await expect(guest.getByText('Coffee or tea?')).toBeVisible();
     await guest.getByRole('button', { name: 'Tea' }).click();
@@ -147,7 +216,7 @@ test.describe('Meeting tools', () => {
     const guest = comp.getByTestId('peer-ben');
 
     await host.getByRole('button', { name: /^Timer/ }).click();
-    await host.getByRole('button', { name: 'Start timer' }).click();
+    await host.getByRole('button', { name: 'Start', exact: true }).click();
     await guest.getByRole('button', { name: /^Q&A/ }).click();
     await guest.getByRole('textbox', { name: 'Ask a question' }).fill('Is this recorded?');
     await guest.getByRole('button', { name: 'Ask', exact: true }).click();

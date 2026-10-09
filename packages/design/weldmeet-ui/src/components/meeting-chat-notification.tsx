@@ -159,7 +159,7 @@ export function MeetingChatNotification({
             }
           }}
           style={{ animation: 'meet-chat-note-in 200ms ease-out' }}
-          className="group pointer-events-auto flex w-[300px] cursor-pointer items-start gap-2.5 rounded-2xl border border-border bg-background/95 px-3 py-2.5 text-left shadow-lg backdrop-blur transition-colors hover:bg-muted/60"
+          className="group pointer-events-auto flex w-[300px] max-w-[calc(100vw-2rem)] cursor-pointer items-start gap-2.5 rounded-2xl border border-border bg-background/95 px-3 py-2.5 text-left shadow-lg backdrop-blur transition-colors hover:bg-muted/60"
         >
           <Avatar className="h-8 w-8 flex-shrink-0 !rounded-[10px]">
             {note.authorAvatar && (

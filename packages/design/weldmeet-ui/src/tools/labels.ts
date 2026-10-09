@@ -35,12 +35,14 @@ export interface MeetingToolsLabels {
   timer: {
     hostHint: string;
     idleHint: string;
-    presetMinutes: string;
+    enterTime: string;
     customMinutes: string;
+    seconds: string;
     start: string;
+    cancel: string;
+    sound: string;
     pause: string;
     resume: string;
-    stop: string;
     addMinute: string;
     paused: string;
     timeUp: string;
@@ -104,8 +106,18 @@ export interface MeetingToolsLabels {
     stageBadge: string;
   };
   polls: {
+    emptyTitle: string;
     empty: string;
     emptyHost: string;
+    searchPlaceholder: string;
+    noResultsTitle: string;
+    noResultsDescription: string;
+    filterVote: string;
+    filterVoted: string;
+    filterNotVoted: string;
+    filterVoting: string;
+    filterAnonymous: string;
+    filterNamed: string;
     newPoll: string;
     question: string;
     questionPlaceholder: string;
@@ -167,13 +179,15 @@ export const DEFAULT_MEETING_TOOLS_LABELS: MeetingToolsLabels = {
   timer: {
     hostHint: 'Everyone in the meeting sees the countdown.',
     idleHint: 'No timer is running. The host can start a countdown for everyone.',
-    presetMinutes: '{count} min',
+    enterTime: 'Enter time',
     customMinutes: 'Minutes',
-    start: 'Start timer',
+    seconds: 'Seconds',
+    start: 'Start',
+    cancel: 'Cancel',
+    sound: 'Play a sound when the timer ends',
     pause: 'Pause',
     resume: 'Resume',
-    stop: 'Stop',
-    addMinute: '+1 min',
+    addMinute: 'Add 1 minute',
     paused: 'Paused',
     timeUp: "Time's up",
     started: 'A {time} timer started',
@@ -236,8 +250,18 @@ export const DEFAULT_MEETING_TOOLS_LABELS: MeetingToolsLabels = {
     stageBadge: 'Breakout: {room}',
   },
   polls: {
-    empty: 'No polls yet. The host can start one.',
-    emptyHost: 'No polls yet. Create one to ask the audience.',
+    emptyTitle: 'No polls yet',
+    empty: 'The host can start one.',
+    emptyHost: 'Create one to ask the audience.',
+    searchPlaceholder: 'Search polls...',
+    noResultsTitle: 'No polls found',
+    noResultsDescription: "We couldn't find a poll matching your filter.",
+    filterVote: 'My vote',
+    filterVoted: 'Voted',
+    filterNotVoted: 'Not voted yet',
+    filterVoting: 'Voting',
+    filterAnonymous: 'Anonymous',
+    filterNamed: 'Named',
     newPoll: 'New poll',
     question: 'Question',
     questionPlaceholder: 'What do you want to ask?',
