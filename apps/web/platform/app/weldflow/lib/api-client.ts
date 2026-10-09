@@ -1525,7 +1525,7 @@ export const tablesApi = {
     } as ApiResponse<SheetSummary[]>;
   },
 
-  createTable: async (projectId: string, data: { name: string }) => {
+  createTable: async (projectId: string, data: { name: string; copyFromFileId?: string }) => {
     const res = await appApiPost<SheetFileRow>(`/project-sheets/${projectId}`, data);
     if (!res.success || !res.data) return res as unknown as ApiResponse<SheetSummary>;
     return {

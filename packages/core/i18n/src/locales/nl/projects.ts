@@ -359,6 +359,7 @@ export const projects = {
       newDocument: 'Nieuw document',
       openDocument: 'Document openen',
       documentTitle: 'Documenttitel',
+      backToDocuments: 'Documenten',
       noDocumentsYetList: 'Nog geen documenten',
       savingDocument: 'Opslaan…',
       savedDocument: 'Opgeslagen',
@@ -1650,6 +1651,12 @@ export const projects = {
       // table-tab-bar.tsx — dropdown
       renameTable: 'Hernoemen',
       deleteTable: 'Verwijderen',
+      duplicateTable: 'Dupliceren',
+      tableDuplicated: 'Blad gedupliceerd',
+      failedToDuplicateTable: 'Blad dupliceren mislukt',
+      tableCopyName: '{name} (kopie)',
+      deleteTableConfirmTitle: 'Blad verwijderen?',
+      deleteTableConfirmDesc: '"{name}" wordt verwijderd. Dit kan niet ongedaan worden gemaakt.',
       // formula-bar.tsx — placeholder
       formulaPlaceholder: 'Voer een waarde of formule in (=SOM, =ALS, ...)',
       // spreadsheet-context-menu.tsx — menu items

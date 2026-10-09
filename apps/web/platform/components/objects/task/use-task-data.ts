@@ -207,6 +207,13 @@ export function useUpdateTask(taskId: string) {
   });
 }
 
+/**
+ * Fired on `window` after a task is deleted from the panel. Pages that keep
+ * their task list in local state (Gantt, pipeline) listen and drop the row;
+ * react-query lists are covered by the invalidation below.
+ */
+export const TASK_DELETED_EVENT = 'weldflow:task-deleted';
+
 export function useDeleteTask(taskId: string) {
   const api = useAppApi();
   const qc = useQueryClient();
@@ -215,6 +222,7 @@ export function useDeleteTask(taskId: string) {
       await api.tasks.delete(taskId);
     },
     onSuccess: () => {
+      window.dispatchEvent(new CustomEvent(TASK_DELETED_EVENT, { detail: { id: taskId } }));
       qc.invalidateQueries({ queryKey: taskPanelKeys.all });
       invalidateAllTaskLists(qc);
     },

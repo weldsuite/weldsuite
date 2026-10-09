@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { toast } from 'sonner';
+import { TASK_DELETED_EVENT } from '@/components/objects/task/use-task-data';
 import { tasksApi, membersApi, stagesApi, labelsApi } from '@/app/weldflow/lib/api-client';
 import {
   Dialog,
@@ -796,6 +797,16 @@ const PipelinePage = () => {
   }, [projectId]);
 
   useEffect(() => { void loadData(); }, [loadData]);
+
+  // A task deleted from the task panel disappears from this list right away.
+  useEffect(() => {
+    const onDeleted = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+      if (id) setFeatures((prev) => prev.filter((f) => f.id !== id));
+    };
+    window.addEventListener(TASK_DELETED_EVENT, onDeleted);
+    return () => window.removeEventListener(TASK_DELETED_EVENT, onDeleted);
+  }, []);
 
   const statusToStageId = useMemo(() => buildStatusToStageId(columns), [columns]);
 
