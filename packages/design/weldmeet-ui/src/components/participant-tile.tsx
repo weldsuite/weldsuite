@@ -544,7 +544,7 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Reado
       onPointerCancel={onPointerUp}
       onDoubleClick={(e) => { e.stopPropagation(); setView({ scale: 1, x: 0, y: 0 }); }}
     >
-      {/* Click target (focus toggle): stretched button behind the overlay buttons. */}
+      {/* Click target (focus toggle): stretched button over the video, under the z-10 overlay buttons. */}
       {onClick && (
         <button
           type="button"
@@ -552,7 +552,7 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Reado
           aria-label={isSelf ? 'You are presenting' : `${name}'s screen`}
           aria-pressed={!!focused}
           onClick={handleClick}
-          className="absolute inset-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+          className="absolute inset-0 z-[1] rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
           style={{ cursor: zoomCursor ?? 'pointer' }}
         />
       )}
@@ -567,9 +567,6 @@ export function ScreenShareTile({ participant, isSelf, onClick, focused }: Reado
           transformOrigin: 'center center',
           transition: dragging ? 'none' : 'transform 90ms ease-out',
           cursor: zoomCursor,
-          // The transform puts the video above the click-target button; let
-          // pointer events fall through to it (pan/zoom live on the container).
-          pointerEvents: onClick ? 'none' : undefined,
         }}
       />
 

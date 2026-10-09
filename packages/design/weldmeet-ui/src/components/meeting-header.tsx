@@ -65,13 +65,23 @@ export function MeetingHeader({
 }: Readonly<MeetingHeaderProps>) {
   const [editingTitle, setEditingTitle] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
   const cancelTitleEditRef = useRef(false);
+  // Set when a keyboard key (Enter/Escape) ends the edit, so focus returns to
+  // the title button instead of falling back to the document.
+  const refocusTitleRef = useRef(false);
   const [draftTitle, setDraftTitle] = useState('');
   const [localTitle, setLocalTitle] = useState(meetingTitle);
 
   useEffect(() => {
     setLocalTitle(meetingTitle);
   }, [meetingTitle]);
+
+  useEffect(() => {
+    if (editingTitle || !refocusTitleRef.current) return;
+    refocusTitleRef.current = false;
+    titleButtonRef.current?.focus();
+  }, [editingTitle]);
 
   const displayTitle = localTitle;
   const titleEditable = !!onRenameMeeting;
@@ -154,14 +164,19 @@ export function MeetingHeader({
         type="text"
         value={draftTitle}
         maxLength={50}
-        aria-label={displayTitle}
+        aria-label="Meeting title"
         size={Math.max(draftTitle.length, 8)}
         className={cn(titleBaseClass, "border-gray-400 bg-transparent dark:border-gray-500", isMobile && "min-w-0")}
         onChange={(e) => setDraftTitle(e.target.value)}
         onBlur={commitTitleEdit}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            refocusTitleRef.current = true;
+            e.currentTarget.blur();
+          }
           if (e.key === 'Escape') {
+            refocusTitleRef.current = true;
             cancelTitleEditRef.current = true;
             setEditingTitle(false);
           }
@@ -171,6 +186,7 @@ export function MeetingHeader({
   } else if (titleEditable) {
     title = (
       <button
+        ref={titleButtonRef}
         type="button"
         className={cn(titleBaseClass, "border-transparent text-left hover:border-border cursor-text", titleTruncateClass)}
         onClick={startEditingTitle}
