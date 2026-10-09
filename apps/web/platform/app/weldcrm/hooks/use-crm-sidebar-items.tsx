@@ -121,6 +121,18 @@ function getIconName(icon: LucideIcon): string {
   return coloredSquareIcons.find((option) => option.value === icon)?.label ?? 'TrendingUp';
 }
 
+/** A stage as written by "Export pipeline" (all fields optional in a hand-edited file). */
+interface ImportedStage {
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  probability?: number | null;
+  position?: number | null;
+  isDefault?: boolean;
+  isWon?: boolean;
+  isLost?: boolean;
+}
+
 interface PageData {
   id: string;
   title: string;
@@ -139,11 +151,14 @@ async function createTemplateStages(
   client: Awaited<ReturnType<ReturnType<typeof useAppApiClient>['getClient']>>,
   pipelineId: string,
   templateId: string,
+  translate: (key: string) => string,
 ): Promise<void> {
   await Promise.all(
     getTemplateStages(templateId).map((stageData, i) =>
       client.post('/pipeline-stages', {
-        name: stageData.name,
+        name: stageData.nameKey
+          ? translate(`crm.sidebar.defaultStages.${stageData.nameKey}`)
+          : stageData.name,
         color: stageData.color,
         probability: stageData.probability,
         pipeline: pipelineId,
@@ -429,7 +444,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       if (pipeline?.id) {
         // Create template stages for the new pipeline
         const client = await getClient();
-        await createTemplateStages(client, pipeline.id, 'blank');
+        await createTemplateStages(client, pipeline.id, 'blank', t);
         const newPage: PageData = {
           id: pipeline.id,
           title: pipeline.name,
@@ -463,7 +478,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       if (pipeline?.id) {
         // Create template stages for the new pipeline
         const client = await getClient();
-        await createTemplateStages(client, pipeline.id, template.id);
+        await createTemplateStages(client, pipeline.id, template.id, t);
         const newPage: PageData = {
           id: pipeline.id,
           title: pipeline.name,
@@ -563,15 +578,20 @@ export function useCrmSidebarItems(isActive: boolean): {
         // Copy stages
         const stagesResult = await client.get<{ data?: PipelineStage[] }>(`/pipeline-stages?pipeline=${pageId}`);
         if (stagesResult.data) {
-          // Each copy keeps the original's position, so they can be created in parallel.
+          // Renumber 0..n-1 in the original's order: copying raw positions
+          // would carry over any ties, and the stages can then be created in
+          // parallel because each one carries its own explicit position.
+          const orderedStages = [...stagesResult.data].sort(
+            (a, b) => a.position - b.position,
+          );
           await Promise.all(
-            stagesResult.data.map((stage) =>
+            orderedStages.map((stage, i) =>
               client.post('/pipeline-stages', {
                 name: stage.name,
                 color: stage.color,
                 probability: stage.probability,
                 pipeline: pipeline.id,
-                position: stage.position,
+                position: i,
                 isWon: stage.isWon || false,
                 isLost: stage.isLost || false,
                 isDefault: stage.isDefault || false,
@@ -657,15 +677,21 @@ export function useCrmSidebarItems(isActive: boolean): {
         if (pipeline?.id) {
           // Create the stages
           const client = await getClient();
-          for (let i = 0; i < data.stages.length; i++) {
-            const stageData = data.stages[i];
+          // Sort by the file's positions (stable, so ties keep file order) and
+          // renumber 0..n-1 so an import never produces tied positions.
+          const importedStages = (data.stages as ImportedStage[])
+            .map((stage, index) => ({ stage, index }))
+            .sort((a, b) => (a.stage.position ?? a.index) - (b.stage.position ?? b.index))
+            .map(({ stage }) => stage);
+          for (let i = 0; i < importedStages.length; i++) {
+            const stageData = importedStages[i];
             await client.post('/pipeline-stages', {
               name: stageData.name,
               description: stageData.description,
               color: stageData.color,
-              probability: stageData.probability || 50,
+              probability: stageData.probability ?? 50,
               pipeline: pipeline.id,
-              position: stageData.position ?? i,
+              position: i,
               isDefault: stageData.isDefault || i === 0,
               isWon: stageData.isWon || false,
               isLost: stageData.isLost || false,
