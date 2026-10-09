@@ -12,20 +12,24 @@
  * terminated one) gets `{ employee: null }` from GET /me and a 404 elsewhere.
  * Clock-in, leave requests and expense declarations honour the same switches
  * as the portal (`hr_portal_settings.employee_self_clock_in` /
- * `employee_leave_requests` / `employee_declarations`).
+ * `employee_leave_requests` / `employee_declarations`); reporting sick and
+ * recovered is always available.
  */
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import {
+  hrPortalAbsenceSchema,
   hrPortalAcknowledgeSchema,
   hrPortalClockSchema,
   hrPortalDeclarationSchema,
   hrPortalLeaveRequestSchema,
+  recoverHrAbsenceSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import { error, success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
+import { employeeAbsences, recoverAbsence, reportSick } from '../../services/weldhr/absences';
 import {
   attachDeclarationReceipt,
   cancelDeclaration,
@@ -160,6 +164,24 @@ meRoutes.get('/declarations/:declarationId/receipt', async (c) => {
   return receiptResponse(
     await loadDeclarationReceipt(db(c), receiptBucket(c), workspaceIdOf(c), param(c, 'declarationId'), employeeId),
   );
+});
+
+// Reporting sick is not a switch like leave requests: an employee who is ill
+// has to be able to say so. The events carry the report id only (see routes/weldhr/absences.ts).
+meRoutes.get('/absences', async (c) => success(c, await employeeAbsences(db(c), await selfEmployeeId(c))));
+
+meRoutes.post('/absences', zValidator('json', hrPortalAbsenceSchema), async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const row = await reportSick(db(c), employeeId, c.req.valid('json'), actor(c));
+  emit(c, 'hr_absence', 'created', row.id);
+  return success(c, row, 201);
+});
+
+meRoutes.post('/absences/:absenceId/recover', zValidator('json', recoverHrAbsenceSchema), async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const row = await recoverAbsence(db(c), param(c, 'absenceId'), c.req.valid('json').endDate, actor(c), employeeId);
+  emit(c, 'hr_absence', 'recovered', row.id);
+  return success(c, row);
 });
 
 meRoutes.get('/tasks', async (c) => success(c, await employeeTasks(db(c), await selfEmployeeId(c))));

@@ -66,6 +66,10 @@ export const weldhr = {
       remote: 'Op afstand',
       half_day: 'Halve dag',
     },
+    absence: {
+      ongoing: 'Ziek',
+      completed: 'Hersteld',
+    },
     leave: {
       pending: 'In afwachting',
       approved: 'Goedgekeurd',

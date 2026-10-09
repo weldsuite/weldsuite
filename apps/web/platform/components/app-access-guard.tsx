@@ -30,12 +30,13 @@ const GUEST_ALLOWED_PREFIXES = ['/weldchat'];
 const GUEST_FALLBACK_PATH = '/weldchat';
 
 /**
- * Where EMPLOYEE members (WeldHR) may go: My HR, WeldChat and their own
- * account settings. Same idea as the guest list: the server ceiling is their
+ * Where EMPLOYEE members (WeldHR) may go: My HR, reporting sick, WeldChat and
+ * their own account settings. Same idea as the guest list: the server ceiling is their
  * fixed permission set, this only keeps them off pages that would 403.
  */
 const EMPLOYEE_ALLOWED_PREFIXES = [
   '/weldhr/me',
+  '/weldhr/absenteeism',
   '/weldchat',
   '/settings/appearance',
   '/settings/notifications',
