@@ -1,7 +1,7 @@
 # WeldHR: payroll for the Netherlands and the United States
 
-Status (9 October 2026): **being built as an own engine for both countries**
-(see "Build" below). The research, with sources, is in
+Status (9 October 2026): **built as an own engine for both countries, behind
+the `weldhr-payroll` flag** (see "Build" below). The research, with sources, is in
 [weldhr-payroll-research/](weldhr-payroll-research/README.md): Dutch and US
 payroll rules, Dutch and US providers, competitors, staffing and BPO
 specifics, and a map of the code payroll would plug into. The recommendation
@@ -50,19 +50,60 @@ Architecture:
   `hr_payslip`, `hr_payroll_filing` carry ids and status only.
 - **Flag** `weldhr-payroll` gates the screens and the API.
 
+How the engines were checked:
+
+- NL: reproduces every row of the Belastingdienst's 2026 white monthly and
+  daily tables, the special-reward percentages and the 2027 Prinsjesdag
+  monthly table (60,816 checks). The loonaangifte validates against the
+  official 2026 and 2027 XSDs; the SEPA file against ISO 20022
+  `pain.001.001.09.xsd`.
+- US: federal withholding matches all 15,845 cells of the 2026 Pub 15-T
+  wage-bracket tables (12 exact half-dollar ties the IRS rounds down; the
+  cents agree). State modules reproduce the worked examples in their
+  publications (CA EDD A–F, NYS-50-T, NJ-WT, IL-700-T, GA, NC-30, MA
+  Circular M).
+- Every parameter cites its source next to it in the rule files.
+
 Known limits of v1, to tell customers plainly:
 
 - NL: no CAO rules, no UPA pension returns, no green table (benefits,
-  pensions), no 4-weekly or weekly pay, no staffing (ABU/NBBU). The 2027 rates
-  are provisional until the Belastingdienst publishes the Prinsjesdag
-  calculation rules (13 October 2026) and the December version.
+  pensions) apart from the transitievergoeding, no 4-weekly or weekly pay, no
+  staffing (ABU/NBBU). 2027 runs on the Prinsjesdag rules with a
+  `provisional_rules` warning on every payslip until the December version;
+  a few 2027 values (maximum premium wage, Zvw percentages, minimum wage,
+  allowances, expat norms, DGA usual salary) still carry the 2026 figures.
 - US: no local taxes (NYC, Yonkers, PA EIT/LST, OH, MI, KY, MD counties, IN
-  counties, OR transit); no multi-state reciprocity beyond the work state; no
-  garnishments; the employer files and pays every return itself.
+  counties, OR transit); withholding for the work state only (a different
+  residence state raises a warning); no garnishments; no W-2c and no EFW2
+  upload file (SSA's 2026 layout could not be fetched); no W-2 box 14b
+  (tipped occupation). 2027 is refused until Pub 15-T 2027 is out. The 2026
+  California FUTA credit reduction is unset until the IRS publishes it
+  (after 10 November) and raises a warning.
+- Corrections: a correction run stores the difference against the original
+  payslips. It reads current data as of the corrected period, so base pay is
+  corrected through a retroactive compensation row. A US correction of a
+  previous year needs a W-2c, which is not built.
+- The Digipoort client is untested against Logius: until the owner has the
+  connection, employers download the loonaangifte XML and file it themselves.
 
-WeldHR runs employees, attendance, shifts, leave and a white-label portal for
-employees and client companies (`.claude/weldhr-plan.md`). It has no payroll.
-Pay is one number in the encrypted employee blob. This plan decides how deep
+Running it (beyond the migrations `0206_weldhr_payroll` and master
+`0051_payroll_usage_events`):
+
+- Flags in Flagship: `weldhr-payroll` (screens and API) and
+  `weldhr-payroll-digipoort` (sending the loonaangifte).
+- hr-api: the `BOOKS_INTERNAL` service binding (deploy books-api first);
+  `NL_SOFTWARE_RELATION_NUMBER` (WeldSuite's ODB `SWO#####`) is required to
+  generate any loonaangifte. For Digipoort: the PKIoverheid mTLS certificate
+  binding `DIGIPOORT_CERT`, `DIGIPOORT_AANLEVER_URL` / `DIGIPOORT_STATUS_URL`,
+  and the secrets `DIGIPOORT_SIGNING_KEY` and `DIGIPOORT_CERTIFICATE_DER`
+  (see the comments in `apps/workers/hr-api/wrangler.toml`).
+- Billing: `payroll_usage_events` (master) gets one row per final payslip;
+  correction payslips are not billed. A Stripe price per payslip is the next
+  step.
+
+Before this build, WeldHR ran employees, attendance, shifts, leave and a
+white-label portal for employees and client companies (`.claude/weldhr-plan.md`)
+but had no payroll: pay was one number in the encrypted employee blob. This plan decides how deep
 WeldSuite goes into payroll in the Netherlands and the United States, and in
 what order.
 
