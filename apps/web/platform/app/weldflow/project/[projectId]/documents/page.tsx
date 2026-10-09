@@ -25,7 +25,6 @@ import { useProjectPermissions } from '@/app/weldflow/contexts/project-permissio
 import { documentsApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
 import { toast } from 'sonner';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 interface DocumentItem {
   id: string;
@@ -182,12 +181,15 @@ export default function ProjectDocumentsPage() {
     return (
       <div
         key={item.id}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-        onClick={() => openDocument(item.id)}
-        onKeyDown={activateOnKey(() => openDocument(item.id))}
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
+        {/* Row click target: stretched button; the actions cell sits above it */}
+        <button
+          type="button"
+          aria-label={item.name || t.projects.documents.untitledDocument}
+          onClick={() => openDocument(item.id)}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
         <div className="flex-1 min-w-[300px] flex items-center gap-2">
           <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
           <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
@@ -206,7 +208,7 @@ export default function ProjectDocumentsPage() {
           <span className="text-sm text-gray-500">{formatDate(item.createdAt)}</span>
         </div>
 
-        <div role="presentation" className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
