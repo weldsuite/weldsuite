@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { toast } from 'sonner';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { useCreateProjectAnalyticsChart } from '@/hooks/queries/use-projects-queries';
 import { useI18n } from '@/lib/i18n/provider';
@@ -331,8 +332,9 @@ export default function ProjectsAnalyticsBuilderPage() {
         },
       });
       router.push(`/weldflow/analytics/${reportId}`);
-    } catch {
-      // Error handled by mutation
+    } catch (error) {
+      console.error('Failed to create chart:', error);
+      toast.error(t.projects.analyticsBuilder.saveChartFailed);
     }
   };
 

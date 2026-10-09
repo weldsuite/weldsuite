@@ -421,6 +421,8 @@ export const projects = {
       targetDate: 'Target Date',
       noGoals: 'No goals found',
       ourMission: 'Our mission',
+      loadFailed: 'Failed to load goals',
+      retry: 'Retry',
     },
 
     // Timesheets
@@ -570,6 +572,7 @@ export const projects = {
       chartTitle: 'Chart Title',
       chartDescription: 'Chart description',
       chartConfiguration: 'Chart Configuration',
+      saveChartFailed: 'Failed to add chart',
       close: 'Close',
       basicInformation: 'Basic Information',
       dataSource: 'Data Source',

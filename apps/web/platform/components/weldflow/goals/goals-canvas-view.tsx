@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import { Button } from '@weldsuite/ui/components/button';
 import { type Comment } from '@weldsuite/ui/components/entity-detail-panel';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
+import { projectKeys } from '@/hooks/queries/use-projects-queries';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
@@ -286,6 +288,21 @@ function GoalTypeTab({ active, icon, label, onSelect }: Readonly<GoalTypeTabProp
   );
 }
 
+/**
+ * Stable string form of the canvas state, used to detect whether the user has
+ * changed anything since the data was loaded / last saved. Autosave is driven
+ * by this diff so merely opening the canvas can never write to the server.
+ */
+function serializeCanvas(mission: MissionCard, goals: GoalCard[]): string {
+  return JSON.stringify({
+    mission,
+    goals: goals.map(goal => ({
+      ...goal,
+      dueDate: goal.dueDate instanceof Date ? goal.dueDate.toISOString() : goal.dueDate,
+    })),
+  });
+}
+
 interface GoalsCanvasViewProps {
   projectId: string;
   initialGoalsData: GoalsData;
@@ -296,6 +313,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const st = useTranslations();
   const { canWrite } = useProjectPermissions();
   const { getClient } = useAppApiClient();
+  const queryClient = useQueryClient();
   const { open: openObjectPanel } = useObjectPanel();
   const canvasRef = useRef<HTMLDivElement>(null);
   const [existingTasks] = useState<ExistingTask[]>(initialTasks);
@@ -317,6 +335,8 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     subGoals: []
   });
   const [goals, setGoals] = useState<GoalCard[]>(initialGoals);
+  // Snapshot of what the server is known to hold (what we loaded, or last saved).
+  const lastSyncedRef = useRef<string>(serializeCanvas(mission, initialGoals));
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null);
   const [showDetailsPanel, setShowDetailsPanel] = useState(false);
   const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
@@ -513,8 +533,10 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
     }
   }, [isInitialLoad, goals, mission]);
 
-  // Save function
+  // Save function. Returns early (never writes) when there is no project to save to.
   const saveGoals = useCallback(async () => {
+    if (!projectId) return;
+    const snapshot = serializeCanvas(mission, goals);
     try {
       // Convert goals back to GoalCardType for saving (dates as strings)
       const goalsToSave: GoalsData = {
@@ -531,28 +553,34 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
       // takes the same `{ mission, goals }` body and answers `{ data: { id } }`.
       // The client throws on a non-2xx, so a resolved promise means the save landed.
       await client.put<{ data: { id: string } }>(
-        `/goals/by-project/${projectId}`,
+        `/goals/by-project/${encodeURIComponent(projectId)}`,
         goalsToSave
       );
+      lastSyncedRef.current = snapshot;
+      // Keep the cached copy in step so re-opening the tab never seeds the canvas
+      // (and therefore the next autosave) with stale pre-edit data.
+      queryClient.setQueryData(projectKeys.goals(projectId), { data: goalsToSave });
       // Silent success - no toast for auto-saves
     } catch (error) {
       console.error('Failed to save goals:', error);
       toast.error(st('sweep.weldflow.goalsCanvas.saveFailed'));
-    } finally {
     }
-  }, [mission, goals, getClient, projectId, st]);
+  }, [mission, goals, getClient, projectId, queryClient, st]);
 
-  // Auto-save when goals or mission change (debounced)
+  // Auto-save when the user changes goals or mission (debounced). Only fires when
+  // the canvas differs from what was loaded/last saved, so loading the page (or
+  // layout-only effects) never overwrites server data, and a canvas without a
+  // project or without write access never saves at all.
   useEffect(() => {
-    // Skip auto-save on initial load
-    if (isInitialLoad) return;
+    if (!projectId || !canWrite) return;
+    if (serializeCanvas(mission, goals) === lastSyncedRef.current) return;
 
     const timeoutId = setTimeout(() => {
       saveGoals();
     }, 1500); // Save 1.5 seconds after last change
 
     return () => clearTimeout(timeoutId);
-  }, [goals, mission, isInitialLoad, saveGoals]);
+  }, [goals, mission, projectId, canWrite, saveGoals]);
 
   // Handle comments section resize
   const commentsHeightRef = useRef(commentsHeight);

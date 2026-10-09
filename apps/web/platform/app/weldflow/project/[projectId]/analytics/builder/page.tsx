@@ -2,6 +2,7 @@
 import React, { useState, useTransition } from 'react';
 import { useRouter, useSearchParams, useParams } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import { toast } from 'sonner';
 import { analyticsApi } from '@/app/weldflow/lib/api-client';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
@@ -208,9 +209,12 @@ export default function ProjectAnalyticsBuilderPage() {
 
         if (result.success) {
           router.push(`${basePath}/${reportId}`);
+        } else {
+          toast.error(result.error || t.projects.analyticsBuilder.saveChartFailed);
         }
       } catch (error) {
         console.error('Failed to create chart:', error);
+        toast.error(t.projects.analyticsBuilder.saveChartFailed);
       }
     });
   };

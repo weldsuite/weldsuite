@@ -421,6 +421,8 @@ export const projects = {
       targetDate: 'Streef Datum',
       noGoals: 'Geen doelen gevonden',
       ourMission: 'Onze missie',
+      loadFailed: 'Doelen laden mislukt',
+      retry: 'Opnieuw proberen',
     },
 
     // Timesheets
@@ -570,6 +572,7 @@ export const projects = {
       chartTitle: 'Grafiektitel',
       chartDescription: 'Grafiekbeschrijving',
       chartConfiguration: 'Grafiekconfiguratie',
+      saveChartFailed: 'Grafiek toevoegen mislukt',
       close: 'Sluiten',
       basicInformation: 'Basisinformatie',
       dataSource: 'Gegevensbron',

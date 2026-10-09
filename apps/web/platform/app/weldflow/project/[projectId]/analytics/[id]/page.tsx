@@ -26,7 +26,11 @@ export default function ProjectAnalyticsReportPage() {
 
   if (reportLoading || chartsLoading) return <PageLoader fullScreen={false} />;
 
-  if (!reportResult?.data) {
+  // `GET /project-analytics/reports/:id` answers `{ report, charts }`, not the report itself.
+  const report = reportResult?.data?.report;
+  const charts = chartsResult?.data ?? reportResult?.data?.charts ?? [];
+
+  if (!report) {
     return (
       <div className="container mx-auto py-6 px-4">
         <p className="text-muted-foreground">{t.projects.analyticsReports.reportNotFound}</p>
@@ -37,8 +41,8 @@ export default function ProjectAnalyticsReportPage() {
   return (
     <div className="container mx-auto py-6 px-4">
       <ProjectReportViewClient
-        report={reportResult.data}
-        charts={chartsResult?.data ?? []}
+        report={report}
+        charts={charts}
         projectId={projectId}
       />
     </div>
