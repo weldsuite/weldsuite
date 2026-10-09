@@ -122,15 +122,23 @@ interface IncomingCallParams {
   initiatorPicture: string | undefined;
 }
 
-/** Realtime ring plus (non-blocking) push for one DM member. */
+/**
+ * Realtime ring plus (non-blocking) push for one DM member. Never throws, so one
+ * failed ring neither cuts the other members' rings short nor skips the ring
+ * timeout that ends an unanswered call.
+ */
 async function ringDmMember(p: IncomingCallParams, memberUserId: string): Promise<void> {
-  await publishChatCallIncoming(p.env, p.orgId, memberUserId, {
-    callId: p.callId,
-    channelId: p.channelId,
-    callType: p.callType,
-    callerName: p.initiatorName,
-    callerAvatar: p.initiatorPicture,
-  });
+  try {
+    await publishChatCallIncoming(p.env, p.orgId, memberUserId, {
+      callId: p.callId,
+      channelId: p.channelId,
+      callType: p.callType,
+      callerName: p.initiatorName,
+      callerAvatar: p.initiatorPicture,
+    });
+  } catch (e) {
+    console.error('[Chat:Calls] Incoming-call ring failed:', e);
+  }
   // Push notification (non-blocking) — never block the response.
   try {
     await sendIncomingCallNotification({
@@ -184,9 +192,9 @@ async function publishCallStarted(
       .from(chatChannelMembers)
       .where(eq(chatChannelMembers.channelId, p.channelId));
 
-    for (const member of members.filter((m) => m.userId !== p.userId)) {
-      await ringDmMember(p, member.userId);
-    }
+    await Promise.all(
+      members.filter((m) => m.userId !== p.userId).map((member) => ringDmMember(p, member.userId)),
+    );
     scheduleRingTimeout(waitUntil, p.db, p.env, p.orgId, p.callId);
   } catch (e) {
     console.error('[Chat:Calls] Realtime publish failed:', e);
