@@ -25,7 +25,6 @@ import { whiteboardApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 interface WhiteboardItem {
   id: string;
@@ -140,12 +139,15 @@ export default function WhiteboardPage() {
     return (
       <div
         key={item.id}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-        onClick={() => router.push(`/weldflow/project/${projectId}/whiteboard/${item.id}`)}
-        onKeyDown={activateOnKey(() => router.push(`/weldflow/project/${projectId}/whiteboard/${item.id}`))}
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
+        {/* Row click target: stretched button; the actions cell sits above it */}
+        <button
+          type="button"
+          aria-label={item.name || st('sweep.weldflow.whiteboardListPage.untitled')}
+          onClick={() => router.push(`/weldflow/project/${projectId}/whiteboard/${item.id}`)}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
         <div className="flex-1 min-w-[300px]">
           <p className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
             {item.name || st('sweep.weldflow.whiteboardListPage.untitled')}
@@ -160,7 +162,7 @@ export default function WhiteboardPage() {
           <span className="text-sm text-gray-500">{formatDate(item.createdAt)}</span>
         </div>
 
-        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           {canWrite && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
