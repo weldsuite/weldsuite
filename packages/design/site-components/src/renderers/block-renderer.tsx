@@ -247,10 +247,7 @@ function NestedBlockWrapper({
 
       {/* Block Action Menu */}
       {(isHovered || isSelected) && (
-        <div
-          className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-50 flex gap-1 bg-white shadow-lg rounded-md border border-gray-200 p-1"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 z-50 flex gap-1 bg-white shadow-lg rounded-md border border-gray-200 p-1">
           <button
             onClick={(e) => {
               e.stopPropagation();
