@@ -47,6 +47,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
+import { assigneeIdsInvolved, buildTaskChanges } from '../../lib/task-changes';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
@@ -196,6 +197,17 @@ async function fetchAssigneeMap(db: any, taskResults: any[]): Promise<Map<string
     for (const m of members) memberMap.set(m.userId, m);
   }
   return memberMap;
+}
+
+/** Display names for the audit trail's assignee line, keyed by user id. */
+async function fetchAssigneeNames(db: any, ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const members = await fetchAssigneeMap(db, [{ assigneeIds: ids }]);
+  const names = new Map<string, string>();
+  for (const [userId, member] of members) {
+    if (member?.name) names.set(userId, member.name);
+  }
+  return names;
 }
 
 /**
@@ -994,7 +1006,32 @@ async function validateTaskRelations(
   if ((parent.projectId ?? null) !== currentProjectId) {
     return 'Parent task must belong to the same project';
   }
+  if (await isDescendantOf(db, parentId, id)) {
+    return 'Cannot move a task under itself or one of its subtasks';
+  }
   return null;
+}
+
+/**
+ * True when `candidateId` is `ancestorId` or sits anywhere below it. Walks up the
+ * candidate's parent chain (a task has one parent, so this is a single path) and
+ * stops at a root, a repeated id (pre-existing cycle) or a generous depth bound.
+ */
+async function isDescendantOf(db: TaskDb, candidateId: string, ancestorId: string): Promise<boolean> {
+  const seen = new Set<string>();
+  let cursor: string | null = candidateId;
+  for (let depth = 0; cursor && depth < 100; depth++) {
+    if (cursor === ancestorId) return true;
+    if (seen.has(cursor)) return false;
+    seen.add(cursor);
+    const [row] = await db
+      .select({ parentTaskId: t.parentTaskId })
+      .from(t)
+      .where(eq(t.id, cursor))
+      .limit(1);
+    cursor = (row?.parentTaskId as string | null | undefined) ?? null;
+  }
+  return false;
 }
 
 async function statusFromStage(db: TaskDb, stageId: unknown): Promise<string | undefined> {
@@ -2009,6 +2046,7 @@ app.patch(
         entityId: id,
         action: 'updated',
         data: taskAnalyticsPayload(currentTask as Record<string, unknown>, { status: newStatus }),
+        changes: buildTaskChanges(currentTask as Record<string, unknown>, updateData),
       });
 
       if (newStatus !== (currentTask as any).status) {
@@ -2075,6 +2113,7 @@ app.patch(
         entityId: id,
         action: 'updated',
         data: taskAnalyticsPayload(currentTask as Record<string, unknown>, { status }),
+        changes: buildTaskChanges(currentTask as Record<string, unknown>, updateData),
       });
 
       if (status !== (currentTask as any).status) {
@@ -2147,6 +2186,7 @@ app.patch(
         entityId: id,
         action: 'updated',
         data: taskAnalyticsPayload(currentTask as Record<string, unknown>, positionEcho(data)),
+        changes: buildTaskChanges(currentTask as Record<string, unknown>, { status: data.status }),
       });
 
       if (data.status && data.status !== currentTask.status) {
@@ -2479,6 +2519,11 @@ app.patch(
 
       notifyAddedAssigneesOnUpdate(c, { id, existing, update, data });
 
+      const changes = buildTaskChanges(
+        existing as Record<string, unknown>,
+        update,
+        await fetchAssigneeNames(db, assigneeIdsInvolved(existing as Record<string, unknown>, update)),
+      );
       publishEntityEvent({
         c,
         entityType: 'project_task',
@@ -2488,6 +2533,7 @@ app.patch(
           { ...(existing as Record<string, unknown>), ...data, ...dependencyEcho } as Record<string, unknown>,
           { id, title: (data.title as string) || (existing as any).title },
         ),
+        changes,
       });
 
       dispatchGithubOutboundSync(c, {

@@ -1548,6 +1548,7 @@ export const projects = {
       nextRecurringCreated: 'Volgende terugkerende taak aangemaakt',
       failedToUpdateTask: 'Taak bijwerken mislukt',
       failedToCompleteTask: 'Taak voltooien mislukt',
+      completeSubtasksFirst: 'Voltooi eerst de openstaande subtaken',
       taskDeleted: 'Taak verwijderd',
       failedToDeleteTask: 'Taak verwijderen mislukt',
       failedToReorderTasks: 'Taken herschikken mislukt',

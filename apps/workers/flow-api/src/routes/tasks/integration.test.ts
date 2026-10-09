@@ -793,6 +793,37 @@ describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integrat
     expect((await row('task_pt_child'))?.parentTaskId).toBeNull();
   });
 
+  it('rejects a parent that is the task itself or any of its descendants', async () => {
+    await seedProject('proj_cy');
+    await joinProject('proj_cy');
+    await seedTask({ id: 'task_cy_root', projectId: 'proj_cy' });
+    await seedTask({ id: 'task_cy_child', projectId: 'proj_cy', parentTaskId: 'task_cy_root' });
+    await seedTask({ id: 'task_cy_grand', projectId: 'proj_cy', parentTaskId: 'task_cy_child' });
+    await seedTask({ id: 'task_cy_sibling', projectId: 'proj_cy', parentTaskId: 'task_cy_root' });
+
+    // Direct child and deeper descendant would both close a loop.
+    expect((await patch('task_cy_root', { parentTaskId: 'task_cy_child' })).status).toBe(400);
+    expect((await patch('task_cy_root', { parentTaskId: 'task_cy_grand' })).status).toBe(400);
+    expect((await patch('task_cy_child', { parentTaskId: 'task_cy_grand' })).status).toBe(400);
+    expect((await row('task_cy_root'))?.parentTaskId).toBeNull();
+    expect((await row('task_cy_child'))?.parentTaskId).toBe('task_cy_root');
+
+    // Moving within the tree without closing a loop is still fine.
+    expect((await patch('task_cy_grand', { parentTaskId: 'task_cy_sibling' })).status).toBe(200);
+    expect((await patch('task_cy_child', { parentTaskId: 'task_cy_grand' })).status).toBe(200);
+  });
+
+  it('publishes field-level changes with an updated task', async () => {
+    await seedTask({ id: 'task_audit_changes', status: 'todo', priority: 'medium' });
+    mockedPublish.mockClear();
+
+    expect((await patch('task_audit_changes', { status: 'in_progress', repeat: { frequency: 'weekly' } })).status).toBe(200);
+    const call = mockedPublish.mock.calls[0]![0] as { changes: Record<string, { old: unknown; new: unknown }> };
+    expect(call.changes.status).toEqual({ old: 'todo', new: 'in_progress' });
+    expect(call.changes.repeat).toEqual({ old: null, new: { frequency: 'weekly' } });
+    expect(call.changes.priority).toBeUndefined();
+  });
+
   it('writes dependencies, reciprocal links and columns as one unit', async () => {
     await seedTask({ id: 'task_tx_1', title: 'Before' });
     await seedTask({ id: 'task_tx_2' });
