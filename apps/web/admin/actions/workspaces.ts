@@ -17,7 +17,12 @@ import {
 
 const { workspaces } = masterSchema;
 
-export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+/**
+ * `code` is the billing worker's error code when it produced the failure (see
+ * lib/billing-worker.ts); the billing forms read it to decide whether a retry
+ * may reuse the request's idempotency key.
+ */
+export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 
 /** Reject deletion dates that are in the past or unreasonably soon. */
 const MIN_LEAD_MINUTES = 5;

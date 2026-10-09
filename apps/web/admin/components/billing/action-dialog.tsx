@@ -15,7 +15,7 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import { cn } from '@/lib/utils';
 import { adminCopy } from '@/lib/i18n';
-import { newRequestId } from '@/lib/billing-format';
+import { keepsRequestId, newRequestId } from '@/lib/billing-format';
 import type { ActionResult } from '@/actions/workspaces';
 
 /**
@@ -23,8 +23,10 @@ import type { ActionResult } from '@/actions/workspaces';
  * reason (saved in the activity log), and a submit button. Mount it only while
  * open so its state starts fresh each time.
  *
- * One request id per submission becomes the Stripe idempotency key; it is
- * renewed after a failure so a corrected retry is not mistaken for a replay.
+ * One request id per submission becomes the Stripe idempotency key. It is
+ * renewed after a definite rejection, so a corrected retry is not mistaken for
+ * a replay, and kept after an ambiguous failure (timeout, 5xx), so a retry
+ * replays the first attempt instead of repeating it.
  */
 export function ActionDialog<T>({
   title,
@@ -63,7 +65,7 @@ export function ActionDialog<T>({
       const result = await onSubmit(reason.trim(), requestId);
       if (!result.ok) {
         toast.error(result.error);
-        setRequestId(newRequestId());
+        if (!keepsRequestId(result.code)) setRequestId(newRequestId());
         return;
       }
       toast.success(typeof successMessage === 'function' ? successMessage(result.data) : successMessage);

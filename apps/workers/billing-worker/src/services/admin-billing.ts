@@ -239,11 +239,16 @@ async function ensureCustomer(ctx: AdminContext, workspace: WorkspaceRow): Promi
     if (!existing.deleted) return existing;
   }
 
-  const created = (await createStripeCustomer(key, {
-    name: workspace.name,
-    email: await workspaceBillingEmail(ctx.masterDb, workspace.id),
-    metadata: { workspaceId: workspace.id, clerkOrgId: workspace.clerkOrgId ?? '' },
-  })) as { id: string };
+  // Keyed on the request, so a retry after a timeout reuses the same customer.
+  const created = (await createStripeCustomer(
+    key,
+    {
+      name: workspace.name,
+      email: await workspaceBillingEmail(ctx.masterDb, workspace.id),
+      metadata: { workspaceId: workspace.id, clerkOrgId: workspace.clerkOrgId ?? '' },
+    },
+    idempotencyKey(ctx, 'customer.create'),
+  )) as { id: string };
   await ctx.masterDb
     .update(workspaces)
     .set({ stripeCustomerId: created.id, updatedAt: new Date() })
@@ -252,15 +257,29 @@ async function ensureCustomer(ctx: AdminContext, workspace: WorkspaceRow): Promi
 }
 
 /** The subscription the workspace row points at, when Stripe still bills it. */
+/** Stripe answered 404: the object no longer exists there. */
+function isStripeNotFound(err: unknown): boolean {
+  return err instanceof Error && /^Stripe API \S+ \S+ failed \(404\)/.test(err.message);
+}
+
+/**
+ * The subscription the workspace row points at, while Stripe still bills it.
+ * Null only when nothing is linked, Stripe no longer has it, or it is in a
+ * terminal state. Any other lookup failure (timeout, 5xx, rate limit) throws:
+ * reading it as "no subscription" would start a second subscription next to
+ * the live one, or end a comp onto the ended-subscription policy while the
+ * customer is still being billed.
+ */
 async function liveSubscription(key: string, workspace: WorkspaceRow): Promise<AdminStripeSubscription | null> {
   if (!workspace.stripeSubscriptionId) return null;
+  let sub: AdminStripeSubscription;
   try {
-    const sub = await retrieveSubscriptionForAdmin(key, workspace.stripeSubscriptionId);
-    return LIVE_SUBSCRIPTION_STATUSES.has(sub.status) ? sub : null;
+    sub = await retrieveSubscriptionForAdmin(key, workspace.stripeSubscriptionId);
   } catch (err) {
-    console.warn(`[Admin Billing] Could not load subscription ${workspace.stripeSubscriptionId}:`, err);
-    return null;
+    if (isStripeNotFound(err)) return null;
+    throw err;
   }
+  return LIVE_SUBSCRIPTION_STATUSES.has(sub.status) ? sub : null;
 }
 
 /** Mirror a subscription's own state onto the workspace row. */
@@ -604,6 +623,20 @@ export async function changeSubscription(
     })
     .where(eq(workspaces.id, workspace.id));
 
+  // A new subscription replaced one Stripe could not change (`incomplete`).
+  // The row no longer points at the old one, so cancelling it is a no-op for
+  // the webhooks; otherwise it would linger and later fire incomplete_expired.
+  const superseded = created ? workspace.stripeSubscriptionId : null;
+  if (superseded && superseded !== sub.id) {
+    try {
+      await cancelSubscriptionNow(key, superseded);
+    } catch (err) {
+      if (!isStripeNotFound(err)) {
+        console.warn(`[Admin Billing] Could not cancel superseded subscription ${superseded}:`, err);
+      }
+    }
+  }
+
   if (workspace.planId !== plan.id) {
     await syncSubscriptionCredits(ctx.env, ctx.masterDb, workspace.id, workspace.clerkOrgId ?? '', plan.id);
   }
@@ -872,13 +905,12 @@ export async function endCompForWorkspace(
 ): Promise<{ outcome: CompEndedOutcome; planId: string | null }> {
   if (!workspace.compGrantedAt) throw new AdminBillingError('CONFLICT', 'This workspace has no comp plan');
 
-  await masterDb
-    .update(workspaces)
-    .set({ compGrantedAt: null, compEndsAt: null, compGrantedBy: null, compReason: null, updatedAt: new Date() })
-    .where(eq(workspaces.id, workspace.id));
-  const cleared: WorkspaceRow = { ...workspace, compGrantedAt: null, compEndsAt: null, compGrantedBy: null, compReason: null };
+  // The comp stays until its replacement is in place: if the Stripe lookup or
+  // the policy below fails, the workspace is still comped and the sweep (or
+  // the admin) can simply retry.
+  const clearComp = { compGrantedAt: null, compEndsAt: null, compGrantedBy: null, compReason: null };
+  const sub = workspace.stripeSubscriptionId ? await liveSubscription(stripeKey(env), workspace) : null;
 
-  const sub = env.STRIPE_SECRET_KEY ? await liveSubscription(env.STRIPE_SECRET_KEY, cleared) : null;
   if (sub && RESUMABLE_SUBSCRIPTION_STATUSES.has(sub.status)) {
     const item = await planItemOf(masterDb, sub);
     const product = typeof item.price.product === 'string' ? item.price.product : item.price.product.id;
@@ -887,6 +919,7 @@ export async function endCompForWorkspace(
     await masterDb
       .update(workspaces)
       .set({
+        ...clearComp,
         ...(plan ? { planId: plan.id } : {}),
         purchasedSeats: seats,
         ...subscriptionColumns(sub),
@@ -900,7 +933,14 @@ export async function endCompForWorkspace(
     return { outcome: 'resumed_subscription', planId: plan?.id ?? workspace.planId };
   }
 
-  const outcome = await applySubscriptionEnded(env, masterDb, cleared);
+  // Policy first, then drop the comp. A retry after a failure in between is
+  // safe: the policy is idempotent, and a $0 free subscription it started is
+  // picked up as a live subscription by the next attempt.
+  const outcome = await applySubscriptionEnded(env, masterDb, { ...workspace, ...clearComp });
+  await masterDb
+    .update(workspaces)
+    .set({ ...clearComp, updatedAt: new Date() })
+    .where(eq(workspaces.id, workspace.id));
   const [after] = await masterDb
     .select({ planId: workspaces.planId })
     .from(workspaces)

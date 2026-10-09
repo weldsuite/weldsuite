@@ -8,7 +8,7 @@
  */
 
 import { createHmac } from 'node:crypto';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { createMasterPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -22,7 +22,14 @@ vi.mock('../lib/db', async (importOriginal) => ({
 import { webhookRoutes } from '../routes/webhooks';
 import { adminRoutes } from '../routes/admin';
 import { runCompSweep } from './comp-sweep';
-import { AdminBillingError, adjustCredits, changeSubscription, grantComp, type AdminContext } from './admin-billing';
+import {
+  AdminBillingError,
+  adjustCredits,
+  changeSubscription,
+  endComp,
+  grantComp,
+  type AdminContext,
+} from './admin-billing';
 import type { Env } from '../index';
 
 const { plans, workspaces, workspaceCredits, adminAuditEvents } = masterSchema;
@@ -119,9 +126,32 @@ async function sendEvent(type: string, object: unknown): Promise<Response> {
   );
 }
 
-function ctx(requestId = `req_${seq}_${Date.now()}`): AdminContext {
-  return { env, masterDb: db, actor, requestId, reason: 'integration test' };
+function ctx(requestId = `req_${seq}_${Date.now()}`, ctxEnv: Env = env): AdminContext {
+  return { env: ctxEnv, masterDb: db, actor, requestId, reason: 'integration test' };
 }
+
+/** Stripe stand-in: answers by path, records every call. */
+function stubStripe(answer: (method: string, path: string) => { status: number; body: unknown }) {
+  const calls: Array<{ method: string; path: string }> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const method = init?.method ?? 'GET';
+      calls.push({ method, path: url.pathname });
+      const { status, body } = answer(method, url.pathname);
+      return new Response(JSON.stringify(body), { status });
+    }),
+  );
+  return calls;
+}
+
+const stripeEnv = { ...env, STRIPE_SECRET_KEY: 'sk_test_integration' } as Env;
+const stripeDown = { status: 500, body: { error: { message: 'Stripe is having a moment' } } };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('Stripe webhooks and comp plans', () => {
   it('subscription.updated changes plan and seats for a paying workspace', async () => {
@@ -286,6 +316,59 @@ describe('admin billing service', () => {
     expect(replay.newBalance).toBe(250);
     const removed = await adjustCredits(ctx('req_credit_remove'), id, -400);
     expect(removed.newBalance).toBe(-150);
+  });
+});
+
+describe('Stripe lookup failures', () => {
+  it('keeps the comp when the subscription lookup fails, so the comp can be ended later', async () => {
+    const id = await makeWorkspace({ stripeSubscriptionId: 'sub_lookup_fails', ...activeComp() });
+    stubStripe(() => stripeDown);
+
+    await expect(endComp(ctx(undefined, stripeEnv), id)).rejects.toThrow(/failed \(500\)/);
+
+    const ws = await load(id);
+    expect(ws.compGrantedAt).not.toBeNull();
+    expect(ws.planId).toBe(BUSINESS);
+    expect(ws.stripeSubscriptionId).toBe('sub_lookup_fails');
+  });
+
+  it('refuses to end a comp with a linked subscription when Stripe is not configured', async () => {
+    const id = await makeWorkspace({ stripeSubscriptionId: 'sub_no_key', ...activeComp() });
+    await expect(endComp(ctx(), id)).rejects.toMatchObject({ code: 'NOT_CONFIGURED' });
+    expect((await load(id)).compGrantedAt).not.toBeNull();
+  });
+
+  it('treats a subscription Stripe no longer has as ended', async () => {
+    const id = await makeWorkspace({ stripeSubscriptionId: 'sub_gone', ...activeComp() });
+    stubStripe(() => ({ status: 404, body: { error: { message: 'No such subscription' } } }));
+
+    const result = await endComp(ctx(undefined, stripeEnv), id);
+    expect(result.outcome).toBe('downgraded_to_free');
+    const ws = await load(id);
+    expect(ws.compGrantedAt).toBeNull();
+    expect(ws.planId).toBe(FREE);
+  });
+
+  it('does not start a second subscription when the current one cannot be loaded', async () => {
+    const id = await makeWorkspace({ stripeCustomerId: 'cus_lookup', stripeSubscriptionId: 'sub_flaky' });
+    const calls = stubStripe((_method, path) =>
+      path.startsWith('/v1/customers/')
+        ? { status: 200, body: { id: 'cus_lookup', address: { country: 'NL' }, invoice_settings: {} } }
+        : stripeDown,
+    );
+
+    await expect(
+      changeSubscription(ctx(undefined, stripeEnv), id, {
+        planId: PRO,
+        cycle: 'monthly',
+        seats: 5,
+        proration: 'always_invoice',
+        collectionMethod: 'send_invoice',
+      }),
+    ).rejects.toThrow(/failed \(500\)/);
+
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/v1/subscriptions')).toBe(false);
+    expect((await load(id)).stripeSubscriptionId).toBe('sub_flaky');
   });
 });
 

@@ -67,7 +67,9 @@ export async function callBillingWorker<T>(
   if (res.ok && payload && 'data' in payload) return { ok: true, data: payload.data as T };
   return {
     ok: false,
-    code: payload?.error?.code,
+    // No error body on a 5xx means the worker itself failed, possibly after
+    // Stripe already did the work: report it as ambiguous (UPSTREAM).
+    code: payload?.error?.code ?? (res.status >= 500 ? 'UPSTREAM' : undefined),
     error: payload?.error?.message ?? `The billing worker answered ${res.status}.`,
   };
 }

@@ -201,8 +201,14 @@ function errorResponse(c: AdminCtx, err: unknown) {
   if (err instanceof AdminBillingError) {
     return c.json({ error: { code: err.code, message: err.message } }, STATUS[err.code]);
   }
+  // STRIPE_REJECTED: Stripe refused it (4xx). STRIPE_UNAVAILABLE: Stripe
+  // failed (5xx), so the write may have gone through; the console keeps its
+  // idempotency key for the retry in that case.
   const stripe = stripeFailure(err);
-  if (stripe) return c.json({ error: { code: 'STRIPE_ERROR', message: stripe.message } }, stripe.status);
+  if (stripe) {
+    const code = stripe.status === 400 ? 'STRIPE_REJECTED' : 'STRIPE_UNAVAILABLE';
+    return c.json({ error: { code, message: stripe.message } }, stripe.status);
+  }
   console.error('[Admin API] Unexpected error:', err);
   return c.json({ error: { code: 'INTERNAL', message: 'Something went wrong. Nothing was retried.' } }, 500);
 }

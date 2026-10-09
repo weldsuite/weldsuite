@@ -226,7 +226,8 @@ export async function createStripeCustomer(
     email?: string;
     name?: string;
     metadata?: Record<string, string>;
-  }
+  },
+  idempotencyKey?: string,
 ): Promise<any> {
   const body: Record<string, string> = {};
 
@@ -239,7 +240,7 @@ export async function createStripeCustomer(
     }
   }
 
-  return stripeApiRequest(key, 'POST', '/v1/customers', body);
+  return stripeApiRequest(key, 'POST', '/v1/customers', body, { idempotencyKey });
 }
 
 /** Flatten a string map into Stripe's `<prefix>[key]` form-encoded fields. */

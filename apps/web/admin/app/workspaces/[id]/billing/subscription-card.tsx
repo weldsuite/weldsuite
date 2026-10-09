@@ -11,6 +11,7 @@ import { adminCopy, fill } from '@/lib/i18n';
 import {
   formatCents,
   formatDay,
+  isLiveSubscription,
   paymentMethodLabel,
   statusLabel,
   statusTone,
@@ -45,7 +46,7 @@ export function SubscriptionCard({
 
   const snapshot = snapshotState.kind === 'ok' ? snapshotState.snapshot : null;
   const sub = snapshot?.subscription ?? null;
-  const live = sub && !['canceled', 'incomplete_expired'].includes(sub.status) ? sub : null;
+  const live = sub && isLiveSubscription(sub.status) ? sub : null;
   const workerReady = snapshotState.kind === 'ok';
   const actionsEnabled = canWrite && workerReady;
   const comped = billing.comp !== null;

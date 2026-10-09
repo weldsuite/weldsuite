@@ -110,3 +110,26 @@ export function actionLabel(t: AdminCopy, action: string): string {
 export function newRequestId(): string {
   return crypto.randomUUID();
 }
+
+/**
+ * Failures after which the write may still have happened (timeout, worker or
+ * Stripe 5xx). A retry must reuse the same request id so Stripe replays the
+ * first result instead of charging, refunding or subscribing twice. Anything
+ * else is a definite rejection and gets a fresh id.
+ */
+const AMBIGUOUS_FAILURES = new Set(['UNREACHABLE', 'UPSTREAM', 'INTERNAL', 'STRIPE_UNAVAILABLE']);
+
+export function keepsRequestId(code: string | undefined): boolean {
+  return code !== undefined && AMBIGUOUS_FAILURES.has(code);
+}
+
+/**
+ * Subscription states whose plan can still be changed. Mirrors the billing
+ * worker's LIVE_SUBSCRIPTION_STATUSES: Stripe cannot change an `incomplete`
+ * subscription, so the console starts a new one instead.
+ */
+const LIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid']);
+
+export function isLiveSubscription(status: string | null | undefined): boolean {
+  return status != null && LIVE_SUBSCRIPTION_STATUSES.has(status);
+}

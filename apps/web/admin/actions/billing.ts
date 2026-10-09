@@ -40,7 +40,7 @@ async function workspaceWrite<T>(
   );
   revalidatePath(`/workspaces/${workspaceId}`);
   revalidatePath('/activity');
-  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
+  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error, code: result.code };
 }
 
 export interface SubscriptionChange {
@@ -64,7 +64,7 @@ export async function previewSubscriptionChange(
     `/workspaces/${encodeURIComponent(workspaceId)}/subscription/preview`,
     { identity, body: input },
   );
-  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
+  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error, code: result.code };
 }
 
 export async function changeSubscription(

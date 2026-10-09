@@ -23,7 +23,7 @@ import {
   setTrialEnd,
 } from '@/actions/billing';
 import { adminCopy, fill } from '@/lib/i18n';
-import { formatCents, formatDay, formatDecimal } from '@/lib/billing-format';
+import { formatCents, formatDay, formatDecimal, isLiveSubscription } from '@/lib/billing-format';
 import type {
   CollectionMethod,
   InvoicePreview,
@@ -99,9 +99,7 @@ export function ChangePlanDialog({
   onClose: () => void;
 }>) {
   const t = adminCopy();
-  const live = snapshot?.subscription && !['canceled', 'incomplete_expired', 'incomplete'].includes(snapshot.subscription.status)
-    ? snapshot.subscription
-    : null;
+  const live = snapshot?.subscription && isLiveSubscription(snapshot.subscription.status) ? snapshot.subscription : null;
   const hasCard = Boolean(snapshot?.customer?.defaultPaymentMethod);
 
   const [planId, setPlanId] = useState(billing.planId ?? plans[0]?.id ?? '');

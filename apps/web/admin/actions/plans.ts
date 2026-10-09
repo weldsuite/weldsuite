@@ -54,7 +54,7 @@ async function planWrite<T>(
   const result = await callBillingWorker<T>(method, path, { identity: guard.identity, body, requestId });
   revalidatePath('/plans', 'layout');
   revalidatePath('/activity');
-  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error };
+  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error, code: result.code };
 }
 
 export async function createPlan(input: PlanFormValues & { slug: string; reason: string }, requestId: string) {

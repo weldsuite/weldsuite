@@ -11,7 +11,7 @@ import { Textarea } from '@weldsuite/ui/components/textarea';
 import { Field } from '@/components/billing/action-dialog';
 import { createPlan, updatePlan, type PlanFormValues } from '@/actions/plans';
 import { adminCopy, fill } from '@/lib/i18n';
-import { newRequestId } from '@/lib/billing-format';
+import { keepsRequestId, newRequestId } from '@/lib/billing-format';
 import type { PlanDetail } from '@/lib/billing-types';
 
 const MONEY = /^\d{1,9}(\.\d{1,2})?$/;
@@ -198,7 +198,8 @@ export function PlanForm({ plan, canWrite }: Readonly<{ plan: PlanDetail | null;
       const result = plan
         ? await updatePlan(plan.id, { ...patch, reason: reason.trim() }, requestId)
         : await createPlan({ ...parsed.values, slug: form.slug.trim(), reason: reason.trim() }, requestId);
-      setRequestId(newRequestId());
+      // Keep the id after an ambiguous failure so the retry is recognised as one.
+      if (result.ok || !keepsRequestId(result.code)) setRequestId(newRequestId());
       if (!result.ok) {
         toast.error(result.error);
         return;
