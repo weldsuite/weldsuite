@@ -4492,6 +4492,9 @@ importers:
       '@weldsuite/flow-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/flow
+      '@weldsuite/meet-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/meet
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../../packages/core/notifications

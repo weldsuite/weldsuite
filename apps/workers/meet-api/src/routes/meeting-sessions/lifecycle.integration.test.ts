@@ -20,13 +20,16 @@ import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-ses
 import type { Env } from '../../types';
 import { meetingSessionsRoutes } from './index';
 import {
+  addParticipant,
+  createMeeting,
   endMeeting,
   getLiveParticipantCount,
   kickAllParticipants,
   kickParticipants,
+  removeParticipant,
 } from '@weldsuite/cloudflare-realtime';
 import { isGuestRemovedFromSession } from '@weldsuite/db/schema/meeting-sessions';
-import { fakeKv } from '../../test/fakes';
+import { fakeKv, fakeRealtime, seedActiveChatCall } from '../../test/fakes';
 
 vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/cloudflare-realtime')>()),
@@ -34,6 +37,10 @@ vi.mock('@weldsuite/cloudflare-realtime', async (importOriginal) => ({
   kickParticipants: vi.fn(),
   endMeeting: vi.fn(),
   getLiveParticipantCount: vi.fn(),
+  addParticipant: vi.fn(),
+  removeParticipant: vi.fn(),
+  createMeeting: vi.fn(),
+  ensurePresets: vi.fn(async () => undefined),
 }));
 
 const ORGANIZER = 'user_organizer';
@@ -41,6 +48,13 @@ const GUEST = 'user_guest';
 const CF_APP_ID = 'rtk_meeting_1';
 
 let db: Database;
+/** The REALTIME binding of the current test: records every publish. */
+let realtime = fakeRealtime();
+/** Background work the routes hand to `waitUntil` (evictions run after the response). */
+const pending: Promise<unknown>[] = [];
+const flush = async () => {
+  await Promise.all(pending.splice(0));
+};
 
 beforeAll(async () => {
   const handle = await createPgliteDb();
@@ -53,6 +67,10 @@ beforeEach(() => {
   vi.mocked(endMeeting).mockReset().mockResolvedValue(undefined);
   // By default RealtimeKit reports an empty room.
   vi.mocked(getLiveParticipantCount).mockReset().mockResolvedValue(0);
+  vi.mocked(addParticipant).mockReset().mockResolvedValue({ id: 'cf_new', token: 'tok_new' } as never);
+  vi.mocked(removeParticipant).mockReset().mockResolvedValue(undefined as never);
+  vi.mocked(createMeeting).mockReset().mockResolvedValue({ id: 'rtk_created' } as never);
+  realtime = fakeRealtime();
 });
 
 afterEach(() => {
@@ -74,7 +92,7 @@ function participant(userId: string, extra: Partial<MeetingSessionParticipant> =
 
 async function seed(
   participants: MeetingSessionParticipant[],
-  opts: { status?: 'active' | 'ended'; metadata?: Record<string, unknown> } = {},
+  opts: { status?: 'active' | 'ended'; metadata?: Record<string, unknown>; cfAppId?: string } = {},
 ) {
   const meetingId = generateId('mtg');
   const sessionId = generateId('msess');
@@ -90,7 +108,7 @@ async function seed(
     id: sessionId,
     meetingId,
     status: opts.status ?? 'active',
-    cfAppId: CF_APP_ID,
+    cfAppId: opts.cfAppId ?? CF_APP_ID,
     startedBy: ORGANIZER,
     startedByName: 'Organizer',
     participants,
@@ -107,12 +125,16 @@ async function seed(
 function appFor(userId: string, ...perms: string[]) {
   const env = {
     WORKSPACE_CACHE: fakeKv(),
-    REALTIME: { fetch: async () => new Response('{}') } as unknown as Fetcher,
+    REALTIME: realtime.binding,
   } satisfies Partial<Env>;
-  return createTestApp('/api/meeting-sessions', meetingSessionsRoutes, {
+  const app = createTestApp('/api/meeting-sessions', meetingSessionsRoutes, {
     context: { permissions: permissions(...perms), userId, tenantDb: db },
     env,
   });
+  app.executionCtx.waitUntil = (promise: Promise<unknown>) => {
+    pending.push(Promise.resolve(promise).catch(() => undefined));
+  };
+  return app;
 }
 
 const post = (request: ReturnType<typeof appFor>['request'], path: string) =>
@@ -642,5 +664,271 @@ describe('POST /api/meeting-sessions/:id/participants/remove', () => {
     const res = await postJson(request, removePath(sessionId), {});
 
     expect(res.status).toBe(400);
+  });
+});
+
+// ============================================================================
+// One LIVE call at a time: joining leaves every other session / chat call
+// ============================================================================
+
+// A fresh user per test: the sessions and calls of one test stay in the shared DB.
+let JOINER = 'user_joiner';
+let joinerSeq = 0;
+beforeEach(() => {
+  joinerSeq += 1;
+  JOINER = `user_joiner_${joinerSeq}`;
+});
+
+const superseded = () => realtime.published.filter((e) => e.event === 'call_superseded');
+const removedFrom = () => vi.mocked(removeParticipant).mock.calls.map((c) => [c[1], c[2]]);
+const killedRooms = () => vi.mocked(kickAllParticipants).mock.calls.map((c) => c[1]);
+
+async function loadChatCall(callId: string) {
+  const [row] = await db.select().from(schema.chatCalls).where(eq(schema.chatCalls.id, callId)).limit(1);
+  if (!row) throw new Error('call missing');
+  return row;
+}
+
+describe('POST /api/meeting-sessions/:id/join · one live call at a time', () => {
+  const join = async (sessionId: string) => {
+    const { request } = appFor(JOINER, 'sessions:read');
+    const res = await post(request, `/api/meeting-sessions/${sessionId}/join`);
+    await flush();
+    return res;
+  };
+
+  it('leaves every other meeting session and chat call, never the session just joined', async () => {
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(1); // others stay connected
+    const target = await seed([participant(ORGANIZER)], { cfAppId: 'rtk_target' });
+    const other = await seed([participant(ORGANIZER), participant(JOINER, { cfSessionId: 'cf_joiner_other' })], {
+      cfAppId: 'rtk_other',
+    });
+    const chat = await seedActiveChatCall(db, {
+      userId: JOINER,
+      otherUserId: GUEST,
+      cfAppId: 'rtk_chat_1',
+      cfSessionId: 'cf_joiner_chat',
+    });
+
+    const res = await join(target.sessionId);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: { authToken: string } }).data.authToken).toBe('tok_new');
+
+    // Dropped from the other session and from the chat call ...
+    expect(removedFrom()).toContainEqual(['rtk_other', 'cf_joiner_other']);
+    expect(removedFrom()).toContainEqual(['rtk_chat_1', 'cf_joiner_chat']);
+    const otherAfter = await loadSession(other.sessionId);
+    expect(otherAfter.participants?.find((p) => p.userId === JOINER)?.leftAt).toBeTruthy();
+    expect(otherAfter.participants?.find((p) => p.userId === ORGANIZER)?.leftAt).toBeUndefined();
+    expect(otherAfter.status).toBe('active');
+    const chatAfter = await loadChatCall(chat.callId);
+    expect(chatAfter.participants?.find((p) => p.userId === JOINER)?.leftAt).toBeTruthy();
+    expect(chatAfter.participants?.find((p) => p.userId === GUEST)?.leftAt).toBeUndefined();
+    expect(chatAfter.status).toBe('active');
+    expect(killedRooms()).not.toContain('rtk_other');
+    expect(killedRooms()).not.toContain('rtk_chat_1');
+
+    // ... and told why, as the contract says.
+    // (`_access` is how the hub keeps the event on the user's own sockets; it strips it.)
+    expect(superseded().every((e) => (e.data._access as { userIds: string[] }).userIds[0] === JOINER)).toBe(true);
+    expect(superseded().map(({ topic, data: { _access, ...data } }) => ({ topic, ...data }))).toEqual(
+      expect.arrayContaining([
+        {
+          topic: `chat.user.${JOINER}`,
+          kind: 'meet',
+          id: other.sessionId,
+          meetingId: other.meetingId,
+          cfSessionId: 'cf_joiner_other',
+        },
+        { topic: `chat.user.${JOINER}`, kind: 'chat', id: chat.callId, cfSessionId: 'cf_joiner_chat' },
+      ]),
+    );
+
+    // The session just joined is untouched and now holds the joiner.
+    expect(removedFrom().map(([room]) => room)).not.toContain('rtk_target');
+    const targetAfter = await loadSession(target.sessionId);
+    const entry = targetAfter.participants?.find((p) => p.userId === JOINER);
+    expect(entry).toMatchObject({ cfSessionId: 'cf_new' });
+    expect(entry?.leftAt).toBeUndefined();
+  });
+
+  it('never ends a meeting the evicted organizer leaves while others are still in it', async () => {
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(2);
+    const target = await seed([participant(ORGANIZER)], { cfAppId: 'rtk_target' });
+    // The joiner organises the other meeting.
+    const other = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_org' }), participant(GUEST)], {
+      cfAppId: 'rtk_other_org',
+    });
+    await db
+      .update(schema.meetings)
+      .set({ organizerId: JOINER })
+      .where(eq(schema.meetings.id, other.meetingId));
+
+    await join(target.sessionId);
+
+    const after = await loadSession(other.sessionId);
+    expect(after.status).toBe('active');
+    expect(after.endedAt).toBeNull();
+    expect(killedRooms()).not.toContain('rtk_other_org');
+    expect(vi.mocked(endMeeting).mock.calls.map((c) => c[1])).not.toContain('rtk_other_org');
+    expect((await loadMeeting(other.meetingId)).activeSessionId).toBe(other.sessionId);
+  });
+
+  it('ends the other session only once RealtimeKit confirms the room is empty', async () => {
+    const target = await seed([participant(ORGANIZER)], { cfAppId: 'rtk_target' });
+
+    // Still counting the connection that was just removed: stays.
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
+    const busy = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_busy' })], { cfAppId: 'rtk_busy' });
+    await join(target.sessionId);
+    expect((await loadSession(busy.sessionId)).status).toBe('active');
+    expect(killedRooms()).not.toContain('rtk_busy');
+
+    // Empty: ended, as /leave would.
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(0);
+    const empty = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_empty' })], { cfAppId: 'rtk_empty' });
+    await join(target.sessionId);
+    expect((await loadSession(empty.sessionId)).status).toBe('ended');
+    expect(killedRooms()).toContain('rtk_empty');
+  });
+
+  it("drops the user's OLDER connection in the same session, never the one just created", async () => {
+    // The joiner is already in the session from another tab (cf_joiner_old); this join gets cf_new.
+    const target = await seed(
+      [participant(ORGANIZER), participant(JOINER, { cfSessionId: 'cf_joiner_old' })],
+      { cfAppId: 'rtk_target' },
+    );
+
+    const res = await join(target.sessionId);
+
+    expect(res.status).toBe(200);
+    expect(removedFrom()).toContainEqual(['rtk_target', 'cf_joiner_old']);
+    expect(removedFrom()).not.toContainEqual(['rtk_target', 'cf_new']);
+    expect(superseded().map((e) => e.data)).toContainEqual(
+      expect.objectContaining({
+        kind: 'meet',
+        id: target.sessionId,
+        meetingId: target.meetingId,
+        cfSessionId: 'cf_joiner_old',
+      }),
+    );
+    // One entry for the user, carrying the new connection, still in the session.
+    const session = await loadSession(target.sessionId);
+    const entries = session.participants?.filter((p) => p.userId === JOINER) ?? [];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ cfSessionId: 'cf_new' });
+    expect(entries[0]?.leftAt).toBeUndefined();
+    expect(session.status).toBe('active');
+    expect(killedRooms()).not.toContain('rtk_target');
+  });
+
+  it('does not touch the connection when RealtimeKit hands back the id that is already stored', async () => {
+    vi.mocked(addParticipant).mockResolvedValue({ id: 'cf_joiner_same', token: 'tok_same' } as never);
+    const target = await seed(
+      [participant(ORGANIZER), participant(JOINER, { cfSessionId: 'cf_joiner_same' })],
+      { cfAppId: 'rtk_target' },
+    );
+
+    await join(target.sessionId);
+
+    expect(removedFrom()).not.toContainEqual(['rtk_target', 'cf_joiner_same']);
+    expect(superseded().filter((e) => e.data.id === target.sessionId)).toEqual([]);
+  });
+
+  it('has no older connection to drop when the previous entry already left', async () => {
+    const target = await seed(
+      [
+        participant(ORGANIZER),
+        participant(JOINER, { cfSessionId: 'cf_joiner_gone', leftAt: new Date(Date.now() - 5_000).toISOString() }),
+      ],
+      { cfAppId: 'rtk_target' },
+    );
+
+    await join(target.sessionId);
+
+    expect(removedFrom()).not.toContainEqual(['rtk_target', 'cf_joiner_gone']);
+    const entry = (await loadSession(target.sessionId)).participants?.find((p) => p.userId === JOINER);
+    expect(entry).toMatchObject({ cfSessionId: 'cf_new', stints: 2 });
+    expect(entry?.leftAt).toBeUndefined();
+  });
+
+  it('leaves the current call alone when the join does not happen', async () => {
+    // The host has not arrived: the route answers "wait" without joining anyone.
+    const target = await seed([participant(GUEST)], { cfAppId: 'rtk_target' });
+    await db
+      .update(schema.meetings)
+      .set({ hostMustJoinFirst: true })
+      .where(eq(schema.meetings.id, target.meetingId));
+    const other = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_keep' })], { cfAppId: 'rtk_keep' });
+
+    const res = await join(target.sessionId);
+
+    expect(((await res.json()) as { data: { reason?: string } }).data.reason).toBe('host_must_join_first');
+    expect(addParticipant).not.toHaveBeenCalled();
+    expect(removeParticipant).not.toHaveBeenCalled();
+    expect((await loadSession(other.sessionId)).participants?.[0]?.leftAt).toBeUndefined();
+  });
+
+  it('leaves the current call alone when RealtimeKit refuses the join', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(addParticipant).mockRejectedValue(new Error('RTK 500'));
+    const target = await seed([participant(ORGANIZER)], { cfAppId: 'rtk_target' });
+    const other = await seed([participant(JOINER, { cfSessionId: 'cf_joiner_keep2' })], { cfAppId: 'rtk_keep2' });
+
+    const res = await join(target.sessionId);
+
+    expect(res.status).toBe(500);
+    expect(removeParticipant).not.toHaveBeenCalled();
+    expect((await loadSession(other.sessionId)).participants?.[0]?.leftAt).toBeUndefined();
+  });
+});
+
+describe('POST /api/meeting-sessions/start?join=true · one live call at a time', () => {
+  it('leaves every other meeting session and chat call, never the session it just started', async () => {
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
+    vi.mocked(createMeeting).mockResolvedValue({ id: 'rtk_started' } as never);
+    vi.mocked(addParticipant).mockResolvedValue({ id: 'cf_joiner_started', token: 'tok_started' } as never);
+    const meetingId = generateId('mtg');
+    await db.insert(schema.meetings).values({ id: meetingId, title: 'Fresh', organizerId: JOINER, status: 'scheduled' });
+    const other = await seed([participant(ORGANIZER), participant(JOINER, { cfSessionId: 'cf_joiner_other2' })], {
+      cfAppId: 'rtk_other2',
+    });
+    const chat = await seedActiveChatCall(db, {
+      userId: JOINER,
+      otherUserId: GUEST,
+      cfAppId: 'rtk_chat_2',
+      cfSessionId: 'cf_joiner_chat2',
+    });
+    const { request } = appFor(JOINER, 'sessions:read', 'sessions:create');
+
+    const res = await postJson(request, '/api/meeting-sessions/start?join=true', { meetingId });
+    await flush();
+
+    expect(res.status).toBe(201);
+    const { sessionId } = ((await res.json()) as { data: { sessionId: string } }).data;
+    expect(removedFrom()).toContainEqual(['rtk_other2', 'cf_joiner_other2']);
+    expect(removedFrom()).toContainEqual(['rtk_chat_2', 'cf_joiner_chat2']);
+    expect(removedFrom().map(([room]) => room)).not.toContain('rtk_started');
+    expect((await loadSession(other.sessionId)).participants?.find((p) => p.userId === JOINER)?.leftAt).toBeTruthy();
+    expect((await loadChatCall(chat.callId)).participants?.find((p) => p.userId === JOINER)?.leftAt).toBeTruthy();
+    const started = await loadSession(sessionId);
+    expect(started.participants?.find((p) => p.userId === JOINER)?.leftAt).toBeUndefined();
+    expect(superseded().map((e) => e.data.id)).toEqual(expect.arrayContaining([other.sessionId, chat.callId]));
+  });
+
+  it('does not leave anything when the session is started without joining', async () => {
+    vi.mocked(createMeeting).mockResolvedValue({ id: 'rtk_started_nojoin' } as never);
+    const meetingId = generateId('mtg');
+    await db.insert(schema.meetings).values({ id: meetingId, title: 'Later', organizerId: JOINER, status: 'scheduled' });
+    await seed([participant(JOINER, { cfSessionId: 'cf_joiner_still' })], { cfAppId: 'rtk_still' });
+    const { request } = appFor(JOINER, 'sessions:read', 'sessions:create');
+
+    const res = await postJson(request, '/api/meeting-sessions/start', { meetingId });
+    await flush();
+
+    expect(res.status).toBe(201);
+    expect(addParticipant).not.toHaveBeenCalled();
+    expect(removeParticipant).not.toHaveBeenCalled();
   });
 });

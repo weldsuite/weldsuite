@@ -1,4 +1,4 @@
-import type { Attachment } from '../types';
+import type { Attachment, CallSupersededEvent } from '../types';
 import { personalHubKey } from '../topics';
 
 /** Service binding interface — compatible with Cloudflare's Fetcher */
@@ -409,6 +409,15 @@ export class RealtimePublisher {
     },
   ) {
     return this.publishPersonal(workspaceId, `chat.user.${userId}`, 'call_incoming', data, userId);
+  }
+
+  /**
+   * The user was dropped from a live call (meeting session or chat call)
+   * because they joined another one, or joined the same one again elsewhere.
+   * Sent before the RealtimeKit kick so the evicted tab can say why it left.
+   */
+  async chatCallSuperseded(workspaceId: string, userId: string, data: CallSupersededEvent) {
+    return this.publishPersonal(workspaceId, `chat.user.${userId}`, 'call_superseded', data, userId);
   }
 
   // ============================================

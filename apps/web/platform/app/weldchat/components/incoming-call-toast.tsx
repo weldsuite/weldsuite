@@ -11,9 +11,10 @@ export function IncomingCallToast() {
   // nothing instead of crashing the shell (same pattern as PiPCallWidget).
   const ctx = useWeldChatCallOptional();
   if (!ctx) return null;
-  const { incomingCall, status, acceptIncomingCall, declineCall } = ctx;
+  const { incomingCall, acceptIncomingCall, declineCall } = ctx;
 
-  if (status !== 'ringing-incoming' || !incomingCall) return null;
+  // Rings while the user is in a call or meeting too: accepting then asks to switch.
+  if (!incomingCall) return null;
 
   const isVideo = incomingCall.callType === 'video';
 

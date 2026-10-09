@@ -7,6 +7,8 @@ import { useAuth } from '@clerk/clerk-react';
 import { getTranslations } from '@/lib/i18n';
 import { peekStartHandoff } from '@/lib/weldmeet/start-handoff';
 import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
+import { useCallSwitchOptional, useOtherActiveCall } from '@/contexts/active-call-context';
+import { meetingCallLabel } from '@/lib/call-switch-labels';
 // Lazy + dynamic-only: app-shell also dynamically imports meeting-overlay
 // (for MeetingOverlay). Importing InlineMeetingView statically here made the
 // module a mixed static+dynamic import, which the CI build folds into a route
@@ -23,6 +25,12 @@ export default function MeetingRoomPage() {
   const { status, joinMeeting, cancelPreview, meetingId: callMeetingId } = useWeldMeetCall();
   const { data: meeting } = useMeeting(meetingId);
   const { userId } = useAuth();
+  // A user is in at most one call or meeting: joining this room while another
+  // call (a different meeting, or a WeldChat call) is live asks first.
+  const otherCall = useOtherActiveCall({ kind: 'meet', id: meetingId });
+  const otherCallKey = otherCall ? `${otherCall.kind}:${otherCall.id}` : null;
+  const { requestSwitch } = useCallSwitchOptional();
+  const meetingTitle = meeting?.id === meetingId ? meeting.title : null;
   // The page we came from (e.g. "New Meeting") must not stay in the header.
   useOptionalBreadcrumbs(meeting ? [{ label: meeting.title }] : []);
   // The meeting this page already started joining. The router reuses this
@@ -44,9 +52,35 @@ export default function MeetingRoomPage() {
     }
   }, [status, callMeetingId, meetingId, cancelPreview]);
 
-  // Auto-join on mount / reload
+  // Ask before this room replaces the live call. The camera and microphone stay
+  // untouched (the pre-join preview has not started) and the live call keeps
+  // running until the user picks "Leave and join"; "Stay" goes back to the
+  // meeting's page.
   useEffect(() => {
-    if (status === 'idle' && meeting && meeting.id === meetingId && joinedMeetingId.current !== meetingId) {
+    // Not once this page has started joining: a call that comes up later (a ring
+    // accepted while in this meeting) asks through its own entry point, and the
+    // room page must not ask again on its way out.
+    if (!otherCallKey || meetingTitle === null || joinedMeetingId.current === meetingId) return;
+    return requestSwitch({
+      target: { kind: 'meet', label: () => meetingCallLabel(meetingTitle, 'target') },
+      except: { kind: 'meet', id: meetingId },
+      // Nothing to start here: once the live call is left, the auto-join below takes over.
+      proceed: () => undefined,
+      onCancel: () => {
+        void navigate({ to: '/weldmeet/$meetingId', params: { meetingId } });
+      },
+    });
+  }, [otherCallKey, meetingTitle, meetingId, requestSwitch, navigate]);
+
+  // Auto-join on mount / reload, once no other call is live
+  useEffect(() => {
+    if (
+      status === 'idle' &&
+      !otherCallKey &&
+      meeting &&
+      meeting.id === meetingId &&
+      joinedMeetingId.current !== meetingId
+    ) {
       joinedMeetingId.current = meetingId;
       const isOrganizer = meeting.organizerId === userId;
       void joinMeeting(meetingId, {
@@ -60,7 +94,7 @@ export default function MeetingRoomPage() {
         skipPreview: isOrganizer && peekStartHandoff(meetingId),
       });
     }
-  }, [status, meeting, meetingId, joinMeeting, userId]);
+  }, [status, otherCallKey, meeting, meetingId, joinMeeting, userId]);
 
   useEffect(() => {
     if (status !== 'idle' && callMeetingId === meetingId) {
@@ -76,7 +110,9 @@ export default function MeetingRoomPage() {
     }
   }, [status, navigate, meetingId]);
 
-  if (status !== 'idle' && status !== 'ended') {
+  // This room's own call (preview, connecting or connected). A call that is live
+  // for ANOTHER meeting must not show up here: the dialog above is handling it.
+  if (status !== 'idle' && status !== 'ended' && callMeetingId === meetingId) {
     return (
       <div className="flex flex-col h-full">
         <Suspense fallback={null}>

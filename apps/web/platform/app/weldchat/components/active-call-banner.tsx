@@ -13,7 +13,7 @@ interface ActiveCallBannerProps {
 export function ActiveCallBanner({ channelId }: Readonly<ActiveCallBannerProps>) {
   const { t } = useI18n();
   const { getClient } = useAppApiClient();
-  const { status, callId: currentCallId, joinCall } = useWeldChatCall();
+  const { callId: currentCallId, joinCall } = useWeldChatCall();
 
   const { data } = useQuery({
     queryKey: weldchatKeys.activeCall(channelId),
@@ -27,10 +27,9 @@ export function ActiveCallBanner({ channelId }: Readonly<ActiveCallBannerProps>)
   const activeCall = data?.data;
   if (!activeCall) return null;
 
-  // Don't show banner if we're already in this call
+  // Don't show banner if we're already in this call. In another call or
+  // meeting it stays: joining asks to switch first.
   if (currentCallId === activeCall.id) return null;
-  // Don't show if we're already in any call
-  if (status !== 'idle') return null;
 
   const isVideo = activeCall.callType === 'video';
   const participantCount = (activeCall.participants || []).filter((p) => !p.leftAt).length;
