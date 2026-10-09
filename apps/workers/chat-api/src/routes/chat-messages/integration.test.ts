@@ -128,6 +128,51 @@ describe('/api/chat-messages · membership boundary', () => {
     expect(row?.authorId).not.toBe('user_spoofed_victim');
   });
 
+  it('POST / mirrors a message in a company entity channel into the Activity feed (and not elsewhere)', async () => {
+    const now = new Date();
+    const entityChannelId = generateId('ch');
+    await db.insert(schema.chatChannels).values({
+      id: entityChannelId,
+      name: 'Acme',
+      slug: `acme-${entityChannelId}`,
+      type: 'public',
+      entityType: 'company',
+      entityId: 'company_acme_chat',
+      entityDisplayName: 'Acme',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
+      context: { userId: MEMBER, permissions: permissions('channels:create'), tenantDb: db },
+    });
+    const post = (channelId: string, content: string) =>
+      request('/api/chat-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, content }),
+      });
+
+    expect((await post(entityChannelId, 'Sent them the quote')).status).toBe(201);
+    // A plain channel message must not create an activity.
+    expect((await post(publicChannelId, 'lunch?')).status).toBe(201);
+
+    const rows = await db
+      .select()
+      .from(schema.crmActivities)
+      .where(eq(schema.crmActivities.customerId, 'company_acme_chat'));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      type: 'comment',
+      subject: 'Sent them the quote',
+      assignedToId: MEMBER,
+      status: 'completed',
+      relatedToName: 'Acme',
+    });
+    expect(rows[0]!.personId).toBeNull();
+    const all = await db.select().from(schema.crmActivities);
+    expect(all.some((a) => a.subject === 'lunch?')).toBe(false);
+  });
+
   it('POST / 403s a non-member posting to a private channel', async () => {
     const { request } = createTestApp('/api/chat-messages', chatMessagesRoutes, {
       context: { userId: OUTSIDER, permissions: permissions('channels:create'), tenantDb: db },

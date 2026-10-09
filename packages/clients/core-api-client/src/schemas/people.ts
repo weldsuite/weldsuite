@@ -12,6 +12,10 @@ import { z } from 'zod';
 
 const addressSchema = z
   .object({
+    // Shared PostalAddress shape (what `primary_address` stores and the record
+    // panel's address editor writes). `street` / `houseNumber` are the older keys.
+    line1: z.string().optional(),
+    line2: z.string().optional(),
     street: z.string().optional(),
     houseNumber: z.string().optional(),
     postalCode: z.string().optional(),
@@ -48,6 +52,23 @@ const linkedinUrlSchema = z
   .transform((v) => (v === '' ? v : normalizeUrlValue(v)))
   .optional();
 
+/**
+ * Canonical lifecycle stages — only NEW writes are validated against this list
+ * so legacy free-text values already stored on a row stay readable. Keep in
+ * sync with `LIFECYCLE_STAGES` in `@weldsuite/app-api-client/schemas/companies`.
+ */
+export const LIFECYCLE_STAGES = [
+  'subscriber',
+  'lead',
+  'marketing_qualified',
+  'sales_qualified',
+  'opportunity',
+  'customer',
+  'evangelist',
+] as const;
+
+export const lifecycleStageSchema = z.enum(LIFECYCLE_STAGES);
+
 export const createPersonSchema = z.object({
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
@@ -83,7 +104,7 @@ export const createPersonSchema = z.object({
 
   // Lifecycle
   status: z.string().optional(),
-  lifecycleStage: z.string().optional(),
+  lifecycleStage: lifecycleStageSchema.nullish(),
   rating: z.string().optional(),
   source: z.string().optional(),
 
@@ -131,7 +152,15 @@ export const createPersonSchema = z.object({
 });
 
 export const updatePersonSchema = createPersonSchema.partial().extend({
+  // Nullable on update so the record panel's address editor can clear the address.
+  primaryAddress: addressSchema.nullish(),
+  /**
+   * Optimistic concurrency: the `version` the client last saw. When present and
+   * it no longer matches the row the write is rejected with 409 CONFLICT.
+   * `version` is an alias of `ifVersion`; omit both to write unconditionally.
+   */
   ifVersion: z.number().int().positive().optional(),
+  version: z.number().int().positive().optional(),
 });
 
 export const listPeopleQuery = z.object({
@@ -185,7 +214,7 @@ export const bulkUpdatePeopleSchema = z.object({
       ownerId: z.string().nullable().optional(),
       accountManagerId: z.string().nullable().optional(),
       status: z.string().optional(),
-      lifecycleStage: z.string().optional(),
+      lifecycleStage: lifecycleStageSchema.optional(),
     })
     .refine(
       (v) =>

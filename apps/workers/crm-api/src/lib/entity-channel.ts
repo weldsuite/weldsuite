@@ -17,6 +17,7 @@ import { and, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { isCrmEntityChannel, logEntityChannelMessageActivity } from './entity-activity';
 
 export interface EntityChannelInfo {
   displayName: string;
@@ -267,7 +268,7 @@ export async function postChannelMessage(params: {
 
   const preview =
     input.content.length > 100 ? input.content.slice(0, 100) + '...' : input.content;
-  await db
+  const [channelRef] = await db
     .update(chatChannels)
     .set({
       lastMessageAt: now,
@@ -275,7 +276,24 @@ export async function postChannelMessage(params: {
       messageCount: sql`${chatChannels.messageCount} + 1`,
       updatedAt: now,
     })
-    .where(eq(chatChannels.id, channelId));
+    .where(eq(chatChannels.id, channelId))
+    .returning({
+      entityType: chatChannels.entityType,
+      entityId: chatChannels.entityId,
+      entityDisplayName: chatChannels.entityDisplayName,
+    });
+
+  // A message in a company / person channel is also an entry in that record's
+  // Activity feed (the record panel's Activity tab reads `crm_activities`).
+  // Best-effort: never block the send.
+  if (channelRef && isCrmEntityChannel(channelRef)) {
+    await logEntityChannelMessageActivity(db, {
+      channel: channelRef,
+      authorUserId,
+      content: input.content,
+      createdAt: now,
+    }).catch((e) => console.error('[crm-api/entity-channel] activity log failed:', e));
+  }
 
   const [message] = await db
     .select()

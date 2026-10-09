@@ -19,7 +19,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useAppApi } from '@/lib/api/use-app-api';
+import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
 import type { UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
 
 /**
@@ -163,6 +163,26 @@ export function useTaskCompanyOptions(enabled: boolean) {
     queryKey: [...taskPanelKeys.all, 'company-options'] as const,
     queryFn: async () => {
       const res = await api.companies.list({ limit: 100 });
+      return res.data ?? [];
+    },
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * CRM people the task's record field can link to. `inCrm` matches the People
+ * table's own filter, so mail/helpdesk auto-created contacts stay out.
+ */
+export function useTaskPersonOptions(enabled: boolean) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: [...taskPanelKeys.all, 'person-options'] as const,
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{
+        data: { id: string; displayName?: string | null; avatarUrl?: string | null }[];
+      }>('/people?limit=100&inCrm=true');
       return res.data ?? [];
     },
     enabled,

@@ -11,6 +11,7 @@ import {
   Presentation,
   SquareActivity,
   Video,
+  MessageSquare,
   UserPlus,
   UserMinus,
   Pencil,
@@ -81,6 +82,8 @@ const ACTIVITY_META: Record<string, ActivityMeta> = {
   meeting: { icon: Calendar, tone: 'orange', verb: 'scheduled a meeting' },
   task: { icon: SquareCheck, tone: 'amber', verb: 'created a task' },
   note: { icon: StickyNote, tone: 'yellow', verb: 'added a note' },
+  // A message posted in the record's chat composer (mirrored by chat-api / crm-api).
+  comment: { icon: MessageSquare, tone: 'blue', verb: 'posted a message' },
   demo: { icon: Presentation, tone: 'cyan', verb: 'scheduled a demo' },
   presentation: { icon: Video, tone: 'cyan', verb: 'shared a presentation' },
   customer_created: { icon: UserPlus, tone: 'emerald', verb: 'created this customer' },

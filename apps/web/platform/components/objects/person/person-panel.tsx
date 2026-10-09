@@ -64,6 +64,9 @@ import {
   TagsPropertyRow,
 } from '@/components/objects/_shared/property-row';
 import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-statuses';
+import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
+import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
+import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
 import { NotesTab } from '@/components/objects/_shared/notes-tab';
 import { ActivityTab } from '@/components/objects/_shared/activity-tab';
 import { DealsTab } from '@/components/objects/_shared/deals-tab';
@@ -326,17 +329,6 @@ function PersonPanelTabsBar({
 
 // ─── Details body ──────────────────────────────────────────────────────────
 
-function formatAddress(addr?: Record<string, unknown> | null): string {
-  if (!addr) return '';
-  const parts = [
-    [addr.street, addr.houseNumber].filter(Boolean).join(' '),
-    [addr.postalCode, addr.city].filter(Boolean).join(' '),
-    addr.state,
-    addr.country,
-  ].filter((s) => typeof s === 'string' && s.trim().length > 0);
-  return parts.join(', ');
-}
-
 function PersonDetailsTab({
   person,
   onUpdateField,
@@ -348,6 +340,8 @@ function PersonDetailsTab({
 }>) {
   const st = useTranslations();
   const { options: statusOptions } = useCustomerStatusOptions();
+  const lifecycleOptions = useLifecycleStageOptions();
+  const languageOptions = useLanguageOptions();
   return (
     <div className="p-4 space-y-1">
       <PropertyRow
@@ -426,17 +420,19 @@ function PersonDetailsTab({
         onChange={(v) => onUpdateField({ status: v ?? '' })}
         options={statusOptions}
       />
-      <PropertyRow
+      <SelectPropertyRow
         icon={Smile}
         label={st('sweep.entities.fieldLifecycle')}
         value={person.lifecycleStage}
-        onSave={(v) => onUpdateField({ lifecycleStage: v })}
+        options={lifecycleOptions}
+        onChange={(v) => onUpdateField({ lifecycleStage: v })}
       />
-      <PropertyRow
+      <SelectPropertyRow
         icon={Languages}
         label={st('sweep.entities.fieldLanguage')}
         value={person.preferredLanguage}
-        onSave={(v) => onUpdateField({ preferredLanguage: v })}
+        options={languageOptions}
+        onChange={(v) => onUpdateField({ preferredLanguage: v })}
       />
       <PropertyRow
         icon={ExternalLink}
@@ -445,13 +441,12 @@ function PersonDetailsTab({
         value={person.linkedinUrl}
         onSave={(v) => onUpdateField({ linkedinUrl: v })}
       />
-      <PropertyRow
+      <AddressPropertyRow
         icon={MapPin}
         label={st('sweep.entities.fieldAddress')}
-        type="address"
-        value={formatAddress(person.primaryAddress) || null}
-        readOnly
+        value={person.primaryAddress as Record<string, unknown> | null | undefined}
         placeholder={st('sweep.entities.setAddressPlaceholder')}
+        onSave={(next) => onUpdateFieldAsync({ primaryAddress: next })}
       />
 
       <CustomFieldsSidebarSection

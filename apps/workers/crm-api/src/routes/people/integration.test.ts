@@ -148,4 +148,131 @@ describe('/api/people · pglite integration', () => {
     expect(codes).toContain('PIMP-1');
     expect(codes).toContain('PIMP-2');
   });
+
+  it('POST / promotes a hidden non-CRM identity with the same email (200), 409 for a CRM duplicate', async () => {
+    const { request } = createTestApp('/api/people', peopleRoutes, {
+      context: {
+        permissions: permissions('people:create', 'people:read', 'people:update'),
+        tenantDb: db,
+      },
+    });
+    const post = (body: unknown) =>
+      request('/api/people', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    // Hidden mail-only identity (what WeldMail auto-creates for a new "To").
+    const email = 'guest-promote@route.example';
+    const [hidden] = await db
+      .insert(schema.people)
+      .values({ id: 'person_route_hidden', email, displayName: email, inCrm: false })
+      .returning();
+
+    const promote = await post({ firstName: 'Gus', lastName: 'Guest', email });
+    expect(promote.status).toBe(200);
+    const promoted = (await promote.json()) as { data: { id: string; inCrm: boolean; firstName: string } };
+    expect(promoted.data.id).toBe(hidden!.id);
+    expect(promoted.data.inCrm).toBe(true);
+    expect(promoted.data.firstName).toBe('Gus');
+
+    // Now a real CRM person — a second create is a genuine duplicate.
+    const dup = await post({ firstName: 'Gus', email });
+    expect(dup.status).toBe(409);
+    const dupBody = (await dup.json()) as { error: { details: { existingPersonId: string } } };
+    expect(dupBody.error.details.existingPersonId).toBe(hidden!.id);
+  });
+
+  it('PATCH /:id returns 409 when the new email belongs to another CRM person', async () => {
+    const { request } = createTestApp('/api/people', peopleRoutes, {
+      context: { permissions: permissions('people:create', 'people:update'), tenantDb: db },
+    });
+    const json = { 'Content-Type': 'application/json' };
+    const a = (await (
+      await request('/api/people', { method: 'POST', headers: json, body: JSON.stringify({ firstName: 'A', email: 'patch-a@route.example' }) })
+    ).json()) as { data: { id: string } };
+    const b = (await (
+      await request('/api/people', { method: 'POST', headers: json, body: JSON.stringify({ firstName: 'B', email: 'patch-b@route.example' }) })
+    ).json()) as { data: { id: string } };
+
+    const clash = await request(`/api/people/${b.data.id}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ email: 'Patch-A@route.example' }),
+    });
+    expect(clash.status).toBe(409);
+    const body = (await clash.json()) as { error: { details: { existingPersonId: string } } };
+    expect(body.error.details.existingPersonId).toBe(a.data.id);
+
+    const ok = await request(`/api/people/${b.data.id}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ email: 'patch-b2@route.example' }),
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it('PATCH /:id rejects a free-text lifecycleStage (400) and accepts a canonical one', async () => {
+    const { request } = createTestApp('/api/people', peopleRoutes, {
+      context: { permissions: permissions('people:create', 'people:update'), tenantDb: db },
+    });
+    const json = { 'Content-Type': 'application/json' };
+    const p = (await (
+      await request('/api/people', { method: 'POST', headers: json, body: JSON.stringify({ firstName: 'Life' }) })
+    ).json()) as { data: { id: string } };
+
+    const bad = await request(`/api/people/${p.data.id}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ lifecycleStage: 'zzz-free' }),
+    });
+    expect(bad.status).toBe(400);
+
+    const good = await request(`/api/people/${p.data.id}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ lifecycleStage: 'customer' }),
+    });
+    expect(good.status).toBe(200);
+    const cleared = await request(`/api/people/${p.data.id}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ lifecycleStage: null }),
+    });
+    expect(cleared.status).toBe(200);
+  });
+
+  it('POST /:id/chat/messages mirrors the message into the person Activity feed', async () => {
+    const { request } = createTestApp('/api/people', peopleRoutes, {
+      context: {
+        permissions: permissions('people:create', 'people:read', 'channels:create'),
+        tenantDb: db,
+      },
+    });
+    const json = { 'Content-Type': 'application/json' };
+    const person = (await (
+      await request('/api/people', { method: 'POST', headers: json, body: JSON.stringify({ firstName: 'Chatty' }) })
+    ).json()) as { data: { id: string } };
+
+    const res = await request(`/api/people/${person.data.id}/chat/messages`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ content: 'Called them, will follow up Monday' }),
+    });
+    expect(res.status).toBe(201);
+
+    const rows = await db
+      .select()
+      .from(schema.crmActivities)
+      .where(eq(schema.crmActivities.personId, person.data.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      type: 'comment',
+      subject: 'Called them, will follow up Monday',
+      status: 'completed',
+      personId: person.data.id,
+    });
+    expect(rows[0]!.customerId).toBeNull();
+  });
 });

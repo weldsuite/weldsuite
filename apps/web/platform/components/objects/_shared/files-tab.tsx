@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -56,6 +57,8 @@ export function FilesTab({ entityId, entityKind }: Readonly<FilesTabProps>) {
   const deleteFile = useDeleteCustomerDocument();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  // Row ⋮ > Delete only stages the file here; the request fires from the confirm dialog.
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Keep the raw rows around (keyed by id) so download — which needs the
   // `files` row's url/source, not just what the list row displays — doesn't
@@ -159,19 +162,36 @@ export function FilesTab({ entityId, entityKind }: Readonly<FilesTabProps>) {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
-          onClick={() => handleDelete(item.id, item.name)}
+          onClick={() => setPendingDelete({ id: item.id, name: item.name })}
         >
           <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
           {t('sweep.entities.delete')}
         </DropdownMenuItem>
       </>
     ),
-    [handleDownload, handleDelete, t],
+    [handleDownload, t],
   );
 
   return (
     <>
       <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title={t('sweep.entities.deleteFileTitle')}
+        description={t('sweep.entities.deleteFileDescription', { fileName: pendingDelete?.name ?? '' })}
+        variant="destructive"
+        confirmLabel={t('sweep.entities.delete')}
+        cancelLabel={t('sweep.entities.cancel')}
+        loading={deleteFile.isPending}
+        onConfirm={async () => {
+          if (!pendingDelete) return;
+          await handleDelete(pendingDelete.id, pendingDelete.name);
+          setPendingDelete(null);
+        }}
+      />
       <FileListView
         items={listItems}
         isLoading={isLoading}

@@ -7,7 +7,7 @@
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   hasContextPermission,
@@ -38,6 +38,7 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.crmOpportunities;
+const companies = schema.companies;
 
 async function scopeFor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<string | undefined> {
   if (await hasContextPermission(c, 'opportunities:scope:all')) return undefined;
@@ -57,6 +58,12 @@ function buildListFilters(q: Record<string, string>, scope: string | undefined):
   ];
   for (const [value, column] of equalityFilters) {
     if (value) conditions.push(eq(column, value));
+  }
+  // Several companies at once (comma-separated) — used by the company delete
+  // guard to count open deals for a whole selection in one request.
+  if (q.customerIds) {
+    const ids = q.customerIds.split(',').map((v) => v.trim()).filter(Boolean).slice(0, 200);
+    if (ids.length > 0) conditions.push(inArray(t.customerId, ids));
   }
   // Filter by a linked Person — the `personIds` JSONB array stores the
   // canonical Person FKs; `contactIds` is the legacy back-reference and we
@@ -97,10 +104,24 @@ app.get('/', requirePermission('opportunities:read'), async (c) => {
   const where = and(...filterConditions, cursorCondition);
 
   try {
-    const [rows, countRes] = await Promise.all([
-      db.select().from(t).where(where).orderBy(desc(t.createdAt), desc(t.id)).limit(limit + 1),
+    // LEFT JOIN the company: a deal whose company was deleted (or never
+    // resolved) must still be returned, otherwise it vanishes from the
+    // pipeline board while it still exists as an open deal (TASK-1040).
+    // `companyDeleted` lets the UI label it instead of showing a stale name.
+    const [joined, countRes] = await Promise.all([
+      db
+        .select({ deal: t, companyId: companies.id, companyDeletedAt: companies.deletedAt })
+        .from(t)
+        .leftJoin(companies, eq(companies.id, t.customerId))
+        .where(where)
+        .orderBy(desc(t.createdAt), desc(t.id))
+        .limit(limit + 1),
       db.select({ count: sql<number>`count(*)` }).from(t).where(and(...filterConditions)),
     ]);
+    const rows = joined.map((r) => ({
+      ...r.deal,
+      companyDeleted: !!r.deal.customerId && (r.companyId === null || r.companyDeletedAt !== null),
+    }));
     const hasMore = rows.length > limit;
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data[data.length - 1].id : null;
@@ -121,8 +142,17 @@ app.get('/:id', requirePermission('opportunities:read'), async (c) => {
   const conditions: any[] = [eq(t.id, id), isNull(t.deletedAt)];
   if (scope) conditions.push(eq(t.ownerId, scope));
   try {
-    const [row] = await db.select().from(t).where(and(...conditions)).limit(1);
-    if (!row) return error.notFound(c, 'Opportunity', id);
+    const [found] = await db
+      .select({ deal: t, companyId: companies.id, companyDeletedAt: companies.deletedAt })
+      .from(t)
+      .leftJoin(companies, eq(companies.id, t.customerId))
+      .where(and(...conditions))
+      .limit(1);
+    if (!found) return error.notFound(c, 'Opportunity', id);
+    const row = {
+      ...found.deal,
+      companyDeleted: !!found.deal.customerId && (found.companyId === null || found.companyDeletedAt !== null),
+    };
     // Phase 3: customFields comes from the typed values table, not the blob.
     return success(c, await hydrateCustomFieldsOne(db, 'opportunity', row));
   } catch (err) {

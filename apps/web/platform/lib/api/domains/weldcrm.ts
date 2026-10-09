@@ -204,6 +204,8 @@ export interface Opportunity {
   description?: string;
   customerId: string;
   customerName?: string;
+  /** True when the linked company was deleted (or never existed). */
+  companyDeleted?: boolean;
   primaryContactId?: string;
   contactId?: string;
   amount?: string;

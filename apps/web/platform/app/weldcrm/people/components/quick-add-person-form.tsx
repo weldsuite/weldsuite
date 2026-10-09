@@ -3,7 +3,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
+import { isApiError } from '@weldsuite/api-client';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useObjectPanel } from '@/components/object-panel/use-object-panel';
 import { useCreatePerson, type Person } from '@/hooks/queries/use-people-queries';
 import { useTemplatePicker } from '@/app/settings/object-templates/use-template-picker';
 import { TemplateFieldsRenderer } from '@/app/settings/object-templates/template-fields-renderer';
@@ -29,7 +31,7 @@ const schema = z
     directPhone: z.string().optional(),
     mobilePhone: z.string().optional(),
     department: z.string().optional(),
-    customFields: z.record(z.string()).optional(),
+    customFields: z.record(z.unknown()).optional(),
   })
   .passthrough()
   .refine((v) => !!(v.firstName || v.lastName || v.email), {
@@ -38,6 +40,13 @@ const schema = z
   });
 
 type FormValues = z.infer<typeof schema>;
+
+/** Id of the CRM person that already owns the email, from a `POST /people` 409 (`details.existingPersonId`). */
+function existingPersonIdFromConflict(err: unknown): string | null {
+  if (!isApiError(err) || err.status !== 409) return null;
+  const details = (err.body as { error?: { details?: { existingPersonId?: unknown } } } | undefined)?.error?.details;
+  return typeof details?.existingPersonId === 'string' ? details.existingPersonId : null;
+}
 
 interface Props {
   /**
@@ -56,6 +65,10 @@ export function QuickAddPersonForm({ initialName, onCreated, onCancel }: Readonl
   const create = useCreatePerson();
   const picker = useTemplatePicker('person');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Set when the email already belongs to another CRM person (409): the form
+  // then offers to open that record instead of only toasting an error.
+  const [duplicatePersonId, setDuplicatePersonId] = useState<string | null>(null);
+  const { open: openPanel } = useObjectPanel();
 
   const seed = personSeedFromQuery(initialName ?? '');
 
@@ -75,13 +88,16 @@ export function QuickAddPersonForm({ initialName, onCreated, onCancel }: Readonl
 
   const onSubmit = async (values: FormValues) => {
     setIsSubmitting(true);
+    setDuplicatePersonId(null);
     try {
       const payload = picker.buildPayload(values as Record<string, unknown>);
       const res = await create.mutateAsync(payload as Parameters<typeof create.mutateAsync>[0]);
       toast.success(t('crm.quickAddPerson.createdSuccess'));
       onCreated?.(res.data);
-    } catch {
-      // useCreatePerson already toasts on error
+    } catch (err) {
+      // useCreatePerson already toasts on error; a duplicate additionally gets
+      // an "Open existing person" action below the form.
+      setDuplicatePersonId(existingPersonIdFromConflict(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -103,8 +119,35 @@ export function QuickAddPersonForm({ initialName, onCreated, onCancel }: Readonl
         <p className="text-xs text-destructive">
           {form.formState.errors.firstName.type === 'custom'
             ? t('crm.quickAddPerson.validationAtLeastOne')
-            : (form.formState.errors.firstName.message as string)}
+            : form.formState.errors.firstName.type === 'too_big'
+              ? t('crm.quickAddPerson.fieldTooLong', { field: t('crm.quickAddPerson.fieldFirstName'), max: 100 })
+              : (form.formState.errors.firstName.message as string)}
         </p>
+      )}
+      {form.formState.errors.lastName?.type === 'too_big' && (
+        <p className="text-xs text-destructive">
+          {t('crm.quickAddPerson.fieldTooLong', { field: t('crm.quickAddPerson.fieldLastName'), max: 100 })}
+        </p>
+      )}
+
+      {duplicatePersonId && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
+        >
+          <span className="text-destructive">{t('crm.quickAddPerson.duplicateEmail')}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              openPanel({ type: 'person', id: duplicatePersonId });
+              onCancel();
+            }}
+          >
+            {t('crm.quickAddPerson.openExistingPerson')}
+          </Button>
+        </div>
       )}
 
       <DialogFooter>

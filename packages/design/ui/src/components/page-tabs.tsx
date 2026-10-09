@@ -38,8 +38,9 @@ export interface PageTabsProps {
    * How to handle tabs that don't fit the available width.
    * - `scroll` (default): horizontal scroll, original behaviour.
    * - `dropdown`: Attio-style — tabs that don't fit collapse into a
-   *   "+N more" dropdown at the end of the row. The active tab's selected
-   *   state is reflected on the "+N more" trigger when it overflows.
+   *   "+N more" dropdown at the end of the row. When the active tab
+   *   overflows, the trigger shows its icon + label (and "+M" for the rest)
+   *   in the selected style instead of "+N more".
    *   Only supported when no custom `renderTabWrapper` is provided
    *   (wrappers imply bespoke per-tab markup); otherwise falls back to
    *   `scroll`.
@@ -160,6 +161,7 @@ function OverflowTabs({
   const rowRef = React.useRef<HTMLDivElement>(null);
   const measureRef = React.useRef<HTMLDivElement>(null);
   const moreRef = React.useRef<HTMLDivElement>(null);
+  const moreActiveRef = React.useRef<HTMLDivElement>(null);
   const tabRefs = React.useRef<(HTMLDivElement | null)[]>([]);
 
   const [available, setAvailable] = React.useState(0);
@@ -184,7 +186,11 @@ function OverflowTabs({
     tabRefs.current.length = tabs.length;
     const next = tabs.map((_, i) => tabRefs.current[i]?.offsetWidth ?? 0);
     setWidths(next);
-    setMoreWidth(moreRef.current?.offsetWidth ?? 0);
+    // The trigger can render either "+N more" or the active overflow tab's
+    // label, so reserve room for whichever is wider.
+    setMoreWidth(
+      Math.max(moreRef.current?.offsetWidth ?? 0, moreActiveRef.current?.offsetWidth ?? 0),
+    );
   }, [tabs]);
 
   const { visibleIndices, overflowIndices } = React.useMemo(() => {
@@ -222,6 +228,16 @@ function OverflowTabs({
 
   const hasOverflow = overflowIndices.length > 0;
   const overflowActive = overflowIndices.some((i) => tabs[i]?.id === activeTab);
+  // When the active tab lives in the overflow menu, the trigger names it (and
+  // shows how many other tabs remain) instead of an anonymous "+N more".
+  const activeOverflowTab = overflowActive ? tabs.find((t) => t.id === activeTab) : undefined;
+  const ActiveOverflowIcon = activeOverflowTab?.icon;
+  // Widest label, used by the hidden mirror to size the trigger's reserved space.
+  const longestTab = tabs.reduce<PageTab | undefined>(
+    (best, t) => (!best || t.label.length > best.label.length ? t : best),
+    undefined,
+  );
+  const LongestIcon = longestTab?.icon;
 
   return (
     <div className="relative w-full min-w-0">
@@ -258,7 +274,17 @@ function OverflowTabs({
                         : 'text-muted-foreground hover:text-foreground group-data-[state=open]/tab:text-foreground',
                     )}
                   >
-                    +{overflowIndices.length} more
+                    {activeOverflowTab ? (
+                      <>
+                        {ActiveOverflowIcon && <ActiveOverflowIcon className="h-4 w-4 mr-1" />}
+                        <span className="truncate max-w-[8rem]">{activeOverflowTab.label}</span>
+                        <span className="text-xs text-muted-foreground font-normal ml-0.5">
+                          +{overflowIndices.length - 1}
+                        </span>
+                      </>
+                    ) : (
+                      <>+{overflowIndices.length} more</>
+                    )}
                   </span>
                   {overflowActive ? (
                     <span className="absolute -bottom-px h-[2px] bg-foreground left-2 right-2 z-20" />
@@ -340,6 +366,13 @@ function OverflowTabs({
         <div ref={moreRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
           <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
             +88 more
+          </span>
+        </div>
+        <div ref={moreActiveRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
+          <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
+            {LongestIcon && <LongestIcon className="h-4 w-4 mr-1" />}
+            <span className="truncate max-w-[8rem]">{longestTab?.label}</span>
+            <span className="text-xs font-normal ml-0.5">+88</span>
           </span>
         </div>
       </div>

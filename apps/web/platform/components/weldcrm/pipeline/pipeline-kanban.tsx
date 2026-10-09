@@ -77,7 +77,9 @@ import { Label } from '@weldsuite/ui/components/label';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import {
   Command,
+  CommandEmpty,
   CommandGroup,
+  CommandInput,
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
@@ -88,6 +90,7 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { secureRandom } from '@/lib/random';
+import { formatDealMoney, getCurrencyOptions } from '@/lib/crm/deal-format';
 import { toast } from 'sonner';
 
 type FieldInputType = 'text' | 'number' | 'date' | 'select' | 'textarea';
@@ -649,15 +652,10 @@ export function PipelineKanban({
     ? stages.flatMap(s => s.deals).find(d => d.id === activeDealId)
     : null;
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-      notation: amount >= 1000000 ? 'compact' : 'standard',
-    }).format(amount);
-  };
+  // Stage totals are shown in the pipeline's default currency (the board sums
+  // raw amounts), not a hardcoded `$`.
+  const formatCurrency = (amount: number) =>
+    formatDealMoney(amount, viewSettings.defaultCurrency, { compactMillions: true });
 
   const handleCalculation = (stageId: string, calculationType: string) => {
     const stage = stages.find(s => s.id === stageId);
@@ -1286,6 +1284,7 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
           selectedStageId={selectedStageForNewDeal}
           onSubmit={handleCreateDeal}
           lockedCustomer={lockedCustomer}
+          defaultCurrency={viewSettings.defaultCurrency}
         />
       )}
 
@@ -1535,12 +1534,7 @@ function PipelineSettingsModal({
     { value: 'textarea', label: t('sweep.weldcrm.pipelineSettingsModal.fieldTypeTextArea') },
   ];
 
-  const currencies = [
-    { value: 'USD', label: 'USD - US Dollar' },
-    { value: 'EUR', label: 'EUR - Euro' },
-    { value: 'GBP', label: 'GBP - British Pound' },
-    { value: 'JPY', label: 'JPY - Japanese Yen' },
-  ];
+  const currencies = useMemo(() => getCurrencyOptions(), []);
 
   const [currencyOpen, setCurrencyOpen] = useState(false);
 
@@ -1714,14 +1708,16 @@ function PipelineSettingsModal({
                   </PopoverTrigger>
                   <PopoverContent className="w-[200px] p-0" align="start">
                     <Command>
+                      <CommandInput placeholder={t('sweep.weldcrm.pipelineSettingsModal.selectCurrency')} />
                       <CommandList>
+                        <CommandEmpty>{t('sweep.weldcrm.dealDetailsModal.noRecordsFound')}</CommandEmpty>
                         <CommandGroup>
                           {currencies.map((currency) => (
                             <CommandItem
                               key={currency.value}
-                              value={currency.value}
-                              onSelect={(currentValue) => {
-                                setSettings({ ...settings, defaultCurrency: currentValue.toUpperCase() });
+                              value={currency.label}
+                              onSelect={() => {
+                                setSettings({ ...settings, defaultCurrency: currency.value });
                                 setCurrencyOpen(false);
                               }}
                             >

@@ -291,6 +291,8 @@ export interface TaskUpdateData {
   assignee?: NonNullable<Task['assignee']> | null;
   assignees?: NonNullable<Task['assignees']> | null;
   linkedCompany?: NonNullable<Task['linkedCompany']> | null;
+  /** CRM person link, mutually exclusive with `linkedCompany`. */
+  linkedPerson?: NonNullable<Task['linkedPerson']> | null;
   labels?: string[];
   repeat?: NonNullable<Task['repeat']> | null;
   customFields?: Record<string, unknown>;
@@ -301,6 +303,13 @@ export interface TaskDetailContentProps {
   onUpdate: (taskId: string, data: TaskUpdateData) => void;
   availableAssignees: string[] | { id: string; name: string; avatar?: string }[];
   availableCompanies: { id: string; name: string; avatar?: string }[];
+  /**
+   * When provided, the company field becomes a CRM "record" picker offering
+   * people next to companies (CRM tasks link to either).
+   */
+  availablePeople?: { id: string; name: string; avatar?: string }[];
+  /** Opens the linked company/person panel; shows an "open" button next to the record. */
+  onOpenRecord?: (type: 'company' | 'person', id: string) => void;
   availableLabels?: { id: string; name: string; color: string }[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
   projectId?: string;
@@ -745,6 +754,8 @@ export function TaskDetailContent({
   onUpdate,
   availableAssignees,
   availableCompanies,
+  availablePeople,
+  onOpenRecord,
   availableLabels = [],
   onCreateLabel,
   projectId,
@@ -797,11 +808,24 @@ export function TaskDetailContent({
   // control both the popover open state and the query string from here.
   const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
   const [companyQuery, setCompanyQuery] = useState('');
+  const isRecordPicker = availablePeople !== undefined;
   const filteredCompanies = useMemo(() => {
     const q = companyQuery.trim().toLowerCase();
     if (!q) return availableCompanies;
     return availableCompanies.filter((c) => c.name.toLowerCase().includes(q));
   }, [companyQuery, availableCompanies]);
+  const filteredPeople = useMemo(() => {
+    const q = companyQuery.trim().toLowerCase();
+    const people = availablePeople ?? [];
+    if (!q) return people;
+    return people.filter((p) => p.name.toLowerCase().includes(q));
+  }, [companyQuery, availablePeople]);
+  // The record currently linked to the task: a company or a person.
+  const linkedRecord = useMemo(() => {
+    if (task.linkedCompany) return { ...task.linkedCompany, type: 'company' as const };
+    if (task.linkedPerson) return { ...task.linkedPerson, type: 'person' as const };
+    return null;
+  }, [task.linkedCompany, task.linkedPerson]);
   const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
   // Escape closes the attachment preview overlay.
   useEffect(() => {
@@ -955,12 +979,12 @@ export function TaskDetailContent({
           <AssigneesField task={task} onUpdate={onUpdate} availableAssignees={availableAssignees} />
           )}
 
-          {/* Company */}
+          {/* Company (or CRM record: company / person) */}
           {isFieldVisible('company') && (
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 w-32 flex-shrink-0">
               <Building className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{t('sweep.shared.customer')}</span>
+              <span className="text-sm text-muted-foreground">{isRecordPicker ? t('sweep.shared.record') : t('sweep.shared.customer')}</span>
             </div>
             <Popover
               open={companyPopoverOpen}
@@ -978,7 +1002,7 @@ export function TaskDetailContent({
                     onKeyDown={(e) => {
                       if (e.key === 'Escape') setCompanyPopoverOpen(false);
                     }}
-                    placeholder={t('sweep.shared.searchCustomerPlaceholder')}
+                    placeholder={isRecordPicker ? t('sweep.shared.searchRecordPlaceholder') : t('sweep.shared.searchCustomerPlaceholder')}
                     className="h-8 text-sm -mx-2 w-auto min-w-[200px] self-start border-0 shadow-none focus-visible:ring-0 px-2 bg-transparent"
                   />
                 </PopoverAnchor>
@@ -986,20 +1010,20 @@ export function TaskDetailContent({
                 <PopoverTrigger asChild>
                   <Button variant="ghost" className={cn(
                     "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start gap-2 group/field transition-colors",
-                    task.linkedCompany && "border border-transparent hover:border-border hover:bg-muted/40",
+                    linkedRecord && "border border-transparent hover:border-border hover:bg-muted/40",
                   )}>
-                    {task.linkedCompany ? (
+                    {linkedRecord ? (
                       <>
                         <Avatar className="h-5 w-5 rounded-[7px]">
-                          <AvatarImage src={task.linkedCompany.avatar} className="rounded-[7px]" />
+                          <AvatarImage src={linkedRecord.avatar} className="rounded-[7px]" />
                           <AvatarFallback className="text-[10px] rounded-[7px]">
-                            {(task.linkedCompany.name || '?').charAt(0).toUpperCase()}
+                            {(linkedRecord.name || '?').charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="text-foreground">{task.linkedCompany.name}</span>
+                        <span className="text-foreground">{linkedRecord.name}</span>
                       </>
                     ) : (
-                      <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setCustomer')}</span>
+                      <span className="text-muted-foreground group-hover/field:underline">{isRecordPicker ? t('sweep.shared.setRecord') : t('sweep.shared.setCustomer')}</span>
                     )}
                   </Button>
                 </PopoverTrigger>
@@ -1014,42 +1038,73 @@ export function TaskDetailContent({
                     backgrounds extend all the way to the scrollbar on the
                     right side. */}
                 <div className="max-h-[240px] overflow-y-auto py-1 pl-1">
-                  {filteredCompanies.length === 0 ? (
+                  {filteredCompanies.length === 0 && filteredPeople.length === 0 ? (
                     <div className="px-2 py-6 text-sm text-center text-muted-foreground">
-                      {t('sweep.shared.noCustomerFound')}
+                      {isRecordPicker ? t('sweep.shared.noRecordFound') : t('sweep.shared.noCustomerFound')}
                     </div>
                   ) : (
-                    filteredCompanies.map((company) => {
-                      const isSelected = task.linkedCompany?.id === company.id;
-                      return (
-                        <Button
-                          variant="ghost"
-                          key={company.id}
-                          onClick={() => {
-                            onUpdate(task.id, { linkedCompany: company });
-                            setCompanyPopoverOpen(false);
-                          }}
-                          className="flex items-center gap-2 w-full pl-1.5 pr-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-                        >
-                          <Avatar className="h-5 w-5 rounded-[7px]">
-                            <AvatarImage src={company.avatar} className="rounded-[7px]" />
-                            <AvatarFallback className="text-[10px] rounded-[7px]">
-                              {(company.name || '?').charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="flex-1 truncate">{company.name}</span>
-                          {isSelected && <Check className="ml-auto h-3.5 w-3.5 text-primary shrink-0" />}
-                        </Button>
-                      );
-                    })
+                    <>
+                      {isRecordPicker && filteredCompanies.length > 0 && (
+                        <div className="px-1.5 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{t('sweep.shared.recordCompanies')}</div>
+                      )}
+                      {filteredCompanies.map((company) => {
+                        const isSelected = task.linkedCompany?.id === company.id;
+                        return (
+                          <Button
+                            variant="ghost"
+                            key={`company-${company.id}`}
+                            onClick={() => {
+                              onUpdate(task.id, { linkedCompany: company });
+                              setCompanyPopoverOpen(false);
+                            }}
+                            className="flex items-center gap-2 w-full pl-1.5 pr-2 py-1.5 text-sm text-left hover:bg-muted rounded"
+                          >
+                            <Avatar className="h-5 w-5 rounded-[7px]">
+                              <AvatarImage src={company.avatar} className="rounded-[7px]" />
+                              <AvatarFallback className="text-[10px] rounded-[7px]">
+                                {(company.name || '?').charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="flex-1 truncate">{company.name}</span>
+                            {isSelected && <Check className="ml-auto h-3.5 w-3.5 text-primary shrink-0" />}
+                          </Button>
+                        );
+                      })}
+                      {isRecordPicker && filteredPeople.length > 0 && (
+                        <div className="px-1.5 pt-2 pb-0.5 text-xs font-medium text-muted-foreground">{t('sweep.shared.recordPeople')}</div>
+                      )}
+                      {filteredPeople.map((person) => {
+                        const isSelected = task.linkedPerson?.id === person.id;
+                        return (
+                          <Button
+                            variant="ghost"
+                            key={`person-${person.id}`}
+                            onClick={() => {
+                              onUpdate(task.id, { linkedPerson: person });
+                              setCompanyPopoverOpen(false);
+                            }}
+                            className="flex items-center gap-2 w-full pl-1.5 pr-2 py-1.5 text-sm text-left hover:bg-muted rounded"
+                          >
+                            <Avatar className="h-5 w-5 rounded-full">
+                              <AvatarImage src={person.avatar} className="rounded-full" />
+                              <AvatarFallback className="text-[10px] rounded-full">
+                                {(person.name || '?').charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="flex-1 truncate">{person.name}</span>
+                            {isSelected && <Check className="ml-auto h-3.5 w-3.5 text-primary shrink-0" />}
+                          </Button>
+                        );
+                      })}
+                    </>
                   )}
                 </div>
-                {task.linkedCompany && (
+                {linkedRecord && (
                   <div className="border-t border-border p-1">
                     <Button
                       variant="ghost"
                       onClick={() => {
-                        onUpdate(task.id, { linkedCompany: null });
+                        onUpdate(task.id, linkedRecord.type === 'person' ? { linkedPerson: null } : { linkedCompany: null });
                         setCompanyPopoverOpen(false);
                       }}
                       className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
@@ -1061,6 +1116,18 @@ export function TaskDetailContent({
                 )}
               </PopoverContent>
             </Popover>
+            {linkedRecord && onOpenRecord && !companyPopoverOpen && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                aria-label={t('sweep.shared.openRecord')}
+                title={t('sweep.shared.openRecord')}
+                onClick={() => onOpenRecord(linkedRecord.type, linkedRecord.id)}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
           )}
 

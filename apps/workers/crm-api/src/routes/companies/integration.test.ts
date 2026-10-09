@@ -220,4 +220,133 @@ describe('/api/companies · pglite integration', () => {
     expect(codes).toContain('IMP-1');
     expect(codes).toContain('IMP-2');
   });
+
+  it('PATCH /:id with a stale `version` returns 409 CONFLICT and leaves the row untouched', async () => {
+    const { request } = createTestApp('/api/companies', companiesRoutes, {
+      context: {
+        permissions: permissions('companies:create', 'companies:update', 'companies:read'),
+        tenantDb: db,
+      },
+    });
+    const created = await request('/api/companies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Version Route Co' }),
+    });
+    const { id, version } = ((await created.json()) as { data: { id: string; version: number } }).data;
+    expect(version).toBe(1);
+
+    const patch = (body: Record<string, unknown>) =>
+      request(`/api/companies/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    // Someone else saves first (version omitted: unconditional, as before).
+    expect((await patch({ name: 'Changed By Someone Else' })).status).toBe(200);
+
+    // Our edit was made against version 1 -> rejected, not overwritten.
+    const stale = await patch({ name: 'My Stale Edit', version: 1 });
+    expect(stale.status).toBe(409);
+    const staleBody = (await stale.json()) as { error: { code: string; message: string } };
+    expect(staleBody.error.code).toBe('CONFLICT');
+    expect(staleBody.error.message).toBe(
+      'This record was changed by someone else. Reload to see the latest version.',
+    );
+    const [row] = await db.select().from(schema.companies).where(eq(schema.companies.id, id));
+    expect(row?.name).toBe('Changed By Someone Else');
+
+    // Re-sending against the current version succeeds.
+    const fresh = await patch({ name: 'My Fresh Edit', version: 2 });
+    expect(fresh.status).toBe(200);
+  });
+
+  it('PATCH /:id and POST / reject a status that is not configured (400), accept built-ins', async () => {
+    const { request } = createTestApp('/api/companies', companiesRoutes, {
+      context: {
+        permissions: permissions('companies:create', 'companies:update'),
+        tenantDb: db,
+      },
+    });
+    const json = { 'Content-Type': 'application/json' };
+    const bad = await request('/api/companies', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ name: 'Bad Status Route', status: 'bogus' }),
+    });
+    expect(bad.status).toBe(400);
+
+    const created = await request('/api/companies', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ name: 'Good Status Route', status: 'active' }),
+    });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as { data: { id: string } }).data.id;
+
+    const badPatch = await request(`/api/companies/${id}`, {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ status: 'bogus' }),
+    });
+    expect(badPatch.status).toBe(400);
+  });
+
+  it('POST /import validates each row, defaults ownerId to the importer, and never rejects the whole batch', async () => {
+    const { request } = createTestApp('/api/companies', companiesRoutes, {
+      context: { permissions: permissions('companies:create'), tenantDb: db },
+    });
+    const res = await request('/api/companies/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        records: [
+          { partyCode: 'IMP-V-OK', name: 'Import Valid Row', website: 'valid-row.example', employeeCount: '51-200' },
+          { partyCode: 'IMP-V-WEB', name: 'Import Bad Website', website: 'not a url' },
+          { partyCode: 'IMP-V-EMP', name: 'Import Bad Employees', employeeCount: 'lots' },
+          { partyCode: 'IMP-V-STA', name: 'Import Bad Status', status: 'nonexistent' },
+        ],
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: { imported: number; failed: number; errors: Array<{ row: number; error: string }> };
+    };
+    expect(body.data.imported).toBe(1);
+    expect(body.data.failed).toBe(3);
+    expect(body.data.errors.map((e) => e.row)).toEqual([2, 3, 4]);
+
+    const [ok] = await db.select().from(schema.companies).where(eq(schema.companies.partyCode, 'IMP-V-OK'));
+    expect(ok?.website).toBe('https://valid-row.example');
+    expect(ok?.ownerId).toBe('user_test_default');
+    const bad = await db.select().from(schema.companies).where(eq(schema.companies.partyCode, 'IMP-V-WEB'));
+    expect(bad).toHaveLength(0);
+  });
+
+  it('PATCH /:id validates lifecycleStage (400 on free text), accepts canonical values and null, and stores/clears primaryAddress', async () => {
+    const { request } = createTestApp('/api/companies', companiesRoutes, {
+      context: { permissions: permissions('companies:create', 'companies:update'), tenantDb: db },
+    });
+    const json = { 'Content-Type': 'application/json' };
+    const created = (await (
+      await request('/api/companies', { method: 'POST', headers: json, body: JSON.stringify({ name: 'Lifecycle Co' }) })
+    ).json()) as { data: { id: string } };
+    const patch = (body: unknown) =>
+      request(`/api/companies/${created.data.id}`, { method: 'PATCH', headers: json, body: JSON.stringify(body) });
+
+    expect((await patch({ lifecycleStage: 'zzz-free' })).status).toBe(400);
+    expect((await patch({ lifecycleStage: 'customer' })).status).toBe(200);
+    const [row] = await db.select().from(schema.companies).where(eq(schema.companies.id, created.data.id));
+    expect(row?.lifecycleStage).toBe('customer');
+    expect((await patch({ lifecycleStage: null })).status).toBe(200);
+
+    const address = { line1: 'Keizersgracht 12', postalCode: '1015 CJ', city: 'Amsterdam', country: 'NL' };
+    expect((await patch({ primaryAddress: address })).status).toBe(200);
+    const [withAddress] = await db.select().from(schema.companies).where(eq(schema.companies.id, created.data.id));
+    expect(withAddress?.primaryAddress).toMatchObject(address);
+    expect((await patch({ primaryAddress: null })).status).toBe(200);
+    const [cleared] = await db.select().from(schema.companies).where(eq(schema.companies.id, created.data.id));
+    expect(cleared?.primaryAddress).toBeNull();
+  });
 });
