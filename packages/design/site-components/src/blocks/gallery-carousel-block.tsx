@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { keyedBy } from '../lib/keyed';
 
 export interface GalleryCarouselBlockProps {
   images?: Array<{ src: string; alt: string }>;
@@ -126,9 +127,9 @@ export function GalleryCarouselBlock({
               msOverflowStyle: 'none',
             }}
           >
-            {images.map((image, index) => (
+            {keyedBy(images, (img) => img.src).map(({ item: image, key }, index) => (
               <div
-                key={index}
+                key={key}
                 className="flex-shrink-0 snap-center"
                 style={{
                   width: '300px',

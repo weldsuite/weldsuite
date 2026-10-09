@@ -46,9 +46,9 @@ export function GridBlock({
     <div className={`grid ${mobileCols} ${tabletCols} ${gridCols} ${gapClass}`}>
       {children || (
         <>
-          {Array.from({ length: columns }).map((_, i) => (
-            <div key={i} className="bg-gray-100 rounded-lg p-6 text-center text-gray-500">
-              Grid Item {i + 1}
+          {Array.from({ length: columns }, (_, i) => i + 1).map((item) => (
+            <div key={item} className="bg-gray-100 rounded-lg p-6 text-center text-gray-500">
+              Grid Item {item}
             </div>
           ))}
         </>

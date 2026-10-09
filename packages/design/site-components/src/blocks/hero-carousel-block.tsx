@@ -11,6 +11,7 @@ import {
   CarouselContent,
   CarouselItem,
 } from "@weldsuite/ui/components/carousel";
+import { keyedBy } from '../lib/keyed';
 
 interface SlideItem {
   image: string;
@@ -168,8 +169,8 @@ export function HeroCarouselBlock({
           ]}
         >
           <CarouselContent className="flex w-full gap-4">
-            {slides.map((slide, index) => (
-              <CarouselItem key={index} className="w-full basis-[91%]">
+            {keyedBy(slides, (s) => s.image + s.title).map(({ item: slide, key }) => (
+              <CarouselItem key={key} className="w-full basis-[91%]">
                 <div className="p-1">
                   <div
                     className={cn("relative flex flex-col bg-muted p-8 overflow-hidden", positionClasses[contentPosition])}
@@ -215,9 +216,9 @@ export function HeroCarouselBlock({
 
           {/* Navigation Dots */}
           <div className="mt-4 flex justify-center gap-2">
-            {slides.map((_, index) => (
+            {keyedBy(slides, (s) => s.image + s.title).map(({ key }, index) => (
               <button
-                key={index}
+                key={key}
                 onClick={() => api?.scrollTo(index)}
                 className={cn(
                   "h-2.5 w-2.5 rounded-full transition-all",
