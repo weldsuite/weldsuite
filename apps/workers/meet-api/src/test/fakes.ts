@@ -113,3 +113,57 @@ export async function seedMeetingWithSession(
     ...opts.session,
   });
 }
+
+/**
+ * A REALTIME service binding that records every publish body (`topic`, `event`,
+ * `data`, ...), so a test can assert what was announced, e.g. `call_superseded`.
+ */
+export function fakeRealtime() {
+  const published: Array<{ workspaceId: string; topic: string; event: string; data: Record<string, unknown> }> = [];
+  const fetch = async (_url: unknown, init?: RequestInit) => {
+    published.push(JSON.parse(String(init?.body)));
+    return new Response('{}');
+  };
+  return { published, binding: { fetch } as unknown as Fetcher };
+}
+
+/** A channel with one ACTIVE WeldChat call that `userId` is in (plus `otherUserId`, when given). */
+export async function seedActiveChatCall(
+  db: Database,
+  opts: { userId: string; cfAppId: string; cfSessionId: string; otherUserId?: string },
+) {
+  const channelId = `ch_${opts.cfAppId}`.slice(0, 30);
+  const callId = `call_${opts.cfAppId}`.slice(0, 30);
+  const joinedAt = new Date(Date.now() - 60_000).toISOString();
+  const entry = (userId: string, cfSessionId: string) => ({
+    userId,
+    userName: userId,
+    joinedAt,
+    cfSessionId,
+    hasAudio: false,
+    hasVideo: false,
+    hasScreenShare: false,
+  });
+  await db.insert(schema.chatChannels).values({
+    id: channelId,
+    name: channelId,
+    slug: channelId,
+    type: 'public',
+  } as typeof schema.chatChannels.$inferInsert);
+  await db.insert(schema.chatCalls).values({
+    id: callId,
+    channelId,
+    callType: 'voice',
+    status: 'active',
+    cfAppId: opts.cfAppId,
+    initiatorId: opts.userId,
+    initiatorName: opts.userId,
+    participants: [
+      entry(opts.userId, opts.cfSessionId),
+      ...(opts.otherUserId ? [entry(opts.otherUserId, `${opts.cfSessionId}_other`)] : []),
+    ],
+    maxParticipants: 2,
+    startedAt: new Date(Date.now() - 60_000),
+  });
+  return { channelId, callId };
+}

@@ -123,7 +123,7 @@ appSubscriptionsRoutes.post('/checkout', async (c) => {
   }
 
   const priceMonthly = app.priceMonthly != null ? Number.parseFloat(app.priceMonthly) : 0;
-  if (app.pricingType !== 'subscription' || !(priceMonthly > 0)) {
+  if (app.pricingType !== 'subscription' || Number.isNaN(priceMonthly) || priceMonthly <= 0) {
     return c.json(
       { error: { code: 'INVALID_APP_PRICING', message: 'This app is not configured for paid subscription.' } },
       400,

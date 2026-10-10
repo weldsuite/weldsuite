@@ -269,7 +269,6 @@ app.post('/:id/convert', requirePermission('leads:update'), zValidator('json', c
         currency: budget?.currency ?? 'EUR',
         stage: 'prospecting',
         status: 'open',
-        closeDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         ownerId: lead.ownerId ?? userId ?? '',
         leadSource: lead.source,
         campaign: lead.campaign,

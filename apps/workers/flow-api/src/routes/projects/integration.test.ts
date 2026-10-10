@@ -45,6 +45,39 @@ describe('/api/projects · pglite integration', () => {
     expect(row?.description).toBe('Test project');
   });
 
+  it('POST / stores the status in its canonical casing and the list filter is spelling-insensitive', async () => {
+    const { request: create } = createTestApp('/api/projects', projectsRoutes, {
+      context: { permissions: permissions('projects:create'), tenantDb: db },
+    });
+    const res = await create('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Case project', status: 'on_hold' }),
+    });
+    expect(res.status).toBe(201);
+    const { data } = (await res.json()) as { data: { id: string } };
+    const [row] = await db.select().from(schema.projects).where(eq(schema.projects.id, data.id)).limit(1);
+    expect(row?.status).toBe('On Hold');
+
+    // A legacy lowercase row is still found by the canonical filter value.
+    await db.insert(schema.projects).values({
+      id: 'prj_legacy_lower',
+      name: 'Legacy lowercase',
+      status: 'planning',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as typeof schema.projects.$inferInsert);
+
+    const { request: read } = createTestApp('/api/projects', projectsRoutes, {
+      context: { permissions: permissions('projects:read', 'projects:scope:all'), tenantDb: db },
+    });
+    const listRes = await read('/api/projects?status=Planning');
+    expect(listRes.status).toBe(200);
+    const list = (await listRes.json()) as { data: Array<{ id: string }> };
+    expect(list.data.some((p) => p.id === 'prj_legacy_lower')).toBe(true);
+    expect(list.data.some((p) => p.id === data.id)).toBe(false);
+  });
+
   it('POST / rejects empty name', async () => {
     const { request } = createTestApp('/api/projects', projectsRoutes, {
       context: { permissions: permissions('projects:create'), tenantDb: db },

@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useI18n } from '@/lib/i18n/provider';
+import type { TranslationsType } from '@/lib/i18n/types';
 import {
   Check,
   Trash2,
@@ -29,7 +31,6 @@ import {
   ExternalLink,
  ListCollapse, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { getTranslations } from '@/lib/i18n';
 import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -61,7 +62,7 @@ import { cn } from '@/lib/utils';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import type { Task } from '@/hooks/use-crm-tasks';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
@@ -71,6 +72,9 @@ import { MentionAutocomplete, type MentionSelection } from '@/app/weldchat/compo
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
+import { InlineLabelCreator } from '@/components/tasks/inline-label-creator';
+import { TaskDurationField } from './task-duration-field';
+import { Link } from '@/lib/router';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
@@ -294,6 +298,8 @@ export interface TaskUpdateData {
   /** CRM person link, mutually exclusive with `linkedCompany`. */
   linkedPerson?: NonNullable<Task['linkedPerson']> | null;
   labels?: string[];
+  /** Estimated minutes; null clears the estimate. */
+  duration?: number | null;
   repeat?: NonNullable<Task['repeat']> | null;
   customFields?: Record<string, unknown>;
 }
@@ -312,6 +318,8 @@ export interface TaskDetailContentProps {
   onOpenRecord?: (type: 'company' | 'person', id: string) => void;
   availableLabels?: { id: string; name: string; color: string }[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
+  /** Persists the time estimate (minutes, null clears it). The "Time estimate" row only renders when provided. */
+  onDurationChange?: (minutes: number | null) => void;
   projectId?: string;
   taskId?: string;
   attachments?: TaskAttachment[];
@@ -352,22 +360,25 @@ export interface TaskDetailContentProps {
   alwaysShowFields?: string[];
 }
 
-function formatRelativeTime(dateStr: string | null): string {
+type RelativeTimeLabels = TranslationsType['common']['agents']['relativeTime'];
+
+function formatRelativeTime(dateStr: string | null, labels: RelativeTimeLabels): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return labels.justNow;
+  if (diffMins < 60) return labels.minutesAgo.replace('{count}', String(diffMins));
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return labels.hoursAgo.replace('{count}', String(diffHours));
   const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
+  return labels.daysAgo.replace('{count}', String(diffDays));
 }
 
 function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
-  const t = getTranslations('settings');
+  const t = useI18n().t.settings;
+  const relativeTime = useI18n().t.common.agents.relativeTime;
   const github = t.integrations.github;
 
   const issueNumber = task.githubIssueNumber;
@@ -380,7 +391,7 @@ function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
     ? `https://github.com/${repoLink.repoFullName}/issues/${issueNumber}`
     : null;
 
-  const lastSynced = repoLink?.lastSyncedAt ? formatRelativeTime(repoLink.lastSyncedAt) : null;
+  const lastSynced = repoLink?.lastSyncedAt ? formatRelativeTime(repoLink.lastSyncedAt, relativeTime) : null;
 
   return (
     <div className="flex items-center gap-3">
@@ -456,13 +467,18 @@ function formatFileSize(bytes: number): string {
 function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }>) {
   const t = useTranslations();
   const priorityLabels = useTaskPriorityLabels(t);
+  const [open, setOpen] = useState(false);
+  const pick = (priority: Task['priority']) => {
+    setOpen(false);
+    onUpdate(task.id, { priority });
+  };
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 w-32 flex-shrink-0">
         <Flag className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">{t('sweep.shared.priority')}</span>
       </div>
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
             {task.priority ? (
@@ -482,7 +498,7 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
             <Button
               variant="ghost"
               key={key}
-              onClick={() => onUpdate(task.id, { priority: key as Task['priority'] })}
+              onClick={() => pick(key as Task['priority'])}
               className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
             >
               <span>{priorityLabels[key as keyof typeof priorityLabels]}</span>
@@ -494,7 +510,7 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
               <div className="h-px bg-border my-1" />
               <Button
                 variant="ghost"
-                onClick={() => onUpdate(task.id, { priority: undefined })}
+                onClick={() => pick(undefined)}
                 className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
               >
                 <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
@@ -538,7 +554,7 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
             mode="single"
             selected={task.dueDate}
             onSelect={(date) => onUpdate(task.id, { dueDate: date })}
-            initialFocus
+            autoFocus
           />
           {task.dueDate && (
             <div className="p-1 border-t border-border">
@@ -758,6 +774,7 @@ export function TaskDetailContent({
   onOpenRecord,
   availableLabels = [],
   onCreateLabel,
+  onDurationChange,
   projectId,
   taskId,
   attachments = [],
@@ -786,6 +803,7 @@ export function TaskDetailContent({
   const t = useTranslations();
   const statusLabels = useTaskStatusLabels(t);
   const repeatLabels = useTaskRepeatLabels(t);
+  const [statusOpen, setStatusOpen] = useState(false);
   const {
     isFieldVisible: isFieldVisibleBase,
     fields,
@@ -931,7 +949,7 @@ export function TaskDetailContent({
               <CircleDot className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{t('sweep.shared.status')}</span>
             </div>
-            <Popover>
+            <Popover open={statusOpen} onOpenChange={setStatusOpen}>
               <PopoverTrigger asChild>
                 <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
                   <span className={cn(
@@ -947,7 +965,10 @@ export function TaskDetailContent({
                   <Button
                     variant="ghost"
                     key={key}
-                    onClick={() => onUpdate(task.id, { status: key as Task['status'] })}
+                    onClick={() => {
+                      setStatusOpen(false);
+                      onUpdate(task.id, { status: key as Task['status'] });
+                    }}
                     className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
                   >
                     <span>{statusLabels[key as keyof typeof statusLabels]}</span>
@@ -1131,6 +1152,11 @@ export function TaskDetailContent({
           </div>
           )}
 
+          {/* Time estimate (minutes) */}
+          {isFieldVisible('duration') && onDurationChange && (
+            <TaskDurationField duration={task.duration} onChange={onDurationChange} />
+          )}
+
           {/* Labels */}
           {isFieldVisible('labels') && (
           <div className="flex items-center gap-3">
@@ -1171,6 +1197,19 @@ export function TaskDetailContent({
                 })()}
               </PopoverTrigger>
               <PopoverContent className="w-auto p-1 min-w-[200px]" align="start">
+                {availableLabels.length === 0 && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {t('sweep.shared.noLabelsYet')}
+                    {!onCreateLabel && projectId && (
+                      <Link
+                        href={`/weldflow/project/${projectId}/settings`}
+                        className="mt-1 block text-foreground underline underline-offset-2"
+                      >
+                        {t('sweep.shared.manageLabelsInSettings')}
+                      </Link>
+                    )}
+                  </div>
+                )}
                 {availableLabels.map((label) => {
                   const isSelected = task.labels?.includes(label.id) ?? false;
                   return (
@@ -1199,6 +1238,21 @@ export function TaskDetailContent({
                     </Button>
                   );
                 })}
+                {onCreateLabel && (
+                  <>
+                    {availableLabels.length > 0 && <div className="h-px bg-border my-1" />}
+                    <InlineLabelCreator
+                      existingNames={availableLabels.map((l) => l.name)}
+                      onCreate={async (data) => {
+                        const created = await onCreateLabel(data);
+                        if (created) {
+                          onUpdate(task.id, { labels: [...(task.labels ?? []), created.id] });
+                        }
+                        return created;
+                      }}
+                    />
+                  </>
+                )}
                 {task.labels && task.labels.length > 0 && (
                   <>
                     <div className="h-px bg-border my-1" />
@@ -1411,7 +1465,7 @@ export function TaskDetailContent({
                 type="file"
                 multiple
                 onChange={(e) => {
-                  handleFiles(e.target.files);
+                  void handleFiles(e.target.files);
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
                 className="hidden"
@@ -1469,7 +1523,7 @@ export function TaskDetailContent({
                           <video src={previewAttachment.url} controls className="max-w-[85vw] max-h-[80vh]" />
                         )}
                         {type === 'pdf' && (
-                          <iframe src={previewAttachment.url} className="w-[85vw] h-[80vh] border-0" />
+                          <iframe src={previewAttachment.url} title={previewAttachment.fileName} className="w-[85vw] h-[80vh] border-0" />
                         )}
                         {!type && (
                           <div className="py-12 px-8 text-center text-sm text-muted-foreground">
@@ -1497,12 +1551,14 @@ export function TaskDetailContent({
                     return (
                       <div
                         key={attachment.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setPreviewAttachment(attachment)}
-                        onKeyDown={activateOnKey(() => setPreviewAttachment(attachment))}
-                        className="flex items-center gap-2 pl-2 py-1.5 rounded-md hover:bg-muted/50 group cursor-pointer"
+                        className="relative flex items-center gap-2 pl-2 py-1.5 rounded-md hover:bg-muted/50 group cursor-pointer"
                       >
+                        <button
+                          type="button"
+                          aria-label={attachment.fileName}
+                          onClick={() => setPreviewAttachment(attachment)}
+                          className="absolute inset-0 rounded-md cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        />
                         <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
                           <Icon className="h-4 w-4 text-muted-foreground" />
                         </div>
@@ -1512,7 +1568,7 @@ export function TaskDetailContent({
                             {formatFileSize(attachment.fileSize)}
                           </p>
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0 mr-2.5">
+                        <div className="relative z-[1] flex items-center gap-1.5 flex-shrink-0 mr-2.5">
                           <a
                             href={attachment.url}
                             target="_blank"
@@ -1551,6 +1607,7 @@ export function TaskDetailContent({
           <EntityAuditPanel
             entityType={projectId ? 'project_task' : 'personal_task'}
             entityId={taskId}
+            alwaysShowChanges
           />
         </div>
       )}
@@ -1651,8 +1708,9 @@ export function SubtasksSection({
   // root AND prepend the selected task into the list at depth 0 (shifting
   // the originally-loaded descendants down by one level). Effect: the panel
   // reads as "parent → selected → selected's children". Top-level tasks
-  // (no parent) keep the previous shape: selected as root, children below.
-  const effectiveRoot = parentTask ?? rootTask;
+  // (no parent) show only their children: repeating the open task as the
+  // first row made it read like the task was its own subtask.
+  const effectiveRoot = parentTask ?? undefined;
 
   // "Add subtask" only reveals an inline title field; the subtask is created
   // when the user submits a title (see InlineSubtaskInput).
@@ -1704,16 +1762,21 @@ export function SubtasksSection({
           this row is the root of the tree, nothing above it to connect to. */}
       {effectiveRoot && effectiveSubtasks.length > 0 && (
         <div
-          role={effectiveRoot.id !== currentTaskId ? 'button' : undefined}
-          tabIndex={effectiveRoot.id !== currentTaskId ? 0 : undefined}
-          onClick={effectiveRoot.id !== currentTaskId ? () => onNavigateToTask?.(effectiveRoot.id) : undefined}
-          onKeyDown={effectiveRoot.id !== currentTaskId ? activateOnKey(() => onNavigateToTask?.(effectiveRoot.id)) : undefined}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', position: 'relative' }}
           className={cn('group/root-task rounded-md', effectiveRoot.id !== currentTaskId && 'cursor-pointer')}
         >
-          <div onClick={(e) => e.stopPropagation()}>
+          {effectiveRoot.id !== currentTaskId && (
+            <button
+              type="button"
+              aria-label={effectiveRoot.title}
+              onClick={() => onNavigateToTask?.(effectiveRoot.id)}
+              className="absolute inset-0 rounded-md cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            />
+          )}
+          <div className="relative z-[1]">
             <Checkbox
               checked={effectiveRoot.status === 'done'}
+              onClick={(e) => e.stopPropagation()}
               onCheckedChange={() => onToggleSubtask?.(effectiveRoot.id, effectiveRoot.status || 'todo')}
               style={{ width: 14, height: 14, flexShrink: 0 }}
               className="group-hover/root-task:border-muted-foreground/70"
@@ -1733,7 +1796,7 @@ export function SubtasksSection({
               size="icon"
               onClick={(e) => { e.stopPropagation(); onNavigateToTask?.(effectiveRoot.id); }}
               style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}
-              className="text-muted-foreground opacity-0 group-hover/root-task:opacity-100 transition-opacity hover:text-foreground"
+              className="z-[1] text-muted-foreground opacity-0 group-hover/root-task:opacity-100 transition-opacity hover:text-foreground"
             >
               <ChevronRight style={{ width: 14, height: 14 }} />
             </Button>
@@ -1823,10 +1886,13 @@ export function SubtasksSection({
                     ))}
                     {/* Tree connector with rounded corner */}
                     <div style={{ width: 18, flexShrink: 0, position: 'relative' }}>
-                      {/* Vertical line above the curve */}
-                      <div
-                        style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
-                      />
+                      {/* Vertical line above the curve — nothing sits above the very first
+                          row when the list has no root row, so skip it there. */}
+                      {(index > 0 || !!effectiveRoot) && (
+                        <div
+                          style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
+                        />
+                      )}
                       {/* Rounded corner */}
                       <div
                         style={{
@@ -1859,9 +1925,10 @@ export function SubtasksSection({
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px 5px 9px', marginLeft: -5, overflow: 'hidden', flex: 1, minWidth: 0, cursor: 'pointer' }}
                       className="group/subtask rounded-md relative"
                     >
-                      <div onClick={(e) => e.stopPropagation()}>
+                      <div>
                         <Checkbox
                           checked={subtask.status === 'done'}
+                          onClick={(e) => e.stopPropagation()}
                           onCheckedChange={() => onToggleSubtask?.(subtask.id, subtask.status)}
                           style={{ width: 14, height: 14, flexShrink: 0 }}
                           className={cn(isActive ? 'border-muted-foreground/70' : isHovered && 'border-muted-foreground/70')}
@@ -1905,10 +1972,9 @@ export function SubtasksSection({
         <div className="py-1">
           <InlineSubtaskInput
             placeholder={t('sweep.shared.subtaskTitlePlaceholder')}
-            onSubmit={(title) => {
-              setIsAdding(false);
-              onCreateSubtask(title);
-            }}
+            // The field stays open (and focused) after each Enter so several
+            // subtasks can be typed in a row; Escape or blurring it empty closes it.
+            onSubmit={onCreateSubtask}
             onCancel={() => setIsAdding(false)}
           />
         </div>
@@ -2756,7 +2822,7 @@ export function DescriptionField({
         e.preventDefault();
         const dt = new DataTransfer();
         files.forEach(f => dt.items.add(f));
-        handleUploadFiles(dt.files);
+        void handleUploadFiles(dt.files);
         return;
       }
     }
@@ -2840,7 +2906,7 @@ export function DescriptionField({
       }}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setIsDraggingFile(true); } }}
       onDragLeave={(e) => { e.preventDefault(); setIsDraggingFile(false); }}
-      onDrop={(e) => { e.preventDefault(); setIsDraggingFile(false); if (e.dataTransfer?.files?.length) handleUploadFiles(e.dataTransfer.files); }}
+      onDrop={(e) => { e.preventDefault(); setIsDraggingFile(false); if (e.dataTransfer?.files?.length) void handleUploadFiles(e.dataTransfer.files); }}
     >
       {isEditing ? (
         <>

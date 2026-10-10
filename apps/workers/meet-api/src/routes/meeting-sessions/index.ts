@@ -46,6 +46,7 @@ import {
   publishSessionStarted,
   publishMeetingUpdated,
 } from '../../services/weldmeet/meeting-lifecycle';
+import { leaveOtherLiveCalls } from '../../services/weldmeet/leave-other-live-calls';
 import { RTK_SESSION_MAPPING_TTL_SECONDS, rtkSessionMappingKey } from '../../services/rtk-webhook';
 import { meetingSessionRecordingRoutes } from './recording';
 import { resolveParticipantLink, type ResolvedParticipantLink } from '../../lib/participant-resolver';
@@ -56,6 +57,10 @@ import {
   type MeetingSessionParticipant,
   type MeetingSessionRemovedGuest,
 } from '@weldsuite/db/schema/meeting-sessions';
+import {
+  evictSupersededConnection,
+  supersededCfSessionId,
+} from '@weldsuite/meet-domain/leave-other-sessions';
 import type { Context } from 'hono';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -446,6 +451,8 @@ app.post(
           } catch (e) {
             console.error('[meeting-sessions/start] Realtime publish failed:', e);
           }
+          // One live call at a time: joining here leaves every other session / chat call.
+          if (joinInline) await leaveOtherLiveCalls(db, c.env, orgId, userId, sessionId, t0);
         })(),
       );
 
@@ -490,6 +497,7 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
 
   const userId = c.get('userId');
   const sessionId = c.req.param('id');
+  const requestStartedAt = Date.now();
 
   try {
     const db = c.get('tenantDb');
@@ -560,6 +568,23 @@ app.post('/:id/join', requirePermission('sessions:read'), async (c) => {
     }
 
     await db.update(t).set(updates).where(eq(t.id, sessionId));
+
+    // The join is written. One live call at a time, enforced by the server:
+    // drop an OLDER connection of this user in this very session (another tab,
+    // another device, a reloaded page; never the one just created), then every
+    // other session / chat call they are in. After the response: a failed join
+    // never drops the user's current call.
+    const supersededId = supersededCfSessionId(previous, rtkParticipant.id);
+    c.executionCtx.waitUntil(
+      (async () => {
+        try {
+          if (supersededId) await evictSupersededConnection(c.env, orgId, userId, session, supersededId);
+          await leaveOtherLiveCalls(db, c.env, orgId, userId, sessionId, requestStartedAt);
+        } catch (e) {
+          console.error('[meeting-sessions/join] leaving other calls failed:', e);
+        }
+      })(),
+    );
 
     return success(c, { sessionId, authToken: rtkParticipant.token, participants: filtered });
   } catch (err: any) {

@@ -221,6 +221,8 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldhr.me.timeOff, href: MY_HR_PATHS.timeOff, icon: Palmtree, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.me.expenses, href: MY_HR_PATHS.expenses, icon: Wallet, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.me.schedule, href: MY_HR_PATHS.schedule, icon: CalendarClock, permission: 'employees:self' },
+          // Only with the weldhr-payroll flag and once the member is on payroll (see useWeldhrSidebarItems).
+          { title: t.navigation.moduleSidebar.weldhr.me.payroll, href: MY_HR_PATHS.payroll, icon: FileText, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.me.tasks, href: MY_HR_PATHS.tasks, icon: ListChecks, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.me.reviews, href: MY_HR_PATHS.reviews, icon: Target, permission: 'employees:self' },
         ],
@@ -244,6 +246,17 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.weldhr.groups.expenses,
         items: [
           { title: t.navigation.moduleSidebar.weldhr.declarations, href: '/weldhr/declarations', icon: Receipt, permission: 'declarations:read' },
+        ],
+      },
+      {
+        // Hidden until the weldhr-payroll flag is on (see useWeldhrSidebarItems).
+        group: t.navigation.moduleSidebar.weldhr.groups.payroll,
+        items: [
+          { title: t.navigation.moduleSidebar.weldhr.payroll, href: '/weldhr/payroll', icon: Banknote, permission: 'payroll:read' },
+          { title: t.navigation.moduleSidebar.weldhr.payRuns, href: '/weldhr/payroll/runs', icon: CalendarClock, permission: 'payroll:read' },
+          { title: t.navigation.moduleSidebar.weldhr.payrollEmployees, href: '/weldhr/payroll/employees', icon: Users, permission: 'payroll:read' },
+          { title: t.navigation.moduleSidebar.weldhr.filings, href: '/weldhr/payroll/filings', icon: FileSpreadsheet, permission: 'payroll:read' },
+          { title: t.navigation.moduleSidebar.weldhr.payrollSettings, href: '/weldhr/payroll/settings', icon: Settings, permission: 'payroll:manage' },
         ],
       },
       {

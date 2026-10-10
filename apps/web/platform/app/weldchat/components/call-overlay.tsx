@@ -9,23 +9,13 @@
  * Exports consumed elsewhere:
  *   - InlineCallView  → channel / DM / group-DM conversation pages (inline)
  *   - CallOverlay     → app-shell (global, fullscreen)
- *   - SwitchCallDialog → app-shell (confirm leaving a call to start another)
+ *
+ * The "leave this call to join another?" question is the global
+ * <CallSwitchDialog/> (components/call-switch-dialog.tsx), not a chat dialog.
  */
 
-import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
 import { ConnectingView } from '@weldsuite/weldmeet-ui';
 import { useWeldChatCall, useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
-import { Button } from '@weldsuite/ui/components/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@weldsuite/ui/components/dialog';
-import { getTranslations } from '@/lib/i18n';
 import { ChatMeetingRoomView } from './chat-meeting-room';
 
 // ============================================================================
@@ -78,51 +68,4 @@ function CallOverlayInner() {
   }
 
   return <ChatMeetingRoomView />;
-}
-
-// ============================================================================
-// Switch-call confirmation dialog
-// ============================================================================
-
-export function SwitchCallDialog() {
-  // Same null-context guard as CallOverlay (lazy + globally mounted).
-  const ctx = useWeldChatCallOptional();
-  if (!ctx) return null;
-  return <SwitchCallDialogInner />;
-}
-
-function SwitchCallDialogInner() {
-  const t = getTranslations('weldchat');
-  const { pendingCall, confirmSwitchCall, cancelSwitchCall } = useWeldChatCall();
-  const [switching, setSwitching] = useState(false);
-
-  const handleConfirm = async () => {
-    setSwitching(true);
-    try {
-      await confirmSwitchCall();
-    } finally {
-      setSwitching(false);
-    }
-  };
-
-  return (
-    <Dialog open={!!pendingCall} onOpenChange={(open) => { if (!open) cancelSwitchCall(); }}>
-      <DialogContent className="sm:max-w-[400px]">
-        <DialogHeader>
-          <DialogTitle>{t.switchCallDialog.title}</DialogTitle>
-          <DialogDescription>
-            {t.switchCallDialog.description}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={cancelSwitchCall} disabled={switching}>
-            {t.switchCallDialog.stayInCall}
-          </Button>
-          <Button variant="destructive" onClick={handleConfirm} disabled={switching}>
-            {switching ? <Loader2 className="h-4 w-4 animate-spin" /> : t.switchCallDialog.leaveAndCall}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }

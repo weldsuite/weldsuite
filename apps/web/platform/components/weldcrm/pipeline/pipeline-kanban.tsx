@@ -31,14 +31,14 @@ import { AddStagePopover } from './add-stage-modal';
 import { DroppableStage } from './droppable-stage';
 import { SortableStage } from './sortable-stage';
 import { StageHeader } from './stage-header';
-import { FilterPills } from '@/components/entity-list';
-import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
+import { FilterPills, type FilterConfig, type ActiveFilter } from '@/components/entity-list';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useCreatePipelineStage, useUpdatePipelineStage, useDeletePipelineStage } from '@/hooks/queries/use-pipelines-queries';
 import { useUpdateOpportunity, useDeleteOpportunity, type Opportunity } from '@/hooks/queries/use-opportunities-queries';
-import { type PipelineViewSettings, DEFAULT_PIPELINE_SETTINGS } from '@/app/weldcrm/pipeline/pipeline-settings-types';
+import { type PipelineViewSettings, type StageCalculationSetting, DEFAULT_PIPELINE_SETTINGS } from '@/app/weldcrm/pipeline/pipeline-settings-types';
+import { computeStageCalculation, normalizeStageCalculations } from './stage-calculations';
 // import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import {
   Check,
@@ -90,7 +90,7 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { secureRandom } from '@/lib/random';
-import { formatDealMoney, getCurrencyOptions } from '@/lib/crm/deal-format';
+import { getCurrencyOptions } from '@/lib/crm/deal-format';
 import { toast } from 'sonner';
 
 type FieldInputType = 'text' | 'number' | 'date' | 'select' | 'textarea';
@@ -337,8 +337,8 @@ export function PipelineKanban({
   const [stageToDelete, setStageToDelete] = useState<Stage | null>(null);
   const [stageToRename, setStageToRename] = useState<Stage | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [stageCalculations, setStageCalculations] = useState<Record<string, { type: string; value: string | number }>>(
-    () => initialSettings.stageCalculations ?? {},
+  const [stageCalculations, setStageCalculations] = useState<Record<string, StageCalculationSetting>>(
+    () => normalizeStageCalculations(initialSettings.stageCalculations),
   );
   const [showCustomFormulaModal, setShowCustomFormulaModal] = useState(false);
   const [selectedStageForFormula, setSelectedStageForFormula] = useState<string | null>(null);
@@ -652,56 +652,23 @@ export function PipelineKanban({
     ? stages.flatMap(s => s.deals).find(d => d.id === activeDealId)
     : null;
 
-  // Stage totals are shown in the pipeline's default currency (the board sums
-  // raw amounts), not a hardcoded `$`.
-  const formatCurrency = (amount: number) =>
-    formatDealMoney(amount, viewSettings.defaultCurrency, { compactMillions: true });
-
+  // Picking a calculation saves only its type. The number itself is computed
+  // from the stage's deals every time the bar renders (see
+  // `computeStageCalculation`), so it never goes stale and always uses the
+  // deals' currency.
   const handleCalculation = (stageId: string, calculationType: string) => {
-    const stage = stages.find(s => s.id === stageId);
-    if (!stage) return;
+    if (!stages.some(s => s.id === stageId)) return;
 
-    let calculatedValue: string | number = '';
-
-    switch (calculationType) {
-      case 'total':
-        calculatedValue = formatCurrency(stage.value);
-        break;
-      case 'average':
-        {
-const avgValue = stage.count > 0 ? stage.value / stage.count : 0;
-        calculatedValue = formatCurrency(avgValue);
-        break;
-        }
-      case 'winRate':
-        // Calculate win rate based on stage probability
-        calculatedValue = `${stage.probability || 0}%`;
-        break;
-      case 'weighted':
-        {
-const weightedVal = stage.value * (stage.probability || 0) / 100;
-        calculatedValue = formatCurrency(weightedVal);
-        break;
-        }
-      case 'distribution':
-        {
-const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
-        const percentage = totalPipelineValue > 0 ? (stage.value / totalPipelineValue) * 100 : 0;
-        calculatedValue = `${percentage.toFixed(1)}%`;
-        break;
-        }
-      case 'custom':
-        // Open custom formula modal instead of setting a value
-        setSelectedStageForFormula(stageId);
-        setShowCustomFormulaModal(true);
-        return; // Don't set calculation yet
-      default:
-        calculatedValue = '-';
+    if (calculationType === 'custom') {
+      // Open custom formula modal instead of setting a value
+      setSelectedStageForFormula(stageId);
+      setShowCustomFormulaModal(true);
+      return; // Don't set calculation yet
     }
 
-    const nextCalculations = {
+    const nextCalculations: Record<string, StageCalculationSetting> = {
       ...stageCalculations,
-      [stageId]: { type: calculationType, value: calculatedValue },
+      [stageId]: { type: calculationType },
     };
     setStageCalculations(nextCalculations);
     void updateViewSettings({ stageCalculations: nextCalculations });
@@ -1221,7 +1188,9 @@ const totalPipelineValue = stages.reduce((sum, s) => sum + s.value, 0);
                           {stageCalculations[stage.id].type === 'custom' && t('sweep.weldcrm.pipelineKanban.calcCustom')}
                         </span>
                         <span className="text-sm font-medium text-gray-900 dark:text-foreground">
-                          {stageCalculations[stage.id].value}
+                          {computeStageCalculation(stageCalculations[stage.id], stage, filteredStages, {
+                            defaultCurrency: viewSettings.defaultCurrency,
+                          })}
                         </span>
                       </Button>
                     ) : (

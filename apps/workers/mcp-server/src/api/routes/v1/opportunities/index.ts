@@ -22,7 +22,6 @@ const app = new Hono<HonoEnv>();
 const NUMERIC_FIELDS = new Set(['amount', 'expectedRevenue', 'recurringRevenue']);
 /** Timestamp columns that arrive as ISO strings. */
 const DATE_FIELDS = new Set(['closeDate', 'startDate', 'nextStepDate']);
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Coerce a PATCH body into column values (numeric -> string, date strings -> Date). */
 function buildUpdate(body: Record<string, unknown>): Record<string, unknown> {
@@ -30,7 +29,7 @@ function buildUpdate(body: Record<string, unknown>): Record<string, unknown> {
   for (const [k, v] of Object.entries(body)) {
     if (v === undefined) continue;
     if (NUMERIC_FIELDS.has(k)) update[k] = v == null ? v : asText(v);
-    else if (DATE_FIELDS.has(k) && typeof v === 'string') update[k] = new Date(v);
+    else if (DATE_FIELDS.has(k) && typeof v === 'string') update[k] = v === '' ? null : new Date(v);
     else update[k] = v;
   }
   return update;
@@ -74,15 +73,14 @@ app.post('/', requireScope('opportunities:write'), zValidator('json', createOppo
   const id = generateId('opp');
   const values: Record<string, unknown> = { ...body, id, ownerId, createdAt: now, updatedAt: now };
   // Coerce numeric + date columns and apply defaults.
-  for (const f of NUMERIC_FIELDS) if (values[f] != null) values[f] = String(values[f]);
+  for (const f of NUMERIC_FIELDS) if (values[f] != null) values[f] = asText(values[f]);
   for (const f of DATE_FIELDS) if (typeof values[f] === 'string') values[f] = new Date(values[f] as string);
-  values.amount = values.amount != null ? String(values.amount) : '0';
+  values.amount = values.amount != null ? asText(values.amount) : '0';
   values.currency = values.currency ?? 'EUR';
   values.stage = values.stage ?? 'prospecting';
   values.status = values.status ?? 'open';
   values.probability = values.probability ?? 0;
   values.pipeline = values.pipeline ?? 'default';
-  values.closeDate = values.closeDate ?? new Date(now.getTime() + THIRTY_DAYS_MS);
   const [row] = await db.insert(table).values(values as typeof table.$inferInsert).returning();
   if (!row) return error.internal(c, 'Failed to create opportunity');
   publishEntityEvent({

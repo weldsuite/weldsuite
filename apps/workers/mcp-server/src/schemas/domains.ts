@@ -289,7 +289,7 @@ export interface VerifyOwnershipResponse extends Domain {
 }
 
 export interface RefreshZoneStatusResponse {
-  zoneStatus: 'active' | 'pending' | 'error' | string;
+  zoneStatus: string;
   domainStatus: string;
   cloudflareStatus: string | null;
   nameservers?: string[];

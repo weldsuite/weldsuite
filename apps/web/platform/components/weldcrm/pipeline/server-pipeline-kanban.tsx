@@ -22,10 +22,10 @@ export function ServerPipelineKanban({ pipelineId }: ServerPipelineKanbanProps =
   const pipelineOpportunities = useOpportunitiesByPipeline(pipelineId || '', !!pipelineId);
   const allOpportunities = useOpportunities(!pipelineId ? {} : undefined);
   const opportunitiesResult = pipelineId ? pipelineOpportunities.data : allOpportunities.data;
-  const opportunitiesLoading = pipelineId ? pipelineOpportunities.isLoading : allOpportunities.isLoading;
+  const opportunitiesLoading = pipelineId ? pipelineOpportunities.isPending : allOpportunities.isPending;
 
   // Fetch pipeline stages
-  const { data: stagesResult, isLoading: stagesLoading } = usePipelineStages(pipelineId);
+  const { data: stagesResult, isPending: stagesLoading } = usePipelineStages(pipelineId);
 
   // Fetch the pipeline's own persisted settings (confetti/calculations/hidden
   // stages/etc. — TASK-921) instead of always starting from the hardcoded
@@ -37,13 +37,14 @@ export function ServerPipelineKanban({ pipelineId }: ServerPipelineKanbanProps =
   }, [pipelineResult]);
 
   // Fetch companies and people for lookup
-  const { data: companiesResult, isLoading: companiesLoading } = useCompanies();
-  const { data: peopleResult, isLoading: peopleLoading } = usePeople();
+  const { data: companiesResult, isPending: companiesLoading } = useCompanies();
+  const { data: peopleResult, isPending: peopleLoading } = usePeople();
 
   // Mutations
   const updateStageMutation = useUpdateOpportunityStage();
   const createOpportunityMutation = useCreateOpportunity();
 
+  // `isPending` so an empty board never flashes while the query cache restores (TASK-1085).
   const isLoading = opportunitiesLoading || stagesLoading || companiesLoading || peopleLoading;
 
   if (isLoading) {
@@ -90,7 +91,7 @@ export function ServerPipelineKanban({ pipelineId }: ServerPipelineKanbanProps =
         email: contactData?.email || ''
       } : undefined,
       probability: opp.probability || 0,
-      expectedCloseDate: opp.closeDate,
+      expectedCloseDate: opp.closeDate ?? undefined,
       lastActivity: undefined,
       tags: opp.tags || [],
       status: opp.status,

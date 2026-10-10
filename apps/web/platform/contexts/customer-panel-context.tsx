@@ -15,7 +15,7 @@ interface CustomerPanelContextType {
 const CustomerPanelContext = createContext<CustomerPanelContextType | null>(null);
 
 export function CustomerPanelProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const [isOpen, setIsOpenState] = useState(false);
+  const [isOpenState, setIsOpenState] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -57,8 +57,8 @@ export function CustomerPanelProvider({ children }: Readonly<{ children: React.R
   }, []);
 
   const value = React.useMemo(
-    () => ({ isOpen, email, name, customerId, setIsOpen, openPanel, closePanel }),
-    [isOpen, email, name, customerId, setIsOpen, openPanel, closePanel]
+    () => ({ isOpen: isOpenState, email, name, customerId, setIsOpen, openPanel, closePanel }),
+    [isOpenState, email, name, customerId, setIsOpen, openPanel, closePanel]
   );
 
   return (

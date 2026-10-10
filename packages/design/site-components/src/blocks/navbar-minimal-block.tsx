@@ -29,6 +29,6 @@ export interface NavbarMinimalBlockProps {
   mode?: string;
 }
 
-export function NavbarMinimalBlock(props: NavbarMinimalBlockProps) {
+export function NavbarMinimalBlock(props: Readonly<NavbarMinimalBlockProps>) {
   return <NavbarMinimalSection {...props} />;
 }

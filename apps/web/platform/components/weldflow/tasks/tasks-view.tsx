@@ -24,7 +24,7 @@ import {
   Columns,
   CheckCircle2
 } from 'lucide-react';
-import { format, isToday, isTomorrow, isPast, isThisWeek } from 'date-fns';
+import { isToday, isTomorrow, isPast, isThisWeek } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { TagLabel } from '@/components/weldflow/tag-label';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { labelsApi } from '@/app/weldflow/lib/api-client';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useDateLocale } from '@/lib/i18n/date-locale';
 import { activateOnKey } from '@/lib/activate-on-key';
 
 interface ProjectLabel {
@@ -83,28 +84,28 @@ interface TasksViewProps {
   initialTasks?: RawApiTask[];
 }
 
-function formatDueLabel(dueDate: Date): string {
-  if (isToday(dueDate)) return 'Today';
-  if (isTomorrow(dueDate)) return 'Tomorrow';
-  return format(dueDate, 'MMM d');
+function formatDueLabel(dueDate: Date, st: Translate, formatShort: (date: Date) => string): string {
+  if (isToday(dueDate)) return st('projects.tasks.groupToday');
+  if (isTomorrow(dueDate)) return st('sweep.weldflow.tasksView.tomorrow');
+  return formatShort(dueDate);
 }
 
-function getStatusLabel(status?: string) {
+function getStatusLabel(status: string | undefined, st: Translate) {
   switch (status) {
     case 'backlog':
-      return 'Backlog';
+      return st('projects.tasks.statusBacklog');
     case 'todo':
-      return 'To Do';
+      return st('projects.tasks.statusTodo');
     case 'in_progress':
-      return 'In Progress';
+      return st('projects.tasks.statusInProgress');
     case 'in_review':
-      return 'In Review';
+      return st('projects.tasks.statusInReview');
     case 'testing':
-      return 'Testing';
+      return st('projects.tasks.statusTesting');
     case 'done':
-      return 'Done';
+      return st('projects.tasks.statusDone');
     case 'cancelled':
-      return 'Cancelled';
+      return st('projects.tasks.statusCancelled');
     default:
       return null;
   }
@@ -128,7 +129,8 @@ interface TaskItemActions {
 function TaskItem({ task, availableLabels, onOpen, onToggle, onDelete, st }: Readonly<{ task: Task } & TaskItemActions>) {
   const isOverdue = task.dueDate && isPast(task.dueDate) && !isToday(task.dueDate);
 
-  const statusLabel = getStatusLabel(task.status);
+  const { formatShort } = useDateLocale();
+  const statusLabel = getStatusLabel(task.status, st);
 
   return (
     <div
@@ -211,7 +213,7 @@ function TaskItem({ task, availableLabels, onOpen, onToggle, onDelete, st }: Rea
               isOverdue ? "text-red-600" : "text-gray-500"
             )}>
               <Calendar className="h-3 w-3" />
-              {formatDueLabel(task.dueDate)}
+              {formatDueLabel(task.dueDate, st, formatShort)}
             </div>
           )}
         </div>
@@ -322,7 +324,7 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
       status: task.status?.toLowerCase() as 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled' || 'todo',
       assignee: task.assignee ? {
         id: task.assignee.id || task.assigneeId || '',
-        name: task.assignee.name || 'Unknown',
+        name: task.assignee.name || st('common.labels.unknown'),
         avatarUrl: task.assignee.avatarUrl,
       } : undefined,
       linkedCompany: task.company ? {
@@ -333,7 +335,7 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
       } : undefined,
       dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
       createdAt: new Date(task.createdAt),
-      labels: task.labels || [],
+      labels: task.labels ?? [],
     }));
   };
 

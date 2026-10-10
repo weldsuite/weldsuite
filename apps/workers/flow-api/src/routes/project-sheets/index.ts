@@ -26,6 +26,8 @@ const SPREADSHEET_MIME = 'application/vnd.openxmlformats-officedocument.spreadsh
 
 const createSheetSchema = z.object({
   name: z.string().min(1).max(255),
+  /** Duplicate: seed the new sheet with the contents of this sheet of the same project. */
+  copyFromFileId: z.string().max(64).optional(),
 });
 
 app.get('/:projectId', requirePermission('projects:read'), async (c) => {
@@ -68,7 +70,7 @@ app.post(
       return error.forbidden(c, 'You do not have write access to this project');
     }
 
-    const { name } = c.req.valid('json');
+    const { name, copyFromFileId } = c.req.valid('json');
     const fileName = name.endsWith('.xlsx') ? name : `${name}.xlsx`;
     const sanitized = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
     const fileKey = `workspaces/${workspaceId}/sheets/${projectId}/${Date.now()}_${sanitized}`;
@@ -79,9 +81,29 @@ app.post(
       // Seed R2 with a minimal valid empty .xlsx so the file is downloadable
       // before the editor's first auto-save. Without this seed, a brand-new
       // sheet 404s from R2 when downloaded via /welddrive.
-      const emptyXlsx = buildEmptyXlsx();
+      let content: ArrayBuffer | Uint8Array = buildEmptyXlsx();
+      if (copyFromFileId) {
+        // Scoped to this project's spreadsheets so a caller can't copy any file by id.
+        const [source] = await c
+          .get('tenantDb')
+          .select()
+          .from(schema.files)
+          .where(
+            and(
+              eq(schema.files.id, copyFromFileId),
+              eq(schema.files.entityType, 'project'),
+              eq(schema.files.entityId, projectId),
+              eq(schema.files.fileType, 'spreadsheet'),
+              isNull(schema.files.deletedAt),
+            ),
+          )
+          .limit(1);
+        if (!source) return error.notFound(c, 'Sheet', copyFromFileId);
+        const sourceObject = c.env.STORAGE ? await c.env.STORAGE.get(source.fileKey ?? source.storagePath) : null;
+        if (sourceObject) content = await sourceObject.arrayBuffer();
+      }
       if (c.env.STORAGE) {
-        await c.env.STORAGE.put(fileKey, emptyXlsx, {
+        await c.env.STORAGE.put(fileKey, content, {
           httpMetadata: { contentType: SPREADSHEET_MIME },
         });
       }
@@ -90,7 +112,7 @@ app.post(
         fileName,
         originalName: fileName,
         mimeType: SPREADSHEET_MIME,
-        fileSize: emptyXlsx.byteLength,
+        fileSize: content.byteLength,
         fileType: 'spreadsheet',
         storagePath: fileKey,
         fileKey,

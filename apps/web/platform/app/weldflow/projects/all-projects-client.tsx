@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useTransition } from "react";
+import { useI18n } from '@/lib/i18n/provider';
+import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { getTranslations } from '@/lib/i18n';
 import { Link } from '@/lib/router';
 import { useRouter } from '@/lib/router/use-router';
 import {
@@ -51,7 +52,6 @@ import { projectsApi, membersApi, type ApiProject } from "@/app/weldflow/lib/api
 import { projectKeys } from "@/hooks/queries/use-projects-queries";
 import { useTopic } from "@weldsuite/realtime/react";
 import { TeamMemberDetailsPanel, type TeamMemberDetail } from "@/components/team-member-details-panel";
-import { activateOnKey } from "@/lib/activate-on-key";
 
 type TableStatus = "on-track" | "at-risk" | "off-track" | "on-hold" | "completed";
 
@@ -86,7 +86,10 @@ function mapApiStatusToTableStatus(apiStatus: string): TableStatus {
     'cancelled': 'off-track',
     'archived': 'completed'
   };
-  return statusMap[apiStatus] || 'on-track';
+  // Stored statuses are mixed-case / spaced ("Planning", "On Hold"); key on a
+  // lowercase snake_case form so every spelling resolves.
+  const key = apiStatus.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return statusMap[key] || 'on-track';
 }
 
 function mapHealthToTableStatus(health: string): TableStatus {
@@ -162,7 +165,8 @@ export function AllProjectsClient({
   sortState: sortStateProp,
   onSortChange,
 }: Readonly<AllProjectsClientProps>) {
-  const t = getTranslations('projects');
+  const t = useI18n().t.projects;
+  const { formatShort } = useDateLocale();
 
   const statusConfig: Record<TableStatus, { label: string; color: string; bg: string; icon: React.ElementType }> = useMemo(() => ({
     'on-track': { label: t.allProjects.statusOnTrack, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950', icon: CheckCircle2 },
@@ -364,11 +368,10 @@ export function AllProjectsClient({
     }
   };
 
-  const formatDateShort = (dateString: string) => {
+  const formatDateShort = useCallback((dateString: string) => {
     if (!dateString) return null;
-    const date = new Date(dateString + 'T00:00:00');
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+    return formatShort(new Date(dateString + 'T00:00:00'));
+  }, [formatShort]);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -480,12 +483,15 @@ export function AllProjectsClient({
     return (
       <div
         key={project.id}
-        role="button"
-        tabIndex={0}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
-        onClick={() => router.push(`/weldflow/project/${project.id}/tasks`)}
-        onKeyDown={activateOnKey(() => router.push(`/weldflow/project/${project.id}/tasks`))}
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
+        {/* Row click target: stretched button; links and controls sit above it */}
+        <button
+          type="button"
+          aria-label={project.name}
+          onClick={() => router.push(`/weldflow/project/${project.id}/tasks`)}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
         {/* Project Name */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2.5">
           <div className={cn("w-6 h-6 rounded-[8px] flex items-center justify-center flex-shrink-0", project.color || 'bg-muted')}>
@@ -498,7 +504,7 @@ export function AllProjectsClient({
           </div>
           <Link
             href={`/weldflow/project/${project.id}/tasks`}
-            className="text-sm font-medium text-foreground truncate hover:underline"
+            className="relative z-[1] text-sm font-medium text-foreground truncate hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
             {project.name}
@@ -513,7 +519,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -551,7 +557,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Owner */}
-        <div className="w-[130px] min-w-0" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[130px] min-w-0">
           <Button
             variant="ghost"
             className="group/owner h-auto flex items-center gap-1.5 max-w-full min-w-0 rounded px-1 py-0.5 -mx-1 cursor-pointer"
@@ -585,7 +591,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -627,7 +633,7 @@ export function AllProjectsClient({
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -654,7 +660,7 @@ export function AllProjectsClient({
         </div>
       </div>
     );
-  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate]);
+  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate, formatDateShort]);
 
   return (
     <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">

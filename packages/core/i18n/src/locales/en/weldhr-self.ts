@@ -22,6 +22,7 @@ export const weldhrSelf = {
       timeOff: 'Time off',
       expenses: 'Expenses',
       schedule: 'Schedule & hours',
+      payroll: 'Payroll',
       tasks: 'Tasks',
       reviews: 'Reviews & goals',
     },

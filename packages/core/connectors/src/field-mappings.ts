@@ -5,13 +5,12 @@
  * `integration_field_mappings` keyed by the connector connection id.
  */
 
-import type { ConnectorEntity, ConnectorSyncSettingKey } from './catalog';
-import { getConnector } from './catalog';
+import { type ConnectorEntity, getConnector } from './catalog';
 
 export type ConnectorSyncDirection = 'inbound' | 'outbound' | 'bidirectional';
 
 export type ConnectorObjectSyncDirections = Partial<
-  Record<ConnectorSyncSettingKey | string, ConnectorSyncDirection>
+  Record<string, ConnectorSyncDirection>
 >;
 
 export interface ConnectorFieldMappingDefinition {

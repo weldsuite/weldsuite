@@ -141,7 +141,8 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
       menuItems = weldbooksItems.adjust(staticItems);
       break;
     case 'weldhr':
-      // My HR on top for whoever has it, collapsible next to the team view.
+      // My HR on top for whoever has it, collapsible next to the team view;
+      // payroll items follow the weldhr-payroll flag.
       menuItems = weldhrItems.adjust(staticItems);
       break;
     default:

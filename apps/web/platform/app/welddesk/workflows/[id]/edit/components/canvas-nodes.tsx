@@ -262,9 +262,7 @@ export function InlineAddStepPopover({
 
       {open && (
         <div
-          role="presentation"
           className="absolute z-50 top-full mt-1 left-0 w-[240px] rounded-lg border bg-popover shadow-lg"
-          onClick={(e) => e.stopPropagation()}
           onWheel={(e) => e.stopPropagation()}
         >
           <div className="flex items-center gap-2 px-3 py-2 border-b">
@@ -274,6 +272,7 @@ export function InlineAddStepPopover({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
               placeholder={cn_.searchPlaceholder}
               className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground"
             />
@@ -294,7 +293,7 @@ export function InlineAddStepPopover({
                     key={action.id}
                     type="button"
                     variant="ghost"
-                    onClick={() => handleSelect(action.id)}
+                    onClick={(e) => { e.stopPropagation(); handleSelect(action.id); }}
                     className="flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md text-left hover:bg-muted transition-colors"
                   >
                     <div className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-md', meta.bgColor)}>
@@ -307,7 +306,7 @@ export function InlineAddStepPopover({
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => setExpanded(true)}
+                onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
                 className="w-full px-2 py-1.5 text-sm font-medium text-primary hover:underline text-left mt-0.5"
               >
                 {cn_.viewMore}
@@ -338,7 +337,7 @@ export function InlineAddStepPopover({
                           key={action.id}
                           type="button"
                           variant="ghost"
-                          onClick={() => handleSelect(action.id)}
+                          onClick={(e) => { e.stopPropagation(); handleSelect(action.id); }}
                           className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-left hover:bg-muted transition-colors"
                         >
                           <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -465,7 +464,7 @@ function getBranchLabelColor(label: string): string {
 
 function ConnectorDot({ side, connectorId }: Readonly<{ side: 'left' | 'right'; connectorId?: string }>) {
   return (
-    <div
+    <span
       data-connector-id={connectorId}
       className={cn(
         'absolute w-[9px] h-[9px] rounded-full bg-white border border-blue-500 z-10',
@@ -508,39 +507,30 @@ export function TriggerNode({
   trigger: WorkflowTrigger | null;
   isSelected: boolean;
   onClick: () => void;
-  onDragStart?: (e: React.MouseEvent) => void;
+  onDragStart?: (e: React.PointerEvent) => void;
   style?: React.CSSProperties;
 }>) {
   const { t } = useI18n();
   const cn_ = t.helpdesk.canvasNodes;
 
   return (
-    <div
+    <button
+      type="button"
       style={style}
-      className="relative select-none"
-      role="button"
-      tabIndex={0}
-      onMouseDown={onDragStart}
+      className="relative block select-none text-left"
+      onPointerDown={onDragStart}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          e.stopPropagation();
-          onClick();
-        }
-      }}
     >
       {/* "Trigger" tab label */}
-      <div className="inline-flex items-center gap-1.5 rounded-t-lg border border-b-0 bg-background px-3 py-1.5">
+      <span className="inline-flex items-center gap-1.5 rounded-t-lg border border-b-0 bg-background px-3 py-1.5">
         <Target className="h-3.5 w-3.5 text-muted-foreground" />
         <span className="text-xs font-medium text-muted-foreground">{cn_.triggerTab}</span>
-      </div>
+      </span>
 
       {/* Card */}
-      <div
+      <span
         className={cn(
-          'w-[300px] rounded-xl rounded-tl-none border bg-background px-4 pt-3.5 pb-4 text-left transition-all cursor-pointer relative',
+          'block w-[300px] rounded-xl rounded-tl-none border bg-background px-4 pt-3.5 pb-4 text-left transition-all cursor-pointer relative',
           isSelected && 'ring-1 ring-blue-400',
         )}
       >
@@ -548,14 +538,14 @@ export function TriggerNode({
         <ConnectorDot side="right" connectorId="trigger:out" />
 
         {/* Header row: icon + name */}
-        <div className="flex items-start gap-2.5">
-          <p className="flex-1 text-sm font-semibold leading-snug pt-0.5">{getTriggerLabel(trigger, cn_.selectTrigger)}</p>
-        </div>
+        <span className="flex items-start gap-2.5">
+          <span className="flex-1 text-sm font-semibold leading-snug pt-0.5">{getTriggerLabel(trigger, cn_.selectTrigger)}</span>
+        </span>
 
         {/* Description */}
-        <p className="text-xs text-muted-foreground mt-2.5">{getTriggerDescription(trigger)}</p>
-      </div>
-    </div>
+        <span className="mt-2.5 block text-xs text-muted-foreground">{getTriggerDescription(trigger)}</span>
+      </span>
+    </button>
   );
 }
 
@@ -587,7 +577,7 @@ export function PathNode({
   onUpdateConfig?: (stepId: string, config: Record<string, unknown>) => void;
   onReorderSteps?: (reordered: WorkflowStep[]) => void;
   trigger?: { entityType?: string; eventType?: string } | null;
-  onDragStart?: (e: React.MouseEvent) => void;
+  onDragStart?: (e: React.PointerEvent) => void;
   style?: React.CSSProperties;
 }>) {
   const { t } = useI18n();
@@ -606,9 +596,7 @@ export function PathNode({
     <div
       style={style}
       className="relative select-none"
-      role="presentation"
-      onMouseDown={onDragStart}
-      onClick={(e) => e.stopPropagation()}
+      onPointerDown={onDragStart}
     >
       {/* Tab label */}
       <div className="inline-flex items-center gap-1.5 rounded-t-lg border border-b-0 bg-background px-3 py-1.5">

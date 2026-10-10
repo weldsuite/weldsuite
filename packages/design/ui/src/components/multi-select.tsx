@@ -5,7 +5,7 @@ import { ChevronDown, X } from "lucide-react"
 
 import { cn } from "@weldsuite/ui/lib/utils"
 import { Badge } from "@weldsuite/ui/components/badge"
-import { Button } from "@weldsuite/ui/components/button"
+import { Button, buttonVariants } from "@weldsuite/ui/components/button"
 import { Checkbox } from "@weldsuite/ui/components/checkbox"
 import {
   Command,
@@ -86,6 +86,7 @@ export function MultiSelect({
   modal = false,
 }: Readonly<MultiSelectProps>) {
   const [open, setOpen] = React.useState(false)
+  const valueId = React.useId()
   const selected = value ?? []
 
   const optionByValue = React.useMemo(() => {
@@ -112,68 +113,75 @@ export function MultiSelect({
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={modal}>
-      <PopoverTrigger asChild>
-        <Button
-          id={id}
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          aria-label={ariaLabel}
-          disabled={disabled}
-          className={cn(
-            "h-auto min-h-9 w-full justify-between gap-2 px-3 py-2",
-            className
-          )}
+      {/*
+        The trigger is a stretched, empty button laid over the visible box so the
+        chip "remove" controls can be real buttons beside it instead of being
+        nested inside it (a button cannot contain another interactive element).
+      */}
+      <div
+        className={cn(
+          buttonVariants({ variant: "outline" }),
+          "relative h-auto min-h-9 w-full justify-between gap-2 px-3 py-2",
+          disabled && "pointer-events-none opacity-50",
+          className
+        )}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            id={id}
+            type="button"
+            variant="ghost"
+            role="combobox"
+            aria-expanded={open}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabel ? undefined : valueId}
+            disabled={disabled}
+            className="absolute inset-0 h-auto w-full rounded-md hover:bg-transparent dark:hover:bg-transparent"
+          />
+        </PopoverTrigger>
+        <span
+          id={valueId}
+          className="pointer-events-none relative z-[1] flex flex-1 flex-wrap items-center gap-1 overflow-hidden"
         >
-          <span className="flex flex-1 flex-wrap items-center gap-1 overflow-hidden">
-            {selected.length === 0 ? (
-              <span className="text-muted-foreground font-normal">
-                {placeholder}
-              </span>
-            ) : (
-              <>
-                {visibleChips.map((v) => {
-                  const option = optionByValue.get(v)
-                  return (
-                    <Badge
-                      key={v}
-                      variant="secondary"
-                      className="gap-1 pr-1 font-normal"
+          {selected.length === 0 ? (
+            <span className="text-muted-foreground font-normal">
+              {placeholder}
+            </span>
+          ) : (
+            <>
+              {visibleChips.map((v) => {
+                const option = optionByValue.get(v)
+                return (
+                  <Badge
+                    key={v}
+                    variant="secondary"
+                    className="gap-1 pr-1 font-normal"
+                  >
+                    {option?.icon}
+                    {option?.label ?? v}
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      disabled={disabled}
+                      aria-label={`Remove ${option?.label ?? v}`}
+                      className="hover:bg-muted-foreground/20 pointer-events-auto ml-0.5 inline-flex size-3.5 items-center justify-center rounded-sm disabled:pointer-events-none"
+                      onClick={() => remove(v)}
                     >
-                      {option?.icon}
-                      {option?.label ?? v}
-                      <span
-                        role="button"
-                        tabIndex={-1}
-                        aria-label={`Remove ${option?.label ?? v}`}
-                        className="hover:bg-muted-foreground/20 ml-0.5 inline-flex size-3.5 items-center justify-center rounded-sm"
-                        onPointerDown={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                        }}
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          remove(v)
-                        }}
-                      >
-                        <X className="size-3" />
-                      </span>
-                    </Badge>
-                  )
-                })}
-                {overflowCount > 0 && (
-                  <Badge variant="secondary" className="font-normal">
-                    +{overflowCount}
+                      <X className="size-3" />
+                    </button>
                   </Badge>
-                )}
-              </>
-            )}
-          </span>
-          <ChevronDown className="text-muted-foreground size-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
+                )
+              })}
+              {overflowCount > 0 && (
+                <Badge variant="secondary" className="font-normal">
+                  +{overflowCount}
+                </Badge>
+              )}
+            </>
+          )}
+        </span>
+        <ChevronDown className="text-muted-foreground pointer-events-none size-4 shrink-0 opacity-50" />
+      </div>
       <PopoverContent
         className={cn("w-[--radix-popover-trigger-width] p-0", contentClassName)}
         align="start"

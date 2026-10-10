@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ["@weldsuite/ui", "@weldsuite/realtime", "@weldsuite/text"],
+  transpilePackages: ["@weldsuite/ui", "@weldsuite/realtime", "@weldsuite/text", "@weldsuite/payroll-domain"],
   typescript: {
     ignoreBuildErrors: true,
   },

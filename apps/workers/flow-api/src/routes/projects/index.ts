@@ -10,7 +10,7 @@ import { zValidator } from '@hono/zod-validator';
 import { and, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { createProjectSchema, updateProjectSchema } from '@weldsuite/app-api-client/schemas/projects';
+import { createProjectSchema, updateProjectSchema, normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -57,7 +57,12 @@ async function buildMembershipCondition(db: Variables['tenantDb'], userId: strin
 /** Filters derived from the list query string. */
 function buildProjectFilters(q: Record<string, string>): SQL[] {
   const conditions: SQL[] = [];
-  if (q.status !== undefined && q.status !== '') conditions.push(eq(t.status, q.status));
+  if (q.status !== undefined && q.status !== '') {
+    // Rows written before statuses were normalised may be lowercase or snake_case
+    // ("planning", "on_hold"), so compare on a spelling-insensitive key.
+    const key = normalizeProjectStatus(q.status).toLowerCase().replace(/[\s_-]+/g, '');
+    conditions.push(sql`lower(regexp_replace(${t.status}, '[\\s_-]+', '', 'g')) = ${key}`);
+  }
   if (q.isActive !== undefined && q.isActive !== '') {
     // Accept the truthy strings the WeldFlow UI sends (`?isActive=true`).
     conditions.push(eq(t.isActive, q.isActive === 'true' || q.isActive === '1'));

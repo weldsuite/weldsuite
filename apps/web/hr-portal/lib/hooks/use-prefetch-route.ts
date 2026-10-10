@@ -19,6 +19,10 @@ function queriesFor(route: string): RouteQuery[] {
       return [{ path: '/employee/leave' }];
     case 'me/declarations':
       return [{ path: '/employee/declarations' }];
+    case 'me/payslips':
+      return [{ path: '/employee/payslips' }, { path: '/employee/annual-statements' }];
+    case 'me/payroll':
+      return [{ path: '/employee/payroll-details' }];
     case 'me/coaching':
       return [{ path: '/employee/coaching' }];
     case 'me/evaluations':

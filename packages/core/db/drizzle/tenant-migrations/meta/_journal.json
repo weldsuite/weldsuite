@@ -1443,6 +1443,20 @@
       "when": 1791559677602,
       "tag": "0205_weldhr_absences",
       "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1791582319122,
+      "tag": "0206_weldhr_payroll",
+      "breakpoints": true
+    },
+    {
+      "idx": 207,
+      "version": "7",
+      "when": 1791633414974,
+      "tag": "0207_crm_opportunity_close_date_optional",
+      "breakpoints": true
     }
   ]
 }

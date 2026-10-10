@@ -22,12 +22,11 @@ const app = new Hono<HonoEnv>();
 const NUMERIC_FIELDS = new Set(['amount', 'expectedRevenue', 'recurringRevenue']);
 /** Timestamp columns that arrive as ISO strings. */
 const DATE_FIELDS = new Set(['closeDate', 'startDate', 'nextStepDate']);
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** Coerce one PATCH field to the shape its column expects. */
 function coerceUpdateValue(key: string, value: unknown): unknown {
   if (NUMERIC_FIELDS.has(key)) return value == null ? value : asText(value);
-  if (DATE_FIELDS.has(key) && typeof value === 'string') return new Date(value);
+  if (DATE_FIELDS.has(key) && typeof value === 'string') return value === '' ? null : new Date(value);
   return value;
 }
 
@@ -106,15 +105,14 @@ app.post('/', requireScope('opportunities:write'), zValidator('json', createOppo
   const id = generateId('opp');
   const values: Record<string, unknown> = { ...body, id, ownerId, createdAt: now, updatedAt: now };
   // Coerce numeric + date columns and apply defaults.
-  for (const f of NUMERIC_FIELDS) if (values[f] != null) values[f] = String(values[f]);
+  for (const f of NUMERIC_FIELDS) if (values[f] != null) values[f] = asText(values[f]);
   for (const f of DATE_FIELDS) if (typeof values[f] === 'string') values[f] = new Date(values[f] as string);
-  values.amount = values.amount != null ? String(values.amount) : '0';
+  values.amount = values.amount != null ? asText(values.amount) : '0';
   values.currency = values.currency ?? 'EUR';
   values.stage = values.stage ?? 'prospecting';
   values.status = values.status ?? 'open';
   values.probability = values.probability ?? 0;
   values.pipeline = values.pipeline ?? 'default';
-  values.closeDate = values.closeDate ?? new Date(now.getTime() + THIRTY_DAYS_MS);
   const [row] = await db.insert(table).values(values as typeof table.$inferInsert).returning();
   if (!row) return error.internal(c, 'Failed to create opportunity');
   publishEntityEvent({

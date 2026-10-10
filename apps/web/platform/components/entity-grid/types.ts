@@ -162,7 +162,22 @@ export interface GridSortConfig {
 export interface GridFilter {
   id: string;
   field: string;
-  operator: 'contains' | 'equals' | 'starts_with' | 'is_empty' | 'is_not_empty' | 'gt' | 'lt' | 'gte' | 'lte';
+  /**
+   * `not_equals` and `in` ("is any of", with a `string[]` value) are the
+   * select-column operators; the rest apply to any column.
+   */
+  operator:
+    | 'contains'
+    | 'equals'
+    | 'not_equals'
+    | 'in'
+    | 'starts_with'
+    | 'is_empty'
+    | 'is_not_empty'
+    | 'gt'
+    | 'lt'
+    | 'gte'
+    | 'lte';
   value: unknown;
 }
 
@@ -311,6 +326,9 @@ export interface EntityGridProps<TEntity> {
   hideToolbarFilter?: boolean;
   // Extra controls rendered in the toolbar, next to the Import/Export button.
   toolbarActions?: React.ReactNode;
+  // Remember the sort the user picks (per grid, in this browser) so the page
+  // can restore it next time. Pair with `usePersistedGridSort` on the page.
+  persistSort?: boolean;
 }
 
 // Props for editor components

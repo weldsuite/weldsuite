@@ -10,15 +10,17 @@
  * members / dependencies from the new app-api worker.
  */
 
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Copy,
   EllipsisVertical,
+  Link2,
   Pencil,
   Trash2,
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useAuth } from '@clerk/clerk-react';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
@@ -48,7 +50,6 @@ import {
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
-import { useAppApi } from '@/lib/api/use-app-api';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
 import type { UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
@@ -59,6 +60,7 @@ import {
   useCreateSubtask,
   useDeleteTask,
   useDeleteTaskComment,
+  useDuplicateTask,
   useProjectLabels,
   useProjectMembers,
   useProjectTasksForDeps,
@@ -180,11 +182,13 @@ function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: 
 
 function TaskActions({
   taskNumber,
+  onCopyLink,
   onEdit,
   onDuplicate,
   onDelete,
 }: Readonly<{
   taskNumber?: number | null;
+  onCopyLink: () => void;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -209,6 +213,10 @@ function TaskActions({
             <Pencil className="h-4 w-4 mr-0.5" />
             {t('sweep.entities.editTask')}
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={onCopyLink}>
+            <Link2 className="h-4 w-4 mr-0.5" />
+            {t('sweep.entities.copyLink')}
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={onDuplicate}>
             <Copy className="h-4 w-4 mr-0.5" />
             {t('sweep.entities.duplicate')}
@@ -232,7 +240,6 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const { id, isOpen, onClose } = props;
   const { userId } = useAuth();
   const { open: openPanel } = useObjectPanel();
-  const appApi = useAppApi();
 
   // Coordinate with the legacy WeldAgent and other detail panels — when this
   // panel opens, the WeldAgent drawer dismisses; when another detail panel
@@ -445,6 +452,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     if (data.priority !== undefined) payload.priority = data.priority;
     if (data.dueDate !== undefined) payload.dueDate = data.dueDate.toISOString();
     if (data.startDate !== undefined) payload.startDate = data.startDate.toISOString();
+    if (data.duration !== undefined) payload.duration = data.duration;
     if (data.labels !== undefined) payload.labels = data.labels;
     if (data.repeat !== undefined) payload.repeat = data.repeat || null;
     if (data.customFields !== undefined) payload.customFields = data.customFields;
@@ -473,9 +481,15 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     toggleMutation.mutate();
   }, [toggleMutation]);
 
+  // Deleting is destructive and has no undo, so the menu item only opens a
+  // confirmation; `handleDelete` runs once the user confirms.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const requestDelete = useCallback(() => setConfirmDeleteOpen(true), []);
+
   const handleDelete = useCallback(() => {
     deleteMutation.mutate(undefined, {
       onSuccess: () => {
+        setConfirmDeleteOpen(false);
         toast.success(t('sweep.entities.taskDeleted'));
         onClose();
       },
@@ -488,29 +502,35 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
    * Mirrors the legacy panel's behaviour: the original is kept open, a toast
    * confirms, list views invalidate so the copy shows up immediately.
    */
+  const duplicateMutation = useDuplicateTask();
   const handleDuplicate = useCallback(async () => {
     if (!apiTask) return;
     try {
-      const res = await appApi.tasks.create({
+      await duplicateMutation.mutateAsync({
         title: t('sweep.entities.taskCopyTitle', { title: apiTask.title }),
         description: apiTask.description ?? undefined,
         status: apiTask.status ?? 'todo',
         priority: apiTask.priority ?? undefined,
+        ...(apiTask.type ? { type: apiTask.type } : {}),
         ...(apiTask.projectId ? { projectId: apiTask.projectId } : {}),
+        ...(apiTask.stageId ? { stageId: apiTask.stageId } : {}),
         ...(apiTask.parentTaskId ? { parentTaskId: apiTask.parentTaskId } : {}),
         ...(apiTask.assigneeId ? { assigneeId: apiTask.assigneeId } : {}),
+        ...(apiTask.assigneeIds?.length ? { assigneeIds: apiTask.assigneeIds } : {}),
         ...(apiTask.dueDate ? { dueDate: apiTask.dueDate } : {}),
         ...(apiTask.startDate ? { startDate: apiTask.startDate } : {}),
+        ...(apiTask.duration == null ? {} : { duration: apiTask.duration }),
+        ...(apiTask.storyPoints == null ? {} : { storyPoints: apiTask.storyPoints }),
+        ...(apiTask.estimatedHours == null ? {} : { estimatedHours: String(apiTask.estimatedHours) }),
         ...(apiTask.labels ? { labels: apiTask.labels } : {}),
         ...(apiTask.tags ? { tags: apiTask.tags } : {}),
+        ...(apiTask.repeat ? { repeat: apiTask.repeat } : {}),
       });
-      if (res.data?.id) {
-        toast.success(t('sweep.entities.taskDuplicated'));
-      }
+      toast.success(t('sweep.entities.taskDuplicated'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('sweep.entities.duplicateTaskFailed'));
     }
-  }, [apiTask, appApi, t]);
+  }, [apiTask, duplicateMutation, t]);
 
   /**
    * Edit — the legacy panel handed control back to a per-page TaskDialog. The
@@ -525,6 +545,19 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       new CustomEvent('task-panel-edit-requested', { detail: { taskId: apiTask.id } }),
     );
   }, [apiTask]);
+
+  /**
+   * Copy link — the stable `/weldflow/task/{id}` URL, which resolves the
+   * task's project and opens it in the panel.
+   */
+  const handleCopyLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/weldflow/task/${id}`);
+      toast.success(t('sweep.entities.linkCopied'));
+    } catch {
+      toast.error(t('sweep.entities.copyLinkFailed'));
+    }
+  }, [id, t]);
 
   const addAttachmentMutation = useAddTaskAttachment(id);
   const removeAttachmentMutation = useRemoveTaskAttachment(id);
@@ -640,13 +673,14 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       actions={
         <TaskActions
           taskNumber={task?.number}
+          onCopyLink={handleCopyLink}
           onEdit={handleEdit}
           onDuplicate={handleDuplicate}
-          onDelete={handleDelete}
+          onDelete={requestDelete}
         />
       }
       sidebar={chatSidebar}
-      sidebarDefaultSize={mode === 'panel' ? 320 : 500}
+      sidebarDefaultSize={mode === 'panel' ? 200 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}
       // Panel mode: no persistKey so the chat always opens fresh at the
@@ -690,6 +724,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             alwaysShowFields={showCompanyField ? ['company'] : undefined}
             availableLabels={availableLabels}
             onCreateLabel={handleCreateLabel}
+            onDurationChange={(minutes) => handleUpdate(task.id, { duration: minutes })}
             attachments={attachments}
             onAttachmentAdd={handleAttachmentAdd}
             onAttachmentRemove={handleAttachmentRemove}
@@ -710,6 +745,17 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onRemoveDependency={projectId ? handleRemoveDependency : undefined}
           />
       )}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title={t('sweep.entities.deleteTask')}
+        description={t('sweep.entities.deleteTaskConfirmDescription')}
+        confirmLabel={t('sweep.entities.deleteTask')}
+        cancelLabel={t('common.actions.cancel')}
+        variant="destructive"
+        loading={deleteMutation.isPending}
+        onConfirm={handleDelete}
+      />
     </EntityDetailView>
   );
 }

@@ -85,6 +85,7 @@ import {
   interpolateEraserPoints,
   isElementInSelectionBox,
   isFillableShape,
+  keyedErasedStrokes,
   patchElement,
   snapshotDragStart,
   touchDistance,
@@ -1171,8 +1172,15 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
 
   // Mouse down with the select tool: drag an element, or start a selection box
   const handleSelectToolMouseDown = (point: Point) => {
-    // Don't interrupt if we're editing text
+    // Don't interrupt if we're editing text. The textarea's own blur ends the
+    // edit (and removes an empty element), so only drop the selection here when
+    // the click landed outside the element being edited.
     if (editingElement) {
+      const editing = elements.find(el => el.id === editingElement);
+      if (!editing || !hitTestElement(editing, point, zoom)) {
+        setSelectedElement(null);
+        setSelectedElements(new Set());
+      }
       return;
     }
 
@@ -1591,12 +1599,9 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
         };
       }
       case 'arrow': {
-        const length = Math.sqrt(
-          Math.pow(point.x - startPoint.x, 2) +
-          Math.pow(point.y - startPoint.y, 2)
-        );
+        const length = Math.hypot(point.x - startPoint.x, point.y - startPoint.y);
         // Only create arrow if it has some length
-        if (!(length > 5)) return null;
+        if (length <= 5) return null;
         return {
           id: Date.now().toString(),
           type: 'arrow',
@@ -2799,7 +2804,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
       className="pointer-events-none select-none"
       style={element.link ? { textDecoration: 'underline' } : {}}
     >
-      {textLines(element.text || 'Type something...').map(({ offset, line }) => (
+      {textLines(element.text || st('sweep.weldflow.whiteboardView.typeSomethingPlaceholder')).map(({ offset, line }) => (
         <tspan
           key={offset}
           x={element.x}
@@ -3090,8 +3095,8 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
           <defs>
             <mask id={maskId}>
               <rect x="-8000" y="-4500" width="16000" height="9000" fill="white" />
-              {element.erasedPaths!.map((stroke, strokeIndex) => (
-                <g key={strokeIndex}>
+              {keyedErasedStrokes(element.erasedPaths!).map(({ stroke, key }) => (
+                <g key={key}>
                   {/* Use path only for better performance */}
                   {stroke?.points && stroke.points.length > 0 && (
                     <path
@@ -3190,7 +3195,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
             <>
               <div className="w-px h-6 bg-gray-300 dark:bg-accent mx-1" />
               <div className="flex items-center gap-2 px-2 py-1 border border-gray-200 dark:border-border rounded-md bg-white dark:bg-secondary">
-                <span className="text-xs text-gray-600 dark:text-muted-foreground">Stroke:</span>
+                <span className="text-xs text-gray-600 dark:text-muted-foreground">{st('sweep.weldflow.whiteboardView.stroke')}:</span>
                 <Slider
                   value={[strokeWidth]}
                   onValueChange={(value) => setStrokeWidth(value[0])}
@@ -3923,7 +3928,7 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-48 p-3">
                     <div className="space-y-2">
-                      <div className="text-xs text-gray-500">Stroke Width</div>
+                      <div className="text-xs text-gray-500">{st('sweep.weldflow.whiteboardView.strokeWidth')}</div>
                       <Slider
                         value={[element.strokeWidth || 2]}
                         min={1}

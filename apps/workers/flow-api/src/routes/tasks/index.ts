@@ -28,7 +28,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, or, sql, type Column, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, ilike, isNull, lt, notInArray, or, sql, type Column, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { sendTaskAssignmentNotification } from '@weldsuite/notifications';
@@ -47,6 +47,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { taskAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
+import { assigneeIdsInvolved, buildTaskChanges } from '../../lib/task-changes';
 import {
   syncValuesForEntity,
   hydrateCustomFields,
@@ -196,6 +197,17 @@ async function fetchAssigneeMap(db: any, taskResults: any[]): Promise<Map<string
     for (const m of members) memberMap.set(m.userId, m);
   }
   return memberMap;
+}
+
+/** Display names for the audit trail's assignee line, keyed by user id. */
+async function fetchAssigneeNames(db: any, ids: string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const members = await fetchAssigneeMap(db, [{ assigneeIds: ids }]);
+  const names = new Map<string, string>();
+  for (const [userId, member] of members) {
+    if (member?.name) names.set(userId, member.name);
+  }
+  return names;
 }
 
 /**
@@ -504,10 +516,12 @@ function dispatchAssignmentNotifications(
   const userId = c.get('userId');
   const workspaceId = c.get('workspaceId');
   const category: 'projects' | 'crm' = opts.projectId ? 'projects' : 'crm';
-  // Web in-app opens the project task list; mobile push uses projectId/taskId
-  // from the Expo data payload for a direct `/task/{projectId}/{taskId}` deep link.
+  // Web in-app opens the task itself via the stable `/weldflow/task/{id}` link
+  // (it resolves the project and opens the panel); mobile push uses
+  // projectId/taskId from the Expo data payload for a direct
+  // `/task/{projectId}/{taskId}` deep link.
   const actionUrl = opts.projectId
-    ? `/weldflow/project/${opts.projectId}/tasks`
+    ? `/weldflow/task/${opts.taskId}`
     : `/weldcrm/tasks`;
 
   const enrichment = (async () => {
@@ -994,7 +1008,32 @@ async function validateTaskRelations(
   if ((parent.projectId ?? null) !== currentProjectId) {
     return 'Parent task must belong to the same project';
   }
+  if (await isDescendantOf(db, parentId, id)) {
+    return 'Cannot move a task under itself or one of its subtasks';
+  }
   return null;
+}
+
+/**
+ * True when `candidateId` is `ancestorId` or sits anywhere below it. Walks up the
+ * candidate's parent chain (a task has one parent, so this is a single path) and
+ * stops at a root, a repeated id (pre-existing cycle) or a generous depth bound.
+ */
+async function isDescendantOf(db: TaskDb, candidateId: string, ancestorId: string): Promise<boolean> {
+  const seen = new Set<string>();
+  let cursor: string | null = candidateId;
+  for (let depth = 0; cursor && depth < 100; depth++) {
+    if (cursor === ancestorId) return true;
+    if (seen.has(cursor)) return false;
+    seen.add(cursor);
+    const [row] = await db
+      .select({ parentTaskId: t.parentTaskId })
+      .from(t)
+      .where(eq(t.id, cursor))
+      .limit(1);
+    cursor = (row?.parentTaskId as string | null | undefined) ?? null;
+  }
+  return false;
 }
 
 async function statusFromStage(db: TaskDb, stageId: unknown): Promise<string | undefined> {
@@ -1182,6 +1221,12 @@ const listQuerySchema = z.object({
   labelIds: taskCsvStringArray,
   tags: taskCsvStringArray,
   dueDateBucket: dueDateBucketEnum,
+  // Negated ("is not") counterparts of the filters above
+  excludeStatus: taskCsvStringArray,
+  excludePriority: taskCsvStringArray,
+  excludeAssigneeId: z.string().optional(),
+  excludeLabelIds: taskCsvStringArray,
+  excludeDueDateBucket: dueDateBucketEnum,
   dueDateFrom: z.string().optional(),
   dueDateTo: z.string().optional(),
   // Sort
@@ -1256,6 +1301,14 @@ function taskValueFilters(q: ListQuery, userId: string | undefined): SQL[] {
   if (q.status) filters.push(eq(t.status, q.status));
   if (q.priority) filters.push(eq(t.priority, q.priority));
   if (q.type) filters.push(eq(t.type, q.type));
+  // "is not" filters (status/priority are NOT NULL columns, so plain NOT IN is safe).
+  if (q.excludeStatus) filters.push(notInArray(t.status, q.excludeStatus));
+  if (q.excludePriority) filters.push(notInArray(t.priority, q.excludePriority));
+  if (q.excludeAssigneeId) {
+    filters.push(
+      sql`NOT (coalesce(${t.assigneeId} = ${q.excludeAssigneeId}, false) OR coalesce(${t.assigneeIds}::jsonb @> ${JSON.stringify([q.excludeAssigneeId])}::jsonb, false))`,
+    );
+  }
 
   // Assignee: myTasks shorthand takes precedence over explicit assigneeId
   const effectiveAssigneeId = q.myTasks ? userId : q.assigneeId;
@@ -1275,9 +1328,9 @@ function taskSearchFilters(q: ListQuery): SQL[] {
   if (q.search) {
     const term = `%${q.search}%`;
     const searchClauses = [
-      like(t.title, term),
-      like(t.description, term),
-      like((t as any).key, term),
+      ilike(t.title, term),
+      ilike(t.description, term),
+      ilike((t as any).key, term),
     ];
     // Let users find a task by its number: "TASK-1042", "#1042", or "1042".
     const numberMatch = q.search.trim().replace(/^#/, '').replace(/^task-/i, '');
@@ -1285,6 +1338,15 @@ function taskSearchFilters(q: ListQuery): SQL[] {
       searchClauses.push(eq(t.number, Number(numberMatch)));
     }
     filters.push(or(...searchClauses)!);
+  }
+
+  if (q.excludeLabelIds && q.excludeLabelIds.length > 0) {
+    filters.push(
+      sql`NOT coalesce(${t.labels} ?| array[${sql.join(
+        q.excludeLabelIds.map((id) => sql`${id}`),
+        sql`, `,
+      )}]::text[], false)`,
+    );
   }
 
   if (q.labelIds && q.labelIds.length > 0) {
@@ -1301,6 +1363,10 @@ function taskSearchFilters(q: ListQuery): SQL[] {
 function taskDueDateFilters(q: ListQuery): SQL[] {
   const filters: SQL[] = [];
   if (q.dueDateBucket) filters.push(dueDateBucketCondition(q.dueDateBucket, t.dueDate));
+  if (q.excludeDueDateBucket) {
+    // coalesce: a NULL due date makes most bucket windows NULL, i.e. "not in it".
+    filters.push(sql`coalesce(NOT (${dueDateBucketCondition(q.excludeDueDateBucket, t.dueDate)}), true)`);
+  }
   if (q.dueDateFrom) filters.push(gte(t.dueDate, new Date(q.dueDateFrom)));
   if (q.dueDateTo) filters.push(lt(t.dueDate, new Date(q.dueDateTo)));
   return filters;
@@ -1358,7 +1424,9 @@ async function loadEnrichedDescendants(db: TaskDb, projectId: string, roots: any
           isNull(t.deletedAt),
         ),
       )
-      .orderBy(desc(t.position), desc(t.createdAt), desc(t.id));
+      // Oldest first, like the task panel's subtask list (and like a subtask
+      // appended in the client), so both surfaces agree.
+      .orderBy(asc(t.position), asc(t.createdAt), asc(t.id));
     if (children.length === 0) break;
     allDescendants.push(...children);
     frontier = children.map((child: any) => child.id);
@@ -2009,6 +2077,7 @@ app.patch(
         entityId: id,
         action: 'updated',
         data: taskAnalyticsPayload(currentTask as Record<string, unknown>, { status: newStatus }),
+        changes: buildTaskChanges(currentTask as Record<string, unknown>, updateData),
       });
 
       if (newStatus !== (currentTask as any).status) {
@@ -2075,6 +2144,7 @@ app.patch(
         entityId: id,
         action: 'updated',
         data: taskAnalyticsPayload(currentTask as Record<string, unknown>, { status }),
+        changes: buildTaskChanges(currentTask as Record<string, unknown>, updateData),
       });
 
       if (status !== (currentTask as any).status) {
@@ -2147,6 +2217,7 @@ app.patch(
         entityId: id,
         action: 'updated',
         data: taskAnalyticsPayload(currentTask as Record<string, unknown>, positionEcho(data)),
+        changes: buildTaskChanges(currentTask as Record<string, unknown>, { status: data.status }),
       });
 
       if (data.status && data.status !== currentTask.status) {
@@ -2311,23 +2382,26 @@ app.post(
 
       // Reset & move each task. parentTaskId is preserved; the key is cleared
       // (its prefix belonged to the old project) and sprint/milestone/stage are
-      // reset to the destination's defaults.
-      for (let i = 0; i < allIds.length; i++) {
-        await db
-          .update(t)
-          .set({
-            projectId: destProjectId,
-            sprintId: null,
-            milestoneId: null,
-            stageId: resetStageId,
-            status: resetStatus,
-            key: null,
-            position: basePosition + i,
-            boardPosition: null,
-            updatedAt: now,
-          })
-          .where(eq(t.id, allIds[i]));
-      }
+      // reset to the destination's defaults. One all-or-nothing batch, so a
+      // failure can't leave the parent and its subtasks split across projects.
+      await atomically(db, (handle) =>
+        allIds.map((taskId, i) =>
+          handle
+            .update(t)
+            .set({
+              projectId: destProjectId,
+              sprintId: null,
+              milestoneId: null,
+              stageId: resetStageId,
+              status: resetStatus,
+              key: null,
+              position: basePosition + i,
+              boardPosition: null,
+              updatedAt: now,
+            })
+            .where(eq(t.id, taskId)),
+        ),
+      );
 
       publishEntityEvent({
         c,
@@ -2479,6 +2553,11 @@ app.patch(
 
       notifyAddedAssigneesOnUpdate(c, { id, existing, update, data });
 
+      const changes = buildTaskChanges(
+        existing as Record<string, unknown>,
+        update,
+        await fetchAssigneeNames(db, assigneeIdsInvolved(existing as Record<string, unknown>, update)),
+      );
       publishEntityEvent({
         c,
         entityType: 'project_task',
@@ -2488,6 +2567,7 @@ app.patch(
           { ...(existing as Record<string, unknown>), ...data, ...dependencyEcho } as Record<string, unknown>,
           { id, title: (data.title as string) || (existing as any).title },
         ),
+        changes,
       });
 
       dispatchGithubOutboundSync(c, {

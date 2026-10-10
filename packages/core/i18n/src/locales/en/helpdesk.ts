@@ -2968,6 +2968,7 @@ export const helpdesk = {
 
     // Workflow editor — canvas nodes (workflows/[id]/edit/components/canvas-nodes.tsx)
     canvasNodes: {
+      deselect: 'Clear selection',
       selectTrigger: 'Select a trigger',
       allChannels: 'All channels',
       everyone: 'Everyone',

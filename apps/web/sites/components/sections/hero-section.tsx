@@ -18,7 +18,7 @@ export default function HeroSection({
   backgroundImage,
   store,
   settings
-}: HeroSectionProps) {
+}: Readonly<HeroSectionProps>) {
   return (
     <section 
       className="relative py-24 px-4 bg-gradient-to-r from-primary/10 to-secondary/10"

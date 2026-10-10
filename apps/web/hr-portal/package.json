@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.19",
+    "@weldsuite/payroll-domain": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/ui": "workspace:*",
     "lucide-react": "^0.544.0",

@@ -22,6 +22,7 @@ export const weldhrSelf = {
       timeOff: 'Verlof & ziekte',
       expenses: 'Onkosten',
       schedule: 'Rooster & uren',
+      payroll: 'Salaris',
       tasks: 'Taken',
       reviews: 'Beoordelingen & doelen',
     },

@@ -56,7 +56,7 @@ function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
+      queryParams.set(key, asText(value));
     }
   }
   const query = queryParams.toString();
@@ -177,6 +177,12 @@ export type ProjectTaskFilters = {
   sortField?: 'title' | 'status' | 'priority' | 'dueDate' | 'assignee' | 'position' | 'createdAt';
   sortDirection?: 'asc' | 'desc';
   includeSubtasks?: boolean;
+  /** Negated ("is not") filters. */
+  excludeStatus?: string[];
+  excludePriority?: string[];
+  excludeLabelIds?: string[];
+  excludeAssigneeId?: string;
+  excludeDueDateBucket?: 'overdue' | 'today' | 'this-week' | 'later' | 'no-date';
 };
 
 export function useInfiniteProjectTasks(
@@ -195,6 +201,9 @@ export function useInfiniteProjectTasks(
         limit: pageSize,
         ...filters,
         labelIds: filters.labelIds && filters.labelIds.length > 0 ? filters.labelIds.join(',') : undefined,
+        excludeStatus: filters.excludeStatus?.length ? filters.excludeStatus.join(',') : undefined,
+        excludePriority: filters.excludePriority?.length ? filters.excludePriority.join(',') : undefined,
+        excludeLabelIds: filters.excludeLabelIds?.length ? filters.excludeLabelIds.join(',') : undefined,
       };
       if (pageParam) qs.cursor = pageParam;
       const query = buildQueryString(qs);
@@ -210,6 +219,10 @@ export function useInfiniteProjectTasks(
       return pagination.hasMore ? pagination.cursor : undefined;
     },
     enabled: !!projectId && enabled,
+    // Keep the current rows (and the page chrome) mounted while a new search /
+    // filter / sort refetches, but never show another project's tasks.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey.includes(projectId) ? previous : undefined,
   });
 }export function useProjectMembers(projectId: string, enabled = true) {
   const { getClient } = useAppApiClient();
@@ -379,7 +392,7 @@ export function useCreateProjectAnalyticsReport() {
       return client.post<{ data: { id: string } }>('/project-analytics/reports', data);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
     },
   });
 }
@@ -393,8 +406,8 @@ export function useUpdateProjectAnalyticsReport() {
       return client.put<{ data: { id: string } }>(`/project-analytics/reports/${reportId}`, data);
     },
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
     },
   });
 }
@@ -408,7 +421,7 @@ export function useDeleteProjectAnalyticsReport() {
       return client.delete<{ data: { deleted: boolean } }>(`/project-analytics/reports/${reportId}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
     },
   });
 }
@@ -442,9 +455,9 @@ export function useCreateProjectAnalyticsChart() {
       return client.post<{ data: { id: string } }>(`/project-analytics/reports/${reportId}/charts`, data);
     },
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsCharts(variables.reportId) });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsCharts(variables.reportId) });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
     },
   });
 }

@@ -23,6 +23,7 @@ export const MY_HR_PATHS = {
   timeOff: '/weldhr/me/time-off',
   expenses: '/weldhr/me/expenses',
   schedule: '/weldhr/me/schedule',
+  payroll: '/weldhr/me/payroll',
   tasks: '/weldhr/me/tasks',
   reviews: '/weldhr/me/reviews',
 } as const;
@@ -35,6 +36,7 @@ export const LEGACY_MY_HR_TABS: Partial<Record<string, MyHrPath>> = {
   leave: MY_HR_PATHS.timeOff,
   declarations: MY_HR_PATHS.expenses,
   attendance: MY_HR_PATHS.schedule,
+  payroll: MY_HR_PATHS.payroll,
   tasks: MY_HR_PATHS.tasks,
   reviews: MY_HR_PATHS.reviews,
   goals: MY_HR_PATHS.reviews,

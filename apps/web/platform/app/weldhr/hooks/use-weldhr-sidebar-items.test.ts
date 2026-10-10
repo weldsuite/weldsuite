@@ -10,15 +10,17 @@ const MENU = MODULE_CONFIGS.weldhr!.getMenuItems(en);
 const EMPLOYEE = ['employees:self'];
 const HR_MANAGER = [
   'employees:self', 'employees:read', 'employees:manage', 'attendance:read', 'leave:read',
-  'declarations:read', 'absences:read', 'coaching:read', 'evaluations:read',
+  'declarations:read', 'absences:read', 'coaching:read', 'evaluations:read', 'payroll:read', 'payroll:manage',
 ];
 
 function state(permissions: string[], overrides: Partial<WeldhrMenuState> = {}): WeldhrMenuState {
   return {
     hasEmployee: true,
+    payrollEnabled: false,
+    myPayroll: false,
     collapsed: false,
     pathname: '/weldhr',
-    counts: { tasks: 0, reviews: 0 },
+    counts: { tasks: 0, reviews: 0, payroll: 0 },
     canSee: (permission) => permissions.includes(permission),
     onToggleCollapse: vi.fn(),
     ...overrides,
@@ -86,10 +88,24 @@ describe('WeldHR sidebar', () => {
   });
 
   it('puts open tasks and reviews to acknowledge on their items', () => {
-    const myHr = sidebar(EMPLOYEE, { counts: { tasks: 2, reviews: 0 } })[0]!;
+    const myHr = sidebar(EMPLOYEE, { counts: { tasks: 2, reviews: 0, payroll: 0 } })[0]!;
     const badge = (href: string) => myHr.items.find((item) => item.href === href)?.badge;
     expect(badge('/weldhr/me/tasks')).toBe('2');
     expect(badge('/weldhr/me/reviews')).toBeUndefined();
+  });
+
+  it('hides the payroll team pages while the weldhr-payroll flag is off', () => {
+    expect(groupNames(sidebar(HR_MANAGER))).not.toContain('Payroll');
+    const payroll = sidebar(HR_MANAGER, { payrollEnabled: true }).find((group) => group.group === 'Payroll');
+    expect(hrefs(payroll)[0]).toBe('/weldhr/payroll');
+  });
+
+  it('adds My HR → Payroll, with what is still to do, only for a member on payroll', () => {
+    expect(hrefs(sidebar(EMPLOYEE, { payrollEnabled: true })[0])).not.toContain('/weldhr/me/payroll');
+
+    const myHr = sidebar(EMPLOYEE, { payrollEnabled: true, myPayroll: true, counts: { tasks: 0, reviews: 0, payroll: 3 } })[0]!;
+    expect(hrefs(myHr)).toEqual([...MY_HR_HREFS.slice(0, 4), '/weldhr/me/payroll', ...MY_HR_HREFS.slice(4)]);
+    expect(myHr.items.find((item) => item.href === '/weldhr/me/payroll')?.badge).toBe('3');
   });
 
   it('shows nothing of My HR to someone without employees:self', () => {

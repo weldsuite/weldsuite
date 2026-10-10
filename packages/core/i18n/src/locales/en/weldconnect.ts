@@ -1641,6 +1641,13 @@ export const weldconnect = {
       afterSucceeds: 'After "{name}" succeeds',
       afterFails: 'After "{name}" fails',
       afterFinishes: 'After "{name}" finishes',
+      delay: 'Wait {duration}',
+      duration: {
+        day: { one: '{count} day', other: '{count} days' },
+        hour: { one: '{count} hour', other: '{count} hours' },
+        minute: { one: '{count} minute', other: '{count} minutes' },
+        second: { one: '{count} second', other: '{count} seconds' },
+      },
     },
     publishIssues: {
       no_trigger: 'Add a trigger before publishing.',

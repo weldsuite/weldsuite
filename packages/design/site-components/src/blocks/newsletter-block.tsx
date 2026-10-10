@@ -17,7 +17,7 @@ export function NewsletterBlock({
   placeholder = 'Email',
   textColor = '#000000',
   onSubmit
-}: NewsletterBlockProps) {
+}: Readonly<NewsletterBlockProps>) {
   const [email, setEmail] = React.useState('');
   const [isSubmitted, setIsSubmitted] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -26,7 +26,7 @@ export function NewsletterBlock({
     e.preventDefault();
     setError('');
 
-    if (!email || !email.includes('@')) {
+    if (!email?.includes('@')) {
       setError('Please enter a valid email address');
       return;
     }

@@ -46,38 +46,41 @@ export async function checkSlaBreaches(
     )
     .limit(100);
 
-  for (const conv of breached) {
-    try {
-      await db
-        .update(schema.helpdeskConversations)
-        .set({
-          slaStatus: 'breached',
-          breachedAt: now,
-          updatedAt: now,
-        })
-        .where(eq(schema.helpdeskConversations.id, conv.id));
+  // Each conversation is breached independently (own update + audit event, own try/catch).
+  await Promise.all(
+    breached.map(async (conv) => {
+      try {
+        await db
+          .update(schema.helpdeskConversations)
+          .set({
+            slaStatus: 'breached',
+            breachedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(schema.helpdeskConversations.id, conv.id));
 
-      // Record event
-      await db.insert(schema.helpdeskConversationEvents).values({
-        id: generateId('evt'),
-        conversationId: conv.id,
-        eventType: 'sla.breached',
-        initiator: 'system',
-        description: 'SLA policy breached',
-        data: {
-          slaId: conv.slaId,
-          responseDeadline: conv.responseDeadline?.toISOString(),
-          resolutionDeadline: conv.resolutionDeadline?.toISOString(),
-        },
-        isPublic: false,
-        createdAt: now,
-      });
+        // Record event
+        await db.insert(schema.helpdeskConversationEvents).values({
+          id: generateId('evt'),
+          conversationId: conv.id,
+          eventType: 'sla.breached',
+          initiator: 'system',
+          description: 'SLA policy breached',
+          data: {
+            slaId: conv.slaId,
+            responseDeadline: conv.responseDeadline?.toISOString(),
+            resolutionDeadline: conv.resolutionDeadline?.toISOString(),
+          },
+          isPublic: false,
+          createdAt: now,
+        });
 
-      breachCount++;
-    } catch (err) {
-      console.error(`[SLA] Failed to breach conversation ${conv.id}:`, err);
-    }
-  }
+        breachCount++;
+      } catch (err) {
+        console.error(`[SLA] Failed to breach conversation ${conv.id}:`, err);
+      }
+    }),
+  );
 
   return breachCount;
 }

@@ -8,9 +8,20 @@ export function adminPhonePricingCopy() {
   return getTranslations('host').adminPhonePricing;
 }
 
+export function adminPlanPricingCopy() {
+  return getTranslations('host').adminPlanPricing;
+}
+
 export function adminMeetAiPricingCopy() {
   return getTranslations('host').adminMeetAiPricing;
 }
+
+/** Billing, plan catalog and activity log copy. */
+export function adminCopy() {
+  return getTranslations('admin');
+}
+
+export type AdminCopy = ReturnType<typeof adminCopy>;
 
 export function fill(template: string, vars: Record<string, string | number>): string {
   return Object.entries(vars).reduce(

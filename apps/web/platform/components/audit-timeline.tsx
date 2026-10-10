@@ -45,6 +45,39 @@ function formatValue(value: unknown): string {
   return asText(value);
 }
 
+/** "dueDate" -> "Due date", "assigneeName" -> "Assignee". */
+function formatFieldLabel(key: string): string {
+  const words = key
+    .replace(/(Name|Id)$/, '')
+    .replaceAll('_', ' ')
+    .replaceAll(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
+
+const ENUM_LIKE_FIELDS = new Set(['status', 'priority', 'type']);
+const ENUM_LABEL_OVERRIDES: Record<string, string> = { todo: 'To Do' };
+
+/** "in_progress" -> "In progress", "todo" -> "To Do" for status-like fields. */
+function formatChangeValue(key: string, value: unknown): string {
+  if (key === 'repeat' && value && typeof value === 'object') {
+    const frequency = (value as { frequency?: unknown }).frequency;
+    if (typeof frequency === 'string') return frequency;
+  }
+  if (typeof value === 'string' && ENUM_LIKE_FIELDS.has(key)) {
+    const override = ENUM_LABEL_OVERRIDES[value];
+    if (override) return override;
+    const words = value.replaceAll('_', ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && /(Date|At)$/.test(key)) {
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleDateString();
+  }
+  return formatValue(value);
+}
+
 function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }> }>) {
   const entries = Object.entries(changes);
   if (entries.length === 0) return null;
@@ -53,10 +86,10 @@ function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: u
     <div className="mt-1.5 space-y-0.5">
       {entries.map(([key, { from, to }]) => (
         <div key={key} className="text-[11px] text-muted-foreground">
-          <span className="font-medium">{key}</span>:{' '}
-          <span className="line-through opacity-60">{formatValue(from)}</span>
+          <span className="font-medium">{formatFieldLabel(key)}</span>:{' '}
+          <span className="line-through opacity-60">{formatChangeValue(key, from)}</span>
           {' → '}
-          <span>{formatValue(to)}</span>
+          <span>{formatChangeValue(key, to)}</span>
         </div>
       ))}
     </div>
@@ -99,7 +132,16 @@ export function AuditTimelineSkeleton({ count = 3 }: Readonly<{ count?: number }
   );
 }
 
-export function AuditTimeline({ logs, showEntityType }: Readonly<{ logs: AuditLogEntry[]; showEntityType?: boolean }>) {
+export function AuditTimeline({
+  logs,
+  showEntityType,
+  alwaysShowChanges = false,
+}: Readonly<{
+  logs: AuditLogEntry[];
+  showEntityType?: boolean;
+  /** Render field changes under each entry instead of behind "Details". */
+  alwaysShowChanges?: boolean;
+}>) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   if (logs.length === 0) {
@@ -166,7 +208,8 @@ export function AuditTimeline({ logs, showEntityType }: Readonly<{ logs: AuditLo
               </div>
 
               {/* Expandable details */}
-              {hasDetails && (
+              {hasChanges && alwaysShowChanges && <ChangeDetails changes={log.changes!} />}
+              {hasDetails && !(hasChanges && alwaysShowChanges) && (
                 <>
                   <Button
                     variant="ghost"

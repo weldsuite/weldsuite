@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { slideTransitionClasses } from '../lib/slide-transition';
+import { keyedBy, tupleKey } from '../lib/keyed';
 
 interface Slide {
   image: string;
@@ -126,14 +127,15 @@ export function SlideshowSection({
   };
 
   const getTransitionClasses = (index: number) => slideTransitionClasses(transitionStyle, index, currentSlide);
+  const keyedSlides = keyedBy(slides, (slide) => tupleKey(slide.image, slide.heading));
 
   return (
     <section className="relative overflow-hidden w-full bg-gray-900" style={{ minHeight: `${minHeight}px` }}>
       {/* Slides Container */}
       <div className="relative h-full w-full" style={{ minHeight: `${minHeight}px` }}>
-        {slides.map((slide, index) => (
+        {keyedSlides.map(({ item: slide, key }, index) => (
           <div
-            key={index}
+            key={key}
             className={`absolute inset-0 ${getTransitionClasses(index)}`}
           >
             {/* Background Image */}
@@ -256,9 +258,9 @@ export function SlideshowSection({
             {/* Dots */}
             {showDots && (
               <div className="flex gap-2.5">
-                {slides.map((_, index) => (
+                {keyedSlides.map(({ key }, index) => (
                   <button
-                    key={index}
+                    key={key}
                     onClick={() => goToSlide(index)}
                     disabled={isTransitioning}
                     className={`w-3 h-3 rounded-full transition-all duration-300 disabled:cursor-not-allowed ${

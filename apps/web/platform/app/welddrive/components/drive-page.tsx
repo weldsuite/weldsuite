@@ -406,13 +406,13 @@ function DriveRowMenuContent({ item, isTrashView, actions }: Readonly<DriveRowMe
 }
 
 // "Modified" column: the auto-delete countdown in the trash, the created date elsewhere
-function DriveModifiedCell({ item, isTrashView }: Readonly<{ item: DriveItem; isTrashView: boolean }>) {
+function DriveModifiedCell({ item, isTrashView, compact = false }: Readonly<{ item: DriveItem; isTrashView: boolean; compact?: boolean }>) {
   const { t } = useI18n();
   if (isTrashView && item._file?.deletedAt) {
     const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - new Date(item._file.deletedAt).getTime()) / 86400000));
-    return <span className="text-sm font-mono text-orange-500">{daysLeft === 0 ? t.welddrive.page.trash.deletingSoon : t.welddrive.page.trash.deletesIn.replace('{days}', String(daysLeft))}</span>;
+    return <span className={cn(compact ? 'text-[11px]' : 'text-sm', 'font-mono text-orange-500')}>{daysLeft === 0 ? t.welddrive.page.trash.deletingSoon : t.welddrive.page.trash.deletesIn.replace('{days}', String(daysLeft))}</span>;
   }
-  return <span className="text-sm font-mono text-muted-foreground">{formatDate(item.createdAt)}</span>;
+  return <span className={cn(compact ? 'text-[11px]' : 'text-sm', 'font-mono text-muted-foreground')}>{formatDate(item.createdAt)}</span>;
 }
 
 type DragGhost = { name: string; iconHtml: string; x: number; y: number };
@@ -1222,7 +1222,11 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
       <div
         role="presentation"
         key={item.id}
-        onClick={(e) => handleItemClick(item, e)}
+        onClick={(e) => {
+          // Menu content is portaled but still bubbles through the React tree: ignore it.
+          if (!e.currentTarget.contains(e.target as Node)) return;
+          handleItemClick(item, e);
+        }}
         onDoubleClick={() => handleItemDoubleClick(item)}
         draggable={!isFolder && item._file?.source === 'drive'}
         onDragStart={(e) => handleRowDragStart(item, e)}
@@ -1258,7 +1262,7 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         style={{ height: '51px' }}
       >
         {/* Name */}
-        <div data-drag-handle className="min-w-[200px] flex-1 flex items-center gap-1.5" style={{ paddingLeft: `${indent}px` }}>
+        <div data-drag-handle className="min-w-[200px] max-md:min-w-0 flex-1 flex items-center gap-1.5" style={{ paddingLeft: `${indent}px` }}>
           {isFolder && (
             <ChevronRight
               data-drag-exclude
@@ -1269,21 +1273,31 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
             />
           )}
           <FileIcon className={cn('h-4 w-4 shrink-0', isFolder ? 'text-blue-500' : typeConfig.color)} />
-          <span className="text-sm font-medium truncate text-gray-900 dark:text-foreground">
-            {item.name}
-          </span>
+          <div className="flex min-w-0 flex-col">
+            <span className="text-sm font-medium truncate text-gray-900 dark:text-foreground">
+              {item.name}
+            </span>
+            {/* Phones: the Type/Source/Size/Modified columns are hidden, so the
+                essentials move to a second line under the name. */}
+            <span className="flex min-w-0 items-center gap-1.5 truncate text-muted-foreground md:hidden">
+              {item.fileSize ? (
+                <span className="font-mono text-[11px] tabular-nums">{formatFileSize(item.fileSize)}</span>
+              ) : null}
+              <DriveModifiedCell item={item} isTrashView={isTrashView} compact />
+            </span>
+          </div>
           {item.isStarred && (
             <Star data-drag-exclude className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400 shrink-0" />
           )}
         </div>
 
         {/* Type */}
-        <div className="w-[120px]">
+        <div className="w-[120px] max-md:hidden">
           <span className="text-sm text-muted-foreground capitalize">{item.fileType}</span>
         </div>
 
         {/* Source */}
-        <div className="w-[140px]">
+        <div className="w-[140px] max-md:hidden">
           {item.kind === 'file' && (
             <span className={cn('-translate-y-[1.5px]', driveLabelClass, badgeClass)}>
               {item.sourceLabel}
@@ -1292,23 +1306,23 @@ export function DrivePage({ view = 'my-drive', typeFilter, sourceFilter, folderI
         </div>
 
         {/* Size */}
-        <div className="w-[100px]">
+        <div className="w-[100px] max-md:hidden">
           <span className="text-sm font-mono text-muted-foreground tabular-nums">
             {item.fileSize ? formatFileSize(item.fileSize) : '—'}
           </span>
         </div>
 
         {/* Modified / Auto-delete countdown */}
-        <div className="w-[130px]">
+        <div className="w-[130px] max-md:hidden">
           <DriveModifiedCell item={item} isTrashView={isTrashView} />
         </div>
 
         {/* Actions */}
         <div className="w-[40px] flex items-center justify-center">
-          <div role="presentation" className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="p-1 rounded-md hover:bg-muted">
+                <Button variant="ghost" className="p-1 rounded-md hover:bg-muted" onClick={(e) => e.stopPropagation()}>
                   <MoreVertical className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1935,51 +1949,64 @@ function DriveGridView({
         </div>
       )}
       {!isLoading && !isEmpty && (
-        <div role="presentation" className="flex-1 overflow-auto p-4" onClick={(e) => { if (e.target === e.currentTarget) onClearSelection(); }}>
-          {filteredFolders.length > 0 && (
-            <div className="mb-6">
-              <p className="text-xs font-medium text-muted-foreground mb-3 px-1">{t.welddrive.page.gridSections.folders}</p>
-              <div className="grid grid-cols-[repeat(auto-fill,241px)] gap-4">
-                {filteredFolders.map((folder) => (
-                  <DriveFolderCard
-                    key={folder.id}
-                    folder={folder}
-                    isSelected={selectedIds.has(`folder-${folder.id}`)}
-                    onClick={(e) => onSelect(`folder-${folder.id}`, e)}
-                    onDoubleClick={() => onFolderOpen(folder.id)}
-                    onRename={onRenameFolder}
-                    onDuplicate={onDuplicateFolder}
-                    onDelete={onDeleteFolder}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {filteredFiles.length > 0 && (
-            <div>
+        <div className="flex-1 overflow-auto">
+          <div className="relative min-h-full p-4">
+            {/* Backdrop: clicking empty space clears the selection. The content sits above it
+                and only lets its own buttons (the cards) receive pointer events. */}
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={t.welddrive.page.clearSelection}
+              className="absolute inset-0 cursor-default"
+              onClick={onClearSelection}
+            />
+            <div className="pointer-events-none relative [&_button]:pointer-events-auto">
               {filteredFolders.length > 0 && (
-                <p className="text-xs font-medium text-muted-foreground mb-3 px-1">{t.welddrive.page.gridSections.files}</p>
+                <div className="mb-6">
+                  <p className="text-xs font-medium text-muted-foreground mb-3 px-1">{t.welddrive.page.gridSections.folders}</p>
+                  <div className="grid grid-cols-[repeat(auto-fill,241px)] gap-4">
+                    {filteredFolders.map((folder) => (
+                      <DriveFolderCard
+                        key={folder.id}
+                        folder={folder}
+                        isSelected={selectedIds.has(`folder-${folder.id}`)}
+                        onClick={(e) => onSelect(`folder-${folder.id}`, e)}
+                        onDoubleClick={() => onFolderOpen(folder.id)}
+                        onRename={onRenameFolder}
+                        onDuplicate={onDuplicateFolder}
+                        onDelete={onDeleteFolder}
+                      />
+                    ))}
+                  </div>
+                </div>
               )}
-              <div className="grid grid-cols-[repeat(auto-fill,241px)] gap-4">
-                {filteredFiles.map((file) => (
-                  <DriveFileCard
-                    key={`${file.source}-${file.id}`}
-                    file={file}
-                    isSelected={selectedIds.has(`${file.source}-${file.id}`)}
-                    onClick={(e) => onSelect(`${file.source}-${file.id}`, e)}
-                    onDoubleClick={() => onFileClick(file)}
-                    onToggleStar={onToggleStar}
-                    onRename={onRename}
-                    onMoveToFolder={onMoveToFolder}
-                    onCopyLink={onCopyLink}
-                    onDelete={onDelete}
-                    onDetails={onDetails}
-                  />
-                ))}
-              </div>
+
+              {filteredFiles.length > 0 && (
+                <div>
+                  {filteredFolders.length > 0 && (
+                    <p className="text-xs font-medium text-muted-foreground mb-3 px-1">{t.welddrive.page.gridSections.files}</p>
+                  )}
+                  <div className="grid grid-cols-[repeat(auto-fill,241px)] gap-4">
+                    {filteredFiles.map((file) => (
+                      <DriveFileCard
+                        key={`${file.source}-${file.id}`}
+                        file={file}
+                        isSelected={selectedIds.has(`${file.source}-${file.id}`)}
+                        onClick={(e) => onSelect(`${file.source}-${file.id}`, e)}
+                        onDoubleClick={() => onFileClick(file)}
+                        onToggleStar={onToggleStar}
+                        onRename={onRename}
+                        onMoveToFolder={onMoveToFolder}
+                        onCopyLink={onCopyLink}
+                        onDelete={onDelete}
+                        onDetails={onDetails}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
     </div>

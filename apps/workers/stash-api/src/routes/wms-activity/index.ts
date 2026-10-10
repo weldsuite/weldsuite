@@ -49,7 +49,7 @@ async function cursorCondition(db: Variables['tenantDb'], cursor: string): Promi
 app.get('/', requirePermission('inventory:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
 
   const conditions = filterConditionsFromQuery(q);
 
@@ -149,7 +149,7 @@ app.get('/entity/:entityType/:entityId', requirePermission('inventory:read'), as
   const entityType = c.req.param('entityType');
   const entityId = c.req.param('entityId');
   const rawLimit = c.req.query('limit');
-  const limit = Math.min(rawLimit ? parseInt(rawLimit, 10) : 50, 100);
+  const limit = Math.min(rawLimit ? Number.parseInt(rawLimit, 10) : 50, 100);
 
   try {
     const rows = await db
@@ -173,7 +173,7 @@ app.get('/user/:userId', requirePermission('inventory:read'), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.req.param('userId');
   const rawLimit = c.req.query('limit');
-  const limit = Math.min(rawLimit ? parseInt(rawLimit, 10) : 50, 100);
+  const limit = Math.min(rawLimit ? Number.parseInt(rawLimit, 10) : 50, 100);
 
   try {
     const rows = await db
@@ -196,7 +196,7 @@ app.get('/user/:userId', requirePermission('inventory:read'), async (c) => {
 app.get('/recent', requirePermission('inventory:read'), async (c) => {
   const db = c.get('tenantDb');
   const rawLimit = c.req.query('limit');
-  const limit = Math.min(rawLimit ? parseInt(rawLimit, 10) : 20, 50);
+  const limit = Math.min(rawLimit ? Number.parseInt(rawLimit, 10) : 20, 50);
   const { warehouseId } = c.req.query();
 
   const conditions: any[] = [];

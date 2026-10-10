@@ -65,7 +65,7 @@ export const crmOpportunities = pgTable('crm_opportunities', {
   salesProcess: varchar('sales_process', { length: 100 }),
 
   // Dates
-  closeDate: timestamp('close_date').notNull(),
+  closeDate: timestamp('close_date'), // Expected close date; null until someone sets one (TASK-671)
   actualCloseDate: timestamp('actual_close_date'),
   startDate: timestamp('start_date'),
 

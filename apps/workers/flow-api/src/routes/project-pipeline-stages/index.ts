@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -35,6 +35,28 @@ const DEFAULT_STAGES: { name: string; color: string; systemStatus: string }[] = 
   { name: 'Done', color: '#5eead4', systemStatus: 'done' },
   { name: 'Cancelled', color: '#f87171', systemStatus: 'cancelled' },
 ];
+
+/** System statuses that close a task; their columns stay at the end of the board. */
+const CLOSED_SYSTEM_STATUSES = new Set(['done', 'cancelled']);
+
+/**
+ * Where a stage created without an explicit position goes. Open stages are
+ * inserted before the first closed one (Done / Cancelled) so a custom status
+ * such as "Blocked" does not sort after Done; closed stages are appended.
+ * Returns the position plus whether the stages at and after it must shift up.
+ */
+export function positionForNewStage(
+  existing: { position: number; systemStatus: string | null }[],
+  systemStatus: string,
+): { position: number; shiftFrom: number | null } {
+  const maxPos = existing.reduce((max, s) => Math.max(max, s.position), -1);
+  if (CLOSED_SYSTEM_STATUSES.has(systemStatus)) return { position: maxPos + 1, shiftFrom: null };
+  const firstClosed = existing
+    .filter((s) => s.systemStatus !== null && CLOSED_SYSTEM_STATUSES.has(s.systemStatus))
+    .reduce<number | null>((min, s) => (min === null ? s.position : Math.min(min, s.position)), null);
+  if (firstClosed === null) return { position: maxPos + 1, shiftFrom: null };
+  return { position: firstClosed, shiftFrom: firstClosed };
+}
 
 function slugifyStage(name: string): string {
   const base = name
@@ -186,14 +208,29 @@ app.post(
     }
 
     try {
-      // Append at end if no explicit position.
+      // Without an explicit position, open statuses go before Done / Cancelled
+      // and closed ones at the end.
+      const systemStatus = data.systemStatus ?? id;
       let position = data.position;
       if (position === undefined) {
-        const [row] = await db
-          .select({ maxPos: sql<number>`COALESCE(MAX(position), -1)::int` })
+        const existingStages = await db
+          .select({ position: t.position, systemStatus: t.systemStatus })
           .from(t)
           .where(and(eq(t.projectId, data.projectId), isNull(t.deletedAt)));
-        position = (row?.maxPos ?? -1) + 1;
+        const placement = positionForNewStage(existingStages, systemStatus);
+        position = placement.position;
+        if (placement.shiftFrom !== null) {
+          await db
+            .update(t)
+            .set({ position: sql`${t.position} + 1`, updatedAt: now })
+            .where(
+              and(
+                eq(t.projectId, data.projectId),
+                isNull(t.deletedAt),
+                gte(t.position, placement.shiftFrom),
+              ),
+            );
+        }
       }
 
       await db.insert(t).values({
@@ -202,7 +239,7 @@ app.post(
         name: data.name,
         color: data.color,
         position,
-        systemStatus: data.systemStatus ?? id,
+        systemStatus,
         createdAt: now,
         updatedAt: now,
       });
@@ -249,12 +286,14 @@ app.patch(
       for (const pid of projectIds) {
         if (!(await canWriteProject(c, pid))) return error.forbidden(c, PROJECT_WRITE_DENIED);
       }
-      for (let i = 0; i < stageIds.length; i++) {
-        await db
-          .update(t)
-          .set({ position: i, updatedAt: now })
-          .where(and(eq(t.id, stageIds[i]), isNull(t.deletedAt)));
-      }
+      await Promise.all(
+        stageIds.map((stageId, i) =>
+          db
+            .update(t)
+            .set({ position: i, updatedAt: now })
+            .where(and(eq(t.id, stageId), isNull(t.deletedAt))),
+        ),
+      );
       return success(c, { reordered: true });
     } catch (err) {
       console.error('[app-api/project-pipeline-stages] reorder failed:', err);

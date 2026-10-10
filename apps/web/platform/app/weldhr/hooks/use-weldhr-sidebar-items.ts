@@ -5,16 +5,25 @@ import { menuPermissionAllows } from '@/components/layout/menu-permission';
 import { useMyHr, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
 import { usePathname } from '@/lib/router';
 import { MY_HR_GROUP_KEY, MY_HR_PATHS } from '../access';
+import { useMyPayroll } from '../me/components/my-payroll';
 
 const COLLAPSED_STORAGE_KEY = 'weldhr:sidebar:my-hr-collapsed';
+const PAYROLL_PREFIX = '/weldhr/payroll';
 
 export interface WeldhrMenuState {
   /** Whether the member has an active employee record; undefined while that is still loading. */
   hasEmployee: boolean | undefined;
+  /** The weldhr-payroll flag; while it is off (or loading) the payroll team pages are hidden. */
+  payrollEnabled: boolean;
+  /** Whether My HR → Payroll applies to this member (flag on, and on payroll or has payslips). */
+  myPayroll: boolean;
   collapsed: boolean;
   pathname: string;
-  /** Open onboarding tasks, and coaching + evaluations waiting for an acknowledgement. */
-  counts: { tasks: number; reviews: number };
+  /**
+   * Open onboarding tasks, coaching + evaluations waiting for an acknowledgement,
+   * and missing payroll details + unsigned tax forms.
+   */
+  counts: { tasks: number; reviews: number; payroll: number };
   /** The sidebar's own check: owner, or holds the permission. */
   canSee: (permission: string) => boolean;
   onToggleCollapse: () => void;
@@ -27,11 +36,22 @@ function activeItem(items: MenuItemProps[], pathname: string): MenuItemProps | u
     .sort((a, b) => b.href.length - a.href.length)[0];
 }
 
+const COUNTED: Partial<Record<string, keyof WeldhrMenuState['counts']>> = {
+  [MY_HR_PATHS.tasks]: 'tasks',
+  [MY_HR_PATHS.reviews]: 'reviews',
+  [MY_HR_PATHS.payroll]: 'payroll',
+};
+
 function withCounts(items: MenuItemProps[], counts: WeldhrMenuState['counts']): MenuItemProps[] {
   return items.map((item) => {
-    const count = item.href === MY_HR_PATHS.tasks ? counts.tasks : item.href === MY_HR_PATHS.reviews ? counts.reviews : 0;
+    const key = COUNTED[item.href];
+    const count = key ? counts[key] : 0;
     return count > 0 ? { ...item, badge: String(count) } : item;
   });
+}
+
+function isPayrollPage(href: string): boolean {
+  return href === PAYROLL_PREFIX || href.startsWith(PAYROLL_PREFIX + '/');
 }
 
 /**
@@ -44,11 +64,21 @@ function withCounts(items: MenuItemProps[], counts: WeldhrMenuState['counts']): 
  *   it is known they have an employee record of their own. An owner or admin
  *   who isn't on the staff list never sees it.
  * - Collapsed, the group keeps showing the page you're on.
+ * - Payroll follows the weldhr-payroll flag: the team's payroll pages are
+ *   hidden while it is off, and My HR → Payroll also needs the member to be
+ *   on payroll.
  */
 export function adjustWeldhrMenu(groups: MenuGroupProps[], state: WeldhrMenuState): MenuGroupProps[] {
-  const myHr = groups.find((group) => group.groupKey === MY_HR_GROUP_KEY);
-  if (!myHr) return groups;
-  const teamGroups = groups.filter((group) => group !== myHr);
+  const menu = state.payrollEnabled
+    ? groups
+    : groups
+        .map((group) => ({ ...group, items: group.items.filter((item) => !isPayrollPage(item.href)) }))
+        .filter((group) => group.items.length > 0);
+
+  const myHrGroup = menu.find((group) => group.groupKey === MY_HR_GROUP_KEY);
+  if (!myHrGroup) return menu;
+  const myHr = { ...myHrGroup, items: myHrGroup.items.filter((item) => item.href !== MY_HR_PATHS.payroll || state.myPayroll) };
+  const teamGroups = menu.filter((group) => group !== myHrGroup);
 
   const allowed = (item: MenuItemProps) => menuPermissionAllows(item.permission, state.canSee);
   if (!myHr.items.some(allowed)) return teamGroups;
@@ -100,6 +130,7 @@ export function useWeldhrSidebarItems(enabled: boolean) {
   const self = useMyHr({ enabled: canSelf });
   const employee = self.data?.employee;
   const overview = useMyHrOverview({ enabled: canSelf && Boolean(employee) });
+  const payroll = useMyPayroll(canSelf && Boolean(employee));
   const [collapsed, setCollapsed] = useState(readCollapsed);
 
   const onToggleCollapse = useCallback(() => setCollapsed((previous) => !previous), []);
@@ -117,14 +148,16 @@ export function useWeldhrSidebarItems(enabled: boolean) {
       if (!enabled) return groups;
       return adjustWeldhrMenu(groups, {
         hasEmployee,
+        payrollEnabled: payroll.flagOn,
+        myPayroll: payroll.show,
         collapsed,
         pathname,
-        counts: { tasks, reviews },
+        counts: { tasks, reviews, payroll: payroll.todo },
         canSee: (permission) => isOwner || can(permission),
         onToggleCollapse,
       });
     },
-    [enabled, hasEmployee, collapsed, pathname, tasks, reviews, isOwner, can, onToggleCollapse],
+    [enabled, hasEmployee, payroll.flagOn, payroll.show, payroll.todo, collapsed, pathname, tasks, reviews, isOwner, can, onToggleCollapse],
   );
 
   return { adjust };

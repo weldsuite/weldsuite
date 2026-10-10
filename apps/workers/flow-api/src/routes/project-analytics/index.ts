@@ -18,7 +18,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { accessibleProjectIds, canAccessProject } from '../../lib/project-access';
 import { getProjectKpiSummary } from '../../services/project-kpi-summary';
 import {
@@ -103,6 +103,23 @@ app.get(
     }
   },
 );
+
+/** True when `reportId` names a live WeldFlow report (so child routes can answer 404 instead of 500). */
+async function reportExists(db: Database, reportId: string): Promise<boolean> {
+  const { analyticsReports } = schema;
+  const [row] = await db
+    .select({ id: analyticsReports.id })
+    .from(analyticsReports)
+    .where(
+      and(
+        eq(analyticsReports.id, reportId),
+        eq(analyticsReports.app, APP_NAME),
+        isNull(analyticsReports.deletedAt),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
 
 // ============================================================================
 // Report Routes
@@ -388,6 +405,8 @@ app.get('/reports/:reportId/charts', requirePermission('projects:read'), async (
   const { analyticsCharts } = schema;
 
   try {
+    if (!(await reportExists(db, reportId))) return error.notFound(c, 'Report', reportId);
+
     const charts = await db
       .select()
       .from(analyticsCharts)
@@ -417,6 +436,8 @@ app.post(
     const { analyticsReports, analyticsCharts } = schema;
 
     try {
+      if (!(await reportExists(db, reportId))) return error.notFound(c, 'Report', reportId);
+
       const existingCharts = await db
         .select()
         .from(analyticsCharts)
@@ -489,18 +510,20 @@ app.patch(
     try {
       const now = new Date();
 
-      for (const update of layouts) {
-        await db
-          .update(analyticsCharts)
-          .set({ layout: update.layout, updatedAt: now })
-          .where(
-            and(
-              eq(analyticsCharts.id, update.chartId),
-              eq(analyticsCharts.reportId, reportId),
-              isNull(analyticsCharts.deletedAt),
+      await Promise.all(
+        layouts.map((update) =>
+          db
+            .update(analyticsCharts)
+            .set({ layout: update.layout, updatedAt: now })
+            .where(
+              and(
+                eq(analyticsCharts.id, update.chartId),
+                eq(analyticsCharts.reportId, reportId),
+                isNull(analyticsCharts.deletedAt),
+              ),
             ),
-          );
-      }
+        ),
+      );
 
       return success(c, { updated: layouts.length });
     } catch (err) {

@@ -172,24 +172,26 @@ export async function fireWorkflowCompleteTriggers(
     return [];
   }
 
-  for (const d of dispatches) {
-    // One failed (or already started) dispatch must not stop the others.
-    try {
-      await env.EXECUTE_WORKFLOW?.create({
-        id: chainInstanceId(run.executionId, d.workflowId),
-        params: {
-          workspaceId: run.workspaceId,
-          userId: run.userId,
-          workflowId: d.workflowId,
-          triggerType: 'workflow_complete',
-          source: d.source,
-          triggerData: chainedTriggerData(run, d.passOutput),
-          chainDepth: run.chainDepth + 1,
-        },
-      });
-    } catch (err) {
-      console.warn(`Could not start chained workflow ${d.workflowId}: ${err}`);
-    }
-  }
+  await Promise.all(
+    dispatches.map(async (d) => {
+      // One failed (or already started) dispatch must not stop the others.
+      try {
+        await env.EXECUTE_WORKFLOW?.create({
+          id: chainInstanceId(run.executionId, d.workflowId),
+          params: {
+            workspaceId: run.workspaceId,
+            userId: run.userId,
+            workflowId: d.workflowId,
+            triggerType: 'workflow_complete',
+            source: d.source,
+            triggerData: chainedTriggerData(run, d.passOutput),
+            chainDepth: run.chainDepth + 1,
+          },
+        });
+      } catch (err) {
+        console.warn(`Could not start chained workflow ${d.workflowId}: ${err}`);
+      }
+    }),
+  );
   return dispatches;
 }

@@ -5,9 +5,11 @@ import type { AuditLogEntry } from './audit-timeline';
 interface EntityAuditPanelProps {
   entityType: string;
   entityId: string;
+  /** Show each entry's field changes inline instead of behind "Details". */
+  alwaysShowChanges?: boolean;
 }
 
-export function EntityAuditPanel({ entityType, entityId }: Readonly<EntityAuditPanelProps>) {
+export function EntityAuditPanel({ entityType, entityId, alwaysShowChanges }: Readonly<EntityAuditPanelProps>) {
   const { data, isLoading } = useEntityAuditLogs(entityType, entityId);
 
   if (isLoading) {
@@ -30,7 +32,7 @@ export function EntityAuditPanel({ entityType, entityId }: Readonly<EntityAuditP
 
   return (
     <div className="px-4 py-6">
-      <AuditTimeline logs={logs} />
+      <AuditTimeline logs={logs} alwaysShowChanges={alwaysShowChanges} />
     </div>
   );
 }

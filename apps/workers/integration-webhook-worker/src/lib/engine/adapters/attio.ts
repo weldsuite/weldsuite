@@ -206,7 +206,7 @@ export class AttioSyncAdapter implements CrmSyncAdapter {
     entityType: SyncEntityType,
     cursor?: string,
   ): Promise<FetchPageResult> {
-    const offset = cursor ? parseInt(cursor, 10) : 0;
+    const offset = cursor ? Number.parseInt(cursor, 10) : 0;
 
     if (entityType === 'customer') {
       const page = await fetchAttioRecords(accessToken, 'companies', offset);

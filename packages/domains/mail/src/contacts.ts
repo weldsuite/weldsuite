@@ -54,28 +54,33 @@ export async function upsertMailContacts(
       if (!nameByEmail.has(normalized)) nameByEmail.set(normalized, name);
     }
 
-    for (const row of created) {
-      try {
-        const seedName = nameByEmail.get(row.email) || row.email;
-        const svg = generateInitialsAvatarSvg(seedName);
-        const { r2Key, publicPath } = buildContactAvatarPath(workspaceId, row.contactId);
+    // Each new contact gets its own avatar object and row update — independent, so run them together.
+    const storage = env.STORAGE;
+    const publicUrl = env.R2_PUBLIC_URL;
+    await Promise.all(
+      created.map(async (row) => {
+        try {
+          const seedName = nameByEmail.get(row.email) || row.email;
+          const svg = generateInitialsAvatarSvg(seedName);
+          const { r2Key, publicPath } = buildContactAvatarPath(workspaceId, row.contactId);
 
-        await env.STORAGE.put(r2Key, svg, {
-          httpMetadata: { contentType: 'image/svg+xml' },
-        });
+          await storage.put(r2Key, svg, {
+            httpMetadata: { contentType: 'image/svg+xml' },
+          });
 
-        const avatarUrl = `${env.R2_PUBLIC_URL}/${publicPath}`;
-        await tenantDb
-          .update(schema.people)
-          .set({ avatarUrl })
-          .where(eq(schema.people.id, row.contactId));
-      } catch (err) {
-        console.error(
-          `[mail-contacts] Failed to generate avatar for ${row.email} (${row.contactId}):`,
-          err,
-        );
-      }
-    }
+          const avatarUrl = `${publicUrl}/${publicPath}`;
+          await tenantDb
+            .update(schema.people)
+            .set({ avatarUrl })
+            .where(eq(schema.people.id, row.contactId));
+        } catch (err) {
+          console.error(
+            `[mail-contacts] Failed to generate avatar for ${row.email} (${row.contactId}):`,
+            err,
+          );
+        }
+      }),
+    );
   } catch (err) {
     console.error(`[mail-contacts] upsertMailContacts failed for workspace ${workspaceId}:`, err);
   }

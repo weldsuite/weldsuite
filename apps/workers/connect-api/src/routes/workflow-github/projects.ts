@@ -37,7 +37,7 @@ app.get('/projects/available', requirePermission('integrations:github:manage'), 
   try {
     const db = c.get('tenantDb');
     const conn = await getConnectionByWorkspace(db, workspaceId);
-    if (!conn || conn.status !== 'active') {
+    if (conn?.status !== 'active') {
       return error.notFound(c, 'GitHub connection');
     }
 
@@ -77,7 +77,7 @@ app.get(
     try {
       const db = c.get('tenantDb');
       const conn = await getConnectionByWorkspace(db, workspaceId);
-      if (!conn || conn.status !== 'active') {
+      if (conn?.status !== 'active') {
         return error.notFound(c, 'GitHub connection');
       }
 

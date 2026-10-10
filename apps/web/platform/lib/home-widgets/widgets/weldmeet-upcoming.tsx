@@ -62,7 +62,7 @@ function Render({ settings }: Readonly<{ settings: WeldmeetUpcomingSettings }>) 
   return <MeetCard rows={rows} isLoading={res.isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WeldmeetUpcomingSettings; onChange: (next: WeldmeetUpcomingSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldmeetUpcomingSettings; onChange: (next: WeldmeetUpcomingSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

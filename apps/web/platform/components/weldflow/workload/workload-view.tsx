@@ -24,8 +24,9 @@ import { EntityDetailPanel, type EntityField, type Comment, type ActivityItem } 
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 import { formatTaskNumber } from '@/lib/task-number';
+import { formatHoursDecimalAsHm } from '@/lib/format-hours';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
-import { format, formatDistance ,
+import { formatDistance,
   startOfDay,
   addDays,
   isWithinInterval,
@@ -42,6 +43,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 
 // Internal types derived from API data
@@ -113,7 +115,9 @@ function transformApiData(data: Projects.WorkloadOverview | null): { members: Te
 
         // Calculate hours per day based on estimated hours and duration
         const durationDays = Math.max(1, Math.ceil((endAt.getTime() - startAt.getTime()) / (1000 * 60 * 60 * 24)));
-        const hoursPerDay = task.estimatedHours ? task.estimatedHours / durationDays : 2;
+        // The API returns numeric columns as strings ("0.50"), so coerce before dividing.
+        const estimatedHours = Number(task.estimatedHours) || 0;
+        const hoursPerDay = estimatedHours > 0 ? estimatedHours / durationDays : 2;
 
         tasks.push({
           id: task.id,
@@ -177,13 +181,17 @@ const TaskSidebarItem = memo(({
   isSelected?: boolean;
   onClick?: () => void;
 }>) => {
+  const st = useTranslations();
+  const { dateFnsLocale } = useDateLocale();
   const tempEndAt =
     task.endAt && isSameDay(task.startAt, task.endAt)
       ? addDays(task.endAt, 1)
       : task.endAt;
   const duration = tempEndAt
-    ? formatDistance(task.startAt, tempEndAt)
-    : `${formatDistance(task.startAt, new Date())} so far`;
+    ? formatDistance(task.startAt, tempEndAt, { locale: dateFnsLocale })
+    : st('sweep.weldflow.workloadView.durationSoFar', {
+        duration: formatDistance(task.startAt, new Date(), { locale: dateFnsLocale }),
+      });
 
   return (
     <button
@@ -226,6 +234,7 @@ const TeamMemberSidebarItem = memo(({
   isExpanded: boolean;
   onToggle: () => void;
 }>) => {
+  const st = useTranslations();
   const avgWorkload = useMemo(() => {
     const today = new Date();
     const workload = calculateDailyWorkload(member.id, tasks, today);
@@ -264,9 +273,13 @@ const TeamMemberSidebarItem = memo(({
           "block text-xs font-medium",
           workloadTextClass(avgWorkload, member.hoursPerDay)
         )}>
-          {avgWorkload.toFixed(1)}h / {member.hoursPerDay}h
+          {formatHoursDecimalAsHm(avgWorkload)} / {member.hoursPerDay}h
         </span>
-        <span className="block text-xs text-muted-foreground">{memberTasks.length} tasks</span>
+        <span className="block text-xs text-muted-foreground">
+          {memberTasks.length === 1
+            ? st('sweep.weldflow.workloadView.taskCountSingular')
+            : st('sweep.weldflow.workloadView.taskCount', { count: memberTasks.length })}
+        </span>
       </span>
     </button>
   );
@@ -284,6 +297,8 @@ const WorkloadAreaChart = memo(({
   tasks: Task[];
   rowHeight: number;
 }>) => {
+  const st = useTranslations();
+  const { formatWeekday } = useDateLocale();
   const gantt = useGantt();
   const { columnWidth, zoom, range, timelineData } = gantt;
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
@@ -468,10 +483,10 @@ const WorkloadAreaChart = memo(({
         const status = getUtilizationStatus(hoveredWorkload.utilization);
 
         const statusLabel = {
-          overloaded: 'Overloaded',
-          near: 'Near capacity',
-          available: 'Available',
-          empty: 'No load',
+          overloaded: st('sweep.weldflow.workloadView.tooltipOverloaded'),
+          near: st('sweep.weldflow.workloadView.tooltipNearCapacity'),
+          available: st('sweep.weldflow.workloadView.tooltipAvailable'),
+          empty: st('sweep.weldflow.workloadView.tooltipNoLoad'),
         }[status];
 
         const statusLabelClass = {
@@ -495,13 +510,13 @@ const WorkloadAreaChart = memo(({
         if (status === 'overloaded') {
           capacityDelta = (
             <span className="text-[11px] font-medium text-red-600 dark:text-red-400 tabular-nums">
-              +{overHours.toFixed(1)}h over
+              {st('sweep.weldflow.workloadView.tooltipOver', { hours: formatHoursDecimalAsHm(overHours) })}
             </span>
           );
         } else if (status === 'available' || status === 'near') {
           capacityDelta = (
             <span className="text-[11px] text-muted-foreground tabular-nums">
-              {(-overHours).toFixed(1)}h left
+              {st('sweep.weldflow.workloadView.tooltipLeft', { hours: formatHoursDecimalAsHm(-overHours) })}
             </span>
           );
         }
@@ -521,7 +536,7 @@ const WorkloadAreaChart = memo(({
             <div className="px-3.5 py-2.5 border-b">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-medium truncate tabular-nums">
-                  {format(hoveredDate, 'EEE, MMM d, yyyy')}
+                  {formatWeekday(hoveredDate)}
                 </p>
                 <span className={cn("px-2 py-0.5 rounded text-[12px] font-medium shrink-0", statusLabelClass)}>
                   {statusLabel}
@@ -537,7 +552,7 @@ const WorkloadAreaChart = memo(({
                     "text-sm font-semibold tabular-nums",
                     status === 'overloaded' ? "text-red-600 dark:text-red-400" : "text-foreground"
                   )}>
-                    {hoveredWorkload.hours.toFixed(1)}h
+                    {formatHoursDecimalAsHm(hoveredWorkload.hours)}
                   </span>
                   <span className="text-xs text-muted-foreground tabular-nums">
                     / {member.hoursPerDay}h
@@ -559,10 +574,12 @@ const WorkloadAreaChart = memo(({
                 <>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {hoveredWorkload.tasks.length} Task{hoveredWorkload.tasks.length !== 1 ? 's' : ''}
+                      {hoveredWorkload.tasks.length === 1
+                        ? st('sweep.weldflow.workloadView.taskCountSingular')
+                        : st('sweep.weldflow.workloadView.taskCount', { count: hoveredWorkload.tasks.length })}
                     </span>
                     <span className="text-[11px] text-muted-foreground tabular-nums">
-                      {totalTaskHours.toFixed(1)}h total
+                      {st('sweep.weldflow.workloadView.tooltipTotal', { hours: formatHoursDecimalAsHm(totalTaskHours) })}
                     </span>
                   </div>
                   <div className="space-y-0.5">
@@ -583,7 +600,7 @@ const WorkloadAreaChart = memo(({
                           </div>
                         </div>
                         <span className="text-xs font-medium text-muted-foreground tabular-nums shrink-0">
-                          {task.hoursPerDay.toFixed(1)}h
+                          {formatHoursDecimalAsHm(task.hoursPerDay)}
                         </span>
                       </div>
                     ))}
@@ -592,7 +609,7 @@ const WorkloadAreaChart = memo(({
               ) : (
                 <div className="flex items-center gap-2 text-muted-foreground py-1">
                   <div className="w-2.5 h-2.5 rounded-[3px] bg-muted" />
-                  <span className="text-sm">No tasks scheduled</span>
+                  <span className="text-sm">{st('sweep.weldflow.workloadView.noTasksScheduled')}</span>
                 </div>
               )}
             </div>
@@ -613,6 +630,7 @@ const TaskTimelineRow = memo(({
   task: Task;
   rowHeight: number;
 }>) => {
+  const st = useTranslations();
   // Convert task to GanttFeature format
   const feature: GanttFeature = useMemo(() => ({
     id: task.id,
@@ -621,10 +639,10 @@ const TaskTimelineRow = memo(({
     endAt: task.endAt,
     status: {
       id: 'active',
-      name: 'Active',
+      name: st('sweep.weldflow.workloadView.statusActive'),
       color: task.color,
     },
-  }), [task]);
+  }), [task, st]);
 
   return (
     <div
@@ -711,6 +729,8 @@ const TaskDetailPanel = memo(({
   onCommentInputChange: (value: string) => void;
   onSendComment: () => void;
 }>) => {
+  const st = useTranslations();
+  const { formatShort, formatMedium } = useDateLocale();
   if (!task || !member) return null;
 
   const _tempEndAt =
@@ -721,7 +741,7 @@ const TaskDetailPanel = memo(({
   // Prepare fields for the detail panel
   const fields: EntityField[] = [
     {
-      label: 'Assignee',
+      label: st('sweep.weldflow.workloadView.detailAssignee'),
       value: (
         <div className="flex items-center gap-2">
           <Avatar className="h-6 w-6 rounded-md">
@@ -733,17 +753,17 @@ const TaskDetailPanel = memo(({
       )
     },
     {
-      label: 'Due date',
-      value: `${format(task.startAt, 'MMM d')} - ${format(task.endAt, 'MMM d, yyyy')}`
+      label: st('sweep.weldflow.workloadView.detailDueDate'),
+      value: `${formatShort(task.startAt)} - ${formatMedium(task.endAt)}`
     },
     {
-      label: 'Project',
-      value: task.projectName || 'No project'
+      label: st('sweep.weldflow.workloadView.detailProject'),
+      value: task.projectName || st('sweep.weldflow.workloadView.detailNoProject')
     },
     {
-      label: 'Status',
+      label: st('sweep.weldflow.workloadView.detailStatus'),
       value: (
-        <span className="text-green-600">In Progress</span>
+        <span className="text-green-600">{st('sweep.weldflow.workloadView.detailInProgress')}</span>
       )
     }
   ];
@@ -757,8 +777,8 @@ const TaskDetailPanel = memo(({
         initials: member.name.slice(0, 2),
         color: '#8b5cf6'
       },
-      action: 'created this task',
-      timestamp: '6 days ago'
+      action: st('sweep.weldflow.workloadView.detailActivityCreated'),
+      timestamp: st('sweep.weldflow.workloadView.detailDaysAgo', { count: 6 })
     },
     {
       id: 'assigned',
@@ -767,8 +787,8 @@ const TaskDetailPanel = memo(({
         initials: member.name.slice(0, 2),
         color: '#8b5cf6'
       },
-      action: `assigned to ${member.name}`,
-      timestamp: '5 days ago'
+      action: st('sweep.weldflow.workloadView.detailActivityAssigned', { name: member.name }),
+      timestamp: st('sweep.weldflow.workloadView.detailDaysAgo', { count: 5 })
     }
   ];
 
@@ -778,13 +798,13 @@ const TaskDetailPanel = memo(({
       onClose={onClose}
       title={task.name}
       topOffset="90px"
-      visibilityText="This task is visible to everyone."
+      visibilityText={st('sweep.weldflow.workloadView.detailVisibleToEveryone')}
       isCompleted={false}
       onToggleComplete={() => {}}
       fields={fields}
       descriptionValue=""
       onDescriptionChange={() => {}}
-      descriptionPlaceholder="Add a description..."
+      descriptionPlaceholder={st('sweep.weldflow.workloadView.detailAddDescription')}
       comments={comments}
       commentInput={commentInput}
       onCommentInputChange={onCommentInputChange}
@@ -806,6 +826,7 @@ export interface WorkloadViewProps {
 
 export function WorkloadView({ initialData, error, projectId }: Readonly<WorkloadViewProps>) {
   const st = useTranslations();
+  const { dateFnsLocale, formatMedium } = useDateLocale();
   const { canWrite } = useProjectPermissions();
   // Milestones only exist on the project-scoped page, and viewers can read them but not change them.
   const canEditMilestones = !!projectId && canWrite;
@@ -1027,7 +1048,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
     return (
       <div className="flex flex-col flex-1 items-center justify-center">
         <AlertCircle className="h-12 w-12 text-red-400 mb-4" />
-        <p className="text-lg font-medium text-gray-900 dark:text-foreground">Failed to load workload data</p>
+        <p className="text-lg font-medium text-gray-900 dark:text-foreground">{st('sweep.weldflow.workloadView.loadFailed')}</p>
         <p className="text-sm text-gray-500 mt-1">{error}</p>
       </div>
     );
@@ -1132,6 +1153,12 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
         className="border-r border-b flex-1 min-h-0"
         range={range}
         zoom={effectiveZoom}
+        locale={dateFnsLocale}
+        labels={{
+          today: st('projects.gantt.today'),
+          week: st('projects.gantt.viewWeek'),
+          soFar: (duration) => st('projects.gantt.durationSoFar', { duration }),
+        }}
       >
         <GanttSidebar sidebarLabel={st('sweep.weldflow.workloadView.members')} sidebarSecondaryLabel={st('sweep.weldflow.workloadView.availability')}>
           <div className="flex flex-col">
@@ -1213,7 +1240,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                       "text-xs font-medium",
                       workloadTextClass(avgWorkload, member.hoursPerDay)
                     )}>
-                      {avgWorkload.toFixed(1)}h / {member.hoursPerDay}h
+                      {formatHoursDecimalAsHm(avgWorkload)} / {member.hoursPerDay}h
                     </span>
                   </button>
                   {/* Workload area chart row */}
@@ -1315,7 +1342,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                     >
                       <ChevronDown className="h-4 w-4 rotate-90" />
                     </Button>
-                    <p className="text-sm font-medium">Change date & time</p>
+                    <p className="text-sm font-medium">{st('sweep.weldflow.workloadView.changeDateTime')}</p>
                   </div>
                   <Separator className="my-1" />
                   <CalendarPicker
@@ -1370,7 +1397,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                   <div className="px-2 py-1.5">
                     <p className="text-sm font-medium leading-none truncate">{selectedMarker.label}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {selectedMarker.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {formatMedium(selectedMarker.date)}
                       {(selectedMarker.date.getHours() !== 0 || selectedMarker.date.getMinutes() !== 0) && (
                         <span> at {selectedMarker.date.getHours().toString().padStart(2, '0')}:{selectedMarker.date.getMinutes().toString().padStart(2, '0')}</span>
                       )}
@@ -1380,7 +1407,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                     <>
                       <Separator className="my-1" />
                       <div className="px-2 py-1.5">
-                        <p className="text-xs font-medium text-muted-foreground mb-1.5">Color</p>
+                        <p className="text-xs font-medium text-muted-foreground mb-1.5">{st('sweep.weldflow.workloadView.colorLabel')}</p>
                         <div className="grid grid-cols-8 gap-1">
                           {markerColors.map((colorOption) => (
                             <Button
@@ -1394,7 +1421,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                               )}
                               style={{ backgroundColor: colorOption.color }}
                               onClick={() => handleChangeMarkerColor(selectedMarker.id, colorOption.className)}
-                              title={colorOption.name}
+                              title={st(`sweep.weldflow.workloadView.color${colorOption.name}`)}
                             >
                               {selectedMarker.className === colorOption.className && (
                                 <Check className="h-3 w-3 text-foreground/60" />

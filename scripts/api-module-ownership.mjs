@@ -156,7 +156,7 @@ if (target === '--core-shared') {
       if (od && od !== 'core' && !od.startsWith('SHARED')) edges.push(`${rel(f)} -> ${rel(d)} (${od})`);
     }
   }
-  console.log('\nCORE -> MODULE edges:\n' + edges.sort((a, b) => a.localeCompare(b)).join('\n'));
+  console.log('\nCORE -> MODULE edges:\n' + edges.toSorted((a, b) => a.localeCompare(b)).join('\n'));
 } else if (target !== '--core-shared') {
   const mine = [...owner].filter(([, o]) => o === target).map(([f]) => f);
   console.log(`# ${target}: ${mine.length} files`);
@@ -179,9 +179,9 @@ if (process.argv[2] === '--core-shared') {
   for (const [f, o] of owner) {
     if (o !== 'core') continue;
     const r = [...(reachers.get(f) ?? [])].filter((m) => m !== 'core');
-    if (r.length) rows.push(`${rel(f)}  <- ${r.sort((a, b) => a.localeCompare(b)).join(',')}`);
+    if (r.length) rows.push(`${rel(f)}  <- ${r.toSorted((a, b) => a.localeCompare(b)).join(',')}`);
   }
-  console.log(rows.sort((a, b) => a.localeCompare(b)).join('\n'));
+  console.log(rows.toSorted((a, b) => a.localeCompare(b)).join('\n'));
   console.log('\nMULTI seeds:', [...seeds].filter(([, m]) => m === 'MULTI').map(([f]) => rel(f)));
   console.log('\nUNREACHED non-test:', [...owner].filter(([f, o]) => o === 'UNREACHED' && !f.endsWith('.test.ts') && !f.includes('/test/')).map(([f]) => rel(f)));
 }

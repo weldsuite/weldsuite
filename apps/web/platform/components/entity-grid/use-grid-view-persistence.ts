@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { GridColumnDef } from './types';
 
 export interface GridViewPayload {
@@ -89,6 +89,19 @@ export function useGridViewPersistence<TEntity>(args: {
   configColumnsRef.current = configColumns;
   const saveRef = useRef(save);
   saveRef.current = save;
+
+  // The saved view can arrive after the grid mounted (the query cache is still
+  // restoring after a reload) or be refreshed. Follow it, so the baseline is
+  // what the server really has: a baseline frozen at the empty first render
+  // would make the next user change save the config defaults over the view.
+  // A layout effect, so it lands in the same commit as the columns that were
+  // reconciled against the new view and before any debounce timer can fire.
+  useLayoutEffect(() => {
+    savedRef.current = {
+      columnVisibility: { ...(initialVisibility ?? {}) },
+      columnWidths: { ...(initialColumnWidths ?? {}) },
+    };
+  }, [initialVisibility, initialColumnWidths]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

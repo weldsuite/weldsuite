@@ -269,7 +269,7 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
   };
 
   const handleSingleList = ({ route, method, p, json }: WelddataRequest) => {
-    const m = p.match(/^\/welddata\/lists\/([^/]+)$/);
+    const m = /^\/welddata\/lists\/([^/]+)$/.exec(p);
     if (m && method === 'GET') {
       const list = lists.find((l) => l.id === m[1]) ?? lists[0];
       return json(200, { data: list });
@@ -281,7 +281,7 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
   };
 
   const handleLeads = ({ req, method, p, json, listResp }: WelddataRequest) => {
-    const m = p.match(/^\/welddata\/lists\/([^/]+)\/leads$/);
+    const m = /^\/welddata\/lists\/([^/]+)\/leads$/.exec(p);
     if (m && method === 'GET') return listResp(leadsByList[m[1]] ?? []);
     if (m && method === 'POST') {
       state.lastAddLeads = { listId: m[1], body: req.postDataJSON() };
@@ -291,7 +291,7 @@ export async function mockWelddata(page: Page): Promise<WelddataMockState> {
   };
 
   const handleColumnsAndCells = ({ req, method, p, json }: WelddataRequest) => {
-    let m = p.match(/^\/welddata\/lists\/([^/]+)\/columns$/);
+    let m = /^\/welddata\/lists\/([^/]+)\/columns$/.exec(p);
     if (m && method === 'GET') return json(200, { data: columnsByList[m[1]] ?? [] });
     if (m && method === 'POST') {
       const body = req.postDataJSON();
