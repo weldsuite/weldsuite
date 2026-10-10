@@ -349,8 +349,11 @@ export function AllProjectsClient({
   // Bulk delete
   const confirmBulkDelete = async () => {
     setIsDeleting(true);
-    const results = await Promise.all([...selectedRows].map((id) => projectsApi.delete(id)));
-    const successCount = results.filter((result) => result.success).length;
+    let successCount = 0;
+    for (const id of selectedRows) {
+      const result = await projectsApi.delete(id);
+      if (result.success) successCount++;
+    }
     setIsDeleting(false);
     setShowDeleteDialog(false);
     setSelectedRows(new Set());
