@@ -11,7 +11,7 @@ export interface EmailFormBlockProps {
 export function EmailFormBlock({
   placeholder = 'Email',
   onSubmit
-}: EmailFormBlockProps) {
+}: Readonly<EmailFormBlockProps>) {
   const [email, setEmail] = React.useState('');
   const [isSubmitted, setIsSubmitted] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -20,7 +20,7 @@ export function EmailFormBlock({
     e.preventDefault();
     setError('');
 
-    if (!email || !email.includes('@')) {
+    if (!email?.includes('@')) {
       setError('Please enter a valid email address');
       return;
     }

@@ -86,7 +86,7 @@ export interface DomainCheckResult {
   /** Wholesale renewal price in cents when provided. */
   renewalPriceCents?: number;
   currency?: string;
-  reason?: DomainUnavailableReason | string;
+  reason?: string;
 }
 
 export interface DomainContactInput {

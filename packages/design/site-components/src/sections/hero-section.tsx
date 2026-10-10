@@ -14,7 +14,7 @@ export default function HeroSection({
   subtitle = "Discover amazing products at great prices",
   buttonText = "Shop Now",
   backgroundImage
-}: HeroSectionProps) {
+}: Readonly<HeroSectionProps>) {
   return (
     <section 
       className="relative py-24 px-4 bg-gradient-to-r from-primary/10 to-secondary/10"

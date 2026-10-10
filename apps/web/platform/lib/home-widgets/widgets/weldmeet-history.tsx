@@ -61,7 +61,7 @@ function Render({ settings }: Readonly<{ settings: WeldmeetHistorySettings }>) {
   return <MeetHistoryCard rows={rows} isLoading={res.isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WeldmeetHistorySettings; onChange: (next: WeldmeetHistorySettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldmeetHistorySettings; onChange: (next: WeldmeetHistorySettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

@@ -34,7 +34,7 @@ export function I18nProvider({
   children: ReactNode;
   initialLanguage?: string | null;
 }>) {
-  const [language, setLanguageState] = useState<AppLanguage>(() =>
+  const [language, setLanguage] = useState<AppLanguage>(() =>
     resolveAppLanguage(initialLanguage),
   );
 
@@ -46,7 +46,7 @@ export function I18nProvider({
       t,
       setLanguage: (next) => {
         const resolved = resolveAppLanguage(next);
-        setLanguageState(resolved);
+        setLanguage(resolved);
         void persistLanguage(resolved);
       },
       format: interpolate,

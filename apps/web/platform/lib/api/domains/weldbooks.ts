@@ -364,7 +364,7 @@ export interface TaxRate {
 export interface Customer {
   id: string;
   type?: string | null;
-  role: 'none' | 'customer' | 'supplier' | 'both' | string;
+  role: string;
   name: string;
   companyName?: string | null;
   firstName?: string | null;
@@ -619,7 +619,7 @@ interface IcpLine {
   contactId: string | null;
   vatNumber: string;
   countryCode: string;
-  supplyType: 'goods' | 'services' | 'triangulation' | string;
+  supplyType: string;
   amount: string;
 }
 

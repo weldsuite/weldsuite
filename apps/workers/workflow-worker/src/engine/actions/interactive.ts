@@ -154,7 +154,7 @@ export interface ManualStepWaiting extends WaitingForInputResult {
  * are listed the workflow's owner is notified instead.
  */
 export const handleManualStep: ActionHandler = async (inputs, ctx) => {
-  const title = String(inputs.title || '').trim() || 'Approval needed';
+  const title = asText(inputs.title || '').trim() || 'Approval needed';
   const description = inputs.description ? asText(inputs.description) : null;
 
   const requested = manualStepApproverIds(inputs);

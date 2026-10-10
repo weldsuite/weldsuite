@@ -139,7 +139,7 @@ function BlockedDeviceControl({
   config,
   blockedLabel,
   permissionHelpLabels,
-}: Pick<DeviceControlProps, 'config' | 'blockedLabel' | 'permissionHelpLabels'>) {
+}: Readonly<Pick<DeviceControlProps, 'config' | 'blockedLabel' | 'permissionHelpLabels'>>) {
   const { OffIcon } = config;
   return (
     <div className="relative">
@@ -175,7 +175,7 @@ function DeviceMenuBody({
   emptyLabel,
   permissionRequiredLabel,
   permission,
-}: Pick<
+}: Readonly<Pick<
   DeviceControlProps,
   | 'inputs'
   | 'selectedId'
@@ -184,7 +184,7 @@ function DeviceMenuBody({
   | 'emptyLabel'
   | 'permissionRequiredLabel'
   | 'permission'
->) {
+>>) {
   if (!inputs || inputs.length === 0) {
     const permissionNeeded = permission === 'prompt' || permission === 'unknown';
     return (

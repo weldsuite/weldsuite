@@ -39,7 +39,7 @@ const ComposeContext = createContext<ComposeContextType | undefined>(undefined);
 export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeData, setComposeData] = useState<ComposeData>(defaultComposeData);
-  const [previousUrl, setPreviousUrlState] = useState<string | null>(null);
+  const [previousUrlState, setPreviousUrlState] = useState<string | null>(null);
 
   const openCompose = useCallback((data?: Partial<ComposeData>, fromUrl?: string) => {
     if (fromUrl) {
@@ -71,7 +71,7 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
     () => ({
       isComposeOpen,
       composeData,
-      previousUrl,
+      previousUrl: previousUrlState,
       openCompose,
       closeCompose,
       updateComposeData,
@@ -79,7 +79,7 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
       setPreviousUrl
     }),
     [
-      isComposeOpen, composeData, previousUrl, openCompose, closeCompose, updateComposeData,
+      isComposeOpen, composeData, previousUrlState, openCompose, closeCompose, updateComposeData,
       minimizeToPanel, setPreviousUrl,
     ]
   );

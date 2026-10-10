@@ -453,7 +453,6 @@ export default function TasksScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showCompleted, ] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
@@ -562,7 +561,7 @@ export default function TasksScreen() {
     { title: 'This week', tasks: thisWeekTasks },
     { title: 'Later', tasks: laterTasks },
     { title: 'No date', tasks: noDateTasks },
-    ...(showCompleted ? [{ title: 'Completed', tasks: completedTasks }] : []),
+    { title: 'Completed', tasks: completedTasks },
   ];
 
   // Stats
