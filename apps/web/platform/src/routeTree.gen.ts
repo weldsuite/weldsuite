@@ -36,7 +36,6 @@ import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as AuthRouteRouteImport } from './routes/auth/route'
 import { Route as AppstoreRouteRouteImport } from './routes/appstore/route'
 import { Route as AgentsRouteRouteImport } from './routes/agents/route'
-import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WeldstashIndexRouteImport } from './routes/weldstash/index'
 import { Route as WeldpassIndexRouteImport } from './routes/weldpass/index'
@@ -384,8 +383,6 @@ import { Route as PreviewWeldchatChannelIdIndexRouteImport } from './routes/prev
 import { Route as PreviewWeldcalendarSchedulingIndexRouteImport } from './routes/preview/weldcalendar/scheduling/index'
 import { Route as PreviewSettingsTeamIndexRouteImport } from './routes/preview/settings/team/index'
 import { Route as PreviewAppstoreCodeIndexRouteImport } from './routes/preview/appstore/$code/index'
-import { Route as DashboardCheckoutSuccessIndexRouteImport } from './routes/_dashboard/checkout/success/index'
-import { Route as DashboardCheckoutCancelIndexRouteImport } from './routes/_dashboard/checkout/cancel/index'
 import { Route as WeldchatDmGroupChannelIdRouteImport } from './routes/weldchat/dm/group/$channelId'
 import { Route as WeldchatChannelIdThreadMessageIdRouteImport } from './routes/weldchat/$channelId/thread/$messageId'
 import { Route as SettingsIntegrationsHubspotCallbackRouteImport } from './routes/settings/integrations/hubspot/callback'
@@ -608,10 +605,6 @@ const AppstoreRouteRoute = AppstoreRouteRouteImport.update({
 const AgentsRouteRoute = AgentsRouteRouteImport.update({
   id: '/agents',
   path: '/agents',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DashboardRouteRoute = DashboardRouteRouteImport.update({
-  id: '/_dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -2488,18 +2481,6 @@ const PreviewAppstoreCodeIndexRoute =
     path: '/$code/',
     getParentRoute: () => PreviewAppstoreRouteRoute,
   } as any)
-const DashboardCheckoutSuccessIndexRoute =
-  DashboardCheckoutSuccessIndexRouteImport.update({
-    id: '/checkout/success/',
-    path: '/checkout/success/',
-    getParentRoute: () => DashboardRouteRoute,
-  } as any)
-const DashboardCheckoutCancelIndexRoute =
-  DashboardCheckoutCancelIndexRouteImport.update({
-    id: '/checkout/cancel/',
-    path: '/checkout/cancel/',
-    getParentRoute: () => DashboardRouteRoute,
-  } as any)
 const WeldchatDmGroupChannelIdRoute =
   WeldchatDmGroupChannelIdRouteImport.update({
     id: '/dm/group/$channelId',
@@ -3286,8 +3267,6 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
-  '/checkout/cancel/': typeof DashboardCheckoutCancelIndexRoute
-  '/checkout/success/': typeof DashboardCheckoutSuccessIndexRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team/': typeof PreviewSettingsTeamIndexRoute
   '/preview/weldcalendar/scheduling/': typeof PreviewWeldcalendarSchedulingIndexRoute
@@ -3713,8 +3692,6 @@ export interface FileRoutesByTo {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
-  '/checkout/cancel': typeof DashboardCheckoutCancelIndexRoute
-  '/checkout/success': typeof DashboardCheckoutSuccessIndexRoute
   '/preview/appstore/$code': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team': typeof PreviewSettingsTeamIndexRoute
   '/preview/weldcalendar/scheduling': typeof PreviewWeldcalendarSchedulingIndexRoute
@@ -3923,7 +3900,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/_dashboard': typeof DashboardRouteRouteWithChildren
   '/agents': typeof AgentsRouteRouteWithChildren
   '/appstore': typeof AppstoreRouteRouteWithChildren
   '/auth': typeof AuthRouteRouteWithChildren
@@ -4181,8 +4157,6 @@ export interface FileRoutesById {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
-  '/_dashboard/checkout/cancel/': typeof DashboardCheckoutCancelIndexRoute
-  '/_dashboard/checkout/success/': typeof DashboardCheckoutSuccessIndexRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team/': typeof PreviewSettingsTeamIndexRoute
   '/preview/weldcalendar/scheduling/': typeof PreviewWeldcalendarSchedulingIndexRoute
@@ -4649,8 +4623,6 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
-    | '/checkout/cancel/'
-    | '/checkout/success/'
     | '/preview/appstore/$code/'
     | '/preview/settings/team/'
     | '/preview/weldcalendar/scheduling/'
@@ -5076,8 +5048,6 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
-    | '/checkout/cancel'
-    | '/checkout/success'
     | '/preview/appstore/$code'
     | '/preview/settings/team'
     | '/preview/weldcalendar/scheduling'
@@ -5285,7 +5255,6 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/_dashboard'
     | '/agents'
     | '/appstore'
     | '/auth'
@@ -5543,8 +5512,6 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
-    | '/_dashboard/checkout/cancel/'
-    | '/_dashboard/checkout/success/'
     | '/preview/appstore/$code/'
     | '/preview/settings/team/'
     | '/preview/weldcalendar/scheduling/'
@@ -5753,7 +5720,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DashboardRouteRoute: typeof DashboardRouteRouteWithChildren
   AgentsRouteRoute: typeof AgentsRouteRouteWithChildren
   AppstoreRouteRoute: typeof AppstoreRouteRouteWithChildren
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
@@ -5993,13 +5959,6 @@ declare module '@tanstack/react-router' {
       path: '/agents'
       fullPath: '/agents'
       preLoaderRoute: typeof AgentsRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_dashboard': {
-      id: '/_dashboard'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof DashboardRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -8431,20 +8390,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewAppstoreCodeIndexRouteImport
       parentRoute: typeof PreviewAppstoreRouteRoute
     }
-    '/_dashboard/checkout/success/': {
-      id: '/_dashboard/checkout/success/'
-      path: '/checkout/success'
-      fullPath: '/checkout/success/'
-      preLoaderRoute: typeof DashboardCheckoutSuccessIndexRouteImport
-      parentRoute: typeof DashboardRouteRoute
-    }
-    '/_dashboard/checkout/cancel/': {
-      id: '/_dashboard/checkout/cancel/'
-      path: '/checkout/cancel'
-      fullPath: '/checkout/cancel/'
-      preLoaderRoute: typeof DashboardCheckoutCancelIndexRouteImport
-      parentRoute: typeof DashboardRouteRoute
-    }
     '/weldchat/dm/group/$channelId': {
       id: '/weldchat/dm/group/$channelId'
       path: '/dm/group/$channelId'
@@ -9063,20 +9008,6 @@ declare module '@tanstack/react-router' {
     }
   }
 }
-
-interface DashboardRouteRouteChildren {
-  DashboardCheckoutCancelIndexRoute: typeof DashboardCheckoutCancelIndexRoute
-  DashboardCheckoutSuccessIndexRoute: typeof DashboardCheckoutSuccessIndexRoute
-}
-
-const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
-  DashboardCheckoutCancelIndexRoute: DashboardCheckoutCancelIndexRoute,
-  DashboardCheckoutSuccessIndexRoute: DashboardCheckoutSuccessIndexRoute,
-}
-
-const DashboardRouteRouteWithChildren = DashboardRouteRoute._addFileChildren(
-  DashboardRouteRouteChildren,
-)
 
 interface AgentsRouteRouteChildren {
   AgentsIndexRoute: typeof AgentsIndexRoute
@@ -10468,7 +10399,6 @@ const PreviewWeldmailRouteRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DashboardRouteRoute: DashboardRouteRouteWithChildren,
   AgentsRouteRoute: AgentsRouteRouteWithChildren,
   AppstoreRouteRoute: AppstoreRouteRouteWithChildren,
   AuthRouteRoute: AuthRouteRouteWithChildren,

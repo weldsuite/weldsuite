@@ -107,6 +107,16 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
       return;
     }
 
+    // WeldObjects live at `/objects/{slug}`. The slug is the object's code in
+    // the installed-app list, which only holds active objects the member may
+    // read, so being listed is the whole check.
+    const [firstSegment, objectSlug] = pathname.split('/').filter(Boolean);
+    if (firstSegment === 'objects') {
+      const isListed = installedApps.some((app) => app.appType === 'object' && app.appCode === objectSlug);
+      if (!isListed) router.replace('/');
+      return;
+    }
+
     const appCode = getAppCodeFromPathname(pathname);
     if (!appCode) return;
 

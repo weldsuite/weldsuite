@@ -81,6 +81,7 @@ import {
   ListChecks,
   Palmtree,
   Target,
+  ChevronLeft,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -522,6 +523,12 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     appLogo: getAppLogoConfig('weldsuite'),
     getMenuItems: () => [],
   },
+  // Menu, translated title and back button come from useSettingsSidebarItems.
+  settings: {
+    appName: 'Settings',
+    appIcon: ChevronLeft,
+    getMenuItems: () => [],
+  },
 };
 
 export function getModuleKey(pathname: string): string | null {
@@ -535,6 +542,11 @@ export function getModuleKey(pathname: string): string | null {
   const userAppMatch = /^\/apps\/([a-z][a-z0-9-]*)(?:\/|$)/.exec(pathname);
   if (userAppMatch) {
     return `user-app:${userAppMatch[1]}`;
+  }
+  // WeldObjects custom objects: `/objects/{slug}` (+ `/{recordId}`).
+  const objectMatch = /^\/objects\/([^/]+)(?:\/|$)/.exec(pathname);
+  if (objectMatch) {
+    return `object:${objectMatch[1]}`;
   }
   const first = pathname.split('/').find(Boolean);
   if (first && MODULE_CONFIGS[first]) {
