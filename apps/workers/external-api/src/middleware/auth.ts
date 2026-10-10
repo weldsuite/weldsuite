@@ -13,6 +13,7 @@ import { keyringFromEnv, type EncryptionKeyring } from '@weldsuite/db/lib/crypto
 import type { ApiKeySession, HonoEnv } from '../types';
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import { error } from '../lib/response';
+import { workspaceRestrictions } from './licence';
 
 // KV cache TTL in seconds (5 minutes)
 const KV_TTL_SECONDS = 300;
@@ -39,10 +40,16 @@ interface CachedWorkspaceDetails {
   clerkOrgId?: string | null;
   /**
    * Licensed app codes, null = unrestricted. Absent on entries cached before it
-   * was added, read as null. Only partner-managed workspaces will carry one
-   * (docs/plans/reseller-licensing.md); until then every workspace is null.
+   * was added, read as null. Only partner-managed workspaces carry one
+   * (docs/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`.
    */
   licensedApps?: string[] | null;
+  /**
+   * Partner suspended or licence inactive (writes are refused). Absent on
+   * entries cached before it was added, read as writable.
+   */
+  readOnly?: boolean;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
 }
 
 interface CachedAppToken {
@@ -152,7 +159,7 @@ async function getRegistryEntry(
 /**
  * Look up workspace details (databaseUrl resolved via Neon API, plan tier), with KV cache
  */
-async function getWorkspaceDetails(
+export async function getWorkspaceDetails(
   kv: KVNamespace,
   masterDb: ReturnType<typeof drizzle>,
   workspaceId: string,
@@ -176,9 +183,18 @@ async function getWorkspaceDetails(
       clerkOrgId: masterSchema.workspaces.clerkOrgId,
       planSlug: masterSchema.plans.slug,
       hasApiAccess: masterSchema.plans.hasApiAccess,
+      billingMode: masterSchema.workspaces.billingMode,
+      licenceStatus: masterSchema.workspaceLicences.status,
+      licenceApps: masterSchema.workspaceLicences.allowedApps,
+      partnerStatus: masterSchema.partners.status,
     })
     .from(masterSchema.workspaces)
     .leftJoin(masterSchema.plans, eq(masterSchema.workspaces.planId, masterSchema.plans.id))
+    .leftJoin(
+      masterSchema.workspaceLicences,
+      eq(masterSchema.workspaceLicences.workspaceId, masterSchema.workspaces.id),
+    )
+    .leftJoin(masterSchema.partners, eq(masterSchema.partners.id, masterSchema.workspaces.partnerId))
     .where(eq(masterSchema.workspaces.id, workspaceId))
     .limit(1);
 
@@ -197,7 +213,12 @@ async function getWorkspaceDetails(
     tier: getTierFromPlan(row.planSlug),
     hasApiAccess: row.hasApiAccess ?? false,
     clerkOrgId: row.clerkOrgId ?? null,
-    licensedApps: null,
+    ...workspaceRestrictions({
+      billingMode: row.billingMode,
+      licenceStatus: row.licenceStatus,
+      licenceApps: row.licenceApps,
+      partnerStatus: row.partnerStatus,
+    }),
   };
   await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
 
@@ -286,6 +307,8 @@ async function validateApiKey(
         databaseUrl: workspace.databaseUrl,
         clerkOrgId: workspace.clerkOrgId,
         licensedApps: workspace.licensedApps ?? null,
+        readOnly: workspace.readOnly ?? false,
+        readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
       };
     } else {
       // Personal key
@@ -324,6 +347,8 @@ async function validateApiKey(
         databaseUrl: workspace.databaseUrl,
         clerkOrgId: workspace.clerkOrgId,
         licensedApps: workspace.licensedApps ?? null,
+        readOnly: workspace.readOnly ?? false,
+        readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
       };
     }
   } catch (error) {
@@ -452,6 +477,8 @@ async function validateAppToken(
       databaseUrl: workspace.databaseUrl,
       clerkOrgId: workspace.clerkOrgId,
       licensedApps: workspace.licensedApps ?? null,
+      readOnly: workspace.readOnly ?? false,
+      readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
       appId: cached.appId,
       appCode: cached.appCode,
       installId: cached.installId,

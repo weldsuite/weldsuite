@@ -79,7 +79,7 @@ export interface OnboardResult {
  * Find a slug that isn't taken. Tries the base slug first, then appends
  * the short tail of the new workspace id, then a counter as a last resort.
  */
-async function resolveUniqueSlug(
+export async function resolveUniqueSlug(
   masterDb: ReturnType<typeof getMasterDb>,
   base: string,
   workspaceId: string,
@@ -109,7 +109,7 @@ async function resolveUniqueSlug(
  * Slug for a Clerk org that doesn't exist yet, derived from the workspace name.
  * Tries the plain slug first, then a short random suffix on collision.
  */
-async function pickNewOrgSlug(
+export async function pickNewOrgSlug(
   masterDb: ReturnType<typeof getMasterDb>,
   workspaceName: string,
 ): Promise<string> {

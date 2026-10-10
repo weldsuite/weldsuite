@@ -14,6 +14,7 @@ import {
 } from '@weldsuite/permissions/server';
 import { createTenantDb } from '../api/db';
 import type { McpSession, HonoEnv } from '../lib/api-types';
+import { workspaceRestrictions } from '../lib/read-only';
 import { clerkFrontendApiUrl, protectedResourceMetadataUrl } from '../lib/well-known';
 
 const KV_TTL_SECONDS = 300;
@@ -75,10 +76,16 @@ interface CachedWorkspace {
   databaseUrl: string;
   /**
    * Licensed app codes, null = unrestricted. Absent on entries cached before it
-   * was added, read as null. Only partner-managed workspaces will carry one
-   * (docs/plans/reseller-licensing.md); until then every workspace is null.
+   * was added, read as null. Only partner-managed workspaces carry one
+   * (docs/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`.
    */
   licensedApps?: string[] | null;
+  /**
+   * Partner suspended or licence inactive (writes are refused). Absent on
+   * entries cached before it was added, read as writable.
+   */
+  readOnly?: boolean;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
 }
 
 function getTierFromPlan(planSlug: string | null | undefined): TenantTier {
@@ -121,7 +128,7 @@ function decodeVerifiedJwtPayload(token: string): Record<string, unknown> | null
  * KV. The MCP server serves tool calls from its own copy of the v1 routes, so
  * it needs a real tenant connection string, not just an identifier.
  */
-async function getWorkspaceForOrg(
+export async function getWorkspaceForOrg(
   kv: KVNamespace,
   masterDb: ReturnType<typeof drizzleNeonHttp>,
   clerkOrgId: string,
@@ -142,9 +149,18 @@ async function getWorkspaceForOrg(
       neonRoleName: masterSchema.workspaces.neonRoleName,
       neonDatabaseName: masterSchema.workspaces.neonDatabaseName,
       databaseUrl: masterSchema.workspaces.databaseUrl,
+      billingMode: masterSchema.workspaces.billingMode,
+      licenceStatus: masterSchema.workspaceLicences.status,
+      licenceApps: masterSchema.workspaceLicences.allowedApps,
+      partnerStatus: masterSchema.partners.status,
     })
     .from(masterSchema.workspaces)
     .leftJoin(masterSchema.plans, eq(masterSchema.workspaces.planId, masterSchema.plans.id))
+    .leftJoin(
+      masterSchema.workspaceLicences,
+      eq(masterSchema.workspaceLicences.workspaceId, masterSchema.workspaces.id),
+    )
+    .leftJoin(masterSchema.partners, eq(masterSchema.partners.id, masterSchema.workspaces.partnerId))
     .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
     .limit(1);
 
@@ -167,7 +183,12 @@ async function getWorkspaceForOrg(
     name: row.name,
     tier: getTierFromPlan(row.planSlug),
     databaseUrl,
-    licensedApps: null,
+    ...workspaceRestrictions({
+      billingMode: row.billingMode,
+      licenceStatus: row.licenceStatus,
+      licenceApps: row.licenceApps,
+      partnerStatus: row.partnerStatus,
+    }),
   };
   await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
 
@@ -418,6 +439,8 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     role,
     clientId,
     licensedApps: workspace.licensedApps ?? null,
+    readOnly: workspace.readOnly ?? false,
+    readOnlyReason: workspace.readOnly ? (workspace.readOnlyReason ?? 'licence_inactive') : null,
   };
 
   c.set('session', session);

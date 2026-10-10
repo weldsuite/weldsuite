@@ -66,6 +66,10 @@ interface ClerkOrganizationInvitation {
   // `inviter_user_id` is included on the organizationInvitation.created
   // payload but may be absent on system-generated invitations.
   inviter_user_id?: string | null;
+  // Set by whoever created the invitation. Partner-managed workspaces tag the
+  // owner invitation `weldRole: 'OWNER'` (Clerk's roles top out at admin) and
+  // `invitedByName` (the partner), see services/partner-onboarding.ts.
+  public_metadata?: Record<string, unknown> | null;
 }
 
 interface ClerkUserData {
@@ -720,7 +724,10 @@ async function handleInvitationCreated(
   try {
     const tenantDb = await getTenantDbForWorkspace(env, clerkOrgId);
     const email = invitation.email_address;
-    const role = mapClerkRoleToDisplay(invitation.role);
+    // Only an invitation created by the backend with no inviter can carry the
+    // owner tag (partner onboarding): a member's own invitation never makes an OWNER.
+    const isOwnerInvite = invitation.public_metadata?.weldRole === 'OWNER' && !invitation.inviter_user_id;
+    const role = isOwnerInvite ? 'OWNER' : mapClerkRoleToDisplay(invitation.role);
 
     // Match an existing invitation row by email regardless of which path
     // inserted it: the api-worker invite endpoint uses `userId='invited_<email>'`
@@ -803,7 +810,8 @@ async function sendInvitationEmail(env: Env, invitation: ClerkOrganizationInvita
     }
 
     // Inviter — only fetch if the payload includes inviter_user_id.
-    let inviterName = 'A teammate';
+    const invitedByName = invitation.public_metadata?.invitedByName;
+    let inviterName = typeof invitedByName === 'string' && invitedByName ? invitedByName : 'A teammate';
     let inviterEmail: string | undefined;
     if (invitation.inviter_user_id) {
       const userResp = await fetch(

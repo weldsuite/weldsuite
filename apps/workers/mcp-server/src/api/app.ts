@@ -5,6 +5,7 @@ import { createTenantDb } from './db';
 import type { ApiKeySession, HonoEnv } from './types';
 import type { Env } from '../types/env';
 import type { McpSession } from '../lib/api-types';
+import { isReadOnlyRequestAllowed, workspaceReadOnlyBody } from '../lib/read-only';
 
 /**
  * Origin used when dispatching into the internal API. Never leaves the worker —
@@ -74,6 +75,12 @@ apiApp.use('*', async (c, next) => {
       new Set(session.licensedApps),
     );
     if (missing) return c.json(appNotLicensedBody(missing), 403);
+  }
+
+  // A read-only workspace (partner suspended or licence inactive) may be read
+  // and exported but not changed.
+  if (session.readOnly && !isReadOnlyRequestAllowed(c.req.method, c.req.path)) {
+    return c.json(workspaceReadOnlyBody(session.readOnlyReason), 403);
   }
 
   const apiSession = toApiSession(session);

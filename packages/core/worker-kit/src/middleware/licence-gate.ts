@@ -8,14 +8,21 @@
  * module is declared per module in `@weldsuite/api-modules` (`apps`). Core
  * platform paths and workspaces without a licence (`licensedApps` null) pass.
  *
- * Runs after workspaceDbMiddleware, which sets `licensedApps`.
+ * The same gate keeps a read-only workspace (partner suspended or licence
+ * inactive) read-only: every write is refused with 403 WORKSPACE_READ_ONLY,
+ * except read-style POSTs (see `isReadOnlyRequestAllowed`).
+ *
+ * Runs after workspaceDbMiddleware, which sets `licensedApps` and `readOnly`.
  */
 
 import { createMiddleware } from 'hono/factory';
 import { appNotLicensedBody, findModuleForPath, missingLicensedApp } from '@weldsuite/api-modules';
+import { isReadOnlyRequestAllowed, workspaceReadOnlyBody, type ReadOnlyReason } from '../read-only';
 
 type LicenceGateVariables = {
   licensedApps?: readonly string[] | null;
+  readOnly?: boolean;
+  readOnlyReason?: ReadOnlyReason | null;
 };
 
 export const licenceGate = () => {
@@ -24,6 +31,9 @@ export const licenceGate = () => {
     if (licensedApps) {
       const missing = missingLicensedApp(findModuleForPath(c.req.path), new Set(licensedApps));
       if (missing) return c.json(appNotLicensedBody(missing), 403);
+    }
+    if (c.get('readOnly') && !isReadOnlyRequestAllowed(c.req.method, c.req.path)) {
+      return c.json(workspaceReadOnlyBody(c.get('readOnlyReason')), 403);
     }
     await next();
   });

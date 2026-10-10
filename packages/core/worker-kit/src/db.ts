@@ -13,6 +13,7 @@ import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
 import type { DbEnv } from './env';
+import { computeWorkspaceRestrictions, type ReadOnlyReason } from './read-only';
 
 export function getMasterDb(env: Pick<DbEnv, 'DATABASE_URL_MASTER'>): NeonHttpDatabase<typeof masterSchema> {
   const sql = neon(env.DATABASE_URL_MASTER);
@@ -39,28 +40,54 @@ interface CachedWorkspace {
   /**
    * App codes this workspace is licensed for, or null when it is unrestricted
    * (every app). Only partner-managed workspaces carry a licence
-   * (docs/plans/reseller-licensing.md); until `workspace_licences` exists every
-   * workspace resolves to null. `licenceGate()` enforces it per request.
+   * (docs/plans/reseller-licensing.md): their `workspace_licences.allowed_apps`,
+   * `[]` (core only) when the row is missing. `licenceGate()` enforces it.
    */
   licensedApps: string[] | null;
+  /**
+   * True when the workspace may only be read: a partner-managed workspace whose
+   * partner is suspended or whose licence is not active. `licenceGate()` refuses
+   * writes with 403 WORKSPACE_READ_ONLY.
+   */
+  readOnly: boolean;
+  readOnlyReason: ReadOnlyReason | null;
+}
+
+type StoredWorkspace = Omit<CachedWorkspace, 'suspended' | 'readOnly' | 'readOnlyReason'> & {
+  suspended?: boolean;
+  readOnly?: boolean;
+  readOnlyReason?: ReadOnlyReason | null;
+};
+
+/**
+ * Other workers write `ws:<org>` entries too, with only the DB URL (they predate
+ * the licence). Such an entry has no `licensedApps` key at all, so it cannot say
+ * whether the workspace is licensed: it is treated as a miss and re-resolved
+ * from the master DB, rather than letting a partner workspace through
+ * unrestricted for the TTL. (An entry saying `licensedApps: null` is explicit.)
+ */
+function isCompleteEntry(cached: StoredWorkspace): boolean {
+  return cached.licensedApps !== undefined;
 }
 
 async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<CachedWorkspace> {
   const cacheKey = `ws:${clerkOrgId}`;
-  // `suspended` and `licensedApps` were added later — an entry cached before
-  // they existed omits them, so read them as optional and default to
-  // not-suspended and unrestricted (the entry refreshes within KV_TTL_SECONDS).
-  const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as
-    | (Omit<CachedWorkspace, 'suspended' | 'licensedApps'> & {
-        suspended?: boolean;
-        licensedApps?: string[] | null;
-      })
-    | null;
-  if (cached) {
-    return { ...cached, suspended: cached.suspended ?? false, licensedApps: cached.licensedApps ?? null };
+  // `suspended` and `readOnly` were added later: an entry cached before they
+  // existed omits them and reads as not-suspended / not read-only (it refreshes
+  // within KV_TTL_SECONDS).
+  const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as StoredWorkspace | null;
+  if (cached && isCompleteEntry(cached)) {
+    return {
+      ...cached,
+      suspended: cached.suspended ?? false,
+      readOnly: cached.readOnly ?? false,
+      readOnlyReason: cached.readOnly ? (cached.readOnlyReason ?? 'licence_inactive') : null,
+    };
   }
 
   const masterDb = getMasterDb(env);
+  // One query: the workspace, plus (for partner workspaces) its licence and the
+  // partner's payment standing. Direct workspaces join to nothing.
   const [workspace] = await masterDb
     .select({
       id: masterSchema.workspaces.id,
@@ -70,8 +97,17 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
       neonDatabaseName: masterSchema.workspaces.neonDatabaseName,
       databaseUrl: masterSchema.workspaces.databaseUrl,
       isActive: masterSchema.workspaces.isActive,
+      billingMode: masterSchema.workspaces.billingMode,
+      licenceStatus: masterSchema.workspaceLicences.status,
+      licenceApps: masterSchema.workspaceLicences.allowedApps,
+      partnerStatus: masterSchema.partners.status,
     })
     .from(masterSchema.workspaces)
+    .leftJoin(
+      masterSchema.workspaceLicences,
+      eq(masterSchema.workspaceLicences.workspaceId, masterSchema.workspaces.id),
+    )
+    .leftJoin(masterSchema.partners, eq(masterSchema.partners.id, masterSchema.workspaces.partnerId))
     .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
     .limit(1);
 
@@ -94,11 +130,19 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
     { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
   );
 
+  const restrictions = computeWorkspaceRestrictions({
+    billingMode: workspace.billingMode,
+    licence: workspace.licenceStatus
+      ? { status: workspace.licenceStatus, allowedApps: workspace.licenceApps }
+      : null,
+    partnerStatus: workspace.partnerStatus,
+  });
+
   const entry: CachedWorkspace = {
     id: workspace.id,
     databaseUrl,
     suspended: !workspace.isActive,
-    licensedApps: null,
+    ...restrictions,
   };
   await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(entry), {
     expirationTtl: KV_TTL_SECONDS,
@@ -116,10 +160,10 @@ export async function getTenantDbForWorkspace(
 }
 
 /**
- * Resolve the tenant DB together with the workspace's suspension state and
- * licence. The request middleware uses this to reject suspended workspaces (a
- * 403) instead of serving them a working DB handle, and hands the licence to
- * `licenceGate()`.
+ * Resolve the tenant DB together with the workspace's suspension state, licence
+ * and read-only state. The request middleware uses this to reject suspended
+ * workspaces (a 403) instead of serving them a working DB handle, and hands the
+ * licence and read-only flag to `licenceGate()`.
  */
 export async function getWorkspaceContextForOrg(
   env: DbEnv,
@@ -129,6 +173,8 @@ export async function getWorkspaceContextForOrg(
   db: NeonHttpDatabase<typeof schema>;
   suspended: boolean;
   licensedApps: string[] | null;
+  readOnly: boolean;
+  readOnlyReason: ReadOnlyReason | null;
 }> {
   const workspace = await getCachedWorkspaceUrl(env, clerkOrgId);
   return {
@@ -136,6 +182,8 @@ export async function getWorkspaceContextForOrg(
     db: createNeonTenantDb(workspace.databaseUrl),
     suspended: workspace.suspended,
     licensedApps: workspace.licensedApps,
+    readOnly: workspace.readOnly,
+    readOnlyReason: workspace.readOnlyReason,
   };
 }
 
