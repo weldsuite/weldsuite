@@ -39,6 +39,9 @@ export const manifest: Record<string, SecretEntry[]> = {
     "REALTIME_REGISTER_CONTACT_BILLING",
     // Orders Telnyx numbers after phone checkout is paid (app-api /api/internal).
     "INTERNAL_API_SECRET",
+    // Authorises the admin console's billing API (/api/internal/admin/*). The
+    // console (apps/web/admin) holds the same value in its own environment.
+    "BILLING_ADMIN_SECRET",
     ["BETTERSTACK_TOKEN_BILLING_WORKER", "BETTERSTACK_TOKEN"],
   ],
 
