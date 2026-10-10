@@ -4,7 +4,8 @@
  *
  * READ:  subscription, plans, plans-page, invoices, payments, phone-numbers,
  *        phone-subscription (proxied to billing-worker Stripe phone sub),
- *        domains, limits (master DB; phone-numbers/domains read the tenant DB),
+ *        seat-price (Stripe API), domains, limits (master DB;
+ *        phone-numbers/domains read the tenant DB),
  *        payment-methods (Stripe API — no local mirror)
  * WRITE: validate-downgrade, checkout, seats, cancel, reactivate (Stripe API),
  *        payment-methods/setup-intent, payment-methods/:id/default,
@@ -27,8 +28,8 @@
  *    lock gate and the WeldDesk chat-widget call /subscription and /limits for
  *    every role;
  *    Clerk auth + org resolution is enforced by the shared /api/* middleware).
- *  - /phone-subscription exposes Stripe phone-line pricing, so it is gated on
- *    `billing:read` like invoices/payments.
+ *  - /phone-subscription and /seat-price expose Stripe subscription pricing, so
+ *    they are gated on `billing:read` like invoices/payments.
  *  - /invoices, /payments and /payment-methods expose Stripe hosted-invoice URLs
  *    and payment method brand/last4, so they are gated on `billing:read` — matching the
  *    platform UI, which returns AccessDenied on that same permission
@@ -92,7 +93,12 @@ import {
   mapSubscription,
   fetchPhoneSubscription,
 } from '../../services/billing';
-import { planDisplayPrice, resolvePlanPricesForCaller } from '../../services/plan-country-pricing';
+import {
+  minorUnitsToCents,
+  planCheckoutPrice,
+  planDisplayPrice,
+  resolvePlanPricesForCaller,
+} from '../../services/plan-country-pricing';
 
 const { workspaces, plans, billingInvoices, billingPayments } = masterSchema;
 
@@ -446,6 +452,43 @@ app.get('/phone-subscription', canReadBilling, async (c) => {
 });
 
 // ============================================================================
+// READ: GET /seat-price — What one seat costs on the active subscription
+// ============================================================================
+
+// The plan offer on /plans-page is what a new checkout would charge in the
+// caller's current country. An existing subscription keeps the price (amount
+// and currency) it was bought at, so changing the seat count is priced from
+// the Stripe subscription itself. `null` when there is no subscription or its
+// price is not a simple per-seat amount.
+app.get('/seat-price', canReadBilling, async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const stripeKey = requireStripeKey(c);
+  if (!stripeKey) return error.internal(c, 'Stripe is not configured');
+
+  const workspace = await getWorkspaceByOrgId(getMasterDb(c.env), orgId);
+  if (!workspace) return error.notFound(c, 'Workspace');
+  if (!workspace.stripeSubscriptionId) return success(c, null);
+
+  const subscription = await retrieveSubscription(stripeKey, workspace.stripeSubscriptionId);
+  const price = subscription.items?.data?.[0]?.price;
+  const interval = price?.recurring?.interval;
+  if (price?.unit_amount == null || !price.currency || (interval !== 'month' && interval !== 'year')) {
+    return success(c, null);
+  }
+
+  c.header('Cache-Control', 'no-store');
+  const currency = price.currency.toUpperCase();
+  return success(c, {
+    // Per seat per `interval`, in cents.
+    amount: minorUnitsToCents(price.unit_amount, currency),
+    currency,
+    interval,
+  });
+});
+
+// ============================================================================
 // READ: GET /domains — Workspace domains (tenant DB, billing view)
 // ============================================================================
 
@@ -637,9 +680,27 @@ app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), asyn
     );
   }
 
-  const priceId = body.cycle === 'yearly' ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly;
-  if (!priceId) {
-    return error.badRequest(c, `No ${body.cycle} Stripe price configured for this plan`);
+  // Charge what the plans page showed this caller. A paid plan is on request
+  // unless the caller's country has a price for it, and then checkout charges
+  // that country's price and currency (inline price on the plan's Stripe
+  // product), never the plan row's default Stripe price.
+  const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
+  const display = planDisplayPrice(plan.slug, prices);
+  if (display.kind === 'on_request') {
+    return error.badRequest(c, `The ${plan.name} plan is available on request. Please contact sales.`);
+  }
+  let checkoutPrice: Parameters<typeof createSubscriptionCheckoutSession>[1]['price'];
+  if (display.kind === 'priced') {
+    if (!plan.stripeProductId) {
+      return error.badRequest(c, 'No Stripe product configured for this plan');
+    }
+    checkoutPrice = { productId: plan.stripeProductId, ...planCheckoutPrice(display, body.cycle) };
+  } else {
+    const priceId = body.cycle === 'yearly' ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly;
+    if (!priceId) {
+      return error.badRequest(c, `No ${body.cycle} Stripe price configured for this plan`);
+    }
+    checkoutPrice = { priceId };
   }
 
   // No trial. Free is the way to try WeldSuite, so a paid plan starts billing
@@ -697,7 +758,7 @@ app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), asyn
 
   const session = await createSubscriptionCheckoutSession(stripeKey, {
     customerId,
-    priceId,
+    price: checkoutPrice,
     quantity: Math.max(1, body.seats),
     successUrl: body.successUrl || 'https://app.weldsuite.org/settings/billing?success=true',
     cancelUrl: body.cancelUrl || 'https://app.weldsuite.org/settings/billing?canceled=true',

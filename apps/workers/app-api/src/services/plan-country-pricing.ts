@@ -118,3 +118,38 @@ export function planDisplayPrice(slug: string, resolved: ResolvedPlanPrices): Pl
   if (!price || !resolved.currency) return { kind: 'on_request' };
   return { kind: 'priced', price, currency: resolved.currency };
 }
+
+/** ISO 4217 currencies Stripe takes in whole units (no cents). */
+const ZERO_DECIMAL_CURRENCIES = new Set([
+  'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
+]);
+
+/** `amount` (e.g. 33.5) in the currency's smallest unit, as Stripe expects it. */
+export function toMinorUnits(amount: number, currency: string): number {
+  return ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? Math.round(amount) : Math.round(amount * 100);
+}
+
+/**
+ * A Stripe amount (smallest unit) as the cents the platform formats
+ * (`cents / 100`), so a zero-decimal currency is not shown 100× too small.
+ */
+export function minorUnitsToCents(unitAmount: number, currency: string): number {
+  return ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase()) ? unitAmount * 100 : unitAmount;
+}
+
+/**
+ * What checkout charges per seat for a priced plan, the same amounts the
+ * plans page shows: monthly billing charges the monthly price every month,
+ * annual billing charges twelve months at the annual price (or at the
+ * monthly price when the country has no annual price) once a year.
+ */
+export function planCheckoutPrice(
+  display: Extract<PlanDisplayPrice, { kind: 'priced' }>,
+  cycle: 'monthly' | 'yearly',
+): { currency: string; unitAmount: number; interval: 'month' | 'year' } {
+  const { price, currency } = display;
+  if (cycle === 'monthly') {
+    return { currency, unitAmount: toMinorUnits(price.monthly, currency), interval: 'month' };
+  }
+  return { currency, unitAmount: toMinorUnits((price.annual ?? price.monthly) * 12, currency), interval: 'year' };
+}
