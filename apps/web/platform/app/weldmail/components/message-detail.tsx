@@ -95,7 +95,6 @@ import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { copyText } from '@/lib/clipboard';
-import { activateOnKey } from '@/lib/activate-on-key';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 
 type EmailMessage = MailTypes.Email;
@@ -696,13 +695,13 @@ function DraftReplyCard({ draft, className, deleteButtonClassName, onOpen, onDel
 }>) {
   const { t } = useI18n();
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={className}
-      onClick={onOpen}
-      onKeyDown={activateOnKey(() => onOpen())}
-    >
+    <div className={className}>
+      <button
+        type="button"
+        aria-label={t.mail.messageDetail.draft}
+        onClick={onOpen}
+        className="absolute inset-0 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      />
       <div className="px-3 md:px-4 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="w-6 h-6 rounded-md flex items-center justify-center bg-orange-100 flex-shrink-0">
@@ -723,7 +722,7 @@ function DraftReplyCard({ draft, className, deleteButtonClassName, onOpen, onDel
               e.stopPropagation();
               onDelete();
             }}
-            className={deleteButtonClassName}
+            className={cn(deleteButtonClassName, 'relative z-[1]')}
             title={t.mail.messageDetail.deleteDraft}
           >
             <Trash className="h-3.5 w-3.5 text-muted-foreground" />
@@ -942,13 +941,14 @@ function ThreadMessageCard({
   const isSentMessage = threadMsg.folder?.toLowerCase() === 'sent';
   return (
     <div className="group relative border border-border/50 rounded-lg bg-muted/50">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onToggle}
-        onKeyDown={activateOnKey(() => onToggle())}
-        className="w-full px-3 md:px-4 py-4 flex items-center justify-between hover:bg-muted/50 transition-colors rounded-lg cursor-pointer"
-      >
+      <div className="relative w-full px-3 md:px-4 py-4 flex items-center justify-between hover:bg-muted/50 transition-colors rounded-lg cursor-pointer">
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-label={fromDisplayString(threadMsg.from)}
+          onClick={onToggle}
+          className="absolute inset-0 cursor-pointer rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Button
             variant="ghost"
@@ -958,7 +958,7 @@ function ThreadMessageCard({
               const email = threadMsg.fromEmail || extractEmail(fromDisplayString(threadMsg.from));
               onOpenContact(email, extractName(fromDisplayString(threadMsg.from)));
             }}
-            className="flex items-center gap-2 min-w-0 rounded-md focus:outline-none group/sender"
+            className="relative z-[1] flex items-center gap-2 min-w-0 rounded-md focus:outline-none group/sender"
             title={t.mail.messageDetail.viewContactDetails}
           >
             <SenderAvatar
@@ -2013,7 +2013,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             contentEditable
             data-placeholder={placeholder}
             className="w-full min-h-36 text-sm outline-none bg-transparent text-foreground empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/60 mt-px"
-            onFocus={(e) => { if (isReply && !e.currentTarget.textContent) e.currentTarget.focus(); }}
             suppressContentEditableWarning
           />
         </div>
