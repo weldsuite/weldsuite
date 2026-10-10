@@ -120,7 +120,7 @@ function toCssLength(value: number | string | undefined, fallback: string): stri
 function readNumberFromStorage(key: string | undefined, fallback: number, min: number): number {
   if (!key || typeof window === "undefined") return fallback;
   const raw = window.localStorage.getItem(`${key}:size`);
-  const parsed = raw ? Number(raw) : NaN;
+  const parsed = raw ? Number(raw) : Number.NaN;
   return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
 }
 
@@ -304,7 +304,14 @@ function HeaderRow({
   );
 }
 
-type LayoutProps = EntityDetailViewProps & HeaderRenderProps;
+/** Props the root resolves itself (mode, visibility, overlay) and layouts never read. */
+type RootOnlyProps = "mode" | "defaultMode" | "isOpen" | "fullscreenOverlay";
+type LayoutProps = Omit<EntityDetailViewProps, RootOnlyProps> & HeaderRenderProps;
+/** The inline fullscreen layout has no panel geometry and no collapsible bottom sidebar. */
+type InlineFullscreenLayoutProps = Omit<
+  LayoutProps,
+  "width" | "topOffset" | "leftOffset" | "zIndex" | "sidebarDefaultCollapsed"
+>;
 
 /* ---------------------------------------------------------------- */
 /*  Unified animated shell                                            */
@@ -352,7 +359,7 @@ function AnimatedShell({
   const leftOffsetCss = toCssLength(leftOffset, "64px");
 
   const isFullscreen = mode === "fullscreen";
-  const shellRef = React.useRef<HTMLDivElement>(null);
+  const shellRef = React.useRef<HTMLDialogElement>(null);
 
   const header = (
     <HeaderRow
@@ -375,11 +382,13 @@ function AnimatedShell({
   // column at the requested width. Fullscreen keeps the fixed overlay below.
   if (!isFullscreen) {
     return (
-      <div
+      <dialog
         ref={shellRef}
-        role="dialog"
+        open
         aria-modal="false"
         className={cn(
+          // Reset the native <dialog> box (fit-content size, centering, UA colours).
+          "inset-auto m-0 h-auto w-auto max-h-none max-w-none p-0 text-inherit",
           // No explicit height — the panel slot (ObjectPanelHost) stretches it
           // to fill the slot's content box (which is offset below the header).
           // No card chrome: the panel sits on the shell background next to
@@ -406,7 +415,7 @@ function AnimatedShell({
         >
           {children}
         </PanelBody>
-      </div>
+      </dialog>
     );
   }
 
@@ -417,11 +426,13 @@ function AnimatedShell({
   // every other card and shrinks off any open Agent / Calendar / Notifications
   // drawer on the right — no width math, no square edge-to-edge fill.
   return (
-    <div
+    <dialog
       ref={shellRef}
-      role="dialog"
+      open
       aria-modal="false"
       className={cn(
+        // Reset the native <dialog> box (fit-content size, UA colours).
+        "m-0 h-auto w-auto max-h-none max-w-none p-0 text-inherit",
         "fixed flex flex-col overflow-hidden rounded-xl bg-background",
         "transition-[right,bottom] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
         className,
@@ -450,7 +461,7 @@ function AnimatedShell({
       >
         {children}
       </FullscreenBody>
-    </div>
+    </dialog>
   );
 }
 
@@ -459,7 +470,7 @@ function AnimatedShell({
 /* ---------------------------------------------------------------- */
 
 interface PanelBodyProps {
-  shellRef: React.RefObject<HTMLDivElement | null>;
+  shellRef: React.RefObject<HTMLElement | null>;
   subheader?: React.ReactNode;
   tabs?: React.ReactNode;
   children: React.ReactNode;
@@ -515,7 +526,7 @@ function PanelBody({
   const dragRef = React.useRef(false);
   const startYRef = React.useRef(0);
   const startHeightRef = React.useRef(0);
-  const maxHeightRef = React.useRef<number>(Infinity);
+  const maxHeightRef = React.useRef<number>(Number.POSITIVE_INFINITY);
   const rafRef = React.useRef<number | null>(null);
   const pendingHeightRef = React.useRef<number | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
@@ -535,7 +546,7 @@ function PanelBody({
           (shell?.getBoundingClientRect().top ?? 0)
         : 80;
       const maxFromTabs = shellHeight - tabsBottom;
-      maxHeightRef.current = Math.min(sidebarMaxSize ?? Infinity, maxFromTabs);
+      maxHeightRef.current = Math.min(sidebarMaxSize ?? Number.POSITIVE_INFINITY, maxFromTabs);
       setIsDragging(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -861,7 +872,7 @@ function InlineFullscreenLayout({
   loading,
   className,
   contentClassName,
-}: LayoutProps) {
+}: Readonly<InlineFullscreenLayoutProps>) {
   return (
     <div className={cn("h-full w-full flex flex-col bg-background", className)}>
       <HeaderRow

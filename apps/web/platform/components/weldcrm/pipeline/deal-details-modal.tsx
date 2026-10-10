@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,13 @@ import {
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
+import {
   X,
   Check,
   Trash2,
@@ -21,7 +28,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { addDays } from 'date-fns';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   Command,
@@ -33,6 +40,17 @@ import {
 } from '@weldsuite/ui/components/command';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { useTranslations } from '@weldsuite/i18n/client';
+import {
+  DEFAULT_DEAL_CURRENCY,
+  dealCurrencySymbol,
+  formatDealDate,
+  formatDealMoney,
+  getCurrencyOptions,
+  resolveDealCurrency,
+} from '@/lib/crm/deal-format';
+
+/** Close date a new deal starts with — the server's own default, made visible. */
+const DEFAULT_CLOSE_DATE_DAYS = 30;
 
 interface Stage {
   id: string;
@@ -63,6 +81,8 @@ interface DealDetailsModalProps {
   selectedStageId: string;
   onSubmit: (data: Record<string, unknown>) => Promise<void>;
   lockedCustomer?: { id: string; name: string };
+  /** Currency a new deal starts with (the pipeline's default); EUR when omitted. */
+  defaultCurrency?: string;
 }
 
 function getCustomerName(customer: Customer): string {
@@ -86,12 +106,14 @@ export function DealDetailsModal({
   selectedStageId,
   onSubmit,
   lockedCustomer,
+  defaultCurrency,
 }: Readonly<DealDetailsModalProps>) {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [value, setValue] = useState('');
+  const [currency, setCurrency] = useState(resolveDealCurrency(defaultCurrency));
   const [probability, setProbability] = useState<string | null>(null);
   const [closeDate, setCloseDate] = useState<Date | undefined>(undefined);
   const [stageId, setStageId] = useState(selectedStageId);
@@ -103,6 +125,8 @@ export function DealDetailsModal({
   const [recordSearchQuery, setRecordSearchQuery] = useState('');
   const [searchedCustomers, setSearchedCustomers] = useState<Customer[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+
+  const currencyOptions = useMemo(() => getCurrencyOptions(), []);
 
   const buttonContainerRef = useRef<HTMLDivElement>(null);
   const titleTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -177,8 +201,11 @@ export function DealDetailsModal({
     setTitle('');
     setDescription('');
     setValue('');
+    setCurrency(resolveDealCurrency(defaultCurrency));
     setProbability(null);
-    setCloseDate(undefined);
+    // Close date is required on a deal; pre-fill the server default so the
+    // user sees (and can change) it instead of it being applied silently.
+    setCloseDate(addDays(new Date(), DEFAULT_CLOSE_DATE_DAYS));
     setSelectedCustomer(null);
     setRecordSearchQuery('');
     setSearchedCustomers([]);
@@ -188,6 +215,10 @@ export function DealDetailsModal({
     onOpenChange(false);
     resetForm();
   };
+
+  // Negative or non-numeric entries are dropped: a deal value is never < 0.
+  const parsedAmount = value === '' ? Number.NaN : Number.parseFloat(value);
+  const amountNumber = Number.isFinite(parsedAmount) && parsedAmount >= 0 ? parsedAmount : null;
 
   const handleSubmit = async () => {
     if (!title.trim() || !selectedCustomer?.id || isSubmittingRef.current) return;
@@ -199,7 +230,10 @@ export function DealDetailsModal({
       await onSubmit({
         name: title.trim(),
         customerId: selectedCustomer.id,
-        amount: value ? Number.parseFloat(value) : 1,
+        // No value entered = no amount (stored as 0), never a made-up 1.
+        amount: amountNumber !== null ? amountNumber : undefined,
+        currency,
+        // Unset probability: the server defaults it from the chosen stage.
         probability: probability ? Number.parseInt(probability) : undefined,
         closeDate: closeDate ? closeDate.toISOString() : undefined,
         description: description || undefined,
@@ -322,21 +356,46 @@ export function DealDetailsModal({
                     value && "bg-green-100 text-green-800 border-green-200 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
                   )}
                 >
-                  {value ? `$${Number(value).toLocaleString()}` : t('sweep.weldcrm.dealDetailsModal.value')}
+                  {amountNumber !== null
+                    ? formatDealMoney(amountNumber, currency, { fractionDigits: amountNumber % 1 === 0 ? 0 : 2 })
+                    : t('sweep.weldcrm.dealDetailsModal.value')}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-48 p-2" align="start">
+              <PopoverContent className="w-60 p-2 space-y-2" align="start">
                 <div className="flex items-center gap-1">
-                  <span className="text-sm text-muted-foreground">$</span>
+                  <span className="text-sm text-muted-foreground min-w-4 text-center">{dealCurrencySymbol(currency)}</span>
                   <Input
                     type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
                     value={value}
-                    onChange={(e) => setValue(e.target.value)}
+                    onChange={(e) => {
+                      // A deal value is never negative: drop a leading minus.
+                      const next = e.target.value;
+                      if (next.startsWith('-')) return;
+                      setValue(next);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === '-' || e.key === 'e' || e.key === 'E') e.preventDefault();
+                    }}
                     placeholder="0"
                     className="h-8 text-sm"
                     autoFocus
                   />
                 </div>
+                <Select value={currency} onValueChange={setCurrency}>
+                  <SelectTrigger className="h-8 text-xs" aria-label={t('sweep.weldcrm.dealDetailsModal.currency')}>
+                    <SelectValue placeholder={DEFAULT_DEAL_CURRENCY} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {currencyOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {value && (
                   <>
                     <div className="h-px bg-gray-200 dark:bg-accent my-1.5" />
@@ -399,7 +458,7 @@ export function DealDetailsModal({
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="h-7 text-xs font-normal">
-                  {closeDate ? format(closeDate, 'MMM d') : t('sweep.weldcrm.dealDetailsModal.closeDate')}
+                  {closeDate ? formatDealDate(closeDate) : t('sweep.weldcrm.dealDetailsModal.closeDate')}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">

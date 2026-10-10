@@ -109,12 +109,12 @@ export interface DriveFile {
 export interface UnifiedFile {
   id: string;
   name: string;
-  fileType: DriveFileType | string;
+  fileType: string;
   mimeType: string | null;
   fileSize: number | null;
   url: string | null;
   thumbnailUrl: string | null;
-  source: DriveSource | string;
+  source: string;
   sourceLabel: string;
   navigateTo: string | null;
   folderId: string | null;

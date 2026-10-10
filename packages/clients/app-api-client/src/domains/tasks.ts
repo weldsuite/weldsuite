@@ -25,6 +25,10 @@ export interface TaskRow {
   /** `customerId` resolved to its company record (null when unlinked or archived). */
   linkedCompany?: { id: string; name: string; avatar?: string | null } | null;
   contactId?: string | null;
+  /** CRM person link (a task links to a company or a person). */
+  personId?: string | null;
+  /** `personId` resolved to its person record (null when unlinked or archived). */
+  linkedPerson?: { id: string; name: string; avatar?: string | null } | null;
   status: string;
   priority: string;
   type?: string | null;

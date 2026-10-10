@@ -64,8 +64,8 @@ export const dashboard = {
       tasks: {
         workspace_member_invited: 'Nodig een teamlid uit',
         workspace_logo_uploaded: 'Upload je werkruimte-logo',
-        crm_customer_created: 'Voeg je eerste klant toe',
-        crm_contact_created: 'Voeg je eerste contact toe',
+        crm_customer_created: 'Voeg je eerste bedrijf toe',
+        crm_contact_created: 'Voeg je eerste persoon toe',
         crm_note_created: 'Voeg je eerste notitie toe',
         crm_task_created: 'Voeg je eerste taak toe',
         commerce_product_created: 'Voeg je eerste product toe',

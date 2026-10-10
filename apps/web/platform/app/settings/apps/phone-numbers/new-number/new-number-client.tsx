@@ -299,59 +299,49 @@ function AvailableNumberRow({
 }: Readonly<AvailableNumberRowProps>) {
   return (
     <div
-      className={`flex items-center justify-between px-3 py-3 hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors gap-2 cursor-pointer ${
+      className={`flex items-center justify-between px-3 hover:bg-gray-50 dark:hover:bg-muted/50 transition-colors gap-2 md:gap-3 ${
         isPreviewed ? 'bg-gray-50 dark:bg-muted/50' : ''
       }`}
-      role="button"
-      tabIndex={0}
-      onClick={onTogglePreview}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onTogglePreview();
-        }
-      }}
     >
-      <div className="flex-1 min-w-0 flex items-center gap-2">
-        <p className="text-sm md:text-base font-medium font-mono text-gray-900 dark:text-foreground truncate">
-          {num.friendly_name || num.phone_number}
-        </p>
-        {num.locality && (
-          <Badge variant="secondary" className="hidden md:inline-flex font-mono text-xs rounded-md border border-border flex-shrink-0">
-            {formatLocation(num)}
-          </Badge>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
-        <div className="text-right min-w-[70px] md:min-w-[100px]">
-          <p className="text-sm md:text-base font-medium text-gray-900 dark:text-foreground">
-            {priceLabel}
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={`h-9 w-9 flex items-center justify-center border rounded-md transition-colors ${
-            isInCart
-              ? 'bg-primary border-primary'
-              : 'border-input hover:bg-gray-50 dark:hover:bg-muted'
-          }`}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onToggleCart();
-          }}
-        >
-          {isInCart ? (
-            <Check className="h-4 w-4 text-primary-foreground" />
-          ) : (
-            <ShoppingCart className="h-4 w-4 text-gray-600 dark:text-muted-foreground" />
+      <button
+        type="button"
+        aria-pressed={isPreviewed}
+        onClick={onTogglePreview}
+        className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 self-stretch py-3 text-left md:gap-3"
+      >
+        <span className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="block text-sm md:text-base font-medium font-mono text-gray-900 dark:text-foreground truncate">
+            {num.friendly_name || num.phone_number}
+          </span>
+          {num.locality && (
+            <Badge variant="secondary" className="hidden md:inline-flex font-mono text-xs rounded-md border border-border flex-shrink-0">
+              {formatLocation(num)}
+            </Badge>
           )}
-        </Button>
-      </div>
+        </span>
+
+        <span className="block text-right min-w-[70px] md:min-w-[100px] text-sm md:text-base font-medium text-gray-900 dark:text-foreground">
+          {priceLabel}
+        </span>
+      </button>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={`my-3 h-9 w-9 flex items-center justify-center border rounded-md transition-colors flex-shrink-0 ${
+          isInCart
+            ? 'bg-primary border-primary'
+            : 'border-input hover:bg-gray-50 dark:hover:bg-muted'
+        }`}
+        onClick={onToggleCart}
+      >
+        {isInCart ? (
+          <Check className="h-4 w-4 text-primary-foreground" />
+        ) : (
+          <ShoppingCart className="h-4 w-4 text-gray-600 dark:text-muted-foreground" />
+        )}
+      </Button>
     </div>
   );
 }

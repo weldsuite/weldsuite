@@ -54,7 +54,7 @@ export function StatusView({
   onNavigateParcelTracking,
   enabledPages = ['home', 'messages', 'help', 'status', 'changelog', 'appointments', 'announcements', 'events', 'news', 'parcel-tracking']
 }: Readonly<StatusViewProps>) {
-  const [activeTab] = useState('status');
+  const activeTab = 'status';
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [hoveredSegment, setHoveredSegment] = useState<{ service: number; day: number } | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });

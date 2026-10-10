@@ -251,6 +251,7 @@ interface CellRenderCtx {
   columnId: string;
   options: GridColumnDef<unknown>['options'];
   selectConfig: GridColumnDef<unknown>['selectConfig'];
+  allowCreateOption?: boolean;
   isFirstColumn: boolean;
   compact: boolean;
   isEditing: boolean;
@@ -469,7 +470,11 @@ function renderSelectCell(multi: boolean, ctx: CellRenderCtx) {
   return (
     <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact} isEditing={ctx.isPopoverOpen}>
       {multi ? (
-        <MultiSelectEditor value={(ctx.value as string[] | undefined) || []} {...common} />
+        <MultiSelectEditor
+          value={(ctx.value as string[] | undefined) || []}
+          allowCreate={ctx.allowCreateOption}
+          {...common}
+        />
       ) : (
         <SelectEditor value={ctx.value as string | null} {...common} />
       )}
@@ -706,6 +711,7 @@ export function GridCell<TEntity>({
     columnId: column.id,
     options: column.options,
     selectConfig: column.selectConfig,
+    allowCreateOption: column.allowCreateOption,
     isFirstColumn,
     compact,
     isEditing,

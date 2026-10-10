@@ -296,11 +296,11 @@ app.get('/agents/:id/computer/files', requirePermission('weldagent:read'), async
       path,
     });
     return success(c, result);
-  } catch (err) {
+  } catch (error_) {
     return success(c, {
       enabled: false,
       entries: [],
-      reason: err instanceof Error ? err.message : 'unavailable',
+      reason: error_ instanceof Error ? error_.message : 'unavailable',
     });
   }
 });
@@ -331,8 +331,8 @@ app.post('/agents/:id/browser/live-view', requirePermission('weldagent:read'), a
         action: 'live_view',
       });
       return success(c, result);
-    } catch (inner) {
-      return error.internal(c, inner instanceof Error ? inner.message : 'Live view unavailable');
+    } catch (innerError) {
+      return error.internal(c, innerError instanceof Error ? innerError.message : 'Live view unavailable');
     }
   }
 });
@@ -344,8 +344,8 @@ app.get('/computer/health', requirePermission('weldagent:read'), async (c) => {
   try {
     const status = await computerStatus(c.env, c.get('workspaceId'));
     return success(c, { ok: true, status });
-  } catch (err) {
-    return success(c, { ok: false, reason: err instanceof Error ? err.message : 'unavailable' });
+  } catch (error_) {
+    return success(c, { ok: false, reason: error_ instanceof Error ? error_.message : 'unavailable' });
   }
 });
 

@@ -1308,7 +1308,7 @@ function ScheduleControls({
               if (date) onChange(scheduleForDate(date, scheduledTime));
             }}
             disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0)) || date > addDays(new Date(), 7)}
-            initialFocus
+            autoFocus
           />
           <div className="border-t border-gray-200 dark:border-border px-3 py-3">
             <div className="text-xs font-medium text-gray-500 dark:text-muted-foreground mb-2">{t.mail.composePage.time}</div>

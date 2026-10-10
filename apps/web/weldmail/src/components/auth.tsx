@@ -6,11 +6,11 @@ import { setPersonalApiTokenGetter } from '@/lib/api';
 import { useMailEvents } from '@/contexts/mail-events';
 import { cn } from '@/lib/utils';
 
-export function TokenBridge({ children }: { children: ReactNode }) {
+export function TokenBridge({ children }: Readonly<{ children: ReactNode }>) {
   const { getToken, isSignedIn } = useAuth();
 
   if (isSignedIn) {
-    setPersonalApiTokenGetter(async () => getToken());
+    setPersonalApiTokenGetter(() => getToken());
   } else {
     setPersonalApiTokenGetter(null);
   }

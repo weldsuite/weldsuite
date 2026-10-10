@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -29,10 +29,20 @@ const e = schema.sequenceEnrollments;
 // parties.ts). `sequence_enrollments.customerId` stores a `people.id`.
 const ppl = schema.people;
 
+/**
+ * Correlated per-sequence enrollment count. The outer `workflows.id` is
+ * written out as a qualified identifier on purpose: in a single-table select
+ * drizzle renders `${w.id}` as a bare `"id"`, which inside the subquery binds
+ * to `sequence_enrollments.id`, so every count was 0 (TASK-942).
+ */
+function enrollmentCount(statusPredicate: SQL) {
+  return sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_enrollments.sequence_id = "workflows"."id" AND sequence_enrollments.status ${statusPredicate})`;
+}
+
 app.get('/', requirePermission('contacts:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
 
   const conditions: any[] = [
     isNull(w.deletedAt),
@@ -70,9 +80,9 @@ app.get('/', requirePermission('contacts:read'), async (c) => {
           lastExecutedAt: w.lastExecutedAt,
           createdAt: w.createdAt,
           updatedAt: w.updatedAt,
-          enrolledCount: sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_id = ${w.id} AND status != 'unenrolled')`,
-          activeEnrolledCount: sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_id = ${w.id} AND status = 'active')`,
-          pendingEnrolledCount: sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_id = ${w.id} AND status = 'pending')`,
+          enrolledCount: enrollmentCount(sql`!= 'unenrolled'`),
+          activeEnrolledCount: enrollmentCount(sql`= 'active'`),
+          pendingEnrolledCount: enrollmentCount(sql`= 'pending'`),
         })
         .from(w)
         .where(where)
@@ -111,11 +121,11 @@ app.get('/:id', requirePermission('contacts:read'), async (c) => {
         lastExecutedAt: w.lastExecutedAt,
         createdAt: w.createdAt,
         updatedAt: w.updatedAt,
-        enrolledCount: sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_id = ${w.id} AND status != 'unenrolled')`,
-        activeEnrolledCount: sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_id = ${w.id} AND status = 'active')`,
-        pendingEnrolledCount: sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_id = ${w.id} AND status = 'pending')`,
-        completedEnrolledCount: sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_id = ${w.id} AND status = 'completed')`,
-        failedEnrolledCount: sql<number>`(SELECT count(*)::int FROM sequence_enrollments WHERE sequence_id = ${w.id} AND status = 'failed')`,
+        enrolledCount: enrollmentCount(sql`!= 'unenrolled'`),
+        activeEnrolledCount: enrollmentCount(sql`= 'active'`),
+        pendingEnrolledCount: enrollmentCount(sql`= 'pending'`),
+        completedEnrolledCount: enrollmentCount(sql`= 'completed'`),
+        failedEnrolledCount: enrollmentCount(sql`= 'failed'`),
       })
       .from(w)
       .where(and(eq(w.id, id), isNull(w.deletedAt)))
@@ -132,7 +142,7 @@ app.get('/:id/enrollments', requirePermission('contacts:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [eq(e.sequenceId, id), isNull(ppl.deletedAt)];
   if (q.status) conditions.push(eq(e.status, q.status));
@@ -233,14 +243,30 @@ app.delete('/enrollments/:enrollmentId', requirePermission('contacts:update'), a
 // configured in wrangler.toml.
 // ============================================================================
 
+type TenantDb = Variables['tenantDb'];
+
 /**
- * Fire EXECUTE_SEQUENCE for one enrollment and return the workflow instance
- * id (or `null` if the binding isn't configured in the current env). Wrapped
- * in try/catch so a single failed trigger doesn't abort a bulk enroll loop —
- * the enrollment row stays in the DB and can be retried by `start`.
+ * Start EXECUTE_SEQUENCE for one enrollment, at most once.
+ *
+ * The Workflow instance id is the enrollment id (deterministic, <= 30 chars so
+ * it fits `sequence_enrollments.execution_id` varchar(30); a Cloudflare-minted
+ * UUID is 36 chars and overflowed the column, 500-ing launch/start AFTER the
+ * workflow had already run, see TASK-941). Because it is deterministic, the
+ * Workflows runtime itself also rejects a second instance for the same
+ * enrollment.
+ *
+ * The id is CLAIMED in the DB before the workflow is created: a conditional
+ * `UPDATE ... WHERE execution_id IS NULL` that only one caller can win, so a
+ * retry / concurrent launch / double click can never trigger a second run (and
+ * a second round of emails) for the same enrollment. If the create then fails
+ * for real, the claim is released so a later `start` can retry.
+ *
+ * Never throws: a single failed trigger must not abort a bulk loop; the
+ * enrollment row stays in the DB and `start` retries it.
  */
-async function triggerSequenceWorkflow(
+async function startEnrollmentRun(
   c: Context<{ Bindings: Env; Variables: Variables }>,
+  db: TenantDb,
   params: {
     workspaceId: string;
     userId: string;
@@ -248,19 +274,98 @@ async function triggerSequenceWorkflow(
     enrollmentId: string;
     customerId: string;
   },
-): Promise<string | null> {
+): Promise<'triggered' | 'skipped' | 'failed'> {
   const binding = c.env.EXECUTE_SEQUENCE;
   if (!binding) {
-    console.warn('[app-api/sequences] EXECUTE_SEQUENCE binding missing — skipping workflow trigger');
-    return null;
+    console.warn('[crm-api/sequences] EXECUTE_SEQUENCE binding missing, skipping workflow trigger');
+    return 'skipped';
   }
+
+  const instanceId = params.enrollmentId;
   try {
-    const instance = await binding.create({ params });
-    return instance.id;
+    const claimed = await db
+      .update(e)
+      .set({ executionId: instanceId })
+      .where(and(eq(e.id, params.enrollmentId), eq(e.status, 'active'), isNull(e.executionId)))
+      .returning({ id: e.id });
+    // Already claimed (a run exists or is being started), or no longer active.
+    if (claimed.length === 0) return 'skipped';
   } catch (err) {
-    console.error('[app-api/sequences] EXECUTE_SEQUENCE.create failed:', err);
-    return null;
+    console.error('[crm-api/sequences] failed to claim enrollment run:', err);
+    return 'failed';
   }
+
+  try {
+    await binding.create({ id: instanceId, params });
+    return 'triggered';
+  } catch (err) {
+    // The instance may already exist (a previous attempt created it but the
+    // worker died before responding): then the run is real, keep the claim.
+    try {
+      await binding.get(instanceId);
+      return 'skipped';
+    } catch {
+      // not found: the create genuinely failed
+    }
+    console.error('[crm-api/sequences] EXECUTE_SEQUENCE.create failed:', err);
+    try {
+      await db
+        .update(e)
+        .set({ executionId: null })
+        .where(and(eq(e.id, params.enrollmentId), eq(e.executionId, instanceId)));
+    } catch (releaseErr) {
+      console.error('[crm-api/sequences] failed to release enrollment claim:', releaseErr);
+    }
+    return 'failed';
+  }
+}
+
+/**
+ * Start a run for every active enrollment of a sequence that has none yet.
+ * Returns how many runs were started.
+ */
+async function startPendingRuns(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  db: TenantDb,
+  ctx: { workspaceId: string; userId: string; sequenceId: string },
+): Promise<number> {
+  const rows = await db
+    .select({ id: e.id, customerId: e.customerId })
+    .from(e)
+    .where(and(eq(e.sequenceId, ctx.sequenceId), eq(e.status, 'active'), isNull(e.executionId)));
+  let started = 0;
+  for (const row of rows) {
+    const outcome = await startEnrollmentRun(c, db, { ...ctx, enrollmentId: row.id, customerId: row.customerId });
+    if (outcome === 'triggered') started += 1;
+  }
+  return started;
+}
+
+/**
+ * Flip a sequence to `active`, turn every `pending` enrollment `active` (a
+ * conditional UPDATE ... RETURNING, so concurrent callers split the rows
+ * instead of both seeing them) and start a run for every active enrollment
+ * that has none. Shared by `launch` and `resume`. Returns how many pending
+ * enrollments were activated.
+ */
+async function activateSequence(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  db: TenantDb,
+  ctx: { workspaceId: string; userId: string; sequenceId: string },
+): Promise<number> {
+  await db
+    .update(w)
+    .set({ status: 'active', updatedAt: new Date() })
+    .where(eq(w.id, ctx.sequenceId));
+
+  const activated = await db
+    .update(e)
+    .set({ status: 'active' })
+    .where(and(eq(e.sequenceId, ctx.sequenceId), eq(e.status, 'pending')))
+    .returning({ id: e.id });
+
+  await startPendingRuns(c, db, ctx);
+  return activated.length;
 }
 
 // `personIds` is the current field — sequences enroll People directly.
@@ -391,16 +496,13 @@ app.post(
 
       if (isActiveSequence) {
         for (const row of enrollmentRows) {
-          const instanceId = await triggerSequenceWorkflow(c, {
+          await startEnrollmentRun(c, db, {
             workspaceId,
             userId,
             sequenceId,
             enrollmentId: row.id,
             customerId: row.customerId,
           });
-          if (instanceId) {
-            await db.update(e).set({ executionId: instanceId }).where(eq(e.id, row.id));
-          }
         }
       }
 
@@ -454,37 +556,7 @@ app.post('/:id/launch', requirePermission('contacts:update'), async (c) => {
       return error.badRequest(c, 'Enroll at least one person before launching this sequence');
     }
 
-    await db
-      .update(w)
-      .set({ status: 'active', updatedAt: new Date() })
-      .where(eq(w.id, sequenceId));
-
-    const pending = await db
-      .select({ id: e.id, customerId: e.customerId })
-      .from(e)
-      .where(and(eq(e.sequenceId, sequenceId), eq(e.status, 'pending')));
-
-    if (pending.length > 0) {
-      await db
-        .update(e)
-        .set({ status: 'active' })
-        .where(
-          and(eq(e.sequenceId, sequenceId), eq(e.status, 'pending')),
-        );
-
-      for (const row of pending) {
-        const instanceId = await triggerSequenceWorkflow(c, {
-          workspaceId,
-          userId,
-          sequenceId,
-          enrollmentId: row.id,
-          customerId: row.customerId,
-        });
-        if (instanceId) {
-          await db.update(e).set({ executionId: instanceId }).where(eq(e.id, row.id));
-        }
-      }
-    }
+    const activated = await activateSequence(c, db, { workspaceId, userId, sequenceId });
 
     publishEntityEvent({
       c,
@@ -493,7 +565,7 @@ app.post('/:id/launch', requirePermission('contacts:update'), async (c) => {
       action: 'updated',
       data: { id: sequenceId, status: 'active' },
     });
-    return success(c, { activated: pending.length });
+    return success(c, { activated });
   } catch (err) {
     console.error('[app-api/sequences] launch failed:', err);
     return error.internal(c, 'Failed to launch sequence');
@@ -520,29 +592,49 @@ app.post('/:id/start', requirePermission('contacts:update'), async (c) => {
       .limit(1);
     if (!sequence) return error.notFound(c, 'Sequence', sequenceId);
 
-    const active = await db
-      .select({ id: e.id, customerId: e.customerId, executionId: e.executionId })
-      .from(e)
-      .where(and(eq(e.sequenceId, sequenceId), eq(e.status, 'active')));
+    const triggered = await startPendingRuns(c, db, { workspaceId, userId, sequenceId });
 
-    const toTrigger = active.filter((row) => !row.executionId);
-    for (const row of toTrigger) {
-      const instanceId = await triggerSequenceWorkflow(c, {
-        workspaceId,
-        userId,
-        sequenceId,
-        enrollmentId: row.id,
-        customerId: row.customerId,
-      });
-      if (instanceId) {
-        await db.update(e).set({ executionId: instanceId }).where(eq(e.id, row.id));
-      }
-    }
-
-    return success(c, { triggered: toTrigger.length });
+    return success(c, { triggered });
   } catch (err) {
     console.error('[app-api/sequences] start failed:', err);
     return error.internal(c, 'Failed to start sequence');
+  }
+});
+
+/**
+ * POST /sequences/:id/resume — set a paused sequence back to `active` and
+ * start every pending enrollment (plus any active enrollment that never got a
+ * run). Unlike `launch` it has no checklist: a paused sequence already passed
+ * it once. `start` alone cannot do this, it only re-triggers enrollments that
+ * are already `active` and leaves the sequence paused (TASK-942).
+ */
+app.post('/:id/resume', requirePermission('contacts:update'), async (c) => {
+  const db = c.get('tenantDb');
+  const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
+  const sequenceId = c.req.param('id');
+
+  try {
+    const [sequence] = await db
+      .select({ id: w.id })
+      .from(w)
+      .where(and(eq(w.id, sequenceId), isNull(w.deletedAt)))
+      .limit(1);
+    if (!sequence) return error.notFound(c, 'Sequence', sequenceId);
+
+    const activated = await activateSequence(c, db, { workspaceId, userId, sequenceId });
+
+    publishEntityEvent({
+      c,
+      entityType: 'sequence',
+      entityId: sequenceId,
+      action: 'updated',
+      data: { id: sequenceId, status: 'active' },
+    });
+    return success(c, { resumed: true, activated });
+  } catch (err) {
+    console.error('[crm-api/sequences] resume sequence failed:', err);
+    return error.internal(c, 'Failed to resume sequence');
   }
 });
 
@@ -645,18 +737,14 @@ app.patch(
         .set({ status: 'active', pausedAt: null })
         .where(eq(e.id, enrollmentId));
 
-      if (!existing.executionId) {
-        const instanceId = await triggerSequenceWorkflow(c, {
-          workspaceId,
-          userId,
-          sequenceId,
-          enrollmentId,
-          customerId: existing.customerId,
-        });
-        if (instanceId) {
-          await db.update(e).set({ executionId: instanceId }).where(eq(e.id, enrollmentId));
-        }
-      }
+      // No-op when the enrollment already has a live run (claimed executionId).
+      await startEnrollmentRun(c, db, {
+        workspaceId,
+        userId,
+        sequenceId,
+        enrollmentId,
+        customerId: existing.customerId,
+      });
 
       return success(c, { resumed: true });
     } catch (err) {
@@ -679,7 +767,7 @@ customerSequencesApp.get('/:customerId', requirePermission('contacts:read'), asy
   const db = c.get('tenantDb');
   const customerId = c.req.param('customerId');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
 
   const conditions: any[] = [eq(e.customerId, customerId), isNull(w.deletedAt)];
 

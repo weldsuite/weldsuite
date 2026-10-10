@@ -65,7 +65,7 @@ async function fetchPermalink(accessToken: string, channel: string, ts: string):
 export const handleSlackPostMessage: ActionHandler = async (inputs, ctx) => {
   const channel = asText(inputs.channel || '').trim();
   const text = asText(inputs.text || '');
-  const threadTs = inputs.threadTs ? String(inputs.threadTs).trim() : undefined;
+  const threadTs = inputs.threadTs ? asText(inputs.threadTs).trim() : undefined;
   if (!channel) throw new NonRetryableStepError('Slack channel is required');
   if (!text.trim()) throw new NonRetryableStepError('Slack message text is required');
 

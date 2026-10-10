@@ -660,6 +660,8 @@ export const weldchat = {
     incomingCall: {
       incomingVideo: 'Videollamada entrante...',
       incomingVoice: 'Llamada de voz entrante...',
+      accept: 'Aceptar',
+      decline: 'Rechazar',
     },
     dm: {
       selectConversation: 'Selecciona una conversación o inicia una nueva',
@@ -748,6 +750,7 @@ export const weldchat = {
     },
     threadPanel: {
       defaultName: 'Hilo',
+      nameLabel: 'Nombre del hilo',
       clickToRename: 'Haz clic para renombrar',
     },
     pipCallWidget: {
@@ -792,8 +795,8 @@ export const weldchat = {
     switchCallDialog: {
       title: '¿Salir de la llamada actual?',
       description: 'Ya estás en una llamada. ¿Quieres salir e iniciar una nueva?',
-      stayInCall: 'Permanecer en la llamada',
-      leaveAndCall: 'Salir y llamar',
+      stay: 'Quedarse',
+      leaveAndJoin: 'Salir y unirse',
     },
     dropZone: {
       uploadFile: 'Subir un archivo',

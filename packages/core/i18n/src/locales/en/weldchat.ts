@@ -74,6 +74,7 @@ export const weldchat = {
       reconnecting: 'Connection lost. Reconnecting…',
       reconnected: 'You are back in the call',
       connectionLost: "Couldn't reconnect to the call. Call again to continue.",
+      supersededByOtherCall: 'You left this call because you joined another call or meeting.',
     },
     callOverlay: {
       microphone: 'Microphone',
@@ -668,6 +669,8 @@ export const weldchat = {
     incomingCall: {
       incomingVideo: 'Incoming video call...',
       incomingVoice: 'Incoming voice call...',
+      accept: 'Accept',
+      decline: 'Decline',
     },
     dm: {
       selectConversation: 'Select a conversation or start a new one',
@@ -756,6 +759,7 @@ export const weldchat = {
     },
     threadPanel: {
       defaultName: 'Thread',
+      nameLabel: 'Thread name',
       clickToRename: 'Click to rename',
     },
     pipCallWidget: {
@@ -798,10 +802,19 @@ export const weldchat = {
       none: 'None',
     },
     switchCallDialog: {
-      title: 'Leave current call?',
-      description: "You're already in a call. Do you want to leave it and start a new one?",
-      stayInCall: 'Stay in call',
-      leaveAndCall: 'Leave & call',
+      title: 'Switch call?',
+      titleMeeting: 'Switch to this meeting?',
+      description: 'You can only be in one call or meeting at a time. Leave {current} and join {target}?',
+      stay: 'Stay',
+      leaveAndJoin: 'Leave and join',
+      currentCall: 'your current call',
+      newCall: 'the new call',
+      callInChannel: 'the call in {name}',
+      callWithPerson: 'the call with {name}',
+      callFromPerson: 'the call from {name}',
+      currentMeeting: 'your current meeting',
+      newMeeting: 'a new meeting',
+      meetingNamed: 'the meeting "{title}"',
     },
     dropZone: {
       uploadFile: 'Upload a file',

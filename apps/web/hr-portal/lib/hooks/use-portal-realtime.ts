@@ -26,6 +26,7 @@ interface PortalSignalData {
 const EMPLOYEE_PATHS: Record<string, string[]> = {
   hr_leave_request: ['/employee/leave', '/employee/overview'],
   hr_declaration: ['/employee/declarations'],
+  hr_payslip: ['/employee/payslips', '/employee/annual-statements'],
   hr_attendance: ['/employee/attendance', '/employee/overview'],
   hr_coaching_log: ['/employee/coaching', '/employee/overview'],
   hr_evaluation: ['/employee/evaluations', '/employee/overview'],

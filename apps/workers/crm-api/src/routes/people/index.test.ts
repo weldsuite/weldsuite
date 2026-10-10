@@ -15,7 +15,7 @@ vi.mock('@weldsuite/crm-domain/people', async () => {
     ...actual,
     listPeople: vi.fn(),
     getPerson: vi.fn(),
-    createPerson: vi.fn(),
+    createPersonDetailed: vi.fn(),
   };
 });
 
@@ -31,7 +31,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 
 const mockedList = peopleService.listPeople as ReturnType<typeof vi.fn>;
 const mockedGet = peopleService.getPerson as ReturnType<typeof vi.fn>;
-const mockedCreate = peopleService.createPerson as ReturnType<typeof vi.fn>;
+const mockedCreate = peopleService.createPersonDetailed as ReturnType<typeof vi.fn>;
 const mockedPublish = publishEntityEvent as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -102,13 +102,16 @@ describe('POST /api/people (create)', () => {
 
   it('201 + publishes a person.created entity event', async () => {
     mockedCreate.mockResolvedValueOnce({
-      id: 'person_new',
-      firstName: 'Jane',
-      lastName: 'Doe',
-      fullName: 'Jane Doe',
-      displayName: 'Jane Doe',
-      email: null,
-      title: null,
+      row: {
+        id: 'person_new',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        fullName: 'Jane Doe',
+        displayName: 'Jane Doe',
+        email: null,
+        title: null,
+      },
+      promoted: false,
     });
     const { request } = createTestApp('/api/people', peopleRoutes, {
       context: { permissions: permissions('people:create') },
@@ -126,5 +129,45 @@ describe('POST /api/people (create)', () => {
     };
     expect(call.entityType).toBe('person');
     expect(call.action).toBe('created');
+  });
+
+  it('200 + person.updated event when a hidden identity was promoted', async () => {
+    mockedCreate.mockResolvedValueOnce({
+      row: {
+        id: 'person_hidden',
+        firstName: 'Jane',
+        lastName: 'Doe',
+        fullName: 'Jane Doe',
+        displayName: 'Jane Doe',
+        email: 'jane@acme.com',
+        title: null,
+      },
+      promoted: true,
+    });
+    const { request } = createTestApp('/api/people', peopleRoutes, {
+      context: { permissions: permissions('people:create') },
+    });
+    const res = await request('/api/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ firstName: 'Jane', lastName: 'Doe', email: 'jane@acme.com' }),
+    });
+    expect(res.status).toBe(200);
+    expect((mockedPublish.mock.calls[0]![0] as { action: string }).action).toBe('updated');
+  });
+
+  it('409 with existingPersonId for a real CRM duplicate', async () => {
+    mockedCreate.mockRejectedValueOnce(new peopleService.PersonDuplicateEmailError('person_existing'));
+    const { request } = createTestApp('/api/people', peopleRoutes, {
+      context: { permissions: permissions('people:create') },
+    });
+    const res = await request('/api/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ firstName: 'Jane', email: 'jane@acme.com' }),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { details?: { existingPersonId?: string } } };
+    expect(body.error.details?.existingPersonId).toBe('person_existing');
   });
 });

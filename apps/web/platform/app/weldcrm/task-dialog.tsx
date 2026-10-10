@@ -634,7 +634,7 @@ function DueDatePopover({
             today.setHours(0, 0, 0, 0);
             return date < today;
           }}
-          initialFocus
+          autoFocus
         />
         {dueDate && (
           <div className="p-1 border-t border-gray-200 dark:border-border">
@@ -944,13 +944,16 @@ function GithubCreateOption({
   );
 }
 
+// Stable default so the record-search effect does not see a new array every render.
+const NO_PEOPLE: NonNullable<TaskDialogProps['availablePeople']> = [];
+
 export function TaskDialog({
   open,
   onOpenChange,
   editingTask,
   availableAssignees,
   availableCompanies,
-  availablePeople = [],
+  availablePeople = NO_PEOPLE,
   onRecordSearchChange,
   recordRequired,
   availableLabels = [],
@@ -998,23 +1001,41 @@ export function TaskDialog({
   const isSubmittingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordSearchSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const availableCompaniesRef = useRef(availableCompanies);
+  const availablePeopleRef = useRef(availablePeople);
 
   const handleRecordSearch = useCallback((value: string) => {
     if (!onRecordSearchChange) return;
     setIsSearchingRecords(true);
     if (recordSearchTimerRef.current) clearTimeout(recordSearchTimerRef.current);
+    if (recordSearchSettleTimerRef.current) clearTimeout(recordSearchSettleTimerRef.current);
     recordSearchTimerRef.current = setTimeout(() => {
       onRecordSearchChange(value);
     }, 150);
+    // A search that returns the same rows keeps the list references unchanged
+    // (React Query structural sharing), so the effect below never fires. Stop
+    // the spinner after a short grace period instead of leaving it stuck.
+    recordSearchSettleTimerRef.current = setTimeout(() => {
+      setIsSearchingRecords(false);
+    }, 2000);
   }, [onRecordSearchChange]);
 
   useEffect(() => {
-    if (availableCompaniesRef.current !== availableCompanies) {
+    if (
+      availableCompaniesRef.current !== availableCompanies ||
+      availablePeopleRef.current !== availablePeople
+    ) {
       availableCompaniesRef.current = availableCompanies;
+      availablePeopleRef.current = availablePeople;
       setIsSearchingRecords(false);
     }
-  }, [availableCompanies]);
+  }, [availableCompanies, availablePeople]);
+
+  useEffect(() => () => {
+    if (recordSearchTimerRef.current) clearTimeout(recordSearchTimerRef.current);
+    if (recordSearchSettleTimerRef.current) clearTimeout(recordSearchSettleTimerRef.current);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1134,7 +1155,7 @@ export function TaskDialog({
       e.preventDefault();
       const dt = new DataTransfer();
       files.forEach(f => dt.items.add(f));
-      handleUploadFiles(dt.files);
+      void handleUploadFiles(dt.files);
     } else {
       // For plain text paste, prevent rich HTML paste
       e.preventDefault();
@@ -1161,7 +1182,7 @@ export function TaskDialog({
     e.preventDefault();
     setIsDraggingFile(false);
     if (e.dataTransfer?.files?.length) {
-      handleUploadFiles(e.dataTransfer.files);
+      void handleUploadFiles(e.dataTransfer.files);
     }
   }, [handleUploadFiles]);
 
@@ -1417,7 +1438,7 @@ export function TaskDialog({
             type="file"
             multiple
             onChange={(e) => {
-              handleUploadFiles(e.target.files);
+              void handleUploadFiles(e.target.files);
               if (fileInputRef.current) fileInputRef.current.value = '';
             }}
             className="hidden"

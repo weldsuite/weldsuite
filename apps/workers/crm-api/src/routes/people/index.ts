@@ -217,12 +217,17 @@ app.post(
     const data = c.req.valid('json');
     const userId = c.get('userId');
     try {
-      const created = await peopleService.createPerson(db, { ...data, ownerId: data.ownerId ?? userId });
+      // A hidden mail/helpdesk identity with the same email is promoted into the
+      // CRM (200, `updated` event — same as POST /:id/add-to-crm) instead of 409.
+      const { row: created, promoted } = await peopleService.createPersonDetailed(db, {
+        ...data,
+        ownerId: data.ownerId ?? userId,
+      });
       publishEntityEvent({
         c,
         entityType: 'person',
         entityId: created.id,
-        action: 'created',
+        action: promoted ? 'updated' : 'created',
         data: {
           id: created.id,
           firstName: created.firstName,
@@ -233,7 +238,7 @@ app.post(
           title: created.title,
         },
       });
-      return success(c, created, 201);
+      return success(c, created, promoted ? 200 : 201);
     } catch (err) {
       if (err instanceof peopleService.PersonDuplicateEmailError) {
         return error.conflict(c, err.message, { existingPersonId: err.existingPersonId });
@@ -280,6 +285,9 @@ app.patch(
     } catch (err) {
       if (err instanceof peopleService.PersonVersionConflictError) {
         return error.conflict(c, err.message);
+      }
+      if (err instanceof peopleService.PersonDuplicateEmailError) {
+        return error.conflict(c, err.message, { existingPersonId: err.existingPersonId });
       }
       if (err instanceof peopleService.InvalidMemberIdError) {
         return error.badRequest(c, err.message, { field: err.field });

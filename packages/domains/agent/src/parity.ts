@@ -6,8 +6,7 @@ import { and, desc, eq, isNull, lte } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
-import type { AgentDb } from './agents';
-import { getAgent, createAgent, updateAgent } from './agents';
+import { type AgentDb, getAgent, createAgent, updateAgent } from './agents';
 
 type MemoryKind = 'preference' | 'fact' | 'summary' | 'correction';
 

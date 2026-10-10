@@ -251,6 +251,7 @@ export function useWorkflowEditorData(id: string) {
     webhookData: webhookData.data,
     isLoading,
     isError: workflow.isError,
+    isFetching: workflow.isFetching,
     // Expose the workflow query's error + refetch so the editor page can show a
     // real error state with a Retry (instead of throwing notFound() and hitting
     // the blank root error boundary on a transient failure — e.g. a request that

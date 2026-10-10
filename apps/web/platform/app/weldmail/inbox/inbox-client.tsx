@@ -94,7 +94,6 @@ import {
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { copyText } from '@/lib/clipboard';
 import { asText } from '@weldsuite/text';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 type EmailMessage = MailTypes.Email;
 
@@ -177,8 +176,9 @@ function CollapsedListRowHeader({ email, formatEmailDate, hoverTimeoutRefList, h
         {email.from === 'WeldMail Team' ? (
           <Popover open={hoveredWeldMailTeamList} onOpenChange={setHoveredWeldMailTeamList}>
             <PopoverTrigger asChild>
-              <span 
-                className="cursor-pointer hover:underline"
+              <button
+                type="button"
+                className="relative z-[1] cursor-pointer hover:underline"
                 onMouseEnter={() => {
                   if (hoverTimeoutRefList.current) {
                     clearTimeout(hoverTimeoutRefList.current);
@@ -192,7 +192,7 @@ function CollapsedListRowHeader({ email, formatEmailDate, hoverTimeoutRefList, h
                 }}
               >
                 {fromDisplayString(email.from)}
-              </span>
+              </button>
             </PopoverTrigger>
             <PopoverContent 
               className="w-80 p-0 overflow-hidden" 
@@ -2864,17 +2864,13 @@ export function InboxClient({
                       "group cursor-pointer border border-transparent relative z-0 py-2.5",
                       getEmailRowStateClass(selectedEmail?.id === email.id, completedEmails.has(email.id))
                     )}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openEmail(email)}
-                    onKeyDown={activateOnKey(() => openEmail(email))}
                   >
                     <div className="flex items-center gap-3">
                       {/* Avatar with Unread Indicator Dot */}
                       <div className="relative flex-shrink-0" style={{ marginTop: '-22px' }}>
                         {/* Blue dot to the left of avatar */}
                         {!email.isRead && selectedEmail?.id !== email.id && (
-                          <div className="absolute -left-[11px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-600 z-50" />
+                          <div className="absolute -left-[11px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-600 z-50 pointer-events-none" />
                         )}
                         <div
                           className="w-6 h-6 rounded-md flex items-center justify-center text-white font-semibold text-[10px]"
@@ -2933,6 +2929,12 @@ export function InboxClient({
                         </div>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      aria-label={email.subject || fromDisplayString(email.from)}
+                      onClick={() => openEmail(email)}
+                      className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    />
                   </div>
                   {emailIndex < emails.length - 1 && (
                     <div className="border-b border-gray-100 dark:border-border ml-[60px] mr-4" />

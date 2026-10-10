@@ -206,9 +206,9 @@ function useHiddenPipStream(
     // can switch tabs again — at 1s, fast back-and-forth tab switches catch
     // the video paused and Chrome then skips auto-PiP.
     const tryPlay = () => video.play().catch(() => {});
-    tryPlay();
+    void tryPlay();
     playRetryTimer = setInterval(() => {
-      if (video.paused) tryPlay();
+      if (video.paused) void tryPlay();
     }, 250);
 
     return () => {
@@ -243,7 +243,7 @@ function useMediaSessionActionHandlers(enterNativePiP: () => Promise<void> | voi
       title: 'WeldMeet',
       artist: 'WeldMeet',
     });
-    const handleEnterPiP = () => { enterPipForActionRef.current(); };
+    const handleEnterPiP = () => { void enterPipForActionRef.current(); };
     try {
       // @ts-expect-error -- 'enterpictureinpicture' is a Chrome MediaSessionAction not in standard lib types
       navigator.mediaSession.setActionHandler('enterpictureinpicture', handleEnterPiP);
@@ -305,7 +305,7 @@ function usePipVisibilityListeners(
     const onVisChange = () => {
       // Don't fire native PiP while Document PiP popup is already open
       if (pipWindowRef.current) return;
-      if (document.hidden) enterNativePipRef.current();
+      if (document.hidden) void enterNativePipRef.current();
       else exitNativePipRef.current();
     };
     // When PiP closes (user clicks the close button or returns to the tab),
@@ -452,24 +452,15 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
         'relative w-full cursor-pointer overflow-hidden bg-muted dark:bg-background',
         isInPipWindow ? 'flex-1 min-h-0' : 'h-[180px]',
       )}
-      role="button"
-      tabIndex={0}
-      aria-label={t.pipWidget.openMeeting}
-      onClick={onExpand}
-      onKeyDown={(e) => {
-        // Only react to keys pressed on the tile itself, not on the nested quick-action buttons.
-        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault();
-          onExpand();
-        }
-      }}
     >
       {focusedTrack ? (
         <video
           ref={videoRef}
           autoPlay
           playsInline
-          muted={focusedIsSelf}
+          // Fed a video-only stream (the focused participant's camera track);
+          // remote audio plays through RemoteAudioSink instead.
+          muted
           className={cn('absolute inset-0 w-full h-full object-cover', focusedIsSelf && '-scale-x-100')}
         />
       ) : (
@@ -490,7 +481,7 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
       </div>
 
       {/* Top-right: hover-revealed quick actions */}
-      <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/pip:opacity-100 transition-opacity duration-150">
+      <div className="absolute top-2 right-2 z-[1] flex items-center gap-1 opacity-0 group-hover/pip:opacity-100 transition-opacity duration-150">
         {/* Hide the widget — the Document PiP popup has its own window controls. */}
         {!isInPipWindow && (
           <Button
@@ -522,6 +513,16 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
           <Maximize className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      {/* Click-to-expand surface covering the whole tile. It is a real button (keyboard and
+          screen-reader friendly); data-drag-surface lets it still start a corner drag. */}
+      <button
+        type="button"
+        data-drag-surface
+        aria-label={t.pipWidget.openMeeting}
+        onClick={onExpand}
+        className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      />
     </div>
   );
 }
@@ -954,9 +955,9 @@ export function MeetingPiPWidget() {
   // Single entry point: prefer Document PiP, fall back to legacy native PiP
   const openPopOut = useCallback(() => {
     if ('documentPictureInPicture' in window) {
-      openDocumentPip();
+      void openDocumentPip();
     } else {
-      enterNativePiP();
+      void enterNativePiP();
     }
   }, [openDocumentPip, enterNativePiP]);
 
@@ -1034,12 +1035,12 @@ export function MeetingPiPWidget() {
     if (pipDrag.didDragRef.current) return;
     expandFromPiP();
     if (meetingId) {
-      navigate({ to: '/weldmeet/$meetingId/room', params: { meetingId } });
+      void navigate({ to: '/weldmeet/$meetingId/room', params: { meetingId } });
     }
   }, [expandFromPiP, navigate, meetingId, pipDrag.didDragRef]);
 
   const handleLeave = useCallback(() => {
-    leaveMeeting();
+    void leaveMeeting();
   }, [leaveMeeting]);
 
   const handleScreenShare = useCallback(() => {

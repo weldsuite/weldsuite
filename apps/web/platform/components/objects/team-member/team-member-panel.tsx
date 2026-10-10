@@ -144,7 +144,6 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
   const callCtx = useWeldChatCallOptional();
   const dmQuery = useDmByUser(profile?.userId ?? '');
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
-  const inCall = !!callCtx && callCtx.status !== 'idle' && callCtx.status !== 'ended';
 
   if (!profile) return null;
 
@@ -189,7 +188,7 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
                   variant="ghost"
                   className={iconButton}
                   onClick={() => handleCall('voice')}
-                  disabled={!dmChannelId || inCall}
+                  disabled={!dmChannelId}
                   aria-label={t('sweep.entities.call')}
                 >
                   <Phone className="h-4 w-4 text-muted-foreground" />
@@ -205,7 +204,7 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
                   variant="ghost"
                   className={iconButton}
                   onClick={() => handleCall('video')}
-                  disabled={!dmChannelId || inCall}
+                  disabled={!dmChannelId}
                   aria-label={t('sweep.shared.videoCall')}
                 >
                   <Video className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />

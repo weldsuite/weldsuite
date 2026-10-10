@@ -68,6 +68,47 @@ function seekWithKeyboard(
   media.currentTime = Math.max(0, Math.min(duration, media.currentTime + delta));
 }
 
+/**
+ * Native range input laid over a purely visual progress bar, so seeking gets
+ * pointer, touch and keyboard support (and slider semantics) from the browser.
+ */
+function SeekSlider({
+  mediaRef,
+  currentTime,
+  duration,
+  label,
+  className,
+}: Readonly<{
+  mediaRef: RefObject<HTMLMediaElement | null>;
+  currentTime: number;
+  duration: number;
+  label: string;
+  className?: string;
+}>) {
+  return (
+    <input
+      type="range"
+      min={0}
+      max={duration || 0}
+      step="any"
+      value={Math.min(currentTime, duration || 0)}
+      disabled={!duration}
+      aria-label={label}
+      aria-valuetext={`${formatTime(currentTime)} / ${formatTime(duration)}`}
+      onChange={(e) => {
+        if (mediaRef.current) mediaRef.current.currentTime = Number(e.target.value);
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => seekWithKeyboard(e, mediaRef.current, duration)}
+      className={cn(
+        'absolute inset-x-0 m-0 w-full cursor-pointer appearance-none bg-transparent opacity-0',
+        '[&::-webkit-slider-thumb]:size-0 [&::-webkit-slider-thumb]:appearance-none [&::-moz-range-thumb]:size-0 [&::-moz-range-thumb]:border-0',
+        className,
+      )}
+    />
+  );
+}
+
 /** Generate a deterministic waveform pattern from the attachment id */
 function generateWaveform(seed: string, count: number): number[] {
   let hash = 0;
@@ -156,14 +197,6 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
     }
   }, [isPlaying]);
 
-  const handleWaveformSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const audio = audioRef.current;
-    if (!audio || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audio.currentTime = pct * duration;
-  }, [duration]);
-
   const cycleRate = useCallback(() => {
     const next = (rateIndex + 1) % PLAYBACK_RATES.length;
     setRateIndex(next);
@@ -198,17 +231,16 @@ function AudioClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
 
         {/* Waveform */}
         <div
-          className="relative cursor-pointer select-none flex-1 min-w-0 overflow-hidden"
+          className="relative cursor-pointer select-none flex-1 min-w-0 overflow-hidden has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
           style={{ height: WAVEFORM_MAX_H }}
-          role="slider"
-          tabIndex={0}
-          aria-label={t.weldchat.clipPlayer.seek}
-          aria-valuemin={0}
-          aria-valuemax={Math.round(duration)}
-          aria-valuenow={Math.round(currentTime)}
-          onClick={handleWaveformSeek}
-          onKeyDown={(e) => seekWithKeyboard(e, audioRef.current, duration)}
         >
+          <SeekSlider
+            mediaRef={audioRef}
+            currentTime={currentTime}
+            duration={duration}
+            label={t.weldchat.clipPlayer.seek}
+            className="inset-y-0 h-full"
+          />
           <svg
             viewBox={`0 0 ${WAVEFORM_BAR_COUNT * 4} ${WAVEFORM_MAX_H}`}
             preserveAspectRatio="none"
@@ -335,14 +367,6 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
     }
   }, [isPlaying]);
 
-  const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const video = videoRef.current;
-    if (!video || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    video.currentTime = pct * duration;
-  }, [duration]);
-
   const cycleRate = useCallback(() => {
     const next = (rateIndex + 1) % PLAYBACK_RATES.length;
     setRateIndex(next);
@@ -374,20 +398,13 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
   return (
     <div className="max-w-[400px]">
       {/* Video */}
-      <div
-        className="relative rounded-lg overflow-hidden bg-black cursor-pointer group/video"
-        role="button"
-        tabIndex={0}
-        aria-label={t.weldchat.clipPlayer.playPause}
-        onClick={togglePlay}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            togglePlay();
-          }
-        }}
-      >
+      <div className="relative rounded-lg overflow-hidden bg-black group/video">
+        <button
+          type="button"
+          aria-label={t.weldchat.clipPlayer.playPause}
+          onClick={togglePlay}
+          className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
+        />
         <video
           ref={videoRef}
           src={attachment.url}
@@ -406,7 +423,7 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
         )}
 
         {/* Clip type badge */}
-        <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-medium opacity-0 group-hover/video:opacity-100 transition-opacity">
+        <div className="pointer-events-none absolute top-2 left-2 bg-black/60 text-white text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded font-medium opacity-0 group-hover/video:opacity-100 transition-opacity">
           {attachment.clipType}
         </div>
 
@@ -432,31 +449,28 @@ function VideoClipPlayer({ attachment, channelId, messageId }: Readonly<ClipPlay
         </div>
 
         {/* Duration badge — always visible, hides when hover controls show */}
-        <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded font-mono group-hover/video:opacity-0 transition-opacity">
+        <div className="pointer-events-none absolute bottom-2 right-2 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded font-mono group-hover/video:opacity-0 transition-opacity">
           {formatTime(duration)}
         </div>
 
         {/* Bottom controls — appear on hover */}
-        <div className="absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover/video:opacity-100 transition-opacity">
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 px-3 pb-2.5 pt-8 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover/video:opacity-100 transition-opacity">
           {/* Seek bar */}
-          <div
-            className="w-full h-1 bg-white/25 rounded-full cursor-pointer mb-2 group/seek hover:h-1.5 transition-all"
-            role="slider"
-            tabIndex={0}
-            aria-label={t.weldchat.clipPlayer.seek}
-            aria-valuemin={0}
-            aria-valuemax={Math.round(duration)}
-            aria-valuenow={Math.round(currentTime)}
-            onClick={(e) => { e.stopPropagation(); handleSeek(e); }}
-            onKeyDown={(e) => seekWithKeyboard(e, videoRef.current, duration)}
-          >
+          <div className="relative w-full h-1 bg-white/25 rounded-full mb-2 group/seek hover:h-1.5 transition-all pointer-events-auto has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white">
             <div
               className="h-full bg-white rounded-full transition-all duration-100"
               style={{ width: `${progress}%` }}
             />
+            <SeekSlider
+              mediaRef={videoRef}
+              currentTime={currentTime}
+              duration={duration}
+              label={t.weldchat.clipPlayer.seek}
+              className="-top-2 h-5"
+            />
           </div>
 
-          <div className="flex items-center justify-between">
+          <div className="pointer-events-auto flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <Button
                 variant="ghost"
@@ -536,14 +550,6 @@ function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipA
     else void video.play();
   }, [isPlaying]);
 
-  const handleSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const video = videoRef.current;
-    if (!video || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    video.currentTime = pct * duration;
-  }, [duration]);
-
   const toggleMute = useCallback(() => {
     if (videoRef.current) {
       videoRef.current.muted = !isMuted;
@@ -581,16 +587,19 @@ function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipA
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 animate-in fade-in-0 duration-200"
-      role="presentation"
-      onClick={onClose}
-      onMouseMove={resetHideTimer}
+      onPointerMove={resetHideTimer}
     >
+      {/* Backdrop: click outside the video to close (Escape also closes) */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={t.weldchat.clipPlayer.close}
+        onClick={onClose}
+        className="absolute inset-0 cursor-default"
+      />
+
       {/* Video wrapper — controls are positioned relative to this */}
-      <div
-        className="relative max-w-[90vw] max-h-[90vh] rounded-lg overflow-hidden"
-        role="presentation"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="relative max-w-[90vw] max-h-[90vh] rounded-lg overflow-hidden">
         <video
           ref={videoRef}
           src={attachment.url}
@@ -645,23 +654,20 @@ function VideoLightbox({ attachment, onClose }: Readonly<{ attachment: ChatClipA
           showControls ? "opacity-100" : "opacity-0 pointer-events-none"
         )}>
           {/* Seek bar */}
-          <div
-            className="w-full h-1 bg-white/25 rounded-full cursor-pointer mb-2.5 group/seek hover:h-1.5 transition-all"
-            role="slider"
-            tabIndex={0}
-            aria-label={t.weldchat.clipPlayer.seek}
-            aria-valuemin={0}
-            aria-valuemax={Math.round(duration)}
-            aria-valuenow={Math.round(currentTime)}
-            onClick={(e) => { e.stopPropagation(); handleSeek(e); }}
-            onKeyDown={(e) => seekWithKeyboard(e, videoRef.current, duration)}
-          >
+          <div className="relative w-full h-1 bg-white/25 rounded-full mb-2.5 group/seek hover:h-1.5 transition-all has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white">
             <div
               className="h-full bg-white rounded-full transition-all duration-100 relative"
               style={{ width: `${progress}%` }}
             >
               <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover/seek:opacity-100 transition-opacity shadow" />
             </div>
+            <SeekSlider
+              mediaRef={videoRef}
+              currentTime={currentTime}
+              duration={duration}
+              label={t.weldchat.clipPlayer.seek}
+              className="-top-2 h-5"
+            />
           </div>
 
           <div className="flex items-center justify-between">

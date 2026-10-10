@@ -77,8 +77,10 @@ app.post(
   async (c) => {
     const db = c.get('tenantDb');
     const { records } = c.req.valid('json');
+    const userId = c.get('userId');
     try {
-      const result = await companiesService.importCompanies(db, records);
+      // New rows default to the importing user as owner, like POST /companies.
+      const result = await companiesService.importCompanies(db, records, { defaultOwnerId: userId });
       for (const changed of result.changedRows) {
         publishEntityEvent({
           c,
@@ -171,7 +173,10 @@ app.post(
       });
       return success(c, created, 201);
     } catch (err) {
-      if (err instanceof companiesService.InvalidMemberIdError) {
+      if (
+        err instanceof companiesService.InvalidMemberIdError ||
+        err instanceof companiesService.InvalidStatusError
+      ) {
         return error.badRequest(c, err.message, { field: err.field });
       }
       console.error('[app-api/companies] create failed:', err);
@@ -211,7 +216,10 @@ app.patch(
       if (err instanceof companiesService.CompanyVersionConflictError) {
         return error.conflict(c, err.message);
       }
-      if (err instanceof companiesService.InvalidMemberIdError) {
+      if (
+        err instanceof companiesService.InvalidMemberIdError ||
+        err instanceof companiesService.InvalidStatusError
+      ) {
         return error.badRequest(c, err.message, { field: err.field });
       }
       console.error('[app-api/companies] update failed:', err);
@@ -338,7 +346,10 @@ app.post(
       }
       return success(c, { updated: result.updated, failed: result.failed });
     } catch (err) {
-      if (err instanceof companiesService.InvalidMemberIdError) {
+      if (
+        err instanceof companiesService.InvalidMemberIdError ||
+        err instanceof companiesService.InvalidStatusError
+      ) {
         return error.badRequest(c, err.message, { field: err.field });
       }
       console.error('[app-api/companies] bulk-update failed:', err);

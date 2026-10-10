@@ -469,4 +469,207 @@ describe('/api/opportunities · pglite integration', () => {
     expect(row?.status).toBe('lost');
     expect(row?.stageId).toBe(lostStage);
   });
+
+  // ---------------------------------------------------------------------------
+  // TASK-947: reopening / creating keeps probability in step with the stage.
+  // ---------------------------------------------------------------------------
+
+  function patchAs(userId: string) {
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: { userId, permissions: permissions('opportunities:update'), tenantDb: db },
+    });
+    return (id: string, body: Record<string, unknown>) =>
+      request(`/api/opportunities/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+  }
+
+  async function loadDeal(id: string) {
+    const [row] = await db
+      .select()
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, id))
+      .limit(1);
+    return row;
+  }
+
+  it('PATCH /:id status=open on a Won deal moves it to the first open stage with that stage\'s probability', async () => {
+    const { dealId, openStage } = await seedDealWithWonLostStages();
+    const patch = patchAs('user_won_lost_sync');
+    await patch(dealId, { status: 'won' });
+    expect((await loadDeal(dealId))?.probability).toBe(100);
+
+    const res = await patch(dealId, { status: 'open' });
+    expect(res.status).toBe(200);
+
+    const row = await loadDeal(dealId);
+    expect(row?.status).toBe('open');
+    expect(row?.stageId).toBe(openStage);
+    expect(row?.stage).toBe(openStage);
+    expect(row?.probability).toBe(25);
+    expect(row?.actualCloseDate).toBeNull();
+  });
+
+  it('PATCH /:id status=open keeps an explicitly supplied probability', async () => {
+    const { dealId } = await seedDealWithWonLostStages();
+    const patch = patchAs('user_won_lost_sync');
+    await patch(dealId, { status: 'lost' });
+
+    await patch(dealId, { status: 'open', probability: 60 });
+    const row = await loadDeal(dealId);
+    expect(row?.status).toBe('open');
+    expect(row?.probability).toBe(60);
+  });
+
+  it('PATCH /:id moving a Lost deal onto an open stage takes the stage probability', async () => {
+    const { dealId, openStage, lostStage } = await seedDealWithWonLostStages();
+    const patch = patchAs('user_won_lost_sync');
+    await patch(dealId, { stageId: lostStage });
+    expect((await loadDeal(dealId))?.probability).toBe(0);
+
+    await patch(dealId, { stageId: openStage });
+    const row = await loadDeal(dealId);
+    expect(row?.status).toBe('open');
+    expect(row?.probability).toBe(25);
+  });
+
+  it('PATCH /:id moving a Lost deal onto an open stage keeps an explicit probability from the same request', async () => {
+    const { dealId, openStage, lostStage } = await seedDealWithWonLostStages();
+    const patch = patchAs('user_won_lost_sync');
+    await patch(dealId, { stageId: lostStage });
+
+    await patch(dealId, { stageId: openStage, probability: 70 });
+    expect((await loadDeal(dealId))?.probability).toBe(70);
+  });
+
+  it('POST / without probability starts at the stage probability; explicit probability wins', async () => {
+    const { openStage } = await seedDealWithWonLostStages();
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: { userId: 'user_create_prob', permissions: permissions('opportunities:create'), tenantDb: db },
+    });
+    const post = async (body: Record<string, unknown>) => {
+      const res = await request('/api/opportunities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Prob deal', customerId: 'cust_prob', ...body }),
+      });
+      expect(res.status).toBe(201);
+      return ((await res.json()) as { data: { id: string } }).data.id;
+    };
+
+    expect((await loadDeal(await post({ stageId: openStage })))?.probability).toBe(25);
+    expect((await loadDeal(await post({ stageId: openStage, probability: 80 })))?.probability).toBe(80);
+  });
+
+  // ---------------------------------------------------------------------------
+  // TASK-949: currency must be a real ISO 4217 code.
+  // ---------------------------------------------------------------------------
+
+  it('POST / rejects an unknown currency code and accepts a real one', async () => {
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: { userId: 'user_cur', permissions: permissions('opportunities:create'), tenantDb: db },
+    });
+    const post = (currency: string) =>
+      request('/api/opportunities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Cur deal', customerId: 'cust_cur', currency }),
+      });
+    expect((await post('XYZ')).status).toBe(400);
+    const ok = await post('GBP');
+    expect(ok.status).toBe(201);
+    const id = ((await ok.json()) as { data: { id: string } }).data.id;
+    expect((await loadDeal(id))?.currency).toBe('GBP');
+  });
+
+  it('PATCH /:id rejects an unknown currency code', async () => {
+    const { dealId } = await seedDealInStage();
+    const res = await patchAs('user_stage_move')(dealId, { currency: 'XYZ' });
+    expect(res.status).toBe(400);
+    expect((await loadDeal(dealId))?.currency).toBe('EUR');
+  });
+
+  // ---------------------------------------------------------------------------
+  // TASK-1040: deals of a deleted company must stay on the board.
+  // ---------------------------------------------------------------------------
+
+  it('GET / still lists deals whose company was deleted, flagged companyDeleted', async () => {
+    const now = new Date();
+    const companyId = generateId('co');
+    await db.insert(schema.companies).values({
+      id: companyId,
+      name: 'Doomed Co',
+      displayName: 'Doomed Co',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const pipelineId = generateId('pl');
+    const liveDeal = generateId('opp');
+    const orphanDeal = generateId('opp');
+    const base = {
+      amount: '100',
+      currency: 'EUR',
+      stage: 'prospecting',
+      status: 'open',
+      ownerId: 'user_orphan',
+      closeDate: new Date(Date.now() + 86_400_000),
+      pipeline: pipelineId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.insert(schema.crmOpportunities).values([
+      { ...base, id: liveDeal, name: 'Live deal', customerId: companyId, customerName: 'Doomed Co' },
+      { ...base, id: orphanDeal, name: 'Orphan deal', customerId: 'co_never_existed' },
+    ]);
+    await db.update(schema.companies).set({ deletedAt: new Date() }).where(eq(schema.companies.id, companyId));
+
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: { userId: 'user_orphan', permissions: permissions('opportunities:read'), tenantDb: db },
+    });
+    const res = await request(`/api/opportunities?pipeline=${pipelineId}`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ id: string; companyDeleted: boolean }>;
+      pagination: { totalCount: number };
+    };
+    expect(body.pagination.totalCount).toBe(2);
+    const byId = new Map(body.data.map((d) => [d.id, d]));
+    expect(byId.get(liveDeal)?.companyDeleted).toBe(true);
+    expect(byId.get(orphanDeal)?.companyDeleted).toBe(true);
+
+    const one = await request(`/api/opportunities/${liveDeal}`);
+    expect(one.status).toBe(200);
+    expect(((await one.json()) as { data: { companyDeleted: boolean } }).data.companyDeleted).toBe(true);
+  });
+
+  it('GET / flags companyDeleted=false for a deal with a live company', async () => {
+    const now = new Date();
+    const companyId = generateId('co');
+    await db.insert(schema.companies).values({ id: companyId, name: 'Alive Co', displayName: 'Alive Co', createdAt: now, updatedAt: now });
+    const pipelineId = generateId('pl');
+    const dealId = generateId('opp');
+    await db.insert(schema.crmOpportunities).values({
+      id: dealId,
+      name: 'Alive deal',
+      customerId: companyId,
+      amount: '1',
+      currency: 'EUR',
+      stage: 'prospecting',
+      status: 'open',
+      ownerId: 'user_alive',
+      closeDate: new Date(Date.now() + 86_400_000),
+      pipeline: pipelineId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const { request } = createTestApp('/api/opportunities', opportunitiesRoutes, {
+      context: { userId: 'user_alive', permissions: permissions('opportunities:read'), tenantDb: db },
+    });
+    const res = await request(`/api/opportunities?pipeline=${pipelineId}`);
+    const body = (await res.json()) as { data: Array<{ id: string; companyDeleted: boolean }> };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]?.companyDeleted).toBe(false);
+  });
 });

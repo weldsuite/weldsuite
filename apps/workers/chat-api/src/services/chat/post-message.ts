@@ -28,6 +28,7 @@ import {
   checkSlowMode,
   getChannelFeatureFlags,
 } from './channel-features';
+import { isCrmEntityChannel, logEntityChannelMessageActivity } from './entity-activity';
 
 /** Thrown when a channel feature flag / slow-mode check rejects the send. */
 export class ChatFeatureError extends Error {
@@ -311,38 +312,41 @@ async function notifyThreadReply(fx: SendEffects, parentId: string, now: Date): 
     })
     .where(eq(chatMessages.id, parentId));
 
-  for (const participantId of participants) {
-    if (participantId === authorUserId) continue;
-    if (rt) {
-      try {
-        await rt.chatUserThreadReply(orgId, participantId, {
-          channelId,
-          parentMessageId: parentId,
-          replyMessageId: messageId,
-          authorName,
-          preview,
-        });
-      } catch (e) {
-        console.error('[app-api/chat] thread reply realtime publish failed:', e);
-      }
-    }
-    try {
-      await sendChatThreadReplyNotification({
-        db,
-        env,
-        workspaceId: orgId,
-        recipientUserId: participantId,
-        authorUserId,
-        authorName,
-        channelId,
-        parentMessageId: parentId,
-        replyMessageId: messageId,
-        preview,
-      });
-    } catch (e) {
-      console.error('[app-api/chat] thread reply notification failed:', e);
-    }
-  }
+  await Promise.all(
+    participants
+      .filter((participantId) => participantId !== authorUserId)
+      .map(async (participantId) => {
+        if (rt) {
+          try {
+            await rt.chatUserThreadReply(orgId, participantId, {
+              channelId,
+              parentMessageId: parentId,
+              replyMessageId: messageId,
+              authorName,
+              preview,
+            });
+          } catch (e) {
+            console.error('[app-api/chat] thread reply realtime publish failed:', e);
+          }
+        }
+        try {
+          await sendChatThreadReplyNotification({
+            db,
+            env,
+            workspaceId: orgId,
+            recipientUserId: participantId,
+            authorUserId,
+            authorName,
+            channelId,
+            parentMessageId: parentId,
+            replyMessageId: messageId,
+            preview,
+          });
+        } catch (e) {
+          console.error('[app-api/chat] thread reply notification failed:', e);
+        }
+      }),
+  );
 }
 
 /**
@@ -367,24 +371,27 @@ async function notifyDmRecipients(fx: SendEffects, allMentions: string[]): Promi
       .select({ userId: chatChannelMembers.userId })
       .from(chatChannelMembers)
       .where(eq(chatChannelMembers.channelId, channelId));
-    for (const m of dmMembers) {
-      if (m.userId === authorUserId || allMentions.includes(m.userId)) continue;
-      if (m.userId.startsWith('agt_')) continue;
-      try {
-        await sendChatDmNotification({
-          db,
-          env,
-          workspaceId: orgId,
-          recipientUserId: m.userId,
-          senderUserId: authorUserId,
-          senderName: fx.authorName,
-          channelId,
-          preview: fx.preview,
-        });
-      } catch (e) {
-        console.error('[app-api/chat] DM notification failed:', e);
-      }
-    }
+    const recipients = dmMembers.filter(
+      (m) => m.userId !== authorUserId && !allMentions.includes(m.userId) && !m.userId.startsWith('agt_'),
+    );
+    await Promise.all(
+      recipients.map(async (m) => {
+        try {
+          await sendChatDmNotification({
+            db,
+            env,
+            workspaceId: orgId,
+            recipientUserId: m.userId,
+            senderUserId: authorUserId,
+            senderName: fx.authorName,
+            channelId,
+            preview: fx.preview,
+          });
+        } catch (e) {
+          console.error('[app-api/chat] DM notification failed:', e);
+        }
+      }),
+    );
   } catch (e) {
     console.error('[app-api/chat] DM notification lookup failed:', e);
   }
@@ -406,41 +413,42 @@ async function notifyMentionedUsers(fx: SendEffects, allMentions: string[]): Pro
   const { rt, authorName, messageId, preview } = fx;
   const { chatChannelMembers } = schema;
 
-  for (const mentionedUserId of allMentions) {
-    if (!isNotifiableMention(mentionedUserId, authorUserId)) continue;
-
-    try {
-      await db
-        .update(chatChannelMembers)
-        .set({ unreadMentionCount: sql`${chatChannelMembers.unreadMentionCount} + 1` })
-        .where(and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, mentionedUserId)));
-    } catch (e) {
-      console.error('[app-api/chat] mention count increment failed:', e);
-    }
-
-    if (rt) {
+  const notifiable = allMentions.filter((mentionedUserId) => isNotifiableMention(mentionedUserId, authorUserId));
+  await Promise.all(
+    notifiable.map(async (mentionedUserId) => {
       try {
-        await rt.chatUserMention(orgId, mentionedUserId, { channelId, messageId, authorName, preview });
+        await db
+          .update(chatChannelMembers)
+          .set({ unreadMentionCount: sql`${chatChannelMembers.unreadMentionCount} + 1` })
+          .where(and(eq(chatChannelMembers.channelId, channelId), eq(chatChannelMembers.userId, mentionedUserId)));
       } catch (e) {
-        console.error('[app-api/chat] mention realtime publish failed:', e);
+        console.error('[app-api/chat] mention count increment failed:', e);
       }
-    }
-    try {
-      await sendChatMentionNotification({
-        db,
-        env,
-        workspaceId: orgId,
-        mentionedUserId,
-        authorUserId,
-        authorName,
-        channelId,
-        messageId,
-        preview,
-      });
-    } catch (e) {
-      console.error('[app-api/chat] mention notification failed:', e);
-    }
-  }
+
+      if (rt) {
+        try {
+          await rt.chatUserMention(orgId, mentionedUserId, { channelId, messageId, authorName, preview });
+        } catch (e) {
+          console.error('[app-api/chat] mention realtime publish failed:', e);
+        }
+      }
+      try {
+        await sendChatMentionNotification({
+          db,
+          env,
+          workspaceId: orgId,
+          mentionedUserId,
+          authorUserId,
+          authorName,
+          channelId,
+          messageId,
+          preview,
+        });
+      } catch (e) {
+        console.error('[app-api/chat] mention notification failed:', e);
+      }
+    }),
+  );
 }
 
 /** Tell every other human channel member their unread count moved. */
@@ -554,7 +562,7 @@ export async function postChatMessage(
   });
 
   const preview = input.content.length > 100 ? input.content.slice(0, 100) + '...' : input.content;
-  await db
+  const [channelRef] = await db
     .update(chatChannels)
     .set({
       lastMessageAt: now,
@@ -562,7 +570,23 @@ export async function postChatMessage(
       messageCount: sql`${chatChannels.messageCount} + 1`,
       updatedAt: now,
     })
-    .where(eq(chatChannels.id, channelId));
+    .where(eq(chatChannels.id, channelId))
+    .returning({
+      entityType: chatChannels.entityType,
+      entityId: chatChannels.entityId,
+      entityDisplayName: chatChannels.entityDisplayName,
+    });
+
+  // A message in a company / person channel (the CRM record composer) is also
+  // an entry in that record's Activity feed. Best-effort: never block the send.
+  if (channelRef && isCrmEntityChannel(channelRef)) {
+    await logEntityChannelMessageActivity(db, {
+      channel: channelRef,
+      authorUserId,
+      content: input.content,
+      createdAt: now,
+    }).catch((e) => console.error('[app-api/chat] entity activity log failed:', e));
+  }
 
   // Advance the author's own read marker to their just-sent message. Without
   // this, lastMessageAt jumps past the author's lastReadAt and their own DM/

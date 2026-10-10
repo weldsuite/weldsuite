@@ -343,7 +343,7 @@ export default function DocumentInboxPage() {
       header: '',
       width: 'w-[80px]',
       render: (doc) => (
-        <div className="flex items-center gap-1" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1">
           {doc.status === 'pending' && (
             <Button
               size="sm"

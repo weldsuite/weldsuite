@@ -11,8 +11,33 @@ import { z } from 'zod';
 // the wrapping `parties` row, not here. See `parties.ts` for that surface.
 // ============================================================================
 
+/**
+ * Canonical lifecycle stages for companies and people (the Details panel's
+ * Lifecycle picker, labelled via `crm.*.lifecycleStages`). Only NEW writes are
+ * validated against this list, so legacy free-text values already stored on a
+ * row stay readable. Keep in sync with `lifecycleStageSchema` in
+ * `@weldsuite/core-api-client/schemas/people`.
+ */
+export const LIFECYCLE_STAGES = [
+  'subscriber',
+  'lead',
+  'marketing_qualified',
+  'sales_qualified',
+  'opportunity',
+  'customer',
+  'evangelist',
+] as const;
+
+export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
+
+export const lifecycleStageSchema = z.enum(LIFECYCLE_STAGES);
+
 const addressSchema = z
   .object({
+    // Shared PostalAddress shape (what `primary_address` stores and the record
+    // panel's address editor writes). `street` / `houseNumber` are the older keys.
+    line1: z.string().optional(),
+    line2: z.string().optional(),
     street: z.string().optional(),
     houseNumber: z.string().optional(),
     postalCode: z.string().optional(),
@@ -47,7 +72,7 @@ function isValidWebsiteValue(raw: string): boolean {
   }
 }
 
-const websiteSchema = z
+export const websiteSchema = z
   .string()
   .max(500)
   .refine((v) => v === '' || isValidWebsiteValue(v), {
@@ -56,7 +81,7 @@ const websiteSchema = z
   .transform((v) => (v === '' ? v : normalizeWebsiteValue(v)))
   .optional();
 
-const employeeCountSchema = z
+export const employeeCountSchema = z
   .string()
   .max(50)
   .refine((v) => v === '' || /^\d+(-\d+)?\+?$/.test(v), {
@@ -100,7 +125,7 @@ export const createCompanySchema = z.object({
 
   // Lifecycle / classification
   status: z.string().optional(),
-  lifecycleStage: z.string().optional(),
+  lifecycleStage: lifecycleStageSchema.nullish(),
   segment: z.string().optional(),
   rating: z.string().optional(),
   source: z.string().optional(),
@@ -134,7 +159,16 @@ export const createCompanySchema = z.object({
 });
 
 export const updateCompanySchema = createCompanySchema.partial().extend({
+  // Nullable on update so the record panel's address editor can clear the address.
+  primaryAddress: addressSchema.nullish(),
+  /**
+   * Optimistic concurrency: the `version` the client last saw. When present
+   * and it no longer matches the row, the write is rejected with 409 CONFLICT
+   * instead of overwriting someone else's change. `version` and `ifVersion`
+   * are the same thing; omit both to write unconditionally.
+   */
   ifVersion: z.number().int().positive().optional(),
+  version: z.number().int().positive().optional(),
 });
 
 export const listCompaniesQuery = z.object({
@@ -185,7 +219,7 @@ export const bulkUpdateCompaniesSchema = z.object({
       ownerId: z.string().nullable().optional(),
       accountManagerId: z.string().nullable().optional(),
       status: z.string().optional(),
-      lifecycleStage: z.string().optional(),
+      lifecycleStage: lifecycleStageSchema.optional(),
     })
     .refine(
       (v) =>
@@ -248,6 +282,38 @@ export const importCompanyRecordSchema = z.object({
   // User-defined custom fields, keyed by definition slug. Values are
   // already coerced (number/boolean/array) client-side per field type.
   customFields: z.record(z.unknown()).optional(),
+});
+
+/**
+ * Per-row checks applied by the import service. They live here (not in
+ * `importCompanyRecordSchema`) on purpose: the request-level schema must stay
+ * lenient so one bad cell does not reject the whole batch with a 400; the
+ * service runs this against each record and reports failures in the per-row
+ * error list. It reuses the same website / employeeCount validators as
+ * `createCompanySchema`, so import and create accept exactly the same values.
+ * Empty cells count as "not provided". Parsed output carries the normalized
+ * values (e.g. `acme.com` -> `https://acme.com`).
+ */
+const emptyToUndefined = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
+
+export const importRecordValidationSchema = z.object({
+  email: z.preprocess(
+    (v) => (typeof v === 'string' ? emptyToUndefined(v.trim()) : v),
+    z.string().email('Email must be a valid email address').optional(),
+  ),
+  website: z.preprocess((v) => (typeof v === 'string' ? emptyToUndefined(v.trim()) : v), websiteSchema),
+  employeeCount: z.preprocess(
+    (v) => (typeof v === 'string' ? emptyToUndefined(v.trim()) : v),
+    employeeCountSchema,
+  ),
+  lifecycleStage: z.preprocess(
+    (v) => (typeof v === 'string' ? emptyToUndefined(v.trim().toLowerCase().replace(/[\s-]+/g, '_')) : v),
+    z
+      .enum(LIFECYCLE_STAGES, {
+        errorMap: () => ({ message: `Lifecycle stage must be one of: ${LIFECYCLE_STAGES.join(', ')}` }),
+      })
+      .optional(),
+  ),
 });
 
 export const importCompaniesSchema = z.object({

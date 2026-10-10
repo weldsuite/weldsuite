@@ -11,8 +11,7 @@
  * Permissions: activities:read | activities:create | activities:update | activities:delete.
  */
 
-import { Hono } from 'hono';
-import type { Context } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';

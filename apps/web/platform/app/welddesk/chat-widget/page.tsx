@@ -81,17 +81,7 @@ export default function ChatWidgetPage() {
     return (
       <div
         key={widget.id}
-        role="button"
-        tabIndex={0}
-        onClick={openWidget}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            openWidget();
-          }
-        }}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group"
       >
         {/* Name */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2">
@@ -114,8 +104,14 @@ export default function ChatWidgetPage() {
           </span>
         </div>
 
+        <button
+          type="button"
+          aria-label={widget.widgetName}
+          onClick={openWidget}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        />
         {/* Actions */}
-        <div role="presentation" className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-10 w-[40px] flex justify-end">
           {widgets.length > 1 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

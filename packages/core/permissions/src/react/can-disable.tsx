@@ -17,7 +17,7 @@
  */
 
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { cloneElement, isValidElement, type ReactElement } from 'react';
+import { cloneElement, isValidElement, type MouseEvent, type ReactElement } from 'react';
 import { usePermissionsMaybe } from './provider';
 
 export interface CanDisableProps {
@@ -138,6 +138,12 @@ export function CanDisable({
 
   const clonedChild = cloneElement(children, {
     ...childProps,
+    // Swallow clicks so callers can't accidentally bypass the disable (covers
+    // children that `disabled` doesn't stop, e.g. links and divs).
+    onClick: (e: MouseEvent<HTMLElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+    },
     disabled: true,
     ...(visualDisabled ? { 'aria-disabled': true } : {}),
     ...(disabledClassName ? { className: disabledClassName } : {}),
@@ -153,16 +159,7 @@ export function CanDisable({
            * Wrapping span ensures hover events fire even when the inner element
            * is `disabled` (HTML disabled controls don't dispatch pointer events).
            */}
-          <span
-            className="inline-flex"
-            // Stop click bubbling so callers can't accidentally bypass the disable.
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          >
-            {clonedChild}
-          </span>
+          <span className="inline-flex">{clonedChild}</span>
         </TooltipPrimitive.Trigger>
         <TooltipPrimitive.Portal>
           <TooltipPrimitive.Content

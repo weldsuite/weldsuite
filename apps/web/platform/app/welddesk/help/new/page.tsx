@@ -1,5 +1,6 @@
 
 import { useState, useRef, useEffect, KeyboardEvent, DragEvent } from 'react';
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { useRouter, useSearchParams, Link } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -188,10 +189,11 @@ export default function NewHelpArticlePage() {
   const th = t.helpdesk.helpArticles;
   const initialCategory = searchParams.get('category') || '';
 
-  const titleRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const [title, setTitle] = useState('');
+  useAutosizeTextarea(titleRef, title);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [content, setContent] = useState('');
@@ -387,12 +389,11 @@ export default function NewHelpArticlePage() {
     });
   };
 
-  const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const text = e.currentTarget.textContent || '';
-    setTitle(text);
+  const handleTitleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setTitle(e.target.value.replaceAll('\n', ''));
   };
 
-  const handleTitleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+  const handleTitleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (contentRef.current) {
@@ -1613,27 +1614,16 @@ export default function NewHelpArticlePage() {
         />
 
         {/* Title */}
-        <div
+        <textarea
           ref={titleRef}
-          role="textbox"
-          tabIndex={0}
-          aria-label={th.untitled}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleTitleInput}
+          rows={1}
+          value={title}
+          onChange={handleTitleChange}
           onKeyDown={handleTitleKeyDown}
+          placeholder={th.untitled}
+          aria-label={th.untitled}
           dir="ltr"
-          className={cn(
-            "text-4xl font-bold outline-none mb-4 leading-[1.2]",
-            "empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/40"
-          )}
-          data-placeholder={th.untitled}
-          style={{
-            caretColor: 'currentColor',
-            direction: 'ltr',
-            unicodeBidi: 'normal',
-            textAlign: 'left',
-          }}
+          className="mb-2 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-4xl font-bold leading-[1.2] outline-none placeholder:text-muted-foreground/40"
         />
 
 

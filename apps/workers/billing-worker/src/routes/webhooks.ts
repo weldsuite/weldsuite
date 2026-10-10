@@ -459,7 +459,7 @@ async function loadCheckoutSubscriptionDetails(
   periodStart: Date | null;
   periodEnd: Date | null;
 }> {
-  let purchasedSeats = seatsStr ? parseInt(seatsStr, 10) : 0;
+  let purchasedSeats = seatsStr ? Number.parseInt(seatsStr, 10) : 0;
   let cycle: 'monthly' | 'yearly' = 'monthly';
   let periodStart: Date | null = null;
   let periodEnd: Date | null = null;
@@ -1371,7 +1371,7 @@ async function handleCreditTopupCheckout(
 
   // Authoritative credit amount from the package row; metadata is the fallback
   // (packages are global/admin-managed, metadata could be stale or tampered).
-  let credits = parseInt(session.metadata?.credits ?? '', 10);
+  let credits = Number.parseInt(session.metadata?.credits ?? '', 10);
   if (packageId) {
     const [pkg] = await masterDb
       .select({ credits: masterSchema.creditPackages.credits })

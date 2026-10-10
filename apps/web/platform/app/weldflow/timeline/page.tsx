@@ -46,7 +46,6 @@ import {
 import { Badge } from "@weldsuite/ui/components/badge";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "@weldsuite/i18n/client";
-import { activateOnKey } from "@/lib/activate-on-key";
 
 interface Task {
   id: string;
@@ -311,7 +310,7 @@ export default function TimelinePage() {
 
   // Handle sidebar resize
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       if (!isDragging) return;
       const newWidth = e.clientX;
       if (newWidth > 300 && newWidth < 600) {
@@ -319,18 +318,20 @@ export default function TimelinePage() {
       }
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       setIsDragging(false);
     };
 
     if (isDragging) {
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
+      document.addEventListener("pointermove", handlePointerMove);
+      document.addEventListener("pointerup", handlePointerUp);
+      document.addEventListener("pointercancel", handlePointerUp);
     }
 
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [isDragging]);
 
@@ -503,21 +504,24 @@ export default function TimelinePage() {
                 <div
                   key={task.id}
                   className={cn(
-                    "task-list-item",
+                    "task-list-item relative",
                     isParent && "parent",
                     selectedTask?.id === task.id && "selected"
                   )}
                   style={{ paddingLeft: `${16 + indentLevel * 24}px` }}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSelectedTask(task)}
-                  onKeyDown={activateOnKey(() => setSelectedTask(task))}
                 >
+                  {/* Row click target: stretched button; the expander and tooltip sit above it */}
+                  <button
+                    type="button"
+                    aria-label={task.name}
+                    onClick={() => setSelectedTask(task)}
+                    className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  />
                   {isParent && (
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="mr-2 p-0"
+                      className="relative z-[1] mr-2 p-0"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleTaskExpansion(task.id);
@@ -540,7 +544,7 @@ export default function TimelinePage() {
                   {task.assignee && (
                     <TooltipProvider>
                       <Tooltip>
-                        <TooltipTrigger>
+                        <TooltipTrigger className="relative z-[1]" onClick={() => setSelectedTask(task)}>
                           <div className="task-assignee">
                             {task.assignee.charAt(0).toUpperCase()}
                           </div>
@@ -563,8 +567,9 @@ export default function TimelinePage() {
           <div
             ref={resizeRef}
             className="resize-handle"
-            onMouseDown={() => setIsDragging(true)}
+            onPointerDown={() => setIsDragging(true)}
             style={{
+              touchAction: 'none',
               position: 'absolute',
               top: 0,
               right: 0,

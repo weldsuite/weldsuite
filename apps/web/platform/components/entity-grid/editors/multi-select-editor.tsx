@@ -24,15 +24,35 @@ export function MultiSelectEditor({
   onChange,
   options,
   optionConfig,
+  allowCreate,
   onOpenChange,
 }: MultiSelectEditorProps & { onOpenChange?: (open: boolean) => void }) {
   const t = useTranslations();
   const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
+    if (!next) setSearch('');
     onOpenChange?.(next);
   };
   const selectedValues = value || [];
+
+  // Values already on the record stay listed (so they can be toggled off)
+  // even when they are not in the suggested options.
+  const allOptions = allowCreate
+    ? [...options, ...selectedValues.filter((v) => !options.includes(v))]
+    : options;
+  const trimmedSearch = search.trim();
+  const canCreate =
+    !!allowCreate &&
+    trimmedSearch.length > 0 &&
+    !allOptions.some((o) => o.toLowerCase() === trimmedSearch.toLowerCase());
+
+  const handleCreate = () => {
+    if (!canCreate) return;
+    onChange?.([...selectedValues, trimmedSearch]);
+    setSearch('');
+  };
 
   const handleToggle = (option: string) => {
     const newValues = selectedValues.includes(option)
@@ -81,11 +101,26 @@ export function MultiSelectEditor({
       </PopoverTrigger>
       <PopoverContent className="w-48 p-0" align="start" sideOffset={9} alignOffset={-12} collisionPadding={12}>
         <Command>
-          <CommandInput placeholder={t('sweep.entities.searchEllipsisPlaceholder')} />
+          <CommandInput
+            placeholder={t('sweep.entities.searchEllipsisPlaceholder')}
+            value={search}
+            onValueChange={setSearch}
+          />
           <CommandList>
-            <CommandEmpty>{t('sweep.entities.noOptionFound')}</CommandEmpty>
+            {!canCreate && <CommandEmpty>{t('sweep.entities.noOptionFound')}</CommandEmpty>}
             <CommandGroup className="px-1 py-1">
-              {options.map((option) => {
+              {/* First, so Enter on a typed value creates it. */}
+              {canCreate && (
+                <CommandItem
+                  key="__create__"
+                  value={`__create__${trimmedSearch}`}
+                  forceMount
+                  onSelect={handleCreate}
+                >
+                  <span>{t('sweep.entities.createOptionFromSearch', { value: trimmedSearch })}</span>
+                </CommandItem>
+              )}
+              {allOptions.map((option) => {
                 const config = optionConfig?.[option];
                 const isSelected = selectedValues.includes(option);
                 return (

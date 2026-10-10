@@ -209,6 +209,45 @@ export function playOutgoingRingSound(): void {
   } catch (e) { console.warn('Outgoing ring sound failed:', e); }
 }
 
+/**
+ * Incoming ring — two quiet low taps (F4): a sine with a short-lived octave on
+ * top, so it reads as a soft knock rather than a beep. The callee UI loops
+ * this while the incoming call popup is up.
+ *
+ * Unlike the one-shot sounds, this skips the round while the context is still
+ * autoplay-suspended: tones scheduled on a suspended context all pile up at
+ * the same instant and would play stacked the moment it resumes.
+ */
+export function playIncomingRingSound(): void {
+  try {
+    const ctx = getAudioContext();
+    if (ctx.state !== 'running') {
+      resumeIfSuspended(ctx);
+      return;
+    }
+    const partials = [
+      { ratio: 1, level: 0.16, decay: 0.28 },
+      { ratio: 2, level: 0.02, decay: 0.12 },
+    ];
+    for (const tap of [0, 0.3]) {
+      const start = ctx.currentTime + tap;
+      for (const { ratio, level, decay } of partials) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = 349 * ratio;
+        gain.gain.setValueAtTime(0, start);
+        gain.gain.linearRampToValueAtTime(level, start + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.01 + decay);
+        osc.start(start);
+        osc.stop(start + decay + 0.04);
+      }
+    }
+  } catch (e) { console.warn('Incoming ring sound failed:', e); }
+}
+
 /** Mute — single quiet low note */
 export function playMuteSound(): void {
   try {

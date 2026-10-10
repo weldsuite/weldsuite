@@ -148,13 +148,16 @@ plain JS objects. Every new user-visible string needs an entry in **both**
   applies branding, renders `PortalTopbar`, redirects to login on 401 — see
   `lib/client.ts`)
 - `app/[workspace]/(portal)/me/**` — employee pages (home, schedule, leave,
-  declarations, coaching, evaluations, tasks, performance)
+  declarations, payslips, payroll details, coaching, evaluations, tasks,
+  performance)
 - `app/[workspace]/(portal)/client/**` — client pages (overview, team member,
   milestones, requests)
 - `app/api/auth/*` — request/verify/select/logout route handlers; these are
   the only place the session token touches a `Set-Cookie` header
-- `app/api/portal/[...path]/route.ts` — generic authenticated proxy used by
-  every other endpoint (`/config`, `/me`, `/employee/*`, `/client/*`)
+- `app/api/portal/[...path]/route.ts` — generic authenticated proxy (GET, POST
+  and PUT) used by every other endpoint (`/config`, `/me`, `/employee/*`,
+  `/client/*`); it passes `content-type` and `content-disposition` through,
+  which is how payslip PDFs reach the browser
 - `lib/types.ts` — response shapes mirroring
   `apps/workers/app-api/src/services/weldhr/{portal-self-service,client-view}.ts`.
   `HrClientView` mirrors the type of the same name in
@@ -162,6 +165,41 @@ plain JS objects. Every new user-visible string needs an entry in **both**
 - `lib/client.ts` — browser-side fetch helpers; redirect to `/<slug>/login`
   on a `401` is centralized here
 - `middleware.ts` — custom-domain → slug rewrite (see above)
+- `components/payroll/`, `lib/payroll/` — payroll self-service (below)
+
+## Payroll self-service
+
+Employees of a workspace with WeldHR payroll switched on get two more pages
+(`/employee/{payslips,annual-statements,payroll-details,tax-elections}` on
+`/public/hr-portal`, which mirror the platform's `/api/weldhr/me` endpoints):
+
+- `me/payslips` — payslips, newest first, each a PDF download, plus the annual
+  statements (NL jaaropgaaf, US W-2). Downloads go through
+  `portalDownload` in `lib/client.ts`, which keeps API errors and an expired
+  session on the page instead of showing JSON in a new tab.
+- `me/payroll` — what payroll holds about the employee (masked), the form to
+  add what is missing (BSN/SSN, date of birth, bank account, home address, ID
+  document) and the tax forms to sign with a typed name: NL the
+  loonheffingskorting choice, US the federal W-4 plus each state's withholding
+  certificate. Only what changed is sent, so a number shown masked is never
+  overwritten by leaving it alone.
+
+The payroll endpoints answer 404 when the workspace has not enabled payroll.
+`usePayrollStatus` (`lib/hooks/use-payroll-status.ts`) asks once for the
+details; a failure hides the two navigation entries, a success shows them with a
+dot while details are missing or a form is unsigned (the same signal drives the
+reminder on the home page). That probe has its own cache key on purpose, see the
+comment there. Opening a payroll URL directly on a workspace without payroll
+shows the generic error state.
+
+Types in `lib/payroll/types.ts` are local copies of
+`packages/clients/app-api-client/src/domains/weldhr-payroll.ts` and its schemas
+(this app depends on neither that package nor `@weldsuite/payroll-domain`).
+The state withholding certificates are the one thing the portal would read from
+the domain package (`stateModule(code).certificate`); until that dependency is
+added, `lib/payroll/state-certificates.ts` has no definitions and every state
+shows the generic certificate (filing status, allowances, extra withholding,
+exempt). The header of that file says how to switch.
 
 ## Verification
 

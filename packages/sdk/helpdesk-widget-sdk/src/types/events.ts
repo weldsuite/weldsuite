@@ -17,7 +17,7 @@ export type WidgetEventType =
  * Base widget event structure
  */
 export interface WidgetEvent<T = any> {
-  type: WidgetEventType | string;
+  type: string;
   data?: T;
   timestamp?: number;
 }
@@ -91,7 +91,7 @@ export interface WidgetEventListenerOptions {
   /**
    * Event type to listen for
    */
-  type: WidgetEventType | string;
+  type: string;
 
   /**
    * Callback function

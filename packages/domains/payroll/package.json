@@ -1,0 +1,41 @@
+{
+  "name": "@weldsuite/payroll-domain",
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./money": "./src/money.ts",
+    "./periods": "./src/periods.ts",
+    "./components": "./src/components.ts",
+    "./nl": "./src/nl/index.ts",
+    "./nl/*": "./src/nl/*.ts",
+    "./us": "./src/us/index.ts",
+    "./us/states": "./src/us/states/index.ts",
+    "./us/states/*": "./src/us/states/*.ts",
+    "./us/*": "./src/us/*.ts",
+    "./sepa": "./src/sepa.ts",
+    "./nacha": "./src/nacha.ts",
+    "./payslip-pdf": "./src/payslip-pdf.ts",
+    "./documents": "./src/documents.ts",
+    "./labels": "./src/labels.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'no lint configured'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "@weldsuite/typescript-config": "workspace:*",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

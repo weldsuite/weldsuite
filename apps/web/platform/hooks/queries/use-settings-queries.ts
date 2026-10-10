@@ -1062,10 +1062,14 @@ export function useUpdateMailLastAccount() {
 
 // app-api /api/grid-views/:gridName (was api-worker /settings/grid-views/:gridName).
 
+/** Query key of one grid's saved view; the entity grid writes the cache after each save. */
+export const gridViewQueryKey = (gridName: string) =>
+  [...settingsKeys.all, 'grid-view', gridName] as const;
+
 export function useGridViewSettings(gridName: string, enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
-    queryKey: [...settingsKeys.all, 'grid-view', gridName] as const,
+    queryKey: gridViewQueryKey(gridName),
     queryFn: async () => {
       const client = await getClient();
       const result = await client.get<{

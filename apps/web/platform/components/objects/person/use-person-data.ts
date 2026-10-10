@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
 import { buildQueryString } from '@weldsuite/api-client';
 import type {
   Person,
@@ -265,6 +266,7 @@ export function useCreatePerson() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: personKeys.lists() });
+      invalidateOnboardingChecklist(qc);
     },
     onError: (err) => {
       console.error('[People] create failed:', err);
@@ -487,6 +489,7 @@ export function useImportPeople() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: personKeys.lists() });
+      invalidateOnboardingChecklist(qc);
     },
   });
 }

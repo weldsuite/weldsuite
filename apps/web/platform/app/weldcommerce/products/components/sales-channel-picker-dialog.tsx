@@ -54,7 +54,7 @@ export function SalesChannelPickerDialog({
   onConfirm: (payload: AddSalesChannelPayload) => Promise<void> | void;
   isSaving?: boolean;
   defaultPrice?: string | number | null;
-  defaultListingStatus?: SalesChannelListingStatus | string | null;
+  defaultListingStatus?: string | null;
 }>) {
   const t = getTranslations('commerce').module;
   const tc = getTranslations('common');

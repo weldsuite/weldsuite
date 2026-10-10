@@ -118,10 +118,12 @@ export function GridToolbar({
   };
 
   return (
-    <div className="bg-background sticky top-0 z-10 w-full border-b border-border" style={{ paddingTop: '10px', paddingBottom: '10px' }}>
-      <div className="flex items-center gap-2 px-3 md:px-0 overflow-x-auto md:overflow-x-visible md:flex-wrap md:justify-between w-full">
+    // `@container`: the toolbar compacts by its own width, not the viewport's,
+    // so it also fits when a detail panel narrows the page beside it.
+    <div className="@container bg-background sticky top-0 z-10 w-full border-b border-border" style={{ paddingTop: '10px', paddingBottom: '10px' }}>
+      <div className="flex items-center gap-2 px-3 md:px-0 overflow-x-auto [scrollbar-width:none] md:flex-nowrap md:justify-between w-full">
         <div className={cn(
-          "flex items-center gap-2 md:flex-shrink md:flex-wrap md:pl-4 transition-all duration-200 ease-out",
+          "flex items-center gap-2 md:flex-shrink-0 md:pl-4 transition-all duration-200 ease-out",
           searchOpen
             ? "max-w-0 opacity-0 overflow-hidden pointer-events-none md:max-w-none md:opacity-100 md:overflow-visible md:pointer-events-auto"
             : "max-w-full opacity-100 flex-shrink-0",
@@ -221,8 +223,8 @@ export function GridToolbar({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-8 text-sm px-3 shadow-none text-muted-foreground">
-                <span className="md:hidden">{t('sweep.entities.viewsShort')}</span>
-                <span className="hidden md:inline">{t('sweep.entities.viewSettings')}</span>
+                <span className="@min-[761px]:hidden">{t('sweep.entities.viewsShort')}</span>
+                <span className="hidden @min-[761px]:inline">{t('sweep.entities.viewSettings')}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/10 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
@@ -263,7 +265,7 @@ export function GridToolbar({
         </div>
 
         <div className={cn(
-          "flex items-center gap-2 md:flex-shrink md:flex-wrap md:pr-4 md:ml-auto transition-all duration-200 ease-out",
+          "flex items-center gap-2 md:flex-shrink-0 md:pr-4 md:ml-auto transition-all duration-200 ease-out",
           searchOpen ? "flex-1 ml-0 md:flex-none md:ml-auto" : "flex-shrink-0 ml-auto",
         )}>
           {/* Search */}
@@ -281,11 +283,17 @@ export function GridToolbar({
           {(onExportCSV || onExportExcel || onImport) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className={cn(
-                  "hidden md:flex h-8 text-sm px-3 shadow-none text-muted-foreground",
-                  searchOpen && "md:flex",
-                )}>
-                  {t('sweep.entities.importExport')}
+                <Button
+                  variant="outline"
+                  aria-label={t('sweep.entities.importExport')}
+                  className={cn(
+                    "hidden md:flex h-8 text-sm px-3 shadow-none text-muted-foreground",
+                    searchOpen && "md:flex",
+                  )}
+                >
+                  {/* Narrow toolbar: the label collapses to an icon. */}
+                  <span className="hidden @min-[761px]:inline">{t('sweep.entities.importExport')}</span>
+                  <FileSpreadsheet className="h-4 w-4 @min-[761px]:hidden" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 ">
@@ -521,7 +529,7 @@ function GridFilterPills<TEntity>({
                 <PopoverTrigger asChild>
                   <Button variant="ghost" className="flex items-center px-2 h-full hover:bg-muted transition-colors">
                     {filter.value ? (
-                      <span className="text-foreground">{getValueLabel(filter.field, String(filter.value))}</span>
+                      <span className="text-foreground">{getValueLabel(filter.field, asText(filter.value))}</span>
                     ) : (
                       <span className="text-muted-foreground/60">{t('sweep.entities.enterValue')}</span>
                     )}
@@ -647,7 +655,7 @@ export function SearchIconButton({
       <div
         className={cn(
           "flex items-center transition-all duration-200 ease-out",
-          searchOpen ? "w-full md:w-48" : "w-8",
+          searchOpen ? "max-md:w-full md:@max-[760px]:w-32 md:@min-[761px]:w-48" : "w-8",
         )}
       >
         <Button
@@ -663,7 +671,7 @@ export function SearchIconButton({
         </Button>
         <div className={cn(
           "relative transition-all duration-200 ease-out",
-          searchOpen ? "opacity-100 w-full md:w-48" : "opacity-0 w-0 pointer-events-none"
+          searchOpen ? "opacity-100 max-md:w-full md:@max-[760px]:w-32 md:@min-[761px]:w-48" : "opacity-0 w-0 pointer-events-none"
         )}>
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
