@@ -81,6 +81,11 @@ export interface ListTableProps<T> {
   data: T[];
   rowKey?: (row: T, index: number) => string;
   onRowClick?: (row: T) => void;
+  /**
+   * Accessible name for the row's click target when `onRowClick` is set.
+   * Defaults to the text of the row's first visible column.
+   */
+  rowLabel?: (row: T) => string;
   actions?: ListTableAction<T>[];
   actionsRenderer?: (row: T) => React.ReactNode;
 
@@ -106,6 +111,13 @@ export interface ListTableProps<T> {
 // ---------------------------------------------------------------------------
 // Width helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Cells of a clickable row sit above the stretched row button but let pointer
+ * events fall through to it, except on their own interactive content.
+ */
+const ROW_CELL_CLICK_THROUGH =
+  'relative z-[1] pointer-events-none [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto [&_label]:pointer-events-auto [&_[role=button]]:pointer-events-auto [&_[role=checkbox]]:pointer-events-auto [&_[role=switch]]:pointer-events-auto [&_[role=combobox]]:pointer-events-auto [&_[role=link]]:pointer-events-auto';
 
 function widthClass(width?: string | number): string | undefined {
   if (width === undefined) return 'flex-1';
@@ -297,6 +309,7 @@ export function ListTable<T>({
   data,
   rowKey,
   onRowClick,
+  rowLabel,
   actions,
   actionsRenderer,
   emptyState,
@@ -309,6 +322,7 @@ export function ListTable<T>({
   groups,
   ungroupedLabel,
 }: Readonly<ListTableProps<T>>) {
+  const tableId = React.useId();
   const visibleColumns = columns.filter((c) => !c.hidden);
   const showActions = !!actionsRenderer || (actions && actions.length > 0);
 
@@ -322,31 +336,32 @@ export function ListTable<T>({
   );
 
   // ─── Row renderer ──────────────────────────────────────────────────────
-  const renderRow = (row: T, idx: number) => (
+  const renderRow = (row: T, idx: number) => {
+    const key = resolveKey(row, idx);
+    const firstCellId = `${tableId}-${key.replaceAll(/\s+/g, '_')}-first`;
+    const rowLabelText = rowLabel?.(row);
+    return (
     <div
-      key={resolveKey(row, idx)}
-      onClick={onRowClick ? () => onRowClick(row) : undefined}
-      role={onRowClick ? 'button' : undefined}
-      tabIndex={onRowClick ? 0 : undefined}
-      onKeyDown={
-        onRowClick
-          ? (e) => {
-              if (e.target !== e.currentTarget) return;
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onRowClick(row);
-              }
-            }
-          : undefined
-      }
+      key={key}
       className={cn(
-        'group flex items-center px-4 border-b border-border/70 transition-colors',
+        'group relative flex items-center px-4 border-b border-border/70 transition-colors',
         dense ? 'py-2' : 'py-3',
         columnGap,
-        onRowClick && 'cursor-pointer hover:bg-muted/40',
+        onRowClick && 'hover:bg-muted/40',
       )}
     >
-      {visibleColumns.map((col) => {
+      {/* Stretched row button: sits behind the cells; cells let clicks fall
+          through to it except on their own interactive content. */}
+      {onRowClick ? (
+        <button
+          type="button"
+          aria-label={rowLabelText}
+          aria-labelledby={rowLabelText === undefined ? firstCellId : undefined}
+          onClick={() => onRowClick(row)}
+          className="absolute inset-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
+      ) : null}
+      {visibleColumns.map((col, colIdx) => {
         let content: React.ReactNode = null;
         if (col.cell) {
           content = col.cell(row, idx);
@@ -356,8 +371,10 @@ export function ListTable<T>({
         return (
           <div
             key={col.id}
+            id={colIdx === 0 ? firstCellId : undefined}
             className={cn(
               'min-w-0 flex items-center',
+              onRowClick && ROW_CELL_CLICK_THROUGH,
               widthClass(col.width),
               alignClass(col.align),
               col.className,
@@ -369,10 +386,7 @@ export function ListTable<T>({
         );
       })}
       {showActions ? (
-        <div
-          className="w-[40px] flex justify-end"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="relative z-[1] w-[40px] flex justify-end">
           {actionsRenderer ? (
             actionsRenderer(row)
           ) : (
@@ -381,7 +395,8 @@ export function ListTable<T>({
         </div>
       ) : null}
     </div>
-  );
+    );
+  };
 
   // ─── Partition into buckets ────────────────────────────────────────────
   const buckets = React.useMemo(() => partitionIntoBuckets(groups, data), [groups, data]);

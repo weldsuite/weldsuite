@@ -720,8 +720,8 @@ export const GanttColumn: FC<GanttColumnProps> = ({
         'group relative h-full overflow-hidden',
         isColumnSecondary?.(index) ? 'bg-secondary' : ''
       )}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onPointerEnter={handleMouseEnter}
+      onPointerLeave={handleMouseLeave}
       ref={mouseRef}
     >
       {!dragging && hovering && gantt.onAddItem ? (

@@ -352,7 +352,7 @@ function AnimatedShell({
   const leftOffsetCss = toCssLength(leftOffset, "64px");
 
   const isFullscreen = mode === "fullscreen";
-  const shellRef = React.useRef<HTMLDivElement>(null);
+  const shellRef = React.useRef<HTMLDialogElement>(null);
 
   const header = (
     <HeaderRow
@@ -375,11 +375,13 @@ function AnimatedShell({
   // column at the requested width. Fullscreen keeps the fixed overlay below.
   if (!isFullscreen) {
     return (
-      <div
+      <dialog
         ref={shellRef}
-        role="dialog"
+        open
         aria-modal="false"
         className={cn(
+          // Reset the native <dialog> box (fit-content size, centering, UA colours).
+          "inset-auto m-0 h-auto w-auto max-h-none max-w-none p-0 text-inherit",
           // No explicit height — the panel slot (ObjectPanelHost) stretches it
           // to fill the slot's content box (which is offset below the header).
           // No card chrome: the panel sits on the shell background next to
@@ -406,7 +408,7 @@ function AnimatedShell({
         >
           {children}
         </PanelBody>
-      </div>
+      </dialog>
     );
   }
 
@@ -417,11 +419,13 @@ function AnimatedShell({
   // every other card and shrinks off any open Agent / Calendar / Notifications
   // drawer on the right — no width math, no square edge-to-edge fill.
   return (
-    <div
+    <dialog
       ref={shellRef}
-      role="dialog"
+      open
       aria-modal="false"
       className={cn(
+        // Reset the native <dialog> box (fit-content size, UA colours).
+        "m-0 h-auto w-auto max-h-none max-w-none p-0 text-inherit",
         "fixed flex flex-col overflow-hidden rounded-xl bg-background",
         "transition-[right,bottom] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
         className,
@@ -450,7 +454,7 @@ function AnimatedShell({
       >
         {children}
       </FullscreenBody>
-    </div>
+    </dialog>
   );
 }
 
@@ -459,7 +463,7 @@ function AnimatedShell({
 /* ---------------------------------------------------------------- */
 
 interface PanelBodyProps {
-  shellRef: React.RefObject<HTMLDivElement | null>;
+  shellRef: React.RefObject<HTMLElement | null>;
   subheader?: React.ReactNode;
   tabs?: React.ReactNode;
   children: React.ReactNode;
