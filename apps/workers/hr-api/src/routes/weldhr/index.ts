@@ -14,7 +14,9 @@
  *                                        report for themselves under /me)
  *   coaching:read|create|update|delete
  *   evaluations:read|create|update|delete  evaluations, KPI values, milestones
- *   employees:self                       My HR: the caller's own record (/me)
+ *   employees:self                       My HR: the caller's own record (/me), incl. their
+ *                                        payslips, payroll details and tax forms
+ *   payroll:read|prepare|approve|manage  /payroll (flag `weldhr-payroll`), see ./payroll
  *
  * Mutations of HR records publish `hr_*` entity events with ids and status
  * only (see helpers.emit). Configuration objects — departments, templates,
@@ -43,6 +45,7 @@ import {
   kpiValuesRoutes,
   milestonesRoutes,
 } from './performance';
+import { payrollRoutes } from './payroll';
 import { portalRoutes } from './portal';
 import {
   attendanceRoutes,
@@ -96,6 +99,8 @@ app.route('/kpis', kpisRoutes);
 app.route('/kpi-values', kpiValuesRoutes);
 app.route('/milestones', milestonesRoutes);
 app.route('/portal', portalRoutes);
+// Payroll: gated by the `weldhr-payroll` flag; permissions payroll:read|prepare|approve|manage.
+app.route('/payroll', payrollRoutes);
 app.route('/me', meRoutes);
 
 export { app as weldhrRoutes };

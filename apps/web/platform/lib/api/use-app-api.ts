@@ -62,6 +62,7 @@ import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/acces
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
+import { createWeldHrPayrollApi } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createMeetingSessionsApi } from '@weldsuite/app-api-client/domains/meeting-sessions';
 import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/weldmeet-recordings';
 import { getApiOriginForPath } from '@/lib/api/public-env';
@@ -187,6 +188,7 @@ export function useAppApi() {
       weldpass: createWeldPassApi(lazyClient),
       weldpassPasswords: createWeldPassPasswordsApi(lazyClient),
       weldhr: createWeldHrApi(lazyClient),
+      weldhrPayroll: createWeldHrPayrollApi(lazyClient),
 
       // WeldMeet live-session actions (host "Remove from call").
       meetingSessions: createMeetingSessionsApi(lazyClient),

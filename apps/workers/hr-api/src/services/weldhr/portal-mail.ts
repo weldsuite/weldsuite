@@ -110,11 +110,11 @@ export async function claimPortalHost(
   }
 }
 
-function brandName(settings: HrPortalSettings): string {
+export function brandName(settings: HrPortalSettings): string {
   return settings.displayName?.trim() || (settings.hideWeldsuiteBranding ? 'Your team portal' : 'WeldHR');
 }
 
-function brandOf(settings: HrPortalSettings): EmailBrand {
+export function brandOf(settings: HrPortalSettings): EmailBrand {
   return {
     kind: 'workspace',
     name: brandName(settings),

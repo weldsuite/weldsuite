@@ -53,9 +53,9 @@ export async function portalGet<T>(slug: string, path: string, query?: Record<st
   return handle<T>(res, slug);
 }
 
-export async function portalPost<T>(slug: string, path: string, body?: unknown): Promise<T> {
+async function portalJsonWrite<T>(method: 'POST' | 'PUT', slug: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(buildUrl(slug, path), {
-    method: 'POST',
+    method,
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),
@@ -68,6 +68,14 @@ export async function portalPost<T>(slug: string, path: string, body?: unknown):
   return result;
 }
 
+export function portalPost<T>(slug: string, path: string, body?: unknown): Promise<T> {
+  return portalJsonWrite<T>('POST', slug, path, body);
+}
+
+export function portalPut<T>(slug: string, path: string, body?: unknown): Promise<T> {
+  return portalJsonWrite<T>('PUT', slug, path, body);
+}
+
 /** POST a `multipart/form-data` body (a file upload). No Content-Type header: the browser sets it with the boundary. */
 export async function portalUpload<T>(slug: string, path: string, form: FormData): Promise<T> {
   const res = await fetch(buildUrl(slug, path), {
@@ -78,4 +86,54 @@ export async function portalUpload<T>(slug: string, path: string, form: FormData
   const result = await handle<T>(res, slug);
   void invalidatePortal(slug);
   return result;
+}
+
+/** The file name in a `Content-Disposition` header, if it carries one. */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      // Malformed escape: fall through to the plain form.
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1]?.trim() || null;
+}
+
+/**
+ * GET a file through the proxy and hand it to the browser as a download (a
+ * payslip PDF). Unlike a plain link this keeps an expired session or an API
+ * error on the page instead of showing raw JSON in a new tab, and it resolves
+ * only once the file has arrived, so the caller can refresh what the download
+ * changed (a payslip is marked as read when it is fetched).
+ */
+export async function portalDownload(
+  slug: string,
+  path: string,
+  options?: { query?: Record<string, string | undefined>; fallbackName?: string },
+): Promise<void> {
+  const res = await fetch(buildUrl(slug, path, options?.query), { credentials: 'include' });
+  if (res.status === 401) {
+    clearPortalCache(slug);
+    if (typeof window !== 'undefined') window.location.href = `/${slug}/login`;
+    throw new PortalApiError('Session expired', 401, 'UNAUTHORIZED');
+  }
+  if (!res.ok) {
+    const json = (await res.json().catch(() => ({}))) as ApiErrorBody;
+    throw new PortalApiError(json.error?.message || `Request failed (${res.status})`, res.status, json.error?.code);
+  }
+  const blob = await res.blob();
+  const name = filenameFromDisposition(res.headers.get('content-disposition')) ?? options?.fallbackName ?? 'download';
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Give the browser a moment to start the save before the blob goes away.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
 }

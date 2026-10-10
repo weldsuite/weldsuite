@@ -229,6 +229,17 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         ],
       },
       {
+        // Hidden until the weldhr-payroll flag is on (see useWeldhrSidebarItems).
+        group: t.navigation.moduleSidebar.weldhr.groups.payroll,
+        items: [
+          { title: t.navigation.moduleSidebar.weldhr.payroll, href: '/weldhr/payroll', icon: Banknote, permission: 'payroll:read' },
+          { title: t.navigation.moduleSidebar.weldhr.payRuns, href: '/weldhr/payroll/runs', icon: CalendarClock, permission: 'payroll:read' },
+          { title: t.navigation.moduleSidebar.weldhr.payrollEmployees, href: '/weldhr/payroll/employees', icon: Users, permission: 'payroll:read' },
+          { title: t.navigation.moduleSidebar.weldhr.filings, href: '/weldhr/payroll/filings', icon: FileSpreadsheet, permission: 'payroll:read' },
+          { title: t.navigation.moduleSidebar.weldhr.payrollSettings, href: '/weldhr/payroll/settings', icon: Settings, permission: 'payroll:manage' },
+        ],
+      },
+      {
         group: t.navigation.moduleSidebar.groups.settings,
         items: [
           { title: t.navigation.moduleSidebar.weldhr.portal, href: '/weldhr/portal', icon: AppWindow, permission: 'employees:manage' },
