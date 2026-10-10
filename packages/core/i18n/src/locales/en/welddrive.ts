@@ -148,6 +148,8 @@ export const welddrive = {
       thisFolderIsEmpty: 'This folder is empty',
     },
 
+    clearSelection: 'Clear selection',
+
     gridSections: {
       folders: 'Folders',
       files: 'Files',
