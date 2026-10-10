@@ -16,7 +16,6 @@ import {
   listDnsRecordsInZone,
   CloudflareZoneError,
   type CloudflareDnsRecord,
-  type DnsRecordType,
 } from '@weldsuite/cloudflare-zones';
 
 type LocalRecordType = (typeof schema.hostDnsRecords.$inferSelect)['type'];
@@ -38,7 +37,7 @@ const RECORD_TYPES: ReadonlyArray<LocalRecordType> = [
  * `null` arrives for record types the zones client cannot edit (SOA, HTTPS, …);
  * those are skipped by the caller rather than synced.
  */
-function mapType(t: DnsRecordType | string | null): LocalRecordType | null {
+function mapType(t: string | null): LocalRecordType | null {
   if (!t) return null;
   return (RECORD_TYPES as readonly string[]).includes(t) ? (t as LocalRecordType) : null;
 }
