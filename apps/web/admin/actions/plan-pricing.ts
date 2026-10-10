@@ -1,9 +1,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
   PLAN_COUNTRY_PRICING_KEY,
   normalizeCountryCode,
+  parsePlanCountryPricing,
   type PlanCountryPricingConfig,
 } from '@weldsuite/app-api-client/schemas/plan-country-pricing';
 import { guardWrite } from '@/lib/auth';
@@ -15,7 +17,7 @@ import {
   type CountryPricingInput,
   type PlanPricingErrorCode,
 } from '@/lib/plan-pricing';
-import { getPlanCountryPricing } from '@/lib/plan-pricing-data';
+import { readPlanCountryPricingRow, type PlanCountryPricingRow } from '@/lib/plan-pricing-data';
 
 const { systemSettings } = masterSchema;
 
@@ -38,27 +40,72 @@ function inputError(code: PlanPricingErrorCode, plan?: string): string {
   }
 }
 
+/** How often a save re-reads and retries after another admin's write got in between. */
+const MAX_WRITE_ATTEMPTS = 5;
+
+type ConfigChange = { write: PlanCountryPricingConfig } | { unchanged: true } | { error: string };
+
 /**
- * Write the whole `billing.plan_country_pricing` setting. app-api and the
- * marketing site cache it for about five minutes, so a change shows there
- * within that window.
+ * Apply `change` to the `billing.plan_country_pricing` setting without losing
+ * a concurrent edit. The admin console has no interactive transactions
+ * (Neon HTTP), so this is a compare-and-set: the write only lands when the
+ * stored value is still the one `change` was computed from, and otherwise
+ * re-reads and recomputes. Two admins editing different countries at once
+ * therefore both keep their change.
+ *
+ * app-api and the marketing site cache the setting for about five minutes,
+ * so a change shows there within that window.
  */
-async function writeConfig(config: PlanCountryPricingConfig, updatedBy: string): Promise<void> {
-  await getMasterDb()
-    .insert(systemSettings)
-    .values({
-      id: generateId('set'),
-      key: PLAN_COUNTRY_PRICING_KEY,
-      category: 'billing',
-      dataType: 'json',
-      value: config,
-      description: 'Plan prices per country (Business, Scale, Enterprise). Countries not listed: on request.',
-      updatedBy,
-    })
-    .onConflictDoUpdate({
-      target: systemSettings.key,
-      set: { value: config, category: 'billing', dataType: 'json', updatedBy, updatedAt: new Date() },
-    });
+async function updateConfig(
+  change: (config: PlanCountryPricingConfig) => ConfigChange,
+  updatedBy: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
+    const current = await readPlanCountryPricingRow();
+    const next = change(parsePlanCountryPricing(current?.value));
+    if ('error' in next) return { ok: false, error: next.error };
+    if ('unchanged' in next) return { ok: true };
+    if (await writeConfigIfUnchanged(current, next.write, updatedBy)) return { ok: true };
+  }
+  throw new Error('plan country pricing kept changing during the save');
+}
+
+/** Write `config` only when the row still holds `expected`. Returns whether it was written. */
+async function writeConfigIfUnchanged(
+  expected: PlanCountryPricingRow | null,
+  config: PlanCountryPricingConfig,
+  updatedBy: string,
+): Promise<boolean> {
+  const db = getMasterDb();
+  if (!expected) {
+    const inserted = await db
+      .insert(systemSettings)
+      .values({
+        id: generateId('set'),
+        key: PLAN_COUNTRY_PRICING_KEY,
+        category: 'billing',
+        dataType: 'json',
+        value: config,
+        description: 'Plan prices per country (Business, Scale, Enterprise). Countries not listed: on request.',
+        updatedBy,
+      })
+      .onConflictDoNothing({ target: systemSettings.key })
+      .returning({ id: systemSettings.id });
+    return inserted.length > 0;
+  }
+
+  // jsonb equality is semantic (key order, whitespace), so this matches the
+  // row exactly when nobody wrote it since it was read.
+  const sameValue =
+    expected.value === null || expected.value === undefined
+      ? isNull(systemSettings.value)
+      : sql`${systemSettings.value} = ${JSON.stringify(expected.value)}::jsonb`;
+  const updated = await db
+    .update(systemSettings)
+    .set({ value: config, category: 'billing', dataType: 'json', updatedBy, updatedAt: new Date() })
+    .where(and(eq(systemSettings.key, PLAN_COUNTRY_PRICING_KEY), sameValue))
+    .returning({ id: systemSettings.id });
+  return updated.length > 0;
 }
 
 /**
@@ -79,14 +126,16 @@ export async function saveCountryPlanPricing(
   const copy = adminPlanPricingCopy();
   const previous = normalizeCountryCode(previousCountry);
   try {
-    const { config } = await getPlanCountryPricing();
-    if (previous !== parsed.country && config.countries[parsed.country]) {
-      return { ok: false, error: fill(copy.countryExists, { country: parsed.country }) };
-    }
-    const countries = { ...config.countries };
-    if (previous) delete countries[previous];
-    countries[parsed.country] = parsed.pricing;
-    await writeConfig({ countries }, guard.identity.email);
+    const result = await updateConfig((config) => {
+      if (previous !== parsed.country && config.countries[parsed.country]) {
+        return { error: fill(copy.countryExists, { country: parsed.country }) };
+      }
+      const countries = { ...config.countries };
+      if (previous) delete countries[previous];
+      countries[parsed.country] = parsed.pricing;
+      return { write: { countries } };
+    }, guard.identity.email);
+    if (!result.ok) return result;
   } catch {
     return { ok: false, error: copy.saveFailed };
   }
@@ -104,11 +153,13 @@ export async function removeCountryPlanPricing(country: string): Promise<ActionR
   const code = normalizeCountryCode(country);
   if (!code) return { ok: false, error: copy.countryInvalid };
   try {
-    const { config } = await getPlanCountryPricing();
-    if (!config.countries[code]) return { ok: true, data: { country: code } };
-    const countries = { ...config.countries };
-    delete countries[code];
-    await writeConfig({ countries }, guard.identity.email);
+    const result = await updateConfig((config) => {
+      if (!config.countries[code]) return { unchanged: true };
+      const countries = { ...config.countries };
+      delete countries[code];
+      return { write: { countries } };
+    }, guard.identity.email);
+    if (!result.ok) return result;
   } catch {
     return { ok: false, error: copy.saveFailed };
   }

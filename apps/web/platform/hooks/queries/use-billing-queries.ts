@@ -21,6 +21,7 @@ export const billingKeys = {
   limits: () => [...billingKeys.all, 'limits'] as const,
   phoneSubscription: () => [...billingKeys.all, 'phone-subscription'] as const,
   paymentMethods: () => [...billingKeys.all, 'payment-methods'] as const,
+  seatPrice: () => [...billingKeys.all, 'seat-price'] as const,
 };
 
 const creditsKeys = {
@@ -131,6 +132,33 @@ export function usePhoneSubscription() {
       const client = await getClient();
       return client.get<{ data: PhoneSubscriptionResponse }>('/billing/phone-subscription');
     },
+  });
+}
+
+/** One seat on the active Stripe subscription, as app-api `GET /billing/seat-price` returns it. */
+export interface SeatPrice {
+  /** Per seat per `interval`, in cents. */
+  amount: number;
+  currency: string;
+  interval: 'month' | 'year';
+}
+
+/**
+ * What a seat costs on the workspace's existing subscription, in the currency
+ * it was bought in. Manage Seats prices from this rather than from the plan
+ * offer, which follows the workspace's current billing country. `null` when
+ * there is no subscription.
+ */
+export function useSeatPrice(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: billingKeys.seatPrice(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: SeatPrice | null }>('/billing/seat-price');
+      return res.data ?? null;
+    },
+    enabled,
   });
 }
 

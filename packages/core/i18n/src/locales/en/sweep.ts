@@ -1986,6 +1986,7 @@ export const sweep = {
         "monthlyEmails": "Monthly Emails",
         "extraMonthlyEmails": "Extra monthly emails",
         "included": "Included",
+        "pricedSeparately": "Priced separately",
         "emailsIncludedOnPlan": "{count} included on {name}",
         "seatsLine": "{count} seat(s) × {name}",
         "atPricePerCycle": "at {price} / {cycle}",
