@@ -222,6 +222,25 @@ function NestedBlockWrapper({
   // For slide containers, we need full height/width to properly fill the slideshow
   const isSlideContainer = child.type === 'slideContainer';
 
+  // Selectable by mouse and keyboard, like the element and section blocks;
+  // keys pressed inside the block's own controls or nested blocks stay with them.
+  const selectableProps = {
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onSelectBlock(child.id);
+    },
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.target !== e.currentTarget) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelectBlock(child.id);
+      }
+    },
+  };
+
   return (
     <div
       key={child.id}
@@ -233,10 +252,7 @@ function NestedBlockWrapper({
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onClick={(e) => {
-        e.stopPropagation();
-        onSelectBlock(child.id);
-      }}
+      {...selectableProps}
     >
       {/* Nested block label on hover/select */}
       {(isHovered || isSelected) && (

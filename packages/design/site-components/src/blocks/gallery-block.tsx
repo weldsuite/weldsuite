@@ -104,10 +104,15 @@ export function GalleryBlock({
       </div>
 
       {lightbox && selectedImage !== null && (
-        <div
-          className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center"
-          onClick={closeLightbox}
-        >
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center">
+          {/* Backdrop: clicking anywhere outside the image closes the lightbox. */}
+          <button
+            type="button"
+            aria-label="Close"
+            tabIndex={-1}
+            className="absolute inset-0 cursor-default"
+            onClick={closeLightbox}
+          />
           <button
             type="button"
             aria-label="Close"
@@ -138,7 +143,7 @@ export function GalleryBlock({
           >
             &#8250;
           </button>
-          <div className="max-w-5xl max-h-[90vh] px-12" onClick={(e) => e.stopPropagation()}>
+          <div className="relative max-w-5xl max-h-[90vh] px-12">
             <img
               src={images[selectedImage]?.src || ''}
               alt={images[selectedImage]?.alt || ''}
