@@ -40,14 +40,14 @@ test.describe('WeldMail · Compose form', () => {
     await page.goto(`/weldmail/${accountId}/INBOX/compose`);
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
-    // Subject input (large text input at the top)
+    // Subject input
     const subjectInput = page.getByPlaceholder(/subject/i);
     await expect(subjectInput).toBeVisible({ timeout: 10_000 });
 
     // To field
-    await expect(page.getByPlaceholder(/add recipients/i)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('compose-to-input')).toBeVisible({ timeout: 5_000 });
 
-    // Send button (no scheduled time, so label is "Send")
+    // Send button
     await expect(page.getByTestId('compose-send-btn')).toBeVisible({ timeout: 5_000 });
 
     // Schedule button
@@ -65,7 +65,7 @@ test.describe('WeldMail · Compose form', () => {
     await subjectInput.fill('Test subject from Playwright');
 
     // Fill To field and commit
-    const toInput = page.getByPlaceholder(/add recipients/i);
+    const toInput = page.getByTestId('compose-to-input');
     await toInput.fill('playwright@test.example');
     await toInput.press('Enter');
 
@@ -80,13 +80,13 @@ test.describe('WeldMail · Compose form', () => {
     await expect(sendBtn).not.toBeDisabled();
   });
 
-  test('Cancel button on empty compose navigates back without a dropdown', async ({ page }) => {
+  test('Close button on empty compose navigates back', async ({ page }) => {
     await page.goto(`/weldmail/${accountId}/INBOX/compose`);
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('button', { name: /cancel/i })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('compose-close-btn')).toBeVisible({ timeout: 10_000 });
 
-    // No content → cancel is a simple button (no dropdown)
-    await page.getByRole('button', { name: /cancel/i }).click();
+    // No content → closing just leaves (nothing to save as a draft)
+    await page.getByTestId('compose-close-btn').click();
 
     // Should navigate back to the label view
     await expect(page).toHaveURL(new RegExp(`/weldmail/${accountId}`), { timeout: 10_000 });
