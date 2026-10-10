@@ -1397,7 +1397,7 @@ async function resolveGoogleToken(
   if (!tokens?.accessToken) return null;
 
   let accessToken = await maybeDecryptToken(tokens.accessToken, key);
-  const expiresMs = tokens.expiresAt ? Date.parse(tokens.expiresAt) : NaN;
+  const expiresMs = tokens.expiresAt ? Date.parse(tokens.expiresAt) : Number.NaN;
   const expiringSoon = Number.isFinite(expiresMs) && expiresMs - Date.now() < TOKEN_REFRESH_WINDOW_MS;
 
   if (expiringSoon && tokens.refreshToken && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {

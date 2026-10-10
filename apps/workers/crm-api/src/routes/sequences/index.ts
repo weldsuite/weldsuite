@@ -42,7 +42,7 @@ function enrollmentCount(statusPredicate: SQL) {
 app.get('/', requirePermission('contacts:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
 
   const conditions: any[] = [
     isNull(w.deletedAt),
@@ -142,7 +142,7 @@ app.get('/:id/enrollments', requirePermission('contacts:read'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions: any[] = [eq(e.sequenceId, id), isNull(ppl.deletedAt)];
   if (q.status) conditions.push(eq(e.status, q.status));
@@ -767,7 +767,7 @@ customerSequencesApp.get('/:customerId', requirePermission('contacts:read'), asy
   const db = c.get('tenantDb');
   const customerId = c.req.param('customerId');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 50, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 50, 100);
 
   const conditions: any[] = [eq(e.customerId, customerId), isNull(w.deletedAt)];
 
