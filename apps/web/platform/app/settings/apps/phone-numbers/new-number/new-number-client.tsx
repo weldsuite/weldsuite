@@ -760,6 +760,7 @@ export function NewNumberClient({
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
+                        role="combobox"
                         aria-expanded={countryOpen}
                         className="w-full justify-between font-normal"
                       >
