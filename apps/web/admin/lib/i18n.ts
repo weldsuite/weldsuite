@@ -8,6 +8,10 @@ export function adminPhonePricingCopy() {
   return getTranslations('host').adminPhonePricing;
 }
 
+export function adminPlanPricingCopy() {
+  return getTranslations('host').adminPlanPricing;
+}
+
 export function adminMeetAiPricingCopy() {
   return getTranslations('host').adminMeetAiPricing;
 }

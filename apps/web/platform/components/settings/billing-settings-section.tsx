@@ -34,16 +34,33 @@ type InvoiceInfo = BillingInvoiceResponse;
 
 type ViewMode = 'overview' | 'plans' | 'invoices' | 'invoice-detail';
 
-// Helper to format price from cents
+// Helper to format price from cents. Whole amounts drop the decimals (`€49`),
+// others keep two (`€42.50`).
 function formatPlanPrice(cents: number, currency: string = 'USD'): string {
-  if (cents === 0) return '$0';
+  const amount = cents / 100;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(cents / 100);
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
+
+// Prices come in the caller's country currency (see plans-page in app-api).
+const planCurrency = (plan: Billing.BillingPlan) => plan.currency || 'USD';
+
+/** Per seat per year; plans without a yearly price fall back to ten months. */
+const yearlyPriceOf = (plan: Billing.BillingPlan) => plan.yearlyPrice || Math.round(plan.monthlyPrice * 10);
+
+/** Whole-percent saving of annual over monthly billing, 0 when there is none. */
+function annualSavingPercent(plan: Billing.BillingPlan): number {
+  if (plan.priceOnRequest || !plan.monthlyPrice) return 0;
+  return Math.max(0, Math.round((1 - yearlyPriceOf(plan) / (plan.monthlyPrice * 12)) * 100));
+}
+
+/** Largest annual saving across the plans, for the billing-cycle toggle label. */
+const maxAnnualSavingPercent = (plans: Billing.BillingPlan[]) =>
+  plans.reduce((max, plan) => Math.max(max, annualSavingPercent(plan)), 0);
 
 // Monthly email credit options
 const EMAIL_CREDIT_OPTIONS = [
@@ -263,8 +280,10 @@ const CheckoutDialog = memo(function CheckoutDialog({
   const exceedsMaxMembers = selectedPlan.maxMembers != null && minSeats > selectedPlan.maxMembers;
 
   const isBillingAnnual = checkoutBillingCycle === 'annually';
+  const currency = planCurrency(selectedPlan);
+  const annualSaving = annualSavingPercent(selectedPlan);
   const monthlyPricePerSeat = selectedPlan.monthlyPrice;
-  const annualPricePerSeat = selectedPlan.yearlyPrice || Math.round(selectedPlan.monthlyPrice * 10);
+  const annualPricePerSeat = yearlyPriceOf(selectedPlan);
   const pricePerSeat = isBillingAnnual ? annualPricePerSeat : monthlyPricePerSeat;
   const creditsPriceMonthly = getEmailPrice(selectedPlan.name, emailCredits);
   const creditsPrice = isBillingAnnual ? creditsPriceMonthly * 12 : creditsPriceMonthly;
@@ -309,12 +328,14 @@ const CheckoutDialog = memo(function CheckoutDialog({
                   <SelectContent position="popper" sideOffset={4}>
                     <SelectItem value="annually">
                       <div className="flex items-center gap-2">
-                        <span>{t('sweep.settings.billing.checkout.annuallyPrice', { price: formatPlanPrice(Math.round(annualPricePerSeat / 12)) })}</span>
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">{t('sweep.settings.billing.save17')}</Badge>
+                        <span>{t('sweep.settings.billing.checkout.annuallyPrice', { price: formatPlanPrice(Math.round(annualPricePerSeat / 12), currency) })}</span>
+                        {annualSaving > 0 && (
+                          <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">{t('sweep.settings.billing.savePercent', { percent: annualSaving })}</Badge>
+                        )}
                       </div>
                     </SelectItem>
                     <SelectItem value="monthly">
-                      {t('sweep.settings.billing.checkout.monthlyPrice', { price: formatPlanPrice(monthlyPricePerSeat) })}
+                      {t('sweep.settings.billing.checkout.monthlyPrice', { price: formatPlanPrice(monthlyPricePerSeat, currency) })}
                     </SelectItem>
                   </SelectContent>
                 </Select>
@@ -366,7 +387,7 @@ const CheckoutDialog = memo(function CheckoutDialog({
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-medium">{t('sweep.settings.billing.checkout.extraMonthlyEmails')}</p>
                       <span className="text-sm font-medium">
-                        {creditsPriceMonthly > 0 ? `${formatPlanPrice(creditsPriceMonthly)}/${t('sweep.settings.billing.month')}` : t('sweep.settings.billing.checkout.included')}
+                        {creditsPriceMonthly > 0 ? `${formatPlanPrice(creditsPriceMonthly, currency)}/${t('sweep.settings.billing.month')}` : t('sweep.settings.billing.checkout.included')}
                       </span>
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -424,10 +445,10 @@ const CheckoutDialog = memo(function CheckoutDialog({
                 <div>
                   <p>{t('sweep.settings.billing.checkout.seatsLine', { count: seatCount, name: selectedPlan.name })}</p>
                   <p className="text-muted-foreground text-xs">
-                    ({t('sweep.settings.billing.checkout.atPricePerCycle', { price: formatPlanPrice(pricePerSeat), cycle: isBillingAnnual ? t('sweep.settings.billing.year') : t('sweep.settings.billing.month') })})
+                    ({t('sweep.settings.billing.checkout.atPricePerCycle', { price: formatPlanPrice(pricePerSeat, currency), cycle: isBillingAnnual ? t('sweep.settings.billing.year') : t('sweep.settings.billing.month') })})
                   </p>
                 </div>
-                <span className="font-medium">{formatPlanPrice(seatsTotal)}</span>
+                <span className="font-medium">{formatPlanPrice(seatsTotal, currency)}</span>
               </div>
 
               {/* Email credits line item */}
@@ -436,10 +457,10 @@ const CheckoutDialog = memo(function CheckoutDialog({
                   <div>
                     <p>{t('sweep.settings.billing.checkout.extraEmailsLine', { count: (emailCredits / 1000).toFixed(0) })}</p>
                     <p className="text-muted-foreground text-xs">
-                      ({t('sweep.settings.billing.checkout.atPricePerCycle', { price: formatPlanPrice(creditsPrice), cycle: isBillingAnnual ? t('sweep.settings.billing.year') : t('sweep.settings.billing.month') })})
+                      ({t('sweep.settings.billing.checkout.atPricePerCycle', { price: formatPlanPrice(creditsPrice, currency), cycle: isBillingAnnual ? t('sweep.settings.billing.year') : t('sweep.settings.billing.month') })})
                     </p>
                   </div>
-                  <span className="font-medium">{formatPlanPrice(creditsPrice)}</span>
+                  <span className="font-medium">{formatPlanPrice(creditsPrice, currency)}</span>
                 </div>
               )}
 
@@ -447,7 +468,7 @@ const CheckoutDialog = memo(function CheckoutDialog({
 
               <div className="flex justify-between text-sm">
                 <span>{t('sweep.settings.billing.subtotal')}</span>
-                <span className="font-medium">{formatPlanPrice(subtotal)}</span>
+                <span className="font-medium">{formatPlanPrice(subtotal, currency)}</span>
               </div>
 
               <div className="flex justify-between text-sm">
@@ -471,7 +492,7 @@ const CheckoutDialog = memo(function CheckoutDialog({
                     </Tooltip>
                   </TooltipProvider>
                 </div>
-                <span className="font-semibold">{formatPlanPrice(subtotal)}</span>
+                <span className="font-semibold">{formatPlanPrice(subtotal, currency)}</span>
               </div>
             </div>
 
@@ -525,6 +546,13 @@ const formatDate = (date: Date | string | null | undefined) => {
 const isContactPlan = (plan: Billing.BillingPlan) =>
   plan.requiresContact || plan.name.toLowerCase() === 'enterprise';
 
+/**
+ * No price to show: the plan is on request in the caller's country (admin
+ * console → Plan pricing), or a sales-led plan that carries no price.
+ */
+const hasNoPublicPrice = (plan: Billing.BillingPlan) =>
+  plan.priceOnRequest === true || (isContactPlan(plan) && plan.monthlyPrice === 0);
+
 // Free has no Stripe price and POST /billing/checkout rejects it, so it is only
 // ever shown as the current plan, never offered as a target. Downgrading goes
 // through the cancel-subscription flow.
@@ -541,8 +569,9 @@ const getPlanButtonText = (
 ) => {
   if (currentApiPlan?.id === plan.id) return t('settings.billing.currentPlan');
   if (!currentApiPlan) return t('sweep.settings.billing.getStarted');
-  if (plan.monthlyPrice < currentApiPlan.monthlyPrice) return t('sweep.settings.billing.downgrade');
-  if (plan.monthlyPrice > currentApiPlan.monthlyPrice) return t('sweep.settings.billing.upgrade');
+  // Ladder position, not price: an on-request plan carries no price.
+  if (plan.displayOrder < currentApiPlan.displayOrder) return t('sweep.settings.billing.downgrade');
+  if (plan.displayOrder > currentApiPlan.displayOrder) return t('sweep.settings.billing.upgrade');
   return t('sweep.settings.billing.getStarted');
 };
 
@@ -575,9 +604,12 @@ function InvoiceStatusBadge({ status }: Readonly<{ status: string }>) {
 function PlansHeaderBar({
   isAnnual,
   onToggleAnnual,
+  annualSaving,
 }: Readonly<{
   isAnnual: boolean;
   onToggleAnnual: () => void;
+  /** Largest annual saving across the plans; 0 hides the label. */
+  annualSaving: number;
 }>) {
   const t = useTranslations();
   return (
@@ -627,8 +659,13 @@ function PlansHeaderBar({
           />
         </Button>
         <span className={cn('text-sm font-medium', !isAnnual && 'text-muted-foreground')}>
-          {t('sweep.settings.billing.annual')}{' '}
-          <span className="text-green-600">({t('sweep.settings.billing.save17')})</span>
+          {t('sweep.settings.billing.annual')}
+          {annualSaving > 0 && (
+            <>
+              {' '}
+              <span className="text-green-600">({t('sweep.settings.billing.savePercent', { percent: annualSaving })})</span>
+            </>
+          )}
         </span>
       </div>
     </div>
@@ -671,21 +708,21 @@ function PlanCardPrice({
     <div className="mb-1">
       <div className="flex items-center gap-2">
         <span className="text-3xl font-semibold">
-          {isContactPlan(plan)
-            ? t('sweep.settings.billing.custom')
+          {hasNoPublicPrice(plan)
+            ? t('sweep.settings.billing.onRequest')
             : (
               <NumberFlow
                 value={isAnnual
-                  ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) / 100
+                  ? Math.round(yearlyPriceOf(plan) / 12) / 100
                   : plan.monthlyPrice / 100}
-                format={{ style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 0 }}
+                format={{ style: 'currency', currency: planCurrency(plan), currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 2 }}
                 transformTiming={{ duration: 400, easing: 'ease-out' }}
               />
             )}
         </span>
-        {!isContactPlan(plan) && plan.monthlyPrice > 0 && isAnnual && (
+        {!hasNoPublicPrice(plan) && isAnnual && annualSavingPercent(plan) > 0 && (
           <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
-            {t('sweep.settings.billing.save17')}
+            {t('sweep.settings.billing.savePercent', { percent: annualSavingPercent(plan) })}
           </span>
         )}
       </div>
@@ -757,7 +794,8 @@ function PlanPricingCard({
   const t = useTranslations();
   const features = formatPlanFeatures(plan);
   let priceSubtitle: string;
-  if (isContactPlan(plan)) priceSubtitle = t('sweep.settings.billing.billedAnnually');
+  if (plan.slug === 'enterprise') priceSubtitle = t('sweep.settings.billing.billedAnnually');
+  else if (hasNoPublicPrice(plan)) priceSubtitle = t('sweep.settings.billing.perUserMonth');
   else if (isAnnual) priceSubtitle = t('sweep.settings.billing.perUserMonthBilledAnnually');
   else priceSubtitle = t('sweep.settings.billing.perUserMonth');
 
@@ -838,11 +876,15 @@ function ComparisonPlanColumn({
         )}
       </div>
       <p className="text-sm text-muted-foreground mt-1">
-        {isContactPlan(plan) ? (
+        {hasNoPublicPrice(plan) && plan.slug === 'enterprise' && (
           <>{t('sweep.settings.billing.customQuoteLine1')}<br />{t('sweep.settings.billing.customQuoteLine2')}</>
-        ) : (
+        )}
+        {hasNoPublicPrice(plan) && plan.slug !== 'enterprise' && (
+          <>{t('sweep.settings.billing.onRequestLine1')}<br />{t('sweep.settings.billing.onRequestLine2')}</>
+        )}
+        {!hasNoPublicPrice(plan) && (
           <>
-            {formatPlanPrice(isAnnual ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) : plan.monthlyPrice, 'USD')} {t('sweep.settings.billing.perUserMonthComma')}<br />
+            {formatPlanPrice(isAnnual ? Math.round(yearlyPriceOf(plan) / 12) : plan.monthlyPrice, planCurrency(plan))} {t('sweep.settings.billing.perUserMonthComma')}<br />
             {isAnnual ? t('sweep.settings.billing.billedAnnuallyLower') : t('sweep.settings.billing.billedMonthlyLower')}
           </>
         )}
@@ -932,7 +974,9 @@ function PlanComparisonTable({
           <div className="flex flex-col justify-end">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-muted-foreground">{t('sweep.settings.billing.annual')}</span>
-              <span className="text-sm font-medium text-green-600">({t('sweep.settings.billing.save17')})</span>
+              {maxAnnualSavingPercent(plans) > 0 && (
+                <span className="text-sm font-medium text-green-600">({t('sweep.settings.billing.savePercent', { percent: maxAnnualSavingPercent(plans) })})</span>
+              )}
               <Button
                 variant="ghost"
                 onClick={onToggleAnnual}
@@ -1046,7 +1090,7 @@ function PlansView({
       )}
 
       {/* Pricing Header Bar */}
-      <PlansHeaderBar isAnnual={isAnnual} onToggleAnnual={onToggleAnnual} />
+      <PlansHeaderBar isAnnual={isAnnual} onToggleAnnual={onToggleAnnual} annualSaving={maxAnnualSavingPercent(plans)} />
 
       {/* Pricing Cards with decorative lines */}
       <div className="relative overflow-visible">
@@ -1235,6 +1279,7 @@ function ManageSeatsDialog({
   min,
   max,
   perSeatPrice,
+  currency,
   processing,
   onConfirm,
 }: Readonly<{
@@ -1247,6 +1292,7 @@ function ManageSeatsDialog({
   min: number;
   max: number | undefined;
   perSeatPrice: number;
+  currency: string;
   processing: boolean;
   onConfirm: () => void;
 }>) {
@@ -1299,9 +1345,9 @@ function ManageSeatsDialog({
           {perSeatPrice > 0 && (
             <p className="text-sm text-muted-foreground">
               {t('sweep.settings.billing.manageSeatsDialog.seatCount', { count: seatCount })} &times;{' '}
-              {formatPlanPrice(perSeatPrice, 'USD')}/{t('sweep.settings.billing.seat')} ={' '}
+              {formatPlanPrice(perSeatPrice, currency)}/{t('sweep.settings.billing.seat')} ={' '}
               <span className="font-medium text-foreground">
-                {formatPlanPrice(seatCount * perSeatPrice, 'USD')}/{subscription?.cycle === Billing.BillingCycle.Yearly ? t('sweep.settings.billing.monthBilledAnnually') : t('sweep.settings.billing.month')}
+                {formatPlanPrice(seatCount * perSeatPrice, currency)}/{subscription?.cycle === Billing.BillingCycle.Yearly ? t('sweep.settings.billing.monthBilledAnnually') : t('sweep.settings.billing.month')}
               </span>
             </p>
           )}
@@ -1646,7 +1692,7 @@ function BillingOverview({
   let perSeatPrice = 0;
   if (currentPlanForSeats) {
     perSeatPrice = subscription?.cycle === Billing.BillingCycle.Yearly
-      ? currentPlanForSeats.yearlyPrice || Math.round(currentPlanForSeats.monthlyPrice * 10)
+      ? yearlyPriceOf(currentPlanForSeats)
       : currentPlanForSeats.monthlyPrice;
   }
 
@@ -1663,6 +1709,7 @@ function BillingOverview({
         min={manageSeatsMin}
         max={manageSeatsMax}
         perSeatPrice={perSeatPrice}
+        currency={currentPlanForSeats ? planCurrency(currentPlanForSeats) : 'USD'}
         processing={processing}
         onConfirm={onConfirmUpdateSeats}
       />
@@ -1817,7 +1864,7 @@ export function BillingSettingsSection() {
     if (isFreePlan(plan)) return;
 
     // Other free plans — proceed directly without seat selection
-    if (plan.monthlyPrice === 0) {
+    if (plan.monthlyPrice === 0 && !plan.priceOnRequest) {
       void handleConfirmCheckout(plan, 1);
       return;
     }
@@ -1832,7 +1879,8 @@ export function BillingSettingsSection() {
     const currentPlan = plans.find(p => p.id === subscription?.planId);
 
     // Check if this is a downgrade or if the target plan has a lower seat limit than current members
-    const isDowngrade = currentPlan && plan.monthlyPrice < currentPlan.monthlyPrice;
+    // Ladder position, not price: an on-request plan carries no price.
+    const isDowngrade = currentPlan && plan.displayOrder < currentPlan.displayOrder;
     const needsValidation = isDowngrade || (plan.maxMembers != null && (planLimits?.currentUsage.memberCount ?? 0) > plan.maxMembers);
     if (!needsValidation) return false;
 
