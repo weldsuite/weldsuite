@@ -49,6 +49,7 @@ import { success, error } from '@weldsuite/worker-kit/response';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { invitationRedirectUrl } from '../../services/invitation-redirect';
 
 /**
  * Default apps installed when a workspace is created from the platform's
@@ -680,6 +681,7 @@ app.post('/invitations', zValidator('json', invitationsInput), async (c) => {
               email_address: invite.email,
               role: invite.role === 'admin' ? 'org:admin' : 'org:member',
               inviter_user_id: userId,
+              redirect_url: invitationRedirectUrl(c.env, organizationId),
             }),
           },
         );
