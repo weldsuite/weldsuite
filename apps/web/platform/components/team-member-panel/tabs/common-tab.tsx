@@ -348,11 +348,11 @@ function EmptyState({
   icon,
   title,
   description,
-}: {
+}: Readonly<{
   icon: React.ReactNode;
   title: string;
   description: string;
-}) {
+}>) {
   return (
     <div className="flex flex-col items-center text-center px-6 py-12 gap-2">
       <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground">

@@ -35,11 +35,11 @@ export function Code({ children, className }: Readonly<{ children: ReactNode; cl
   return <code className={cn('wui-code', className)}>{children}</code>;
 }
 
-export function Stack({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+export function Stack({ className, ...props }: Readonly<HTMLAttributes<HTMLDivElement>>) {
   return <div className={cn('wui-stack', className)} {...props} />;
 }
 
-export function Muted({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
+export function Muted({ className, ...props }: Readonly<HTMLAttributes<HTMLParagraphElement>>) {
   return <p className={cn('wui-muted', className)} {...props} />;
 }
 

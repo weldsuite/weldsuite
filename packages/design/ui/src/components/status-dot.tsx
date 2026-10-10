@@ -29,7 +29,7 @@ const SIZE_CLASSES = {
 };
 
 export interface StatusDotProps {
-  status?: PresenceStatus | string;
+  status?: string;
   size?: 'sm' | 'md' | 'lg';
   showTooltip?: boolean;
   className?: string;

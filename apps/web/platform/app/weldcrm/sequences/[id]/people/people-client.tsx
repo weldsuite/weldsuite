@@ -39,6 +39,7 @@ export function SequencePeopleClient({
         <PeopleTab
           sequenceId={sequence.id}
           sequenceStatus={sequence.status}
+          steps={sequence.steps}
           initialEnrollments={initialEnrollments}
           initialPagination={initialPagination}
         />

@@ -1,6 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
-import { useChannelMembers, useWorkspaceMembers, useAddChannelMembers, useRemoveChannelMember, useChannel } from '@/hooks/queries/use-weldchat-queries';
-import type { ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
+import { useChannelMembers, useWorkspaceMembers, useAddChannelMembers, useRemoveChannelMember, useChannel, type ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { X, ShieldCheck, Crown, Plus, Search, UserMinus, UserPlus } from 'lucide-react';
@@ -250,52 +249,49 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                   <div
                     key={member.userId}
                     data-testid="chat-member-row"
-                    role="button"
-                    tabIndex={0}
-                    onClick={openProfile}
-                    onKeyDown={(e) => {
-                      if (e.target !== e.currentTarget) return;
-                      if (e.key !== 'Enter' && e.key !== ' ') return;
-                      e.preventDefault();
-                      openProfile();
-                    }}
-                    className="group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 transition-colors cursor-pointer"
+                    className="group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 transition-colors"
                   >
-                    <div className="relative flex-shrink-0">
-                      <Avatar className="h-7 w-7 !rounded-[10px]">
-                        {member.picture && <AvatarImage src={member.picture} className="!rounded-[10px]" />}
-                        <AvatarFallback className="text-[9px] !rounded-[10px]">
-                          {isAgent
-                            ? member.agentIcon || (member.name?.[0] ?? '?').toUpperCase()
-                            : (member.name || member.email || '?')[0].toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <StatusDot
-                        status={isAgent ? 'online' : userStatus?.status}
-                        showTooltip
-                        className="absolute -bottom-0.5 -right-0.5 h-[11px] w-[11px] border-2"
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium truncate">
-                          {member.name || member.email}
-                        </span>
-                        {isAgent ? (
-                          <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground">
-                            {t.weldchat.memberList.agentBadge}
+                    <button
+                      type="button"
+                      onClick={openProfile}
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left"
+                    >
+                      <span className="relative block flex-shrink-0">
+                        <Avatar className="h-7 w-7 !rounded-[10px]">
+                          {member.picture && <AvatarImage src={member.picture} className="!rounded-[10px]" />}
+                          <AvatarFallback className="text-[9px] !rounded-[10px]">
+                            {isAgent
+                              ? member.agentIcon || (member.name?.[0] ?? '?').toUpperCase()
+                              : (member.name || member.email || '?')[0].toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <StatusDot
+                          status={isAgent ? 'online' : userStatus?.status}
+                          showTooltip
+                          className="absolute -bottom-0.5 -right-0.5 h-[11px] w-[11px] border-2"
+                        />
+                      </span>
+                      <span className="block min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium truncate">
+                            {member.name || member.email}
                           </span>
-                        ) : (
-                          <MemberRoleBadge member={member} guestStrings={guestStrings} />
+                          {isAgent ? (
+                            <span className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground">
+                              {t.weldchat.memberList.agentBadge}
+                            </span>
+                          ) : (
+                            <MemberRoleBadge member={member} guestStrings={guestStrings} />
+                          )}
+                        </span>
+                        {!isAgent && userStatus?.statusText && (
+                          <span className="block text-[11px] text-muted-foreground truncate">
+                            {userStatus.statusEmoji && <span className="mr-1">{userStatus.statusEmoji}</span>}
+                            {userStatus.statusText}
+                          </span>
                         )}
-                      </div>
-                      {!isAgent && userStatus?.statusText && (
-                        <p className="text-[11px] text-muted-foreground truncate">
-                          {userStatus.statusEmoji && <span className="mr-1">{userStatus.statusEmoji}</span>}
-                          {userStatus.statusText}
-                        </p>
-                      )}
-                    </div>
+                      </span>
+                    </button>
                     {canRemove && (
                       <Button
                         variant="ghost"
@@ -326,40 +322,37 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                   <div
                     key={member.userId}
                     data-testid="chat-member-row"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openUserProfile(member.userId)}
-                    onKeyDown={(e) => {
-                      if (e.target !== e.currentTarget) return;
-                      if (e.key !== 'Enter' && e.key !== ' ') return;
-                      e.preventDefault();
-                      openUserProfile(member.userId);
-                    }}
-                    className="group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 cursor-pointer transition-colors opacity-60"
+                    className="group/member flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 transition-colors opacity-60"
                   >
-                    <div className="relative flex-shrink-0">
-                      <Avatar className="h-7 w-7 !rounded-[10px]">
-                        {member.picture && <AvatarImage src={member.picture} className="!rounded-[10px]" />}
-                        <AvatarFallback className="text-[9px] !rounded-[10px]">
-                          {(member.name || member.email || '?')[0].toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <StatusDot status={userStatus?.status} showTooltip className="absolute -bottom-0.5 -right-0.5 h-[11px] w-[11px] border-2" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium truncate">
-                          {member.name || member.email}
+                    <button
+                      type="button"
+                      onClick={() => openUserProfile(member.userId)}
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left"
+                    >
+                      <span className="relative block flex-shrink-0">
+                        <Avatar className="h-7 w-7 !rounded-[10px]">
+                          {member.picture && <AvatarImage src={member.picture} className="!rounded-[10px]" />}
+                          <AvatarFallback className="text-[9px] !rounded-[10px]">
+                            {(member.name || member.email || '?')[0].toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <StatusDot status={userStatus?.status} showTooltip className="absolute -bottom-0.5 -right-0.5 h-[11px] w-[11px] border-2" />
+                      </span>
+                      <span className="block min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium truncate">
+                            {member.name || member.email}
+                          </span>
+                          <MemberRoleBadge member={member} guestStrings={guestStrings} />
                         </span>
-                        <MemberRoleBadge member={member} guestStrings={guestStrings} />
-                      </div>
-                      {userStatus?.statusText && (
-                        <p className="text-[11px] text-muted-foreground truncate">
-                          {userStatus.statusEmoji && <span className="mr-1">{userStatus.statusEmoji}</span>}
-                          {userStatus.statusText}
-                        </p>
-                      )}
-                    </div>
+                        {userStatus?.statusText && (
+                          <span className="block text-[11px] text-muted-foreground truncate">
+                            {userStatus.statusEmoji && <span className="mr-1">{userStatus.statusEmoji}</span>}
+                            {userStatus.statusText}
+                          </span>
+                        )}
+                      </span>
+                    </button>
                     {canRemove && (
                       <Button
                         variant="ghost"

@@ -617,6 +617,15 @@ html.dark {
   box-shadow: 0 8px 24px color-mix(in srgb, #000 18%, transparent);
 }
 
+/* The popover content is a non-modal <dialog open>: drop its UA centring. */
+dialog.wui-popover-content {
+  right: auto;
+  bottom: auto;
+  margin: 0;
+  width: auto;
+  height: auto;
+}
+
 .wui-dropdown-item {
   display: flex;
   width: 100%;
@@ -811,6 +820,43 @@ html.dark {
 
 .wui-elist-row--clickable:hover {
   background: color-mix(in srgb, var(--wui-muted) 55%, transparent);
+}
+
+/* Clickable rows: a native button stretched over the row carries the click and
+   keyboard activation. Cells sit above it but let pointer events fall through
+   to it, except on their own interactive controls. */
+.wui-elist-row--clickable {
+  position: relative;
+}
+
+.wui-elist-row__hit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.wui-elist-row__hit:focus-visible {
+  outline: 2px solid var(--wui-ring, currentColor);
+  outline-offset: -2px;
+}
+
+.wui-elist-row--clickable > .wui-elist-row__cell {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.wui-elist-row--clickable > .wui-elist-row__cell :is(a[href], button, input, select, textarea, summary, label, [role='button'], [role='link'], [role='checkbox'], [role='switch'], [role='menuitem'], [tabindex]:not([tabindex='-1']), [contenteditable]:not([contenteditable='false'])) {
+  pointer-events: auto;
+}
+
+.wui-elist-row--clickable > .wui-elist-row__actions {
+  position: relative;
+  z-index: 1;
 }
 
 .wui-elist-row__cell {

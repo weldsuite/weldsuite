@@ -66,13 +66,13 @@ export function summaryOf(totals: PayrollTotals): Record<string, number> {
   };
 }
 
-interface Resolver {
+export interface Resolver {
   expense(category: PayrollCategory): string;
   liability(category: PayrollCategory): string;
   cash(): string;
 }
 
-function resolverFor(accounts: EntityAccounts, mapping: AccountMapping): Resolver {
+export function resolverFor(accounts: EntityAccounts, mapping: AccountMapping): Resolver {
   const mapped = (category: PayrollCategory): string | undefined => {
     const id = mapping[category];
     if (!id) return undefined;

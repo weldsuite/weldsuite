@@ -202,8 +202,8 @@ class StepRunner {
     private readonly deps: ExecuteStepsDeps,
     seedOutput?: Record<string, unknown>,
   ) {
-    this.output = { ...(seedOutput ?? {}) };
-    this.variables = { ...(context.variables ?? {}) };
+    this.output = { ...seedOutput };
+    this.variables = { ...context.variables };
     this.contactData = (context.contactData ?? {}) as Record<string, unknown>;
     this.triggerData = context.triggerData ?? {};
   }

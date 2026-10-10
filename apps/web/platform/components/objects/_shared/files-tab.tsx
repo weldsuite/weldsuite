@@ -156,15 +156,15 @@ export function FilesTab({ entityId, entityKind }: Readonly<FilesTabProps>) {
     (item: FileListItem) => (
       <>
         <DropdownMenuItem onClick={() => handleDownload(item)}>
-          <Download className="h-4 w-4 mr-0.5" />
+          <Download />
           {t('sweep.entities.download')}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
+          variant="destructive"
           onClick={() => setPendingDelete({ id: item.id, name: item.name })}
         >
-          <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+          <Trash2 />
           {t('sweep.entities.delete')}
         </DropdownMenuItem>
       </>

@@ -367,7 +367,7 @@ function resolveTimeout(inputs: Record<string, unknown>): number {
 }
 
 export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
-  const rawUrl = String(inputs.url || '');
+  const rawUrl = asText(inputs.url || '');
   if (!rawUrl) throw new NonRetryableStepError('URL is required');
   const url = parseRequestUrl(rawUrl);
 
@@ -417,7 +417,7 @@ export const handleHttpRequest: ActionHandler = async (inputs, ctx) => {
 };
 
 export const handleWebhook: ActionHandler = async (inputs, ctx) => {
-  const rawUrl = String(inputs.url || inputs.webhookUrl || '');
+  const rawUrl = asText(inputs.url || inputs.webhookUrl || '');
   if (!rawUrl) throw new Error('Webhook URL is required');
   const url = parseRequestUrl(rawUrl);
 

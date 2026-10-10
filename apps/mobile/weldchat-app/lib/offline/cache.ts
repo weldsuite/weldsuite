@@ -30,7 +30,7 @@ export async function readEntry<T>(orgId: string, parts: string[]): Promise<T | 
     const raw = await AsyncStorage.getItem(buildKey(orgId, parts));
     if (!raw) return null;
     const env = JSON.parse(raw) as Envelope<T>;
-    if (!env || env.v !== VERSION) return null;
+    if (env?.v !== VERSION) return null;
     return env.data;
   } catch {
     return null;

@@ -68,7 +68,7 @@ function Render({ settings }: Readonly<{ settings: WelddriveRecentSettings }>) {
   return <DriveCard rows={rows} isLoading={res.isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WelddriveRecentSettings; onChange: (next: WelddriveRecentSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WelddriveRecentSettings; onChange: (next: WelddriveRecentSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

@@ -100,4 +100,49 @@ describe('/api/pipelines · pglite integration', () => {
     const body = (await res.json()) as { data: { id: string } };
     expect(body.data.id).toMatch(/^pl_/);
   });
+
+  // ---------------------------------------------------------------------------
+  // TASK-1087: the CRM sidebar lists pipelines in the order the API returns
+  // them, and appends a just-created one at the end. Newest-first from the API
+  // made the order flip on every reload.
+  // ---------------------------------------------------------------------------
+
+  it('GET / lists pipelines oldest first, with a stable order across cursor pages', async () => {
+    const base = Date.now() - 60_000;
+    const rows = ['Order test C', 'Order test A', 'Order test B'].map((name, i) => ({
+      id: `pl_order_${i}`,
+      name,
+      // Inserted out of creation order on purpose: C is the oldest.
+      createdAt: new Date(base + [0, 2000, 1000][i]!),
+      updatedAt: new Date(base),
+    }));
+    await db.insert(schema.crmPipelines).values(rows);
+
+    const { request } = createTestApp('/api/pipelines', pipelinesRoutes, {
+      context: { permissions: permissions('pipelines:read'), tenantDb: db },
+    });
+    const names = (body: { data: { name: string }[] }) => body.data.map((p) => p.name);
+
+    const all = await request('/api/pipelines?search=Order%20test');
+    expect(all.status).toBe(200);
+    expect(names((await all.json()) as { data: { name: string }[] })).toEqual([
+      'Order test C',
+      'Order test B',
+      'Order test A',
+    ]);
+
+    // Paging walks the same order: no repeats, none skipped.
+    const first = await request('/api/pipelines?search=Order%20test&limit=2');
+    const firstBody = (await first.json()) as {
+      data: { name: string }[];
+      pagination: { hasMore: boolean; cursor: string | null };
+    };
+    expect(names(firstBody)).toEqual(['Order test C', 'Order test B']);
+    expect(firstBody.pagination.hasMore).toBe(true);
+
+    const second = await request(
+      `/api/pipelines?search=Order%20test&limit=2&cursor=${firstBody.pagination.cursor}`,
+    );
+    expect(names((await second.json()) as { data: { name: string }[] })).toEqual(['Order test A']);
+  });
 });

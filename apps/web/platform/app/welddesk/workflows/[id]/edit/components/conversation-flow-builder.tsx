@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo, useLayoutEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/provider';
 import {
   derivePaths,
   computeLayout,
@@ -123,6 +124,7 @@ export function ConversationFlowBuilder({
   selectedNodeId,
   className,
 }: Readonly<ConversationFlowBuilderProps>) {
+  const { t } = useI18n();
   const canvasLayerRef = useRef<HTMLDivElement>(null);
 
   // Derived layout
@@ -143,15 +145,8 @@ export function ConversationFlowBuilder({
     setConnectors(measured);
   }, [layout.trigger, layout.paths, steps.length]);
 
-  const handleBgClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget || (e.target as HTMLElement).dataset.canvasBg) {
-      onDeselect();
-    }
-  };
-
   return (
     <div
-      role="presentation"
       className={cn(
         'relative w-full h-full overflow-auto',
         className,
@@ -159,18 +154,25 @@ export function ConversationFlowBuilder({
       style={{
         backgroundColor: 'color-mix(in srgb, var(--color-muted) 30%, transparent)',
       }}
-      onClick={handleBgClick}
     >
       <div
         ref={canvasLayerRef}
-        data-canvas-bg="true"
         style={{
           position: 'relative',
-          minWidth: layout.canvasWidth,
-          minHeight: layout.canvasHeight,
+          minWidth: `max(100%, ${layout.canvasWidth}px)`,
+          minHeight: `max(100%, ${layout.canvasHeight}px)`,
           padding: '40px',
         }}
       >
+        {/* Background: clicking empty canvas clears the selection */}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={t.helpdesk.canvasNodes.deselect}
+          onClick={onDeselect}
+          className="absolute inset-0 h-full w-full cursor-default"
+        />
+
         {/* SVG edges */}
         <CanvasEdges
           edges={edges}

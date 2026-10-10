@@ -87,8 +87,8 @@ import {
 import {
   useUserPreferences,
   useUpdateUserPreferences,
+  type UserPreferences,
 } from '@/hooks/queries/use-settings-queries';
-import type { UserPreferences } from '@/hooks/queries/use-settings-queries';
 import { useMuteChannel, useUpdateChannel } from '@/hooks/queries/use-weldchat-queries';
 import type { UpdateChannelRequest } from '@/lib/api/domains/weldchat';
 import {

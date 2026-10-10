@@ -41,6 +41,8 @@ import {
   COMPANY_IMPORT_TEMPLATE_EXAMPLE,
 } from '../config/company-import-fields';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
+import { logoDomainForCompany, useRowsWithCompanyLogos } from '@/lib/crm/company-logo';
+import { EntityGridSkeleton } from '@/components/entity-grid/components/grid-skeleton';
 
 interface CompaniesGridProps {
   companies: Company[];
@@ -102,6 +104,9 @@ export function CompaniesGrid({
   const importMut = useImportCompanies();
   const { open: openObjectPanel } = useObjectPanel();
   useObjectPanelUrlSync('/weldcrm/companies');
+  // Logos found on the companies' own websites by our API (never a third-party
+  // favicon service); companies with an image of their own are skipped.
+  const companiesWithLogos = useRowsWithCompanyLogos(companies, logoDomainForCompany);
 
   // Shares its cache with the grid's Owner-column member picker (same
   // queryKey) — resolves the Owner column's userId to a name for CSV/Excel
@@ -143,7 +148,10 @@ export function CompaniesGrid({
   );
 
   // Saved column visibility/widths per user (persisted by EntityGrid on change).
-  const { data: savedView, isLoading: isViewLoading } = useGridViewSettings('company');
+  // `isPending` rather than `isLoading`: while the persisted query cache is
+  // still restoring after a reload the query is idle (`isLoading` false) with
+  // no data yet, and a grid mounted then starts on the default columns.
+  const { data: savedView, isPending: isViewLoading } = useGridViewSettings('company');
 
   // The Status column's options/labels come from the workspace's configured
   // customer statuses (Settings > WeldCRM > Customer statuses) — the five
@@ -282,11 +290,13 @@ export function CompaniesGrid({
 
   return (
     <>
-      {!isViewLoading && (
+      {isViewLoading ? (
+        <EntityGridSkeleton />
+      ) : (
         <EntityGrid
           config={gridConfig}
           actions={actions}
-          entities={companies}
+          entities={companiesWithLogos}
           pagination={pagination}
           searchParams={searchParams}
           onLoadMore={onLoadMore}
@@ -294,6 +304,7 @@ export function CompaniesGrid({
           isFetchingMore={isFetchingMore}
           toolbarActions={toolbarActions}
           listName={listContext?.listName}
+          persistSort={!listContext}
         />
       )}
       {companyDeleteDialog}

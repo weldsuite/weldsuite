@@ -8,7 +8,7 @@
  */
 
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import type { Env } from '../index';
 import { getTenantDbForWorkspace, schema } from '../db';
 import { getInstallationToken } from '../github/auth';
@@ -342,14 +342,10 @@ async function pruneStaleMappings(
     })
     .from(schema.githubIssueSyncMap)
     .where(eq(schema.githubIssueSyncMap.projectLinkId, projectLinkId));
-  let pruned = 0;
-  for (const r of rows) {
-    if (!seenItemNodeIds.has(r.projectItemNodeId)) {
-      await db.delete(schema.githubIssueSyncMap).where(eq(schema.githubIssueSyncMap.id, r.id));
-      pruned++;
-    }
-  }
+  const staleIds = rows.filter((r) => !seenItemNodeIds.has(r.projectItemNodeId)).map((r) => r.id);
+  const pruned = staleIds.length;
   if (pruned) {
+    await db.delete(schema.githubIssueSyncMap).where(inArray(schema.githubIssueSyncMap.id, staleIds));
     console.log(`[GithubProjectSync] Pruned ${pruned} stale mapping(s) for link ${projectLinkId}`);
   }
   return { pruned };

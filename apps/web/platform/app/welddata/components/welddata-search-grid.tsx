@@ -16,6 +16,7 @@ import {
   useConvertSearchLeads,
   useWelddataLists,
 } from '@/hooks/queries/use-welddata-queries';
+import { logoDomainForLead, useRowsWithCompanyLogos } from '@/lib/crm/company-logo';
 import { AddToCrmListDialog } from './add-to-crm-list-dialog';
 import {
   buildLeadColumns,
@@ -143,6 +144,10 @@ export function WelddataSearchGrid({
 
   const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
 
+  // The provider rarely sends a company logo; ours is looked up from the
+  // company's own website instead (never from a third-party favicon service).
+  const displayRows = useRowsWithCompanyLogos(rows, logoDomainForLead);
+
   const actions: EntityGridActions<LemlistSearchRow> = useMemo(
     () => ({
       // Clicking a row opens a read-only object panel for that lead. Search
@@ -210,7 +215,7 @@ export function WelddataSearchGrid({
         key={kind}
         config={config}
         actions={actions}
-        entities={rows}
+        entities={displayRows}
         pagination={{ page: 1, pageSize: rows.length || 25, totalCount: rows.length, totalPages: 1, hasMore }}
         availableLists={availableLists}
         // Show only the Sort + View settings (show/hide columns) controls. Search

@@ -208,14 +208,14 @@ export function DriveFileCard({ file, isSelected, onClick, onDoubleClick, onTogg
       <div className="flex items-center gap-1.5 px-3 pt-1 pb-3">
         <Icon className={cn('h-3.5 w-3.5 shrink-0', typeConfig.color)} />
         <span className="text-[13px] font-medium text-foreground truncate min-w-0" title={file.name}>{file.name}</span>
-        <div role="presentation" className="shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+        <div className="shrink-0 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
               <div className="p-0.5 rounded-md hover:bg-muted cursor-pointer">
                 <MoreVertical className="h-4 w-4 text-muted-foreground" />
               </div>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52" sideOffset={4}>
+            <DropdownMenuContent align="end" className="w-52" sideOffset={4} onClick={(e) => e.stopPropagation()}>
               {file.url && (
                 <DropdownMenuItem asChild>
                   <a href={file.url} target="_blank" rel="noopener noreferrer">

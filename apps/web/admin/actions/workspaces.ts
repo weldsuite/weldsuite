@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
 import { guardWrite } from '@/lib/auth';
+import { recordConsoleAudit } from '@/lib/audit';
 import { getMasterDb, masterSchema } from '@/lib/db';
 import {
   getWorkspaceById,
@@ -16,7 +17,12 @@ import {
 
 const { workspaces } = masterSchema;
 
-export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+/**
+ * `code` is the billing worker's error code when it produced the failure (see
+ * lib/billing-worker.ts); the billing forms read it to decide whether a retry
+ * may reuse the request's idempotency key.
+ */
+export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 
 /** Reject deletion dates that are in the past or unreasonably soon. */
 const MIN_LEAD_MINUTES = 5;
@@ -66,6 +72,15 @@ export async function scheduleWorkspaceDeletion(
     })
     .where(eq(workspaces.id, workspaceId));
 
+  await recordConsoleAudit({
+    identity: guard.identity,
+    workspaceId,
+    action: 'workspace.deletion_schedule',
+    outcome: 'success',
+    reason: trimmedReason,
+    details: { deleteAt: deleteAt.toISOString() },
+  });
+
   // Warn the workspace owners (best-effort — never blocks the action).
   const emails = await getWorkspaceNotifyEmails(workspaceId);
   await sendDeletionScheduledEmail(emails, {
@@ -111,6 +126,14 @@ export async function cancelWorkspaceDeletion(
       updatedAt: new Date(),
     })
     .where(eq(workspaces.id, workspaceId));
+
+  await recordConsoleAudit({
+    identity: guard.identity,
+    workspaceId,
+    action: 'workspace.deletion_cancel',
+    outcome: 'success',
+    details: { scheduledDeletionAt: existing.scheduledDeletionAt },
+  });
 
   const emails = await getWorkspaceNotifyEmails(workspaceId);
   await sendDeletionCancelledEmail(emails, { workspaceName: existing.name });

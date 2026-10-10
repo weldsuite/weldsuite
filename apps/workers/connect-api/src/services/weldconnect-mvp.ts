@@ -219,7 +219,7 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   condition: (c) => {
     const missing: string[] = [];
     if (isBlank(c.field)) missing.push('field');
-    if (!Array.isArray(c.branches) && !NO_VALUE_OPERATORS.has(String(c.operator ?? 'eq')) && isBlank(c.value)) {
+    if (!Array.isArray(c.branches) && !NO_VALUE_OPERATORS.has(asText(c.operator ?? 'eq')) && isBlank(c.value)) {
       missing.push('value');
     }
     return missing;
@@ -248,11 +248,11 @@ const WAITING_STEP_TYPES = new Set(['manual_step']);
 
 /** The branch ids a branching step owns — mirrors step-tree.ts in workflow-worker. */
 function branchIdsOf(step: Bag): string[] {
-  const id = String(step.id ?? '');
+  const id = asText(step.id ?? '');
   if (step.type === 'loop') return [`${id}_each`];
   if (step.type !== 'condition') return [];
   const branches = asBag(step.config).branches;
-  if (Array.isArray(branches)) return branches.map((b) => `${id}_branch_${String(asBag(b).value ?? '')}`);
+  if (Array.isArray(branches)) return branches.map((b) => `${id}_branch_${asText(asBag(b).value ?? '')}`);
   return [`${id}_if`, `${id}_if_not`];
 }
 
@@ -268,14 +268,14 @@ function validateBranches(steps: Bag[]): WorkflowIssue[] {
     const stepId = typeof step.id === 'string' ? step.id : undefined;
     const parent = step.parentBranchId;
     if (typeof parent === 'string' && parent !== '' && !branchIds.has(parent)) {
-      issues.push({ code: 'orphan_step', stepId, type: String(step.type ?? '') });
+      issues.push({ code: 'orphan_step', stepId, type: asText(step.type ?? '') });
     }
-    if (step.type === 'loop' && !parents.has(`${String(step.id ?? '')}_each`)) {
+    if (step.type === 'loop' && !parents.has(`${asText(step.id ?? '')}_each`)) {
       issues.push({ code: 'empty_loop', stepId, type: 'loop' });
     }
     // An approval inside a branch or loop would fail the run when reached
     // (workflow-worker execute-steps.ts: waiting is main-flow only).
-    if (WAITING_STEP_TYPES.has(String(step.type ?? '')) && typeof parent === 'string' && parent !== '') {
+    if (WAITING_STEP_TYPES.has(asText(step.type ?? '')) && typeof parent === 'string' && parent !== '') {
       issues.push({ code: 'nested_waiting_step', stepId, type: String(step.type) });
     }
   }
@@ -322,7 +322,7 @@ function validateOneTimeScheduleTrigger(trigger: Bag, triggerId: string | undefi
 
 function validateScheduleTrigger(trigger: Bag, triggerId: string | undefined): WorkflowIssue[] {
   const scheduleType = triggerField(trigger, 'scheduleType');
-  if (scheduleType !== undefined && !(WELDCONNECT_SCHEDULE_TYPES as readonly string[]).includes(String(scheduleType))) {
+  if (scheduleType !== undefined && !(WELDCONNECT_SCHEDULE_TYPES as readonly string[]).includes(asText(scheduleType))) {
     return [{ code: 'schedule_not_recurring', triggerId }];
   }
   if (scheduleType === 'one_time') return validateOneTimeScheduleTrigger(trigger, triggerId);
@@ -467,7 +467,7 @@ export function validateWeldConnectIntegrations(
   const issues: WorkflowIssue[] = [];
   for (const raw of steps) {
     const step = asBag(raw);
-    const type = String(step.type ?? '');
+    const type = asText(step.type ?? '');
     const providerId = providerIdOf(type);
     if (!providerId) continue;
 
@@ -476,7 +476,7 @@ export function validateWeldConnectIntegrations(
     const candidates = integrations.filter((i) => i.type === providerId);
     const match = integrationId ? candidates.find((i) => i.id === integrationId) : candidates[0];
 
-    if (!match || match.status !== 'connected') {
+    if (match?.status !== 'connected') {
       issues.push({
         code: 'integration_not_connected',
         stepId: typeof step.id === 'string' ? step.id : undefined,

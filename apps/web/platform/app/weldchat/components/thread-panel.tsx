@@ -6,7 +6,6 @@ import { useChatContext } from './chat-context';
 import { useChannel } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel } from '@/hooks/queries/use-weldchat-queries';
 import { useEffect, useRef, useState } from 'react';
-import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 
 interface ThreadPanelProps {
@@ -25,31 +24,54 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
 
   const [threadName, setThreadName] = useState(t.weldchat.threadPanel.defaultName);
   const [editingTitle, setEditingTitle] = useState(false);
-  const titleRef = useRef<HTMLSpanElement>(null);
+  const [draftName, setDraftName] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const titleButtonRef = useRef<HTMLButtonElement>(null);
+  const cancelEditRef = useRef(false);
+  // Set when Enter/Escape ends the rename, so focus returns to the title button.
+  const refocusTitleRef = useRef(false);
 
   useEffect(() => {
     const stored = typeof window !== 'undefined' ? localStorage.getItem(THREAD_NAME_KEY(messageId)) : null;
     const initial = stored?.trim() ? stored : t.weldchat.threadPanel.defaultName;
     setThreadName(initial);
     setEditingTitle(false);
-    if (titleRef.current) titleRef.current.innerText = initial;
   }, [messageId, t.weldchat.threadPanel.defaultName]);
 
-  function focusAndSelectTitle() {
-    const el = titleRef.current;
-    if (!el) return;
-    el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-  }
+  useEffect(() => {
+    if (!editingTitle) {
+      if (refocusTitleRef.current) {
+        refocusTitleRef.current = false;
+        titleButtonRef.current?.focus();
+      }
+      return;
+    }
+    titleInputRef.current?.focus();
+    titleInputRef.current?.select();
+  }, [editingTitle]);
 
   function startEditing() {
-    if (editingTitle) return;
+    cancelEditRef.current = false;
+    setDraftName(threadName);
     setEditingTitle(true);
-    setTimeout(focusAndSelectTitle, 0);
+  }
+
+  function commitTitle() {
+    if (cancelEditRef.current) {
+      cancelEditRef.current = false;
+      return;
+    }
+    const trimmed = draftName.trim();
+    // Empty input — keep the last saved name instead of reverting to "Thread"
+    if (trimmed) {
+      setThreadName(trimmed);
+      try {
+        localStorage.setItem(THREAD_NAME_KEY(messageId), trimmed);
+      } catch {
+        // Storage unavailable (private browsing, quota, …) — rename still applies for this session.
+      }
+    }
+    setEditingTitle(false);
   }
 
   return (
@@ -67,73 +89,40 @@ export function ThreadPanel({ channelId, messageId }: Readonly<ThreadPanelProps>
             </div>
           )}
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-          <span
-            ref={titleRef}
-            role="textbox"
-            tabIndex={0}
-            aria-readonly={!editingTitle}
-            aria-label={t.weldchat.threadPanel.clickToRename}
-            contentEditable={editingTitle}
-            suppressContentEditableWarning
-            className={cn(
-              'rounded-md px-2 py-0.5 -mx-1 border transition-colors text-[15px] font-semibold outline-none',
-              editingTitle
-                ? 'border-gray-400 dark:border-gray-500'
-                : 'border-transparent hover:border-border cursor-text',
-            )}
-            onClick={startEditing}
-            onBlur={() => {
-              const el = titleRef.current;
-              const trimmed = (el?.innerText ?? '').trim();
-              if (!trimmed) {
-                // Empty input — keep the last saved name instead of reverting to "Thread"
-                if (el) el.innerText = threadName;
-                setEditingTitle(false);
-                return;
-              }
-              if (el) el.innerText = trimmed;
-              setThreadName(trimmed);
-              try {
-                localStorage.setItem(THREAD_NAME_KEY(messageId), trimmed);
-              } catch {
-                // Storage unavailable (private browsing, quota, …) — rename still applies for this session.
-              }
-              setEditingTitle(false);
-            }}
-            onInput={(e) => {
-              const el = e.currentTarget;
-              if (el.innerText.length > 50) {
-                el.innerText = el.innerText.slice(0, 50);
-                const range = document.createRange();
-                range.selectNodeContents(el);
-                range.collapse(false);
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(range);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (!editingTitle) {
-                // Read-only until activated: Enter / Space starts renaming (keyboard parity with click).
-                if (e.key === 'Enter' || e.key === ' ') {
+          {editingTitle ? (
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={draftName}
+              maxLength={50}
+              aria-label={t.weldchat.threadPanel.nameLabel}
+              onChange={(e) => setDraftName(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
                   e.preventDefault();
-                  startEditing();
+                  refocusTitleRef.current = true;
+                  e.currentTarget.blur();
                 }
-                return;
-              }
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                (e.target as HTMLElement).blur();
-              }
-              if (e.key === 'Escape') {
-                if (titleRef.current) titleRef.current.innerText = threadName;
-                setEditingTitle(false);
-              }
-            }}
-            title={editingTitle ? undefined : t.weldchat.threadPanel.clickToRename}
-          >
-            {threadName}
-          </span>
+                if (e.key === 'Escape') {
+                  refocusTitleRef.current = true;
+                  cancelEditRef.current = true;
+                  setEditingTitle(false);
+                }
+              }}
+              className="min-w-24 rounded-md border border-gray-400 bg-transparent px-2 py-0.5 -mx-1 text-[15px] font-semibold outline-none [field-sizing:content] dark:border-gray-500"
+            />
+          ) : (
+            <button
+              ref={titleButtonRef}
+              type="button"
+              onClick={startEditing}
+              title={t.weldchat.threadPanel.clickToRename}
+              className="-mx-1 max-w-full cursor-text truncate rounded-md border border-transparent px-2 py-0.5 text-left text-[15px] font-semibold outline-none transition-colors hover:border-border focus-visible:border-ring"
+            >
+              {threadName}
+            </button>
+          )}
         </div>
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={closeThread}>
           <X className="h-4 w-4" />

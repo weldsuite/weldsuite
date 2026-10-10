@@ -63,7 +63,7 @@ async function buildCursorCondition(db: Database, cursor: string): Promise<SQL |
 app.get('/', requirePermission('locations:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
-  const limit = Math.min(q.limit ? parseInt(q.limit, 10) : 25, 100);
+  const limit = Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100);
 
   const conditions = buildFilterConditions(q);
   const cursorCondition = q.cursor ? await buildCursorCondition(db, q.cursor) : null;

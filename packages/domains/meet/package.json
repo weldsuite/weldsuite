@@ -9,6 +9,7 @@
     "./billing": "./src/billing.ts",
     "./booking-meeting": "./src/booking-meeting.ts",
     "./env": "./src/env.ts",
+    "./leave-other-sessions": "./src/leave-other-sessions.ts",
     "./meeting-lifecycle": "./src/meeting-lifecycle.ts",
     "./r2-copy": "./src/r2-copy.ts",
     "./recordings": "./src/recordings.ts",

@@ -39,4 +39,10 @@ describe('updateTaskSchema', () => {
     };
     expect(updateTaskSchema.parse(body)).toEqual(body);
   });
+
+  it('accepts a null duration, which clears it, and rejects a non-number', () => {
+    expect(updateTaskSchema.parse({ duration: null })).toEqual({ duration: null });
+    expect(updateTaskSchema.parse({})).toEqual({});
+    expect(updateTaskSchema.safeParse({ duration: '30' }).success).toBe(false);
+  });
 });

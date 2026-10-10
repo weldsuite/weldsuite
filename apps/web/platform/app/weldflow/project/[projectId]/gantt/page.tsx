@@ -16,6 +16,8 @@ import { PageLoader } from '@/components/page-loader';
 import { Separator } from '@weldsuite/ui/components/separator';
 import { Calendar as CalendarPicker } from '@weldsuite/ui/components/calendar';
 import { toast } from 'sonner';
+import { TASK_DELETED_EVENT } from '@/components/objects/task/use-task-data';
+import { addDays, startOfDay } from 'date-fns';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { useParams } from '@/lib/router';
@@ -58,7 +60,9 @@ import { useObjectPanel } from '@/components/object-panel';
 import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useDateLocale } from '@/lib/i18n/date-locale';
 import { copyText } from '@/lib/clipboard';
+import type { TranslationsType } from '@/lib/i18n/types';
 
 const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
@@ -98,6 +102,28 @@ const statuses = Object.entries(statusConfig).map(([id, config]) => ({
   name: config.name,
   color: config.color,
 }));
+
+/** Built-in status name in the UI language; unknown ids keep the English config name. */
+function localizedStatusName(id: string, tasks: TranslationsType['projects']['tasks']): string {
+  switch (id) {
+    case 'backlog':
+      return tasks.statusBacklog;
+    case 'todo':
+      return tasks.statusTodo;
+    case 'in_progress':
+      return tasks.statusInProgress;
+    case 'in_review':
+      return tasks.statusInReview;
+    case 'testing':
+      return tasks.statusTesting;
+    case 'done':
+      return tasks.statusDone;
+    case 'cancelled':
+      return tasks.statusCancelled;
+    default:
+      return statusConfig[id]?.name ?? id;
+  }
+}
 
 const markerColors = [
   { name: 'Blue', className: 'bg-blue-100 text-blue-900', color: '#dbeafe' },
@@ -144,6 +170,8 @@ interface GanttFeature {
   isSubtask?: boolean;
   subtasks?: GanttFeature[];
   labels?: string[];
+  /** The task has neither a start nor a due date yet. */
+  unscheduled?: boolean;
 }
 
 // Marker type for Gantt (mapped from Milestone)
@@ -200,8 +228,16 @@ interface RawGanttMilestone {
 
 // Map API task to Gantt feature format
 function mapTaskToFeature(task: RawGanttTask, isSubtask: boolean = false): GanttFeature {
-  const startDate = task.startDate ? new Date(task.startDate) : new Date();
-  const endDate = task.dueDate ? new Date(task.dueDate) : new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000); // Default 7 days
+  // Whole days only: a missing start must not inherit the current time of day,
+  // or a drag would persist an arbitrary hh:mm:ss into the task's start date.
+  const dueDate = task.dueDate ? new Date(task.dueDate) : null;
+  const unscheduled = !task.startDate && !dueDate;
+  const startDate = task.startDate
+    ? new Date(task.startDate)
+    : dueDate
+      ? startOfDay(addDays(dueDate, -7))
+      : startOfDay(new Date());
+  const endDate = dueDate ?? addDays(startDate, 7); // Default 7 days
 
   const statusKey = task.status || 'todo';
   const statusInfo = statusConfig[statusKey] || statusConfig.todo;
@@ -236,6 +272,7 @@ function mapTaskToFeature(task: RawGanttTask, isSubtask: boolean = false): Gantt
     parentTaskId: task.parentTaskId ?? undefined,
     isSubtask,
     labels: task.labels || undefined,
+    unscheduled,
   };
 }
 
@@ -264,30 +301,26 @@ function organizeTasksWithSubtasks(tasks: RawGanttTask[]): GanttFeature[] {
   // Map parent tasks with their subtasks - keep them together in the same group
   const features: GanttFeature[] = [];
 
+  // Tasks without dates are listed too (as ghost bars) so they can be
+  // scheduled by dragging them onto the timeline.
   parentTasks.forEach(task => {
-    // Only include tasks with dates
-    if (task.startDate || task.dueDate) {
-      const parentFeature = mapTaskToFeature(task, false);
-      const childTasks = subtasksByParent.get(task.id) || [];
+    const parentFeature = mapTaskToFeature(task, false);
+    const childTasks = subtasksByParent.get(task.id) || [];
 
-      // Map subtasks that have dates - use parent's group so they stay together
-      const subtaskFeatures = childTasks
-        .filter((subtask) => subtask.startDate || subtask.dueDate)
-        .map((subtask) => {
-          const subtaskFeature = mapTaskToFeature(subtask, true);
-          // Use parent's group so subtasks are grouped with parent
-          subtaskFeature.group = parentFeature.group;
-          return subtaskFeature;
-        });
+    // Use parent's group so subtasks are grouped with parent
+    const subtaskFeatures = childTasks.map((subtask) => {
+      const subtaskFeature = mapTaskToFeature(subtask, true);
+      subtaskFeature.group = parentFeature.group;
+      return subtaskFeature;
+    });
 
-      parentFeature.subtasks = subtaskFeatures;
-      features.push(parentFeature);
+    parentFeature.subtasks = subtaskFeatures;
+    features.push(parentFeature);
 
-      // Also add subtasks as separate features right after parent for the Gantt chart display
-      subtaskFeatures.forEach(subtask => {
-        features.push(subtask);
-      });
-    }
+    // Also add subtasks as separate features right after parent for the Gantt chart display
+    subtaskFeatures.forEach(subtask => {
+      features.push(subtask);
+    });
   });
 
   return features;
@@ -333,6 +366,7 @@ const SidebarItemWithContextMenu = ({
           <GanttSidebarItem
             feature={feature}
             onSelectItem={onView}
+            unscheduledLabel={t.projects.gantt.noDates}
           />
         </div>
       </ContextMenuTrigger>
@@ -388,8 +422,32 @@ const GanttPage = () => {
   const projectId = params.projectId as string;
   const { canWrite } = useProjectPermissions();
   const { t } = useI18n();
+  const { dateFnsLocale, formatMedium } = useDateLocale();
 
-  const [features, setFeatures] = useState<GanttFeature[]>([]);
+  const [rawFeatures, setFeatures] = useState<GanttFeature[]>([]);
+  // Status names are stored in English; label them in the UI language at render
+  // so a language switch re-translates without refetching.
+  const features = useMemo(() => {
+    const label = (feature: GanttFeature): GanttFeature => ({
+      ...feature,
+      status: { ...feature.status, name: localizedStatusName(feature.status.id, t.projects.tasks) },
+      group: feature.group
+        ? { ...feature.group, name: localizedStatusName(feature.group.id, t.projects.tasks) }
+        : feature.group,
+      subtasks: feature.subtasks?.map(label),
+    });
+    return rawFeatures.map(label);
+  }, [rawFeatures, t]);
+  const markerColorNames: Record<string, string> = {
+    Blue: t.sweep.weldflow.workloadView.colorBlue,
+    Green: t.sweep.weldflow.workloadView.colorGreen,
+    Purple: t.sweep.weldflow.workloadView.colorPurple,
+    Red: t.sweep.weldflow.workloadView.colorRed,
+    Orange: t.sweep.weldflow.workloadView.colorOrange,
+    Teal: t.sweep.weldflow.workloadView.colorTeal,
+    Yellow: t.sweep.weldflow.workloadView.colorYellow,
+    Pink: t.sweep.weldflow.workloadView.colorPink,
+  };
   const [markers, setMarkers] = useState<GanttMarkerType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -474,7 +532,7 @@ const GanttPage = () => {
   // Snap today to the 20% mark whenever view mode / zoom changes.
   useLayoutEffect(() => {
     scrollToToday();
-  }, [viewMode, zoomLevel, scrollToToday]);
+  }, [viewMode, zoomLevel, isLoading, scrollToToday]);
 
   // Track whether the today indicator is currently visible in the timeline
   // area (right of the sidebar). Listen to scroll and window resize so the
@@ -571,7 +629,7 @@ const GanttPage = () => {
       {
         field: 'status',
         label: t.projects.gantt.filterStatus,
-        options: statuses.map(s => ({ value: s.id, label: s.name })),
+        options: statuses.map(s => ({ value: s.id, label: localizedStatusName(s.id, t.projects.tasks) })),
       },
       {
         field: 'assignee',
@@ -639,6 +697,16 @@ const GanttPage = () => {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // A task deleted from the task panel disappears from the chart right away.
+  useEffect(() => {
+    const onDeleted = (e: Event) => {
+      const id = (e as CustomEvent<{ id?: string }>).detail?.id;
+      if (id) setFeatures((prev) => prev.filter((f) => f.id !== id && f.parentTaskId !== id));
+    };
+    window.addEventListener(TASK_DELETED_EVENT, onDeleted);
+    return () => window.removeEventListener(TASK_DELETED_EVENT, onDeleted);
+  }, []);
 
   // Fetch project members for assignee dropdown
   useEffect(() => {
@@ -802,7 +870,7 @@ const GanttPage = () => {
     // Update local state optimistically
     setFeatures((prev) =>
       prev.map((feature) =>
-        feature.id === id ? { ...feature, startAt, endAt } : feature
+        feature.id === id ? { ...feature, startAt, endAt, unscheduled: false } : feature
       )
     );
 
@@ -1134,14 +1202,24 @@ const GanttPage = () => {
       </div>
 
       <GanttProvider
-        className={cn("border-b flex-1 min-h-0", !viewSheetOpen && "border-r")}
+        className={cn("gantt-scroll border-b flex-1 min-h-0", !viewSheetOpen && "border-r")}
         // Hover-to-add (dashed border + plus icon) removed; the canvas now
         // pans horizontally on click+drag instead. New tasks are still added
         // from the sidebar's + button.
         range={range}
         zoom={effectiveZoom}
+        locale={dateFnsLocale}
+        labels={{
+          today: t.projects.gantt.today,
+          week: t.projects.gantt.viewWeek,
+          soFar: (duration) => t.projects.gantt.durationSoFar.replace('{duration}', duration),
+        }}
       >
-      <GanttSidebar onAddTask={canWrite ? () => handleAddFeature() : undefined}>
+      <GanttSidebar
+        onAddTask={canWrite ? () => handleAddFeature() : undefined}
+        sidebarLabel={t.projects.gantt.sidebarTasks}
+        sidebarSecondaryLabel={t.projects.gantt.sidebarDuration}
+      >
         {hasFeatures ? (
           <div>
             {filteredFeatures.map((feature) => (
@@ -1429,13 +1507,9 @@ const GanttPage = () => {
                   <div className="px-2 py-1.5">
                     <p className="text-sm font-medium leading-none truncate">{selectedMarker.label}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {selectedMarker.date.toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
+                      {formatMedium(selectedMarker.date)}
                       {(selectedMarker.date.getHours() !== 0 || selectedMarker.date.getMinutes() !== 0) && (
-                        <span> at {selectedMarker.date.getHours().toString().padStart(2, '0')}:{selectedMarker.date.getMinutes().toString().padStart(2, '0')}</span>
+                        <span> {t.projects.gantt.atTime.replace('{time}', `${selectedMarker.date.getHours().toString().padStart(2, '0')}:${selectedMarker.date.getMinutes().toString().padStart(2, '0')}`)}</span>
                       )}
                     </p>
                   </div>
@@ -1458,7 +1532,7 @@ const GanttPage = () => {
                           )}
                           style={{ backgroundColor: colorOption.color }}
                           onClick={() => handleChangeMarkerColor(selectedMarker.id, colorOption.className)}
-                          title={colorOption.name}
+                          title={markerColorNames[colorOption.name] ?? colorOption.name}
                         >
                           {selectedMarker.className === colorOption.className && (
                             <Check className="h-3 w-3 text-foreground/60" />

@@ -70,7 +70,7 @@ export function VideoPlayerBlock({
   textColor = '#ffffff',
   contentAlignment = 'center',
   controls = true
-}: VideoPlayerBlockProps) {
+}: Readonly<VideoPlayerBlockProps>) {
   const [isPlaying, setIsPlaying] = useState(autoplay);
   const videoRef = useRef<HTMLVideoElement>(null);
 

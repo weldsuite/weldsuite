@@ -8,6 +8,8 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { setStartHandoff } from '@/lib/weldmeet/start-handoff';
 import { buildMeetingShareUrl, parseMeetingJoinInput } from '@/lib/weldmeet/share-link';
 import { useWeldMeetCallOptional } from '@/contexts/weldmeet-call-context';
+import { useCallSwitchOptional } from '@/contexts/active-call-context';
+import { meetingCallLabel } from '@/lib/call-switch-labels';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import {
@@ -51,6 +53,7 @@ export default function NewMeetingPage() {
   const { getClient: getAppApiClient } = useAppApiClient();
   const meetCtx = useWeldMeetCallOptional();
   const prewarmMedia = meetCtx?.prewarmMedia;
+  const { runWithSwitch } = useCallSwitchOptional();
   const { data: upcomingMeetings } = useUpcomingMeetings({ days: 7, limit: 3 });
 
   const { data: calendarsData } = useUserCalendars();
@@ -106,7 +109,8 @@ export default function NewMeetingPage() {
         .map((a) => ({ email: a.email, name: a.name || undefined }))
     : undefined;
 
-  const handleInstantMeeting = async () => {
+  /** The server joins the host to the new session, so this is where the live call has to be left. */
+  const startInstantMeeting = async () => {
     void prewarmMedia?.();
 
     try {
@@ -147,6 +151,14 @@ export default function NewMeetingPage() {
       });
     }
   };
+
+  // In a call or meeting already? Ask BEFORE anything is created or joined, and
+  // before the camera / microphone are opened.
+  const handleInstantMeeting = () =>
+    runWithSwitch({
+      target: { kind: 'meet', label: () => meetingCallLabel(null, 'target') },
+      proceed: startInstantMeeting,
+    });
 
   const handleCreateForLater = async () => {
     try {

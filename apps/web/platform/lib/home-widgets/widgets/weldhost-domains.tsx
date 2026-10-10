@@ -58,7 +58,7 @@ function Render({ settings }: Readonly<{ settings: WeldhostDomainsSettings }>) {
   return <HostCard rows={rows} isLoading={res.isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WeldhostDomainsSettings; onChange: (next: WeldhostDomainsSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldhostDomainsSettings; onChange: (next: WeldhostDomainsSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

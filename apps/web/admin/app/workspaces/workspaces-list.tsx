@@ -183,16 +183,15 @@ export function WorkspacesList({
                       {formatDate(w.createdAt, false)}
                     </TableCell>
                     <TableCell className="py-2.5">
-                      <div
-                        role="presentation"
-                        className="flex items-center justify-end gap-1"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="flex items-center justify-end gap-1">
                         {w.deletionState === 'active' && (
                           <Button
                             variant="outline"
                             size="xs"
-                            onClick={() => setScheduleTarget(w)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setScheduleTarget(w);
+                            }}
                             className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -200,7 +199,14 @@ export function WorkspacesList({
                           </Button>
                         )}
                         {w.deletionState === 'scheduled' && (
-                          <Button variant="outline" size="xs" onClick={() => setCancelTarget(w)}>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCancelTarget(w);
+                            }}
+                          >
                             <RotateCcw className="h-3.5 w-3.5" />
                             Cancel deletion
                           </Button>

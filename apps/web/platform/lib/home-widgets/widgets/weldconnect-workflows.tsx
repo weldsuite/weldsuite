@@ -60,7 +60,7 @@ function Render({ settings }: Readonly<{ settings: WeldconnectWorkflowsSettings 
   );
 }
 
-function SettingsForm({ value, onChange }: { value: WeldconnectWorkflowsSettings; onChange: (next: WeldconnectWorkflowsSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldconnectWorkflowsSettings; onChange: (next: WeldconnectWorkflowsSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

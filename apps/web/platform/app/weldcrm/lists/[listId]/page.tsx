@@ -9,7 +9,7 @@
  */
 
 import { Suspense, useCallback, useMemo } from 'react';
-import { useParams, useRouter } from '@/lib/router';
+import { useParams, useRouter, useSearchParams } from '@/lib/router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useList, useRemoveListMember, listKeys } from '@/hooks/queries/use-lists-queries';
@@ -30,15 +30,28 @@ import {
   type Person,
 } from '@/hooks/queries/use-people-queries';
 import { AddMemberPicker } from './add-member-picker';
+import { EntityGridSkeleton } from '@/components/entity-grid/components/grid-skeleton';
+import { ListLoadError } from '@/app/weldcrm/components/list-load-error';
+
+/** The `sort` / `sortDir` the toolbar writes to the URL, for the member request and the grid. */
+function useListSort(): { sort?: string; sortDir?: 'asc' | 'desc' } {
+  const searchParams = useSearchParams();
+  const sort = searchParams.get('sort') || undefined;
+  const dir = searchParams.get('sortDir');
+  return { sort, sortDir: dir === 'asc' || dir === 'desc' ? dir : undefined };
+}
 
 function CompanyListView({ listId, listName }: Readonly<{ listId: string; listName: string }>) {
   const t = useTranslations();
   const qc = useQueryClient();
   const removeMember = useRemoveListMember();
-  const filters = useMemo(() => ({ listId, limit: 50 }), [listId]);
+  const { sort, sortDir } = useListSort();
+  const filters = useMemo(() => ({ listId, limit: 50, sort, sortDir }), [listId, sort, sortDir]);
   const {
     data,
-    isLoading,
+    isPending,
+    isError,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -65,13 +78,16 @@ function CompanyListView({ listId, listName }: Readonly<{ listId: string; listNa
     [removeMember, qc, listId],
   );
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  // `isPending`, not `isLoading`: the latter is false while the persisted
+  // query cache restores, which flashed the "list is empty" state.
+  if (isPending) return <EntityGridSkeleton />;
+  if (isError && !data) return <ListLoadError onRetry={() => void refetch()} />;
 
   return (
     <CompaniesGrid
       companies={rows}
       totalCount={totalCount}
-      searchParams={{}}
+      searchParams={{ sort, sortDir }}
       onLoadMore={handleLoadMore}
       hasMore={!!hasNextPage}
       isFetchingMore={isFetchingNextPage}
@@ -90,10 +106,13 @@ function PersonListView({ listId, listName }: Readonly<{ listId: string; listNam
   const t = useTranslations();
   const qc = useQueryClient();
   const removeMember = useRemoveListMember();
-  const filters = useMemo(() => ({ listId, limit: 50 }), [listId]);
+  const { sort, sortDir } = useListSort();
+  const filters = useMemo(() => ({ listId, limit: 50, sort, sortDir }), [listId, sort, sortDir]);
   const {
     data,
-    isLoading,
+    isPending,
+    isError,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -119,13 +138,14 @@ function PersonListView({ listId, listName }: Readonly<{ listId: string; listNam
     [removeMember, qc, listId],
   );
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  if (isPending) return <EntityGridSkeleton />;
+  if (isError && !data) return <ListLoadError onRetry={() => void refetch()} />;
 
   return (
     <PeopleGrid
       people={rows}
       totalCount={totalCount}
-      searchParams={{}}
+      searchParams={{ sort, sortDir }}
       onLoadMore={handleLoadMore}
       hasMore={!!hasNextPage}
       isFetchingMore={isFetchingNextPage}
@@ -144,9 +164,11 @@ export default function ListPage() {
   const { listId } = useParams<{ listId: string }>();
   const router = useRouter();
   const t = useTranslations();
-  const { data: listResp, isLoading } = useList(listId);
+  const { data: listResp, isPending } = useList(listId);
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  // `isPending`, not `isLoading`: the latter is false while the persisted
+  // query cache restores, which flashed "List not found" before the list loaded.
+  if (isPending) return <PageLoader fullScreen={false} />;
 
   const list = listResp?.data;
   if (!list) {

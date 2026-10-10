@@ -236,7 +236,7 @@ app.post('/connections/attio/callback', requirePermission('integrations:create')
     const stateKey = `attio_oauth_state:${state}`;
     const stateData = (await env.WORKSPACE_CACHE.get(stateKey, 'json')) as { orgId: string; userId: string } | null;
 
-    if (!stateData || stateData.orgId !== orgId) {
+    if (stateData?.orgId !== orgId) {
       return error.badRequest(c, 'Invalid or expired OAuth state');
     }
     await env.WORKSPACE_CACHE.delete(stateKey);

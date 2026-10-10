@@ -21,10 +21,10 @@ function readFromStorage(): boolean {
  * — only one panel should be visible at a time.
  */
 export function useMeetingPanelOpen() {
-  const [open, setOpenState] = useState<boolean>(readFromStorage);
+  const [isOpen, setIsOpen] = useState<boolean>(readFromStorage);
 
   useEffect(() => {
-    const handler = () => setOpenState(readFromStorage());
+    const handler = () => setIsOpen(readFromStorage());
     window.addEventListener(CHANGE_EVENT, handler);
     window.addEventListener('storage', handler);
     return () => {
@@ -37,9 +37,9 @@ export function useMeetingPanelOpen() {
     try {
       window.sessionStorage.setItem(STORAGE_KEY, String(value));
     } catch { /* best-effort only; failure is not actionable */ }
-    setOpenState(value);
+    setIsOpen(value);
     window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
   }, []);
 
-  return [open, setOpen] as const;
+  return [isOpen, setOpen] as const;
 }

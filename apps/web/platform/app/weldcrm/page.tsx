@@ -127,15 +127,6 @@ function getTaskAssigneeIds(task: Task): string[] {
   return getTaskAssignees(task).map((a) => a.id);
 }
 
-/** Opens the task on Enter/Space, but only when the row itself (not a nested control) has focus. */
-function handleRowActivateKey(e: React.KeyboardEvent<HTMLElement>, activate: () => void): void {
-  if (e.target !== e.currentTarget) return;
-  if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault();
-    activate();
-  }
-}
-
 /** Compact label for a repeating task's badge (e.g. `2w`, `3d`, `M`). */
 function formatRepeatBadge(repeat: NonNullable<Task['repeat']>): string {
   if (repeat.frequency === 'custom' && repeat.interval && repeat.unit) {
@@ -317,7 +308,9 @@ export default function CrmTasksClient() {
   const t = useTranslations();
   const { locale: language } = useLocale();
   const intlLocale = localeConfig[language as keyof typeof localeConfig]?.intlLocale ?? 'en-US';
-  const { data: tasks = [], isLoading, error } = useCrmTasks(user?.id);
+  // `isPending`, not `isLoading`: the latter is false while the persisted query
+  // cache restores after a reload, which showed the empty task list first.
+  const { data: tasks = [], isPending: isLoading, error } = useCrmTasks(user?.id);
   const { data: membersData } = useWorkspaceMembers(1, 100);
   const [customerSearch, setCustomerSearch] = useState('');
   const { data: companiesData } = useCompanies({
@@ -745,17 +738,21 @@ export default function CrmTasksClient() {
     return (
       <div
         key={task.id}
-        role="button"
-        tabIndex={0}
-        onClick={() => openTaskPanel(task)}
-        onKeyDown={(e) => handleRowActivateKey(e, () => openTaskPanel(task))}
         className={cn(
-          "flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group",
+          "relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group",
           task.status === 'done' && "opacity-50"
         )}
       >
+        {/* Stretched row button: the row content sits above it and the inline controls stay clickable. */}
+        <button
+          type="button"
+          aria-label={task.title}
+          onClick={() => openTaskPanel(task)}
+          className="absolute inset-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
+
         {/* Checkbox */}
-        <div className="w-4 flex-shrink-0" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-4 flex-shrink-0">
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}
@@ -788,7 +785,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Company */}
-        <div className="w-[140px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[140px]">
           <RecordPicker
             taskId={task.id}
             linkedCompany={task.linkedCompany}
@@ -806,7 +803,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Status */}
-        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[120px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("h-auto px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
@@ -830,7 +827,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Priority */}
-        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("h-auto px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority ? priority.color : 'text-gray-400', priority ? priority.bg : '')}>
@@ -867,7 +864,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Due Date */}
-        <div className="w-[100px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[100px]">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -902,7 +899,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Assignee(s) */}
-        <div className="w-[120px]" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[120px]">
           {(() => {
             const resolvedList = getTaskAssignees(task).map((a) => {
               const fromDirectory = availableAssignees.find((m) => m.id === a.id);
@@ -1023,7 +1020,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

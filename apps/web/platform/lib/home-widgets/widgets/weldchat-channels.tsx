@@ -54,7 +54,7 @@ function Render({ settings }: Readonly<{ settings: WeldchatChannelsSettings }>) 
   return <ChatChannelsCard rows={rows} isLoading={res.isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WeldchatChannelsSettings; onChange: (next: WeldchatChannelsSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldchatChannelsSettings; onChange: (next: WeldchatChannelsSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

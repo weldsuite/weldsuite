@@ -230,7 +230,7 @@ export interface WeldState {
  */
 export interface StateAction<T = any> {
   type: string;
-  path: keyof WeldState | string;
+  path: string;
   payload: T;
   merge?: boolean;
   timestamp: number;

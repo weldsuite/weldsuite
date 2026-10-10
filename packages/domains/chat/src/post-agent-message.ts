@@ -93,14 +93,17 @@ async function publishAgentMessageRealtime(
       .select({ userId: chatChannelMembers.userId, memberType: chatChannelMembers.memberType })
       .from(chatChannelMembers)
       .where(eq(chatChannelMembers.channelId, channelId));
-    for (const member of members) {
-      if (member.memberType === 'agent' || member.userId === agentId) continue;
-      try {
-        await rt.chatUserUnreadUpdate(orgId, member.userId, { channelId, unreadCount: 1 });
-      } catch {
-        /* non-critical */
-      }
-    }
+    await Promise.all(
+      members
+        .filter((member) => member.memberType !== 'agent' && member.userId !== agentId)
+        .map(async (member) => {
+          try {
+            await rt.chatUserUnreadUpdate(orgId, member.userId, { channelId, unreadCount: 1 });
+          } catch {
+            /* non-critical */
+          }
+        }),
+    );
   } catch (e) {
     console.error('[app-api/chat] agent unread fan-out failed:', e);
   }

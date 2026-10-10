@@ -24,7 +24,7 @@ export default function CTASection({
   backgroundColor,
   store,
   settings
-}: CTASectionProps) {
+}: Readonly<CTASectionProps>) {
   return (
     <section 
       className="py-16 px-4"

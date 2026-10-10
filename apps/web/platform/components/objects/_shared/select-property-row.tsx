@@ -9,18 +9,17 @@
  */
 
 import { useState, type ComponentType } from 'react';
-import { Check } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   Command,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from '@weldsuite/ui/components/command';
+import { ClearPickerItem, PickerCheck, PickerFooter, PickerScrollArea } from '@/components/shared/picker-menu';
 
 export interface SelectPropertyOption {
   value: string;
@@ -59,18 +58,17 @@ export function SelectPropertyRow({
       </div>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
+          {/* No hover box: the value (or placeholder) underlines on hover,
+              like the task panel's due date and repeat values. */}
           <button
             type="button"
             aria-label={label}
-            className={cn(
-              'text-sm min-w-0 w-[calc(100%+1rem)] -mx-2 px-2 min-h-[32px] py-1 text-left cursor-pointer rounded-[9px]',
-              'hover:bg-muted/50 data-[state=open]:bg-muted/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            )}
+            className="group/field text-sm min-w-0 justify-self-start min-h-[32px] py-1 text-left cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {display ? (
-              <span className="text-foreground break-words [overflow-wrap:anywhere]">{display}</span>
+              <span className="text-foreground break-words [overflow-wrap:anywhere] group-hover/field:underline">{display}</span>
             ) : (
-              <span className="text-muted-foreground/70">
+              <span className="text-muted-foreground group-hover/field:underline">
                 {placeholder ?? st('sweep.entities.setFieldPlaceholder', { label })}
               </span>
             )}
@@ -79,36 +77,35 @@ export function SelectPropertyRow({
         <PopoverContent className="w-56 p-0" align="start">
           <Command>
             <CommandInput placeholder={st('sweep.entities.searchEllipsisPlaceholder')} />
-            <CommandList className="max-h-[260px] p-1">
-              <CommandEmpty>{st('sweep.entities.noResults')}</CommandEmpty>
-              {options.map((opt) => (
-                <CommandItem
-                  key={opt.value}
-                  value={opt.label}
-                  onSelect={() => {
-                    if (opt.value !== value) onChange(opt.value);
-                    setOpen(false);
-                  }}
-                  className="flex items-center justify-between gap-2 px-2"
-                >
-                  <span className="truncate">{opt.label}</span>
-                  {opt.value === value && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                </CommandItem>
-              ))}
+            <CommandList className="max-h-none overflow-visible">
+              <PickerScrollArea>
+                <CommandEmpty>{st('sweep.entities.noResults')}</CommandEmpty>
+                <CommandGroup>
+                  {options.map((opt) => (
+                    <CommandItem
+                      key={opt.value}
+                      value={opt.label}
+                      onSelect={() => {
+                        if (opt.value !== value) onChange(opt.value);
+                        setOpen(false);
+                      }}
+                    >
+                      <span className="truncate">{opt.label}</span>
+                      <PickerCheck selected={opt.value === value} />
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </PickerScrollArea>
               {value ? (
-                <>
-                  <CommandSeparator className="my-1" />
-                  <CommandItem
-                    value="__clear__"
+                <PickerFooter>
+                  <ClearPickerItem
+                    label={st('sweep.entities.clear')}
                     onSelect={() => {
                       onChange(null);
                       setOpen(false);
                     }}
-                    className="px-2 text-muted-foreground"
-                  >
-                    {st('sweep.entities.clear')}
-                  </CommandItem>
-                </>
+                  />
+                </PickerFooter>
               ) : null}
             </CommandList>
           </Command>

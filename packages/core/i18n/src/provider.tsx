@@ -65,11 +65,20 @@ export function I18nProvider({
   // Re-render trigger so consumers see fresh translations once a lazy
   // locale has finished loading. The actual translations live in the
   // module-level cache inside `./locales`.
-  const [localeVersion, setLocaleVersion] = useState(0);
+  const [, setLocaleVersion] = useState(0);
+
+  // The bundle this render serves. English until a lazy locale has loaded.
+  const translations = getLoadedTranslations(language);
 
   // Lazy-load the active locale's bundle if it isn't already in memory.
   useEffect(() => {
-    if (isLocaleLoaded(language)) return;
+    if (isLocaleLoaded(language)) {
+      // The bundle may have landed (another caller's `loadLocale`) between the
+      // render that picked `translations` and this effect. Without a bump that
+      // render would keep serving the English fallback for the whole session.
+      if (getLoadedTranslations(language) !== translations) setLocaleVersion((v) => v + 1);
+      return;
+    }
     let cancelled = false;
     loadLocale(language).then(
       () => {
@@ -84,7 +93,7 @@ export function I18nProvider({
     return () => {
       cancelled = true;
     };
-  }, [language]);
+  }, [language, translations]);
 
   // Post-mount: fall back to browser detection when no caller-supplied
   // language and no stored preference matched. Also wire up subscribe()
@@ -115,17 +124,17 @@ export function I18nProvider({
     [adapter],
   );
 
-  // `localeVersion` bumps when a lazily loaded bundle lands, so the memo
-  // re-reads the translations cache.
+  // `translations` changes identity once a lazily loaded bundle lands, so the
+  // memo hands consumers the fresh object.
   const value = useMemo<I18nContextType>(
     () => ({
       language,
       setLanguage: changeLanguage,
-      t: getLoadedTranslations(language) as TranslationsType,
+      t: translations as TranslationsType,
       plural: (count, forms) => pluralImpl(count, forms, language),
       format: interpolate,
     }),
-    [language, changeLanguage, localeVersion],
+    [language, changeLanguage, translations],
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

@@ -28,7 +28,7 @@ export function Card({ bordered = true, elevated = false, style, children, ...re
   );
 }
 
-export function CardHeader({ style, children, ...rest }: ViewProps) {
+export function CardHeader({ style, children, ...rest }: Readonly<ViewProps>) {
   return (
     <View style={[styles.header, style]} {...rest}>
       {children}
@@ -54,7 +54,7 @@ export function CardDescription({ style, children, ...rest }: { style?: StylePro
   );
 }
 
-export function CardContent({ style, children, ...rest }: ViewProps) {
+export function CardContent({ style, children, ...rest }: Readonly<ViewProps>) {
   return (
     <View style={[styles.content, style]} {...rest}>
       {children}
@@ -62,7 +62,7 @@ export function CardContent({ style, children, ...rest }: ViewProps) {
   );
 }
 
-export function CardFooter({ style, children, ...rest }: ViewProps) {
+export function CardFooter({ style, children, ...rest }: Readonly<ViewProps>) {
   const { colors } = useTheme();
   return (
     <View style={[styles.footer, { borderTopColor: colors.border }, style as StyleProp<ViewStyle>]} {...rest}>

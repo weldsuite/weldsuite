@@ -238,6 +238,96 @@ async function incrementTaskExecutions(env: ExecuteSequenceEnv, workspaceId: str
 
 type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
 
+// ============================================================================
+// Pause / unenroll gate
+// ============================================================================
+
+/**
+ * Event type the crm-api sequence routes send (`instance.sendEvent`) to wake a
+ * run that is parked because its sequence or enrollment was paused. It is only
+ * a hint: the run re-reads the database after every wake-up.
+ */
+export const SEQUENCE_RESUME_EVENT = 'sequence-resume';
+
+/** How long a parked run waits for the resume event before it re-checks the database. */
+const PAUSE_RECHECK_TIMEOUT = '1 day' as const;
+/** Upper bound on re-checks of one pause (about a year), so a forgotten pause cannot loop forever. */
+const MAX_PAUSE_RECHECKS = 400;
+
+/**
+ * Whether a run may take its next step.
+ *  - `run`: sequence and enrollment are both active.
+ *  - `paused`: the sequence or the enrollment is paused; park and wait.
+ *  - `stop`: the enrollment was unenrolled / finished / failed, or the sequence
+ *    is gone or no longer running; end the run without touching the enrollment.
+ */
+export type RunGate =
+  | { state: 'run' }
+  | { state: 'paused' }
+  | { state: 'stop'; reason: string };
+
+/**
+ * Reads the sequence and enrollment status. The workflow engine keeps no state
+ * of its own about pausing, so the database is the source of truth: Pause and
+ * Unenroll only flip rows, and a run notices at its next step boundary.
+ */
+export async function readRunGate(
+  db: TenantDb,
+  params: Pick<ExecuteSequenceParams, 'sequenceId' | 'enrollmentId'>,
+): Promise<RunGate> {
+  const [sequence] = await db
+    .select({ status: schema.workflows.status })
+    .from(schema.workflows)
+    .where(and(eq(schema.workflows.id, params.sequenceId), isNull(schema.workflows.deletedAt)))
+    .limit(1);
+  if (!sequence) return { state: 'stop', reason: 'Sequence not found' };
+
+  const [enrollment] = await db
+    .select({ status: schema.sequenceEnrollments.status })
+    .from(schema.sequenceEnrollments)
+    .where(eq(schema.sequenceEnrollments.id, params.enrollmentId))
+    .limit(1);
+  if (!enrollment) return { state: 'stop', reason: 'Enrollment not found' };
+
+  if (enrollment.status === 'paused') return { state: 'paused' };
+  if (enrollment.status !== 'active') return { state: 'stop', reason: `Enrollment status is ${enrollment.status}` };
+  if (sequence.status === 'paused') return { state: 'paused' };
+  if (sequence.status !== 'active') return { state: 'stop', reason: `Sequence status is ${sequence.status}` };
+  return { state: 'run' };
+}
+
+/** The slice of `WorkflowStep` that the pause gate needs (lets tests pass a fake). */
+export interface GateStep {
+  do: (name: string, callback: () => Promise<RunGate>) => Promise<RunGate>;
+  waitForEvent: (name: string, options: { type: string; timeout: typeof PAUSE_RECHECK_TIMEOUT }) => Promise<unknown>;
+}
+
+/**
+ * Checks the gate at a step boundary and, while the sequence or enrollment is
+ * paused, parks the run on a durable wait for the resume event (no compute is
+ * used while parked). Returns `run` or `stop`; never `paused`.
+ */
+export async function waitUntilRunnable(
+  step: GateStep,
+  readGate: () => Promise<RunGate>,
+  label: string,
+): Promise<RunGate> {
+  let gate = await step.do(`gate-${label}`, readGate);
+  for (let attempt = 0; gate.state === 'paused' && attempt < MAX_PAUSE_RECHECKS; attempt++) {
+    try {
+      await step.waitForEvent(`paused-${label}-${attempt}`, {
+        type: SEQUENCE_RESUME_EVENT,
+        timeout: PAUSE_RECHECK_TIMEOUT,
+      });
+    } catch {
+      // No resume signal within the window (waitForEvent throws on timeout):
+      // fall through and re-read the database.
+    }
+    gate = await step.do(`gate-${label}-${attempt}`, readGate);
+  }
+  return gate.state === 'paused' ? { state: 'stop', reason: 'Paused for too long' } : gate;
+}
+
 // `result` is `any` so the step.do() return value satisfies Rpc.Serializable
 // (executeAction returns `unknown`, which does not).
 type StepOutcome =
@@ -631,10 +721,49 @@ async function finalizeSequence(
   }
 }
 
+/**
+ * Ends a run whose enrollment was unenrolled (or whose sequence stopped) while
+ * it was in flight. Closes the execution record as cancelled and leaves the
+ * enrollment row alone: whoever changed its status owns that.
+ */
+async function stopRun(
+  env: ExecuteSequenceEnv,
+  params: ExecuteSequenceParams,
+  executionId: string,
+  reason: string,
+  step: WorkflowStep,
+) {
+  await step.do('stop-run', async () => {
+    const db = await getTenantDbForWorkspace(env, params.workspaceId);
+    const now = new Date();
+    await db.update(schema.workflowExecutions).set({
+      status: 'cancelled', completedAt: now, updatedAt: now, error: { message: `Stopped: ${reason}` },
+    }).where(eq(schema.workflowExecutions.id, executionId));
+  });
+  return { executionId, status: 'stopped', reason };
+}
+
 export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceEnv, ExecuteSequenceParams> {
   async run(event: WorkflowEvent<ExecuteSequenceParams>, step: WorkflowStep) {
     const params = event.payload;
     const rt = this.env.REALTIME ? new RealtimePublisher(this.env.REALTIME) : null;
+
+    // Pause/unenroll gate. Checked before the first step and again after every
+    // delay (and before finalising), which is where a run spends its time: a
+    // paused sequence or enrollment parks the run, an unenrolled one ends it.
+    const gateStep: GateStep = {
+      do: (name, callback) => step.do(name, callback),
+      waitForEvent: (name, options) => step.waitForEvent(name, options),
+    };
+    const checkGate = (label: string) =>
+      waitUntilRunnable(
+        gateStep,
+        async () => readRunGate(await getTenantDbForWorkspace(this.env, params.workspaceId), params),
+        label,
+      );
+
+    const startGate = await checkGate('start');
+    if (startGate.state === 'stop') return { skipped: true, reason: startGate.reason };
 
     // Step 1: Check usage limits
     const limitResult = await step.do('check-limits', () => checkLimitsForEnrollment(this.env, params));
@@ -681,6 +810,11 @@ export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceE
     for (let i = 0; i < steps.length; i++) {
       const wfStep = steps[i];
 
+      if (i > 0) {
+        const gate = await checkGate(`step-${i}`);
+        if (gate.state === 'stop') return stopRun(this.env, params, executionId, gate.reason, step);
+      }
+
       const stepOutcome = await step.do(`step-${i}-${wfStep.id}`, () => runSequenceStep(ctx, wfStep, i));
 
       // Handle step outcomes outside step.do()
@@ -702,6 +836,11 @@ export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceE
         await step.sleep(`delay-${i}`, delayMs);
       }
     }
+
+    // The last step may be a delay: do not complete a run that was paused or
+    // unenrolled while it slept.
+    const finalGate = await checkGate('finalize');
+    if (finalGate.state === 'stop') return stopRun(this.env, params, executionId, finalGate.reason, step);
 
     // Step 5: Finalize
     await step.do('finalize', () => finalizeSequence(ctx, executionStartTime));

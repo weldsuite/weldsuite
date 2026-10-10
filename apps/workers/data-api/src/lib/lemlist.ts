@@ -169,14 +169,6 @@ function currentExperience(row: Record<string, unknown>): Record<string, unknown
   return match ?? exps[0] ?? {};
 }
 
-/** Build a company-logo URL from a domain when the provider didn't give one —
- * a small favicon is better than a blank avatar. */
-function faviconFor(domain: string | null): string | null {
-  if (!domain) return null;
-  const clean = domain.replace(/^https?:\/\//, '').replace(/\/[\s\S]*/, '');
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(clean)}&sz=64`;
-}
-
 function normalizePerson(row: Record<string, unknown>): LemlistSearchRow {
   const exp = currentExperience(row);
   const first = str(pick(row, 'firstName', 'first_name'));
@@ -237,8 +229,10 @@ function normalizeCompany(row: Record<string, unknown>): LemlistSearchRow {
     country: str(pick(row, 'company_headquarters_country', 'country')),
     companySize: str(pick(row, 'company_size', 'company_employee_count')),
     linkedinUrl: str(pick(row, 'company_linkedin_url', 'linkedinUrl')),
-    avatarUrl:
-      str(pick(row, 'company_logo_url', 'logo_url', 'logo', 'companyLogoUrl')) ?? faviconFor(domain),
+    // No guessed favicon URL when the provider sent no logo: that would hand
+    // every prospect domain to a third party. The platform looks the logo up
+    // itself, from the company's own website (lib/crm/company-logo.ts).
+    avatarUrl: str(pick(row, 'company_logo_url', 'logo_url', 'logo', 'companyLogoUrl')),
     raw: row,
   };
 }

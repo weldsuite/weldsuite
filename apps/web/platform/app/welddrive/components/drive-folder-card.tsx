@@ -53,14 +53,14 @@ export function DriveFolderCard({ folder, isSelected, onClick, onDoubleClick, on
           </p>
           <p className="text-[11px] text-muted-foreground mt-0.5">{t.welddrive.common.folder}</p>
         </div>
-        <div role="presentation" className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+        <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
               <div className="p-0.5 rounded-md hover:bg-muted cursor-pointer">
                 <MoreVertical className="h-4 w-4 text-muted-foreground" />
               </div>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48" sideOffset={4}>
+            <DropdownMenuContent align="end" className="w-48" sideOffset={4} onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem onClick={() => onRename?.(folder)}>
                 <Pencil className="h-4 w-4 mr-0.5" />
                 {t.welddrive.page.actions.rename}

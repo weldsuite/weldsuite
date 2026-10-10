@@ -216,6 +216,8 @@ export function Details({ rows }: { rows: DetailRow[] }) {
 
 export interface ListItem {
   primary: ReactNode;
+  /** When set, the primary text links here. */
+  href?: string;
   /** Muted text after the primary text (a project name). */
   secondary?: ReactNode;
   /** Right-aligned muted text (a date). */
@@ -240,7 +242,7 @@ export function List({ title, items }: { title: ReactNode; items: ListItem[] }) 
       {items.map((item, i) => (
         <Row key={i}>
           <Column data-text="item" style={{ ...cell, color: color.ink }}>
-            {item.primary}
+            {item.href ? <TextLink href={item.href}>{item.primary}</TextLink> : item.primary}
             {item.secondary ? <span style={{ color: color.muted }}> · {item.secondary}</span> : null}
           </Column>
           {item.aside ? (

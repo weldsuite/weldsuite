@@ -4,7 +4,8 @@
  *
  * READ:  subscription, plans, plans-page, invoices, payments, phone-numbers,
  *        phone-subscription (proxied to billing-worker Stripe phone sub),
- *        domains, limits (master DB; phone-numbers/domains read the tenant DB),
+ *        seat-price (Stripe API), domains, limits (master DB;
+ *        phone-numbers/domains read the tenant DB),
  *        payment-methods (Stripe API — no local mirror)
  * WRITE: validate-downgrade, checkout, seats, cancel, reactivate (Stripe API),
  *        payment-methods/setup-intent, payment-methods/:id/default,
@@ -27,8 +28,8 @@
  *    lock gate and the WeldDesk chat-widget call /subscription and /limits for
  *    every role;
  *    Clerk auth + org resolution is enforced by the shared /api/* middleware).
- *  - /phone-subscription exposes Stripe phone-line pricing, so it is gated on
- *    `billing:read` like invoices/payments.
+ *  - /phone-subscription and /seat-price expose Stripe subscription pricing, so
+ *    they are gated on `billing:read` like invoices/payments.
  *  - /invoices, /payments and /payment-methods expose Stripe hosted-invoice URLs
  *    and payment method brand/last4, so they are gated on `billing:read` — matching the
  *    platform UI, which returns AccessDenied on that same permission
@@ -92,6 +93,12 @@ import {
   mapSubscription,
   fetchPhoneSubscription,
 } from '../../services/billing';
+import {
+  minorUnitsToCents,
+  planCheckoutPrice,
+  planDisplayPrice,
+  resolvePlanPricesForCaller,
+} from '../../services/plan-country-pricing';
 
 const { workspaces, plans, billingInvoices, billingPayments } = masterSchema;
 
@@ -141,6 +148,7 @@ app.get('/subscription', async (c) => {
 
 app.get('/plans', async (c) => {
   const masterDb = getMasterDb(c.env);
+  const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
 
   const allPlans = await masterDb
     .select()
@@ -158,26 +166,38 @@ app.get('/plans', async (c) => {
 
   return success(
     c,
-    allPlans.map((plan) => ({
-      id: plan.id,
-      name: plan.name,
-      slug: plan.slug,
-      description: plan.description,
-      priceMonthly: plan.priceMonthly,
-      priceYearly: plan.priceYearly,
-      currency: plan.currency,
-      pricePerUser: plan.pricePerUser,
-      includedUsers: plan.includedUsers,
-      maxUsers: plan.maxUsers,
-      features: plan.features,
-      monthlyCredits: plan.monthlyCredits,
-      isDefault: plan.isDefault,
-      hasApiAccess: plan.hasApiAccess,
-      badge: plan.badge,
-      sortOrder: plan.sortOrder,
-      stripePriceIdMonthly: plan.stripePriceIdMonthly,
-      stripePriceIdYearly: plan.stripePriceIdYearly,
-    })),
+    allPlans.map((plan) => {
+      // Paid prices are on request unless the caller's country has prices
+      // (admin console → Plan pricing). On request → no price leaves the API.
+      const display = planDisplayPrice(plan.slug, prices);
+      const priced = display.kind === 'priced' ? display : null;
+      const onRequest = display.kind === 'on_request';
+      return {
+        id: plan.id,
+        name: plan.name,
+        slug: plan.slug,
+        description: plan.description,
+        priceMonthly: priced ? priced.price.monthly.toFixed(2) : onRequest ? null : plan.priceMonthly,
+        priceYearly: priced
+          ? ((priced.price.annual ?? priced.price.monthly) * 12).toFixed(2)
+          : onRequest
+            ? null
+            : plan.priceYearly,
+        currency: priced ? priced.currency : plan.currency,
+        pricePerUser: priced && plan.pricePerUser ? priced.price.monthly.toFixed(2) : onRequest ? null : plan.pricePerUser,
+        priceOnRequest: onRequest,
+        includedUsers: plan.includedUsers,
+        maxUsers: plan.maxUsers,
+        features: plan.features,
+        monthlyCredits: plan.monthlyCredits,
+        isDefault: plan.isDefault,
+        hasApiAccess: plan.hasApiAccess,
+        badge: plan.badge,
+        sortOrder: plan.sortOrder,
+        stripePriceIdMonthly: plan.stripePriceIdMonthly,
+        stripePriceIdYearly: plan.stripePriceIdYearly,
+      };
+    }),
   );
 });
 
@@ -202,18 +222,44 @@ app.get('/plans-page', async (c) => {
 
   const features = (f: PlanFeatures | null | undefined) => f || {};
   const toCents = (v: string | null | undefined) => Math.round(Number.parseFloat(v || '0') * 100);
+  const amountToCents = (v: number) => Math.round(v * 100);
+
+  // Paid prices are on request unless the caller's country (workspace billing
+  // country, else request geo) has prices set in the admin console. An
+  // on-request plan carries no price at all (zeros + `priceOnRequest`), so the
+  // database price never reaches the browser.
+  const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
 
   const mappedPlans = allPlans.map((plan) => {
     const f = features(plan.features);
+    const display = planDisplayPrice(plan.slug, prices);
+    let monthlyPrice = toCents(plan.priceMonthly);
+    let yearlyPrice = toCents(plan.priceYearly);
+    let pricePerSeat = toCents(plan.pricePerUser);
+    let currency = plan.currency;
+    if (display.kind === 'priced') {
+      monthlyPrice = amountToCents(display.price.monthly);
+      // Per seat per year, like `price_yearly`. No annual price → twelve
+      // months at the monthly price (no annual saving shown).
+      yearlyPrice = amountToCents((display.price.annual ?? display.price.monthly) * 12);
+      pricePerSeat = plan.pricePerUser ? monthlyPrice : 0;
+      currency = display.currency;
+    } else if (display.kind === 'on_request') {
+      monthlyPrice = 0;
+      yearlyPrice = 0;
+      pricePerSeat = 0;
+    }
+    const priceOnRequest = display.kind === 'on_request';
     return {
       id: plan.id,
       name: plan.name,
       slug: plan.slug,
       description: plan.description,
-      monthlyPrice: toCents(plan.priceMonthly),
-      yearlyPrice: toCents(plan.priceYearly),
-      currency: plan.currency,
-      pricePerSeat: toCents(plan.pricePerUser),
+      monthlyPrice,
+      yearlyPrice,
+      currency,
+      pricePerSeat,
+      priceOnRequest,
       isPerSeatPricing: !!plan.pricePerUser,
       includedUsers: plan.includedUsers,
       maxMembers: plan.maxUsers,
@@ -226,7 +272,8 @@ app.get('/plans-page', async (c) => {
       badge: plan.badge,
       displayOrder: plan.sortOrder,
       highlighted: plan.slug === 'scale' || !!plan.badge,
-      requiresContact: false,
+      // On request → the plan is sold through sales, not self-serve checkout.
+      requiresContact: priceOnRequest,
       maxDomains: f.maxDomains ?? null,
       maxEmailAccounts: f.maxEmailAccounts ?? null,
       maxCustomDomains: plan.maxCustomDomains ?? f.maxCustomDomains ?? null,
@@ -259,7 +306,11 @@ app.get('/plans-page', async (c) => {
     subscription = mapSubscription(workspace, plan, activeMemberCount);
   }
 
-  return success(c, { plans: mappedPlans, subscription });
+  return success(c, {
+    plans: mappedPlans,
+    subscription,
+    pricing: { country: prices.country, currency: prices.currency },
+  });
 });
 
 // ============================================================================
@@ -398,6 +449,43 @@ app.get('/phone-subscription', canReadBilling, async (c) => {
   // Caller-specific Stripe pricing — never let intermediaries or the browser cache it.
   c.header('Cache-Control', 'no-store');
   return success(c, result.data);
+});
+
+// ============================================================================
+// READ: GET /seat-price — What one seat costs on the active subscription
+// ============================================================================
+
+// The plan offer on /plans-page is what a new checkout would charge in the
+// caller's current country. An existing subscription keeps the price (amount
+// and currency) it was bought at, so changing the seat count is priced from
+// the Stripe subscription itself. `null` when there is no subscription or its
+// price is not a simple per-seat amount.
+app.get('/seat-price', canReadBilling, async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const stripeKey = requireStripeKey(c);
+  if (!stripeKey) return error.internal(c, 'Stripe is not configured');
+
+  const workspace = await getWorkspaceByOrgId(getMasterDb(c.env), orgId);
+  if (!workspace) return error.notFound(c, 'Workspace');
+  if (!workspace.stripeSubscriptionId) return success(c, null);
+
+  const subscription = await retrieveSubscription(stripeKey, workspace.stripeSubscriptionId);
+  const price = subscription.items?.data?.[0]?.price;
+  const interval = price?.recurring?.interval;
+  if (price?.unit_amount == null || !price.currency || (interval !== 'month' && interval !== 'year')) {
+    return success(c, null);
+  }
+
+  c.header('Cache-Control', 'no-store');
+  const currency = price.currency.toUpperCase();
+  return success(c, {
+    // Per seat per `interval`, in cents.
+    amount: minorUnitsToCents(price.unit_amount, currency),
+    currency,
+    interval,
+  });
 });
 
 // ============================================================================
@@ -592,9 +680,27 @@ app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), asyn
     );
   }
 
-  const priceId = body.cycle === 'yearly' ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly;
-  if (!priceId) {
-    return error.badRequest(c, `No ${body.cycle} Stripe price configured for this plan`);
+  // Charge what the plans page showed this caller. A paid plan is on request
+  // unless the caller's country has a price for it, and then checkout charges
+  // that country's price and currency (inline price on the plan's Stripe
+  // product), never the plan row's default Stripe price.
+  const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
+  const display = planDisplayPrice(plan.slug, prices);
+  if (display.kind === 'on_request') {
+    return error.badRequest(c, `The ${plan.name} plan is available on request. Please contact sales.`);
+  }
+  let checkoutPrice: Parameters<typeof createSubscriptionCheckoutSession>[1]['price'];
+  if (display.kind === 'priced') {
+    if (!plan.stripeProductId) {
+      return error.badRequest(c, 'No Stripe product configured for this plan');
+    }
+    checkoutPrice = { productId: plan.stripeProductId, ...planCheckoutPrice(display, body.cycle) };
+  } else {
+    const priceId = body.cycle === 'yearly' ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly;
+    if (!priceId) {
+      return error.badRequest(c, `No ${body.cycle} Stripe price configured for this plan`);
+    }
+    checkoutPrice = { priceId };
   }
 
   // No trial. Free is the way to try WeldSuite, so a paid plan starts billing
@@ -652,7 +758,7 @@ app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), asyn
 
   const session = await createSubscriptionCheckoutSession(stripeKey, {
     customerId,
-    priceId,
+    price: checkoutPrice,
     quantity: Math.max(1, body.seats),
     successUrl: body.successUrl || 'https://app.weldsuite.org/settings/billing?success=true',
     cancelUrl: body.cancelUrl || 'https://app.weldsuite.org/settings/billing?canceled=true',

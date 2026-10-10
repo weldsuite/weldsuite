@@ -440,14 +440,8 @@ function MessageList(props: Readonly<SharedMeetingChatPanelProps>) {
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20"
-      style={{ scrollbarWidth: 'thin', scrollbarColor: 'transparent transparent' }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.scrollbarColor = 'rgba(150,150,150,0.2) transparent';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.scrollbarColor = 'transparent transparent';
-      }}
+      className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-transparent hover:scrollbar-thumb-muted-foreground/20 [scrollbar-color:transparent_transparent] hover:[scrollbar-color:rgba(150,150,150,0.2)_transparent]"
+      style={{ scrollbarWidth: 'thin' }}
     >
       <div className="flex flex-col min-h-full py-4 space-y-1">
         <div className="flex-1" />

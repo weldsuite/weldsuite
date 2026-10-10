@@ -439,7 +439,7 @@ describe('project writers · writes succeed', () => {
     });
     expect(milestone.status).toBe(201);
     expect(
-      (await send('POST', '/project-labels', { name: 'L', color: '#ff0000', projectId: PROJECT })).status,
+      (await send('POST', '/project-labels', { name: `L by ${userId}`, color: '#ff0000', projectId: PROJECT })).status,
     ).toBe(201);
     expect((await send('POST', '/task-comments', { taskId, content: 'Hi' })).status).toBe(201);
     expect(

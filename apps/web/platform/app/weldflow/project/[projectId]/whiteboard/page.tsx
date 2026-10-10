@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { formatMediumDateNow } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { Trash2, EllipsisVertical, Copy } from 'lucide-react';
+import { Trash2, EllipsisVertical, Copy, Pencil } from 'lucide-react';
 import { isToday, isYesterday, isThisWeek, isThisMonth, subMonths, isAfter } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -23,6 +24,7 @@ import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { whiteboardApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 
@@ -34,11 +36,7 @@ interface WhiteboardItem {
 }
 
 function formatDate(date: string) {
-  return new Date(date).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatMediumDateNow(date);
 }
 
 export default function WhiteboardPage() {
@@ -61,6 +59,12 @@ export default function WhiteboardPage() {
   const [newWhiteboardName, setNewWhiteboardName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const createInputRef = useRef<HTMLInputElement>(null);
+
+  // Delete confirmation + rename dialog
+  const [deleteTarget, setDeleteTarget] = useState<WhiteboardItem | null>(null);
+  const [renameTarget, setRenameTarget] = useState<WhiteboardItem | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
 
   const loadWhiteboards = useCallback(async () => {
     setIsLoading(true);
@@ -117,6 +121,7 @@ export default function WhiteboardPage() {
 
   const handleDeleteWhiteboard = useCallback(async (wbId: string) => {
     const result = await whiteboardApi.delete(projectId, wbId);
+    setDeleteTarget(null);
     if (result.success) {
       setItems(prev => prev.filter(w => w.id !== wbId));
       toast.success(st('sweep.weldflow.whiteboardListPage.deletedToast'));
@@ -124,6 +129,31 @@ export default function WhiteboardPage() {
       toast.error(st('sweep.weldflow.whiteboardListPage.deleteFailedToast'));
     }
   }, [projectId, st]);
+
+  const openRenameDialog = useCallback((wb: WhiteboardItem) => {
+    setRenameTarget(wb);
+    setRenameValue(wb.name);
+  }, []);
+
+  const handleRenameWhiteboard = async () => {
+    if (!renameTarget) return;
+    const name = renameValue.trim();
+    if (!name) return;
+    if (name === renameTarget.name) {
+      setRenameTarget(null);
+      return;
+    }
+    setIsRenaming(true);
+    const result = await whiteboardApi.rename(projectId, renameTarget.id, name);
+    setIsRenaming(false);
+    if (result.success) {
+      setItems(prev => prev.map(w => (w.id === renameTarget.id ? { ...w, name } : w)));
+      setRenameTarget(null);
+      toast.success(st('sweep.weldflow.whiteboardListPage.renamedToast'));
+    } else {
+      toast.error(st('sweep.weldflow.whiteboardListPage.renameFailedToast'));
+    }
+  };
 
   const handleDuplicateWhiteboard = useCallback(async (wb: WhiteboardItem) => {
     const result = await whiteboardApi.create(projectId, { name: st('sweep.weldflow.whiteboardListPage.copyName', { name: wb.name || st('sweep.weldflow.whiteboardListPage.defaultName') }) });
@@ -175,12 +205,16 @@ export default function WhiteboardPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => openRenameDialog(item)}>
+                  <Pencil className="h-4 w-4 mr-0.5" />
+                  {st('sweep.weldflow.whiteboardListPage.rename')}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => handleDuplicateWhiteboard(item)}>
                   <Copy className="h-4 w-4 mr-0.5" />
                   {st('sweep.weldflow.whiteboardListPage.duplicate')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => handleDeleteWhiteboard(item.id)}
+                  onClick={() => setDeleteTarget(item)}
                   className="text-destructive focus:text-destructive focus:bg-destructive/10"
                 >
                   <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
@@ -192,7 +226,7 @@ export default function WhiteboardPage() {
         </div>
       </div>
     );
-  }, [canWrite, handleDeleteWhiteboard, handleDuplicateWhiteboard, projectId, router, st]);
+  }, [canWrite, handleDuplicateWhiteboard, openRenameDialog, projectId, router, st]);
 
   const openCreateDialog = () => {
     setNewWhiteboardName('');
@@ -293,6 +327,53 @@ export default function WhiteboardPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={renameTarget !== null} onOpenChange={(open) => { if (!open) setRenameTarget(null); }}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>{st('sweep.weldflow.whiteboardListPage.rename')}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 pt-2 pb-4">
+            <Label htmlFor="whiteboard-rename">{st('sweep.weldflow.whiteboardListPage.nameLabel')}</Label>
+            <Input
+              id="whiteboard-rename"
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              aria-invalid={renameValue.length > 0 && renameValue.trim().length === 0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !isRenaming) {
+                  void handleRenameWhiteboard();
+                }
+              }}
+            />
+            {renameValue.length > 0 && renameValue.trim().length === 0 && (
+              <p className="text-xs text-destructive">{st('sweep.weldflow.whiteboardListPage.nameInvalid')}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+              {st('sweep.weldflow.cancel')}
+            </Button>
+            <Button onClick={handleRenameWhiteboard} disabled={isRenaming || renameValue.trim().length === 0}>
+              {st('sweep.weldflow.whiteboardListPage.rename')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title={st('sweep.weldflow.whiteboardListPage.deleteConfirmTitle')}
+        description={st('sweep.weldflow.whiteboardListPage.deleteConfirmDescription', {
+          name: deleteTarget?.name || st('sweep.weldflow.whiteboardListPage.untitled'),
+        })}
+        confirmLabel={st('sweep.weldflow.whiteboardListPage.delete')}
+        cancelLabel={st('sweep.weldflow.cancel')}
+        variant="destructive"
+        onConfirm={() => (deleteTarget ? handleDeleteWhiteboard(deleteTarget.id) : undefined)}
+      />
     </>
   );
 }

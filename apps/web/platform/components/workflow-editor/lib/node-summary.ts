@@ -10,6 +10,10 @@
  */
 
 import { isStepConfigured } from '@weldsuite/ui/components/workflow-canvas';
+import { formatDuration, getDelaySeconds, type DurationLabels } from './duration';
+
+export { formatDuration, getDelaySeconds };
+export type { DurationLabels, DurationUnitLabel } from './duration';
 
 type Bag = Record<string, unknown>;
 
@@ -18,8 +22,10 @@ export interface NodeSummaryLabels {
   configured: string;
   /** `To: {to}` */
   to: string;
-  /** `Wait {duration} {unit}` */
+  /** `Wait {duration}`, where `{duration}` is a humanised span such as "1 hour". */
   delay: string;
+  /** Unit names used to humanise the delay ("1 hour", "2 days", "1 minute 30 seconds"). */
+  duration: DurationLabels;
   /** `Entity: {entityType}` */
   entity: string;
   trigger: {
@@ -201,12 +207,9 @@ function summarizeCondition(config: Bag): string {
   return field && operator ? join([field, operator, text(config.value)], ' ') : '';
 }
 
-const DELAY_UNITS = ['days', 'hours', 'minutes', 'seconds'] as const;
-
 function summarizeDelay(config: Bag, labels: NodeSummaryLabels): string {
-  const unit = DELAY_UNITS.find((candidate) => Number(config[candidate]) > 0);
-  if (!unit) return '';
-  return labels.delay.replace('{duration}', text(config[unit])).replace('{unit}', unit);
+  const duration = formatDuration(getDelaySeconds(config), labels.duration);
+  return duration ? labels.delay.replace('{duration}', duration) : '';
 }
 
 function summarizeLogMessage(config: Bag): string {

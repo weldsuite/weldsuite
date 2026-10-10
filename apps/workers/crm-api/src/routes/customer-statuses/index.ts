@@ -64,12 +64,14 @@ app.put('/reorder', requirePermission('settings:manage'), zValidator('json', reo
   const db = c.get('tenantDb');
   const { ids } = c.req.valid('json');
   try {
-    for (let i = 0; i < ids.length; i++) {
-      await db
-        .update(t)
-        .set({ sortOrder: i, updatedAt: new Date() })
-        .where(and(eq(t.id, ids[i]), isNull(t.deletedAt)));
-    }
+    await Promise.all(
+      ids.map((id, i) =>
+        db
+          .update(t)
+          .set({ sortOrder: i, updatedAt: new Date() })
+          .where(and(eq(t.id, id), isNull(t.deletedAt))),
+      ),
+    );
     const data = await db
       .select()
       .from(t)

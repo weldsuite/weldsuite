@@ -316,17 +316,14 @@ export function CallHistoryList({
   const renderCallRow = useCallback((call: VoipCall) => (
     <div
       key={call.id}
-      role="link"
-      tabIndex={0}
-      onClick={() => handleCallClick(call)}
-      onKeyDown={(e) => {
-        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault();
-          handleCallClick(call);
-        }
-      }}
-      className="flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-background/50"
+      className="relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-background/50"
     >
+      <button
+        type="button"
+        aria-label={`${tc.actions.viewDetails}: ${call.fromNumberFormatted || formatPhoneNumber(call.fromNumber || '')}`}
+        onClick={() => handleCallClick(call)}
+        className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      />
       {/* Direction */}
       <div className="w-[120px] flex items-center gap-2">
         {call.direction?.toLowerCase() === 'inbound' ? (
@@ -400,7 +397,7 @@ export function CallHistoryList({
       </div>
 
       {/* Actions */}
-      <div className="w-[40px] flex justify-end">
+      <div className="relative w-[40px] flex justify-end">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent" onClick={(e) => e.stopPropagation()}>

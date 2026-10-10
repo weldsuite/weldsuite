@@ -47,7 +47,7 @@ function base64Url(input: string): string {
 /** RFC 2047-ish escaping is unnecessary for ASCII headers; this only guards
  *  against header injection via newlines in a resolved `{{variable}}`. */
 function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n]+/g, ' ').trim();
+  return value.replaceAll(/[\r\n]+/g, ' ').trim();
 }
 
 export const handleGmailSendEmail: ActionHandler = async (inputs, ctx) => {
@@ -64,7 +64,7 @@ export const handleGmailSendEmail: ActionHandler = async (inputs, ctx) => {
   const rawBody = asText(inputs.body ?? '');
   if (!rawBody.trim()) throw new NonRetryableStepError('Gmail body is required');
   const isPlainText = inputs.isHtml === false;
-  const html = isPlainText ? escapeHtml(rawBody).replace(/\r?\n/g, '<br>') : rawBody;
+  const html = isPlainText ? escapeHtml(rawBody).replaceAll(/\r?\n/g, '<br>') : rawBody;
 
   const { accessToken } = await getValidIntegrationToken(ctx, {
     type: 'gmail',

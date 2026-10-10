@@ -147,7 +147,19 @@ export async function expireCheckoutSession(
 export interface StripeSubscription {
   id: string;
   status?: string;
-  items?: { data?: Array<{ id: string; quantity?: number }> };
+  items?: {
+    data?: Array<{
+      id: string;
+      quantity?: number;
+      price?: {
+        id: string;
+        /** In the currency's smallest unit; `null` for tiered prices. */
+        unit_amount?: number | null;
+        currency?: string;
+        recurring?: { interval?: string } | null;
+      };
+    }>;
+  };
   latest_invoice?: ExpandableRef;
   /** Overrides the customer-level default when set — see `setSubscriptionDefaultPaymentMethod`. */
   default_payment_method?: ExpandableRef;
@@ -297,7 +309,21 @@ export async function createSubscriptionCheckoutSession(
   secretKey: string,
   params: {
     customerId: string;
-    priceId: string;
+    /**
+     * What to charge: an existing Stripe Price, or an inline price on an
+     * existing product (`price_data`) when the amount is set outside Stripe,
+     * e.g. a per-country plan price.
+     */
+    price:
+      | { priceId: string }
+      | {
+          productId: string;
+          /** ISO 4217, any case. */
+          currency: string;
+          /** In the currency's smallest unit (cents). */
+          unitAmount: number;
+          interval: 'month' | 'year';
+        };
     quantity: number;
     successUrl: string;
     cancelUrl: string;
@@ -312,11 +338,19 @@ export async function createSubscriptionCheckoutSession(
   const body: Record<string, string> = {
     customer: params.customerId,
     mode: 'subscription',
-    'line_items[0][price]': params.priceId,
     'line_items[0][quantity]': params.quantity.toString(),
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
   };
+
+  if ('priceId' in params.price) {
+    body['line_items[0][price]'] = params.price.priceId;
+  } else {
+    body['line_items[0][price_data][product]'] = params.price.productId;
+    body['line_items[0][price_data][currency]'] = params.price.currency.toLowerCase();
+    body['line_items[0][price_data][unit_amount]'] = String(params.price.unitAmount);
+    body['line_items[0][price_data][recurring][interval]'] = params.price.interval;
+  }
 
   if (params.trialPeriodDays && params.trialPeriodDays > 0) {
     body['subscription_data[trial_period_days]'] = params.trialPeriodDays.toString();

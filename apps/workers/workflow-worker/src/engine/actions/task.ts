@@ -95,6 +95,6 @@ export const handleCreateTask: ActionHandler = async (inputs, ctx) => {
     key: task.number != null ? String(task.number) : null,
     projectId: task.projectId,
     title: task.title,
-    url: task.projectId ? `/weldflow/project/${task.projectId}/tasks/${task.id}` : null,
+    url: task.projectId ? `/weldflow/task/${task.id}` : null,
   };
 };

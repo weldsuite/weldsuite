@@ -215,7 +215,8 @@ export interface Opportunity {
   stageId?: string;
   status: string;
   probability?: number;
-  closeDate?: string;
+  /** Expected close date; null until someone sets one (TASK-671). */
+  closeDate?: string | null;
   expectedCloseDate?: string;
   actualCloseDate?: string;
   ownerId: string;

@@ -406,18 +406,20 @@ app.patch('/:reportId/charts/layouts', requirePermission('contacts:read'), zVali
   const { layouts } = c.req.valid('json');
   const now = new Date();
   try {
-    for (const update of layouts) {
-      await db
-        .update(analyticsCharts)
-        .set({ layout: update.layout, updatedAt: now })
-        .where(
-          and(
-            eq(analyticsCharts.id, update.chartId),
-            eq(analyticsCharts.reportId, reportId),
-            isNull(analyticsCharts.deletedAt),
+    await Promise.all(
+      layouts.map((update) =>
+        db
+          .update(analyticsCharts)
+          .set({ layout: update.layout, updatedAt: now })
+          .where(
+            and(
+              eq(analyticsCharts.id, update.chartId),
+              eq(analyticsCharts.reportId, reportId),
+              isNull(analyticsCharts.deletedAt),
+            ),
           ),
-        );
-    }
+      ),
+    );
     return success(c, { updated: layouts.length });
   } catch (err) {
     console.error('[app-api/crm-analytics] update chart layouts failed:', err);

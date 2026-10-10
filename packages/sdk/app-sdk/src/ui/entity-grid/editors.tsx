@@ -32,6 +32,7 @@ export function TextEditor({
       defaultValue={value}
       className={cn('wui-egrid-editor-input', className)}
       onBlur={commit}
+      onClick={(e) => e.stopPropagation()}
       onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -69,6 +70,7 @@ export function NumberEditor({ value, onCommit, onCancel, className }: Readonly<
       defaultValue={value ?? ''}
       className={cn('wui-egrid-editor-input', className)}
       onBlur={commit}
+      onClick={(e) => e.stopPropagation()}
       onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -105,6 +107,7 @@ export function SelectEditor({
       defaultValue={value ?? ''}
       onBlur={(e) => onCommit(e.target.value || null)}
       onChange={(e) => onCommit(e.target.value || null)}
+      onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.preventDefault();

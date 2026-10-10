@@ -475,7 +475,7 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       {
         key: 'employees:self',
         label: 'Use My HR',
-        description: 'Their own employee record only: profile, leave, expense declarations, sick reports, attendance, onboarding tasks, coaching and evaluations. Requires being linked to an employee.',
+        description: 'Their own employee record only: profile, leave, expense declarations, sick reports, attendance, onboarding tasks, coaching, evaluations, payslips, and their own tax and bank details. Requires being linked to an employee.',
       },
     ],
   },
@@ -487,6 +487,35 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('absences', 'Sick reports'),
   objectPermissions('coaching', 'Coaching logs'),
   objectPermissions('evaluations', 'Evaluations and KPIs'),
+  // Payroll is kept apart from employees:sensitive: running pay is not the same
+  // as reading national ids, and preparing a run is not approving it (four
+  // eyes). Employees see their own payslips through employees:self.
+  {
+    key: 'payroll',
+    label: 'Payroll (WeldHR)',
+    permissions: [
+      {
+        key: 'payroll:read',
+        label: 'View pay runs, payslips and filings',
+        description: "Every employee's pay, payslips, totals and tax filings.",
+      },
+      {
+        key: 'payroll:prepare',
+        label: 'Prepare payroll',
+        description: 'Compensation, pay components, tax settings and bank details; create and calculate pay runs.',
+      },
+      {
+        key: 'payroll:approve',
+        label: 'Approve and pay payroll',
+        description: 'Approve calculated pay runs, download payment files and mark runs paid.',
+      },
+      {
+        key: 'payroll:manage',
+        label: 'Manage payroll settings and filings',
+        description: 'Employers, pay schedules, the WeldBooks link, and submitting or recording tax filings.',
+      },
+    ],
+  },
   // ── WeldObjects (user-defined custom objects) ─────────────────────────
   // Only the MODULE-level keys live here. The per-object keys
   // (`weldobjects:<slug>:read` etc.) are generated at runtime from the
@@ -567,6 +596,8 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'absences:read', 'absences:create', 'absences:update', 'absences:delete',
   'coaching:read', 'coaching:create', 'coaching:update', 'coaching:delete',
   'evaluations:read', 'evaluations:create', 'evaluations:update', 'evaluations:delete',
+  // WeldHR payroll
+  'payroll:read', 'payroll:prepare', 'payroll:approve', 'payroll:manage',
   // WeldKnow — admins also see and fix every teamspace (knowledge:manage)
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete', 'knowledge:manage',
 ];

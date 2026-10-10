@@ -30,6 +30,23 @@ export class HrConflictError extends Error {
   }
 }
 
+/**
+ * A payroll refusal the client can tell apart from a generic conflict
+ * (`FOUR_EYES`, `RECALCULATE_REQUIRED`, `DIGIPOORT_NOT_CONFIGURED`…): the code
+ * goes into the error envelope as is.
+ */
+export class HrPayrollError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: 400 | 404 | 409 | 422 | 503 = 409,
+    readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'HrPayrollError';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Dates
 // ---------------------------------------------------------------------------
@@ -115,7 +132,20 @@ export type HrAuditAction =
   | 'portal.access_revoked'
   | 'portal.access_restored'
   | 'portal.settings_updated'
-  | 'portal.signed_in';
+  | 'portal.signed_in'
+  // Payroll (services/weldhr/payroll). Never carries the values, only which fields.
+  | 'payroll.payment_details_updated'
+  | 'payroll.bank_changed'
+  | 'payroll.employer_bank_updated'
+  | 'payroll.run_approved'
+  | 'payroll.run_paid'
+  | 'payroll.payment_file_downloaded'
+  | 'payroll.payslip_viewed'
+  | 'payroll.annual_statement_viewed'
+  | 'payroll.filing_downloaded'
+  | 'payroll.filing_submitted'
+  | 'payroll.filing_filed'
+  | 'payroll.tax_election_signed';
 
 export async function recordHrAudit(
   db: Database,

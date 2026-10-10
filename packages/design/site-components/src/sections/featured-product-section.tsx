@@ -100,18 +100,32 @@ export function FeaturedProductSection({
   // Helper to render block with selection UI
   const renderBlock = (blockId: string, blockType: string, children: React.ReactNode) => {
     const isSelected = selectedBlockId === blockId;
-    const handleClick = (e: React.MouseEvent) => {
-      if (isEditing && onSelectBlock) {
-        e.stopPropagation();
-        onSelectBlock(blockId);
-      }
-    };
+    // In the editor a block is selectable by mouse and keyboard; keys pressed
+    // inside the block's own controls stay with them.
+    const selectableProps = isEditing && onSelectBlock
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          onClick: (e: React.MouseEvent) => {
+            e.stopPropagation();
+            onSelectBlock(blockId);
+          },
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              onSelectBlock(blockId);
+            }
+          },
+        }
+      : {};
 
     return (
       <div
         key={blockId}
         className={`relative ${isEditing ? 'hover:ring-2 hover:ring-blue-400 hover:ring-inset rounded-lg cursor-pointer' : ''} ${isSelected ? 'ring-2 ring-blue-500 ring-inset rounded-lg' : ''}`}
-        onClick={handleClick}
+        {...selectableProps}
       >
         {isEditing && isSelected && (
           <div className="absolute -top-7 left-0 z-50 bg-blue-500 text-white text-xs px-2 py-1 rounded">

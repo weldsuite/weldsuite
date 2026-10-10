@@ -46,6 +46,7 @@ import {
   type PieLabelRenderProps,
 } from 'recharts';
 import { analyticsApi } from '@/app/weldflow/lib/api-client';
+import { ReportActionsMenu, ReportBackLink } from './report-header-actions';
 
 interface AnalyticsReport {
   id: string;
@@ -443,17 +444,21 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
   if (charts.length === 0) {
     return (
       <div className="space-y-6">
+        <ReportBackLink basePath={basePath} />
         <div className="flex items-center justify-between">
           <div className="space-y-1">
             <h1 className="text-2xl font-bold tracking-tight">{pageTitle}</h1>
             {pageDescription && <p className="text-muted-foreground">{pageDescription}</p>}
           </div>
-          <Button asChild>
-            <Link href={`${basePath}/builder?reportId=${report.id}&addChart=true`}>
-              <Plus className="mr-0.5 h-4 w-4" />
-              {t.projects.analyticsReports.addChart}
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <ReportActionsMenu reportId={reportId} title={pageTitle} basePath={basePath} onRenamed={setPageTitle} />
+            <Button asChild>
+              <Link href={`${basePath}/builder?reportId=${report.id}&addChart=true`}>
+                <Plus className="mr-0.5 h-4 w-4" />
+                {t.projects.analyticsReports.addChart}
+              </Link>
+            </Button>
+          </div>
         </div>
 
         <Card className="border-dashed">
@@ -487,6 +492,8 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
           border-radius: 8px;
         }
       `}</style>
+
+      <ReportBackLink basePath={basePath} />
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -570,6 +577,7 @@ export function ProjectReportViewClient({ report, charts: initialCharts, project
             </>
           ) : (
             <>
+              <ReportActionsMenu reportId={reportId} title={pageTitle} basePath={basePath} onRenamed={setPageTitle} />
               <Button variant="outline" size="sm" onClick={() => setIsEditMode(true)}>
                 {t.projects.analyticsReports.edit}
               </Button>

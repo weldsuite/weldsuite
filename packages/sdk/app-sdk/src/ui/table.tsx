@@ -1,7 +1,7 @@
 import type { HTMLAttributes, ReactNode, TdHTMLAttributes, ThHTMLAttributes } from 'react';
 import { cn } from './cn';
 
-export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
+export function Table({ className, ...props }: Readonly<HTMLAttributes<HTMLTableElement>>) {
   return (
     <div className="wui-table-wrap">
       <table data-slot="table" className={cn('wui-table', className)} {...props} />
@@ -9,11 +9,11 @@ export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>)
   );
 }
 
-export function TableHeader({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
+export function TableHeader({ className, ...props }: Readonly<HTMLAttributes<HTMLTableSectionElement>>) {
   return <thead className={className} {...props} />;
 }
 
-export function TableBody({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
+export function TableBody({ className, ...props }: Readonly<HTMLAttributes<HTMLTableSectionElement>>) {
   return <tbody className={className} {...props} />;
 }
 
@@ -31,11 +31,11 @@ export function TableRow({
   );
 }
 
-export function TableHead({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
+export function TableHead({ className, ...props }: Readonly<ThHTMLAttributes<HTMLTableCellElement>>) {
   return <th className={className} {...props} />;
 }
 
-export function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
+export function TableCell({ className, ...props }: Readonly<TdHTMLAttributes<HTMLTableCellElement>>) {
   return <td className={className} {...props} />;
 }
 

@@ -5,7 +5,11 @@ import { Input } from '@weldsuite/ui/components/input';
 
 interface InlineSubtaskInputProps {
   placeholder: string;
-  /** Called with the trimmed, non-empty title when the user presses Enter. */
+  /**
+   * Called with the trimmed, non-empty title when the user presses Enter. The
+   * field then clears and keeps focus so the next subtask can be typed straight
+   * away (Linear/Asana-style rapid entry).
+   */
   onSubmit: (title: string) => void;
   /** Called when the user presses Escape, or leaves the field while empty. */
   onCancel: () => void;
@@ -13,8 +17,9 @@ interface InlineSubtaskInputProps {
 
 /**
  * Inline title field for "Add subtask". Nothing is created until the user
- * presses Enter with a non-blank title; Escape (or blurring an empty field)
- * cancels without creating anything.
+ * presses Enter with a non-blank title; the field then stays open for the next
+ * title. Escape (or blurring an empty field) closes it without creating
+ * anything.
  *
  * Focus is taken explicitly on mount. The task chat composer next to the
  * panel grabs focus whenever its channel resolves, so relying on the browser
@@ -23,7 +28,7 @@ interface InlineSubtaskInputProps {
 export function InlineSubtaskInput({ placeholder, onSubmit, onCancel }: Readonly<InlineSubtaskInputProps>) {
   const [title, setTitle] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  // Guards against a double Enter (or Enter + blur) creating two subtasks.
+  // Set once the field has been cancelled, so Escape + blur only close it once.
   const doneRef = useRef(false);
 
   useEffect(() => {
@@ -33,8 +38,10 @@ export function InlineSubtaskInput({ placeholder, onSubmit, onCancel }: Readonly
   const submit = () => {
     const trimmed = title.trim();
     if (!trimmed || doneRef.current) return;
-    doneRef.current = true;
+    // Clear synchronously so a quick second Enter can't submit the same title twice.
+    setTitle('');
     onSubmit(trimmed);
+    inputRef.current?.focus();
   };
 
   const cancel = () => {

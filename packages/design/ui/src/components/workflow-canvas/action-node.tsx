@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react';
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import {
   Mail,
@@ -192,7 +192,6 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
   const actionCategoryLabels = labels.categoryLabels || ACTION_CATEGORY_LABELS_DEFAULT;
 
   const Icon = actionIcons[nodeData.actionType] || Box;
-  const [isHovered, setIsHovered] = useState(false);
   const needsConfig = !nodeData.isConfigured;
   const addStepLabel = nodeData.addStepLabel ?? 'Add step';
 
@@ -208,9 +207,7 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
 
   return (
     <div
-      className={cn('relative cursor-pointer', nodeData.isLastNode && 'pb-12 -mb-12')}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      className={cn('group/node relative cursor-pointer', nodeData.isLastNode && 'pb-12 -mb-12')}
     >
       <div className="relative">
         {needsConfig && <SetupRequiredBadge label={nodeData.setupRequiredLabel} />}
@@ -258,7 +255,7 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
           </div>
         )}
 
-        <Handle type="source" position={Position.Bottom} className="!w-3 !h-3 !bg-white dark:!bg-background !border-[1.5px] !border-blue-400 !z-10 !hidden lg:!block" style={{ bottom: '1px' }} />
+        <Handle type="source" position={Position.Bottom} className="!w-3 !h-3 !bg-white dark:!bg-background !border-[1.5px] !border-blue-400 !z-10 !invisible lg:!visible" style={{ bottom: '1px' }} />
 
         {nodeData.actionType === 'ai_agent' && (
           <Handle type="source" position={Position.Right} id="subagents" className="!w-2.5 !h-2.5 !bg-white dark:!bg-background !border-[1.5px] !border-border !right-0" />
@@ -274,9 +271,8 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
             className={cn(
               'absolute left-1/2 -translate-x-1/2 bottom-2.5 h-6 pl-1.5 pr-2.5 rounded-full hidden lg:flex items-center gap-1 whitespace-nowrap transition-colors',
               'text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              isHovered
-                ? 'bg-foreground text-background'
-                : 'bg-background text-muted-foreground border border-border hover:text-foreground',
+              'bg-background text-muted-foreground border border-border',
+              'group-hover/node:bg-foreground group-hover/node:text-background group-hover/node:border-transparent',
             )}
           >
             <Plus className="w-3 h-3" />

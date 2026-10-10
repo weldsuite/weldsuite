@@ -56,12 +56,13 @@ import {
   buildLeadGridConfig,
   leadColumnOptionsForKind,
 } from '../config/lead-grid-config';
+import { useRowsWithCompanyLogos } from '@/lib/crm/company-logo';
 import { AddColumnDialog } from './add-column-dialog';
 import { AddToCrmListDialog } from './add-to-crm-list-dialog';
 
 /** Saved leads keep the raw provider payload in `data`; pull the photo/logo
- * from it (field name varies), falling back to the company-domain favicon. */
-function leadAvatar(lead: WelddataLead): string | undefined {
+ * from it (field name varies). */
+function providerLeadImage(lead: WelddataLead): string | undefined {
   const raw = (lead.data ?? {}) as Record<string, unknown>;
   const keys =
     lead.kind === 'company'
@@ -75,11 +76,19 @@ function leadAvatar(lead: WelddataLead): string | undefined {
     const logo = (raw.experiences[0] as Record<string, unknown> | undefined)?.company_logo_url;
     if (typeof logo === 'string' && logo) return logo;
   }
-  if (lead.domain) {
-    const clean = lead.domain.replace(/^https?:\/\//, '').split('/')[0] ?? '';
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(clean)}&sz=64`;
-  }
   return undefined;
+}
+
+/** The provider's photo/logo, else the logo our API found on the lead's company
+ * website (`logoUrl`, merged in by `useRowsWithCompanyLogos`). Never a
+ * third-party favicon service. */
+function leadAvatar(lead: WelddataLead & { logoUrl?: string }): string | undefined {
+  return providerLeadImage(lead) ?? lead.logoUrl;
+}
+
+/** A lead with no provider image is looked up by its company domain. */
+function leadLogoDomain(lead: WelddataLead): string | undefined {
+  return providerLeadImage(lead) ? undefined : (lead.domain ?? undefined);
 }
 
 interface WelddataLeadsGridProps {
@@ -170,6 +179,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<Weldd
   }
 
   const leads = useMemo(() => leadsResp?.data ?? [], [leadsResp]);
+  const displayLeads = useRowsWithCompanyLogos(leads, leadLogoDomain);
   const enrichColumns = useMemo(() => columns ?? [], [columns]);
   const cellMap = useMemo(() => cells ?? {}, [cells]);
 
@@ -538,7 +548,7 @@ export function WelddataLeadsGrid({ listId, listName, listKind }: Readonly<Weldd
               key={`${listId}-${listKind ?? 'pending'}`}
               config={config2}
               actions={actions}
-              entities={leads}
+              entities={displayLeads}
               pagination={{ page: 1, pageSize: leads.length || 50, totalCount: leads.length, totalPages: 1 }}
               listName={listName}
             />

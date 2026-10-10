@@ -29,7 +29,7 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { CalendarIcon, Repeat2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { tasksApi } from '@/app/weldflow/lib/api-client';
 import {
   RepeatConfigMenu,

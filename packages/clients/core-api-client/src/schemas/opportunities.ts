@@ -74,7 +74,12 @@ export const createOpportunitySchema = z.object({
   probability: z.number().int().min(0).max(100).optional(),
   pipeline: z.string().optional(),
 
-  closeDate: z.string().optional(),
+  // Optional (TASK-671): a deal has no expected close date until someone sets
+  // one; null or '' clears it on update.
+  closeDate: z
+    .string()
+    .nullish()
+    .refine((v) => !v || !Number.isNaN(Date.parse(v)), { message: 'closeDate must be a valid date' }),
   startDate: z.string().optional(),
 
   ownerId: z.string().nullish(),
@@ -148,7 +153,7 @@ export interface Opportunity {
   probability?: number | null;
   pipeline?: string | null;
 
-  closeDate: string;
+  closeDate: string | null;
   actualCloseDate?: string | null;
   startDate?: string | null;
 

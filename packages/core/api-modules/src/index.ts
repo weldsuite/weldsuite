@@ -120,6 +120,7 @@ export const API_MODULES: readonly ApiModule[] = [
   mod('crm', 8801, [
     '/api/activities',
     '/api/companies',
+    '/api/company-logos',
     '/api/crm-analytics',
     '/api/customer-sequences',
     '/api/customer-statuses',

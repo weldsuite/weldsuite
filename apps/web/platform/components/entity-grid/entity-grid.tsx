@@ -9,6 +9,7 @@ import {
   GridPagination,
 } from './components';
 import { EntityGridProps, GridSortConfig } from './types';
+import { writeStoredGridSort } from './use-persisted-grid-sort';
 
 export function EntityGrid<TEntity>({
   config,
@@ -25,6 +26,7 @@ export function EntityGrid<TEntity>({
   hideToolbarSearch,
   hideToolbarFilter,
   toolbarActions,
+  persistSort,
 }: Readonly<EntityGridProps<TEntity>>) {
   const router = useRouter();
   const searchParamsHook = useSearchParams();
@@ -46,7 +48,10 @@ export function EntityGrid<TEntity>({
   const sortDirection = (searchParams?.sortDir as 'asc' | 'desc' | undefined) || null;
   const initialSort: GridSortConfig = { field: sortField, direction: sortField ? sortDirection : null };
 
+  const sortStorageName = config.gridViewName || config.entityName.toLowerCase();
   const handleSortChange = useCallback((sort: GridSortConfig) => {
+    // Written before the URL changes so the page never re-reads a stale pick.
+    if (persistSort) writeStoredGridSort(sortStorageName, sort);
     const params = new URLSearchParams(searchParamsHook?.toString() || '');
     if (sort.field) {
       params.set('sort', sort.field);
@@ -57,7 +62,7 @@ export function EntityGrid<TEntity>({
       params.delete('sortDir');
     }
     router.push(`?${params.toString()}`);
-  }, [router, searchParamsHook]);
+  }, [router, searchParamsHook, persistSort, sortStorageName]);
 
   // Debounced search that updates URL params
   const handleSearchChange = useCallback((value: string) => {

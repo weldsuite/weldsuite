@@ -59,7 +59,7 @@ export type ScannedDnsRecord = z.infer<typeof scannedDnsRecordSchema>;
 export type ImportDnsRecordsInput = z.infer<typeof importDnsRecordsSchema>;
 
 export interface DnsRecordLock {
-  source: 'user' | 'weldmail' | string;
+  source: string;
   sourceId?: string;
   purpose?: string;
   reason: string;

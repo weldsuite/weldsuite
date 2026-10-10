@@ -27,7 +27,7 @@ interface ObjectPanelTabConfigEntry {
 
 export interface UseObjectPanelTabConfigOptions {
   objectType: string;
-  mode: 'panel' | 'fullscreen' | string;
+  mode: string;
   tabs: ObjectPanelTabConfigEntry[];
 }
 

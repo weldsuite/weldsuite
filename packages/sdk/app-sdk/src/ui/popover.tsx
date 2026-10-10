@@ -10,7 +10,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type FocusEvent,
   type HTMLAttributes,
   type MouseEvent,
   type ReactElement,
@@ -133,7 +132,7 @@ export function PopoverTrigger({ asChild, children }: Readonly<PopoverTriggerPro
   );
 }
 
-export interface PopoverContentProps extends HTMLAttributes<HTMLDivElement> {
+export interface PopoverContentProps extends HTMLAttributes<HTMLDialogElement> {
   align?: Align;
   onCloseAutoFocus?: (event: Event) => void;
 }
@@ -146,7 +145,7 @@ export function PopoverContent({
   ...props
 }: PopoverContentProps) {
   const { open, setOpen, triggerRef, contentId } = usePopoverContext('PopoverContent');
-  const contentRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDialogElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
 
   const updatePosition = useCallback(() => {
@@ -214,22 +213,17 @@ export function PopoverContent({
   if (!open || typeof document === 'undefined') return null;
 
   return createPortal(
-    <div
+    <dialog
       ref={contentRef}
       id={contentId}
-      role="dialog"
+      open
       data-state={open ? 'open' : 'closed'}
       className={cn('wui-popover-content', `wui-popover-content--align-${align}`, className)}
       style={{ position: 'absolute', top: position.top, left: position.left, zIndex: 50 }}
-      onBlur={(e: FocusEvent) => {
-        const next = e.relatedTarget as Node | null;
-        if (next && contentRef.current?.contains(next)) return;
-        if (next && triggerRef.current?.contains(next)) return;
-      }}
       {...props}
     >
       {children}
-    </div>,
+    </dialog>,
     document.body,
   );
 }

@@ -54,7 +54,7 @@ app.get(
       const db = c.get('tenantDb');
       const conn = await getConnectionByWorkspace(db, workspaceId);
 
-      if (!conn || conn.status !== 'active') {
+      if (conn?.status !== 'active') {
         return error.notFound(c, 'GitHub connection');
       }
 
@@ -122,7 +122,7 @@ app.post(
       const db = c.get('tenantDb');
       const conn = await getConnectionByWorkspace(db, workspaceId);
 
-      if (!conn || conn.status !== 'active') {
+      if (conn?.status !== 'active') {
         return error.badRequest(c, 'No active GitHub connection. Install the GitHub App first.');
       }
 

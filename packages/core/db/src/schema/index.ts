@@ -394,5 +394,8 @@ export * from './weldpass';
 // WeldHR (employee operations + workforce portal)
 export * from './weldhr';
 
+// WeldHR payroll (NL + US engines, pay runs, payslips, filings)
+export * from './weldhr-payroll';
+
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

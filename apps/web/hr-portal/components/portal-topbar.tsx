@@ -10,10 +10,30 @@ import type { Me, PortalConfig } from '@/lib/types';
 import { PortalLogo } from '@/components/portal-logo';
 import { clearPortalCache } from '@/lib/query-client';
 import { usePrefetchRoute } from '@/lib/hooks/use-prefetch-route';
+import { usePayrollStatus } from '@/lib/hooks/use-payroll-status';
 
 interface NavItem {
   href: string;
   label: string;
+  /** Something on this page is waiting for the signed-in user. */
+  attention?: boolean;
+}
+
+function NavLabel({ item }: Readonly<{ item: NavItem }>) {
+  const { dict } = useI18n();
+  return (
+    <>
+      {item.label}
+      {item.attention && (
+        <span
+          role="img"
+          aria-label={dict.payroll.attention}
+          title={dict.payroll.attention}
+          className="ml-1.5 inline-block h-2 w-2 rounded-full bg-amber-500 align-middle"
+        />
+      )}
+    </>
+  );
 }
 
 export function PortalTopbar({ me, config }: Readonly<{ me: Me; config: PortalConfig }>) {
@@ -23,6 +43,19 @@ export function PortalTopbar({ me, config }: Readonly<{ me: Me; config: PortalCo
   const { dict, locale, setLocale } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
   const prefetchRoute = usePrefetchRoute(slug);
+  // Payroll is optional per workspace: its pages only appear when the API answers for them.
+  const payroll = usePayrollStatus(slug, me.kind === 'employee');
+  const payrollItems: NavItem[] = [];
+  if (payroll.available) {
+    payrollItems.push({ href: `/${slug}/me/payslips`, label: dict.nav.payslips });
+    if (payroll.details?.country) {
+      payrollItems.push({
+        href: `/${slug}/me/payroll`,
+        label: dict.nav.payrollDetails,
+        attention: payroll.needsAttention,
+      });
+    }
+  }
 
   const navItems: NavItem[] =
     me.kind === 'employee'
@@ -31,6 +64,7 @@ export function PortalTopbar({ me, config }: Readonly<{ me: Me; config: PortalCo
           { href: `/${slug}/me/schedule`, label: dict.nav.schedule },
           { href: `/${slug}/me/leave`, label: dict.nav.leave },
           { href: `/${slug}/me/declarations`, label: dict.nav.declarations },
+          ...payrollItems,
           { href: `/${slug}/me/coaching`, label: dict.nav.coaching },
           { href: `/${slug}/me/evaluations`, label: dict.nav.evaluations },
           { href: `/${slug}/me/tasks`, label: dict.nav.tasks },
@@ -76,7 +110,7 @@ export function PortalTopbar({ me, config }: Readonly<{ me: Me; config: PortalCo
                 pathname === item.href ? 'font-semibold portal-accent' : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {item.label}
+              <NavLabel item={item} />
             </Link>
           ))}
         </nav>
@@ -127,7 +161,7 @@ export function PortalTopbar({ me, config }: Readonly<{ me: Me; config: PortalCo
                 pathname === item.href ? 'font-semibold portal-accent bg-gray-50' : 'text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {item.label}
+              <NavLabel item={item} />
             </Link>
           ))}
         </nav>

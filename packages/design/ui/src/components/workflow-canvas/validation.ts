@@ -35,6 +35,11 @@ function isBlank(value: unknown): boolean {
   return false;
 }
 
+/** True for a value that coerces to a number above zero (NaN, '' and null are not). */
+function isPositiveNumber(value: unknown): boolean {
+  return Number(value) > 0;
+}
+
 function isEmptyArray(value: unknown): boolean {
   return !Array.isArray(value) || value.length === 0;
 }
@@ -173,7 +178,7 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
     { labelKey: 'status', isMissing: (c) => isBlank(c.status) },
     {
       labelKey: 'snoozeDuration',
-      isMissing: (c) => c.status === 'snoozed' && !(Number(c.snoozeDurationMinutes) > 0),
+      isMissing: (c) => c.status === 'snoozed' && !isPositiveNumber(c.snoozeDurationMinutes),
     },
   ],
   change_priority: [{ labelKey: 'priority', isMissing: (c) => isBlank(c.priority) }],

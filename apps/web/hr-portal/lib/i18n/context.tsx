@@ -26,10 +26,10 @@ export function I18nProvider({
   timeZone: string;
   children: ReactNode;
 }>) {
-  const [locale, setLocaleState] = useState<Locale>(initialLocale);
+  const [currentLocale, setCurrentLocale] = useState<Locale>(initialLocale);
 
   const setLocale = useCallback((next: Locale) => {
-    setLocaleState(next);
+    setCurrentLocale(next);
     try {
       document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
     } catch {
@@ -39,8 +39,8 @@ export function I18nProvider({
   }, []);
 
   const value = useMemo<I18nContextValue>(
-    () => ({ locale, timeZone, dict: dictionaries[locale], setLocale, format }),
-    [locale, timeZone, setLocale],
+    () => ({ locale: currentLocale, timeZone, dict: dictionaries[currentLocale], setLocale, format }),
+    [currentLocale, timeZone, setLocale],
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

@@ -51,6 +51,12 @@ describe('SequenceEditorWrapper', () => {
     }
   });
 
+  it('names the save toast after the sequence, not "Workflow saved"', () => {
+    seenProps.length = 0;
+    render(<SequenceEditorWrapper {...baseProps} isDraft />);
+    expect(seenProps.at(-1)!.savedMessage).toBe('crm.sequenceEditorPage.savedSuccess');
+  });
+
   it('only offers the People tab once the sequence is no longer a draft', () => {
     seenProps.length = 0;
     render(<SequenceEditorWrapper {...baseProps} isDraft />);

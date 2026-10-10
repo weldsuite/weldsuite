@@ -6,7 +6,7 @@
  * discriminated record; callers branch on `kind`.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -17,6 +17,8 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import { companyLogoDomain, useCompanyLogos } from '@/lib/crm/company-logo';
+import { RecordKindBadge } from './record-kind-badge';
 import type { Person } from '@/hooks/queries/use-people-queries';
 
 export type RecordKind = 'company' | 'person';
@@ -65,20 +67,20 @@ interface ApiPerson {
   avatarUrl?: string;
 }
 
-function getFaviconUrl(domain?: string | null): string | undefined {
-  if (!domain) return undefined;
-  const clean = domain.replace(/^https?:\/\//, '').replace(/\/[\s\S]*/, '');
-  if (!clean?.includes('.')) return undefined;
-  return `https://www.google.com/s2/favicons?domain=${clean}&sz=32`;
-}
+/** A listed record; a company without an image of its own carries the domain its logo is looked up by. */
+type ListedRecord = SelectableRecord & { logoDomain?: string };
 
-function mapCompany(c: ApiCompany, untitledLabel: string): SelectableRecord {
+function mapCompany(c: ApiCompany, untitledLabel: string): ListedRecord {
   const displayName = c.displayName || c.name || untitledLabel;
-  const avatar =
-    c.avatarUrl ||
-    c.logoUrl ||
-    getFaviconUrl(c.website || c.domain || (c.email?.includes('@') ? c.email.split('@')[1] : undefined));
-  return { id: c.id, kind: 'company', displayName, email: c.email, avatarUrl: avatar };
+  const avatar = c.avatarUrl || c.logoUrl;
+  return {
+    id: c.id,
+    kind: 'company',
+    displayName,
+    email: c.email,
+    avatarUrl: avatar,
+    logoDomain: avatar ? undefined : companyLogoDomain({ website: c.website, domain: c.domain, email: c.email }),
+  };
 }
 
 function mapPerson(p: ApiPerson, untitledLabel: string): SelectableRecord {
@@ -130,7 +132,10 @@ export function RecordSelectionModal({
   const t = useTranslations();
   const { getClient } = useAppApiClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const [records, setRecords] = useState<SelectableRecord[]>([]);
+  const [records, setRecords] = useState<ListedRecord[]>([]);
+  // Logos found on the companies' own websites by our API, not a favicon service.
+  const logoDomains = useMemo(() => records.map((r) => r.logoDomain), [records]);
+  const logos = useCompanyLogos(logoDomains);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [keyboardActive, setKeyboardActive] = useState(false);
@@ -215,7 +220,7 @@ export function RecordSelectionModal({
         if (seq !== fetchSeq.current) return;
         const untitledCompanyLabel = tRef.current('sweep.entities.untitledCompany');
         const untitledPersonLabel = tRef.current('sweep.entities.untitledPerson');
-        const next: SelectableRecord[] = [
+        const next: ListedRecord[] = [
           ...(companiesRes.data ?? []).map((c) => mapCompany(c, untitledCompanyLabel)),
           ...(peopleRes.data ?? []).map((p) => mapPerson(p, untitledPersonLabel)),
         ];
@@ -373,7 +378,7 @@ export function RecordSelectionModal({
             )}
             <div className="pointer-events-none flex items-center gap-1.5 min-w-0 flex-1">
               <Avatar className="h-[22px] w-[22px] rounded-md border border-border flex-shrink-0">
-                <AvatarImage src={record.avatarUrl} />
+                <AvatarImage src={record.avatarUrl ?? (record.logoDomain ? logos.get(record.logoDomain) : undefined)} />
                 <AvatarFallback className="rounded-md bg-muted text-[10px] font-medium">
                   {getInitial(record)}
                 </AvatarFallback>
@@ -389,20 +394,7 @@ export function RecordSelectionModal({
               </span>
             )}
 
-            {!kind && (
-              <span
-                className={cn(
-                  'pointer-events-none inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none flex-shrink-0',
-                  record.kind === 'person'
-                    ? 'bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400'
-                    : 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400',
-                )}
-              >
-                {record.kind === 'person'
-                  ? t('sweep.entities.personLabel')
-                  : t('sweep.entities.companyLabel')}
-              </span>
-            )}
+            {!kind && <RecordKindBadge kind={record.kind} className="pointer-events-none" />}
           </Button>
           );
         })}

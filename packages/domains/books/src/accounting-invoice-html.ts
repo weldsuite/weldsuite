@@ -95,6 +95,11 @@ function makeDateFmt(locale: string) {
   };
 }
 
+/** Zero, negative or NaN (an unparseable amount): nothing to render. */
+function isNotPositive(n: number): boolean {
+  return Number.isNaN(n) || n <= 0;
+}
+
 function escapeHtml(str: string): string {
   return str
     .replaceAll('&', '&amp;')
@@ -213,7 +218,7 @@ function buildUsExemptNotices(
   const seenLines = new Set<string>();
   const notices = new Map<string, { reason: string; certificateId?: string; amount: number }>();
   for (const row of taxBreakdown) {
-    if (!row.exemptReason || !((row.exemptAmount ?? 0) > 0)) continue;
+    if (!row.exemptReason || isNotPositive(row.exemptAmount ?? 0)) continue;
     if (row.lineId) {
       if (seenLines.has(row.lineId)) continue;
       seenLines.add(row.lineId);
@@ -306,7 +311,7 @@ function buildDiscountRow(
   labels: InvoiceLabels,
   fmtCurrency: CurrencyFmt,
 ): string {
-  if (!(Number.parseFloat(discountTotal) > 0)) return '';
+  if (isNotPositive(Number.parseFloat(discountTotal))) return '';
   return `
         <tr>
           <td style="padding:6px 0;color:#666;">${labels.discount}</td>
@@ -320,7 +325,7 @@ function buildPaidRows(
   labels: InvoiceLabels,
   fmtCurrency: CurrencyFmt,
 ): string {
-  if (!(amountPaid > 0)) return '';
+  if (isNotPositive(amountPaid)) return '';
   return `
         <tr>
           <td style="padding:4px 0;color:#666;">${labels.amountPaid}</td>

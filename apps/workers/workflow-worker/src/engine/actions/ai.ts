@@ -314,7 +314,7 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
     metering,
     ctx,
     'ai_generate',
-    estimateMaxCredits(modelId, `${systemPrompt ?? ''}\n${prompt}`, maxOutputTokens, GENERATE_OUTPUT_TOKENS_ESTIMATE),
+    estimateMaxCredits(modelId, `${asText(systemPrompt ?? '')}\n${prompt}`, maxOutputTokens, GENERATE_OUTPUT_TOKENS_ESTIMATE),
   );
 
   let served: { gateway: Gateway; providerCostUsd: number; covered: boolean } | undefined;

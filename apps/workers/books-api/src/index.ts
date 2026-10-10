@@ -51,6 +51,7 @@ import { taxCalendarRoutes } from './routes/tax-calendar';
 import { taxReturnsRoutes } from './routes/tax-returns';
 import { w9RequestsRoutes } from './routes/w9-requests';
 import { bankConnectionsInternalRoutes } from './routes/bank-connections/internal';
+import { payrollInternalRoutes } from './routes/payroll/internal';
 import { publicW9Routes } from './routes/public-w9';
 import type { Env, Variables } from './types';
 import { registerBooksWorkspace, runBooksDailySweep } from './cron/books-sweep';
@@ -113,7 +114,7 @@ app.route('/api/tax-returns', taxReturnsRoutes);
 app.route('/api/w9-requests', w9RequestsRoutes);
 
 // Internal entrypoint, bound as BOOKS_INTERNAL (entrypoint = "BooksInternal") by
-// integration-webhook-worker and integration-sync-worker. A named entrypoint is
+// integration-webhook-worker, integration-sync-worker and hr-api. A named entrypoint is
 // only reachable over a service binding, so it is trusted by topology.
 const internalApp = createModuleApi<Env, Variables>({ service: 'books-api' });
 internalApp.use('*', async (c, next) => {
@@ -121,6 +122,8 @@ internalApp.use('*', async (c, next) => {
   await next();
 });
 internalApp.route('/internal/bank-connections', bankConnectionsInternalRoutes);
+// hr-api posts the journal of an approved WeldHR pay run here (source `weldhr`).
+internalApp.route('/internal/payroll', payrollInternalRoutes);
 
 export class BooksInternal extends WorkerEntrypoint<Env> {
   fetch(request: Request): Promise<Response> | Response {

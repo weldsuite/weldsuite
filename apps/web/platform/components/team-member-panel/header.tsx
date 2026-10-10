@@ -20,7 +20,7 @@ interface TeamMemberPanelHeaderProps {
 export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<TeamMemberPanelHeaderProps>) {
   const t = useTranslations();
   const { getStatus } = usePresence();
-  const { startCall, status: callStatus } = useWeldChatCall();
+  const { startCall } = useWeldChatCall();
   const dmQuery = useDmByUser(isSelf ? '' : profile.userId);
   const navigate = useNavigate();
   const now = useNow(30_000);
@@ -33,17 +33,13 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
   const tzOffset = formatTimezoneOffset(now, profile.timezone);
 
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
-  const callInProgress = callStatus !== 'idle' && callStatus !== 'ended';
 
   const handleCall = async (kind: 'voice' | 'video') => {
     if (!dmChannelId) {
       toast.error(t('sweep.shared.unableToStartCallNoDm'));
       return;
     }
-    if (callInProgress) {
-      toast.error(t('sweep.shared.alreadyInACall'));
-      return;
-    }
+    // Already in a call or meeting: starting another asks to switch first.
     try {
       await startCall(dmChannelId, kind);
     } catch (err) {
@@ -120,7 +116,7 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
               size="icon"
               variant="outline"
               onClick={() => handleCall('voice')}
-              disabled={!dmChannelId || callInProgress}
+              disabled={!dmChannelId}
               title={t('sweep.shared.voiceCall')}
             >
               <Phone className="h-4 w-4" />
@@ -129,7 +125,7 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
               size="icon"
               variant="outline"
               onClick={() => handleCall('video')}
-              disabled={!dmChannelId || callInProgress}
+              disabled={!dmChannelId}
               title={t('sweep.shared.videoCall')}
             >
               <Video className="h-[18px] w-[18px]" />

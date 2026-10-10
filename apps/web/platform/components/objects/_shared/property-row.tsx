@@ -17,6 +17,7 @@
  *  - phone      single-line, type="tel"
  *  - url        single-line, type="url"; renders as a clickable link in read mode
  *  - address    multiline textarea, persisted as a free string
+ *  - date       native date input; value is `YYYY-MM-DD`, pair it with `renderValue`
  *
  * Additional types (user picker, multi-select, status select) can be added
  * later — they were intentionally left out of the first cut to keep this
@@ -25,27 +26,28 @@
  */
 
 import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
-import { Check, Flag, X } from 'lucide-react';
+import { Flag, Plus, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
-import { RowOverlayButton } from '@/components/shared/row-overlay-button';
+import { KEEP_CONTROLS_ABOVE_OVERLAY, RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   Command,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { MemberSelect } from '@/components/team/member-select';
+import { useObjectPanel } from '@/components/object-panel';
+import { PickerCheck } from '@/components/shared/picker-menu';
 import { STATUS_STYLE_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
+import { buildTagOptions, type CreateTagOption, type TagOption } from './known-tags';
 
-type PropertyRowType = 'text' | 'email' | 'phone' | 'url' | 'address';
-
-/** Links and buttons in read-only values stay clickable above the "edit" overlay button. */
-const KEEP_CONTROLS_ABOVE_OVERLAY = '[&_:is(a,button)]:relative [&_:is(a,button)]:z-[1]';
+type PropertyRowType = 'text' | 'email' | 'phone' | 'url' | 'address' | 'date';
 
 export interface PropertyRowProps {
   icon: ComponentType<{ className?: string }>;
@@ -82,6 +84,7 @@ const INPUT_TYPE_BY_ROW_TYPE: Record<PropertyRowType, string> = {
   phone: 'tel',
   url: 'url',
   address: 'text',
+  date: 'date',
 };
 
 // `min-w-0` + `overflow-wrap:anywhere`: values are flex children, so a long
@@ -219,14 +222,14 @@ export function PropertyRow({
       </div>
       <div
         className={cn(
-          // Same box geometry in both states so the edit border sits exactly
-          // where the hover highlight does — same rounding, padding, negative
-          // margin and min height. `border-box` keeps the outer rectangle
-          // identical once the border is drawn (the border eats into the
-          // padding rather than growing the box).
-          'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-2 box-border',
-          editable && !isEditing && cn('relative cursor-text hover:bg-muted/50 transition-colors', KEEP_CONTROLS_ABOVE_OVERLAY),
-          isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
+          // One box geometry in every state: the 1px border is always there
+          // (transparent at rest), so the hover border and the edit border
+          // sit in exactly the same place and the text never shifts. 7px
+          // padding + 1px border keeps the value on the column's left edge.
+          'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-[7px] box-border border border-transparent',
+          // Editable values show that border on hover (no fill, no underline).
+          editable && !isEditing && cn('relative cursor-text transition-colors hover:border-border', KEEP_CONTROLS_ABOVE_OVERLAY),
+          isEditing && 'border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
       >
         {editable && !isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
@@ -252,14 +255,24 @@ export interface MemberPropertyRowProps {
 }
 
 export function MemberPropertyRow({ icon: Icon, label, value, placeholder, onChange }: Readonly<MemberPropertyRowProps>) {
+  const { open: openPanel } = useObjectPanel();
   return (
     <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center group/row min-h-[32px]">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
       </div>
-      <div className="min-w-0 -mx-2">
-        <MemberSelect value={value} onChange={onChange} placeholder={placeholder} variant="assignee" />
+      {/* Same behaviour as the task panel's Assignees row: clicking the member
+          opens their panel (in place, with a back arrow), the + changes them. */}
+      <div className="min-w-0">
+        <MemberSelect
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          variant="assignee"
+          panelRow
+          onOpenMember={(userId) => openPanel({ type: 'team-member', id: userId, stack: true })}
+        />
       </div>
       <div />
     </div>
@@ -286,9 +299,9 @@ function StatusBadge({ value, options }: Readonly<{ value: string; options: Stat
   return (
     <span
       className={cn(
-        // `-ml-1.5` pulls the pill's left edge into the gutter so the badge TEXT
-        // lines up with the plain-text values of the rows above and below.
-        'inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-medium -ml-1.5',
+        // Same chip as the task panel's status / priority: 22px tall, its left
+        // edge on the value column, a thin outline when its row is hovered.
+        'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow',
         style?.bg ?? 'bg-muted',
         style?.color ?? 'text-foreground',
       )}
@@ -315,26 +328,27 @@ export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusP
       </div>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
+          {/* No hover box and no padding: just the chip (or an underlined
+              placeholder), like the task panel. */}
           <Button
             type="button"
             variant="ghost"
-            className="text-sm min-w-0 justify-start text-left cursor-pointer rounded-[9px] px-2 -mx-2 py-0.5 hover:bg-muted/50 transition-colors flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring h-auto min-h-[32px]"
+            className="h-8 px-0 text-sm text-left cursor-pointer inline-flex items-center justify-self-start group/field hover:bg-transparent dark:hover:bg-transparent"
           >
             {value ? (
               <StatusBadge value={value} options={options} />
             ) : (
-              <span className="text-muted-foreground/70">{st('sweep.entities.setStatusPlaceholder')}</span>
+              <span className="font-normal text-muted-foreground group-hover/field:underline">{st('sweep.entities.setStatusPlaceholder')}</span>
             )}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-56 p-0" align="start">
           <Command>
             <CommandInput placeholder={st('sweep.entities.searchEllipsisPlaceholder')} />
-            <CommandList className="max-h-[260px] p-1">
+            <CommandList>
               <CommandEmpty>{st('sweep.entities.noStatusesFound')}</CommandEmpty>
-              {options.map((opt) => {
-                const isSelected = opt.value === value;
-                return (
+              <CommandGroup>
+                {options.map((opt) => (
                   <CommandItem
                     key={opt.value}
                     value={opt.label}
@@ -342,13 +356,12 @@ export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusP
                       onChange(opt.value);
                       setOpen(false);
                     }}
-                    className="flex items-center justify-between gap-2 px-1.5"
                   >
                     <StatusBadge value={opt.value} options={options} />
-                    {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                    <PickerCheck selected={opt.value === value} />
                   </CommandItem>
-                );
-              })}
+                ))}
+              </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
@@ -361,7 +374,10 @@ export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusP
 // ─── TagsPropertyRow ────────────────────────────────────────────────────────
 // Editable tags row — chips + an inline text input, matching the row
 // geometry of `PropertyRow`. Enter (or a comma) commits the current draft as
-// a new tag; Backspace on an empty draft removes the last chip.
+// a new tag; Backspace on an empty draft removes the last chip. Under the input
+// the editor lists the tags other records already use (when `getSuggestions` is
+// given) plus an explicit "Create '…'" row for the text being typed; Arrow keys
+// move through the list and Enter picks the highlighted row.
 
 export interface TagsPropertyRowProps {
   icon: ComponentType<{ className?: string }>;
@@ -369,12 +385,17 @@ export interface TagsPropertyRowProps {
   value?: string[] | null;
   placeholder?: string;
   onChange: (next: string[]) => void;
+  /** Existing tags to offer while editing; read once each time the editor opens. */
+  getSuggestions?: () => readonly string[];
 }
 
-export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChange }: Readonly<TagsPropertyRowProps>) {
+export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChange, getSuggestions }: Readonly<TagsPropertyRowProps>) {
   const t = useTranslations();
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [suggestions, setSuggestions] = useState<readonly string[]>([]);
+  // -1 = nothing highlighted, so Enter keeps committing what was typed.
+  const [highlight, setHighlight] = useState(-1);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const tags = value ?? [];
 
@@ -382,28 +403,48 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
     if (isEditing) inputRef.current?.focus();
   }, [isEditing]);
 
+  // Cheap (a handful of tags), so recomputed per render rather than memoised.
+  const options = isEditing ? buildTagOptions(draft, suggestions, tags) : [];
+
+  const startEditing = () => {
+    setSuggestions(getSuggestions?.() ?? []);
+    setHighlight(-1);
+    setIsEditing(true);
+  };
+
   const commitDraft = () => {
     const next = draft.trim();
     if (next && !tags.includes(next)) onChange([...tags, next]);
     setDraft('');
+    setHighlight(-1);
+  };
+
+  const pickOption = (option: TagOption | CreateTagOption) => {
+    if (!tags.includes(option.tag)) onChange([...tags, option.tag]);
+    setDraft('');
+    setHighlight(-1);
   };
 
   const removeTag = (tag: string) => onChange(tags.filter((x) => x !== tag));
 
   return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-start group/row min-h-[32px] py-0.5">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground h-7">
+    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-start group/row min-h-[32px]">
+      {/* 32px label line, so a one-line tags row is the same height as every other row. */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground h-8">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
       </div>
+      <div className="min-w-0 -mx-2">
       <div
         className={cn(
-          'min-w-0 -mx-2 px-2 rounded-[9px] box-border flex flex-wrap items-center gap-1 min-h-[32px] py-1',
-          !isEditing && 'relative cursor-text hover:bg-muted/50 transition-colors',
-          isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
+          // Same box as PropertyRow: an always-present 1px border (transparent
+          // at rest) that shows on hover and while editing — no hover fill.
+          'min-w-0 px-[7px] rounded-[9px] box-border border border-transparent flex flex-wrap items-center gap-1 min-h-[32px] py-1',
+          !isEditing && 'relative cursor-text transition-colors hover:border-border',
+          isEditing && 'border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
       >
-        {!isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
+        {!isEditing && <RowOverlayButton label={label} onClick={startEditing} />}
         {tags.length === 0 && !isEditing && (
           <span className="text-muted-foreground/70 text-sm">
             {placeholder ?? t('sweep.entities.setFieldPlaceholder', { label })}
@@ -423,7 +464,7 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
                   removeTag(tag);
                 }}
                 className="ml-0.5 -mr-0.5 rounded hover:bg-muted-foreground/20"
-                aria-label={t('sweep.entities.unlink')}
+                aria-label={t('sweep.entities.removeTag', { tag })}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -434,11 +475,24 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
           <input
             ref={inputRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setHighlight(-1);
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ',') {
+              const highlighted = highlight >= 0 ? options[highlight] : undefined;
+              if (e.key === 'Enter' && highlighted) {
+                e.preventDefault();
+                pickOption(highlighted);
+              } else if (e.key === 'Enter' || e.key === ',') {
                 e.preventDefault();
                 commitDraft();
+              } else if (e.key === 'ArrowDown' && options.length > 0) {
+                e.preventDefault();
+                setHighlight((current) => (current + 1) % options.length);
+              } else if (e.key === 'ArrowUp' && options.length > 0) {
+                e.preventDefault();
+                setHighlight((current) => (current <= 0 ? options.length - 1 : current - 1));
               } else if (e.key === 'Backspace' && !draft && tags.length > 0) {
                 removeTag(tags[tags.length - 1]!);
               } else if (e.key === 'Escape') {
@@ -454,6 +508,40 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
             className="bg-transparent border-0 outline-none text-sm flex-1 min-w-[80px]"
           />
         )}
+      </div>
+      {isEditing && options.length > 0 && (
+        // In flow (not a popover) so it can't be clipped by the panel's scroll
+        // box, and the input keeps focus: every row swallows mousedown, otherwise
+        // the input's blur would commit the draft and close the editor first.
+        <ul
+          aria-label={t('sweep.entities.tagSuggestionsLabel')}
+          className="mt-1 rounded-[9px] border border-border bg-popover p-1 shadow-sm"
+        >
+          {options.map((option, index) => (
+            <li key={`${option.kind}:${option.tag}`}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setHighlight(index)}
+                onClick={() => pickOption(option)}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm',
+                  index === highlight ? 'bg-muted' : 'hover:bg-muted/60',
+                )}
+              >
+                {option.kind === 'create' ? (
+                  <>
+                    <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">{t('sweep.entities.createTagOption', { tag: option.tag })}</span>
+                  </>
+                ) : (
+                  <span className="min-w-0 truncate">{option.tag}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       </div>
       <div />
     </div>

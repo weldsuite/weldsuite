@@ -158,7 +158,7 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
         <Handle
           type="source"
           position={Position.Bottom}
-          className="!w-3 !h-3 !bg-white dark:!bg-background !border-[1.5px] !border-blue-400 !z-10 !hidden lg:!block"
+          className="!w-3 !h-3 !bg-white dark:!bg-background !border-[1.5px] !border-blue-400 !z-10 !invisible lg:!visible"
           style={{ bottom: '1px' }}
         />
       </div>

@@ -33,6 +33,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSkeleton,
   SidebarMenuSub,
   SidebarMenuSubItem,
   SidebarMenuSubButton,
@@ -75,6 +76,7 @@ import { ResourceUsage } from "@/components/resource-usage"
 import { OnboardingChecklist } from "@/components/layout/onboarding-checklist-group"
 import { CalendarLogoIcon } from "@/components/calendar-logo-icon"
 import { BetaBadge } from "@/components/layout/beta-badge"
+import type { MenuPermission } from "@/components/layout/menu-permission"
 
 export { type UserInfo, type Workspace }
 
@@ -110,11 +112,11 @@ export interface MenuItemProps {
   /** Callback when the active call icon is clicked */
   onJoinCall?: () => void;
   /**
-   * Optional permission key (format: `object:action`, e.g. `leads:read`).
-   * When set, the item is only shown to users who have this permission.
-   * Items without a permission field always show.
+   * Optional permission key (format: `object:action`, e.g. `leads:read`), or a
+   * list of keys where any one is enough. When set, the item is only shown to
+   * users who have it. Items without a permission field always show.
    */
-  permission?: string;
+  permission?: MenuPermission;
   /** Unique ID for the item (used for context menu actions) */
   id?: string;
   /** Handler for deleting the item */
@@ -163,6 +165,12 @@ export interface MenuGroupProps {
   hideLabel?: boolean;
   /** Override the label shown on the empty-state "+ Add ..." dashed button. Defaults to a singularized form of `group`. */
   addLabel?: string;
+  /**
+   * The group's items are still being fetched. While true and there are no
+   * items yet, skeleton rows show instead of the empty-state "+ Add ..." button,
+   * which would otherwise flash before the real items arrive.
+   */
+  loading?: boolean;
 }
 
 export interface EmailAccount {
@@ -1079,7 +1087,17 @@ function SidebarMenuGroup({ group, pathname, allMenuItems }: Readonly<SidebarMen
           group.customContent
         ) : (
           <SidebarMenu>
-            {group.items.length === 0 && group.onAdd && !group.collapsed && (
+            {group.items.length === 0 && group.loading && !group.collapsed && (
+              <>
+                <SidebarMenuItem>
+                  <SidebarMenuSkeleton showIcon />
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuSkeleton showIcon />
+                </SidebarMenuItem>
+              </>
+            )}
+            {group.items.length === 0 && group.onAdd && !group.collapsed && !group.loading && (
               <SidebarMenuItem>
                 <Button
                   variant="ghost"

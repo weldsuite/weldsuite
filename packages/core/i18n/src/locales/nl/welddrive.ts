@@ -148,6 +148,8 @@ export const welddrive = {
       thisFolderIsEmpty: 'Deze map is leeg',
     },
 
+    clearSelection: 'Selectie wissen',
+
     gridSections: {
       folders: 'Mappen',
       files: 'Bestanden',

@@ -3,7 +3,10 @@ import { Suspense, useMemo, useCallback } from 'react';
 import { useSearchParams } from '@/lib/router';
 import { PeopleGrid } from './components/people-grid';
 import { useInfinitePeople } from '@/hooks/queries/use-people-queries';
-import { PageLoader } from '@/components/page-loader';
+import { usePersistedGridSort } from '@/components/entity-grid/use-persisted-grid-sort';
+import { useGridViewSettings } from '@/hooks/queries/use-settings-queries';
+import { EntityGridSkeleton } from '@/components/entity-grid/components/grid-skeleton';
+import { ListLoadError } from '@/app/weldcrm/components/list-load-error';
 import type { Person, ListPeopleQuery } from '@weldsuite/core-api-client/schemas/people';
 
 function PeoplePageContent() {
@@ -12,8 +15,8 @@ function PeoplePageContent() {
   const status = searchParams.get('status') || undefined;
   const filter = searchParams.get('filter');
   const companyId = searchParams.get('companyId') || undefined;
-  const sort = searchParams.get('sort') || undefined;
-  const sortDir = (searchParams.get('sortDir') as 'asc' | 'desc' | null) || undefined;
+  // The sort in the URL, else the one the user last picked on this table.
+  const { sort, sortDir } = usePersistedGridSort('person');
 
   const filters: Omit<ListPeopleQuery, 'cursor'> = useMemo(() => {
     // Only real CRM members — mail/helpdesk auto-create identities with
@@ -31,9 +34,15 @@ function PeoplePageContent() {
     return f;
   }, [search, status, filter, companyId, sort, sortDir]);
 
+  // The grid reads the saved column view once it mounts, which is only after
+  // the rows are in. Start that request now so the two do not run back to back.
+  useGridViewSettings('person');
+
   const {
     data: infiniteData,
-    isLoading,
+    isPending,
+    isError,
+    refetch,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -49,7 +58,11 @@ function PeoplePageContent() {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  // `isPending` (no result yet), not `isLoading`: while the persisted query
+  // cache is still restoring after a reload the query is idle, so `isLoading`
+  // is false with no data and the grid flashed its "No people yet" state.
+  if (isPending) return <EntityGridSkeleton />;
+  if (isError && !infiniteData) return <ListLoadError onRetry={() => void refetch()} />;
 
   return (
     <PeopleGrid
@@ -65,7 +78,7 @@ function PeoplePageContent() {
 
 export default function PeoplePage() {
   return (
-    <Suspense fallback={<PageLoader fullScreen={false} />}>
+    <Suspense fallback={<EntityGridSkeleton />}>
       <PeoplePageContent />
     </Suspense>
   );

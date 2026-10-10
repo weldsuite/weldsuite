@@ -187,20 +187,23 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
         const db = createTenantDb(databaseUrl);
         const now = new Date();
 
-        for (const appCode of selectedApps) {
-          try {
-            await db.insert(workspaceInstalledApps).values({
-              id: generateId('app'),
-              appCode,
-              isActive: true,
-              displayOrder: 0,
-              installedAt: now,
-              installedBy: initialMember?.userId,
-            }).onConflictDoNothing();
-          } catch (appError) {
-            console.warn(`[Provision] Failed to install app ${appCode}:`, appError);
-          }
-        }
+        // One independent, conflict-tolerant insert per app code.
+        await Promise.all(
+          selectedApps.map(async (appCode) => {
+            try {
+              await db.insert(workspaceInstalledApps).values({
+                id: generateId('app'),
+                appCode,
+                isActive: true,
+                displayOrder: 0,
+                installedAt: now,
+                installedBy: initialMember?.userId,
+              }).onConflictDoNothing();
+            } catch (appError) {
+              console.warn(`[Provision] Failed to install app ${appCode}:`, appError);
+            }
+          }),
+        );
 
         console.log(`[Provision] Installed ${selectedApps.length} apps for workspace ${workspaceId}`);
         return { installed: selectedApps.length };

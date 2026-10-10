@@ -27,7 +27,7 @@ export function FormFieldRow({ children, className }: Readonly<{ children: React
   return <div className={cn('wui-field-row', className)}>{children}</div>;
 }
 
-export function Form({ children, className, ...props }: FormHTMLAttributes<HTMLFormElement>) {
+export function Form({ children, className, ...props }: Readonly<FormHTMLAttributes<HTMLFormElement>>) {
   return (
     <form data-slot="form" className={cn('wui-form', className)} {...props}>
       {children}

@@ -32,6 +32,7 @@ import {
   PERSON_IMPORT_TEMPLATE_EXAMPLE,
 } from '../config/person-import-fields';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
+import { EntityGridSkeleton } from '@/components/entity-grid/components/grid-skeleton';
 
 interface PeopleGridProps {
   people: Person[];
@@ -132,14 +133,29 @@ export function PeopleGrid({
     [t, customFieldDefs],
   );
 
-  const { data: savedView, isLoading: isViewLoading } = useGridViewSettings('person');
+  // `isPending` rather than `isLoading`: while the persisted query cache is
+  // still restoring after a reload the query is idle (`isLoading` false) with
+  // no data yet, and a grid mounted then starts on the default columns.
+  const { data: savedView, isPending: isViewLoading } = useGridViewSettings('person');
+
+  // Tags are free-form; suggest the ones other loaded people already use.
+  // Keyed on the joined list so the columns are only rebuilt when the set of
+  // tags changes, not on every row update.
+  const tagOptionsKey = useMemo(
+    () => JSON.stringify([...new Set(people.flatMap((p) => p.tags ?? []))].sort((a, b) => a.localeCompare(b))),
+    [people],
+  );
+  const personColumnsWithTags = useMemo(() => {
+    const tagOptions = JSON.parse(tagOptionsKey) as string[];
+    return personColumns.map((column) => (column.id === 'tags' ? { ...column, options: tagOptions } : column));
+  }, [tagOptionsKey]);
 
   const gridConfig = useMemo(() => ({
     ...personGridConfig,
-    columns: [...personColumns, ...customColumns],
+    columns: [...personColumnsWithTags, ...customColumns],
     initialVisibility: savedView?.columnVisibility ?? null,
     initialColumnWidths: savedView?.columnWidths ?? null,
-  }), [customColumns, savedView]);
+  }), [personColumnsWithTags, customColumns, savedView]);
 
   // Export honors the active view (search/status/supplier/lead/company + list).
   const exportFilter = useMemo<ExportPeopleQuery>(() => {
@@ -241,7 +257,9 @@ export function PeopleGrid({
 
   return (
     <>
-      {!isViewLoading && (
+      {isViewLoading ? (
+        <EntityGridSkeleton />
+      ) : (
         <EntityGrid
           config={gridConfig}
           actions={actions}
@@ -253,6 +271,7 @@ export function PeopleGrid({
           isFetchingMore={isFetchingMore}
           toolbarActions={toolbarActions}
           listName={listContext?.listName}
+          persistSort={!listContext}
         />
       )}
       <QuickAddPersonDialog open={isQuickAddOpen} onOpenChange={setIsQuickAddOpen} />

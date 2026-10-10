@@ -15,7 +15,7 @@ export function CurrencyEditor({
   autoFocus = true,
   className,
   currency = '$',
-}: CurrencyEditorProps) {
+}: Readonly<CurrencyEditorProps>) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localValue, setLocalValue] = useState<string>(value == null ? '' : String(value));
 

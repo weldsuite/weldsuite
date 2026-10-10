@@ -1,6 +1,7 @@
 "use client";
 
 import { Truck, Shield, CreditCard, Headphones } from "lucide-react";
+import { keyedBy, tupleKey } from "../lib/keyed";
 
 interface FeaturesectionProps {
   title?: string;
@@ -52,14 +53,14 @@ const IconComponent = ({ icon }: { icon: string }) => {
 export default function FeaturesSection({
   title = "Why Choose Us",
   features = defaultFeatures
-}: FeaturesectionProps) {
+}: Readonly<FeaturesectionProps>) {
   return (
     <section className="py-16 px-4 bg-muted/50">
       <div className="container mx-auto">
         <h2 className="text-3xl font-bold text-center mb-12">{title}</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {features.map((feature, index) => (
-            <div key={index} className="text-center">
+          {keyedBy(features, (feature) => tupleKey(feature.title, feature.description)).map(({ item: feature, key }) => (
+            <div key={key} className="text-center">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4">
                 <IconComponent icon={feature.icon} />
               </div>

@@ -72,7 +72,7 @@ function looseEquals(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || a === undefined || b === null || b === undefined) return isEmptyValue(a) && isEmptyValue(b);
   if (typeof a === 'object' || typeof b === 'object') return JSON.stringify(a) === JSON.stringify(b);
-  return String(a).trim() === String(b).trim();
+  return asText(a).trim() === asText(b).trim();
 }
 
 function toNumber(value: unknown): number {
@@ -97,20 +97,20 @@ function toList(value: unknown): unknown[] {
 function containsValue(haystack: unknown, needle: unknown): boolean {
   if (Array.isArray(haystack)) return haystack.some((item) => looseEquals(item, needle));
   if (haystack === undefined || haystack === null) return false;
-  return String(haystack).toLowerCase().includes(String(needle ?? '').toLowerCase());
+  return asText(haystack).toLowerCase().includes(asText(needle ?? '').toLowerCase());
 }
 
 function matchesPattern(value: unknown, pattern: unknown): boolean {
   let regex: RegExp;
   try {
-    regex = new RegExp(String(pattern ?? ''));
+    regex = new RegExp(asText(pattern ?? ''));
   } catch {
     throw new NonRetryableStepError(`"${String(pattern)}" is not a valid regular expression`);
   }
-  return regex.test(String(value ?? ''));
+  return regex.test(asText(value ?? ''));
 }
 
-const lowerText = (value: unknown) => String(value ?? '').toLowerCase();
+const lowerText = (value: unknown) => asText(value ?? '').toLowerCase();
 
 type Comparison = (fieldValue: unknown, value: unknown) => boolean;
 
@@ -160,7 +160,7 @@ export function compareValues(operator: string, fieldValue: unknown, value: unkn
 
 /** The value branch a multi-branch condition picks (`default` catches the rest). */
 function matchBranch(branches: unknown[], fieldValue: unknown): string | null {
-  const values = branches.map((branch) => String((branch as { value?: unknown } | null)?.value ?? ''));
+  const values = branches.map((branch) => asText((branch as { value?: unknown } | null)?.value ?? ''));
   const matched = values.find((value) => value !== 'default' && looseEquals(fieldValue, value));
   if (matched !== undefined) return matched;
   return values.includes('default') ? 'default' : null;

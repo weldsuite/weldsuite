@@ -304,6 +304,30 @@ export function SectionRenderer({
         // Determine if this block should stack
         const shouldStack = stackingBlockTypes.has(block.type);
 
+        // In the editor, a block of a multi-block section is selectable by mouse
+        // and keyboard; keys pressed inside its own controls stay with them.
+        const selectBlock = isEditing && onSelectBlock && !isSingleBlockSection
+          ? () => onSelectBlock(block.id)
+          : undefined;
+        const selectableProps = selectBlock
+          ? {
+              role: 'button' as const,
+              tabIndex: 0,
+              onClick: (e: React.MouseEvent) => {
+                e.stopPropagation();
+                selectBlock();
+              },
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  selectBlock();
+                }
+              },
+            }
+          : {};
+
         return (
           <div
             key={block.id}
@@ -326,13 +350,7 @@ export function SectionRenderer({
                 setHoveredBlockId(null);
               }
             }}
-            onClick={(e) => {
-              if (isEditing && onSelectBlock && !isSingleBlockSection) {
-                e.stopPropagation();
-                console.log('Block clicked:', block.id, block.type);
-                onSelectBlock(block.id);
-              }
-            }}
+            {...selectableProps}
           >
             {/* Block Label - Only show for multi-block sections */}
             {isEditing && !isSingleBlockSection && (isBlockHovered || isBlockSelected) && (

@@ -26,15 +26,15 @@ import {
   type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import type {
-  TaskStatus,
-  TaskPriority,
-  CreateTaskInput,
-  UpdateTaskInput,
-  ProjectLabel,
-  ProjectMember,
+import {
+  type TaskStatus,
+  type TaskPriority,
+  type CreateTaskInput,
+  type UpdateTaskInput,
+  type ProjectLabel,
+  type ProjectMember,
+  LABEL_COLORS,
 } from '@/types/weldflow';
-import { LABEL_COLORS } from '@/types/weldflow';
 import { useProjectMembers, useLabels, useCreateLabel } from '@/hooks/use-weldflow';
 import { labelsForIds, resolveLabelIds } from '@/lib/task-labels';
 import { TaskStatusBadge } from './status-badge';
@@ -602,13 +602,24 @@ function DatePickerModal({ picker, startDate, dueDate, colors, bottomInset, onCh
 
   const current = picker === 'startDate' ? startDate : dueDate;
   const value = current ? new Date(current) : new Date();
-  const handleChange = (_event: unknown, selected?: Date) => {
+  const handleValueChange = (_event: unknown, selected: Date) => {
     if (Platform.OS === 'android') onClose();
-    if (selected) onChange(picker, selected.toISOString());
+    onChange(picker, selected.toISOString());
+  };
+  const handleDismiss = () => {
+    if (Platform.OS === 'android') onClose();
   };
 
   if (Platform.OS !== 'ios') {
-    return <DateTimePicker value={value} mode="date" display="default" onChange={handleChange} />;
+    return (
+      <DateTimePicker
+        value={value}
+        mode="date"
+        display="default"
+        onValueChange={handleValueChange}
+        onDismiss={handleDismiss}
+      />
+    );
   }
 
   return (
@@ -625,7 +636,7 @@ function DatePickerModal({ picker, startDate, dueDate, colors, bottomInset, onCh
         value={value}
         mode="date"
         display="spinner"
-        onChange={handleChange}
+        onValueChange={handleValueChange}
         themeVariant={colors.text === '#FFFFFF' ? 'dark' : 'light'}
       />
     </SheetModal>

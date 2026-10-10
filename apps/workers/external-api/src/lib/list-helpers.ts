@@ -96,7 +96,7 @@ export async function listWithCursor<TTable extends ListableTable, TRow>(
   const data = hasMore ? rows.slice(0, limit) : rows;
   const nextCursor =
     hasMore && data.length > 0
-      ? ((data[data.length - 1] as unknown as { id: string }).id ?? null)
+      ? ((data.at(-1) as unknown as { id: string }).id ?? null)
       : null;
   const mapper = opts.mapRow ?? ((r: TRow) => r as unknown);
   return {

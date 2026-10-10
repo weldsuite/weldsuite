@@ -28,8 +28,8 @@ import {
   matchAndDispatchIntegrationTriggers,
   retryFailedWebhookDeliveries,
   hasPendingWebhookRetries,
+  type EntityEventMessage,
 } from '@weldsuite/entity-events';
-import type { EntityEventMessage } from '@weldsuite/entity-events';
 import { handleEntityWebhookBatch } from './entity-webhooks-consumer';
 import {
   listDueTenantWorkIndex,
@@ -1246,7 +1246,9 @@ function isConnectionSyncDue(connection: IntegrationConnectionRow, now: number):
     MIN_SYNC_INTERVAL_HOURS,
   );
   const lastSync = connection.lastSyncAt ? new Date(connection.lastSyncAt).getTime() : 0;
-  return !(now < lastSync + intervalHours * 60 * 60 * 1000);
+  const dueAt = lastSync + intervalHours * 60 * 60 * 1000;
+  // An unparseable lastSyncAt (NaN) counts as due, as before.
+  return Number.isNaN(dueAt) || now >= dueAt;
 }
 
 /** Google Calendar watch-channel renewal via connect-api's internal router. */
@@ -1395,7 +1397,7 @@ async function resolveGoogleToken(
   if (!tokens?.accessToken) return null;
 
   let accessToken = await maybeDecryptToken(tokens.accessToken, key);
-  const expiresMs = tokens.expiresAt ? Date.parse(tokens.expiresAt) : NaN;
+  const expiresMs = tokens.expiresAt ? Date.parse(tokens.expiresAt) : Number.NaN;
   const expiringSoon = Number.isFinite(expiresMs) && expiresMs - Date.now() < TOKEN_REFRESH_WINDOW_MS;
 
   if (expiringSoon && tokens.refreshToken && env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {

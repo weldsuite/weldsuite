@@ -57,6 +57,8 @@ import {
 import { HrNotFoundError, addDays, todayIso } from '../../services/weldhr/shared';
 import { cancelLeaveRequest, clock, createLeaveRequest } from '../../services/weldhr/time';
 import { actor, db, emit, param, receiptBucket, workspaceIdOf, type HrContext } from './helpers';
+import { requirePayrollFlag } from './payroll/flag';
+import { registerPayrollSelfService } from './payroll/self-service';
 
 export const meRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -214,3 +216,10 @@ meRoutes.post('/evaluations/:evaluationId/acknowledge', zValidator('json', hrPor
 });
 
 meRoutes.get('/performance', async (c) => success(c, await employeePerformance(db(c), await selfEmployeeId(c))));
+
+// Payslips, annual statements, payroll details and tax forms (flag `weldhr-payroll`; employees:self applies above).
+registerPayrollSelfService(
+  meRoutes,
+  async (c) => ({ employeeId: await selfEmployeeId(c), actor: actor(c) }),
+  requirePayrollFlag,
+);

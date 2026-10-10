@@ -1,6 +1,6 @@
 
 import { useMemo } from 'react';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { AlertCircle, AlertTriangle, Download, Users } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -13,6 +13,7 @@ import {
   type TeamTimesheetMember,
 } from '@/hooks/queries/use-team-timesheet-queries';
 import { asText } from '@weldsuite/text';
+import { formatHoursMinutes } from '@/lib/format-hours';
 
 interface TeamTimesheetViewProps {
   projectId: string;
@@ -23,11 +24,10 @@ interface TeamTimesheetViewProps {
   rangeLabel: string;
 }
 
-/** Minutes → a compact `7.5h` / `45m` label. */
+/** Minutes → a compact `7h 30m` / `45m` label. */
 function formatDuration(minutes: number): string {
   if (!minutes) return '0h';
-  if (minutes < 60) return `${Math.round(minutes)}m`;
-  return `${(minutes / 60).toFixed(1)}h`;
+  return formatHoursMinutes(minutes);
 }
 
 /**

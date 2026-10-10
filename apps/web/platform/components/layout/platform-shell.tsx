@@ -80,6 +80,7 @@ export function PlatformShell({ children, embedded }: Readonly<PlatformShellProp
                 user={userInfo}
                 currentWorkspace={currentWorkspace}
                 workspaces={workspaces}
+                installedApps={installedApps}
               />
               {/* Slim top-edge progress bar for slow navigations. The page
                   itself stays mounted while the router works — swapping the

@@ -47,19 +47,19 @@ const MobileNavActionsContext = createContext<MobileNavActionsContextType | null
 const DEFAULT_WELDAGENT_WIDTH = 400;
 
 export function MobileNavProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const [isOpen, setIsOpenState] = useState(false);
-  const [moduleMenuItems, setModuleMenuItemsState] = useState<MenuGroupProps[]>([]);
-  const [moduleInfo, setModuleInfoState] = useState<ModuleInfo | null>(null);
+  const [isOpenState, setIsOpenState] = useState(false);
+  const [moduleMenuItemsState, setModuleMenuItemsState] = useState<MenuGroupProps[]>([]);
+  const [moduleInfoState, setModuleInfoState] = useState<ModuleInfo | null>(null);
   // Single source of truth for WeldAgent open state: a sessionStorage-backed hook with broadcast events.
   // This guarantees every consumer (provider, layouts, breadcrumb header) reads the same value
   // synchronously on mount, so the panel survives navigation with no flash or layout shift.
   const [showWeldAgent, setShowWeldAgentInternal] = useWeldAgentDrawerOpen();
-  const [weldAgentWidth, setWeldAgentWidthState] = useState(DEFAULT_WELDAGENT_WIDTH);
-  const [weldAgentLastPath, setWeldAgentLastPathState] = useState<string | null>(null);
-  const [weldAgentPrefill, setWeldAgentPrefillState] = useState<string | null>(null);
-  const [headerVariant, setHeaderVariantState] = useState<HeaderVariant>('default');
+  const [weldAgentWidthState, setWeldAgentWidthState] = useState(DEFAULT_WELDAGENT_WIDTH);
+  const [weldAgentLastPathState, setWeldAgentLastPathState] = useState<string | null>(null);
+  const [weldAgentPrefillState, setWeldAgentPrefillState] = useState<string | null>(null);
+  const [headerVariantState, setHeaderVariantState] = useState<HeaderVariant>('default');
   // If we're restoring an already-open panel, suppress the slide-in animation on the very first paint
-  const [weldAgentSkipAnimation, setWeldAgentSkipAnimationState] = useState<boolean>(() => {
+  const [weldAgentSkipAnimationState, setWeldAgentSkipAnimationState] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try { return window.sessionStorage.getItem('weldagent-open') === 'true'; } catch { return false; }
   });
@@ -119,7 +119,7 @@ export function MobileNavProvider({ children }: Readonly<{ children: React.React
 
   // After the initial render, clear the restored skip-animation flag so future open/close uses the normal animation
   useEffect(() => {
-    if (weldAgentSkipAnimation) {
+    if (weldAgentSkipAnimationState) {
       const id = requestAnimationFrame(() => setWeldAgentSkipAnimationState(false));
       return () => cancelAnimationFrame(id);
     }
@@ -154,8 +154,8 @@ export function MobileNavProvider({ children }: Readonly<{ children: React.React
   }, []);
 
   const stateValue = React.useMemo(
-    () => ({ isOpen, moduleMenuItems, moduleInfo, showWeldAgent, weldAgentWidth, weldAgentLastPath, weldAgentPrefill, headerVariant, weldAgentSkipAnimation }),
-    [isOpen, moduleMenuItems, moduleInfo, showWeldAgent, weldAgentWidth, weldAgentLastPath, weldAgentPrefill, headerVariant, weldAgentSkipAnimation]
+    () => ({ isOpen: isOpenState, moduleMenuItems: moduleMenuItemsState, moduleInfo: moduleInfoState, showWeldAgent, weldAgentWidth: weldAgentWidthState, weldAgentLastPath: weldAgentLastPathState, weldAgentPrefill: weldAgentPrefillState, headerVariant: headerVariantState, weldAgentSkipAnimation: weldAgentSkipAnimationState }),
+    [isOpenState, moduleMenuItemsState, moduleInfoState, showWeldAgent, weldAgentWidthState, weldAgentLastPathState, weldAgentPrefillState, headerVariantState, weldAgentSkipAnimationState]
   );
 
   const actionsValue = React.useMemo(

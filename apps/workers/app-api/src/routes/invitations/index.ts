@@ -179,8 +179,8 @@ async function findInvitationInTenantDbs(
           workspaceId: workspace.clerkOrgId,
           workspaceName: workspace.name,
           role: member.role,
-          inviteeEmail: member.email || '',
-          inviteeName: member.name || '',
+          inviteeEmail: member.email ?? '',
+          inviteeName: member.name ?? '',
           isExpired: false,
           isUsed: member.status === 'ACTIVE',
         };
@@ -297,13 +297,15 @@ async function joinPublicChannels(
 ): Promise<void> {
   try {
     const joined = await autoJoinUserToPublicChannels(tenantDb, userId, memberType);
-    for (const ch of joined) {
-      try {
-        await publishChatUserChannelNew(env, orgId, userId, ch.id, ch.name);
-      } catch (e) {
-        console.error('[app-api/invitations] Realtime publish failed:', e);
-      }
-    }
+    await Promise.all(
+      joined.map(async (ch) => {
+        try {
+          await publishChatUserChannelNew(env, orgId, userId, ch.id, ch.name);
+        } catch (e) {
+          console.error('[app-api/invitations] Realtime publish failed:', e);
+        }
+      }),
+    );
   } catch (e) {
     console.error('[app-api/invitations] Failed to auto-join public channels:', e);
   }
@@ -349,11 +351,11 @@ async function applyRoleChannels(
 ): Promise<void> {
   try {
     const changes = await applyRoleChangeToChannels(tenantDb, userId, null, roleId);
-    for (const change of changes.added) {
-      for (const uid of change.userIds) {
-        await publishRoleChannelJoin(env, orgId, change, uid);
-      }
-    }
+    await Promise.all(
+      changes.added.flatMap((change) =>
+        change.userIds.map((uid) => publishRoleChannelJoin(env, orgId, change, uid)),
+      ),
+    );
   } catch (e) {
     console.error('[app-api/invitations] Failed to apply role-driven channels:', e);
   }

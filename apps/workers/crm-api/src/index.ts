@@ -12,6 +12,7 @@
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { activitiesRoutes } from './routes/activities';
 import { companiesRoutes } from './routes/companies';
+import { companyLogosRoutes } from './routes/company-logos';
 import { crmAnalyticsRoutes } from './routes/crm-analytics';
 import { customerStatusesRoutes } from './routes/customer-statuses';
 import { leadsRoutes } from './routes/leads';
@@ -33,6 +34,7 @@ app.use('/api/*', ...apiAuth());
 // Object-based routes, in app-api's mount order.
 app.route('/api/activities', activitiesRoutes);
 app.route('/api/companies', companiesRoutes);
+app.route('/api/company-logos', companyLogosRoutes);
 app.route('/api/crm-analytics', crmAnalyticsRoutes);
 app.route('/api/customer-statuses', customerStatusesRoutes);
 app.route('/api/leads', leadsRoutes);

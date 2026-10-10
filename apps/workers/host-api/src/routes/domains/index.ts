@@ -168,7 +168,7 @@ app.get('/dashboard', requirePermission('domains:read'), async (c) => {
 });
 
 app.get('/dashboard/chart', requirePermission('domains:read'), async (c) => {
-  const days = Math.min(Math.max(parseInt(c.req.query('days') ?? '90', 10) || 90, 1), 365);
+  const days = Math.min(Math.max(Number.parseInt(c.req.query('days') ?? '90', 10) || 90, 1), 365);
   try {
     const data = await domainsService.getDashboardChart(c.get('tenantDb'), days);
     return success(c, data);
@@ -179,7 +179,7 @@ app.get('/dashboard/chart', requirePermission('domains:read'), async (c) => {
 });
 
 app.get('/dashboard/recent', requirePermission('domains:read'), async (c) => {
-  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '10', 10) || 10, 1), 100);
+  const limit = Math.min(Math.max(Number.parseInt(c.req.query('limit') ?? '10', 10) || 10, 1), 100);
   try {
     const rows = await domainsService.getDashboardRecent(c.get('tenantDb'), limit);
     return success(c, rows);

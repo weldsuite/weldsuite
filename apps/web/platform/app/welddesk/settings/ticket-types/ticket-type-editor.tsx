@@ -45,7 +45,6 @@ import type {
   TicketTypeFieldCondition,
   TicketTypeStateGroup,
 } from '@/hooks/queries/use-helpdesk-queries';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 const FIELD_TYPES: { value: TicketTypeField['type']; label: string }[] = [
   { value: 'text', label: 'Text' },
@@ -497,21 +496,23 @@ export function TicketTypeEditor({ open, onOpenChange, editingType, onSave }: Re
                           <div
                             key={state.key || stateIndex}
                             className={cn(
-                              'group inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 cursor-pointer transition-colors',
+                              'group inline-flex items-center gap-1.5 rounded-md border pr-2.5 transition-colors',
                               editingState?.groupIndex === groupIndex && editingState?.stateIndex === stateIndex
                                 ? 'border-primary bg-primary/5'
                                 : 'hover:border-foreground/30'
                             )}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => setEditingState({ groupIndex, stateIndex })}
-                            onKeyDown={activateOnKey(() => setEditingState({ groupIndex, stateIndex }))}
                           >
-                            <span className="text-xs font-medium">{state.label || tte.untitledState}</span>
-                            <span className="text-muted-foreground text-xs">&bull;</span>
-                            <span className="text-xs text-muted-foreground">
-                              {tte.customerSees} &ldquo;{state.customerLabel || '...'}&rdquo;
-                            </span>
+                            <button
+                              type="button"
+                              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md py-1.5 pl-2.5 text-left"
+                              onClick={() => setEditingState({ groupIndex, stateIndex })}
+                            >
+                              <span className="text-xs font-medium">{state.label || tte.untitledState}</span>
+                              <span className="text-muted-foreground text-xs">&bull;</span>
+                              <span className="text-xs text-muted-foreground">
+                                {tte.customerSees} &ldquo;{state.customerLabel || '...'}&rdquo;
+                              </span>
+                            </button>
                             <Button
                               type="button"
                               variant="ghost"

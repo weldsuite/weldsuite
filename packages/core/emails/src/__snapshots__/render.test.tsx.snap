@@ -580,6 +580,150 @@ Je ontvangt deze e-mail als lid van Acme Studio. · Instellingen overzicht https
 Verzonden via WeldSuite https://weldsuite.org"
 `;
 
+exports[`'hr.bank-changed' / 'byHr' / 'en' > matches the text snapshot 1`] = `
+"Your bank details for payroll were changed
+
+Payroll
+
+Your bank details were changed
+
+Hi Lisa,
+
+The bank details Acme B.V. pays your salary to were changed by HR, on Monday, July 20, 2026, 11:30 AM GMT+2.
+
+If you didn't expect this, tell HR right away, before the next pay run.
+
+For your privacy, the account number is never sent by email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'hr.bank-changed' / 'byHr' / 'nl' > matches the text snapshot 1`] = `
+"Je bankgegevens voor de salarisbetaling zijn gewijzigd
+
+Salaris
+
+Je bankgegevens zijn gewijzigd
+
+Hoi Lisa,
+
+De bankgegevens waarop Acme B.V. je salaris betaalt zijn door HR gewijzigd, op maandag 20 juli 2026, 11:30 CEST.
+
+Verwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.
+
+Uit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'hr.bank-changed' / 'byYouWhiteLabel' / 'en' > matches the text snapshot 1`] = `
+"Your bank details for payroll were changed
+
+Acme Staffing
+
+Payroll
+
+Your bank details were changed
+
+Hi,
+
+You changed the bank details Acme Staffing B.V. pays your salary to, on Monday, July 20, 2026, 9:30 AM UTC.
+
+If you didn't expect this, tell HR right away, before the next pay run.
+
+For your privacy, the account number is never sent by email."
+`;
+
+exports[`'hr.bank-changed' / 'byYouWhiteLabel' / 'nl' > matches the text snapshot 1`] = `
+"Je bankgegevens voor de salarisbetaling zijn gewijzigd
+
+Acme Staffing
+
+Salaris
+
+Je bankgegevens zijn gewijzigd
+
+Hoi,
+
+Je hebt de bankgegevens waarop Acme Staffing B.V. je salaris betaalt gewijzigd, op maandag 20 juli 2026, 09:30 UTC.
+
+Verwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.
+
+Uit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail."
+`;
+
+exports[`'hr.payslip-ready' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your payslip from Acme B.V. is ready
+
+Payslip
+
+Your payslip is ready
+
+Hi Lisa,
+
+Your payslip from Acme B.V. for the payment on Friday, July 24, 2026 is ready. You can read and download it in My HR or the employee portal.
+
+Open my payslip https://team.weldsuite.org/acme
+
+Or open this link: https://team.weldsuite.org/acme
+
+For your privacy, pay details are never sent by email.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'hr.payslip-ready' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je loonstrook van Acme B.V. staat klaar
+
+Loonstrook
+
+Je loonstrook staat klaar
+
+Hoi Lisa,
+
+Je loonstrook van Acme B.V. voor de betaling van vrijdag 24 juli 2026 staat klaar. Je kunt hem lezen en downloaden in Mijn HR of het medewerkersportaal.
+
+Mijn loonstrook openen https://team.weldsuite.org/acme
+
+Of open deze link: https://team.weldsuite.org/acme
+
+Uit privacyoverwegingen sturen we nooit loongegevens per e-mail.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'hr.payslip-ready' / 'noLinkWhiteLabel' / 'en' > matches the text snapshot 1`] = `
+"Your payslip from Acme Staffing B.V. is ready
+
+Acme Staffing
+
+Payslip
+
+Your payslip is ready
+
+Hi,
+
+Your payslip from Acme Staffing B.V. for the payment on Friday, July 24, 2026 is ready. You can read and download it in My HR or the employee portal.
+
+For your privacy, pay details are never sent by email."
+`;
+
+exports[`'hr.payslip-ready' / 'noLinkWhiteLabel' / 'nl' > matches the text snapshot 1`] = `
+"Je loonstrook van Acme Staffing B.V. staat klaar
+
+Acme Staffing
+
+Loonstrook
+
+Je loonstrook staat klaar
+
+Hoi,
+
+Je loonstrook van Acme Staffing B.V. voor de betaling van vrijdag 24 juli 2026 staat klaar. Je kunt hem lezen en downloaden in Mijn HR of het medewerkersportaal.
+
+Uit privacyoverwegingen sturen we nooit loongegevens per e-mail."
+`;
+
 exports[`'hr.portal-invite' / 'clientWhiteLabel' / 'en' > matches the text snapshot 1`] = `
 "You're invited to Acme client portal
 

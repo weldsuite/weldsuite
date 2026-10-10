@@ -148,10 +148,26 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
   const DEFAULT_CHAT_WIDTH = 479;
   const MIN_CHAT_WIDTH = 320;
   const MAX_CHAT_WIDTH = 900;
+  // Below this width the chat floats over the page instead of taking a column,
+  // so the task list is never squeezed into a sliver next to it.
+  const CHAT_OVERLAY_BELOW = 1024;
+  // The docked chat never takes more than this share of the viewport.
+  const MAX_CHAT_SHARE = 0.4;
+  const [viewportWidth, setViewportWidth] = React.useState<number>(() =>
+    typeof window === 'undefined' ? 1440 : window.innerWidth,
+  );
+  React.useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const chatOverlay = viewportWidth < CHAT_OVERLAY_BELOW;
+
   const [chatOpen, setChatOpen] = React.useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
     const raw = window.localStorage.getItem(CHAT_OPEN_KEY);
-    if (raw === null) return true;
+    // First visit: open the chat only where there is room for it.
+    if (raw === null) return window.innerWidth >= CHAT_OVERLAY_BELOW;
     return raw === 'true';
   });
   const [chatWidth, setChatWidth] = React.useState<number>(() => {
@@ -170,6 +186,11 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
   const taskPanelOpen = objectPanelStack.length > 0;
 
   const chatVisible = chatOpen && !taskPanelOpen;
+  // Rendered width: the saved preference, capped so the page keeps most of the
+  // row when docked, or so it fits on screen when it floats.
+  const effectiveChatWidth = chatOverlay
+    ? Math.min(chatWidth, Math.max(0, viewportWidth - 48))
+    : Math.max(MIN_CHAT_WIDTH, Math.min(chatWidth, Math.floor(viewportWidth * MAX_CHAT_SHARE)));
 
   // Disable animations until the user toggles the chat for the first time.
   // Flipping this via an effect (rAF/setTimeout) would re-add `animate-in` to
@@ -381,6 +402,10 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
                 tabs={pageTabs}
                 activeTab={activeTab}
                 linkComponent={Link}
+                // Tabs that don't fit collapse into a "+N more" menu instead of
+                // scrolling out of sight (Goals / Analytics / Settings used to
+                // vanish, and focusing the chat toggle scrolled the row).
+                overflow="dropdown"
                 innerClassName="pl-3 md:pl-4 pr-2"
                 renderTabWrapper={(tab, index, tabElement) => (
                   <SortableTab id={tab.id}>
@@ -524,7 +549,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
             'h-full overflow-hidden',
             shouldAnimateChat && 'transition-[width] duration-[197ms]',
           )}
-          style={{ width: chatVisible ? `calc(100% - ${chatWidth}px)` : '100%' }}
+          style={{ width: chatVisible && !chatOverlay ? `calc(100% - ${effectiveChatWidth}px)` : '100%' }}
         >
           <div
             className={cn(
@@ -564,7 +589,7 @@ export default function ProjectLayout({ children }: Readonly<{ children: React.R
               shouldAnimateChat &&
                 'data-[state=open]:animate-in data-[state=open]:slide-in-from-right data-[state=open]:fade-in-50 data-[state=open]:duration-[197ms]',
             )}
-            style={{ width: chatWidth }}
+            style={{ width: effectiveChatWidth }}
           >
             {/* Resize handle on the left edge — drag to resize */}
             <div

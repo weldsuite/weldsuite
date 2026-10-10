@@ -57,7 +57,7 @@ function formatValue(value: unknown): string {
   return asText(value);
 }
 
-function ChangeDetails({ changes }: { changes: Record<string, { from: unknown; to: unknown }> }) {
+function ChangeDetails({ changes }: Readonly<{ changes: Record<string, { from: unknown; to: unknown }> }>) {
   const entries = Object.entries(changes);
   if (entries.length === 0) return null;
 
@@ -77,7 +77,7 @@ function ChangeDetails({ changes }: { changes: Record<string, { from: unknown; t
 
 const HIDDEN_DATA_KEYS = new Set(['id', 'createdAt', 'updatedAt', 'deletedAt', 'workspaceId']);
 
-function DataSnapshot({ data }: { data: Record<string, unknown> }) {
+function DataSnapshot({ data }: Readonly<{ data: Record<string, unknown> }>) {
   const entries = Object.entries(data).filter(
     ([key, value]) =>
       !HIDDEN_DATA_KEYS.has(key) && value !== null && value !== undefined && value !== '',
@@ -116,7 +116,7 @@ export interface AuditTimelineProps {
   showEntityType?: boolean;
 }
 
-export function AuditTimeline({ logs, showEntityType }: AuditTimelineProps) {
+export function AuditTimeline({ logs, showEntityType }: Readonly<AuditTimelineProps>) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   if (logs.length === 0) {
@@ -182,7 +182,7 @@ export function AuditTimeline({ logs, showEntityType }: AuditTimelineProps) {
               <p className="text-[13px] leading-snug text-foreground pt-0.5">
                 {showEntityType && log.entityType && (
                   <span className="mr-1.5 inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {log.entityType.replace(/_/g, ' ')}
+                    {log.entityType.replaceAll('_', ' ')}
                   </span>
                 )}
                 {log.description}

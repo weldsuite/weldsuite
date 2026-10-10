@@ -76,7 +76,7 @@ const entityIdPrefixMap: Record<string, string> = {
 };
 
 export function getEntityTable(entityType: string): any {
-  const normalizedType = entityType.toLowerCase().replace(/-/g, '_');
+  const normalizedType = entityType.toLowerCase().replaceAll('-', '_');
   const table = entityTableMap[normalizedType];
   if (!table) {
     throw new Error(

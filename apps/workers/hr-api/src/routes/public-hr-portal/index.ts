@@ -76,6 +76,7 @@ import {
 import {
   HrConflictError,
   HrNotFoundError,
+  HrPayrollError,
   HrValidationError,
   addDays,
   companyNames,
@@ -83,6 +84,8 @@ import {
   todayIso,
 } from '../../services/weldhr/shared';
 import { cancelLeaveRequest, clock, createLeaveRequest } from '../../services/weldhr/time';
+import { requirePayrollFlag } from '../weldhr/payroll/flag';
+import { registerPayrollSelfService } from '../weldhr/payroll/self-service';
 
 const OTP_TTL_SECONDS = 15 * 60;
 const PICKER_TTL_SECONDS = 10 * 60;
@@ -128,6 +131,7 @@ app.onError((err, c) => {
   if (err instanceof HrNotFoundError) return error.notFound(c, err.resource, err.id);
   if (err instanceof HrValidationError) return error.badRequest(c, err.message);
   if (err instanceof HrConflictError) return error.conflict(c, err.message);
+  if (err instanceof HrPayrollError) return c.json({ error: { code: err.code, message: err.message, details: err.details } }, err.status);
   console.error('[public-hr-portal] unhandled error:', err);
   return c.json({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } }, 500);
 });
@@ -605,6 +609,19 @@ app.post('/employee/tasks/:taskId/complete', async (c) => {
 });
 
 app.get('/employee/performance', async (c) => success(c, await employeePerformance(c.get('tenantDb'), employeeIdOf(c))));
+
+// Payslips, annual statements, payroll details and tax forms (flag `weldhr-payroll`): the same handlers as
+// My HR, for the session's employee. Mounted under /employee, so the session guards above apply.
+const employeePayroll = new Hono<{ Bindings: Env; Variables: Variables }>();
+registerPayrollSelfService(
+  employeePayroll,
+  async (c) => {
+    const employeeId = employeeIdOf(c);
+    return { employeeId, actor: `portal:${employeeId}` };
+  },
+  requirePayrollFlag,
+);
+app.route('/employee', employeePayroll);
 
 // ---------------------------------------------------------------------------
 // Client view

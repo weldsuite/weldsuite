@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -28,7 +28,6 @@ import {
   Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { addDays } from 'date-fns';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   Command,
@@ -48,9 +47,6 @@ import {
   getCurrencyOptions,
   resolveDealCurrency,
 } from '@/lib/crm/deal-format';
-
-/** Close date a new deal starts with — the server's own default, made visible. */
-const DEFAULT_CLOSE_DATE_DAYS = 30;
 
 interface Stage {
   id: string;
@@ -119,7 +115,6 @@ export function DealDetailsModal({
   const [stageId, setStageId] = useState(selectedStageId);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(false);
-  const [hasButtonOverflow, setHasButtonOverflow] = useState(false);
 
   // Record search state
   const [recordSearchQuery, setRecordSearchQuery] = useState('');
@@ -128,7 +123,6 @@ export function DealDetailsModal({
 
   const currencyOptions = useMemo(() => getCurrencyOptions(), []);
 
-  const buttonContainerRef = useRef<HTMLDivElement>(null);
   const titleTextareaRef = useRef<HTMLTextAreaElement>(null);
   const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
   const isSubmittingRef = useRef(false);
@@ -164,13 +158,6 @@ export function DealDetailsModal({
     }
   }, [open]);
 
-  useLayoutEffect(() => {
-    if (buttonContainerRef.current) {
-      const hasOverflow = buttonContainerRef.current.scrollWidth > buttonContainerRef.current.clientWidth;
-      setHasButtonOverflow(hasOverflow);
-    }
-  }, [open, value, probability, closeDate, stageId, selectedCustomer]);
-
   // Search customers with debouncing
   useEffect(() => {
     const fetchCustomers = async () => {
@@ -203,9 +190,8 @@ export function DealDetailsModal({
     setValue('');
     setCurrency(resolveDealCurrency(defaultCurrency));
     setProbability(null);
-    // Close date is required on a deal; pre-fill the server default so the
-    // user sees (and can change) it instead of it being applied silently.
-    setCloseDate(addDays(new Date(), DEFAULT_CLOSE_DATE_DAYS));
+    // No close date until the user picks one (TASK-671).
+    setCloseDate(undefined);
     setSelectedCustomer(null);
     setRecordSearchQuery('');
     setSearchedCustomers([]);
@@ -337,13 +323,10 @@ export function DealDetailsModal({
         </div>
 
         {/* Bottom Bar */}
-        <div className="flex items-center justify-between px-4 pt-0 pb-0 border-t border-gray-100 dark:border-border gap-2 w-full overflow-hidden">
-          <div
-            ref={buttonContainerRef}
-            className={cn(
-              "flex items-center gap-1 overflow-x-auto min-w-0 flex-shrink pb-7 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent [&>*]:flex-shrink-0",
-              hasButtonOverflow ? "[&>*]:translate-y-[15px]" : "[&>*]:translate-y-[14px]"
-            )}>
+        <div className="flex items-end justify-between px-4 py-3 border-t border-gray-100 dark:border-border gap-2 w-full overflow-hidden">
+          {/* The chips wrap onto further lines instead of scrolling sideways, which
+              used to cut off the last one (the company) at the dialog edge. */}
+          <div className="flex flex-wrap items-center gap-1 min-w-0 flex-1 [&>*]:max-w-full">
 
             {/* Value */}
             <Popover>
@@ -523,7 +506,7 @@ export function DealDetailsModal({
                 <div className="w-4 h-4 rounded bg-purple-200 dark:bg-purple-800 flex items-center justify-center flex-shrink-0">
                   <Building2 className="h-2.5 w-2.5" />
                 </div>
-                {lockedCustomer.name}
+                <span className="truncate">{lockedCustomer.name}</span>
               </Button>
             ) : (
             <Popover onOpenChange={(isOpen) => {
@@ -553,7 +536,7 @@ export function DealDetailsModal({
                       </Avatar>
                     );
                   })()}
-                  <span>{selectedCustomer ? getCustomerName(selectedCustomer) : t('sweep.weldcrm.dealDetailsModal.selectRecord')}</span>
+                  <span className="truncate">{selectedCustomer ? getCustomerName(selectedCustomer) : t('sweep.weldcrm.dealDetailsModal.selectRecord')}</span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[260px] p-0" align="start">

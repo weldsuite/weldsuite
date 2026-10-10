@@ -21,6 +21,31 @@ const t = schema.projectLabels;
 
 const PROJECT_WRITE_DENIED = 'You do not have write access to this project';
 
+type TenantDb = Variables['tenantDb'];
+
+/**
+ * A live label whose name matches case-insensitively (ignoring surrounding
+ * whitespace) in the same scope: a project's labels also include the
+ * workspace-wide ones, so those count as "the same list" for that project.
+ */
+async function findDuplicateLabel(
+  db: TenantDb,
+  name: string,
+  projectId: string | null | undefined,
+  excludeId?: string,
+) {
+  const conditions = [
+    isNull(t.deletedAt),
+    sql`lower(btrim(${t.name})) = ${name.trim().toLowerCase()}`,
+    projectId ? sql`(${t.projectId} = ${projectId} OR ${t.projectId} IS NULL)` : isNull(t.projectId),
+  ];
+  if (excludeId) conditions.push(sql`${t.id} <> ${excludeId}`);
+  const [row] = await db.select({ id: t.id, name: t.name }).from(t).where(and(...conditions)).limit(1);
+  return row;
+}
+
+const duplicateLabelMessage = (name: string) => `A label named "${name}" already exists`;
+
 app.get('/', requirePermission('projects:read'), async (c) => {
   const db = c.get('tenantDb');
   const q = c.req.query();
@@ -107,7 +132,12 @@ app.post('/', requirePermission('projects:create'), zValidator('json', createPro
   if (data.projectId && !(await canWriteProject(c, data.projectId))) {
     return error.forbidden(c, PROJECT_WRITE_DENIED);
   }
+  data.name = String(data.name).trim();
+  if (!data.name) return error.badRequest(c, 'Label name is required');
   try {
+    if (await findDuplicateLabel(db, data.name, data.projectId)) {
+      return error.conflict(c, duplicateLabelMessage(data.name));
+    }
     await db.insert(t).values({ id, ...data, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
     publishEntityEvent({
       c,
@@ -135,6 +165,14 @@ app.patch('/:id', requirePermission('projects:update'), zValidator('json', updat
     }
     if (data.projectId && data.projectId !== existing.projectId && !(await canWriteProject(c, data.projectId))) {
       return error.forbidden(c, PROJECT_WRITE_DENIED);
+    }
+    if (typeof data.name === 'string') {
+      data.name = data.name.trim();
+      if (!data.name) return error.badRequest(c, 'Label name is required');
+      const targetProject = data.projectId !== undefined ? data.projectId : existing.projectId;
+      if (await findDuplicateLabel(db, data.name, targetProject, id)) {
+        return error.conflict(c, duplicateLabelMessage(data.name));
+      }
     }
     const update: Record<string, any> = { updatedAt: new Date() };
     for (const [k, v] of Object.entries(data)) if (v !== undefined) update[k] = v;

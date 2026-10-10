@@ -42,3 +42,5 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
 
 export const GET = proxy;
 export const POST = proxy;
+// Saving payroll details is a PUT (`PUT /employee/payroll-details`).
+export const PUT = proxy;

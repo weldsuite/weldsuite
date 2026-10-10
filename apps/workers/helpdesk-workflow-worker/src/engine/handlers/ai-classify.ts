@@ -91,7 +91,7 @@ export const aiClassifyHandler: StepHandler = {
       // Parse confidence from response
       const confidenceMatch = /Confidence:\s*(\d+)/i.exec(responseText);
       if (confidenceMatch) {
-        confidence = Math.min(100, Math.max(0, parseInt(confidenceMatch[1], 10)));
+        confidence = Math.min(100, Math.max(0, Number.parseInt(confidenceMatch[1], 10)));
       }
     } catch (err) {
       console.error('[AI Classify] Agent error:', err);

@@ -37,7 +37,7 @@ export function TreeProvider({
   defaultSelectedIds = [],
   onSelectionChange,
   onExpansionChange,
-}: TreeProviderProps) {
+}: Readonly<TreeProviderProps>) {
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(
     new Set(defaultExpandedIds),
   );
@@ -108,7 +108,7 @@ interface TreeViewProps {
   className?: string;
 }
 
-export function TreeView({ children, className }: TreeViewProps) {
+export function TreeView({ children, className }: Readonly<TreeViewProps>) {
   return (
     <div className={cn('text-sm', className)} role="tree">
       {children}
@@ -137,7 +137,7 @@ export function TreeNode({
   level = 0,
   isLast = false,
   className,
-}: TreeNodeProps) {
+}: Readonly<TreeNodeProps>) {
   const { isSelected } = useTreeContext();
   const nodeValue = React.useMemo(() => ({ nodeId, level, isLast }), [nodeId, level, isLast]);
 
@@ -156,7 +156,7 @@ interface TreeNodeTriggerProps {
   className?: string;
 }
 
-export function TreeNodeTrigger({ children, className }: TreeNodeTriggerProps) {
+export function TreeNodeTrigger({ children, className }: Readonly<TreeNodeTriggerProps>) {
   const nodeContext = React.useContext(TreeNodeContext);
   const treeContext = useTreeContext();
 
@@ -202,7 +202,7 @@ export function TreeNodeContent({
   children,
   hasChildren = false,
   className,
-}: TreeNodeContentProps) {
+}: Readonly<TreeNodeContentProps>) {
   const nodeContext = React.useContext(TreeNodeContext);
   const treeContext = useTreeContext();
 
@@ -226,7 +226,7 @@ interface TreeExpanderProps {
   className?: string;
 }
 
-export function TreeExpander({ hasChildren = false, className }: TreeExpanderProps) {
+export function TreeExpander({ hasChildren = false, className }: Readonly<TreeExpanderProps>) {
   const nodeContext = React.useContext(TreeNodeContext);
   const treeContext = useTreeContext();
 
@@ -299,6 +299,6 @@ interface TreeLabelProps {
   className?: string;
 }
 
-export function TreeLabel({ children, className }: TreeLabelProps) {
+export function TreeLabel({ children, className }: Readonly<TreeLabelProps>) {
   return <span className={cn('truncate select-none', className)}>{children}</span>;
 }

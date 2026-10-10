@@ -89,6 +89,16 @@ function formatNoteDate(date: Date, t: (key: string) => string): string {
   return format(date, 'MMM d, yyyy');
 }
 
+// The columns' fixed widths add up to ~815px, but the list sits next to the CRM
+// sidebar and often a record panel, so it is regularly narrower. Flex items
+// shrink, and the Record cell (`overflow-hidden`, so shrinkable to 0) took the
+// whole squeeze: the name collapsed to "Q…". The Record column now keeps its
+// width and the lower-priority columns give way by the list's own width
+// (container queries on `NotesContainerScope`) rather than the viewport's.
+const NOTES_NARROW_RECORD = '@max-[760px]:w-[150px]';
+const NOTES_HIDE_AUTHOR = '@max-[760px]:hidden';
+const NOTES_HIDE_DATE = '@max-[520px]:hidden';
+
 // Helper to get record icon based on kind
 function getRecordIcon(note: { recordKind?: RecordKind; recordName?: string }) {
   if (note.recordKind === 'person') return <Contact className="h-3 w-3 text-emerald-600" />;
@@ -670,14 +680,14 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
         </div>
 
         {/* Note Title */}
-        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+        <div className="flex items-center gap-2 flex-1 min-w-[160px]">
           <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
             {noteTitle}
           </span>
         </div>
 
         {/* Record */}
-        <div className="w-[180px] overflow-hidden">
+        <div className={cn("w-[180px] shrink-0 overflow-hidden", NOTES_NARROW_RECORD)}>
           {getRecordName(note) ? (
             (() => {
               const canOpenPanel = !!(note.recordId && note.recordKind);
@@ -708,7 +718,9 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
                       stack: true,
                     });
                   }}
-                  className="group/record relative z-[1] flex items-center gap-1.5 w-full min-w-0 text-left hover:underline-offset-2"
+                  // `h-auto px-1 justify-start`: the default button's px-4 + centred
+                  // content ate most of the 180px column and left the name ~0px wide.
+                  className="group/record relative z-[1] flex items-center justify-start gap-1.5 w-full min-w-0 h-auto px-1 py-1 -ml-1 text-left hover:underline-offset-2"
                 >
                   {content}
                 </Button>
@@ -722,7 +734,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
         </div>
 
         {/* Author */}
-        <div className="w-[150px]">
+        <div className={cn("w-[150px]", NOTES_HIDE_AUTHOR)}>
           {note.authorName ? (
             <div className="flex items-center gap-1.5 min-w-0">
               <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
@@ -743,7 +755,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
         </div>
 
         {/* Date */}
-        <div className="w-[120px]">
+        <div className={cn("w-[120px]", NOTES_HIDE_DATE)}>
           <span className="text-sm font-mono text-gray-500">
             {formatNoteDate(new Date(note.createdAt), t)}
           </span>
@@ -765,10 +777,10 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   // Header column definitions
   const headerColumns: HeaderColumn[] = useMemo(() => [
     { id: 'favorite', header: '', width: 'w-[28px] -mr-4' },
-    { id: 'title', header: t('sweep.weldcrm.notesView.title'), width: 'flex-1 min-w-[200px] -ml-6' },
-    { id: 'record', header: t('sweep.weldcrm.notesView.record'), width: 'w-[180px]' },
-    { id: 'author', header: t('sweep.weldcrm.notesView.author'), width: 'w-[150px]' },
-    { id: 'date', header: t('sweep.weldcrm.notesView.created'), width: 'w-[120px]' },
+    { id: 'title', header: t('sweep.weldcrm.notesView.title'), width: 'flex-1 min-w-[160px] -ml-6' },
+    { id: 'record', header: t('sweep.weldcrm.notesView.record'), width: cn('w-[180px] shrink-0', NOTES_NARROW_RECORD) },
+    { id: 'author', header: t('sweep.weldcrm.notesView.author'), width: cn('w-[150px]', NOTES_HIDE_AUTHOR) },
+    { id: 'date', header: t('sweep.weldcrm.notesView.created'), width: cn('w-[120px]', NOTES_HIDE_DATE) },
   ], [t]);
 
   // Sort notes: favorited first, then by date descending
@@ -782,6 +794,7 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
   );
 
   return (
+    <div className="@container min-w-0 w-full">
     <EntityList<Note>
         items={sortedNotes}
         isLoading={false}
@@ -874,5 +887,6 @@ export function NotesView({ initialNotes = [] }: Readonly<NotesViewProps>) {
           </>
         }
       />
+    </div>
   );
 }

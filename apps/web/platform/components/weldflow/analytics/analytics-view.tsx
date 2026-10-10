@@ -49,7 +49,7 @@ type WidgetSize = 'small' | 'medium' | 'large' | 'full';
 interface WidgetData {
   value?: number;
   change?: number;
-  trend?: 'up' | 'down' | string;
+  trend?: string;
   values?: number[];
   labels?: string[];
   colors?: string[];

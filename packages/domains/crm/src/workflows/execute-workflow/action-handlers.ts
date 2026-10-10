@@ -183,36 +183,34 @@ async function handleSendNotification(
   }
   if (userIds.length === 0) throw new Error('At least one recipient is required');
 
-  const notificationIds: string[] = [];
   const now = new Date();
 
-  for (const userId of userIds) {
-    const notificationId = generateId('notif');
-    notificationIds.push(notificationId);
-    // NOTE: unlike api-worker's copy, no workspaceId here — the tenant-DB
-    // `notifications` table has no workspace_id column (schema drift the
-    // never-type-checked api-worker never surfaced).
-    await ctx.db.insert(schema.notifications).values({
-      id: notificationId,
-      userId,
-      title,
-      body: body || null,
-      category: asText(inputs.category || 'task'),
-      notificationType: asText(inputs.notificationType || inputs.type || 'custom'),
-      entityType: inputs.entityType ? asText(inputs.entityType) : null,
-      entityId: inputs.entityId ? asText(inputs.entityId) : null,
-      actionUrl: inputs.actionUrl ? asText(inputs.actionUrl) : null,
-      icon: inputs.icon ? asText(inputs.icon) : null,
-      severity: asText(inputs.severity || 'info'),
-      data: (inputs.data as Record<string, unknown>) || null,
-      isRead: false,
-      deliveredInApp: true,
-      deliveredEmail: false,
-      deliveredPush: false,
-      createdAt: now,
-    });
-  }
+  // NOTE: unlike api-worker's copy, no workspaceId here — the tenant-DB
+  // `notifications` table has no workspace_id column (schema drift the
+  // never-type-checked api-worker never surfaced).
+  const rows = userIds.map((userId) => ({
+    id: generateId('notif'),
+    userId,
+    title,
+    body: body || null,
+    category: asText(inputs.category || 'task'),
+    notificationType: asText(inputs.notificationType || inputs.type || 'custom'),
+    entityType: inputs.entityType ? asText(inputs.entityType) : null,
+    entityId: inputs.entityId ? asText(inputs.entityId) : null,
+    actionUrl: inputs.actionUrl ? asText(inputs.actionUrl) : null,
+    icon: inputs.icon ? asText(inputs.icon) : null,
+    severity: asText(inputs.severity || 'info'),
+    data: (inputs.data as Record<string, unknown>) || null,
+    isRead: false,
+    deliveredInApp: true,
+    deliveredEmail: false,
+    deliveredPush: false,
+    createdAt: now,
+  }));
+  // One multi-row insert for every recipient.
+  await ctx.db.insert(schema.notifications).values(rows);
 
+  const notificationIds = rows.map((row) => row.id);
   return { sent: true, notificationIds, count: notificationIds.length };
 }
 

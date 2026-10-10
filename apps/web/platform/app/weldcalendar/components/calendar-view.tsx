@@ -143,7 +143,6 @@ import {
   MOBILE_MONTHS_FORWARD,
   type CalendarView as View,
 } from '../lib/date-range';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -284,7 +283,7 @@ function computeQuickCreatePosForClick(
   if (cell.dataset.date !== undefined) {
     // Month view: position next to the clicked cell. Align Y with the last
     // event button, where the preview will appear.
-    const eventBtns = cell.querySelectorAll('button');
+    const eventBtns = cell.querySelectorAll('button:not([data-cell-surface])');
     const lastBtn = eventBtns.length > 0 ? eventBtns[eventBtns.length - 1] : null;
     const anchorY = lastBtn ? lastBtn.getBoundingClientRect().bottom + 2 : rect.top + 28;
     return computeMonthCellPos(rect, anchorY, leftBound);
@@ -1363,6 +1362,26 @@ function getQuickCreateInitialValues(
   };
 }
 
+/**
+ * Click target stretched over a row or cell whose content has other controls
+ * (so the row itself cannot be a button). Controls inside the container need
+ * `relative z-[1]` to stay clickable above it.
+ */
+function StretchedButton({
+  label,
+  onClick,
+}: Readonly<{ label: string; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void }>) {
+  return (
+    <button
+      type="button"
+      data-cell-surface
+      aria-label={label}
+      onClick={onClick}
+      className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+    />
+  );
+}
+
 /** Task labels row: inline input while active, otherwise the chips or a placeholder. */
 function TaskLabelsRow({
   labels,
@@ -1382,54 +1401,56 @@ function TaskLabelsRow({
   const t = getTranslations('weldcalendar');
   const summary =
     labels.length > 0 ? (
-      <div className="flex items-center gap-1 flex-wrap">
+      <span className="flex items-center gap-1 flex-wrap">
         {labels.map((l) => (
           <span key={l} className="text-xs bg-accent px-2 py-0.5 rounded">{l}</span>
         ))}
-      </div>
+      </span>
     ) : (
       <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.labelsLabel}</span>
     );
+  if (!isActive) {
+    return (
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 px-4 py-[10px] text-left cursor-pointer hover:bg-accent/50 transition-colors"
+        onClick={onToggle}
+      >
+        <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
+        {summary}
+      </button>
+    );
+  }
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
-      onClick={onToggle}
-      onKeyDown={activateOnKey(onToggle)}
-    >
+    <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors">
       <Tag className="h-4 w-4 text-muted-foreground shrink-0" />
-      {isActive ? (
-        <div role="presentation" className="flex-1" onClick={(e) => e.stopPropagation()}>
-          <Input
-            placeholder={t.quickCreate.labelsPlaceholder}
-            className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
-            autoFocus
-            onBlur={() => setTimeout(onClose, 150)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
-                const val = (e.target as HTMLInputElement).value.trim();
-                if (!labels.includes(val)) onAddLabel(val);
-                (e.target as HTMLInputElement).value = '';
-              }
-            }}
-          />
-          {labels.length > 0 && (
-            <div className="flex items-center gap-1 flex-wrap mt-1.5">
-              {labels.map((l) => (
-                <span key={l} className="inline-flex items-center gap-1 text-xs bg-accent rounded px-2 py-0.5">
-                  {l}
-                  <Button variant="ghost" className="hover:text-foreground" onMouseDown={(e) => e.preventDefault()} onClick={() => onRemoveLabel(l)}>
-                    <X className="h-2.5 w-2.5" />
-                  </Button>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        summary
-      )}
+      <div className="flex-1">
+        <Input
+          placeholder={t.quickCreate.labelsPlaceholder}
+          className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
+          autoFocus
+          onBlur={() => setTimeout(onClose, 150)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+              const val = (e.target as HTMLInputElement).value.trim();
+              if (!labels.includes(val)) onAddLabel(val);
+              (e.target as HTMLInputElement).value = '';
+            }
+          }}
+        />
+        {labels.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap mt-1.5">
+            {labels.map((l) => (
+              <span key={l} className="inline-flex items-center gap-1 text-xs bg-accent rounded px-2 py-0.5">
+                {l}
+                <Button variant="ghost" className="hover:text-foreground" onMouseDown={(e) => e.preventDefault()} onClick={() => onRemoveLabel(l)}>
+                  <X className="h-2.5 w-2.5" />
+                </Button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1475,17 +1496,9 @@ function PeopleRow({
       </button>
     );
   }
-  const activateIfIdle = () => {
-    if (!isActive) onActivate();
-  };
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="px-4 py-[10px] cursor-pointer"
-      onClick={activateIfIdle}
-      onKeyDown={activateOnKey(activateIfIdle)}
-    >
+    <div className="relative px-4 py-[10px] cursor-pointer">
+      {!isActive && <StretchedButton label={emptyLabel} onClick={onActivate} />}
       <div className="flex gap-3">
         <Users className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
         <div className="flex-1 min-w-0 space-y-1">
@@ -1502,7 +1515,7 @@ function PeopleRow({
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-5 w-5 rounded-[5.5px] hover:bg-muted flex items-center justify-center shrink-0"
+                className="relative z-[1] h-5 w-5 rounded-[5.5px] hover:bg-muted flex items-center justify-center shrink-0"
                 aria-label={t.quickCreate.removeGuest.replace('{name}', g.name || g.email)}
                 onClick={(e) => { e.stopPropagation(); onRemove(g.id); }}
               >
@@ -1557,28 +1570,30 @@ function DescriptionRow({
   ) : (
     <span className="flex-1 text-sm text-foreground leading-7">{emptyPlaceholder}</span>
   );
+  if (!isActive) {
+    return (
+      <button
+        type="button"
+        className="flex w-full items-start gap-3 px-4 py-[10px] text-left cursor-pointer hover:bg-accent/50 transition-colors"
+        onClick={onActivate}
+      >
+        <AlignLeft className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
+        {summary}
+      </button>
+    );
+  }
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="flex items-start gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
-      onClick={onActivate}
-      onKeyDown={activateOnKey(onActivate)}
-    >
+    <div className="flex items-start gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors">
       <AlignLeft className="h-4 w-4 text-muted-foreground shrink-0 mt-1.5" />
-      {isActive ? (
-        <textarea
-          ref={descriptionRef}
-          placeholder={placeholder}
-          value={description}
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={onDeactivate}
-          rows={1}
-          className="flex-1 text-sm leading-7 py-0 bg-transparent resize-none focus:outline-none overflow-hidden"
-        />
-      ) : (
-        summary
-      )}
+      <textarea
+        ref={descriptionRef}
+        placeholder={placeholder}
+        value={description}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onDeactivate}
+        rows={1}
+        className="flex-1 text-sm leading-7 py-0 bg-transparent resize-none focus:outline-none overflow-hidden"
+      />
     </div>
   );
 }
@@ -1597,6 +1612,7 @@ function EventTimeRow({
   onEndDateChange,
   onStartTimeChange,
   onEndTimeChange,
+  onSubmit,
 }: Readonly<{
   isActive: boolean;
   onToggle: () => void;
@@ -1610,81 +1626,107 @@ function EventTimeRow({
   onEndDateChange: (value: string) => void;
   onStartTimeChange: (value: string) => void;
   onEndTimeChange: (value: string) => void;
+  /** Enter in a time input saves the event. */
+  onSubmit: () => void;
 }>) {
   const t = getTranslations('weldcalendar');
   const timeFormat = useTimeFormat();
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={cn(
-        'flex items-start gap-3 px-4 py-[10px] cursor-pointer transition-colors',
-        !isActive && 'hover:bg-accent/50',
+  // Opening or closing the row swaps the summary button for the editor (and
+  // back), which remounts the toggle control. Keep keyboard focus on it.
+  const rowRef = useRef<HTMLElement | null>(null);
+  const refocusToggleRef = useRef(false);
+  const toggle = () => {
+    refocusToggleRef.current = !!rowRef.current?.contains(document.activeElement);
+    onToggle();
+  };
+  useEffect(() => {
+    if (!refocusToggleRef.current) return;
+    refocusToggleRef.current = false;
+    const row = rowRef.current;
+    const target = row?.matches('button') ? row : row?.querySelector<HTMLElement>('[data-cell-surface]');
+    target?.focus();
+  }, [isActive]);
+  const submitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    e.preventDefault();
+    onSubmit();
+  };
+  const summary = (
+    <span className="flex items-center gap-1 text-sm h-7">
+      <span>{format(new Date(`${startDate}T00:00`), 'EEEE, MMM d')}</span>
+      {!allDay && (
+        <>
+          <span className="text-muted-foreground">·</span>
+          <span>{formatClock(new Date(`${startDate}T${startTime || '00:00'}`), timeFormat)}</span>
+          <span className="text-muted-foreground">–</span>
+          <span>{formatClock(new Date(`${endDate}T${endTime || '00:00'}`), timeFormat)}</span>
+        </>
       )}
-      onClick={onToggle}
-      onKeyDown={activateOnKey(onToggle)}
-    >
+      {allDay && startDate !== endDate && (
+        <>
+          <span className="text-muted-foreground">–</span>
+          <span>{format(new Date(`${endDate}T00:00`), 'EEEE, MMM d')}</span>
+        </>
+      )}
+      {allDay && startDate === endDate && (
+        <span className="text-xs text-muted-foreground ml-1">· {t.calendarView.allDay}</span>
+      )}
+    </span>
+  );
+  if (!isActive) {
+    return (
+      <button
+        ref={(el) => { rowRef.current = el; }}
+        type="button"
+        className="flex w-full items-start gap-3 px-4 py-[10px] text-left cursor-pointer transition-colors hover:bg-accent/50"
+        onClick={toggle}
+      >
+        <Clock className="h-4 w-4 text-muted-foreground shrink-0 mt-[5px]" />
+        <span className="block flex-1 min-w-0">{summary}</span>
+      </button>
+    );
+  }
+  return (
+    <div ref={(el) => { rowRef.current = el; }} className="relative flex items-start gap-3 px-4 py-[10px] cursor-pointer transition-colors">
+      <StretchedButton label={t.eventPreview.fieldWhen} onClick={toggle} />
       <Clock className="h-4 w-4 text-muted-foreground shrink-0 mt-[5px]" />
       <div className="flex-1 min-w-0 space-y-2">
-        {isActive ? (
-          <div role="presentation" onClick={(e) => e.stopPropagation()} className="space-y-2.5">
+        <div className="relative z-[1] space-y-2.5">
+          <div className="flex items-center gap-2">
+            <DatePickerField
+              value={new Date(`${startDate}T00:00`)}
+              onChange={(d) => onStartDateChange(format(d, 'yyyy-MM-dd'))}
+            />
+            <span className="text-muted-foreground text-xs shrink-0">–</span>
+            <DatePickerField
+              value={new Date(`${endDate}T00:00`)}
+              onChange={(d) => onEndDateChange(format(d, 'yyyy-MM-dd'))}
+            />
+          </div>
+          {!allDay && (
             <div className="flex items-center gap-2">
-              <DatePickerField
-                value={new Date(`${startDate}T00:00`)}
-                onChange={(d) => onStartDateChange(format(d, 'yyyy-MM-dd'))}
+              <Input
+                type="time"
+                value={startTime}
+                onKeyDown={submitOnEnter}
+                onChange={(e) => onStartTimeChange(e.target.value)}
+                className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
               />
               <span className="text-muted-foreground text-xs shrink-0">–</span>
-              <DatePickerField
-                value={new Date(`${endDate}T00:00`)}
-                onChange={(d) => onEndDateChange(format(d, 'yyyy-MM-dd'))}
+              <Input
+                type="time"
+                value={endTime}
+                onKeyDown={submitOnEnter}
+                onChange={(e) => onEndTimeChange(e.target.value)}
+                className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
               />
             </div>
-            {!allDay && (
-              <div className="flex items-center gap-2">
-                <Input
-                  type="time"
-                  value={startTime}
-                  data-enter-submits="true"
-                  onChange={(e) => onStartTimeChange(e.target.value)}
-                  className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
-                />
-                <span className="text-muted-foreground text-xs shrink-0">–</span>
-                <Input
-                  type="time"
-                  value={endTime}
-                  data-enter-submits="true"
-                  onChange={(e) => onEndTimeChange(e.target.value)}
-                  className="h-[34px] text-sm shadow-none flex-1 [&::-webkit-calendar-picker-indicator]:hidden"
-                />
-              </div>
-            )}
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">{t.calendarView.allDay}</span>
-              <Switch checked={allDay} onCheckedChange={onAllDayChange} className="h-[18.5px] [&_[data-slot=switch-thumb]]:translate-y-0" />
-            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{t.calendarView.allDay}</span>
+            <Switch checked={allDay} onCheckedChange={onAllDayChange} className="h-[18.5px] [&_[data-slot=switch-thumb]]:translate-y-0" />
           </div>
-        ) : (
-          <div className="flex items-center gap-1 text-sm h-7">
-            <span>{format(new Date(`${startDate}T00:00`), 'EEEE, MMM d')}</span>
-            {!allDay && (
-              <>
-                <span className="text-muted-foreground">·</span>
-                <span>{formatClock(new Date(`${startDate}T${startTime || '00:00'}`), timeFormat)}</span>
-                <span className="text-muted-foreground">–</span>
-                <span>{formatClock(new Date(`${endDate}T${endTime || '00:00'}`), timeFormat)}</span>
-              </>
-            )}
-            {allDay && startDate !== endDate && (
-              <>
-                <span className="text-muted-foreground">–</span>
-                <span>{format(new Date(`${endDate}T00:00`), 'EEEE, MMM d')}</span>
-              </>
-            )}
-            {allDay && startDate === endDate && (
-              <span className="text-xs text-muted-foreground ml-1">· {t.calendarView.allDay}</span>
-            )}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -1886,27 +1928,29 @@ function LocationRow({
   ) : (
     <span className="text-sm text-foreground h-7 flex items-center">{t.quickCreate.addLocation}</span>
   );
+  if (!isActive) {
+    return (
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 px-4 py-[10px] text-left cursor-pointer hover:bg-accent/50 transition-colors"
+        onClick={onActivate}
+      >
+        <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+        {summary}
+      </button>
+    );
+  }
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors"
-      onClick={onActivate}
-      onKeyDown={activateOnKey(onActivate)}
-    >
+    <div className="flex items-center gap-3 px-4 py-[10px] cursor-pointer hover:bg-accent/50 transition-colors">
       <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-      {isActive ? (
-        <LocationAutocomplete
-          placeholder={t.quickCreate.addLocation}
-          value={location}
-          onChange={onChange}
-          className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
-          autoFocus
-          onBlurAfterGrace={onDeactivate}
-        />
-      ) : (
-        summary
-      )}
+      <LocationAutocomplete
+        placeholder={t.quickCreate.addLocation}
+        value={location}
+        onChange={onChange}
+        className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0"
+        autoFocus
+        onBlurAfterGrace={onDeactivate}
+      />
     </div>
   );
 }
@@ -2305,35 +2349,14 @@ export function QuickCreateCard({
   };
 
   return (
-    <div
-      role="presentation"
-      className="overflow-y-auto max-h-[80vh]"
-      onClick={() => setActiveField(null)}
-      onKeyDown={(e) => {
-        // Escape already consumed by a popover / select opened from the card
-        // (they portal out, but React events still bubble through them).
-        if (e.defaultPrevented) return;
-        if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
-        // Enter saves only from the title and the time inputs. Anywhere else (the
-        // participants search, labels, location, popovers and comboboxes) it
-        // belongs to that control, never to the card.
-        if (
-          e.key === 'Enter' &&
-          !e.shiftKey &&
-          e.target instanceof HTMLInputElement &&
-          e.target.dataset.enterSubmits === 'true'
-        ) {
-          e.preventDefault();
-          void handleSave();
-        }
-      }}
-    >
+    <div className="overflow-y-auto max-h-[80vh]">
       {/* Title */}
       <div className="px-4 pt-4 pb-4">
         <Input
           placeholder={t.quickCreate.addTitlePlaceholder}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          onClick={() => setActiveField(null)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.stopPropagation(); void handleSave(); }
           }}
@@ -2345,7 +2368,7 @@ export function QuickCreateCard({
       {/* Type tabs */}
       {showTypeTabs && (
         <div className="px-4 pb-3">
-          <Tabs value={type} onValueChange={setType}>
+          <Tabs value={type} onValueChange={(value) => { setType(value); setActiveField(null); }}>
             {/* `--muted` equals `--popover` in dark mode, so the default pill
                 track is invisible inside this popover. Give the track a
                 contrasting surface and the active pill a raised one in dark
@@ -2361,7 +2384,7 @@ export function QuickCreateCard({
       <Separator />
 
       {/* Rows */}
-      <div role="presentation" className="divide-y" onClick={(e) => e.stopPropagation()}>
+      <div className="divide-y">
         {isTask ? (
           <>
             {/* Task: Status row */}
@@ -2426,6 +2449,7 @@ export function QuickCreateCard({
               time={taskDueTime}
               onDateChange={setTaskDueDate}
               onTimeChange={setTaskDueTime}
+              onSubmit={() => void handleSave()}
               placeholder={t.quickCreate.dueDatePlaceholder}
             />
 
@@ -2457,6 +2481,7 @@ export function QuickCreateCard({
               onEndDateChange={setEndDate}
               onStartTimeChange={handleStartTimeChange}
               onEndTimeChange={setEndTimeVal}
+              onSubmit={() => void handleSave()}
             />
 
             {/* Event: Participants row */}
@@ -2528,7 +2553,7 @@ export function QuickCreateCard({
       <Separator />
 
       {/* Footer */}
-      <div role="presentation" className="flex items-center justify-end px-4 py-3" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-end px-4 py-3">
         <div className="flex items-center gap-1.5">
           {/* Repeat is only saved for tasks; events have no recurrence here. */}
           {isTask && <RepeatPopover repeat={taskRepeat} onChange={setTaskRepeat} />}
@@ -2788,22 +2813,24 @@ function MonthView({
               return (
                 <div
                   key={key}
-                  role="presentation"
                   data-calendar-cell
                   data-date={key}
                   className={cn(
-                    'min-h-0 overflow-hidden border-r last:border-r-0 p-1 cursor-pointer transition-colors hover:bg-accent/30',
+                    'relative min-h-0 overflow-hidden border-r last:border-r-0 p-1 cursor-pointer transition-colors hover:bg-accent/30',
                     !isCurrentMonth && 'bg-muted/50',
                     today && 'bg-primary/[0.01]',
                     isSelected && 'bg-primary/5',
                     isDragOver && 'bg-primary/10 ring-2 ring-inset ring-primary/30',
                   )}
-                  onClick={(e) => {
-                    if (dragEvent) return;
-                    const slot = defaultRangeForDay(day);
-                    onSelectSlot(slot.start, slot.end, e);
-                  }}
                 >
+                  <StretchedButton
+                    label={format(day, 'EEEE, MMM d')}
+                    onClick={(e) => {
+                      if (dragEvent) return;
+                      const slot = defaultRangeForDay(day);
+                      onSelectSlot(slot.start, slot.end, e);
+                    }}
+                  />
                   <div className="flex justify-end mb-0.5">
                     <span
                       className={cn(
@@ -2816,7 +2843,8 @@ function MonthView({
                       {format(day, 'd')}
                     </span>
                   </div>
-                  <div className="space-y-0.5 overflow-hidden">
+                  {/* Chips and buttons sit above the cell's stretched create button. */}
+                  <div className="space-y-0.5 overflow-hidden [&_button]:relative [&_button]:z-[1]">
                     {/* The quick-create preview / drag ghost occupies a slot too. */}
                     {renderDayEventChips(day, dayEvents, (isSelected && !dragEvent) || isDragOver ? 1 : 0)}
                     {/* Ghost preview on drag target */}
@@ -3793,12 +3821,11 @@ function TimeSlotEvent({
       {/* Auto-schedule / pin state indicator */}
       {isAutoScheduled && (
         <span
-          role="img"
-          aria-label={t.viewExtras.autoScheduled}
           title={t.viewExtras.autoScheduled}
           className="absolute top-1 right-1.5 opacity-80"
         >
           <Sparkles className="h-2.5 w-2.5 text-white" aria-hidden />
+          <span className="sr-only">{t.viewExtras.autoScheduled}</span>
         </span>
       )}
       {isPinned && (
@@ -4446,8 +4473,6 @@ export function EventDetailPanel({
               ? 'border-gray-400 dark:border-gray-500'
               : 'border-transparent hover:border-gray-200 dark:hover:border-gray-700 cursor-pointer',
           )}
-          role="presentation"
-          onClick={() => { if (!isEditingDescription) startEditingDescription(); }}
         >
           {isEditingDescription ? (
             <textarea
@@ -4479,6 +4504,7 @@ export function EventDetailPanel({
             <button
               type="button"
               aria-label={t.eventPreview.addDescription}
+              onClick={startEditingDescription}
               className="block w-full text-left text-sm leading-[1.5] px-2 py-1.5 bg-transparent outline-none break-words whitespace-pre-wrap min-h-[32px] text-muted-foreground"
             >
               {descriptionDraft || t.eventPreview.addDescription}
@@ -5004,26 +5030,22 @@ function EventAttendeesField({
       </div>
       <div className="flex-1 min-w-0">
         <Popover onOpenChange={(open) => { if (!open) setQuery(''); }}>
-          <PopoverTrigger asChild>
-            <div
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                // Radix only wires click on a non-button trigger: Enter / Space open it.
-                if (e.target !== e.currentTarget) return;
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  e.currentTarget.click();
-                }
-              }}
+          <div
               className={cn(
-                'text-sm cursor-pointer flex justify-between gap-2 self-start outline-none focus-visible:ring-2 focus-visible:ring-ring w-full group/field',
+                'relative text-sm cursor-pointer flex justify-between gap-2 self-start w-full group/field',
                 // Single-line empty state: center vertically inside h-8 so it
                 // sits on the same baseline as the "Attendees" label.
                 // Filled state: top-align so the avatar stack can grow downward.
                 hasAny ? 'items-start min-h-8' : 'items-center h-8',
               )}
             >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={hasAny ? t.eventPreview.addAttendee : t.eventPreview.addAttendees}
+                  className="absolute inset-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+              </PopoverTrigger>
               {hasAny ? (
                 <>
                   <div className="flex flex-col gap-1 min-w-0">
@@ -5032,7 +5054,7 @@ function EventAttendeesField({
                         key={a.email}
                         className="flex items-center gap-2 pl-0.5 pr-1.5 py-0.5 -ml-0.5 rounded-[6px] group/assignee"
                       >
-                        <AttendeeAvatar email={a.email} name={a.name} />
+                        <AttendeeAvatar email={a.email} name={a.name} className="pointer-events-none" />
                         <span className="text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px]">
                           {a.name || a.email}
                         </span>
@@ -5045,7 +5067,7 @@ function EventAttendeesField({
                             e.preventDefault();
                             removeOne(a.email);
                           }}
-                          className="inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/assignee:opacity-100 transition-[opacity,color,background-color]"
+                          className="relative z-[1] inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/field:opacity-100 focus-visible:opacity-100 transition-[opacity,color,background-color]"
                         >
                           <X className="h-3.5 w-3.5" />
                         </Button>
@@ -5063,7 +5085,6 @@ function EventAttendeesField({
                 <span className="text-muted-foreground group-hover/field:underline">{t.eventPreview.addAttendees}</span>
               )}
             </div>
-          </PopoverTrigger>
           <PopoverContent className="w-64 p-0" align="start">
             <Command>
               <CommandInput
@@ -5337,6 +5358,7 @@ function InlineDateTimeRow({
   time,
   onDateChange,
   onTimeChange,
+  onSubmit,
   placeholder,
 }: Readonly<{
   icon: React.ReactNode;
@@ -5344,6 +5366,8 @@ function InlineDateTimeRow({
   time: string;
   onDateChange: (d: Date) => void;
   onTimeChange: (t: string) => void;
+  /** Enter in the time input saves the surrounding form. */
+  onSubmit: () => void;
   placeholder: string;
 }>) {
   const t = getTranslations('weldcalendar');
@@ -5419,7 +5443,11 @@ function InlineDateTimeRow({
               <input
                 type="time"
                 value={time}
-                data-enter-submits="true"
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' || e.shiftKey) return;
+                  e.preventDefault();
+                  onSubmit();
+                }}
                 onChange={(e) => onTimeChange(e.target.value)}
                 className="text-sm bg-transparent focus:outline-none flex-1"
                 placeholder={t.misc.addTime}

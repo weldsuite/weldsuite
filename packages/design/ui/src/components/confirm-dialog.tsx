@@ -33,7 +33,7 @@ export function ConfirmDialog({
   variant = 'default',
   loading = false,
   onConfirm,
-}: ConfirmDialogProps) {
+}: Readonly<ConfirmDialogProps>) {
   const [pending, setPending] = React.useState(false);
   const isLoading = loading || pending;
 

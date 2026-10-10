@@ -9,6 +9,12 @@
  *
  * Add a route to AUTH_CASES / LIST_CASES when it follows the standard shape,
  * and to EXEMPT_ROUTES (with a one-line reason) when it has nothing to publish.
+ *
+ * The WeldHR routers are not registered here: they are sub-routers with their own
+ * permission vocabulary and nothing matches the `<prefix>:create|update|delete` shape
+ * these sweeps assume. Payroll (`routes/weldhr/payroll`) is covered by
+ * `routes/weldhr/payroll/routes.pglite.test.ts`: every route's permission, the flag,
+ * and the events each transition publishes.
  */
 
 import { describe, expect, it } from 'vitest';

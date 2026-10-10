@@ -158,24 +158,31 @@ export function Figure({
               </div>
             </div>
 
-            <div
-              role="presentation"
-              className="min-h-0 flex-1 overflow-auto p-4 sm:p-8"
-              onClick={() => setOpen(false)}
-            >
+            <div className="min-h-0 flex-1 overflow-auto">
               <div
-                role="presentation"
-                className="mx-auto min-w-min"
-                style={{ width: `${scale * 100}%`, maxWidth: scale === 1 ? 'min(96vw, 1200px)' : 'none' }}
-                onClick={(event) => event.stopPropagation()}
+                className="relative min-h-full p-4 sm:p-8"
+                style={{ width: `${scale * 100}%`, minWidth: '100%' }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={src}
-                  alt={alt}
-                  className="block h-auto w-full rounded-lg shadow-2xl ring-1 ring-white/10"
-                  draggable={false}
+                {/* Clicking the dark area around the image closes the viewer. */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label="Close"
+                  className="absolute inset-0 h-full w-full cursor-default"
+                  onClick={() => setOpen(false)}
                 />
+                <div
+                  className="relative mx-auto"
+                  style={{ maxWidth: scale === 1 ? 'min(96vw, 1200px)' : 'none' }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={src}
+                    alt={alt}
+                    className="block h-auto w-full rounded-lg shadow-2xl ring-1 ring-white/10"
+                    draggable={false}
+                  />
+                </div>
               </div>
             </div>
 

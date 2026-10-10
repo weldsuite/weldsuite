@@ -23,7 +23,6 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useObjectPanel, useObjectPanelStack, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 interface DomainsClientProps {
   domains: HostDomain[];
@@ -145,15 +144,18 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
     return (
       <div
         key={domain.id}
-        role="button"
-        tabIndex={0}
-        onClick={() => openPanel({ type: 'domain', id: domain.id, initialTab: 'dns' })}
-        onKeyDown={activateOnKey(() => openPanel({ type: 'domain', id: domain.id, initialTab: 'dns' }))}
         className={cn(
-          'flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
+          'relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
           selectedDomainId === domain.id && 'bg-accent',
         )}
       >
+        {/* Row click target: stretched button; the actions cell sits above it */}
+        <button
+          type="button"
+          aria-label={domain.fullDomain || `${domain.name}.${domain.tld}`}
+          onClick={() => openPanel({ type: 'domain', id: domain.id, initialTab: 'dns' })}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
         {/* Domain */}
         <div className="flex-1 min-w-[200px] flex items-center gap-2">
           <span className="text-sm font-medium text-gray-900 dark:text-foreground">
@@ -206,7 +208,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">

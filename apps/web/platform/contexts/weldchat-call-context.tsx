@@ -16,11 +16,14 @@ import {
 } from '@weldsuite/df3-noise-suppression';
 import rnnoiseWorkerUrl from '@weldsuite/df3-noise-suppression/rnnoise-worker?worker&url';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
+import { useCallSwitchOptional, useRegisterActiveCall } from '@/contexts/active-call-context';
+import { rtkParticipantIds, useCallSupersededNotice } from '@/hooks/use-call-superseded-notice';
+import { chatCallLabel, type CallLabelRole } from '@/lib/call-switch-labels';
 import { playCallJoinSound, playCallLeaveSound, playIncomingRingSound, playMuteSound, playUnmuteSound, playCameraToggleSound, playScreenShareSound, playHandRaiseSound, playHandLowerSound } from '@/lib/utils/notification-sound';
 import { useVirtualBackground, type VirtualBackgroundType } from '@/hooks/use-virtual-background';
 import { RoomClient } from '@weldsuite/realtime/client';
@@ -44,9 +47,50 @@ const RECONNECT_TOAST_ID = 'weldchat-reconnecting';
 /** How long a deliberate leave waits for RealtimeKit before telling the backend anyway. */
 const RTK_LEAVE_TIMEOUT_MS = 2_000;
 
+/** How long a switch waits for a still-connecting call to settle before dropping it. */
+const CONNECT_SETTLE_TIMEOUT_MS = 15_000;
+
 // ============================================================================
 // Helpers
 // ============================================================================
+
+interface CachedChannel {
+  type?: string;
+  name?: string | null;
+}
+
+interface CachedMember {
+  userId?: string;
+  name?: string;
+  email?: string;
+}
+
+/**
+ * What the "switch call" dialog calls the call in `channelId`: the other
+ * people for a DM / group DM, the channel name otherwise. Reads whatever the
+ * query cache already holds (the call UI loads it), and falls back to a
+ * generic name rather than fetching for a label.
+ */
+function describeChannelCall(
+  queryClient: QueryClient,
+  channelId: string | null,
+  selfUserId: string | undefined,
+  role: CallLabelRole,
+): string {
+  const channel = channelId
+    ? queryClient.getQueryData<{ data?: CachedChannel }>(weldchatKeys.channelDetail(channelId))?.data
+    : undefined;
+  if (!channelId || !channel) return chatCallLabel({ role });
+  if (channel.type === 'dm' || channel.type === 'group') {
+    const members = queryClient.getQueryData<{ data?: CachedMember[] }>(weldchatKeys.members(channelId))?.data ?? [];
+    const names = members
+      .filter((member) => member.userId !== selfUserId)
+      .map((member) => member.name || member.email)
+      .filter((name): name is string => !!name);
+    return chatCallLabel({ role, person: names.join(', ') || null });
+  }
+  return chatCallLabel({ role, channelName: channel.name });
+}
 
 /**
  * Explicitly stop the local camera/mic MediaStreamTracks held by the RTK
@@ -183,7 +227,6 @@ interface WeldChatCallState {
   isFullscreen: boolean;
   isPiP: boolean;
   viewMode: CallViewMode;
-  pendingCall: { channelId?: string; callId?: string; callType: 'voice' | 'video' } | null;
   backgroundType: VirtualBackgroundType;
   backgroundValue: string | null;
   isBackgroundLoading: boolean;
@@ -209,8 +252,6 @@ interface WeldChatCallActions {
   minimizeToPiP: () => void;
   expandFromPiP: () => void;
   setViewMode: (mode: CallViewMode) => void;
-  confirmSwitchCall: () => Promise<void>;
-  cancelSwitchCall: () => void;
   applyBlur: (intensity?: number) => Promise<void>;
   applyImage: (url: string) => Promise<void>;
   removeBackground: () => void;
@@ -264,7 +305,6 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPiP, setIsPiP] = useState(false);
   const [viewMode, setViewMode] = useState<CallViewMode>('grid');
-  const [pendingCall, setPendingCall] = useState<{ channelId?: string; callId?: string; callType: 'voice' | 'video' } | null>(null);
 
   // Mirror call activity into the shared presence status so other users see
   // a "busy" indicator while this user is in a call. We snapshot the pre-call
@@ -308,6 +348,16 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const expandFromPiP = useCallback(() => {
     setIsPiP(false);
   }, []);
+
+  const callSwitch = useCallSwitchOptional();
+  // The server drops the older connection when this user joins another call or
+  // the same one again elsewhere, and says so just before the kick.
+  const supersededNotice = useCallSupersededNotice({
+    kind: 'chat',
+    userId: user?.id,
+    message: () => getTranslations('weldchat').calling.supersededByOtherCall,
+  });
+  const explainUnexpectedExit = supersededNotice.explainExit;
 
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Noise suppression handles (active only when NOISE_SUPPRESSION_ENABLED).
@@ -393,8 +443,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       callerAvatar?: string;
     }>) => {
       if (event.event !== 'call_incoming') return;
-      // Only surface the toast when the user is not already in a call
-      if (statusRef.current !== 'idle' && statusRef.current !== 'ended') return;
+      // A ring for the call we are already in (our own start, another tab's join).
+      if (callIdRef.current === event.data.callId) return;
       setIncomingCall({
         callId: event.data.callId,
         channelId: event.data.channelId,
@@ -402,7 +452,11 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         callerName: event.data.callerName,
         callerAvatar: event.data.callerAvatar,
       });
-      setStatus('ringing-incoming');
+      // Busy (in a call or meeting): it still rings, but only as the toast. The
+      // status stays what the live call needs, and accepting asks to switch.
+      if (statusRef.current === 'idle' || statusRef.current === 'ended') {
+        setStatus('ringing-incoming');
+      }
     },
     [],
   );
@@ -500,7 +554,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setIsMuted(false);
     setIsVideoOff(false);
     setIsScreenSharing(false);
-    setIncomingCall(null);
+    // A ring for another call (it came in while this one was live) keeps ringing.
     setHandRaised(false);
     setHandRaisedParticipants(new Set());
     setIsPiP(false);
@@ -605,17 +659,20 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       if (state === 'failed' && cId) {
         toast.error(getTranslations('weldchat').calling.connectionLost);
       }
+      // Removed without asking: the server may have done it because this user
+      // joined another call or meeting, in which case it says so.
+      if ((state === 'ended' || state === 'kicked') && cId) {
+        explainUnexpectedExit({ sessionId: cId, participantIds: rtkParticipantIds(m) });
+      }
       cleanup();
     });
 
     await m.join();
     setMeeting(m);
     return m;
-  }, [cleanup, fireLeaveRequest]);
+  }, [cleanup, fireLeaveRequest, explainUnexpectedExit]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
-
-  const isInActiveCall = status !== 'idle' && status !== 'ended';
 
   // No pre-join preview for chat calls — join straight into the room (same as
   // acceptIncomingCall). Default audio on; video on only for video calls.
@@ -645,6 +702,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     setChannelId(call.channelId);
     setPreviewJoinCallId(null);
     setCallId(id);
+    // Joining a call that is ringing for us (e.g. from its banner) answers the ring.
+    setIncomingCall((ringing) => (ringing?.callId === id ? null : ringing));
     setIsCallInitiator(false);
     const videoOn = type === 'video';
     setIsMuted(false);
@@ -654,45 +713,46 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     await initMeeting(joinRes.data.authToken, type, true, videoOn);
   }, [getClient, initMeeting]);
 
+  // The latest closures, for a switch that only starts the call after the user
+  // confirmed and the current one was left: the render that left it has run by
+  // then, and a closure from before it would still hold the old RealtimeKit client.
+  const doStartCallRef = useRef(doStartCall);
+  doStartCallRef.current = doStartCall;
+  const doJoinCallRef = useRef(doJoinCall);
+  doJoinCallRef.current = doJoinCall;
+
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
+  const selfUserIdRef = useRef(user?.id);
+  selfUserIdRef.current = user?.id;
+
+  /** Asks to leave the live call or meeting first, when there is one. */
   const startCall = useCallback(async (chId: string, type: 'voice' | 'video') => {
-    if (isInActiveCall) {
-      setPendingCall({ channelId: chId, callType: type });
-      return;
-    }
-    await doStartCall(chId, type);
-  }, [isInActiveCall, doStartCall]);
+    await callSwitch.runWithSwitch({
+      target: {
+        kind: 'chat',
+        label: () => describeChannelCall(queryClientRef.current, chId, selfUserIdRef.current, 'target'),
+      },
+      proceed: () => doStartCallRef.current(chId, type),
+    });
+  }, [callSwitch]);
 
   const joinCall = useCallback(async (id: string) => {
-    if (isInActiveCall) {
-      setPendingCall({ callId: id, callType: 'voice' });
-      return;
-    }
-    await doJoinCall(id);
-  }, [isInActiveCall, doJoinCall]);
-
-  const confirmSwitchCall = useCallback(async () => {
-    if (!pendingCall) return;
-    // Leave current call first
-    if (callId) {
-      // Cleared first so the roomLeft below doesn't fire a duplicate /leave
-      callIdRef.current = null;
-      await leaveRoom();
-      const client = await getClient();
-      try { await client.post(`/chat-calls/${callId}/leave`, {}); } catch { /* best effort */ }
-    }
-    cleanup();
-    // Start the pending call
-    if (pendingCall.callId) {
-      await doJoinCall(pendingCall.callId);
-    } else if (pendingCall.channelId) {
-      await doStartCall(pendingCall.channelId, pendingCall.callType);
-    }
-    setPendingCall(null);
-  }, [pendingCall, callId, getClient, leaveRoom, cleanup, doStartCall, doJoinCall]);
-
-  const cancelSwitchCall = useCallback(() => {
-    setPendingCall(null);
-  }, []);
+    // Already in it (a "Join" button for the call we are in): nothing to do.
+    if (callIdRef.current === id) return;
+    await callSwitch.runWithSwitch({
+      target: {
+        kind: 'chat',
+        label: () => {
+          const known = queryClientRef.current
+            .getQueryData<Array<{ channelId: string; callId: string }>>(['weldchat', 'active-calls'])
+            ?.find((active) => active.callId === id);
+          return describeChannelCall(queryClientRef.current, known?.channelId ?? null, selfUserIdRef.current, 'target');
+        },
+      },
+      proceed: () => doJoinCallRef.current(id),
+    });
+  }, [callSwitch]);
 
   const confirmJoinFromPreview = useCallback(async () => {
     const audioOn = previewAudioEnabled;
@@ -747,10 +807,8 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     }
   }, [previewStream]);
 
-  const acceptIncomingCall = useCallback(async () => {
-    if (!incomingCall) return;
-    const ic = incomingCall;
-    setIncomingCall(null);
+  const doAcceptIncomingCall = useCallback(async (ic: IncomingCall) => {
+    setIncomingCall((ringing) => (ringing?.callId === ic.callId ? null : ringing));
 
     // Skip preview for incoming calls — join immediately
     const client = await getClient();
@@ -766,7 +824,19 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
 
     const joinRes = await client.post<JoinChatCallResponse>(`/chat-calls/${ic.callId}/join`, {});
     await initMeeting(joinRes.data.authToken, type);
-  }, [incomingCall, getClient, initMeeting]);
+  }, [getClient, initMeeting]);
+  const doAcceptIncomingCallRef = useRef(doAcceptIncomingCall);
+  doAcceptIncomingCallRef.current = doAcceptIncomingCall;
+
+  /** Accepting while in another call or meeting asks to switch first; the ring stays until then. */
+  const acceptIncomingCall = useCallback(async () => {
+    if (!incomingCall) return;
+    const ic = incomingCall;
+    await callSwitch.runWithSwitch({
+      target: { kind: 'chat', label: () => chatCallLabel({ role: 'target', caller: ic.callerName }) },
+      proceed: () => doAcceptIncomingCallRef.current(ic),
+    });
+  }, [incomingCall, callSwitch]);
 
   const patchActiveCallsCache = useCallback((endedCallId: string) => {
     queryClient.setQueryData<Array<{ channelId: string; callId: string; callType: 'voice' | 'video' }>>(
@@ -818,8 +888,60 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       await client.post(`/chat-calls/${incomingCall.callId}/decline`, {});
     } catch { /* best effort */ }
     setIncomingCall(null);
-    setStatus('idle');
+    // Only the ring is over: when it came in during a call, that call carries on.
+    setStatus((current) => (current === 'ringing-incoming' ? 'idle' : current));
   }, [incomingCall, getClient]);
+
+  // ── Single active call ───────────────────────────────────────────────────
+  // While this call is live it is registered with the coordinator, so joining
+  // another call or a WeldMeet meeting can ask to leave it first.
+  const meetingRef = useRef(meeting);
+  useEffect(() => { meetingRef.current = meeting; }, [meeting]);
+  const leaveCallRef = useRef(leaveCall);
+  leaveCallRef.current = leaveCall;
+  const cleanupRef = useRef(cleanup);
+  cleanupRef.current = cleanup;
+  const settleWaitersRef = useRef<Array<() => void>>([]);
+
+  // A call that is still connecting has no call id or RealtimeKit room to leave
+  // yet: this wakes whoever is waiting for it to get there (or to fail).
+  useEffect(() => {
+    if (status === 'connecting' || (status === 'connected' && !meeting)) return;
+    for (const wake of settleWaitersRef.current.splice(0)) wake();
+  }, [status, meeting]);
+
+  /** Leaves this call for a switch. Never ends it for the others. */
+  const leaveForSwitch = useCallback(async () => {
+    const stillConnecting = () =>
+      statusRef.current === 'connecting' || (statusRef.current === 'connected' && !meetingRef.current);
+    if (stillConnecting()) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, CONNECT_SETTLE_TIMEOUT_MS);
+        settleWaitersRef.current.push(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+    if (callIdRef.current) {
+      await leaveCallRef.current();
+    } else if (statusRef.current !== 'idle') {
+      // No call id: the request for it never came back. Drop what is left.
+      cleanupRef.current();
+    }
+  }, []);
+
+  const isCallLive = status === 'connecting' || status === 'connected' || status === 'ringing-outgoing';
+  useRegisterActiveCall(
+    'chat',
+    isCallLive
+      ? {
+          id: callId ?? `channel:${channelId ?? ''}`,
+          label: () => describeChannelCall(queryClient, channelId, user?.id, 'current'),
+          leave: leaveForSwitch,
+        }
+      : null,
+  );
 
   const toggleMute = useCallback(() => {
     if (!meeting) return;
@@ -946,7 +1068,6 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       isFullscreen,
       isPiP,
       viewMode,
-      pendingCall,
       backgroundType: virtualBackground.backgroundType,
       backgroundValue: virtualBackground.backgroundValue,
       isBackgroundLoading: virtualBackground.isLoading,
@@ -969,8 +1090,6 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       minimizeToPiP,
       expandFromPiP,
       setViewMode,
-      confirmSwitchCall,
-      cancelSwitchCall,
       applyBlur: virtualBackground.applyBlur,
       applyImage: virtualBackground.applyImage,
       removeBackground: virtualBackground.removeBackground,
@@ -996,7 +1115,6 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       isFullscreen,
       isPiP,
       viewMode,
-      pendingCall,
       virtualBackground.backgroundType,
       virtualBackground.backgroundValue,
       virtualBackground.isLoading,
@@ -1019,8 +1137,6 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       minimizeToPiP,
       expandFromPiP,
       setViewMode,
-      confirmSwitchCall,
-      cancelSwitchCall,
       virtualBackground.applyBlur,
       virtualBackground.applyImage,
       virtualBackground.removeBackground,

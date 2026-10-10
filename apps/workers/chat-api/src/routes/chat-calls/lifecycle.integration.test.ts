@@ -15,6 +15,8 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { ChatCallParticipant } from '@weldsuite/db/schema/chat-calls';
+import type { MeetingSessionParticipant } from '@weldsuite/db/schema/meeting-sessions';
+import { leaveOtherMeetingSessions } from '@weldsuite/meet-domain/leave-other-sessions';
 import {
   addParticipant,
   createMeeting,
@@ -45,6 +47,10 @@ vi.mock('@weldsuite/notifications', async (importOriginal) => ({
 
 const ALICE = 'user_call_alice';
 const BOB = 'user_call_bob';
+// The "one live call at a time" tests use their own users, so the calls the
+// other tests of this file leave behind never interfere with them.
+const ERIN = 'user_call_erin';
+const FRANK = 'user_call_frank';
 
 let db: Database;
 
@@ -70,6 +76,8 @@ beforeAll(async () => {
   await db.insert(schema.workspaceMembers).values([
     { id: 'wm_call_alice', userId: ALICE, email: 'alice@example.com', name: 'Alice', role: 'MEMBER', createdAt: now, updatedAt: now },
     { id: 'wm_call_bob', userId: BOB, email: 'bob@example.com', name: 'Bob', role: 'MEMBER', createdAt: now, updatedAt: now },
+    { id: 'wm_call_erin', userId: ERIN, email: 'erin@example.com', name: 'Erin', role: 'MEMBER', createdAt: now, updatedAt: now },
+    { id: 'wm_call_frank', userId: FRANK, email: 'frank@example.com', name: 'Frank', role: 'MEMBER', createdAt: now, updatedAt: now },
   ] as (typeof schema.workspaceMembers.$inferInsert)[]);
 }, 60_000);
 
@@ -106,6 +114,8 @@ async function seed(
     status?: 'ringing' | 'active';
     /** How long ago the call was created and last touched. */
     ageMs?: number;
+    /** Channel members (default Alice and Bob); [] = nobody, e.g. a public channel joined without membership. */
+    members?: string[];
   } = {},
 ) {
   const channelId = generateId('ch');
@@ -118,8 +128,9 @@ async function seed(
     slug: channelId,
     type: opts.type ?? 'dm',
   } as typeof schema.chatChannels.$inferInsert);
-  await db.insert(schema.chatChannelMembers).values(
-    [ALICE, BOB].map((userId) => ({ id: generateId('chm'), channelId, userId })) as (typeof schema.chatChannelMembers.$inferInsert)[],
+  const members = opts.members ?? [ALICE, BOB];
+  if (members.length > 0) await db.insert(schema.chatChannelMembers).values(
+    members.map((userId) => ({ id: generateId('chm'), channelId, userId })) as (typeof schema.chatChannelMembers.$inferInsert)[],
   );
   await db.insert(schema.chatCalls).values({
     id: callId,
@@ -138,14 +149,14 @@ async function seed(
   return { channelId, callId, cfAppId };
 }
 
-function appFor(userId: string) {
+function appFor(userId: string, envOverride?: Env) {
   return createTestApp('/api/chat-calls', chatCallsRoutes, {
     context: {
       userId,
       permissions: permissions('channels:read', 'channels:create', 'channels:update'),
       tenantDb: db,
     },
-    env: env(),
+    env: envOverride ?? env(),
   });
 }
 
@@ -388,5 +399,255 @@ describe('leaveOtherActiveCalls · one call at a time', () => {
     expect(call.status).toBe('active');
     expect(call.participants?.find((p) => p.userId === BOB)?.leftAt).toBeTruthy();
     expect(kickAllParticipants).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// One LIVE call at a time, across WeldChat calls and WeldMeet sessions
+// ============================================================================
+
+const ORG = 'org_test';
+
+/** Env with a REALTIME binding that records every publish (`call_superseded` included). */
+function realtimeEnv() {
+  const published: Array<{ workspaceId: string; topic: string; event: string; data: Record<string, unknown> }> = [];
+  const REALTIME = {
+    fetch: vi.fn(async (_url: unknown, init?: RequestInit) => {
+      published.push(JSON.parse(String(init?.body)));
+      return new Response('{}');
+    }),
+  } as unknown as Fetcher;
+  return { env: { WORKSPACE_CACHE: fakeKv(), REALTIME } as unknown as Env, published, realtime: REALTIME };
+}
+
+const superseded = (published: ReturnType<typeof realtimeEnv>['published']) =>
+  published.filter((e) => e.event === 'call_superseded');
+
+/** POST and wait for the `waitUntil` work (the eviction runs after the response). */
+async function postAndFlush(userId: string, path: string, envOverride: Env) {
+  const app = appFor(userId, envOverride);
+  const pending: Promise<unknown>[] = [];
+  app.executionCtx.waitUntil = (promise: Promise<unknown>) => {
+    pending.push(promise);
+  };
+  const res = await app.request(`/api/chat-calls${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  await Promise.all(pending);
+  return res;
+}
+
+function sessionParticipant(
+  userId: string,
+  extra: Partial<MeetingSessionParticipant> = {},
+): MeetingSessionParticipant {
+  return {
+    userId,
+    userName: userId,
+    joinedAt: new Date(Date.now() - 60_000).toISOString(),
+    cfSessionId: `cfm_${userId}`,
+    hasAudio: false,
+    hasVideo: false,
+    hasScreenShare: false,
+    ...extra,
+  };
+}
+
+/** A meeting with one session, 'active' by default. */
+async function seedMeetingSession(
+  participants: MeetingSessionParticipant[],
+  opts: { status?: 'waiting' | 'active' } = {},
+) {
+  const meetingId = generateId('mtg');
+  const sessionId = generateId('msess');
+  const cfAppId = `rtk_${sessionId}`;
+  await db.insert(schema.meetings).values({
+    id: meetingId,
+    title: 'Standup',
+    organizerId: ERIN,
+    status: 'in_progress',
+    activeSessionId: null,
+  });
+  await db.insert(schema.meetingSessions).values({
+    id: sessionId,
+    meetingId,
+    status: opts.status ?? 'active',
+    cfAppId,
+    startedBy: ERIN,
+    startedByName: 'Erin',
+    participants,
+    startedAt: new Date(Date.now() - 5 * 60_000),
+  });
+  await db.update(schema.meetings).set({ activeSessionId: sessionId }).where(eq(schema.meetings.id, meetingId));
+  return { meetingId, sessionId, cfAppId };
+}
+
+async function loadSession(sessionId: string) {
+  const [row] = await db
+    .select()
+    .from(schema.meetingSessions)
+    .where(eq(schema.meetingSessions.id, sessionId))
+    .limit(1);
+  if (!row) throw new Error('session missing');
+  return row;
+}
+
+const killedRoomsOf = () => vi.mocked(kickAllParticipants).mock.calls.map((c) => c[1]);
+const removedFrom = () => vi.mocked(removeParticipant).mock.calls.map((c) => c[1]);
+
+describe('POST /:callId/join · one live call at a time', () => {
+  it('also leaves the meeting session the user is in, telling their clients first', async () => {
+    const { env: rtEnv, published, realtime } = realtimeEnv();
+    // Erin is still in the meeting: Frank's departure must not end it.
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
+    const meeting = await seedMeetingSession([sessionParticipant(ERIN), sessionParticipant(FRANK)]);
+    const { callId } = await seed([participant(ERIN)], { members: [ERIN, FRANK] });
+
+    const res = await postAndFlush(FRANK, `/${callId}/join`, rtEnv);
+
+    expect(res.status).toBe(200);
+    expect(removeParticipant).toHaveBeenCalledWith(expect.anything(), meeting.cfAppId, `cfm_${FRANK}`);
+    const session = await loadSession(meeting.sessionId);
+    expect(session.participants?.find((p) => p.userId === FRANK)?.leftAt).toBeTruthy();
+    expect(session.participants?.find((p) => p.userId === ERIN)?.leftAt).toBeUndefined();
+    expect(session.status).toBe('active');
+    expect(killedRoomsOf()).not.toContain(meeting.cfAppId);
+
+    // The contract the platform subscribes to, sent before the RTK removal.
+    const events = superseded(published);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      workspaceId: 'org_test_default', // the test harness's default org
+      topic: `chat.user.${FRANK}`,
+      event: 'call_superseded',
+      data: { kind: 'meet', id: meeting.sessionId, meetingId: meeting.meetingId, cfSessionId: `cfm_${FRANK}` },
+    });
+    const removal = vi.mocked(removeParticipant).mock.calls.findIndex((c) => c[1] === meeting.cfAppId);
+    const announce = vi
+      .mocked(realtime.fetch)
+      .mock.calls.findIndex((c) => String((c[1] as RequestInit).body).includes('call_superseded'));
+    expect(vi.mocked(realtime.fetch).mock.invocationCallOrder[announce]).toBeLessThan(
+      vi.mocked(removeParticipant).mock.invocationCallOrder[removal]!,
+    );
+  });
+
+  it('does not end the meeting while RealtimeKit still reports a connection, ends it once the room is empty', async () => {
+    // Frank is alone in his meeting, but RealtimeKit still counts the connection that was just removed.
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
+    const occupied = await seedMeetingSession([sessionParticipant(FRANK, { cfSessionId: 'cfm_frank_a' })]);
+    const { callId } = await seed([participant(ERIN)], { members: [ERIN, FRANK] });
+
+    await postAndFlush(FRANK, `/${callId}/join`, realtimeEnv().env);
+
+    const afterOccupied = await loadSession(occupied.sessionId);
+    expect(afterOccupied.status).toBe('active');
+    expect(afterOccupied.participants?.[0]?.leftAt).toBeTruthy();
+    expect(killedRoomsOf()).not.toContain(occupied.cfAppId);
+
+    // The same, once RealtimeKit reports the room empty.
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(0);
+    const empty = await seedMeetingSession([sessionParticipant(FRANK, { cfSessionId: 'cfm_frank_b' })]);
+    const second = await seed([participant(ERIN)], { members: [ERIN, FRANK] });
+
+    await postAndFlush(FRANK, `/${second.callId}/join`, realtimeEnv().env);
+
+    expect((await loadSession(empty.sessionId)).status).toBe('ended');
+    expect(killedRoomsOf()).toContain(empty.cfAppId);
+  });
+
+  it('never ends a meeting for everyone because its organizer is evicted while others are still in', async () => {
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(2);
+    const meeting = await seedMeetingSession([sessionParticipant(FRANK), sessionParticipant(ERIN)]);
+    await db.update(schema.meetings).set({ organizerId: FRANK }).where(eq(schema.meetings.id, meeting.meetingId));
+    const { callId } = await seed([participant(ERIN)], { members: [ERIN, FRANK] });
+
+    await postAndFlush(FRANK, `/${callId}/join`, realtimeEnv().env);
+
+    const session = await loadSession(meeting.sessionId);
+    expect(session.status).toBe('active');
+    expect(session.endedAt).toBeNull();
+    expect(killedRoomsOf()).not.toContain(meeting.cfAppId);
+    expect(vi.mocked(endMeeting).mock.calls.map((c) => c[1])).not.toContain(meeting.cfAppId);
+  });
+
+  it('leaves portal guests and entries that already left alone', async () => {
+    const guests = await seedMeetingSession([
+      sessionParticipant(`guest:${FRANK}@example.com`),
+      sessionParticipant(FRANK, { leftAt: new Date(Date.now() - 5_000).toISOString() }),
+    ]);
+    const { callId } = await seed([participant(ERIN)], { members: [ERIN, FRANK] });
+
+    await postAndFlush(FRANK, `/${callId}/join`, realtimeEnv().env);
+
+    expect(removedFrom()).not.toContain(guests.cfAppId);
+    const session = await loadSession(guests.sessionId);
+    expect(session.participants?.find((p) => p.userId.startsWith('guest:'))?.leftAt).toBeUndefined();
+  });
+
+  it('joining the same call again tells the older tab why it is dropped, never the new connection', async () => {
+    const { env: rtEnv, published } = realtimeEnv();
+    // Frank is already in this call from another tab; the new join gets cf_new.
+    const { callId, cfAppId } = await seed(
+      [participant(ERIN), participant(FRANK, { cfSessionId: 'cf_frank_old' })],
+      { members: [ERIN, FRANK] },
+    );
+
+    const res = await postAndFlush(FRANK, `/${callId}/join`, rtEnv);
+
+    expect(res.status).toBe(200);
+    expect(removeParticipant).toHaveBeenCalledWith(expect.anything(), cfAppId, 'cf_frank_old');
+    expect(removeParticipant).not.toHaveBeenCalledWith(expect.anything(), cfAppId, 'cf_new');
+    expect(superseded(published).map((e) => e.data)).toContainEqual(
+      expect.objectContaining({ kind: 'chat', id: callId, cfSessionId: 'cf_frank_old' }),
+    );
+  });
+});
+
+describe('leaveOtherActiveCalls · who counts as being in another call', () => {
+  it('finds a call in a public channel the user joined without being a member', async () => {
+    const { callId, cfAppId } = await seed(
+      [participant(ERIN), participant(FRANK, { cfSessionId: 'cf_frank_public' })],
+      { type: 'public', members: [] },
+    );
+    vi.mocked(getLiveParticipantCount).mockResolvedValue(1);
+
+    await leaveOtherActiveCalls(db, env(), ORG, FRANK, 'call_elsewhere');
+
+    expect(removeParticipant).toHaveBeenCalledWith(expect.anything(), cfAppId, 'cf_frank_public');
+    const call = await loadCall(callId);
+    expect(call.participants?.find((p) => p.userId === FRANK)?.leftAt).toBeTruthy();
+    expect(call.participants?.find((p) => p.userId === ERIN)?.leftAt).toBeUndefined();
+    expect(call.status).toBe('active');
+  });
+
+  it('never leaves the call it was told to spare, and skips a join that is newer than the request', async () => {
+    const spared = await seed([participant(FRANK, { cfSessionId: 'cf_frank_spared' })], { members: [ERIN, FRANK] });
+    const newer = await seed(
+      [participant(FRANK, { cfSessionId: 'cf_frank_newer', joinedAt: new Date(Date.now() + 5_000).toISOString() })],
+      { members: [ERIN, FRANK] },
+    );
+
+    await leaveOtherActiveCalls(db, env(), ORG, FRANK, spared.callId);
+
+    const removed = vi.mocked(removeParticipant).mock.calls.map((c) => c[2]);
+    expect(removed).not.toContain('cf_frank_spared');
+    expect(removed).not.toContain('cf_frank_newer');
+    expect((await loadCall(spared.callId)).participants?.[0]?.leftAt).toBeUndefined();
+    expect((await loadCall(newer.callId)).participants?.[0]?.leftAt).toBeUndefined();
+  });
+});
+
+describe('leaveOtherMeetingSessions · from the chat side', () => {
+  it('skips a meeting participation that began after the triggering join', async () => {
+    const meeting = await seedMeetingSession([
+      sessionParticipant(FRANK, { joinedAt: new Date(Date.now() + 5_000).toISOString(), cfSessionId: 'cfm_frank_newer' }),
+    ]);
+
+    await leaveOtherMeetingSessions(db, env(), ORG, FRANK, null);
+
+    expect(vi.mocked(removeParticipant).mock.calls.map((c) => c[2])).not.toContain('cfm_frank_newer');
+    expect((await loadSession(meeting.sessionId)).participants?.[0]?.leftAt).toBeUndefined();
   });
 });

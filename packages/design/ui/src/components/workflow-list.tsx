@@ -278,33 +278,26 @@ export function WorkflowListRow({
 
   return (
     <div
-      onClick={interactive ? () => onSelectItem!(item) : undefined}
-      role={interactive ? "button" : undefined}
-      tabIndex={interactive ? 0 : undefined}
-      onKeyDown={
-        interactive
-          ? (e) => {
-              if (e.target !== e.currentTarget) return
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault()
-                onSelectItem!(item)
-              }
-            }
-          : undefined
-      }
       className={cn(
-        "group flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border",
-        interactive &&
-          "cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50",
+        "group relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border",
+        interactive && "hover:bg-gray-50 dark:hover:bg-secondary/50",
         selected && "bg-primary/5 dark:bg-primary/10"
       )}
     >
+      {/* Stretched row button: sits behind the row content, the checkbox and
+          the actions menu are lifted above it so they stay clickable. */}
+      {interactive && (
+        <button
+          type="button"
+          aria-label={item.name}
+          onClick={() => onSelectItem!(item)}
+          className="absolute inset-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
+      )}
+
       {/* Selection checkbox */}
       {selectable && (
-        <div
-          className="flex w-4 items-center justify-center"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="relative z-[1] flex w-4 items-center justify-center">
           <Checkbox
             checked={selected}
             onCheckedChange={(checked) => onSelectChange?.(checked === true)}
@@ -369,10 +362,7 @@ export function WorkflowListRow({
 
       {/* Actions */}
       {visibleActions.length > 0 && (
-        <div
-          className="w-[40px] flex justify-end"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

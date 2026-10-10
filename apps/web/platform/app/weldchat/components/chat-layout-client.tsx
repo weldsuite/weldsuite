@@ -41,14 +41,14 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // Initial value picked by the effect below once the current channel has
   // been fetched — entity channels default to the linked-entity view, normal
   // channels default to the member list.
-  const [rawRightPanel, setRightPanel] = useState<RightPanel>(null);
+  const [rightPanelState, setRightPanelState] = useState<RightPanel>(null);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   // The thread remembers the channel it was opened in: a thread is only valid
   // there, so switching channels must never carry it (and its parent message)
   // into the new channel's composer.
   const [thread, setThread] = useState<OpenThread | null>(null);
   const threadMessageId = threadMessageIdFor(thread, currentChannelId);
-  const rightPanel: RightPanel = rawRightPanel === 'thread' && !threadMessageId ? null : rawRightPanel;
+  const rightPanel: RightPanel = rightPanelState === 'thread' && !threadMessageId ? null : rightPanelState;
   const [replyTo, setReplyTo] = useState<ReplyTo | null>(null);
   const [editingMessage, setEditingMessage] = useState<EditingMessage | null>(null);
   const [filters, setFilters] = useState<ChatFilters>({ type: 'all', search: '', from: [], date: undefined });
@@ -63,7 +63,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // changes — the unified ChannelPanel auto-open is handled in a separate
   // effect below.
   useEffect(() => {
-    setRightPanel((prev) => (prev === 'members' ? null : prev));
+    setRightPanelState((prev) => (prev === 'members' ? null : prev));
   }, [isChannelPage, currentChannelId]);
 
   // Drop a thread that belongs to the previous channel, and a half-made reply /
@@ -215,11 +215,11 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   const openThread = useCallback((messageId: string) => {
     closeAllObjectPanels();
     setThread({ channelId: currentChannelId, messageId });
-    setRightPanel('thread');
+    setRightPanelState('thread');
   }, [closeAllObjectPanels, currentChannelId]);
   const closeThread = useCallback(() => {
     setThread(null);
-    setRightPanel(null);
+    setRightPanelState(null);
   }, []);
   // Clicking a person opens the registered `team-member` object panel — the
   // same EntityDetailView shell as Person, Company and Channel — rather than
@@ -258,7 +258,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
       activeChannelId,
       setActiveChannelId,
       rightPanel,
-      setRightPanel,
+      setRightPanel: setRightPanelState,
       threadMessageId,
       openThread,
       closeThread,
@@ -279,7 +279,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
       activeChannelId,
       setActiveChannelId,
       rightPanel,
-      setRightPanel,
+      setRightPanelState,
       threadMessageId,
       openThread,
       closeThread,
@@ -321,7 +321,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
                         if (effectiveRightPanel === 'thread') {
                           closeThread();
                         } else {
-                          setRightPanel(null);
+                          setRightPanelState(null);
                         }
                       }}
                       aria-label={t.closePanel}

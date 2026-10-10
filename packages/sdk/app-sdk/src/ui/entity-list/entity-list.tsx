@@ -110,7 +110,7 @@ export function EntityList<T extends { id: string }>({
   itemsClassName,
   columnGap,
   stickyOffset = 0,
-}: EntityListProps<T>) {
+}: Readonly<EntityListProps<T>>) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [internalActiveFilters, setInternalActiveFilters] = useState<ActiveFilter[]>([]);
@@ -321,7 +321,6 @@ export function EntityList<T extends { id: string }>({
         <div
           key={column.id}
           className={cn('wui-elist-row__cell', column.width)}
-          onClick={(e) => e.stopPropagation()}
         >
           {column.render(item, rowHandlers)}
         </div>

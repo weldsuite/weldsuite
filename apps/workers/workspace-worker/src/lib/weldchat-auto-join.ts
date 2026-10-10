@@ -63,15 +63,17 @@ export async function autoJoinUserToPublicChannels(
     )
     .onConflictDoNothing();
 
-  for (const ch of toInsert) {
-    await db
-      .update(chatChannels)
-      .set({
-        memberCount: sql`(SELECT count(*)::int FROM ${chatChannelMembers} WHERE ${chatChannelMembers.channelId} = ${ch.id})`,
-        updatedAt: now,
-      })
-      .where(eq(chatChannels.id, ch.id));
-  }
+  await Promise.all(
+    toInsert.map((ch) =>
+      db
+        .update(chatChannels)
+        .set({
+          memberCount: sql`(SELECT count(*)::int FROM ${chatChannelMembers} WHERE ${chatChannelMembers.channelId} = ${ch.id})`,
+          updatedAt: now,
+        })
+        .where(eq(chatChannels.id, ch.id)),
+    ),
+  );
 
   return toInsert;
 }

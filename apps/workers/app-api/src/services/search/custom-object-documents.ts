@@ -22,8 +22,7 @@
  */
 
 import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
-import type { Database } from '@weldsuite/worker-kit/db';
-import { schema } from '@weldsuite/worker-kit/db';
+import { type Database, schema } from '@weldsuite/worker-kit/db';
 import type { IndexableDocument, DocumentPage } from './documents';
 import { getValuesForEntities, getDefinitionsForEntityType } from '@weldsuite/core-domain/custom-field-values';
 import { getCustomObjectByEntityKey, type CustomObjectRow } from '@weldsuite/core-domain/custom-objects';

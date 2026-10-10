@@ -199,7 +199,7 @@ export async function getValidIntegrationToken(
   // OAuth path
   if (tokens?.accessToken) {
     let accessToken = await maybeDecrypt(tokens.accessToken, key);
-    const expiresMs = tokens.expiresAt ? Date.parse(tokens.expiresAt) : NaN;
+    const expiresMs = tokens.expiresAt ? Date.parse(tokens.expiresAt) : Number.NaN;
     const expiringSoon = Number.isFinite(expiresMs) && expiresMs - Date.now() < REFRESH_WINDOW_MS;
 
     if (expiringSoon && tokens.refreshToken) {

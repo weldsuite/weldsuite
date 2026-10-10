@@ -296,14 +296,17 @@ app.post(
         metadata,
       });
 
-      for (const uid of memberUserIds) {
-        if (uid.startsWith('agt_')) continue;
-        try {
-          await publishChatUserChannelNew(c.env, orgId, uid, channel.id, channel.name);
-        } catch (e) {
-          console.error('[app-api/channels] channel_new publish failed:', e);
-        }
-      }
+      await Promise.all(
+        memberUserIds
+          .filter((uid) => !uid.startsWith('agt_'))
+          .map(async (uid) => {
+            try {
+              await publishChatUserChannelNew(c.env, orgId, uid, channel.id, channel.name);
+            } catch (e) {
+              console.error('[app-api/channels] channel_new publish failed:', e);
+            }
+          }),
+      );
 
       safePublish(() =>
         publishEntityEvent({
@@ -735,28 +738,30 @@ app.post(
       const result = await addChannelMembers(db, { channelId, userIds, memberType });
       if (!result.ok) return error.badRequest(c, result.message);
 
-      for (const uid of result.addedUserIds) {
-        try {
-          await publishChatMemberJoined(c.env, channelId, { channelId, userId: uid });
-          if (memberType === 'user') {
-            await publishChatUserChannelNew(c.env, orgId, uid, channelId, channel.name);
+      await Promise.all(
+        result.addedUserIds.map(async (uid) => {
+          try {
+            await publishChatMemberJoined(c.env, channelId, { channelId, userId: uid });
+            if (memberType === 'user') {
+              await publishChatUserChannelNew(c.env, orgId, uid, channelId, channel.name);
+            }
+          } catch (e) {
+            console.error('[app-api/channels] member_joined publish failed:', e);
           }
-        } catch (e) {
-          console.error('[app-api/channels] member_joined publish failed:', e);
-        }
-        // NOTE: ChatChannelEventData is a closed { id, name?, type? } — it
-        // cannot carry WHICH user joined, so a subscriber only learns that the
-        // roster changed. Catalog gap, flagged in the W5b report.
-        safePublish(() =>
-          publishEntityEvent({
-            c,
-            entityType: 'chat_channel',
-            action: 'joined',
-            entityId: channelId,
-            data: { id: channelId, name: channel.name },
-          }),
-        );
-      }
+          // NOTE: ChatChannelEventData is a closed { id, name?, type? } — it
+          // cannot carry WHICH user joined, so a subscriber only learns that the
+          // roster changed. Catalog gap, flagged in the W5b report.
+          safePublish(() =>
+            publishEntityEvent({
+              c,
+              entityType: 'chat_channel',
+              action: 'joined',
+              entityId: channelId,
+              data: { id: channelId, name: channel.name },
+            }),
+          );
+        }),
+      );
 
       return success(c, { channelId, addedCount: result.addedCount }, 201);
     } catch (err) {

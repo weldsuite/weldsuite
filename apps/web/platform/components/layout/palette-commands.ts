@@ -36,6 +36,7 @@ import {
   Webhook,
 } from 'lucide-react';
 import type { TranslationsType } from '@/lib/i18n/types';
+import { menuPermissionAllows, type MenuPermission } from './menu-permission';
 import { MODULE_CONFIGS } from './module-sidebar-configs';
 
 export type PaletteIcon = ComponentType<{ className?: string }>;
@@ -69,7 +70,7 @@ export interface InstalledAppRef {
 export interface SidebarPage {
   title: string;
   href: string;
-  permission?: string;
+  permission?: MenuPermission;
   icon: PaletteIcon;
 }
 
@@ -79,6 +80,7 @@ export function appHref(app: InstalledAppRef): string {
   return `/${app.appCode}`;
 }
 
+/** Every page in a module's static sidebar menu, with the permission that gates it. */
 export function pagesForModule(appCode: string, t: TranslationsType): SidebarPage[] {
   const config = MODULE_CONFIGS[appCode];
   if (!config) return [];
@@ -104,6 +106,7 @@ export function pagesForModule(appCode: string, t: TranslationsType): SidebarPag
   return pages;
 }
 
+/** An entry per installed app, plus one per sidebar page the member may open. */
 export function navigationCommandsForApps(
   apps: InstalledAppRef[],
   pagesForApp: (appCode: string) => SidebarPage[],
@@ -118,7 +121,7 @@ export function navigationCommandsForApps(
     seenApps.add(app.appCode);
 
     const root = appHref(app);
-    const pages = pagesForApp(app.appCode).filter((page) => canSee(page.permission));
+    const pages = pagesForApp(app.appCode).filter((page) => menuPermissionAllows(page.permission, canSee));
     const rootPage = pages.find((page) => page.href === root);
 
     commands.push({

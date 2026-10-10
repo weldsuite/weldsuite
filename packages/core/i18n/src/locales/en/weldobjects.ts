@@ -7,6 +7,11 @@
  * in every locale.
  */
 export const weldobjects = {
+  // Module sidebar on /objects/:slug
+  sidebar: {
+    objectSettings: 'Object settings',
+  },
+
   // Record list (/objects/:slug)
   list: {
     nameColumn: 'Name',

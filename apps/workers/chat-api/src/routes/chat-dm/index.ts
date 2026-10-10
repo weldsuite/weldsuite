@@ -278,9 +278,9 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createDmS
       .limit(1);
     const senderName = sender?.name ?? 'Someone';
 
-    for (const uid of allUserIds.filter((u) => u !== userId)) {
-      await notifyNewDm(c, db, orgId, uid, userId, senderName, id);
-    }
+    await Promise.all(
+      allUserIds.filter((u) => u !== userId).map((uid) => notifyNewDm(c, db, orgId, uid, userId, senderName, id)),
+    );
 
     return success(c, { ...channel, members: fullMembers }, 201);
   } catch (err) {

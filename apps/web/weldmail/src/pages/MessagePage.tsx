@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { CornerUpLeft, CornerUpRight, Paperclip, ReplyAll } from 'lucide-react';
 import type { MailAttachment, MailMessage } from '@weldsuite/personal-api-client';
@@ -87,6 +87,12 @@ export function MessagePage() {
     setSendError(null);
     setSentNotice(null);
   }, []);
+
+  function sendOnCtrlEnter(e: KeyboardEvent<HTMLElement>) {
+    if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    void onSend();
+  }
 
   async function onSend() {
     if (!id || !mode || sending) return;
@@ -243,14 +249,7 @@ export function MessagePage() {
         )}
 
         {mode && (
-          <div
-            className="mt-6 rounded-lg border border-border p-4"
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
-              e.preventDefault();
-              void onSend();
-            }}
-          >
+          <div className="mt-6 rounded-lg border border-border p-4">
             <p className="mb-3 text-sm font-medium text-foreground">{composeTitle}</p>
 
             {sendError && (
@@ -264,6 +263,7 @@ export function MessagePage() {
                 type="email"
                 value={forwardTo}
                 onChange={(e) => setForwardTo(e.target.value)}
+                onKeyDown={sendOnCtrlEnter}
                 placeholder="recipient@example.com"
                 className="mb-3 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
               />
@@ -272,6 +272,7 @@ export function MessagePage() {
             <textarea
               value={replyBody}
               onChange={(e) => setReplyBody(e.target.value)}
+              onKeyDown={sendOnCtrlEnter}
               rows={8}
               placeholder={mode === 'forward' ? 'Add a note…' : 'Write your reply…'}
               className="w-full min-h-[140px] resize-y rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"

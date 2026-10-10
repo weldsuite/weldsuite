@@ -11,6 +11,7 @@ import { formatDate, formatDateTime, formatTime, hourIn } from '@/lib/date';
 import type { ClockResult, EmployeeOverview } from '@/lib/types';
 import { Card } from '@/components/ui/primitives';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/states';
+import { PayrollReminder } from '@/components/payroll/payroll-reminder';
 
 function greetingKey(timeZone: string): 'employeeGreetingMorning' | 'employeeGreetingAfternoon' | 'employeeGreetingEvening' {
   const hour = hourIn(timeZone);
@@ -258,6 +259,8 @@ export default function EmployeeHomeView() {
       <div>
         <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">{greeting}</h1>
       </div>
+
+      <PayrollReminder />
 
       <ClockCard
         overview={data}

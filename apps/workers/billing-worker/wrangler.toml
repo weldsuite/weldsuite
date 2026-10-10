@@ -24,11 +24,19 @@ head_sampling_rate = 1
 #   /api/internal/telephony/fulfill-number, served by call-api; app-api forwards
 #   it there). The primary path is the CALL_INTERNAL entrypoint binding below
 #   (no secret); the bearer is used only while it is unbound or not deployed.
+# - BILLING_ADMIN_SECRET: shared with the admin console (apps/web/admin), which
+#   calls /api/internal/admin/* with it. 32+ random characters.
 # - BETTERSTACK_TOKEN: Better Stack source token (from Better Stack > Sources)
 
 [vars]
 ENVIRONMENT = "development"
 APP_API_URL = "http://localhost:8789"
+
+# Hourly comp sweep: ends expired comp plans and renews comped workspaces'
+# monthly credits (services/comp-sweep.ts). Test locally with
+# `wrangler dev --test-scheduled` + GET /__scheduled.
+[triggers]
+crons = ["17 * * * *"]
 
 [[hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
@@ -70,6 +78,9 @@ binding = "CALL_INTERNAL"
 service = "weldsuite-call-api-test"
 entrypoint = "CallInternal"
 
+[env.test.triggers]
+crons = ["17 * * * *"]
+
 [env.test.observability]
 enabled = true
 head_sampling_rate = 1
@@ -99,6 +110,9 @@ id = "99689831a815455ba7f836175e5e17c9"
 binding = "CALL_INTERNAL"
 service = "weldsuite-call-api"
 entrypoint = "CallInternal"
+
+[env.production.triggers]
+crons = ["17 * * * *"]
 
 [env.production.observability]
 enabled = true

@@ -88,6 +88,7 @@ export default function VideoSection({
           {isYouTube || isVimeo ? (
             <iframe
               src={embedUrl}
+              title={title ? title : 'Embedded video'}
               className="absolute inset-0 w-full h-full"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen

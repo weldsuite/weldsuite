@@ -1,5 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { getLocale } from "@weldsuite/i18n"
+import { localeConfig } from "@weldsuite/i18n/locales"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -18,9 +20,14 @@ export function formatPercentage(value: number): string {
   return `${(value * 100).toFixed(2)}%`
 }
 
+/** BCP 47 tag of the UI language (stored locale), `en-US` when unset. */
+function currentIntlLocale(): string {
+  return localeConfig[getLocale()]?.intlLocale ?? "en-US"
+}
+
 export function formatDate(date: string | Date): string {
   const d = typeof date === "string" ? new Date(date) : date
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(currentIntlLocale(), {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -52,7 +59,7 @@ export function formatIsoDate(
 
 export function formatDateTime(date: string | Date): string {
   const d = typeof date === "string" ? new Date(date) : date
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat(currentIntlLocale(), {
     year: "numeric",
     month: "short",
     day: "numeric",

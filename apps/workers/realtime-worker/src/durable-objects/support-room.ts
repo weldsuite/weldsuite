@@ -102,7 +102,7 @@ export class SupportRoom extends DurableObject<Env> {
         const member: PresenceMember = {
           userId,
           userName,
-          data: { role, ...(msg.data as Record<string, unknown> ?? {}) },
+          data: { role, ...(msg.data as Record<string, unknown> | undefined) },
         };
         this.presence.set(userId, member);
         this.broadcastExcept(ws, JSON.stringify({ type: 'presence:join', member }));

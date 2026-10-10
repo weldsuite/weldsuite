@@ -53,36 +53,38 @@ export async function listEnterpriseWorkspaces(): Promise<SupportWorkspace[]> {
     .innerJoin(plans, eq(workspaces.planId, plans.id))
     .where(eq(plans.slug, 'enterprise'));
 
-  const results: SupportWorkspace[] = [];
-  for (const ws of enterpriseWorkspaces) {
-    if (!ws.clerkOrgId) continue;
+  // One independent tenant lookup per workspace (stateless Neon HTTP), run together.
+  const results: SupportWorkspace[] = await Promise.all(
+    enterpriseWorkspaces
+      .filter((ws): ws is typeof ws & { clerkOrgId: string } => Boolean(ws.clerkOrgId))
+      .map(async (ws) => {
+        let channel: typeof supportChannels.$inferSelect | null = null;
+        try {
+          const tenantDb = await getTenantDbForWorkspace(ws.clerkOrgId);
+          const [row] = await tenantDb
+            .select()
+            .from(supportChannels)
+            .where(eq(supportChannels.status, 'active'))
+            .limit(1);
+          channel = row || null;
+        } catch {
+          channel = null;
+        }
 
-    let channel: typeof supportChannels.$inferSelect | null = null;
-    try {
-      const tenantDb = await getTenantDbForWorkspace(ws.clerkOrgId);
-      const [row] = await tenantDb
-        .select()
-        .from(supportChannels)
-        .where(eq(supportChannels.status, 'active'))
-        .limit(1);
-      channel = row || null;
-    } catch {
-      channel = null;
-    }
-
-    results.push({
-      ...ws,
-      createdAt: ws.createdAt.toISOString(),
-      supportChannel: channel
-        ? {
-            ...channel,
-            lastMessageAt: channel.lastMessageAt ? channel.lastMessageAt.toISOString() : null,
-            createdAt: channel.createdAt.toISOString(),
-            updatedAt: channel.updatedAt.toISOString(),
-          }
-        : null,
-    });
-  }
+        return {
+          ...ws,
+          createdAt: ws.createdAt.toISOString(),
+          supportChannel: channel
+            ? {
+                ...channel,
+                lastMessageAt: channel.lastMessageAt ? channel.lastMessageAt.toISOString() : null,
+                createdAt: channel.createdAt.toISOString(),
+                updatedAt: channel.updatedAt.toISOString(),
+              }
+            : null,
+        };
+      }),
+  );
 
   results.sort((a, b) => {
     const aTime = a.supportChannel?.lastMessageAt

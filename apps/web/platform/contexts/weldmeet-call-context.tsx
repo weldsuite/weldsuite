@@ -37,6 +37,9 @@ import {
   playHandLowerSound,
 } from '@/lib/utils/notification-sound';
 import { randomSuffix } from '@/lib/random';
+import { useRegisterActiveCall } from '@/contexts/active-call-context';
+import { rtkParticipantIds, useCallSupersededNotice } from '@/hooks/use-call-superseded-notice';
+import { meetingCallLabel } from '@/lib/call-switch-labels';
 import { enableMicrophone, isMicrophonePermissionDenied, useLeaveCallGuard, useMicrophoneRecovery } from '@weldsuite/weldmeet-ui';
 
 // RNNoise noise suppression flag. Plain build-time/runtime gate, default ON;
@@ -217,6 +220,9 @@ const RECONNECT_TOAST_ID = 'weldmeet-reconnecting';
 /** How long a deliberate leave waits for RealtimeKit before telling the backend anyway. */
 const RTK_LEAVE_TIMEOUT_MS = 2_000;
 
+/** How long a switch waits for a still-connecting meeting to settle before dropping it. */
+const CONNECT_SETTLE_TIMEOUT_MS = 15_000;
+
 export interface CallCaption {
   id: string;
   peerId: string;
@@ -359,8 +365,16 @@ export function useWeldMeetCallOptional() {
 
 export function WeldMeetCallProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { getClient } = useAppApiClient();
-  const { getToken } = useAuth();
+  const { getToken, userId } = useAuth();
   const queryClient = useQueryClient();
+  // The server drops the older connection when this user joins another call or
+  // meeting, or the same meeting again elsewhere, and says so just before the kick.
+  const supersededNotice = useCallSupersededNotice({
+    kind: 'meet',
+    userId: userId ?? undefined,
+    message: () => getTranslations('weldmeet').inCall.connection.supersededByOtherCall,
+  });
+  const explainUnexpectedExit = supersededNotice.explainExit;
 
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -1076,9 +1090,14 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
       if (mId && sId && intent !== 'end') fireLeaveRequest(mId, sId);
       // 'ended' / 'kicked' without a local leave/end means the host ended the
       // meeting for everyone. RTK reports an individual removal as 'kicked'
-      // too, so that case shows the same message.
+      // too, so that case shows the same message. The server also kicks a user
+      // who joined another call or meeting; it says so just before, and that
+      // explanation wins over the host message.
       if ((state === 'ended' || state === 'kicked') && intent === null) {
-        toast.info(getTranslations('weldmeet').leaveMenu.hostEnded);
+        explainUnexpectedExit(
+          { sessionId: sId, participantIds: rtkParticipantIds(m) },
+          () => toast.info(getTranslations('weldmeet').leaveMenu.hostEnded),
+        );
       }
       // The SDK gave up reconnecting; only a fresh join gets the user back in.
       if (state === 'failed' && intent === null) {
@@ -1108,7 +1127,7 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
     // The device the user picked before joining; RTK started on its defaults.
     if (options?.deviceIds) void applyPreferredDevices(m, options.deviceIds);
     return m;
-  }, [cleanup, fireLeaveRequest, clearRecordingWatchdog]);
+  }, [cleanup, fireLeaveRequest, clearRecordingWatchdog, explainUnexpectedExit]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -1320,6 +1339,62 @@ export function WeldMeetCallProvider({ children }: Readonly<{ children: React.Re
     void queryClient.invalidateQueries({ queryKey: weldmeetKeys.session(mId) });
     void queryClient.invalidateQueries({ queryKey: weldmeetKeys.meeting(mId) });
   }, [meetingId, sessionId, getClient, cleanup, queryClient, fireLeaveRequest]);
+
+  // ── Single active call ───────────────────────────────────────────────────
+  // While the meeting is live (connecting or connected; the pre-join preview is
+  // not) it is registered with the coordinator, so joining another meeting or a
+  // WeldChat call can ask to leave it first.
+  const statusRef = useRef(status);
+  useEffect(() => { statusRef.current = status; }, [status]);
+  const meetingClientRef = useRef(meeting);
+  useEffect(() => { meetingClientRef.current = meeting; }, [meeting]);
+  const meetingTitleRef = useRef(meetingTitle);
+  useEffect(() => { meetingTitleRef.current = meetingTitle; }, [meetingTitle]);
+  const leaveMeetingRef = useRef(leaveMeeting);
+  leaveMeetingRef.current = leaveMeeting;
+  const cleanupRef = useRef(cleanup);
+  cleanupRef.current = cleanup;
+  const settleWaitersRef = useRef<Array<() => void>>([]);
+
+  // A meeting that is still connecting has no session or RealtimeKit room to
+  // leave yet: this wakes whoever is waiting for it to get there (or to fail).
+  useEffect(() => {
+    if (status === 'connecting' || (status === 'connected' && !meeting)) return;
+    for (const wake of settleWaitersRef.current.splice(0)) wake();
+  }, [status, meeting]);
+
+  /** Leaves this meeting for a switch. Never ends it for the others. */
+  const leaveForSwitch = useCallback(async () => {
+    const stillConnecting = () =>
+      statusRef.current === 'connecting' || (statusRef.current === 'connected' && !meetingClientRef.current);
+    if (stillConnecting()) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, CONNECT_SETTLE_TIMEOUT_MS);
+        settleWaitersRef.current.push(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+    if (meetingIdRef.current && sessionIdRef.current) {
+      await leaveMeetingRef.current();
+    } else if (statusRef.current !== 'idle') {
+      // No session: the request for it never came back. Drop what is left.
+      cleanupRef.current();
+    }
+  }, []);
+
+  const isMeetingLive = (status === 'connecting' || status === 'connected') && !!meetingId;
+  useRegisterActiveCall(
+    'meet',
+    isMeetingLive
+      ? {
+          id: meetingId,
+          label: () => meetingCallLabel(meetingTitleRef.current, 'current'),
+          leave: leaveForSwitch,
+        }
+      : null,
+  );
 
   const toggleMute = useCallback(async () => {
     if (!meeting) return;

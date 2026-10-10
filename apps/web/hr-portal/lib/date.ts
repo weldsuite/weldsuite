@@ -53,6 +53,12 @@ export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Today's calendar date (`YYYY-MM-DD`) in `timeZone` — the date on the wall where the signer is. */
+export function todayInZone(timeZone: string, now: Date = new Date()): string {
+  // The `en-CA` locale prints dates as YYYY-MM-DD.
+  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone }).format(now);
+}
+
 export function addDaysIso(iso: string, days: number): string {
   const date = new Date(`${iso}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);

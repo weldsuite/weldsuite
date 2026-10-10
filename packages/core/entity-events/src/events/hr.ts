@@ -18,4 +18,9 @@ export const HR_ENTITY_EVENTS = {
   hr_evaluation: ['created', 'updated', 'deleted', 'submitted', 'acknowledged'],
   hr_kpi_value: ['created', 'updated', 'deleted'],
   hr_milestone: ['created', 'updated', 'deleted', 'achieved'],
+  // Payroll: ids and status only. Amounts never go on the bus (who earns what
+  // is not for every workspace member, nor for workflows and agents).
+  hr_pay_run: ['created', 'updated', 'deleted', 'calculated', 'approved', 'paid', 'cancelled'],
+  hr_payslip: ['published'],
+  hr_payroll_filing: ['created', 'updated', 'submitted'],
 } as const;

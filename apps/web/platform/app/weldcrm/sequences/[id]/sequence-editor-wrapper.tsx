@@ -61,6 +61,7 @@ export function SequenceEditorWrapper({ sequenceId, isDraft = false, actionsPort
       triggerLocked
       extraVariableGroups={extraVariableGroups}
       excludeVariableGroups={EXCLUDED_VARIABLE_GROUPS}
+      savedMessage={t('crm.sequenceEditorPage.savedSuccess')}
       actionsPortalRef={actionsPortalRef}
       onDirtyChange={onDirtyChange}
       {...draftOverrides}

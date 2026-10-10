@@ -3,6 +3,8 @@
   "ui": "tui",
   "globalEnv": [
     "BASE_URL",
+    "BILLING_ADMIN_SECRET",
+    "BILLING_WORKER_URL",
     "CF_ACCOUNT_ID",
     "CF_EMAIL_SEND_TOKEN",
     "CF_REALTIME_APP_ID",

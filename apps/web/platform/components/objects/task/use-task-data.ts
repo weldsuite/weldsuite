@@ -20,7 +20,7 @@
 
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
-import type { UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
+import type { CreateTaskInput, UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
 
 /**
  * Broad invalidation predicate — bumps every React-Query cache entry whose
@@ -35,6 +35,9 @@ function invalidateAllTaskLists(qc: QueryClient): void {
       const k = q.queryKey;
       if (!Array.isArray(k)) return false;
       const first = String(k[0] ?? '');
+      // Project task lists live under ['projects', projectId, 'tasks', ...] — no
+      // entry in that key starts with "task", so match the segment explicitly.
+      if (first === 'projects') return k.includes('tasks');
       return (
         first === 'task-panel' ||
         first === 'app-api' ||
@@ -204,6 +207,13 @@ export function useUpdateTask(taskId: string) {
   });
 }
 
+/**
+ * Fired on `window` after a task is deleted from the panel. Pages that keep
+ * their task list in local state (Gantt, pipeline) listen and drop the row;
+ * react-query lists are covered by the invalidation below.
+ */
+export const TASK_DELETED_EVENT = 'weldflow:task-deleted';
+
 export function useDeleteTask(taskId: string) {
   const api = useAppApi();
   const qc = useQueryClient();
@@ -212,6 +222,7 @@ export function useDeleteTask(taskId: string) {
       await api.tasks.delete(taskId);
     },
     onSuccess: () => {
+      window.dispatchEvent(new CustomEvent(TASK_DELETED_EVENT, { detail: { id: taskId } }));
       qc.invalidateQueries({ queryKey: taskPanelKeys.all });
       invalidateAllTaskLists(qc);
     },
@@ -348,6 +359,8 @@ export function useCreateSubtask(parentTaskId: string, projectId: string | null 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: taskPanelKeys.subtasks(parentTaskId) });
+      qc.invalidateQueries({ queryKey: taskPanelKeys.task(parentTaskId) });
+      invalidateAllTaskLists(qc);
     },
   });
 }
@@ -362,6 +375,24 @@ export function useToggleSubtask() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: taskPanelKeys.all });
+      invalidateAllTaskLists(qc);
+    },
+  });
+}
+
+/**
+ * Duplicate a task: creates the copy, then refreshes every task list so it
+ * shows up without a reload.
+ */
+export function useDuplicateTask() {
+  const api = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: CreateTaskInput) => {
+      const res = await api.tasks.create(data);
+      return res.data;
+    },
+    onSuccess: () => {
       invalidateAllTaskLists(qc);
     },
   });

@@ -465,7 +465,7 @@ export function MessageList({
         return;
       }
       toast.success(on ? t.mail.messageList.emailPinned : t.mail.messageList.emailUnpinned);
-      queryClient.invalidateQueries({ queryKey: ['mail'] });
+      void queryClient.invalidateQueries({ queryKey: ['mail'] });
     }).catch(() => toast.error(t.mail.messageList.failedToUpdateLabel));
   };
   const isItemPinned = (id: string) => {
@@ -929,7 +929,7 @@ export function MessageList({
                     : mailApi.messages.addLabel(accountId, item.id, label.name);
                   action.then(() => {
                     toast.success(isApplied ? t.mail.messageList.labelRemovedToast.replace('{name}', label.name) : t.mail.messageList.labelAddedToast.replace('{name}', label.name));
-                    queryClient.invalidateQueries({ queryKey: ['mail'] });
+                    void queryClient.invalidateQueries({ queryKey: ['mail'] });
                   }).catch(() => toast.error(t.mail.messageList.failedToUpdateLabel));
                 }}>
                   <span className="w-2 h-2 rounded-full mr-2 flex-shrink-0" style={{ backgroundColor: label.color || '#6b7280' }} />
@@ -949,7 +949,7 @@ export function MessageList({
             : mailApi.messages.addLabel(accountId, item.id, 'muted');
           action.then(() => {
             toast.success(isMuted ? t.mail.messageList.emailUnmuted : t.mail.messageList.emailMuted);
-            queryClient.invalidateQueries({ queryKey: ['mail'] });
+            void queryClient.invalidateQueries({ queryKey: ['mail'] });
           }).catch(() => toast.error(t.mail.messageList.failedToMute));
         }}>
           <BellOff className="h-4 w-4 mr-0.5" />
@@ -1001,6 +1001,13 @@ export function MessageList({
     setAppliedFilter({});
   };
 
+  // Enter in a filter text field applies the filter.
+  const applyOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    applyFilter();
+  };
+
   const filterRowClass = 'grid grid-cols-[96px_1fr] items-center gap-3';
   const filterLabelClass = 'text-sm text-muted-foreground';
   const draftActiveCount = countActiveFilters(draftFilter);
@@ -1031,35 +1038,26 @@ export function MessageList({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[460px] p-4">
-        <div
-          role="presentation"
-          className="space-y-3"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              applyFilter();
-            }
-          }}
-        >
+        <div className="space-y-3">
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterFromLabel}</span>
-            <Input value={draftFilter.from ?? ''} onChange={(e) => updateDraft({ from: e.target.value })} className="h-8 text-sm" />
+            <Input onKeyDown={applyOnEnter} value={draftFilter.from ?? ''} onChange={(e) => updateDraft({ from: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterToLabel}</span>
-            <Input value={draftFilter.to ?? ''} onChange={(e) => updateDraft({ to: e.target.value })} className="h-8 text-sm" />
+            <Input onKeyDown={applyOnEnter} value={draftFilter.to ?? ''} onChange={(e) => updateDraft({ to: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterSubjectLabel}</span>
-            <Input value={draftFilter.subject ?? ''} onChange={(e) => updateDraft({ subject: e.target.value })} className="h-8 text-sm" />
+            <Input onKeyDown={applyOnEnter} value={draftFilter.subject ?? ''} onChange={(e) => updateDraft({ subject: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterHasWords}</span>
-            <Input value={draftFilter.hasWords ?? ''} onChange={(e) => updateDraft({ hasWords: e.target.value })} className="h-8 text-sm" />
+            <Input onKeyDown={applyOnEnter} value={draftFilter.hasWords ?? ''} onChange={(e) => updateDraft({ hasWords: e.target.value })} className="h-8 text-sm" />
           </div>
           <div className={filterRowClass}>
             <span className={filterLabelClass}>{t.mail.messageList.filterDoesntHave}</span>
-            <Input value={draftFilter.doesntHave ?? ''} onChange={(e) => updateDraft({ doesntHave: e.target.value })} className="h-8 text-sm" />
+            <Input onKeyDown={applyOnEnter} value={draftFilter.doesntHave ?? ''} onChange={(e) => updateDraft({ doesntHave: e.target.value })} className="h-8 text-sm" />
           </div>
 
           {/* Size */}
@@ -1074,6 +1072,7 @@ export function MessageList({
                 </SelectContent>
               </Select>
               <Input
+                onKeyDown={applyOnEnter}
                 type="number"
                 min={0}
                 value={draftFilter.sizeValue ?? ''}
@@ -1108,50 +1107,41 @@ export function MessageList({
                   <SelectItem value="1y">{t.mail.messageList.filterWithin1Year}</SelectItem>
                 </SelectContent>
               </Select>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      'h-8 flex-1 justify-start text-sm gap-2 font-normal',
-                      draftFilter.dateWithinDate ? 'text-foreground' : 'text-muted-foreground'
-                    )}
+              <div className="relative flex flex-1">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={cn(
+                        'h-8 flex-1 justify-start text-sm gap-2 font-normal',
+                        draftFilter.dateWithinDate ? 'pr-8 text-foreground' : 'text-muted-foreground'
+                      )}
+                    >
+                      <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
+                      {draftFilter.dateWithinDate ? format(draftFilter.dateWithinDate, 'PP') : t.mail.messageList.filterDatePlaceholder}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={draftFilter.dateWithinDate}
+                      onSelect={(date) => updateDraft({ dateWithinDate: date || undefined })}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                {draftFilter.dateWithinDate && (
+                  <button
+                    type="button"
+                    aria-label={t.common.ui.form.clear}
+                    onClick={() => updateDraft({ dateWithinDate: undefined })}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-sm hover:bg-accent"
                   >
-                    <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
-                    {draftFilter.dateWithinDate ? format(draftFilter.dateWithinDate, 'PP') : t.mail.messageList.filterDatePlaceholder}
-                    {draftFilter.dateWithinDate && (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        aria-label={t.common.ui.form.clear}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          updateDraft({ dateWithinDate: undefined });
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            updateDraft({ dateWithinDate: undefined });
-                          }
-                        }}
-                        className="ml-auto p-0.5 rounded-sm hover:bg-accent"
-                      >
-                        <X className="h-3 w-3" />
-                      </span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={draftFilter.dateWithinDate}
-                    onSelect={(date) => updateDraft({ dateWithinDate: date || undefined })}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1231,7 +1221,7 @@ export function MessageList({
       .addLabel(accountId, item.id, labelData.name)
       .then(() => {
         toast.success(t.mail.messageList.labelAddedToast.replace('{name}', labelData.name));
-        queryClient.invalidateQueries({ queryKey: ['mail'] });
+        void queryClient.invalidateQueries({ queryKey: ['mail'] });
       })
       .catch(() => toast.error(t.mail.messageList.failedToAddLabel));
   };

@@ -65,6 +65,7 @@ export const weldmeet = {
       reconnecting: 'Connection lost. Reconnecting…',
       reconnected: 'You are back in the meeting',
       lost: "Couldn't reconnect to the meeting. Join again to continue.",
+      supersededByOtherCall: 'You left this call because you joined another call or meeting.',
     },
     recording: {
       started: 'Recording started. All participants will be notified.',

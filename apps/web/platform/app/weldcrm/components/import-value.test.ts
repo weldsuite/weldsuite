@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { coerceScalar } from './import-value';
+import { coerceScalar, parseAddressCell } from './import-value';
 
 describe('coerceScalar', () => {
   it('returns the string unchanged for string / default type', () => {
@@ -38,6 +38,34 @@ describe('coerceScalar', () => {
 
     it('tolerates surrounding whitespace', () => {
       expect(coerceScalar('  yes  ', 'boolean')).toBe(true);
+    });
+  });
+
+  describe('address', () => {
+    it('reads the JSON the grid export writes, dropping empty parts', () => {
+      expect(coerceScalar('{"city":"Amsterdam","state":"","country":"NL"}', 'address')).toEqual({
+        city: 'Amsterdam',
+        country: 'NL',
+      });
+    });
+
+    it('reads the full address shape, with numbers as text', () => {
+      expect(
+        parseAddressCell('{"line1":"Keizersgracht 1","postalCode":1015,"city":"Amsterdam","extra":"x"}'),
+      ).toEqual({ line1: 'Keizersgracht 1', postalCode: '1015', city: 'Amsterdam' });
+    });
+
+    it('skips an address object with nothing in it', () => {
+      expect(parseAddressCell('{"city":"","country":""}')).toBeUndefined();
+      expect(parseAddressCell('{}')).toBeUndefined();
+    });
+
+    it('keeps free text whole as the first address line', () => {
+      expect(parseAddressCell('Keizersgracht 1, Amsterdam')).toEqual({ line1: 'Keizersgracht 1, Amsterdam' });
+    });
+
+    it('treats unparseable braces as free text', () => {
+      expect(parseAddressCell('{not json')).toEqual({ line1: '{not json' });
     });
   });
 });

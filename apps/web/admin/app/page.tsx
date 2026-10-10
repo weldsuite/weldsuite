@@ -1,9 +1,14 @@
 import Link from 'next/link';
-import { ArrowRight, Building2, Coins, Globe, Headphones, Package, Phone, Video } from 'lucide-react';
+import { ArrowRight, Building2, Coins, Globe, Headphones, Package, Phone, Tags, Video } from 'lucide-react';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { requireAdmin } from '@/lib/auth';
 import { getAppStats } from '@/lib/apps-data';
-import { adminMeetAiPricingCopy, adminPhonePricingCopy, adminPricingCopy } from '@/lib/i18n';
+import {
+  adminMeetAiPricingCopy,
+  adminPhonePricingCopy,
+  adminPlanPricingCopy,
+  adminPricingCopy,
+} from '@/lib/i18n';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +21,7 @@ export default async function DashboardPage() {
   const pricing = adminPricingCopy();
   const phonePricing = adminPhonePricingCopy();
   const meetAiPricing = adminMeetAiPricingCopy();
+  const planPricing = adminPlanPricingCopy();
 
   const cards = [
     {
@@ -44,6 +50,13 @@ export default async function DashboardPage() {
       icon: Coins,
       title: 'AI Costs',
       description: 'Gateway spend versus what we billed',
+      stat: null as string | null,
+    },
+    {
+      href: '/plan-pricing',
+      icon: Tags,
+      title: planPricing.cardTitle,
+      description: planPricing.cardDescription,
       stat: null as string | null,
     },
     {

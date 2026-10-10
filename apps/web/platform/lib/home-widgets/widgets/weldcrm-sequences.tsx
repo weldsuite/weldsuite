@@ -58,7 +58,7 @@ function Render({ settings }: Readonly<{ settings: WeldcrmSequencesSettings }>) 
   return <SequencesCard rows={rows} isLoading={res.isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WeldcrmSequencesSettings; onChange: (next: WeldcrmSequencesSettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldcrmSequencesSettings; onChange: (next: WeldcrmSequencesSettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

@@ -29,7 +29,7 @@ export function I18nProvider({
   children: ReactNode;
   initialLanguage?: string | null;
 }>) {
-  const [language, setLanguageState] = useState<AppLanguage>(() =>
+  const [language, setLanguage] = useState<AppLanguage>(() =>
     resolveAppLanguage(initialLanguage),
   );
 
@@ -39,7 +39,7 @@ export function I18nProvider({
       language,
       intlLocale: INTL_LOCALES[language],
       t,
-      setLanguage: (next) => setLanguageState(resolveAppLanguage(next)),
+      setLanguage: (next) => setLanguage(resolveAppLanguage(next)),
       format: interpolate,
       plural: pluralFn,
     };
@@ -57,5 +57,5 @@ export function useI18n(): I18nContextValue {
 }
 
 export function statusLabel(t: Translations, status: string): string {
-  return (t.status as Record<string, string>)[status] ?? status.replace(/_/g, ' ');
+  return (t.status as Record<string, string>)[status] ?? status.replaceAll('_', ' ');
 }

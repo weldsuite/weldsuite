@@ -2,7 +2,8 @@
  * Posting and reversing imported payrolls.
  *
  * One payroll = one journal entry (posting key `payroll:<importId>`) and one
- * `payroll_imports` row, written in the same atomic batch. A payroll imports
+ * `payroll_imports` row, written in the same atomic batch. Sources: a CSV file,
+ * Gusto, and WeldHR's own payroll (`weldhr`, external id = the pay run id). A payroll imports
  * once: (entity, source, externalId) is unique, so a repeated CSV or a second
  * Gusto sync finds it instead of posting it again.
  *
@@ -35,7 +36,7 @@ export class DuplicatePayrollError extends Error {
 export interface PostPayrollArgs {
   entityId: string;
   userId: string | null;
-  source: 'csv' | 'gusto';
+  source: 'csv' | 'gusto' | 'weldhr';
   connectionId?: string | null;
   externalId: string;
   payDate: string;

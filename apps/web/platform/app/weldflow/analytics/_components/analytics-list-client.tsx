@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Link, useRouter } from '@/lib/router';
+import { formatDate } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { Plus, EllipsisVertical, Pencil, Copy, Trash2, BarChart3 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -215,7 +216,7 @@ export function AnalyticsListClient({
       {/* Updated */}
       <div className="w-[120px]">
         <span className="text-sm text-gray-600 dark:text-muted-foreground">
-          {new Date(report.updatedAt).toLocaleDateString()}
+          {formatDate(report.updatedAt)}
         </span>
       </div>
 
@@ -247,7 +248,7 @@ export function AnalyticsListClient({
                 <span>
                   {chartCountLabel(report.chartCount)}
                 </span>
-                <span>{t.projects.analyticsReports.updated} {new Date(report.updatedAt).toLocaleDateString()}</span>
+                <span>{t.projects.analyticsReports.updated} {formatDate(report.updatedAt)}</span>
               </div>
             </CardContent>
           </Card>

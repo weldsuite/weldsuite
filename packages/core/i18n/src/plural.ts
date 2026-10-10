@@ -22,5 +22,5 @@ export type PluralForms = Partial<Record<PluralForm, string>> & { other: string 
 export function plural(count: number, forms: PluralForms, locale: Language): string {
   const category = new Intl.PluralRules(locale).select(count) as PluralForm;
   const template = forms[category] ?? forms.other;
-  return template.replace(/\{count\}/g, String(count));
+  return template.replaceAll('{count}', String(count));
 }

@@ -365,15 +365,15 @@ function parseBalanceTag(value: string): number | null {
 
 function parseMT940Date(yymmdd: string): string | null {
   if (yymmdd.length < 6) return null;
-  const yy = parseInt(yymmdd.substring(0, 2), 10);
+  const yy = Number.parseInt(yymmdd.substring(0, 2), 10);
   const mm = yymmdd.substring(2, 4);
   const dd = yymmdd.substring(4, 6);
 
   // Y2K window: 00-79 = 2000s, 80-99 = 1900s
   const year = yy < 80 ? 2000 + yy : 1900 + yy;
 
-  const monthNum = parseInt(mm, 10);
-  const dayNum = parseInt(dd, 10);
+  const monthNum = Number.parseInt(mm, 10);
+  const dayNum = Number.parseInt(dd, 10);
   if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) return null;
 
   return `${year}-${mm}-${dd}`;

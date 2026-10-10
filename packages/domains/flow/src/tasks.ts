@@ -62,6 +62,20 @@ export async function createTask(
     .where(positionWhere);
   const nextPosition = (positionResult[0]?.maxPosition || 0) + 1;
 
+  // A subtask created without an explicit priority inherits its parent's
+  // instead of silently becoming "medium" (the column is NOT NULL, so there is
+  // no "unset" to store).
+  let priority = data.priority as string | undefined;
+  const parentTaskId = data.parentTaskId as string | undefined;
+  if (!priority && parentTaskId) {
+    const [parent] = await db
+      .select({ priority: t.priority })
+      .from(t)
+      .where(and(eq(t.id, parentTaskId), isNull(t.deletedAt)))
+      .limit(1);
+    priority = parent?.priority ?? undefined;
+  }
+
   const rawAssigneeIds = data.assigneeIds as string[] | undefined;
   const rawAssigneeId = data.assigneeId as string | undefined;
   const assigneeIds: string[] =
@@ -83,7 +97,7 @@ export async function createTask(
     description: data.description,
     status: resolvedStatus,
     stageId,
-    priority: data.priority ?? 'medium',
+    priority: priority ?? 'medium',
     type: data.type ?? 'task',
     assigneeId: primaryAssigneeId,
     assigneeIds: assigneeIds.length > 0 ? assigneeIds : null,

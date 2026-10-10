@@ -106,7 +106,7 @@ export interface Party {
   averageDealSize?: { amount: number; currency: string } | null;
 
   /** Accounting role — distinct from CRM customer/supplier status flags. */
-  role: 'customer' | 'supplier' | 'both' | 'none' | string;
+  role: string;
 
   partyCode?: string | null;
 }

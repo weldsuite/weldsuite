@@ -22,10 +22,10 @@ function readFromStorage(): boolean {
  *   no matter where they sit in the React tree.
  */
 export function useWeldAgentDrawerOpen() {
-  const [open, setOpenState] = useState<boolean>(readFromStorage);
+  const [isOpen, setIsOpen] = useState<boolean>(readFromStorage);
 
   useEffect(() => {
-    const handler = () => setOpenState(readFromStorage());
+    const handler = () => setIsOpen(readFromStorage());
     window.addEventListener(CHANGE_EVENT, handler);
     // Also handle native storage events from other tabs
     window.addEventListener('storage', handler);
@@ -40,7 +40,7 @@ export function useWeldAgentDrawerOpen() {
       try {
         window.sessionStorage.setItem(STORAGE_KEY, String(value));
       } catch { /* best-effort only; failure is not actionable */ }
-      setOpenState(value);
+      setIsOpen(value);
       window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
     };
 
@@ -58,5 +58,5 @@ export function useWeldAgentDrawerOpen() {
     apply();
   }, []);
 
-  return [open, setOpen] as const;
+  return [isOpen, setOpen] as const;
 }

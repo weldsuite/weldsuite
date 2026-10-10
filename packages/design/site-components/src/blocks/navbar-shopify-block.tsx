@@ -53,6 +53,6 @@ export interface NavbarShopifyBlockProps {
   mode?: string;
 }
 
-export function NavbarShopifyBlock(props: NavbarShopifyBlockProps) {
+export function NavbarShopifyBlock(props: Readonly<NavbarShopifyBlockProps>) {
   return <NavbarShopifySection {...props} />;
 }

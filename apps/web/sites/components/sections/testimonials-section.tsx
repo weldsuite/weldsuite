@@ -42,7 +42,7 @@ export default function TestimonialsSection({
   testimonials = defaultTestimonials,
   store,
   settings
-}: TestimonialsSectionProps) {
+}: Readonly<TestimonialsSectionProps>) {
   return (
     <section className="py-16 px-4">
       <div className="container mx-auto">

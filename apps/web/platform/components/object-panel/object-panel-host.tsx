@@ -4,14 +4,15 @@ import { useObjectPanel } from './use-object-panel';
 import { usePathname } from '@/lib/router';
 
 /**
- * Renders the object-panel stack as plain in-flow flex siblings. It's mounted
+ * Renders the object panel as a plain in-flow flex sibling. It's mounted
  * inside `ModuleContent`'s flex row right after the module content, directly
- * on the shell background, and each panel attaches with a `border-l` divider —
- * no absolute positioning, no width reservation, no drawer-inset math.
+ * on the shell background, and attaches with a `border-l` divider — no
+ * absolute positioning, no width reservation, no drawer-inset math.
  *
- * Deeper panels render first (to the left), the top-of-stack last (to the
- * right). A `fullscreen` panel renders its own fixed overlay (see
- * `EntityDetailView`) and so drops out of the row, covering the content area.
+ * Only the top of the stack is rendered: there is never more than one panel
+ * on screen. Opening a panel from inside another swaps the content in place
+ * and gives the new panel a back chevron that returns to the previous one.
+ * A `fullscreen` panel renders its own fixed overlay (see `EntityDetailView`).
  *
  * Renders nothing while the stack is empty.
  */
@@ -29,37 +30,37 @@ export function ObjectPanelHost() {
     }
   }, [pathname, stack.length, closeAll]);
 
-  if (stack.length === 0) return null;
+  const handle = stack.at(-1);
+  if (!handle) return null;
+
+  const definition = resolveObjectPanel(handle.type);
+  if (!definition) {
+    if (typeof console !== 'undefined') {
+      console.warn(
+        `[ObjectPanelHost] No panel registered for type "${handle.type}"`,
+      );
+    }
+    return null;
+  }
+  const PanelComponent = definition.component;
+  const depth = stack.length - 1;
 
   return (
     <Suspense fallback={null}>
-      {stack.map((handle, depth) => {
-        const definition = resolveObjectPanel(handle.type);
-        if (!definition) {
-          if (typeof console !== 'undefined') {
-            console.warn(
-              `[ObjectPanelHost] No panel registered for type "${handle.type}"`,
-            );
-          }
-          return null;
-        }
-        const PanelComponent = definition.component;
-        const isTop = depth === stack.length - 1;
-        return (
-          <PanelComponent
-            // Key by depth + identity so a "swap top of stack" remounts the
-            // panel rather than mutating the existing one mid-render.
-            key={`${depth}:${handle.type}:${handle.id}`}
-            id={handle.id}
-            isOpen
-            onClose={isTop ? close : () => undefined}
-            onBack={depth > 0 ? close : undefined}
-            initialTab={handle.initialTab}
-            mode={handle.mode}
-            onModeChange={(next) => setMode(depth, next)}
-          />
-        );
-      })}
+      <PanelComponent
+        // Key by depth + identity so swapping the top of the stack remounts
+        // the panel rather than mutating the existing one mid-render.
+        key={`${depth}:${handle.type}:${handle.id}`}
+        id={handle.id}
+        isOpen
+        // The close button dismisses the panel entirely; the back chevron
+        // (only when it was opened from another panel) steps back one level.
+        onClose={closeAll}
+        onBack={depth > 0 ? close : undefined}
+        initialTab={handle.initialTab}
+        mode={handle.mode}
+        onModeChange={(next) => setMode(depth, next)}
+      />
     </Suspense>
   );
 }

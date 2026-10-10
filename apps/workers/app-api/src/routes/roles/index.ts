@@ -195,18 +195,20 @@ app.delete('/:roleId', requirePermission('roles:delete'), async (c) => {
     // a cleanup or realtime failure is logged, never surfaced to the caller.
     try {
       const removed = await cleanupRoleLinksOnRoleDelete(db, roleId);
-      for (const change of removed) {
-        for (const userId of change.userIds) {
-          try {
-            await publishChatMemberLeft(c.env, change.channelId, {
-              channelId: change.channelId,
-              userId,
-            });
-          } catch (e) {
-            console.error('[app-api/roles] realtime publish failed (role-delete remove):', e);
-          }
-        }
-      }
+      await Promise.all(
+        removed.flatMap((change) =>
+          change.userIds.map(async (userId) => {
+            try {
+              await publishChatMemberLeft(c.env, change.channelId, {
+                channelId: change.channelId,
+                userId,
+              });
+            } catch (e) {
+              console.error('[app-api/roles] realtime publish failed (role-delete remove):', e);
+            }
+          }),
+        ),
+      );
     } catch (e) {
       console.error('[app-api/roles] failed to clean up chat role links on role delete:', e);
     }

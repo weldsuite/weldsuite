@@ -9,7 +9,7 @@
  * (W3 legacy-worker phase-out).
  */
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
@@ -72,15 +72,19 @@ export async function autoJoinUserToPublicChannels(
     )
     .onConflictDoNothing();
 
-  for (const ch of toInsert) {
-    await db
-      .update(chatChannels)
-      .set({
-        memberCount: sql`(SELECT count(*)::int FROM ${chatChannelMembers} WHERE ${chatChannelMembers.channelId} = ${ch.id})`,
-        updatedAt: now,
-      })
-      .where(eq(chatChannels.id, ch.id));
-  }
+  // One statement recounts every joined channel (correlated on the row being updated).
+  await db
+    .update(chatChannels)
+    .set({
+      memberCount: sql`(SELECT count(*)::int FROM ${chatChannelMembers} WHERE ${chatChannelMembers.channelId} = ${chatChannels.id})`,
+      updatedAt: now,
+    })
+    .where(
+      inArray(
+        chatChannels.id,
+        toInsert.map((ch) => ch.id),
+      ),
+    );
 
   return toInsert;
 }

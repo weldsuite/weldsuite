@@ -59,7 +59,7 @@ function toWorkspace(summary: WorkspaceSummary): Workspace {
 }
 
 export function WorkspaceProvider({ children }: Readonly<{ children: React.ReactNode }>) {
-  const [currentWorkspace, setCurrentWorkspaceState] = useState<Workspace | null>(null);
+  const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +86,7 @@ export function WorkspaceProvider({ children }: Readonly<{ children: React.React
         null;
 
       if (currentWs) {
-        setCurrentWorkspaceState(currentWs);
+        setCurrentWorkspace(currentWs);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load workspaces');
@@ -111,7 +111,7 @@ export function WorkspaceProvider({ children }: Readonly<{ children: React.React
       // workspace is current — every app-api request resolves its tenant from
       // the org claim on the JWT, so there is no server-side cookie to set.
       await orgList.setActive({ organization: targetOrgId });
-      if (workspace) setCurrentWorkspaceState(workspace);
+      if (workspace) setCurrentWorkspace(workspace);
 
       // Drop the persisted TanStack Query cache so the new workspace doesn't
       // hydrate with the previous workspace's data after the reload.
@@ -151,7 +151,7 @@ export function WorkspaceProvider({ children }: Readonly<{ children: React.React
           slug: data.slug ?? '',
         };
         setWorkspaces(prev => [...prev, workspace]);
-        setCurrentWorkspaceState(workspace);
+        setCurrentWorkspace(workspace);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create workspace';
@@ -166,7 +166,7 @@ export function WorkspaceProvider({ children }: Readonly<{ children: React.React
       setLoading(false);
       return;
     }
-    fetchWorkspaces();
+    void fetchWorkspaces();
   }, [isLoaded, isSignedIn, fetchWorkspaces]);
 
   const value = useMemo(() => ({

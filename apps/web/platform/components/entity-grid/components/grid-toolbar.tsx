@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
 import {
   Plus,
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
+import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,7 +43,14 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { useGridContext } from '../context';
 import type { GridColumnDef, GridFilter } from '../types';
-import { asText } from '@weldsuite/text';
+import {
+  coerceFilterValue,
+  filterValueList,
+  getFilterOperators,
+  isSelectFilterColumn,
+  operatorNeedsValue,
+  type FilterOperator,
+} from '../utils/grid-filter';
 
 interface GridToolbarProps {
   onCreateEntity?: () => void;
@@ -122,11 +130,15 @@ export function GridToolbar({
     // so it also fits when a detail panel narrows the page beside it.
     <div className="@container bg-background sticky top-0 z-10 w-full border-b border-border" style={{ paddingTop: '10px', paddingBottom: '10px' }}>
       <div className="flex items-center gap-2 px-3 md:px-0 overflow-x-auto [scrollbar-width:none] md:flex-nowrap md:justify-between w-full">
+        {/* Left group: on md+ it gives way to the right group (search, import,
+            "New ...") and scrolls sideways, so a few active filters cannot push
+            the create button off-screen. */}
         <div className={cn(
-          "flex items-center gap-2 md:flex-shrink-0 md:pl-4 transition-all duration-200 ease-out",
+          // `py-1 -my-1 pr-1`: room inside the scroll box so focus rings are not clipped.
+          "flex items-center gap-2 md:min-w-0 md:overflow-x-auto md:[scrollbar-width:none] md:pl-4 md:pr-1 md:py-1 md:-my-1 transition-all duration-200 ease-out",
           searchOpen
-            ? "max-w-0 opacity-0 overflow-hidden pointer-events-none md:max-w-none md:opacity-100 md:overflow-visible md:pointer-events-auto"
-            : "max-w-full opacity-100 flex-shrink-0",
+            ? "max-w-0 opacity-0 overflow-hidden pointer-events-none md:max-w-none md:opacity-100 md:pointer-events-auto"
+            : "max-w-full opacity-100 flex-shrink-0 md:flex-shrink",
         )}>
           {/* Sort */}
           <Popover>
@@ -346,16 +358,27 @@ export function GridToolbar({
 // Filter pills — inline pill-based filter UI (matches entity-list filter-pills)
 // =============================================================================
 
-function getFilterOperators(
+/**
+ * Operator labels. "equals" reads "is" on a select column (Status is Active),
+ * where the value is picked from a list rather than typed.
+ */
+function getOperatorLabels(
   t: (path: string) => string,
-): { value: string; label: string }[] {
-  return [
-    { value: 'contains', label: t('sweep.entities.operatorContains') },
-    { value: 'equals', label: t('sweep.entities.operatorEquals') },
-    { value: 'starts_with', label: t('sweep.entities.operatorStartsWith') },
-    { value: 'is_empty', label: t('sweep.entities.operatorIsEmpty') },
-    { value: 'is_not_empty', label: t('sweep.entities.operatorIsNotEmpty') },
-  ];
+  isSelectColumn: boolean,
+): Record<FilterOperator, string> {
+  return {
+    contains: t('sweep.entities.operatorContains'),
+    equals: isSelectColumn ? t('sweep.entities.operatorIs') : t('sweep.entities.operatorEquals'),
+    not_equals: t('sweep.entities.operatorIsNot'),
+    in: t('sweep.entities.operatorIsAnyOf'),
+    starts_with: t('sweep.entities.operatorStartsWith'),
+    is_empty: t('sweep.entities.operatorIsEmpty'),
+    is_not_empty: t('sweep.entities.operatorIsNotEmpty'),
+    gt: '>',
+    lt: '<',
+    gte: '≥',
+    lte: '≤',
+  };
 }
 
 function GridFilterPills<TEntity>({
@@ -370,19 +393,23 @@ function GridFilterPills<TEntity>({
   maxFilters?: number;
 }>) {
   const t = useTranslations();
-  const FILTER_OPERATORS = useMemo(() => getFilterOperators(t), [t]);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [editingOperatorIndex, setEditingOperatorIndex] = useState<number | null>(null);
   const [editingValueIndex, setEditingValueIndex] = useState<number | null>(null);
   const [textInputValue, setTextInputValue] = useState('');
 
+  const getColumn = (fieldId: string) => columns.find((c) => c.id === fieldId);
+
   const addFilter = (fieldId: string) => {
     if (filters.length >= maxFilters) return;
     const newIndex = filters.length;
+    // A select column (Status, ...) starts on "is" and goes straight to its
+    // option list; other columns ask for the condition first.
+    const isSelectColumn = isSelectFilterColumn(getColumn(fieldId));
     const newFilter: GridFilter = {
       id: Date.now().toString(),
       field: fieldId,
-      operator: '' as GridFilter['operator'],
+      operator: isSelectColumn ? 'equals' : ('' as GridFilter['operator']),
       value: '',
     };
 
@@ -396,7 +423,8 @@ function GridFilterPills<TEntity>({
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setEditingOperatorIndex(newIndex);
+        if (isSelectColumn) setEditingValueIndex(newIndex);
+        else setEditingOperatorIndex(newIndex);
       });
     });
   };
@@ -407,17 +435,19 @@ function GridFilterPills<TEntity>({
     onFiltersChange(filters.filter((_, i) => i !== index));
   };
 
-  const updateOperator = (index: number, operator: GridFilter['operator']) => {
+  const updateOperator = (index: number, operator: FilterOperator) => {
+    const value = coerceFilterValue(filters[index]!.value, operator);
     const newFilters = [...filters];
-    newFilters[index] = { ...newFilters[index], operator };
+    newFilters[index] = { ...newFilters[index]!, operator, value };
 
     flushSync(() => {
       setEditingOperatorIndex(null);
       onFiltersChange(newFilters);
     });
 
-    // If value-based operator and no value yet, open value editor
-    if (operator !== 'is_empty' && operator !== 'is_not_empty' && !newFilters[index].value) {
+    // If value-based operator and no value yet, open value editor. "Is any of"
+    // opens it too: the point of switching to it is to add more values.
+    if (operatorNeedsValue(operator) && (operator === 'in' || filterValueList(value).length === 0)) {
       setTextInputValue('');
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -429,41 +459,55 @@ function GridFilterPills<TEntity>({
 
   const updateValue = (index: number, value: string) => {
     const newFilters = [...filters];
-    newFilters[index] = { ...newFilters[index], value };
+    newFilters[index] = { ...newFilters[index]!, value };
     onFiltersChange(newFilters);
     setEditingValueIndex(null);
     setTextInputValue('');
   };
 
-  const getColumnName = (fieldId: string) => {
-    return columns.find((c) => c.id === fieldId)?.name || fieldId;
+  // "is any of": the popover stays open so several options can be ticked.
+  const toggleValue = (index: number, option: string) => {
+    const current = filterValueList(filters[index]!.value);
+    const next = current.includes(option) ? current.filter((v) => v !== option) : [...current, option];
+    const newFilters = [...filters];
+    newFilters[index] = { ...newFilters[index]!, value: next };
+    onFiltersChange(newFilters);
   };
 
-  const getOperatorLabel = (operator: string) => {
-    return FILTER_OPERATORS.find((o) => o.value === operator)?.label || operator;
+  const getColumnName = (fieldId: string) => {
+    return getColumn(fieldId)?.name || fieldId;
+  };
+
+  const getOperatorLabel = (filter: GridFilter) => {
+    const labels = getOperatorLabels(t, isSelectFilterColumn(getColumn(filter.field)));
+    return labels[filter.operator] || filter.operator;
   };
 
   // Single/multi-select columns (e.g. Status) carry a fixed `options` list
-  // and a `selectConfig` of display labels — the filter value should be
-  // picked from those, not typed as free text, since the stored value is
-  // the option's slug/key (e.g. "active"), not its label ("Active").
+  // and a `selectConfig` of display labels — the filter value is picked from
+  // those, not typed as free text, since the stored value is the option's
+  // slug/key (e.g. "active"), not its label ("Active").
   const getFilterColumnOptions = (fieldId: string): string[] | null => {
-    const column = columns.find((c) => c.id === fieldId);
-    if (!column || (column.type !== 'single-select' && column.type !== 'multi-select')) return null;
-    return column.options ?? null;
+    const column = getColumn(fieldId);
+    return isSelectFilterColumn(column) ? (column?.options ?? null) : null;
   };
 
   const getValueLabel = (fieldId: string, value: string): string => {
-    const column = columns.find((c) => c.id === fieldId);
-    return column?.selectConfig?.[value]?.label ?? value;
+    return getColumn(fieldId)?.selectConfig?.[value]?.label ?? value;
   };
 
-  const needsValue = (operator: string) => operator !== 'is_empty' && operator !== 'is_not_empty';
+  /** What the value button shows: the picked option(s), or null while none is picked. */
+  const getValueSummary = (filter: GridFilter): string | null => {
+    const labels = filterValueList(filter.value).map((v) => getValueLabel(filter.field, v));
+    if (labels.length === 0) return null;
+    if (labels.length <= 2) return labels.join(', ');
+    return `${labels.slice(0, 2).join(', ')} +${labels.length - 2}`;
+  };
 
   let filterTrigger: React.ReactNode = null;
   if (filters.length > 0 && filters.length < maxFilters) {
     filterTrigger = (
-      <Button variant="ghost" className="flex items-center justify-center h-[30px] w-[30px] border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border">
+      <Button variant="ghost" className="flex items-center justify-center h-[30px] w-[30px] shrink-0 border border-dashed border-border rounded-md text-muted-foreground hover:text-foreground hover:border-border">
         <Plus className="h-3.5 w-3.5" />
       </Button>
     );
@@ -476,16 +520,21 @@ function GridFilterPills<TEntity>({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 shrink-0">
       {/* Active filter pills */}
-      {filters.map((filter, index) => (
+      {filters.map((filter, index) => {
+        const selectOptions = getFilterColumnOptions(filter.field);
+        const isMulti = filter.operator === 'in';
+        const selectedValues = filterValueList(filter.value);
+        const valueSummary = getValueSummary(filter);
+        return (
         <div
           key={filter.id}
-          className="flex items-center h-[30px] bg-muted/50 rounded-md border border-border text-[13px]"
+          className="flex items-center h-[30px] shrink-0 bg-muted/50 rounded-md border border-border text-[13px]"
         >
           {/* Field name */}
           <div className="flex items-center px-2 h-full">
-            <span className="text-muted-foreground">{getColumnName(filter.field)}</span>
+            <span className="text-muted-foreground whitespace-nowrap">{getColumnName(filter.field)}</span>
           </div>
 
           <div className="h-full w-px bg-border" />
@@ -496,47 +545,47 @@ function GridFilterPills<TEntity>({
             onOpenChange={(open) => setEditingOperatorIndex(open ? index : null)}
           >
             <PopoverTrigger asChild>
-              <Button variant="ghost" className={`px-2 h-full hover:bg-muted transition-colors ${filter.operator ? 'text-foreground' : 'text-muted-foreground/60'}`}>
-                {filter.operator ? getOperatorLabel(filter.operator) : t('sweep.entities.selectCondition')}
+              <Button variant="ghost" className={`px-2 h-full whitespace-nowrap hover:bg-muted transition-colors ${filter.operator ? 'text-foreground' : 'text-muted-foreground/60'}`}>
+                {filter.operator ? getOperatorLabel(filter) : t('sweep.entities.selectCondition')}
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-auto min-w-28 p-1">
-              {FILTER_OPERATORS.map((op) => (
+              {getFilterOperators(getColumn(filter.field)).map((operator) => (
                 <Button
-                  key={op.value}
+                  key={operator}
                   variant="ghost"
-                  onClick={() => updateOperator(index, op.value as GridFilter['operator'])}
+                  onClick={() => updateOperator(index, operator)}
                   className="flex items-center justify-between w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
                 >
-                  <span>{op.label}</span>
-                  {filter.operator === op.value && <Check className="h-3.5 w-3.5 text-primary ml-2" />}
+                  <span>{getOperatorLabels(t, selectOptions !== null)[operator]}</span>
+                  {filter.operator === operator && <Check className="h-3.5 w-3.5 text-primary ml-2" />}
                 </Button>
               ))}
             </PopoverContent>
           </Popover>
 
           {/* Value popover (only for operators that need a value) */}
-          {needsValue(filter.operator) && (
+          {operatorNeedsValue(filter.operator) && (
             <>
               <div className="h-full w-px bg-border" />
               <Popover
                 open={editingValueIndex === index}
                 onOpenChange={(open) => {
                   setEditingValueIndex(open ? index : null);
-                  if (open) setTextInputValue(filter.value != null ? asText(filter.value) : '');
+                  if (open) setTextInputValue(filterValueList(filter.value)[0] ?? '');
                 }}
               >
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" className="flex items-center px-2 h-full hover:bg-muted transition-colors">
-                    {filter.value ? (
-                      <span className="text-foreground">{getValueLabel(filter.field, String(filter.value))}</span>
+                  <Button variant="ghost" className="flex items-center px-2 h-full whitespace-nowrap hover:bg-muted transition-colors">
+                    {valueSummary ? (
+                      <span className="text-foreground">{valueSummary}</span>
                     ) : (
                       <span className="text-muted-foreground/60">{t('sweep.entities.enterValue')}</span>
                     )}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-auto min-w-40 p-2">
-                  {getFilterColumnOptions(filter.field) ? (
+                  {selectOptions ? (
                     // Single/multi-select column — pick from its configured
                     // options instead of typing free text (a filter on e.g.
                     // Status would otherwise never match anything, since the
@@ -546,12 +595,23 @@ function GridFilterPills<TEntity>({
                       <CommandList className="max-h-56">
                         <CommandEmpty>{t('sweep.entities.noOptionFound')}</CommandEmpty>
                         <CommandGroup>
-                          {getFilterColumnOptions(filter.field)!.map((option) => (
-                            <CommandItem key={option} onSelect={() => updateValue(index, option)}>
-                              <span>{getValueLabel(filter.field, option)}</span>
-                              {filter.value === option && <Check className="h-3.5 w-3.5 text-primary ml-auto" />}
-                            </CommandItem>
-                          ))}
+                          {selectOptions.map((option) => {
+                            const isSelected = selectedValues.includes(option);
+                            return (
+                              <CommandItem
+                                key={option}
+                                value={`${getValueLabel(filter.field, option)} ${option}`}
+                                onSelect={() => (isMulti ? toggleValue(index, option) : updateValue(index, option))}
+                              >
+                                <span>{getValueLabel(filter.field, option)}</span>
+                                {isMulti ? (
+                                  <Checkbox checked={isSelected} className="ml-auto" />
+                                ) : (
+                                  isSelected && <Check className="h-3.5 w-3.5 text-primary ml-auto" />
+                                )}
+                              </CommandItem>
+                            );
+                          })}
                         </CommandGroup>
                       </CommandList>
                     </Command>
@@ -592,7 +652,8 @@ function GridFilterPills<TEntity>({
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
-      ))}
+        );
+      })}
 
       {/* Add filter button */}
       <Popover open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>

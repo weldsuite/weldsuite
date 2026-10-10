@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Opportunity, OpportunityFilters } from '@/lib/api/domains/weldcrm';
@@ -22,6 +22,8 @@ export const opportunityKeys = {
   list: (filters?: Record<string, unknown>) => [...opportunityKeys.lists(), filters] as const,
   details: () => [...opportunityKeys.all, 'detail'] as const,
   detail: (id: string) => [...opportunityKeys.details(), id] as const,
+  /** Mutation key shared by every PATCH that edits a deal (see `useUpdateOpportunity`). */
+  update: () => [...opportunityKeys.all, 'update'] as const,
   activities: (id: string) => [...opportunityKeys.all, id, 'activities'] as const,
   byPipeline: (pipelineId: string) =>
     [...opportunityKeys.all, 'pipeline', pipelineId] as const,
@@ -128,19 +130,61 @@ export function useOpportunitiesByPipeline(pipelineId: string, enabled = true) {
   });
 }
 
+/**
+ * Write a PATCH body into the cached deal so every open view (the deal panel's
+ * header and rows) shows the edit straight away instead of waiting for a
+ * refetch round-trip. `undefined` fields are skipped, like the server does.
+ *
+ * Cancelling the in-flight detail GET first matters: it was issued before this
+ * edit reached the server, so its (old) response would otherwise land on top of
+ * the write and put the previous name back.
+ */
+async function applyOpportunityPatch(
+  qc: QueryClient,
+  id: string,
+  patch: Partial<Opportunity>,
+): Promise<void> {
+  const key = opportunityKeys.detail(id);
+  await qc.cancelQueries({ queryKey: key });
+  qc.setQueryData<DetailResponse<Opportunity>>(key, (cached) => {
+    if (!cached?.data) return cached;
+    const defined = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    ) as Partial<Opportunity>;
+    return { ...cached, data: { ...cached.data, ...defined } };
+  });
+}
+
+/**
+ * Refetch deals after an edit, but only once the last in-flight edit of this
+ * deal has settled. Two quick edits (rename, then change the amount) are two
+ * overlapping PATCHes; refetching after the faster one can read the row before
+ * the slower one is committed and bring back a half-updated deal (new amount,
+ * old name). The last edit to settle refetches the final state.
+ */
+function refetchWhenLastEditSettles(qc: QueryClient, id: string): void {
+  const pending = qc.isMutating({
+    mutationKey: opportunityKeys.update(),
+    predicate: (mutation) => (mutation.state.variables as { id?: string } | undefined)?.id === id,
+  });
+  // The settling mutation still counts as pending while its own onSettled runs.
+  if (pending > 1) return;
+  void qc.invalidateQueries({ queryKey: opportunityKeys.all });
+}
+
 export function useUpdateOpportunity() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: opportunityKeys.update(),
     mutationFn: async ({ id, data }: { id: string; data: Partial<Opportunity> }) => {
       const client = await getClient();
       const res = await client.patch<DetailResponse<{ id: string }>>(`/opportunities/${id}`, data);
       return res.data;
     },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: opportunityKeys.all });
-      qc.invalidateQueries({ queryKey: opportunityKeys.detail(variables.id) });
-    },
+    onMutate: ({ id, data }) => applyOpportunityPatch(qc, id, data),
+    // Also on error: the refetch replaces the optimistic edit with the server's truth.
+    onSettled: (_data, _error, variables) => refetchWhenLastEditSettles(qc, variables.id),
   });
 }
 
@@ -148,14 +192,13 @@ export function useUpdateOpportunityStage() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
   return useMutation({
+    mutationKey: opportunityKeys.update(),
     mutationFn: async ({ id, stage, stageId }: { id: string; stage: string; stageId?: string }) => {
       const client = await getClient();
       await client.patch<DetailResponse<{ id: string }>>(`/opportunities/${id}`, { stage, stageId });
     },
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: opportunityKeys.all });
-      qc.invalidateQueries({ queryKey: opportunityKeys.detail(variables.id) });
-    },
+    onMutate: ({ id, stage, stageId }) => applyOpportunityPatch(qc, id, { stage, stageId }),
+    onSettled: (_data, _error, variables) => refetchWhenLastEditSettles(qc, variables.id),
   });
 }
 

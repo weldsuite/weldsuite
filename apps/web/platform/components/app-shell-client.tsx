@@ -25,6 +25,7 @@ const GlobalFloatingCall = lazy(() =>
 import { PlatformShell } from '@/components/layout/platform-shell';
 import { CommandPalette } from '@/components/layout/command-palette';
 import { WorkspaceLockGate } from '@/components/billing/workspace-lock-gate';
+import { ActiveCallProvider } from '@/contexts/active-call-context';
 import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
 import { WeldMeetCallProvider } from '@/contexts/weldmeet-call-context';
 import { EntitySheetHost } from '@/components/entity-sheet';
@@ -47,8 +48,9 @@ const FloatingComposePanel = lazy(() =>
 const CallOverlay = lazy(() =>
   import('@/app/weldchat/components/call-overlay').then((m) => ({ default: m.CallOverlay })),
 );
-const SwitchCallDialog = lazy(() =>
-  import('@/app/weldchat/components/call-overlay').then((m) => ({ default: m.SwitchCallDialog })),
+// One dialog for every "leave this call to join another" question, chat or meeting.
+const CallSwitchDialog = lazy(() =>
+  import('@/components/call-switch-dialog').then((m) => ({ default: m.CallSwitchDialog })),
 );
 const PiPCallWidget = lazy(() =>
   import('@/app/weldchat/components/pip-call-widget').then((m) => ({ default: m.PiPCallWidget })),
@@ -229,53 +231,58 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
         <CallProvider>
           <FloatingVideoProvider>
             <FloatingCallProvider>
-              <WeldChatCallProvider>
-                <WeldMeetCallProvider>
-                  {/* Post-trial paywall. Wraps the ENTIRE shell (sidebar +
-                      content + all the global overlays below) so a locked
-                      workspace renders nothing but the full-screen lockout
-                      card — including `/settings`, which isn't in
-                      AppShellClient's minimal-route allowlist above and so
-                      would otherwise stay reachable. Auth/onboarding/invite
-                      routes short-circuit earlier (isMinimalRoute) and never
-                      reach this gate. */}
-                  <WorkspaceLockGate>
-                    <CommandPalette />
-                    <DesktopNotificationBridge />
-                    <PlatformShell>
-                      {children}
-                      <Suspense fallback={null}>
-                        <FloatingComposePanel />
-                        <GlobalPinnedNote />
-                        {/* Running time-tracking timer — mounted here so it
-                            stays visible and stoppable from any module. */}
-                        <GlobalTimerWidget />
-                        <GlobalCallPanel />
-                        <GlobalFloatingCall />
-                        <GlobalFloatingVideo />
-                        <CallOverlay />
-                        <PiPCallWidget />
-                        <SwitchCallDialog />
-                        <IncomingCallToast />
-                        <MeetingOverlay />
-                        {/* Minimized meeting widget — bottom-right PiP shown
-                            when a meeting is connected but the user has
-                            navigated off the meeting page (or minimized). */}
-                        <MeetingPiPWidget />
-                        <EntitySheetHost />
-                        {/* Kept-alive WeldApp iframes, positioned over the
-                            slot the /apps/{code} page reserves (see
-                            app/weldapps/host/frame-store.ts). */}
-                        <WeldAppFrameLayer />
-                        {/* Object panels now render in-flow as a slot inside
-                            PlatformShell's content card (see ObjectPanelHost) —
-                            still within this provider scope, so panel bodies
-                            keep inheriting CallProvider / ComposeProvider / etc. */}
-                      </Suspense>
-                    </PlatformShell>
-                  </WorkspaceLockGate>
-                </WeldMeetCallProvider>
-              </WeldChatCallProvider>
+              {/* Outermost of the call providers: WeldChat wraps WeldMeet, so
+                  neither can see the other's call. Both register their live
+                  call here to keep a user in at most one at a time. */}
+              <ActiveCallProvider>
+                <WeldChatCallProvider>
+                  <WeldMeetCallProvider>
+                    {/* Post-trial paywall. Wraps the ENTIRE shell (sidebar +
+                        content + all the global overlays below) so a locked
+                        workspace renders nothing but the full-screen lockout
+                        card — including `/settings`, which isn't in
+                        AppShellClient's minimal-route allowlist above and so
+                        would otherwise stay reachable. Auth/onboarding/invite
+                        routes short-circuit earlier (isMinimalRoute) and never
+                        reach this gate. */}
+                    <WorkspaceLockGate>
+                      <CommandPalette />
+                      <DesktopNotificationBridge />
+                      <PlatformShell>
+                        {children}
+                        <Suspense fallback={null}>
+                          <FloatingComposePanel />
+                          <GlobalPinnedNote />
+                          {/* Running time-tracking timer — mounted here so it
+                              stays visible and stoppable from any module. */}
+                          <GlobalTimerWidget />
+                          <GlobalCallPanel />
+                          <GlobalFloatingCall />
+                          <GlobalFloatingVideo />
+                          <CallOverlay />
+                          <PiPCallWidget />
+                          <CallSwitchDialog />
+                          <IncomingCallToast />
+                          <MeetingOverlay />
+                          {/* Minimized meeting widget — bottom-right PiP shown
+                              when a meeting is connected but the user has
+                              navigated off the meeting page (or minimized). */}
+                          <MeetingPiPWidget />
+                          <EntitySheetHost />
+                          {/* Kept-alive WeldApp iframes, positioned over the
+                              slot the /apps/{code} page reserves (see
+                              app/weldapps/host/frame-store.ts). */}
+                          <WeldAppFrameLayer />
+                          {/* Object panels now render in-flow as a slot inside
+                              PlatformShell's content card (see ObjectPanelHost) —
+                              still within this provider scope, so panel bodies
+                              keep inheriting CallProvider / ComposeProvider / etc. */}
+                        </Suspense>
+                      </PlatformShell>
+                    </WorkspaceLockGate>
+                  </WeldMeetCallProvider>
+                </WeldChatCallProvider>
+              </ActiveCallProvider>
             </FloatingCallProvider>
           </FloatingVideoProvider>
         </CallProvider>

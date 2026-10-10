@@ -5,6 +5,7 @@
  */
 import { weldhrAdmin } from './weldhr-admin';
 import { weldhrDeclarations } from './weldhr-declarations';
+import { weldhrPayroll } from './weldhr-payroll';
 import { weldhrPeople } from './weldhr-people';
 import { weldhrSelf } from './weldhr-self';
 import { weldhrTime } from './weldhr-time';
@@ -45,7 +46,7 @@ export const weldhr = {
 
   status: {
     employee: {
-      onboarding: 'Onboarding',
+      onboarding: 'Inwerkperiode',
       active: 'Actief',
       on_leave: 'Met verlof',
       offboarding: 'Uitdiensttreding',
@@ -123,7 +124,7 @@ export const weldhr = {
       cancelled: 'Geannuleerd',
     },
     checklistKind: {
-      onboarding: 'Onboarding',
+      onboarding: 'Inwerken',
       offboarding: 'Uitdiensttreding',
     },
     assigneeRole: {
@@ -154,6 +155,7 @@ export const weldhr = {
   ...weldhrPeople,
   ...weldhrTime,
   ...weldhrDeclarations,
+  ...weldhrPayroll,
   ...weldhrAdmin,
   ...weldhrSelf,
 };

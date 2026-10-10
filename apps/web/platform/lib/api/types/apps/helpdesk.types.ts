@@ -291,7 +291,7 @@ export namespace Helpdesk {
     reviewerId?: string;
 
     // Status
-    status: ArticleStatus;
+    status: PublishStatus;
     visibility: ArticleVisibility;
 
     // Publishing
@@ -654,8 +654,6 @@ export namespace Helpdesk {
   export type SLAStatus = 'on_track' | 'at_risk' | 'breached' | 'met';
 
   export type MessageType = 'reply' | 'note' | 'system' | 'forward';
-
-  export type ArticleStatus = PublishStatus;
 
   export type ArticleVisibility = 'public' | 'internal' | 'restricted';
 

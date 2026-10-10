@@ -203,7 +203,7 @@ async function loadRecentMessages(db: Database, accountIds: string[], limit = 15
     eq(mailMessages.isTrash, false),
     inArray(mailMessages.accountId, accountIds),
   ];
-  return db
+  const rows = await db
     .select({
       id: mailMessages.id,
       subject: mailMessages.subject,
@@ -216,6 +216,7 @@ async function loadRecentMessages(db: Database, accountIds: string[], limit = 15
     .where(and(...conds))
     .orderBy(desc(mailMessages.sentDate))
     .limit(limit);
+  return rows;
 }
 
 // ---------------------------------------------------------------------------

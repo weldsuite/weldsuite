@@ -61,12 +61,14 @@ app.put('/reorder', requirePermission('settings:manage'), zValidator('json', reo
   const { items } = c.req.valid('json');
 
   try {
-    for (const item of items) {
-      await db
-        .update(t)
-        .set({ sortOrder: item.sortOrder, updatedAt: new Date() })
-        .where(and(eq(t.id, item.id), isNull(t.deletedAt)));
-    }
+    await Promise.all(
+      items.map((item) =>
+        db
+          .update(t)
+          .set({ sortOrder: item.sortOrder, updatedAt: new Date() })
+          .where(and(eq(t.id, item.id), isNull(t.deletedAt))),
+      ),
+    );
     return success(c, { reordered: items.length });
   } catch (err) {
     console.error('[app-api/enrich-fields] reorder failed:', err);

@@ -32,6 +32,8 @@ app.get('/', async (c) => {
   // falls back to the catalog default — both flags are hidden by default.
   const upgradeButton = flags ? await flags.isOn('upgrade-button') : false;
   const weldflowMoveTask = flags ? await flags.isOn('weldflow-move-task') : false;
+  const weldhrPayroll = flags ? await flags.isOn('weldhr-payroll') : false;
+  const weldhrPayrollDigipoort = flags ? await flags.isOn('weldhr-payroll-digipoort') : false;
 
   // Never cache flag values — a dashboard flip must take effect immediately.
   c.header('Cache-Control', 'no-store');
@@ -39,6 +41,8 @@ app.get('/', async (c) => {
   return success(c, {
     'upgrade-button': upgradeButton,
     'weldflow-move-task': weldflowMoveTask,
+    'weldhr-payroll': weldhrPayroll,
+    'weldhr-payroll-digipoort': weldhrPayrollDigipoort,
   });
 });
 

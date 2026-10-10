@@ -1,6 +1,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenu,
@@ -39,11 +40,20 @@ import {
 import { Toggle } from '@weldsuite/ui/components/toggle';
 import { EnrollCustomersDialog } from './enroll-customers-dialog';
 import { EmptyStateIllustration } from '@/components/entity-list';
+import { formatDuration } from '@/components/workflow-editor/lib/duration';
 import type { SequenceEnrollment, PaginationMeta } from '@/lib/api/domains/weldcrm';
+import {
+  getEnrollmentActivity,
+  getStepDelaySeconds,
+  getStepKind,
+  getStepName,
+} from './enrollment-progress';
 
 interface PeopleTabProps {
   sequenceId: string;
   sequenceStatus: string;
+  /** The sequence's steps, to say what each person is doing ("Waiting 1 hour"). */
+  steps?: readonly unknown[];
   initialEnrollments: SequenceEnrollment[];
   initialPagination?: PaginationMeta;
 }
@@ -55,15 +65,6 @@ const statusIcons: Record<string, { icon: typeof CheckCircle2; color: string }> 
   failed: { icon: XCircle, color: 'text-red-500' },
   pending: { icon: CircleDot, color: 'text-purple-500' },
   unenrolled: { icon: UserMinus, color: 'text-gray-400' },
-};
-
-const statusLabels: Record<string, string> = {
-  active: 'Automated email',
-  completed: 'Completed',
-  paused: 'Paused',
-  failed: 'Failed',
-  pending: 'Pending',
-  unenrolled: 'Unenrolled',
 };
 
 function getCustomerName(enrollment: SequenceEnrollment): string {
@@ -93,29 +94,49 @@ function getAvatarColor(name: string): string {
   return AVATAR_COLORS[hashString(name) % AVATAR_COLORS.length];
 }
 
+const NO_STEPS: readonly unknown[] = [];
+
 export function PeopleTab({
   sequenceId,
+  steps = NO_STEPS,
   initialEnrollments,
   initialPagination,
 }: Readonly<PeopleTabProps>) {
   const t = useTranslations();
+  const durationLabels = useI18n().t.weldconnect.workflowEditorClient.nodeSummary.duration;
+
+  /** "Waiting 1 hour" / "Waiting" for a delay of unknown length. */
+  const describeWaiting = useCallback((seconds: number, withDuration: string, without: string): string => {
+    const duration = formatDuration(seconds, durationLabels);
+    return duration ? t(withDuration, { duration }) : t(without);
+  }, [t, durationLabels]);
+
+  /** What an active person is doing right now, from the step they are on. */
+  const getActivityDescription = useCallback((enrollment: SequenceEnrollment): string => {
+    const activity = getEnrollmentActivity(steps, enrollment.currentStepIndex);
+    switch (activity.kind) {
+      case 'waiting':
+        return describeWaiting(activity.seconds, 'crm.peopleTab.statusDescWaitingFor', 'crm.peopleTab.statusDescWaiting');
+      case 'email':
+        return t('crm.peopleTab.statusDescSendingEmail');
+      case 'condition':
+        return t('crm.peopleTab.statusDescCheckingCondition');
+      case 'step':
+        return activity.name || t('crm.peopleTab.statusDescRunning');
+      default:
+        return t('crm.peopleTab.statusDescRunning');
+    }
+  }, [t, steps, describeWaiting]);
 
   const getStatusDescription = useCallback((enrollment: SequenceEnrollment): string => {
-    if (enrollment.status === 'active' && enrollment.totalSteps > 0) {
-      const remaining = enrollment.totalSteps - enrollment.currentStepIndex;
-      if (remaining > 0) {
-        return remaining !== 1
-          ? t('crm.peopleTab.statusDescActivePlural', { remaining })
-          : t('crm.peopleTab.statusDescActive', { remaining });
-      }
-    }
+    if (enrollment.status === 'active') return getActivityDescription(enrollment);
     if (enrollment.status === 'completed') return t('crm.peopleTab.statusDescCompleted');
     if (enrollment.status === 'paused') return t('crm.peopleTab.statusDescPaused');
     if (enrollment.status === 'failed') return enrollment.errorMessage || t('crm.peopleTab.statusFailed');
     if (enrollment.status === 'pending') return t('crm.peopleTab.statusDescPending');
     if (enrollment.status === 'unenrolled') return t('crm.peopleTab.statusDescUnenrolled');
-    return statusLabels[enrollment.status] || enrollment.status;
-  }, [t]);
+    return enrollment.status;
+  }, [t, getActivityDescription]);
 
   const formatRelativeTime = useCallback((date?: string | null): string => {
     if (!date) return '';
@@ -461,7 +482,7 @@ export function PeopleTab({
                   const name = getCustomerName(selectedEnrollment);
                   const events: Array<{
                     id: string;
-                    type: 'enrolled' | 'email' | 'completed' | 'unenrolled' | 'failed' | 'paused';
+                    type: 'enrolled' | 'email' | 'delay' | 'step' | 'completed' | 'unenrolled' | 'failed' | 'paused';
                     text: string;
                     author?: string;
                     timestamp: string;
@@ -477,15 +498,40 @@ export function PeopleTab({
                     timestamp: selectedEnrollment.enrolledAt,
                   });
 
-                  // Step events
+                  // Step events: one per step the run has reached, said by what the
+                  // step is (not every step is an "Automated email"). A delay is
+                  // recorded before it sleeps, so the last one is still running
+                  // while the person is active or paused.
+                  const isRunning = selectedEnrollment.status === 'active' || selectedEnrollment.status === 'paused';
                   for (let i = 0; i < selectedEnrollment.currentStepIndex; i++) {
-                    events.push({
-                      id: `step-${i}`,
-                      type: 'email',
-                      text: t('crm.peopleTab.timelineAutomatedEmail'),
-                      timestamp: selectedEnrollment.enrolledAt,
-                      detail: t('crm.peopleTab.timelineStepCompleted', { step: i + 1 }),
-                    });
+                    const step = steps[i];
+                    const kind = getStepKind(step);
+                    const completedDetail = t('crm.peopleTab.timelineStepCompleted', { step: i + 1 });
+                    const base = { id: `step-${i}`, timestamp: selectedEnrollment.enrolledAt };
+                    if (kind === 'email') {
+                      events.push({ ...base, type: 'email', text: t('crm.peopleTab.timelineAutomatedEmail'), detail: completedDetail });
+                    } else if (kind === 'delay') {
+                      const seconds = getStepDelaySeconds(step);
+                      const stillWaiting = isRunning && i === selectedEnrollment.currentStepIndex - 1;
+                      events.push(
+                        stillWaiting
+                          ? {
+                              ...base,
+                              type: 'delay',
+                              text: describeWaiting(seconds, 'crm.peopleTab.timelineWaiting', 'crm.peopleTab.statusDescWaiting'),
+                            }
+                          : {
+                              ...base,
+                              type: 'delay',
+                              text: describeWaiting(seconds, 'crm.peopleTab.timelineWaited', 'crm.peopleTab.timelineDelay'),
+                              detail: completedDetail,
+                            },
+                      );
+                    } else if (kind === 'condition') {
+                      events.push({ ...base, type: 'step', text: t('crm.peopleTab.timelineConditionChecked'), detail: completedDetail });
+                    } else {
+                      events.push({ ...base, type: 'step', text: getStepName(step) || completedDetail });
+                    }
                   }
 
                   // Terminal events
@@ -526,9 +572,21 @@ export function PeopleTab({
 
                   return events.map((event, index) => {
                     const isLast = index === events.length - 1;
-                    const isNoteType = event.type === 'enrolled' || event.type === 'email';
+                    const isNoteType =
+                      event.type === 'enrolled' || event.type === 'email' || event.type === 'delay' || event.type === 'step';
 
                     if (isNoteType) {
+                      const noteIcons = {
+                        email: <Mail className="w-2.5 h-2.5 text-white" />,
+                        delay: <Clock className="w-2.5 h-2.5 text-white" />,
+                        step: <CircleDot className="w-2.5 h-2.5 text-white" />,
+                      };
+                      const noteColors = {
+                        enrolled: 'bg-emerald-500',
+                        email: 'bg-blue-500',
+                        delay: 'bg-amber-500',
+                        step: 'bg-slate-400',
+                      };
                       return (
                         <div key={event.id} className="flex">
                           {/* Tree connector */}
@@ -536,13 +594,13 @@ export function PeopleTab({
                             <div
                               className={cn(
                                 'relative z-10 w-5 h-5 rounded-md flex items-center justify-center text-white text-[9px] font-semibold',
-                                event.type === 'enrolled' ? 'bg-emerald-500' : 'bg-blue-500'
+                                noteColors[event.type as keyof typeof noteColors]
                               )}
                               style={{ marginTop: 0 }}
                             >
                               {event.type === 'enrolled'
                                 ? (event.author || '?').charAt(0).toUpperCase()
-                                : <Mail className="w-2.5 h-2.5 text-white" />
+                                : noteIcons[event.type as keyof typeof noteIcons]
                               }
                             </div>
                             {!isLast && (
@@ -559,7 +617,7 @@ export function PeopleTab({
                                   <span className="text-[14px] text-muted-foreground">{t('crm.peopleTab.timelineEnrolled')}</span>
                                 </>
                               ) : (
-                                <span className="text-[14px] font-medium text-foreground">{t('crm.peopleTab.timelineAutomatedEmail')}</span>
+                                <span className="text-[14px] font-medium text-foreground">{event.text}</span>
                               )}
                               <span className="flex-1" />
                               <span className="text-[12px] text-muted-foreground/60 flex-shrink-0">

@@ -6,6 +6,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { companyKeys } from '@/components/objects/company/use-company-data';
 import { personKeys } from '@/components/objects/person/use-person-data';
 import { activityKeys } from './use-activities-queries';
+import { noteSubjectFromContent } from '@/lib/note-title';
 
 function useCustomerNoteAndCommentLiveSync(): void {
   const qc = useQueryClient();
@@ -39,7 +40,7 @@ export function useCreateCustomerNote() {
       const client = await getClient();
       const activityData: Record<string, unknown> = {
         type: 'note',
-        subject: 'Note',
+        subject: noteSubjectFromContent(content),
         description: content,
         status: 'completed',
       };
@@ -77,6 +78,8 @@ export function useUpdateCustomerNote() {
     }) => {
       const client = await getClient();
       const res = await client.patch<{ data: { id: string } }>(`/activities/${noteId}`, {
+        // Saving the body changes the note's title, which the row's subject mirrors.
+        subject: noteSubjectFromContent(content),
         description: content,
       });
       return res.data;

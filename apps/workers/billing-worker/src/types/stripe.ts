@@ -103,6 +103,7 @@ export interface StripeProduct {
 export interface StripePrice {
   id: string;
   product: ExpandableRef;
+  active?: boolean;
   unit_amount: number | null;
   currency: string;
   recurring: {

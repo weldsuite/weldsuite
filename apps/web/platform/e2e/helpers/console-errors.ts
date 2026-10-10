@@ -14,8 +14,6 @@ export const IGNORE_PATTERNS: RegExp[] = [
   // React DevTools install hint — printed in dev builds.
   /React DevTools/i,
   /Download the React DevTools/i,
-  // Browser logs 404s for missing favicons as console errors.
-  /favicon/i,
   // App-shell background services that only run as separate workers
   // (presence, notifications, realtime). When those aren't reachable — local
   // dev with just app-api up, or CI without the full worker fleet — they log

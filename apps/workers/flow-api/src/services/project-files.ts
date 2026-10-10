@@ -192,12 +192,20 @@ export function pickWritableFileColumns(data: Record<string, unknown>): Record<s
 }
 
 /**
+ * Segment `/api/storage/generate-upload-url` puts between the entity path and
+ * the file name: `<timestamp>_<32 hex chars of a random UUID>`. Keys issued
+ * before it existed have no such segment (see `isProjectUploadKey`).
+ */
+const UNGUESSABLE_SEGMENT = /^\d+_[0-9a-f]{32}$/;
+
+/**
  * True when `key` is an object the storage upload flow issued for this
  * project: `workspaces/<workspaceId>/<folder>/project/<projectId>/<object>`
- * (see `/api/storage/generate-upload-url`). The bucket is shared by every
- * workspace and module, so this prefix is the only thing that ties a key to a
- * project — a key outside it must never be stored on, or deleted for, a
- * project file.
+ * (see `/api/storage/generate-upload-url`), where `<object>` is either
+ * `<name>` (older keys) or `<timestamp>_<unguessable>/<name>` (current keys).
+ * The bucket is shared by every workspace and module, so this prefix is the
+ * only thing that ties a key to a project — a key outside it must never be
+ * stored on, or deleted for, a project file.
  */
 export function isProjectUploadKey(
   key: unknown,
@@ -206,8 +214,9 @@ export function isProjectUploadKey(
 ): key is string {
   if (typeof key !== 'string' || !workspaceId || !projectId) return false;
   const parts = key.split('/');
-  if (parts.length !== 6) return false;
+  if (parts.length !== 6 && parts.length !== 7) return false;
   if (parts.some((part) => part === '' || part === '.' || part === '..')) return false;
+  if (parts.length === 7 && !UNGUESSABLE_SEGMENT.test(parts[5])) return false;
   return (
     parts[0] === 'workspaces' &&
     parts[1] === workspaceId &&

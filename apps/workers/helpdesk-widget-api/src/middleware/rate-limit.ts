@@ -26,7 +26,7 @@ export function rateLimitMiddleware() {
 
     try {
       const current = await kv.get(key);
-      const count = current ? parseInt(current, 10) : 0;
+      const count = current ? Number.parseInt(current, 10) : 0;
 
       if (count >= limit) {
         return c.json(

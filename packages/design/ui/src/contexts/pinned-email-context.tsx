@@ -22,7 +22,7 @@ interface PinnedEmailContextType {
 
 const PinnedEmailContext = createContext<PinnedEmailContextType | undefined>(undefined);
 
-export function PinnedEmailProvider({ children }: { children: ReactNode }) {
+export function PinnedEmailProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isPinned, setIsPinned] = useState(false);
   const [emailData, setEmailData] = useState<EmailData | null>(null);
 

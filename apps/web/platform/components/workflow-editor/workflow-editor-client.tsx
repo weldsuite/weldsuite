@@ -1,6 +1,5 @@
 
 import React, { useState, useCallback, useEffect, useId, useMemo, useRef } from 'react';
-import type { LucideIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { usePageAgentContext } from '@/components/weldagent-wrapper';
@@ -10,6 +9,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import {
+  type LucideIcon,
   Trash2,
   Settings,
   Zap,
@@ -75,19 +75,30 @@ import {
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
 import { toast } from 'sonner';
-import { automationKeys, useUpdateWorkflow, useTestWorkflow, useUpdateWorkflowStatus } from '@/hooks/queries/use-automation-queries';
+import {
+  automationKeys,
+  useUpdateWorkflow,
+  useTestWorkflow,
+  useUpdateWorkflowStatus,
+  type GeneratedWorkflowDraft,
+  type ActionType,
+  type TriggerType,
+  type EntityEvent,
+} from '@/hooks/queries/use-automation-queries';
 import { ActionConfigForm } from './components/action-config-form';
 import { GenerateWithAiDialog } from './components/generate-with-ai-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import type { GeneratedWorkflowDraft, ActionType, TriggerType, EntityEvent } from '@/hooks/queries/use-automation-queries';
 import {
   WorkflowCanvas,
   getConditionBranchIds,
   getMissingRequiredFields,
   isBranchingStepType,
   isStepConfigured,
+  type WorkflowStep,
+  type TriggerConfig,
+  type WorkflowCanvasLabels,
+  type ConditionStepConfig,
 } from '@weldsuite/ui/components/workflow-canvas';
-import type { WorkflowStep, TriggerConfig, WorkflowCanvasLabels, ConditionStepConfig } from '@weldsuite/ui/components/workflow-canvas';
 import { buildAllVariables, getStepOutputVariables } from '@weldsuite/ui/components/workflow-canvas/parts/variable-picker';
 import { getWorkflowIssueCodes, isUnsupportedWorkflowError } from '@/app/weldconnect/mvp';
 import type { RecordFieldDef } from '@/app/weldconnect/record-fields';
@@ -103,6 +114,7 @@ import { getLegacyEntityOption, getLegacyEventOption } from './lib/legacy-entity
 import { getConfigSummary, summarizeStep, summarizeTrigger, type NodeSummaryLabels } from './lib/node-summary';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
+import { asText } from '@weldsuite/text';
 import {
   Select,
   SelectContent,
@@ -264,6 +276,8 @@ interface WorkflowEditorClientProps {
   }>;
   excludeVariableGroups?: string[];
   publishLabel?: string;
+  /** Toast shown after a plain save; hosts that do not call their thing a "workflow" (CRM sequences) name it here. */
+  savedMessage?: string;
   onPublish?: () => Promise<{ success: boolean; error?: string }>;
   /** Hide the publish/start button entirely (e.g. for draft wizard flows) */
   hidePublish?: boolean;
@@ -2012,7 +2026,8 @@ function useNodeSummaryLabels(): NodeSummaryLabels {
     return {
       configured: summary.configured,
       to: action.descTo,
-      delay: action.descDelay,
+      delay: summary.delay,
+      duration: summary.duration,
       entity: action.descEntity,
       trigger: {
         manual: trigger.manuallyTriggered,
@@ -2096,7 +2111,7 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Re
   if (isLoop) {
     conditionExpression = typeof parentStep?.config?.items === 'string' ? parentStep.config.items : '';
   } else if (parentStep?.config?.field) {
-    conditionExpression = `${parentStep.config.field} ${parentStep.config.operator || ''} ${parentStep.config.value || ''}`;
+    conditionExpression = `${asText(parentStep.config.field)} ${asText(parentStep.config.operator || '')} ${asText(parentStep.config.value || '')}`;
   } else {
     conditionExpression = (parentStep?.config?.expression as string | undefined) || '';
   }
@@ -2476,7 +2491,7 @@ function StepChecklistItem({ step, index, unsupported, unknownVariables, actionT
   if (!unsupported && !nestedWaiting && missing.length === 0 && formatIssues.length === 0 && unknownVariables.length === 0) return null;
 
   const acf = t.weldconnect.actionConfigForm as Record<string, unknown>;
-  const missingLabels = missing.map((m) => acf[m.labelKey] || m.labelKey).join(', ');
+  const missingLabels = missing.map((m) => asText(acf[m.labelKey] || m.labelKey)).join(', ');
   const actionMeta = actionTypes.find((a) => a.id === step.type);
   const Icon = step.type ? getActionMeta(step.type).icon : Code;
   const messages = [
@@ -3093,6 +3108,7 @@ export function WorkflowEditorClient({
   extraVariableGroups,
   excludeVariableGroups,
   publishLabel,
+  savedMessage,
   onPublish,
   hidePublish,
   hideNavTabs,
@@ -3611,7 +3627,7 @@ export function WorkflowEditorClient({
     }
   }, [editingStep, editingBranch, showTriggerPanel, showAddActionPanel]);
 
-  const handleSave = async (savedMessage: string = tec.toasts.workflowSaved) => {
+  const handleSave = async (toastMessage: string = savedMessage ?? tec.toasts.workflowSaved) => {
     // A malformed cron expression is stored as typed and then never fires.
     if (triggerWarning === 'invalidCron') {
       handleSelectTrigger();
@@ -3630,7 +3646,7 @@ export function WorkflowEditorClient({
         },
       });
       savedSnapshotRef.current = JSON.stringify({ triggers: workflow.triggers, steps: workflow.steps });
-      toast.success(savedMessage);
+      toast.success(toastMessage);
       return true;
     } catch (err) {
       toast.error(isUnsupportedWorkflowError(err) ? tec.toasts.publishUnsupported : tec.toasts.saveFailed);

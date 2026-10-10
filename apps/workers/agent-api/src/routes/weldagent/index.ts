@@ -81,7 +81,7 @@ function toConversationSummary(conv: {
 /** GET /conversations — list the current user's conversations. */
 app.get('/conversations', async (c) => {
   const userId = c.get('userId');
-  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '50', 10), 100);
   const agentId = c.req.query('agentId') || undefined;
   const db = c.get('tenantDb');
   const { weldagentConversations } = schema;
@@ -165,8 +165,8 @@ app.post('/conversations', zValidator('json', createConversationSchema), async (
 app.get('/conversations/:conversationId/messages', async (c) => {
   const userId = c.get('userId');
   const conversationId = c.req.param('conversationId');
-  const limit = Math.min(parseInt(c.req.query('limit') || '100', 10), 200);
-  const offset = parseInt(c.req.query('offset') || '0', 10);
+  const limit = Math.min(Number.parseInt(c.req.query('limit') || '100', 10), 200);
+  const offset = Number.parseInt(c.req.query('offset') || '0', 10);
   const db = c.get('tenantDb');
   const { weldagentConversations, weldagentMessages } = schema;
 

@@ -2,6 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { ClerkProvider } from '@clerk/clerk-react';
+import { getLocale } from '@weldsuite/i18n';
+import { loadLocale } from '@weldsuite/i18n/locales';
 import { routeTree } from './routeTree.gen';
 import { log, flush, sendToLogtail } from '@/lib/logger';
 import { track } from '@/lib/analytics';
@@ -128,8 +130,17 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-);
+// Load the stored locale's bundle before the first render. Non-English bundles
+// are lazy chunks and many screens read translations synchronously
+// (`getTranslations()`), which never re-renders when a bundle lands later: a
+// Dutch user would keep seeing the English fallback on those screens until
+// something else re-rendered them. A failed load falls back to English.
+void loadLocale(getLocale())
+  .catch(() => undefined)
+  .then(() => {
+    createRoot(document.getElementById('root')!).render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    );
+  });

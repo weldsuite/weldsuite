@@ -21,6 +21,7 @@ export const billingKeys = {
   limits: () => [...billingKeys.all, 'limits'] as const,
   phoneSubscription: () => [...billingKeys.all, 'phone-subscription'] as const,
   paymentMethods: () => [...billingKeys.all, 'payment-methods'] as const,
+  seatPrice: () => [...billingKeys.all, 'seat-price'] as const,
 };
 
 const creditsKeys = {
@@ -42,7 +43,7 @@ function buildQueryString(params: Record<string, unknown>): string {
   const queryParams = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
-      queryParams.set(key, String(value));
+      queryParams.set(key, asText(value));
     }
   }
   const query = queryParams.toString();
@@ -134,6 +135,33 @@ export function usePhoneSubscription() {
   });
 }
 
+/** One seat on the active Stripe subscription, as app-api `GET /billing/seat-price` returns it. */
+export interface SeatPrice {
+  /** Per seat per `interval`, in cents. */
+  amount: number;
+  currency: string;
+  interval: 'month' | 'year';
+}
+
+/**
+ * What a seat costs on the workspace's existing subscription, in the currency
+ * it was bought in. Manage Seats prices from this rather than from the plan
+ * offer, which follows the workspace's current billing country. `null` when
+ * there is no subscription.
+ */
+export function useSeatPrice(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: billingKeys.seatPrice(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: SeatPrice | null }>('/billing/seat-price');
+      return res.data ?? null;
+    },
+    enabled,
+  });
+}
+
 // =============================================================================
 // Credits Queries
 // =============================================================================
@@ -189,7 +217,7 @@ export function useChangePlan() {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.all });
+      void qc.invalidateQueries({ queryKey: billingKeys.all });
     },
   });
 }
@@ -211,8 +239,8 @@ export function useUpdateSeats() {
       return { success: true, ...res.data };
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
-      qc.invalidateQueries({ queryKey: billingKeys.limits() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.limits() });
     },
   });
 }
@@ -228,7 +256,7 @@ export function useCancelSubscription() {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
 }
@@ -243,7 +271,7 @@ export function useReactivateSubscription() {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
 }// =============================================================================
@@ -302,9 +330,9 @@ export function useSetDefaultPaymentMethod() {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
+      void qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
       // The paywall gate keys off whether a method is on file.
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
 }
@@ -318,8 +346,8 @@ export function useRemovePaymentMethod() {
       await client.delete(`/billing/payment-methods/${paymentMethodId}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
 }

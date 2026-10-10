@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@weldsuite/ui/components/card";
+import { Card, CardContent } from "@weldsuite/ui/components/card";
 import { Badge } from "@weldsuite/ui/components/badge";
 import { Progress } from "@weldsuite/ui/components/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@weldsuite/ui/components/tabs";

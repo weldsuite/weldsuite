@@ -451,20 +451,24 @@ async function storeExtraAttachments(
   extras: InlineAttachment[],
 ): Promise<ResolvedAttachment[]> {
   if (extras.length === 0 || !env.STORAGE) return [];
-  const stored: ResolvedAttachment[] = [];
-  for (const [index, att] of extras.entries()) {
-    const safeName = att.filename.replace(/[^\w.\- ]+/g, '_').slice(0, 200) || 'attachment';
-    const fileKey = `workspaces/${orgId}/mail/attachments/${messageId}/${index + 1}_${safeName}`;
-    try {
-      await env.STORAGE.put(fileKey, att.content, {
-        httpMetadata: { contentType: att.contentType || 'application/octet-stream' },
-      });
-      stored.push({ ...att, fileKey });
-    } catch (err) {
-      console.error(`[mail-send] Failed to store attachment ${att.filename} for message ${messageId}:`, err);
-    }
-  }
-  return stored;
+  const storage = env.STORAGE;
+  // Every attachment lands under its own key, so the copies run together; order is kept.
+  const stored = await Promise.all(
+    extras.map(async (att, index): Promise<ResolvedAttachment | null> => {
+      const safeName = att.filename.replace(/[^\w.\- ]+/g, '_').slice(0, 200) || 'attachment';
+      const fileKey = `workspaces/${orgId}/mail/attachments/${messageId}/${index + 1}_${safeName}`;
+      try {
+        await storage.put(fileKey, att.content, {
+          httpMetadata: { contentType: att.contentType || 'application/octet-stream' },
+        });
+        return { ...att, fileKey };
+      } catch (err) {
+        console.error(`[mail-send] Failed to store attachment ${att.filename} for message ${messageId}:`, err);
+        return null;
+      }
+    }),
+  );
+  return stored.filter((att): att is ResolvedAttachment => att !== null);
 }
 
 function toSmtpMessageId(externalMessageId: string): string {

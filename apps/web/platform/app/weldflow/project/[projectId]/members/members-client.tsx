@@ -61,7 +61,7 @@ import {
 import { toast } from 'sonner';
 import { membersApi } from '@/app/weldflow/lib/api-client';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { TeamMemberDetailsPanel, fromProjectMember } from '@/components/team-member-details-panel';
 

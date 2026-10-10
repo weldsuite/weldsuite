@@ -12,6 +12,7 @@
  */
 
 import { RealtimePublisher } from '@weldsuite/realtime/server';
+import type { CallSupersededEvent } from '@weldsuite/realtime/types';
 import { eq } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
@@ -101,6 +102,24 @@ export async function broadcastChatCallToMembers(
       ),
     ),
   );
+}
+
+/**
+ * Tell a user's clients they were dropped from a live call (WeldChat call or
+ * WeldMeet session) because they joined another one, or joined the same one
+ * again elsewhere. `call_superseded` on `chat.user.${userId}`, the topic the
+ * platform already subscribes to for `call_incoming`. Published before the
+ * RealtimeKit kick. Best effort: callers swallow the error.
+ */
+export async function publishChatCallSuperseded(
+  env: WeldChatCallPublisherEnv,
+  workspaceId: string,
+  userId: string,
+  data: CallSupersededEvent,
+): Promise<void> {
+  const rt = getPublisher(env);
+  if (!rt) return;
+  await rt.chatCallSuperseded(workspaceId, userId, data);
 }
 
 export async function publishChatCallIncoming(

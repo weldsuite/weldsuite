@@ -184,8 +184,10 @@ export async function placePortalOrder(
   let subtotalNum = 0;
   let currency = party.currency || 'EUR';
 
-  for (const line of input.items) {
-    const priced = await priceOrderLine(db, line);
+  // Pricing is a read-only lookup per line, so price them together and fold the
+  // results in line order.
+  const pricedLines = await Promise.all(input.items.map((line) => priceOrderLine(db, line)));
+  for (const priced of pricedLines) {
     if (!party.currency && priced.productCurrency) currency = priced.productCurrency;
     subtotalNum += priced.totalNum;
     lines.push(priced.line);

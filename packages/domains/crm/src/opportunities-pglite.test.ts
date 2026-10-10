@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import {
+  buildUpdatePayload,
   createOpportunity,
   moveOpportunityStage,
   UnknownPipelineStageError,
@@ -37,14 +38,31 @@ beforeAll(async () => {
 }, 60_000);
 
 describe('opportunities service · pglite integration', () => {
-  it('defaults stage/status/pipeline and falls back to a 30-day close date', async () => {
+  it('defaults stage/status/pipeline and leaves the close date empty (TASK-671)', async () => {
     const result = await createOpportunity(db, { name: 'Acme Deal', customerId: 'cust_1' }, 'user_1');
     expect(result.row.stage).toBe('prospecting');
     expect(result.row.status).toBe('open');
     expect(result.row.pipeline).toBe('default');
     expect(result.row.ownerId).toBe('user_1');
     expect(result.row.amount).toBe('0');
+    expect(result.row.closeDate).toBeNull();
+    const [stored] = await db
+      .select({ closeDate: schema.crmOpportunities.closeDate })
+      .from(schema.crmOpportunities)
+      .where(eq(schema.crmOpportunities.id, result.id));
+    expect(stored?.closeDate).toBeNull();
     expect(result.eventData).toMatchObject({ id: result.id, name: 'Acme Deal', stage: 'prospecting', status: 'open' });
+  });
+
+  it('stores a close date when one is given and clears it with an empty string', async () => {
+    const result = await createOpportunity(
+      db,
+      { name: 'Dated Deal', customerId: 'cust_1', closeDate: '2026-11-08T00:00:00.000Z' },
+      'user_1',
+    );
+    expect(result.row.closeDate?.toISOString()).toBe('2026-11-08T00:00:00.000Z');
+    expect(buildUpdatePayload({ closeDate: '' }).closeDate).toBeNull();
+    expect(buildUpdatePayload({ closeDate: null }).closeDate).toBeNull();
   });
 
   it('throws when neither ownerId nor an acting user is given', async () => {

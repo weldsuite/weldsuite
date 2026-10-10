@@ -19,9 +19,9 @@ interface EntityChatHeaderProps {
  */
 export function EntityChatHeader({ name, channelId, hideCallButtons = false }: Readonly<EntityChatHeaderProps>) {
   const t = useTranslations();
-  const { startCall, status } = useWeldChatCall();
-  const inCall = status !== 'idle';
-  const canCall = !!channelId && !inCall;
+  const { startCall } = useWeldChatCall();
+  // Stays enabled during a call or meeting: starting another asks to switch first.
+  const canCall = !!channelId;
 
   return (
     <div className="flex h-10 flex-shrink-0 items-center justify-between gap-2 border-b px-3">

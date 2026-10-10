@@ -36,6 +36,8 @@ export interface LeadRowLike {
   companySize?: string | null;
   linkedinUrl?: string | null;
   avatarUrl?: string | null;
+  /** Logo found on the company's own website by our API (`useRowsWithCompanyLogos`). */
+  logoUrl?: string | null;
 }
 
 interface BuildColumnsOptions {
@@ -209,7 +211,7 @@ export function buildLeadGridConfig<T extends LeadRowLike>(
       if (parts.length >= 2) return (parts[0]!.charAt(0) + parts.at(-1)!.charAt(0)).toUpperCase();
       return (r.name ?? '?').charAt(0).toUpperCase();
     },
-    getEntityAvatar: opts.getAvatar ?? ((r) => r.avatarUrl ?? undefined),
+    getEntityAvatar: opts.getAvatar ?? ((r) => r.avatarUrl || r.logoUrl || undefined),
     // No subtitle under the name — job title/company already have columns.
     allowCustomColumns: false,
     // Show the CRM-style "+ Calculate" footer row (count / sum / avg per column)

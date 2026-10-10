@@ -165,20 +165,12 @@ function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; prio
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget || !onClick || isDragging) return;
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onClick();
-    }
-  };
-
   const cardContent = (
     <>
       {/* Task number */}
       {task.number != null && (
         <div className="mb-1">
-          <TaskNumberBadge number={task.number} />
+          <TaskNumberBadge number={task.number} className="relative z-[1]" />
         </div>
       )}
 
@@ -257,22 +249,28 @@ function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; prio
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
       {...listeners}
-      role="button"
-      tabIndex={0}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
       className={cn(
         "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
-        "hover:bg-gray-50 dark:hover:bg-secondary/70 cursor-grab active:cursor-grabbing w-full",
+        "hover:bg-gray-50 dark:hover:bg-secondary/70 w-full",
         "p-3 transition-all duration-200",
-        isDragging && "opacity-50 !bg-gray-100 dark:!bg-gray-800 !border-transparent",
-        onClick && "cursor-pointer"
+        isDragging && "opacity-50 !bg-gray-100 dark:!bg-gray-800 !border-transparent"
       )}
     >
+      {/* Stretched card button: carries the dnd-kit a11y attributes, the card's
+          content sits above it and only the task number badge stays clickable. */}
+      <button
+        type="button"
+        {...attributes}
+        aria-label={task.title}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onClick={handleClick}
+        className={cn(
+          "absolute inset-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          onClick ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+        )}
+      />
       {isDragging ? <div className="invisible">{cardContent}</div> : cardContent}
     </div>
   );

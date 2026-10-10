@@ -200,6 +200,6 @@ export function workflowActor(ctx: ActionContext): WorkflowActor {
 /** A trimmed string, or undefined when empty. */
 export function optionalText(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
-  const trimmed = String(value).trim();
+  const trimmed = asText(value).trim();
   return trimmed === '' ? undefined : trimmed;
 }

@@ -421,19 +421,35 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
     }, [handleInput, restoreSelection, findListAncestor]);
 
     // Click within a checklist item's marker zone toggles its checked state.
+    const toggleChecklistItem = useCallback((li: HTMLLIElement) => {
+      if ('checked' in li.dataset) delete li.dataset.checked;
+      else li.dataset.checked = '';
+      handleInput();
+    }, [handleInput]);
+
+    // Clicking a checklist item's box toggles it.
     const handleEditorClick = useCallback((e: React.MouseEvent) => {
       if (!editable) return;
       const target = e.target as HTMLElement;
       const li = target.closest('li');
       if (li?.parentElement?.classList.contains('pgn-checklist')) {
         const rect = li.getBoundingClientRect();
-        if (e.clientX - rect.left <= 22) {
-          if ('checked' in li.dataset) delete li.dataset.checked;
-          else li.dataset.checked = '';
-          handleInput();
-        }
+        if (e.clientX - rect.left <= 22) toggleChecklistItem(li);
       }
-    }, [editable, handleInput]);
+    }, [editable, toggleChecklistItem]);
+
+    // Keyboard equivalent of the click: Ctrl/Cmd+Enter toggles the checklist
+    // item the caret is in.
+    const handleEditorKeyDown = useCallback((e: React.KeyboardEvent) => {
+      if (!editable || e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+      const anchor = window.getSelection()?.anchorNode ?? null;
+      const el = anchor instanceof HTMLElement ? anchor : anchor?.parentElement;
+      const li = el?.closest('li');
+      if (!li?.parentElement?.classList.contains('pgn-checklist')) return;
+      if (!editorRef.current?.contains(li)) return;
+      e.preventDefault();
+      toggleChecklistItem(li);
+    }, [editable, toggleChecklistItem]);
 
     const cmd: DocCommand = useMemo(() => ({
       exec,
@@ -653,6 +669,7 @@ export const PaginatedDocEditor = forwardRef<PaginatedDocEditorHandle, Paginated
               onInput={handleInput}
               onBlur={saveSelection}
               onClick={handleEditorClick}
+              onKeyDown={handleEditorKeyDown}
               style={{
                 paddingLeft: `${PAGE_PADDING_PX}px`,
                 paddingRight: `${PAGE_PADDING_PX}px`,

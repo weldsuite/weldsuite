@@ -31,7 +31,6 @@ import {
   StatusDot,
   STATUS_LABELS,
   PRESENCE_STATUSES,
-  type PresenceStatus,
 } from "./status-dot";
 import { CustomStatusDialog, type CustomStatusValue } from "./custom-status-dialog";
 
@@ -55,7 +54,7 @@ export interface EmailAccount {
 
 /** Current presence value as the menu renders it. */
 export interface PresenceValue {
-  status: PresenceStatus | string;
+  status: string;
   statusText?: string;
   statusEmoji?: string;
 }
@@ -94,7 +93,7 @@ export interface SidebarUserMenuPresence {
     statusEmoji?: string,
   ): void | Promise<void>;
   /** Override the selectable presets. Defaults to the standard five. */
-  statusOptions?: (PresenceStatus | string)[];
+  statusOptions?: string[];
   /** Localized labels for each status value. Defaults to English. */
   statusLabels?: Record<string, string>;
   /** "Set custom status..." menu item label. */
@@ -162,7 +161,7 @@ export function SidebarUserMenu({
   const statusLabels = presence?.statusLabels ?? STATUS_LABELS;
   const customStatusLabel = presence?.customStatusLabel ?? "Set custom status...";
   const labels: Record<string, string> = statusLabels;
-  const labelFor = (status?: PresenceStatus | string) =>
+  const labelFor = (status?: string) =>
     labels[(status as string) || "offline"] ?? labels["offline"];
 
   const customStatusValue: CustomStatusValue = {

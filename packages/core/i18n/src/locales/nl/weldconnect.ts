@@ -1641,6 +1641,13 @@ export const weldconnect = {
       afterSucceeds: 'Nadat "{name}" is geslaagd',
       afterFails: 'Nadat "{name}" is mislukt',
       afterFinishes: 'Nadat "{name}" is afgerond',
+      delay: 'Wacht {duration}',
+      duration: {
+        day: { one: '{count} dag', other: '{count} dagen' },
+        hour: { one: '{count} uur', other: '{count} uur' },
+        minute: { one: '{count} minuut', other: '{count} minuten' },
+        second: { one: '{count} seconde', other: '{count} seconden' },
+      },
     },
     publishIssues: {
       no_trigger: 'Voeg een trigger toe voordat je publiceert.',

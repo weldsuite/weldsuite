@@ -77,7 +77,7 @@ function Render({ settings }: Readonly<{ settings: WeldcallHistorySettings }>) {
   return <CallCard rows={rows} isLoading={res.isLoading} />;
 }
 
-function SettingsForm({ value, onChange }: { value: WeldcallHistorySettings; onChange: (next: WeldcallHistorySettings) => void }) {
+function SettingsForm({ value, onChange }: Readonly<{ value: WeldcallHistorySettings; onChange: (next: WeldcallHistorySettings) => void }>) {
   const { t } = useI18n();
   const f = t.weldsuiteHome.fields;
   return (

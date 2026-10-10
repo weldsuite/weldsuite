@@ -1,5 +1,6 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { format } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
@@ -61,7 +62,7 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
   const { t } = useI18n();
   const st = useTranslations();
   const tc = t.helpdesk.changelog;
-  const titleRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useBreadcrumbs([
@@ -72,6 +73,7 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
 
   // Mock data - in real app, fetch from API based on changelogId
   const [title, setTitle] = useState('Version 2.5.0 - Enhanced Dashboard & Performance');
+  useAutosizeTextarea(titleRef, title);
   const [content, setContent] = useState('<p dir="ltr">Full changelog content here...</p><p dir="ltr"><br></p><p dir="ltr">This is where you can write your changelog content. The editor provides a clean, distraction-free writing experience similar to Notion.</p><p dir="ltr"><br></p><p dir="ltr">You can write multiple paragraphs, and the content will automatically expand as you type.</p>');
   const [author, setAuthor] = useState('Sarah Williams');
   const [category, setCategory] = useState<string>('company');
@@ -94,15 +96,7 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
 
   // Focus title on mount
   useEffect(() => {
-    if (titleRef.current) {
-      titleRef.current.focus();
-      // Set initial title content
-      if (title && titleRef.current.textContent !== title) {
-        titleRef.current.textContent = title;
-      }
-    }
-    // Mount-only: re-running on every `title` change would fight the contentEditable cursor.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    titleRef.current?.focus();
   }, []);
 
   // Initialize content on mount only
@@ -118,12 +112,11 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const text = e.currentTarget.textContent || '';
-    setTitle(text);
+  const handleTitleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setTitle(e.target.value.replaceAll('\n', ''));
   };
 
-  const handleTitleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+  const handleTitleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (contentRef.current) {
@@ -335,9 +328,9 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
   };
 
   const openLinkDialog = () => {
-    const selection = window.getSelection();
-    if (selection && selection.toString()) {
-      setLinkText(selection.toString());
+    const selectedText = window.getSelection()?.toString();
+    if (selectedText) {
+      setLinkText(selectedText);
     }
     setShowCommandMenu(false);
     setCommandFilter('');
@@ -539,28 +532,16 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
         )}
 
         {/* Title */}
-        <div
+        <textarea
           ref={titleRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleTitleInput}
+          rows={1}
+          value={title}
+          onChange={handleTitleChange}
           onKeyDown={handleTitleKeyDown}
-          role="textbox"
-          tabIndex={0}
-          aria-multiline="false"
+          placeholder={tc.untitled}
           aria-label={tc.untitled}
           dir="ltr"
-          className={cn(
-            "text-4xl font-bold outline-none mb-2 leading-[1.2]",
-            !title && "text-muted-foreground/40"
-          )}
-          data-placeholder={tc.untitled}
-          style={{
-            caretColor: 'currentColor',
-            direction: 'ltr',
-            unicodeBidi: 'normal',
-            textAlign: 'left',
-          }}
+          className="mb-2 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-4xl font-bold leading-[1.2] outline-none placeholder:text-muted-foreground/40"
         />
 
 
@@ -821,7 +802,7 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style>{`
+      <style>{String.raw`
         /* Subtle scrollbar styles */
         * {
           scrollbar-width: thin;
@@ -872,7 +853,7 @@ export function ChangelogEditorClient(_props: Readonly<ChangelogEditorClientProp
           text-align: left;
         }
         [contenteditable] p:empty:before {
-          content: '\\200B';
+          content: '\200B';
         }
         [contenteditable] h1 {
           font-size: 2em;

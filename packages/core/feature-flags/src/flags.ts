@@ -24,6 +24,14 @@ export const FLAGS = {
   // WeldFlow "Move to project" action (task list row + detail panel). Hidden
   // by default — rolled out gradually per user / %-rollout in Flagship.
   'weldflow-move-task': { type: 'boolean', default: false },
+  // WeldHR payroll (NL + US own engines; docs/plans/weldhr-payroll.md). Gates
+  // the payroll screens and /api/weldhr/payroll/*. Off until rolled out per
+  // workspace in Flagship.
+  'weldhr-payroll': { type: 'boolean', default: false },
+  // Sending the Dutch loonaangifte to the Belastingdienst over Digipoort.
+  // Needs the PKIoverheid certificate binding on hr-api; until then filings
+  // are generated and downloaded, not sent.
+  'weldhr-payroll-digipoort': { type: 'boolean', default: false },
 } as const satisfies Record<string, FlagDefinition>;
 
 export type FlagDefinition =

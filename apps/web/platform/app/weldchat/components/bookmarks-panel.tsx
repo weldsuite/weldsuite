@@ -25,7 +25,6 @@ import {
   type FilterConfig,
   type GroupConfig,
 } from '@/components/entity-list';
-import { activateOnKey } from '@/lib/activate-on-key';
 
 type BookmarkItem = {
   id: string;
@@ -170,12 +169,8 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
   const renderRow = useCallback((bk: BookmarkItem) => (
     <div
       key={bk.id}
-      role="link"
-      tabIndex={0}
-      onClick={() => jumpToMessage(bk.channelId, bk.messageId)}
-      onKeyDown={activateOnKey(() => jumpToMessage(bk.channelId, bk.messageId))}
       className={cn(
-        'flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group/bk relative',
+        'flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group/bk relative',
       )}
     >
       <div className="flex-1 min-w-0 flex items-start gap-3">
@@ -208,15 +203,18 @@ export function BookmarksPanel({ embedded = false }: { embedded?: boolean } = {}
         </div>
       </div>
 
-      <div className="w-[32px] flex-shrink-0 flex justify-end -mr-1">
+      <button
+        type="button"
+        aria-label={[bk.messageAuthorName, bk.messageContent].filter(Boolean).join(': ')}
+        onClick={() => jumpToMessage(bk.channelId, bk.messageId)}
+        className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      />
+      <div className="relative z-10 w-[32px] flex-shrink-0 flex justify-end -mr-1">
         <Button
           variant="ghost"
           size="icon"
           className="h-7 w-7 text-muted-foreground hover:text-red-500 opacity-0 group-hover/bk:opacity-100 transition-opacity"
-          onClick={(e) => {
-            e.stopPropagation();
-            setRemovingId(bk.id);
-          }}
+          onClick={() => setRemovingId(bk.id)}
           title={t.weldchat.bookmarks.remove}
         >
           <X className="h-3 w-3" />

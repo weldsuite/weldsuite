@@ -379,71 +379,80 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
         )}
 
         {/* Preview Area */}
-        <div
-          role="presentation"
-          className="flex-1 flex items-center justify-center overflow-auto p-8"
-          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-        >
-          {isImage && (
-            <img
-              src={file.url!}
-              alt={file.name}
-              ref={imgRef}
-              className={cn("max-w-full max-h-full object-contain select-none shadow-[0_8px_36px_rgba(0,0,0,0.14)]", !skipTransition && "transition-transform duration-200")}
-              style={{
-                transform: `scale(${zoom}) rotate(${rotation}deg)`,
-              }}
-              draggable={false}
+        <div className="flex-1 overflow-auto">
+          <div className="relative h-full w-full">
+            {/* Backdrop: clicking the empty area closes the preview. The content sits above it and
+                only lets the media, the file panels and the controls receive pointer events. */}
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={t.welddrive.filePreview.tooltips.close}
+              className="absolute inset-0 cursor-default"
+              onClick={onClose}
             />
-          )}
+            <div className="pointer-events-none relative flex h-full w-full items-center justify-center p-8 [&_audio]:pointer-events-auto [&_button]:pointer-events-auto [&_iframe]:pointer-events-auto [&_img]:pointer-events-auto [&_video]:pointer-events-auto">
+              {isImage && (
+                <img
+                  src={file.url!}
+                  alt={file.name}
+                  ref={imgRef}
+                  className={cn("max-w-full max-h-full object-contain select-none shadow-[0_8px_36px_rgba(0,0,0,0.14)]", !skipTransition && "transition-transform duration-200")}
+                  style={{
+                    transform: `scale(${zoom}) rotate(${rotation}deg)`,
+                  }}
+                  draggable={false}
+                />
+              )}
 
-          {isVideo && (
-            <video
-              src={file.url!}
-              controls
-              poster={file.thumbnailUrl || undefined}
-              className="max-w-full max-h-full rounded-lg shadow-[0_8px_36px_rgba(0,0,0,0.14)]"
-            />
-          )}
+              {isVideo && (
+                <video
+                  src={file.url!}
+                  controls
+                  poster={file.thumbnailUrl || undefined}
+                  className="max-w-full max-h-full rounded-lg shadow-[0_8px_36px_rgba(0,0,0,0.14)]"
+                />
+              )}
 
-          {isAudio && (
-            <div className="flex flex-col items-center gap-6">
-              <div className="w-32 h-32 rounded-2xl bg-white/10 flex items-center justify-center">
-                <Icon className={cn('h-16 w-16', typeConfig.color)} />
-              </div>
-              <p className="text-sm text-white/80 font-medium">{file.name}</p>
-              <audio src={file.url!} controls className="w-full max-w-md" />
-            </div>
-          )}
+              {isAudio && (
+                <div className="pointer-events-auto flex flex-col items-center gap-6">
+                  <div className="w-32 h-32 rounded-2xl bg-white/10 flex items-center justify-center">
+                    <Icon className={cn('h-16 w-16', typeConfig.color)} />
+                  </div>
+                  <p className="text-sm text-white/80 font-medium">{file.name}</p>
+                  <audio src={file.url!} controls className="w-full max-w-md" />
+                </div>
+              )}
 
-          {isPdf && (
-            <iframe
-              src={file.url!}
-              className="w-full h-full rounded-lg border border-white/10 shadow-[0_8px_36px_rgba(0,0,0,0.14)]"
-              title={file.name}
-            />
-          )}
+              {isPdf && (
+                <iframe
+                  src={file.url!}
+                  className="w-full h-full rounded-lg border border-white/10 shadow-[0_8px_36px_rgba(0,0,0,0.14)]"
+                  title={file.name}
+                />
+              )}
 
-          {!isImage && !isVideo && !isAudio && !isPdf && (
-            <div className="flex flex-col items-center gap-4 text-center">
-              <div className="w-24 h-24 rounded-2xl bg-white/10 flex items-center justify-center">
-                <Icon className={cn('h-12 w-12', typeConfig.color)} />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-white">{file.name}</p>
-                <p className="text-xs text-white/50 mt-1 capitalize">{t.welddrive.filePreview.unsupported.fileLabel.replace('{fileType}', file.fileType)}</p>
-                {file.fileSize !== null && (
-                  <p className="text-xs text-white/50 mt-0.5">{formatFileSize(file.fileSize)}</p>
-                )}
-              </div>
-              {(file.source === 'drive' || file.url) && (
-                <Button size="sm" variant="secondary" className="mt-2" onClick={() => downloadFile(file)}>
-                  <Download className="h-4 w-4 mr-1.5" />
-                  {t.welddrive.filePreview.unsupported.download}
-                </Button>
+              {!isImage && !isVideo && !isAudio && !isPdf && (
+                <div className="pointer-events-auto flex flex-col items-center gap-4 text-center">
+                  <div className="w-24 h-24 rounded-2xl bg-white/10 flex items-center justify-center">
+                    <Icon className={cn('h-12 w-12', typeConfig.color)} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-white">{file.name}</p>
+                    <p className="text-xs text-white/50 mt-1 capitalize">{t.welddrive.filePreview.unsupported.fileLabel.replace('{fileType}', file.fileType)}</p>
+                    {file.fileSize !== null && (
+                      <p className="text-xs text-white/50 mt-0.5">{formatFileSize(file.fileSize)}</p>
+                    )}
+                  </div>
+                  {(file.source === 'drive' || file.url) && (
+                    <Button size="sm" variant="secondary" className="mt-2" onClick={() => downloadFile(file)}>
+                      <Download className="h-4 w-4 mr-1.5" />
+                      {t.welddrive.filePreview.unsupported.download}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </div>
         </div>
 
       </div>

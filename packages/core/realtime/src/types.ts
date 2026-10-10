@@ -107,6 +107,27 @@ export type WorkspaceServerMessage =
   | { type: 'error'; code: string; message: string }
   | { type: 'pong' };
 
+/**
+ * Payload of the `call_superseded` event on `chat.user.<userId>`: the server
+ * dropped the user from a live call because they joined another one (a user
+ * is in at most one WeldMeet session or WeldChat call at a time), or joined the
+ * same one again from another tab or device. Published BEFORE the
+ * RealtimeKit connection is kicked, so the client that is about to see
+ * `roomLeft` already knows why.
+ */
+export interface CallSupersededEvent {
+  kind: 'chat' | 'meet';
+  /** Chat call id, or meeting session id. */
+  id: string;
+  /** `meet` only: the meeting the session belongs to. */
+  meetingId?: string;
+  /**
+   * The RealtimeKit participant id of the connection that was evicted, so a
+   * tab that is still in the same call under a different id can ignore it.
+   */
+  cfSessionId?: string | null;
+}
+
 /** Messages the client sends to a ConversationRoom */
 export type ConversationClientMessage =
   | { type: 'message'; content: string; attachments?: Attachment[] }

@@ -245,7 +245,7 @@ app.get('/', async (c) => {
 
   const params = {
     cursor: query.cursor,
-    limit: query.limit ? parseInt(query.limit, 10) : 25,
+    limit: query.limit ? Number.parseInt(query.limit, 10) : 25,
     search: query.search,
     status: query.status,
     memberType,

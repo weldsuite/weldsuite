@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { toast } from 'sonner';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { useCreateProjectAnalyticsChart } from '@/hooks/queries/use-projects-queries';
 import { useI18n } from '@/lib/i18n/provider';
@@ -19,231 +20,132 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart as RechartsBarChart,
-  CartesianGrid,
-  Pie,
-  PieChart as RechartsPieChart,
-  Radar,
-  RadarChart,
-  RadialBar,
-  RadialBarChart,
-  PolarAngleAxis,
-  PolarGrid,
-  PolarRadiusAxis,
-  Cell,
-  Label as RechartsLabel,
-  LabelList,
-  XAxis,
-  YAxis
-} from "recharts"
-import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@weldsuite/ui/components/card"
-import {
-  ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  ChartLegend,
-  ChartLegendContent,
-} from "@weldsuite/ui/components/chart"
+import { ChartPreview } from '@/app/weldflow/analytics/_components/chart-preview';
 
-const chartData = [
-  { month: "January", desktop: 186 },
-  { month: "February", desktop: 305 },
-  { month: "March", desktop: 237 },
-  { month: "April", desktop: 73 },
-  { month: "May", desktop: 209 },
-  { month: "June", desktop: 214 },
-]
-
-const multiSeriesData = [
-  { month: "January", desktop: 186, mobile: 80 },
-  { month: "February", desktop: 305, mobile: 200 },
-  { month: "March", desktop: 237, mobile: 120 },
-  { month: "April", desktop: 73, mobile: 190 },
-  { month: "May", desktop: 209, mobile: 130 },
-  { month: "June", desktop: 214, mobile: 140 },
-]
-
-const mixedBarChartData = [
-  { browser: "chrome", visitors: 275, fill: "var(--chart-1)" },
-  { browser: "safari", visitors: 200, fill: "var(--chart-2)" },
-  { browser: "firefox", visitors: 187, fill: "var(--chart-3)" },
-  { browser: "edge", visitors: 173, fill: "var(--chart-4)" },
-  { browser: "other", visitors: 90, fill: "var(--chart-5)" },
-]
-
-const negativeBarChartData = [
-  { month: "January", visitors: 186 },
-  { month: "February", visitors: 205 },
-  { month: "March", visitors: -207 },
-  { month: "April", visitors: 173 },
-  { month: "May", visitors: -209 },
-  { month: "June", visitors: 214 },
-]
-
-const chartTypes = [
+const chartTypeDefs = [
   {
     id: 'area-chart',
-    name: 'Area Chart',
     icon: AreaChartIcon,
-    description: 'Display trends over time with filled areas',
   },
   {
     id: 'area-linear',
-    name: 'Area Chart - Linear',
     icon: AreaChartIcon,
-    description: 'Linear area chart with dot indicator',
   },
   {
     id: 'area-stacked',
-    name: 'Area Chart - Stacked',
     icon: Layers,
-    description: 'Stacked area chart showing cumulative values',
   },
   {
     id: 'bar-multiple',
-    name: 'Bar Chart - Multiple',
     icon: BarChart3,
-    description: 'Multiple bar chart for comparing values',
   },
   {
     id: 'bar-mixed',
-    name: 'Bar Chart - Mixed',
     icon: BarChart3,
-    description: 'Horizontal bar chart with mixed colors',
   },
   {
     id: 'bar-stacked',
-    name: 'Bar Chart - Stacked',
     icon: Layers,
-    description: 'Stacked bar chart with legend',
   },
   {
     id: 'bar-negative',
-    name: 'Bar Chart - Negative',
     icon: TrendingUpDown,
-    description: 'Bar chart with negative values',
   },
   {
     id: 'pie-label',
-    name: 'Pie Chart - Label',
     icon: PieChart,
-    description: 'Pie chart with label list',
   },
   {
     id: 'pie-donut',
-    name: 'Pie Chart - Donut',
     icon: Activity,
-    description: 'Donut chart with center text',
   },
   {
     id: 'radar-lines',
-    name: 'Radar Chart - Lines Only',
     icon: Activity,
-    description: 'Radar chart with lines only',
   },
   {
     id: 'radial-simple',
-    name: 'Radial Chart',
     icon: Activity,
-    description: 'Simple radial bar chart',
   },
   {
     id: 'radial-text',
-    name: 'Radial Chart - Text',
     icon: Activity,
-    description: 'Radial chart with center text',
   },
 ];
 
 // Projects-specific entities
-const entities = [
-  { id: 'projects', name: 'Projects', icon: FolderKanban },
-  { id: 'tasks', name: 'Tasks', icon: CheckSquare },
-  { id: 'time_entries', name: 'Time Entries', icon: Clock },
-  { id: 'milestones', name: 'Milestones', icon: Target },
+const entityDefs = [
+  { id: 'projects', icon: FolderKanban },
+  { id: 'tasks', icon: CheckSquare },
+  { id: 'time_entries', icon: Clock },
+  { id: 'milestones', icon: Target },
 ];
 
 // Projects-specific metrics
-const metrics: Record<string, Array<{ id: string; name: string; description: string }>> = {
+const metricDefs: Record<string, Array<{ id: string }>> = {
   projects: [
-    { id: 'total_projects', name: 'Total Projects', description: 'Number of all projects' },
-    { id: 'active_projects', name: 'Active Projects', description: 'Currently active projects' },
-    { id: 'projects_by_status', name: 'Projects by Status', description: 'Breakdown by status' },
-    { id: 'projects_by_health', name: 'Projects by Health', description: 'On Track/At Risk/Off Track' },
-    { id: 'completion_rate', name: 'Completion Rate', description: 'Task completion percentage' },
-    { id: 'budget_utilization', name: 'Budget Utilization', description: 'Actual vs budgeted amount' },
-    { id: 'hours_utilization', name: 'Hours Utilization', description: 'Actual vs budgeted hours' },
-    { id: 'avg_progress', name: 'Average Progress', description: 'Mean project progress' },
-    { id: 'projects_by_day', name: 'Projects by Day', description: 'Daily project count' },
+    { id: 'total_projects' },
+    { id: 'active_projects' },
+    { id: 'projects_by_status' },
+    { id: 'projects_by_health' },
+    { id: 'completion_rate' },
+    { id: 'budget_utilization' },
+    { id: 'hours_utilization' },
+    { id: 'avg_progress' },
+    { id: 'projects_by_day' },
   ],
   tasks: [
-    { id: 'total_tasks', name: 'Total Tasks', description: 'Number of all tasks' },
-    { id: 'completed_tasks', name: 'Completed Tasks', description: 'Tasks marked as done' },
-    { id: 'overdue_tasks', name: 'Overdue Tasks', description: 'Tasks past due date' },
-    { id: 'tasks_by_status', name: 'Tasks by Status', description: 'Breakdown by status' },
-    { id: 'tasks_by_priority', name: 'Tasks by Priority', description: 'Critical/High/Medium/Low' },
-    { id: 'tasks_by_type', name: 'Tasks by Type', description: 'Task/Bug/Story/Epic' },
-    { id: 'throughput', name: 'Throughput', description: 'Tasks completed per period' },
-    { id: 'estimation_accuracy', name: 'Estimation Accuracy', description: 'Actual vs estimated hours' },
-    { id: 'tasks_by_day', name: 'Tasks by Day', description: 'Daily task count' },
+    { id: 'total_tasks' },
+    { id: 'completed_tasks' },
+    { id: 'overdue_tasks' },
+    { id: 'tasks_by_status' },
+    { id: 'tasks_by_priority' },
+    { id: 'tasks_by_type' },
+    { id: 'throughput' },
+    { id: 'estimation_accuracy' },
+    { id: 'tasks_by_day' },
   ],
   time_entries: [
-    { id: 'total_hours', name: 'Total Hours', description: 'Sum of all logged hours' },
-    { id: 'billable_hours', name: 'Billable Hours', description: 'Hours marked as billable' },
-    { id: 'non_billable_hours', name: 'Non-Billable Hours', description: 'Hours not billable' },
-    { id: 'utilization_rate', name: 'Utilization Rate', description: 'Billable percentage' },
-    { id: 'total_cost', name: 'Total Cost', description: 'Sum of time entry costs' },
-    { id: 'hours_by_day', name: 'Hours by Day', description: 'Daily hours tracking' },
+    { id: 'total_hours' },
+    { id: 'billable_hours' },
+    { id: 'non_billable_hours' },
+    { id: 'utilization_rate' },
+    { id: 'total_cost' },
+    { id: 'hours_by_day' },
   ],
   milestones: [
-    { id: 'total_milestones', name: 'Total Milestones', description: 'Number of all milestones' },
-    { id: 'milestones_by_status', name: 'Milestones by Status', description: 'Breakdown by status' },
-    { id: 'completed_milestones', name: 'Completed Milestones', description: 'Milestones marked done' },
-    { id: 'overdue_milestones', name: 'Overdue Milestones', description: 'Milestones past due' },
-    { id: 'on_time_milestones', name: 'On Time Milestones', description: 'Completed on schedule' },
-    { id: 'avg_milestone_progress', name: 'Average Progress', description: 'Mean milestone progress' },
+    { id: 'total_milestones' },
+    { id: 'milestones_by_status' },
+    { id: 'completed_milestones' },
+    { id: 'overdue_milestones' },
+    { id: 'on_time_milestones' },
+    { id: 'avg_milestone_progress' },
   ],
 };
 
-interface CenterTotalLabelProps {
-  // Injected by recharts (cloned onto the element) once the label is placed.
-  readonly viewBox?: { cx?: number; cy?: number };
-  readonly value: string;
-  readonly valueClassName: string;
-  readonly caption: string;
-}
-
-function CenterTotalLabel({ viewBox, value, valueClassName, caption }: CenterTotalLabelProps) {
-  if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null;
-  return (
-    <text
-      x={viewBox.cx}
-      y={viewBox.cy}
-      textAnchor="middle"
-      dominantBaseline="middle"
-    >
-      <tspan x={viewBox.cx} y={viewBox.cy} className={valueClassName}>
-        {value}
-      </tspan>
-      <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 24} className="fill-muted-foreground">
-        {caption}
-      </tspan>
-    </text>
-  );
-}
-
 export default function ProjectsAnalyticsBuilderPage() {
   const { t } = useI18n();
+  const catalog = t.projects.analyticsBuilderCatalog;
+  const chartTypes = React.useMemo(() => {
+    const names: Record<string, { name: string; description: string }> = catalog.chartTypes;
+    return chartTypeDefs.map((chart) => ({ ...chart, ...names[chart.id] }));
+  }, [catalog]);
+  const entities = React.useMemo(() => {
+    const names: Record<string, string> = catalog.entities;
+    return entityDefs.map((entity) => ({ ...entity, name: names[entity.id] }));
+  }, [catalog]);
+  const metrics = React.useMemo(() => {
+    const names: Record<string, { name: string; description: string }> = catalog.metrics;
+    return Object.fromEntries(
+      Object.entries(metricDefs).map(([entityId, list]) => [entityId, list.map((metric) => ({ ...metric, ...names[metric.id] }))]),
+    );
+  }, [catalog]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const reportId = searchParams.get('reportId');
@@ -251,6 +153,9 @@ export default function ProjectsAnalyticsBuilderPage() {
 
   const [selectedChart, setSelectedChart] = useState(chartTypes[0]);
   const [chartTitle, setChartTitle] = useState('');
+  // Once the user types their own title/description, picking a metric must not overwrite it.
+  const [titleEdited, setTitleEdited] = useState(false);
+  const [descriptionEdited, setDescriptionEdited] = useState(false);
   const [chartDescription, setChartDescription] = useState('');
   const [selectedEntity, setSelectedEntity] = useState('');
   const [selectedMetric, setSelectedMetric] = useState('');
@@ -266,42 +171,6 @@ export default function ProjectsAnalyticsBuilderPage() {
   const [sortOrder, setSortOrder] = useState('asc');
   const [limit, setLimit] = useState('10');
 
-  // Dynamic chart config based on selected color
-  const chartConfig = {
-    desktop: {
-      label: "Value",
-      color: chartColor,
-    },
-    mobile: {
-      label: "Mobile",
-      color: "#93c5fd",
-    },
-    visitors: {
-      label: "Visitors",
-      color: chartColor,
-    },
-    chrome: {
-      label: "Chrome",
-      color: "#3b82f6",
-    },
-    safari: {
-      label: "Safari",
-      color: "#93c5fd",
-    },
-    firefox: {
-      label: "Firefox",
-      color: "#60a5fa",
-    },
-    edge: {
-      label: "Edge",
-      color: "#2563eb",
-    },
-    other: {
-      label: "Other",
-      color: "#1d4ed8",
-    },
-  } satisfies ChartConfig;
-
   const handleSave = async () => {
     if (!reportId) {
       router.push('/weldflow/analytics');
@@ -312,7 +181,7 @@ export default function ProjectsAnalyticsBuilderPage() {
       await createChartMutation.mutateAsync({
         reportId,
         data: {
-          title: chartTitle || 'Untitled Chart',
+          title: chartTitle || catalog.untitledChart,
           description: chartDescription || '',
           chartType: selectedChart.id,
           entity: selectedEntity,
@@ -331,8 +200,9 @@ export default function ProjectsAnalyticsBuilderPage() {
         },
       });
       router.push(`/weldflow/analytics/${reportId}`);
-    } catch {
-      // Error handled by mutation
+    } catch (error) {
+      console.error('Failed to create chart:', error);
+      toast.error(t.projects.analyticsBuilder.saveChartFailed);
     }
   };
 
@@ -390,315 +260,16 @@ export default function ProjectsAnalyticsBuilderPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="relative overflow-visible">
-                    <ChartContainer config={chartConfig} className="relative z-10 overflow-visible">
-                      {selectedChart.id === 'area-chart' && (
-                        <AreaChart
-                          accessibilityLayer
-                          data={chartData}
-                          margin={{ left: 12, right: 12 }}
-                        >
-                          <CartesianGrid vertical={false} />
-                          <XAxis
-                            dataKey="month"
-                            tickLine={false}
-                            axisLine={false}
-                            tickMargin={8}
-                            tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 3) : String(value)}
-                          />
-                          <ChartTooltip
-                            cursor={{ stroke: "hsl(var(--border))", strokeWidth: 1 }}
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent labelFormatter={String} />}
-                          />
-                          <Area
-                            dataKey="desktop"
-                            type={smoothLines ? "natural" : "linear"}
-                            fill={fillArea ? chartColor : "transparent"}
-                            fillOpacity={fillArea ? 0.2 : 0}
-                            stroke={chartColor}
-                            strokeWidth={2}
-                            dot={showDataPoints}
-                          />
-                        </AreaChart>
-                      )}
-
-                      {selectedChart.id === 'area-linear' && (
-                        <AreaChart
-                          accessibilityLayer
-                          data={chartData}
-                          margin={{ left: 12, right: 12 }}
-                        >
-                          <CartesianGrid vertical={false} />
-                          <XAxis
-                            dataKey="month"
-                            tickLine={false}
-                            axisLine={false}
-                            tickMargin={8}
-                            tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 3) : String(value)}
-                          />
-                          <ChartTooltip
-                            cursor={false}
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent indicator="dot" labelKey="month" />}
-                          />
-                          <Area
-                            dataKey="desktop"
-                            type="linear"
-                            fill={chartColor}
-                            fillOpacity={0.4}
-                            stroke={chartColor}
-                          />
-                        </AreaChart>
-                      )}
-
-                      {selectedChart.id === 'area-stacked' && (
-                        <AreaChart
-                          accessibilityLayer
-                          data={multiSeriesData}
-                          margin={{ left: 12, right: 12 }}
-                        >
-                          <CartesianGrid vertical={false} />
-                          <XAxis
-                            dataKey="month"
-                            tickLine={false}
-                            axisLine={false}
-                            tickMargin={8}
-                            tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 3) : String(value)}
-                          />
-                          <ChartTooltip
-                            cursor={false}
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent indicator="dot" labelKey="month" />}
-                          />
-                          <Area
-                            dataKey="mobile"
-                            type="natural"
-                            fill="var(--color-mobile)"
-                            fillOpacity={0.4}
-                            stroke="var(--color-mobile)"
-                            stackId="a"
-                          />
-                          <Area
-                            dataKey="desktop"
-                            type="natural"
-                            fill="var(--color-desktop)"
-                            fillOpacity={0.4}
-                            stroke="var(--color-desktop)"
-                            stackId="a"
-                          />
-                        </AreaChart>
-                      )}
-
-                      {selectedChart.id === 'bar-multiple' && (
-                        <RechartsBarChart accessibilityLayer data={multiSeriesData}>
-                          <CartesianGrid vertical={false} />
-                          <XAxis
-                            dataKey="month"
-                            tickLine={false}
-                            tickMargin={10}
-                            axisLine={false}
-                            tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 3) : String(value)}
-                          />
-                          <ChartTooltip
-                            cursor={false}
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent indicator="dashed" />}
-                          />
-                          <Bar dataKey="desktop" fill="var(--color-desktop)" radius={4} />
-                          <Bar dataKey="mobile" fill="var(--color-mobile)" radius={4} />
-                        </RechartsBarChart>
-                      )}
-
-                      {selectedChart.id === 'bar-mixed' && (
-                        <RechartsBarChart
-                          accessibilityLayer
-                          data={mixedBarChartData}
-                          layout="vertical"
-                          margin={{ left: 0 }}
-                        >
-                          <YAxis
-                            dataKey="browser"
-                            type="category"
-                            tickLine={false}
-                            tickMargin={10}
-                            axisLine={false}
-                            tickFormatter={(value) =>
-                              chartConfig[value as keyof typeof chartConfig]?.label || value
-                            }
-                          />
-                          <XAxis dataKey="visitors" type="number" hide />
-                          <ChartTooltip
-                            cursor={false}
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent hideLabel />}
-                          />
-                          <Bar dataKey="visitors" radius={5} />
-                        </RechartsBarChart>
-                      )}
-
-                      {selectedChart.id === 'bar-stacked' && (
-                        <RechartsBarChart accessibilityLayer data={multiSeriesData}>
-                          <CartesianGrid vertical={false} />
-                          <XAxis
-                            dataKey="month"
-                            tickLine={false}
-                            tickMargin={10}
-                            axisLine={false}
-                            tickFormatter={(value) => typeof value === 'string' ? value.slice(0, 3) : String(value)}
-                          />
-                          <ChartTooltip
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent hideLabel />}
-                          />
-                          <ChartLegend content={<ChartLegendContent />} />
-                          <Bar
-                            dataKey="desktop"
-                            stackId="a"
-                            fill="var(--color-desktop)"
-                            radius={[0, 0, 4, 4]}
-                          />
-                          <Bar
-                            dataKey="mobile"
-                            stackId="a"
-                            fill="var(--color-mobile)"
-                            radius={[4, 4, 0, 0]}
-                          />
-                        </RechartsBarChart>
-                      )}
-
-                      {selectedChart.id === 'bar-negative' && (
-                        <RechartsBarChart accessibilityLayer data={negativeBarChartData}>
-                          <CartesianGrid vertical={false} />
-                          <ChartTooltip
-                            cursor={false}
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent hideLabel hideIndicator />}
-                          />
-                          <Bar dataKey="visitors">
-                            <LabelList position="top" dataKey="month" fillOpacity={1} />
-                            {negativeBarChartData.map((item) => (
-                              <Cell
-                                key={item.month}
-                                fill={item.visitors > 0 ? "var(--chart-1)" : "var(--chart-2)"}
-                              />
-                            ))}
-                          </Bar>
-                        </RechartsBarChart>
-                      )}
-
-                      {selectedChart.id === 'pie-label' && (
-                        <RechartsPieChart>
-                          <ChartTooltip
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent nameKey="visitors" hideLabel />}
-                          />
-                          <Pie data={mixedBarChartData} dataKey="visitors">
-                            <LabelList
-                              dataKey="browser"
-                              className="fill-background"
-                              stroke="none"
-                              fontSize={12}
-                              formatter={(value) =>
-                                chartConfig[value as keyof typeof chartConfig]?.label || String(value)
-                              }
-                            />
-                          </Pie>
-                        </RechartsPieChart>
-                      )}
-
-                      {selectedChart.id === 'pie-donut' && (
-                        <RechartsPieChart>
-                          <ChartTooltip
-                            cursor={false}
-                            content={<ChartTooltipContent hideLabel />}
-                          />
-                          <Pie
-                            data={mixedBarChartData}
-                            dataKey="visitors"
-                            nameKey="browser"
-                            innerRadius={60}
-                            strokeWidth={5}
-                          >
-                            <RechartsLabel
-                              content={
-                                <CenterTotalLabel
-                                  value={mixedBarChartData.reduce((acc, curr) => acc + curr.visitors, 0).toLocaleString()}
-                                  valueClassName="fill-foreground text-3xl font-bold"
-                                  caption={t.projects.analyticsBuilder.total}
-                                />
-                              }
-                            />
-                          </Pie>
-                        </RechartsPieChart>
-                      )}
-
-                      {selectedChart.id === 'radar-lines' && (
-                        <RadarChart data={multiSeriesData}>
-                          <ChartTooltip
-                            cursor={false}
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent indicator="line" />}
-                          />
-                          <PolarAngleAxis dataKey="month" />
-                          <PolarGrid radialLines={false} />
-                          <Radar
-                            dataKey="desktop"
-                            fill="var(--color-desktop)"
-                            fillOpacity={0}
-                            stroke="var(--color-desktop)"
-                            strokeWidth={2}
-                          />
-                          <Radar
-                            dataKey="mobile"
-                            fill="var(--color-mobile)"
-                            fillOpacity={0}
-                            stroke="var(--color-mobile)"
-                            strokeWidth={2}
-                          />
-                        </RadarChart>
-                      )}
-
-                      {selectedChart.id === 'radial-simple' && (
-                        <RadialBarChart data={mixedBarChartData} innerRadius={30} outerRadius={110}>
-                          <ChartTooltip
-                            cursor={false}
-                            wrapperStyle={{ zIndex: 1000, outline: 'none' }}
-                            content={<ChartTooltipContent hideLabel nameKey="browser" />}
-                          />
-                          <RadialBar dataKey="visitors" background />
-                        </RadialBarChart>
-                      )}
-
-                      {selectedChart.id === 'radial-text' && (
-                        <RadialBarChart
-                          data={[mixedBarChartData[0]]}
-                          startAngle={0}
-                          endAngle={250}
-                          innerRadius={80}
-                          outerRadius={110}
-                        >
-                          <PolarGrid
-                            gridType="circle"
-                            radialLines={false}
-                            stroke="none"
-                            className="first:fill-muted last:fill-background"
-                            polarRadius={[86, 74]}
-                          />
-                          <RadialBar dataKey="visitors" background cornerRadius={10} />
-                          <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
-                            <RechartsLabel
-                              content={
-                                <CenterTotalLabel
-                                  value={mixedBarChartData[0].visitors.toLocaleString()}
-                                  valueClassName="fill-foreground text-4xl font-bold"
-                                  caption={t.projects.analyticsBuilder.total}
-                                />
-                              }
-                            />
-                          </PolarRadiusAxis>
-                        </RadialBarChart>
-                      )}
-                    </ChartContainer>
+                    <ChartPreview
+                      reportId={reportId}
+                      query={{ entity: selectedEntity, metric: selectedMetric, timeRange, groupBy, aggregation, sortOrder, limit: limit === 'All' ? undefined : Number.parseInt(limit, 10) }}
+                      chartType={selectedChart.id}
+                      color={chartColor}
+                      showLegend={showLegend}
+                      smoothCurve={smoothLines}
+                      fillArea={fillArea}
+                      showDataLabels={showDataPoints}
+                    />
                   </CardContent>
                 </Card>
             </div>
@@ -746,7 +317,10 @@ export default function ProjectsAnalyticsBuilderPage() {
                   <Input
                     id="title"
                     value={chartTitle}
-                    onChange={(e) => setChartTitle(e.target.value)}
+                    onChange={(e) => {
+                      setTitleEdited(true);
+                      setChartTitle(e.target.value);
+                    }}
                     placeholder={t.projects.analyticsBuilder.titlePlaceholder}
                     className="h-9 text-sm bg-white dark:bg-background border-gray-200 dark:border-border focus:border-gray-300 dark:focus:border-gray-700 transition-colors shadow-none"
                   />
@@ -759,7 +333,10 @@ export default function ProjectsAnalyticsBuilderPage() {
                   <Textarea
                     id="description"
                     value={chartDescription}
-                    onChange={(e) => setChartDescription(e.target.value)}
+                    onChange={(e) => {
+                      setDescriptionEdited(true);
+                      setChartDescription(e.target.value);
+                    }}
                     placeholder={t.projects.analyticsBuilder.descriptionPlaceholder}
                     className="min-h-[60px] text-sm resize-none bg-white dark:bg-background border-gray-200 dark:border-border focus:border-gray-300 dark:focus:border-gray-700 transition-colors shadow-none"
                   />
@@ -833,8 +410,8 @@ export default function ProjectsAnalyticsBuilderPage() {
                             onClick={() => {
                               setSelectedMetric(metric.id);
                               const entity = entities.find(e => e.id === selectedEntity);
-                              setChartTitle(`${entity?.name} - ${metric.name}`);
-                              setChartDescription(metric.description);
+                              if (!titleEdited) setChartTitle(`${entity?.name} - ${metric.name}`);
+                              if (!descriptionEdited) setChartDescription(metric.description);
                             }}
                             className="flex flex-col items-start py-2"
                           >

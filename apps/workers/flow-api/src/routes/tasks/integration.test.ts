@@ -126,6 +126,38 @@ describe('/api/tasks · pglite integration', () => {
   });
 });
 
+describe('/api/tasks · subtask priority · pglite integration', () => {
+  async function create(body: Record<string, unknown>): Promise<{ id: string; priority: string }> {
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:create'), tenantDb: db },
+    });
+    const res = await request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { data: { id: string; priority: string } }).data;
+  }
+
+  it('a subtask without a priority inherits its parent priority', async () => {
+    const parent = await create({ title: 'Urgent parent', priority: 'high' });
+    const child = await create({ title: 'Child', parentTaskId: parent.id });
+    expect(child.priority).toBe('high');
+  });
+
+  it('an explicit subtask priority wins over the parent priority', async () => {
+    const parent = await create({ title: 'Urgent parent 2', priority: 'high' });
+    const child = await create({ title: 'Child 2', parentTaskId: parent.id, priority: 'low' });
+    expect(child.priority).toBe('low');
+  });
+
+  it('a top-level task without a priority is still medium', async () => {
+    const task = await create({ title: 'Plain task' });
+    expect(task.priority).toBe('medium');
+  });
+});
+
 describe('/api/tasks/:id/move · pglite integration', () => {
   // Stub flag evaluators mirroring what featureFlagsMiddleware resolves from
   // Flagship. `flagsOn` = the user is inside the rollout; `flagsOff` = not.
@@ -310,6 +342,20 @@ describe('/api/tasks · numbering · pglite integration', () => {
     });
 
     for (const q of [`${created.number}`, `#${created.number}`, `TASK-${created.number}`]) {
+      const res = await request(`/api/tasks?search=${encodeURIComponent(q)}`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { data: Array<{ id: string }> };
+      expect(body.data.some((t) => t.id === created.id)).toBe(true);
+    }
+  });
+
+  it('matches title search case-insensitively', async () => {
+    const created = await createTask('Recurring Only Findable');
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: db },
+    });
+
+    for (const q of ['recur', 'RECURRING', 'only findable']) {
       const res = await request(`/api/tasks?search=${encodeURIComponent(q)}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { data: Array<{ id: string }> };
@@ -589,6 +635,16 @@ describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integrat
     return request(`/api/tasks/${id}`, { method: 'PATCH', headers: json, body: JSON.stringify(body) });
   };
 
+  it('sets and clears the time estimate (duration: null)', async () => {
+    await seedTask({ id: 'task_dur_1', duration: 30 });
+
+    expect((await patch('task_dur_1', { duration: 90 })).status).toBe(200);
+    expect((await row('task_dur_1'))?.duration).toBe(90);
+
+    expect((await patch('task_dur_1', { duration: null })).status).toBe(200);
+    expect((await row('task_dur_1'))?.duration).toBeNull();
+  });
+
   it('writes only allow-listed columns and ignores server-owned ones', async () => {
     await seedTask({
       id: 'task_ma_1',
@@ -791,6 +847,37 @@ describe('PATCH /api/tasks/:id · mass assignment + relations · pglite integrat
     expect((await patch('task_pt_child', { parentTaskId: 'task_pt_parent' })).status).toBe(200);
     expect((await patch('task_pt_child', { parentTaskId: null })).status).toBe(200);
     expect((await row('task_pt_child'))?.parentTaskId).toBeNull();
+  });
+
+  it('rejects a parent that is the task itself or any of its descendants', async () => {
+    await seedProject('proj_cy');
+    await joinProject('proj_cy');
+    await seedTask({ id: 'task_cy_root', projectId: 'proj_cy' });
+    await seedTask({ id: 'task_cy_child', projectId: 'proj_cy', parentTaskId: 'task_cy_root' });
+    await seedTask({ id: 'task_cy_grand', projectId: 'proj_cy', parentTaskId: 'task_cy_child' });
+    await seedTask({ id: 'task_cy_sibling', projectId: 'proj_cy', parentTaskId: 'task_cy_root' });
+
+    // Direct child and deeper descendant would both close a loop.
+    expect((await patch('task_cy_root', { parentTaskId: 'task_cy_child' })).status).toBe(400);
+    expect((await patch('task_cy_root', { parentTaskId: 'task_cy_grand' })).status).toBe(400);
+    expect((await patch('task_cy_child', { parentTaskId: 'task_cy_grand' })).status).toBe(400);
+    expect((await row('task_cy_root'))?.parentTaskId).toBeNull();
+    expect((await row('task_cy_child'))?.parentTaskId).toBe('task_cy_root');
+
+    // Moving within the tree without closing a loop is still fine.
+    expect((await patch('task_cy_grand', { parentTaskId: 'task_cy_sibling' })).status).toBe(200);
+    expect((await patch('task_cy_child', { parentTaskId: 'task_cy_grand' })).status).toBe(200);
+  });
+
+  it('publishes field-level changes with an updated task', async () => {
+    await seedTask({ id: 'task_audit_changes', status: 'todo', priority: 'medium' });
+    mockedPublish.mockClear();
+
+    expect((await patch('task_audit_changes', { status: 'in_progress', repeat: { frequency: 'weekly' } })).status).toBe(200);
+    const call = mockedPublish.mock.calls[0]![0] as { changes: Record<string, { old: unknown; new: unknown }> };
+    expect(call.changes.status).toEqual({ old: 'todo', new: 'in_progress' });
+    expect(call.changes.repeat).toEqual({ old: null, new: { frequency: 'weekly' } });
+    expect(call.changes.priority).toBeUndefined();
   });
 
   it('writes dependencies, reciprocal links and columns as one unit', async () => {

@@ -1,7 +1,8 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useI18n } from "@/lib/i18n/provider";
-import { format, isToday, isYesterday, isThisWeek, isThisMonth, subMonths, isAfter } from "date-fns";
+import { isToday, isYesterday, isThisWeek, isThisMonth, subMonths, isAfter } from "date-fns";
+import { formatLocalized as format } from "@/lib/i18n/date-locale";
 import "./files-table.css";
 import { useProjectPermissions } from "@/app/weldflow/contexts/project-permission-context";
 import { Button } from "@weldsuite/ui/components/button";

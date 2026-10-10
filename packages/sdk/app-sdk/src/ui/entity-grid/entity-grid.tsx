@@ -562,11 +562,7 @@ function GridCellContent<TEntity>({
 }>) {
   const value = column.getValue(entity);
   if (isEditing) {
-    return (
-      <div onClick={(e) => e.stopPropagation()}>
-        <CellEditor column={column} value={value} onCommit={onCommit} onCancel={onCancel} />
-      </div>
-    );
+    return <CellEditor column={column} value={value} onCommit={onCommit} onCancel={onCancel} />;
   }
   if (column.type === 'checkbox' && editable) {
     return <CheckboxEditor value={!!value} onCommit={onCommit} />;

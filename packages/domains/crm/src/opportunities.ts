@@ -60,7 +60,9 @@ export async function createOpportunity(
   if (!ownerId) throw new Error('ownerId required');
   const id = generateId('opp');
   const now = new Date();
-  const closeDate = input.closeDate ? new Date(input.closeDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  // No expected close date until someone sets one (TASK-671): a silent
+  // "+30 days" default looked like a real forecast date.
+  const closeDate = input.closeDate ? new Date(input.closeDate) : null;
   const customerName = await lookupCompanyName(db, input.customerId);
   // A deal created without an explicit probability starts at its stage's
   // probability (TASK-947) instead of 0.
@@ -123,7 +125,8 @@ export async function createOpportunity(
 /** Coerce one PATCH field to its column representation (numerics as strings, dates as Date). */
 export function toColumnValue(key: string, value: unknown): unknown {
   if (NUMERIC_FIELDS.has(key) && typeof value === 'number') return String(value);
-  if (DATE_FIELDS.has(key) && typeof value === 'string') return new Date(value);
+  // An empty date string clears the column rather than writing an Invalid Date.
+  if (DATE_FIELDS.has(key) && typeof value === 'string') return value === '' ? null : new Date(value);
   return value;
 }
 

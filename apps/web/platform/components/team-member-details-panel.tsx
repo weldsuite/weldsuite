@@ -1638,9 +1638,8 @@ function MemberHeaderIdentity({ member }: Readonly<{ member: TeamMemberDetail }>
 
 function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
   const dmQuery = useDmByUser(userId ?? '');
-  const { startCall, status: callStatus } = useWeldChatCall();
+  const { startCall } = useWeldChatCall();
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
-  const inCall = callStatus !== 'idle' && callStatus !== 'ended';
 
   if (!userId) return null;
 
@@ -1649,10 +1648,7 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
       toast.error('Unable to start call — no DM channel yet.');
       return;
     }
-    if (inCall) {
-      toast.error('You are already in a call.');
-      return;
-    }
+    // Already in a call or meeting: starting another asks to switch first.
     try {
       await startCall(dmChannelId, kind);
     } catch (err) {
@@ -1669,7 +1665,7 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
         className="p-1.5 hover:bg-muted rounded-md transition-colors disabled:opacity-50"
         title="Voice call"
         onClick={() => handleCall('voice')}
-        disabled={!dmChannelId || inCall}
+        disabled={!dmChannelId}
       >
         <Phone className="h-4 w-4 text-gray-500" />
       </Button>
@@ -1679,7 +1675,7 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
         className="p-1.5 hover:bg-muted rounded-md transition-colors disabled:opacity-50"
         title="Video call"
         onClick={() => handleCall('video')}
-        disabled={!dmChannelId || inCall}
+        disabled={!dmChannelId}
       >
         <Video className="h-[19px] w-[19px] text-gray-500" strokeWidth={1.75} />
       </Button>

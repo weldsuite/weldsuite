@@ -19,6 +19,8 @@ import { pricingSyncRoutes } from './routes/pricing-sync';
 import { backfillRoutes } from './routes/backfill';
 import { appSubscriptionsRoutes } from './routes/app-subscriptions';
 import { appDeveloperAccountsRoutes } from './routes/app-developer-accounts';
+import { adminRoutes } from './routes/admin';
+import { runCompSweep } from './services/comp-sweep';
 import { sql } from 'drizzle-orm';
 import { getMasterDb } from './lib/db';
 
@@ -39,6 +41,9 @@ export interface Env {
   CLERK_JWT_KEY: string;
   // Clerk M2M authentication (machine-to-machine tokens)
   CLERK_MACHINE_SECRET_KEY: string;
+  /** Shared with the internal admin console (apps/web/admin); authorises
+   *  /api/internal/admin/*. At least 32 characters, or those routes answer 503. */
+  BILLING_ADMIN_SECRET?: string;
   // Neon (for tenant DB access for credits)
   NEON_API_KEY: string;
   // Encryption key for stored database connection strings
@@ -157,6 +162,9 @@ app.route('/api/internal/pricing', pricingSyncRoutes);
 // Internal backfill routes (M2M token auth)
 app.route('/api/internal/backfill', backfillRoutes);
 
+// Admin console billing API (shared secret + acting admin, audited)
+app.route('/api/internal/admin', adminRoutes);
+
 // 404 handler
 app.notFound((c) => {
   return c.json({ error: 'Not Found', path: c.req.path }, 404);
@@ -171,4 +179,13 @@ app.onError((err, c) => {
   }, 500);
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  // Hourly (wrangler.toml [triggers]): end expired comp plans and renew the
+  // monthly credits of comped workspaces.
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(
+      runCompSweep(env).catch((err) => console.error('[Comp Sweep] Run failed:', err)),
+    );
+  },
+} satisfies ExportedHandler<Env>;

@@ -52,7 +52,7 @@ function partsFrom(formatter: Intl.DateTimeFormat, date: Date): CronParts {
   const parts = formatter.formatToParts(date);
   const get = (type: string): number => {
     const part = parts.find((p) => p.type === type);
-    return part ? parseInt(part.value, 10) : 0;
+    return part ? Number.parseInt(part.value, 10) : 0;
   };
   const weekdayPart = parts.find((p) => p.type === 'weekday');
   return {
@@ -67,14 +67,14 @@ function partsFrom(formatter: Intl.DateTimeFormat, date: Date): CronParts {
 function matchField(field: string, value: number): boolean {
   if (field === '*') return true;
   if (field.startsWith('*/')) {
-    const step = parseInt(field.slice(2), 10);
+    const step = Number.parseInt(field.slice(2), 10);
     return step > 0 && value % step === 0;
   }
   for (const token of field.split(',')) {
     if (token.includes('-')) {
       const [start = Number.NaN, end = Number.NaN] = token.split('-').map(Number);
       if (Number.isFinite(start) && Number.isFinite(end) && value >= start && value <= end) return true;
-    } else if (parseInt(token, 10) === value) {
+    } else if (Number.parseInt(token, 10) === value) {
       return true;
     }
   }

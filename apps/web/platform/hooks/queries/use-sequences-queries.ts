@@ -232,8 +232,9 @@ export function useResumeSequence() {
 }
 
 /**
- * Pause a running sequence — flips workflow status to paused. The runtime
- * checks status on each step and short-circuits live instances.
+ * Pause a running sequence — flips the workflow to paused and every active
+ * enrollment to paused. In-flight runs park before their next step (also after
+ * a delay) and continue when the sequence is resumed.
  */
 export function usePauseSequence() {
   const { getClient } = useAppApiClient();

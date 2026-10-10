@@ -28,7 +28,7 @@ export function useWeldAgentSafe() {
 
 export function WeldAgentProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [isOpen, setIsOpen] = useState(false);
-  const [entityContext, setEntityContextState] = useState<EntityContext | null>(null);
+  const [entityContextState, setEntityContextState] = useState<EntityContext | null>(null);
 
   const toggle = useCallback(() => setIsOpen(prev => !prev), []);
 
@@ -37,8 +37,8 @@ export function WeldAgentProvider({ children }: Readonly<{ children: ReactNode }
   }, []);
 
   const value = useMemo(
-    () => ({ isOpen, toggle, entityContext, setEntityContext }),
-    [isOpen, toggle, entityContext, setEntityContext]
+    () => ({ isOpen, toggle, entityContext: entityContextState, setEntityContext }),
+    [isOpen, toggle, entityContextState, setEntityContext]
   );
 
   return (

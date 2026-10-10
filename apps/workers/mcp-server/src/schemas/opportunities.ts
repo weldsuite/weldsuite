@@ -98,7 +98,7 @@ export interface Opportunity {
   probability?: number | null;
   pipeline?: string | null;
 
-  closeDate: string;
+  closeDate: string | null;
   actualCloseDate?: string | null;
   startDate?: string | null;
 

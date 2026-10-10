@@ -33,15 +33,23 @@ export function EditorWizardNav({
   return (
     <div className="bg-background border-b flex-shrink-0 relative z-10">
       <div className="px-2 md:px-4 py-2.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 md:gap-2">
-            <div className="flex items-center gap-0.5">
+        <div className="flex items-center justify-between gap-2">
+          {/*
+           * The tabs give way first: at ~960px the editor's action buttons (Save,
+           * Launch / Pause / Resume) next to them did not fit and the last one was
+           * cut off. The tab strip is min-w-0 and scrolls sideways instead, and
+           * the buttons below never shrink. The strip's bottom padding (and the
+           * matching negative margin) keeps room for the active-tab underline,
+           * which hangs below the tabs and would be clipped by the overflow.
+           */}
+          <div className="flex min-w-0 items-center gap-1 md:gap-2">
+            <div className="-mb-3 flex min-w-0 items-center gap-0.5 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {tabs.map((step, index) => {
                 const isActive = index + 1 === currentStep;
                 const StepIcon = step.icon;
 
                 return (
-                  <div key={step.label} className="relative group">
+                  <div key={step.label} className="relative group shrink-0">
                     <Link
                       href={step.href}
                       onClick={(e) => handleNavigate(e, step.href)}
@@ -75,7 +83,7 @@ export function EditorWizardNav({
           </div>
 
           {rightContent && (
-            <div className="flex items-center gap-1 md:gap-2">
+            <div className="flex shrink-0 items-center gap-1 md:gap-2">
               {rightContent}
             </div>
           )}

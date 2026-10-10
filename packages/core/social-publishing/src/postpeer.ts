@@ -32,7 +32,7 @@ export interface PostPeerProfile {
 
 export interface PostPeerIntegration {
   id: string;
-  platform: PostPeerPlatform | string;
+  platform: string;
   platformUserId?: string;
   name?: string;
   username?: string;
@@ -129,7 +129,7 @@ export interface PostPeerPlatformResult {
 
 export interface PostPeerCreatePostResult {
   postId: string;
-  status: 'published' | 'partial' | 'scheduled' | string;
+  status: string;
   scheduledFor?: string;
   platforms: PostPeerPlatformResult[];
 }

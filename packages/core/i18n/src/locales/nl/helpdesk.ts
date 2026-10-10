@@ -3462,6 +3462,7 @@ export const helpdesk = {
 
     // Workflow-editor — canvasnodes
     canvasNodes: {
+      deselect: 'Selectie wissen',
       selectTrigger: 'Selecteer een trigger',
       allChannels: 'Alle kanalen',
       everyone: 'Iedereen',

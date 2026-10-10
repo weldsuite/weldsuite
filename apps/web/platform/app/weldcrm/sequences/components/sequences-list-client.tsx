@@ -295,18 +295,16 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
     (sequence: SequenceSummary) => (
       <div
         key={sequence.id}
-        role="button"
-        tabIndex={0}
-        onClick={() => router.push(`/weldcrm/sequences/${sequence.id}`)}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            router.push(`/weldcrm/sequences/${sequence.id}`);
-          }
-        }}
-        className="flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
+        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group"
       >
+        {/* Stretched row button: the row content sits above it and the actions menu stays clickable. */}
+        <button
+          type="button"
+          aria-label={sequence.name}
+          onClick={() => router.push(`/weldcrm/sequences/${sequence.id}`)}
+          className="absolute inset-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
+
         {/* Name */}
         <div className="flex-1 min-w-[250px] min-w-0">
           <span className="text-sm font-medium text-gray-900 dark:text-foreground block truncate">
@@ -348,7 +346,7 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

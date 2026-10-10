@@ -6,6 +6,9 @@ import {
   mvTimeEntriesDaily,
   mvMilestoneStats,
 } from '@/lib/db/schema';
+import { getTranslations } from '@/lib/i18n';
+import { getIntlLocale } from '@/lib/i18n/date-locale';
+import { getLocale } from '@weldsuite/i18n';
 
 // ============ CONFIGURATION ============
 
@@ -125,86 +128,99 @@ function dateTrunc(unit: TruncUnit, column: SQLWrapper): SQL {
   return sql`date_trunc(${sql.raw(quotedUnit)}, ${column})`;
 }
 
+// Labels are built while the chart data is fetched, so they use the stored UI
+// language at that moment, not React state.
+function analyticsLabels() {
+  return getTranslations('projects').analyticsLabels;
+}
+
 function formatDateLabel(date: Date | string, truncUnit: TruncUnit): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   if (Number.isNaN(d.getTime())) return String(date);
+  const locale = getIntlLocale(getLocale());
 
   switch (truncUnit) {
     case 'hour':
-      return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' });
+      return d.toLocaleString(locale, { month: 'short', day: 'numeric', hour: 'numeric' });
     case 'week':
-      return `Week ${Math.ceil(d.getDate() / 7)}, ${d.toLocaleDateString('en-US', { month: 'short' })}`;
+      return analyticsLabels().chart.weekLabel
+        .replace('{n}', String(Math.ceil(d.getDate() / 7)))
+        .replace('{month}', d.toLocaleDateString(locale, { month: 'short' }));
     case 'month':
-      return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      return d.toLocaleDateString(locale, { month: 'short', year: 'numeric' });
     case 'quarter':
       return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
     case 'year':
       return d.getFullYear().toString();
     case 'day':
     default:
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
   }
 }
 
 function formatStatusLabel(status: string): string {
+  const s = analyticsLabels().status;
   const labels: Record<string, string> = {
     // Project statuses
-    planning: 'Planning',
-    active: 'Active',
-    on_hold: 'On Hold',
-    completed: 'Completed',
-    cancelled: 'Cancelled',
+    planning: s.planning,
+    active: s.active,
+    on_hold: s.onHold,
+    completed: s.completed,
+    cancelled: s.cancelled,
     // Task statuses
-    backlog: 'Backlog',
-    todo: 'To Do',
-    in_progress: 'In Progress',
-    in_review: 'In Review',
-    testing: 'Testing',
-    done: 'Done',
+    backlog: s.backlog,
+    todo: s.todo,
+    in_progress: s.inProgress,
+    in_review: s.inReview,
+    testing: s.testing,
+    done: s.done,
     // Time entry statuses
-    draft: 'Draft',
-    submitted: 'Submitted',
-    approved: 'Approved',
-    rejected: 'Rejected',
-    billed: 'Billed',
+    draft: s.draft,
+    submitted: s.submitted,
+    approved: s.approved,
+    rejected: s.rejected,
+    billed: s.billed,
     // Milestone statuses
-    pending: 'Pending',
-    missed: 'Missed',
-    postponed: 'Postponed',
+    pending: s.pending,
+    missed: s.missed,
+    postponed: s.postponed,
   };
   return labels[status] || status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function formatPriorityLabel(priority: string): string {
+  const p = analyticsLabels().priority;
   const labels: Record<string, string> = {
-    critical: 'Critical',
-    high: 'High',
-    medium: 'Medium',
-    low: 'Low',
-    none: 'None',
+    critical: p.critical,
+    high: p.high,
+    medium: p.medium,
+    low: p.low,
+    none: p.none,
   };
   return labels[priority] || priority;
 }
 
 function formatTypeLabel(type: string): string {
+  const ty = analyticsLabels().type;
   const labels: Record<string, string> = {
-    task: 'Task',
-    bug: 'Bug',
-    story: 'Story',
-    epic: 'Epic',
-    feature: 'Feature',
-    improvement: 'Improvement',
-    subtask: 'Subtask',
+    task: ty.task,
+    bug: ty.bug,
+    story: ty.story,
+    epic: ty.epic,
+    feature: ty.feature,
+    improvement: ty.improvement,
+    subtask: ty.subtask,
   };
   return labels[type] || type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function formatHealthLabel(health: string): string {
+  const h = analyticsLabels().health;
   const labels: Record<string, string> = {
-    on_track: 'On Track',
-    at_risk: 'At Risk',
-    off_track: 'Off Track',
-    completed: 'Completed',
+    on_track: h.onTrack,
+    at_risk: h.atRisk,
+    off_track: h.offTrack,
+    completed: h.completed,
   };
   return labels[health] || health.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -310,7 +326,7 @@ async function getProjectMetrics(config: ChartQueryConfig): Promise<ChartDataPoi
         };
 
         return results.map((row, i) => ({
-          label: formatHealthLabel(row.health || 'Unknown'),
+          label: formatHealthLabel(row.health || getTranslations('common').labels.unknown),
           value: Number(row.count) || 0,
           fill: healthColorMap[row.health || ''] || CHART_COLORS[i % CHART_COLORS.length],
         }));
@@ -560,7 +576,7 @@ async function getTaskMetrics(config: ChartQueryConfig): Promise<ChartDataPoint[
           .limit(resolveLimit(limit, 10));
 
         return results.map((row, i) => ({
-          label: formatTypeLabel(row.type || 'Unknown'),
+          label: formatTypeLabel(row.type || getTranslations('common').labels.unknown),
           value: Number(row.count) || 0,
           fill: CHART_COLORS[i % CHART_COLORS.length],
         }));
@@ -777,8 +793,8 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .where(mvBaseConditions);
 
         return [
-          { label: 'Completed', value: Number(completed[0]?.count) || 0, fill: CHART_COLORS[0] },
-          { label: 'Remaining', value: (Number(total[0]?.count) || 0) - (Number(completed[0]?.count) || 0), fill: CHART_COLORS[2] },
+          { label: analyticsLabels().chart.completed, value: Number(completed[0]?.count) || 0, fill: CHART_COLORS[0] },
+          { label: analyticsLabels().chart.remaining, value: (Number(total[0]?.count) || 0) - (Number(completed[0]?.count) || 0), fill: CHART_COLORS[2] },
         ];
       }
 
@@ -794,8 +810,8 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .where(and(mvBaseConditions, eq(mvMilestoneStats.isOverdue, false)));
 
         return [
-          { label: 'Overdue', value: Number(overdue[0]?.count) || 0, fill: 'hsl(var(--destructive))' },
-          { label: 'On Time', value: Number(onTime[0]?.count) || 0, fill: 'hsl(var(--chart-2))' },
+          { label: analyticsLabels().chart.overdue, value: Number(overdue[0]?.count) || 0, fill: 'hsl(var(--destructive))' },
+          { label: analyticsLabels().chart.onTime, value: Number(onTime[0]?.count) || 0, fill: 'hsl(var(--chart-2))' },
         ];
       }
 
@@ -811,8 +827,8 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .where(and(mvBaseConditions, eq(mvMilestoneStats.status, 'completed'), eq(mvMilestoneStats.isOnTime, false)));
 
         return [
-          { label: 'On Time', value: Number(onTime[0]?.count) || 0, fill: 'hsl(var(--chart-2))' },
-          { label: 'Late', value: Number(late[0]?.count) || 0, fill: 'hsl(var(--chart-3))' },
+          { label: analyticsLabels().chart.onTime, value: Number(onTime[0]?.count) || 0, fill: 'hsl(var(--chart-2))' },
+          { label: analyticsLabels().chart.late, value: Number(late[0]?.count) || 0, fill: 'hsl(var(--chart-3))' },
         ];
       }
 
@@ -824,7 +840,7 @@ async function getMilestoneMetrics(config: ChartQueryConfig): Promise<ChartDataP
           .from(mvMilestoneStats)
           .where(mvBaseConditions);
 
-        return [{ label: 'Average Progress', value: Math.round(Number(results[0]?.avgProgress) || 0), fill: CHART_COLORS[0] }];
+        return [{ label: analyticsLabels().chart.averageProgress, value: Math.round(Number(results[0]?.avgProgress) || 0), fill: CHART_COLORS[0] }];
       }
 
       default:

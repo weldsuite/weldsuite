@@ -1,4 +1,4 @@
-/** WeldHR employee detail: header, actions, and tabs (overview, personal, attendance, leave). */
+/** WeldHR employee detail: header, actions, and tabs (overview, personal, attendance, leave, payroll). */
 
 import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
@@ -16,8 +16,10 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageLoader } from '@/components/page-loader';
 import { useDeleteHrEmployee, useHrEmployee } from '@/hooks/queries/use-weldhr-queries';
+import { useHrPayrollFlag } from '@/hooks/queries/use-weldhr-payroll-queries';
 import { EmployeeAttendanceTab } from '../../components/employee-tabs/attendance-tab';
 import { EmployeeLeaveTab } from '../../components/employee-tabs/leave-tab';
+import { EmployeePayrollTab } from '../../components/employee-tabs/payroll-tab';
 import { EmployeePortalAccessCard } from '../../components/portal/employee-portal-card';
 import { DetailHeader, DetailPage, DetailTabs, FieldGrid, SectionCard, EmptyText, useHrBreadcrumbs } from '../../components/page-kit';
 import { EmployeeAvatar, ErrorBanner, StatusBadge, errorMessage, formatDate } from '../../components/shared';
@@ -25,7 +27,7 @@ import { EditEmployeeDialog } from '../components/edit-employee-dialog';
 import { SensitivePanel } from '../components/sensitive-panel';
 import { EmployeeWorkspaceMemberCard } from '../components/workspace-member-card';
 
-type TabId = 'overview' | 'personal' | 'attendance' | 'leave';
+type TabId = 'overview' | 'personal' | 'attendance' | 'leave' | 'payroll';
 
 export default function WeldHrEmployeeDetailPage() {
   const t = useTranslations();
@@ -48,6 +50,9 @@ export default function WeldHrEmployeeDetailPage() {
   const canDelete = can('employees:delete') || can('employees:manage');
   const canSensitive = can('employees:sensitive');
   const canManagePortal = can('employees:manage');
+  // The Payroll tab needs the weldhr-payroll flag and payroll:read.
+  const payrollFlag = useHrPayrollFlag();
+  const canSeePayroll = payrollFlag.enabled && can('payroll:read');
 
 
   function setTab(tab: TabId) {
@@ -69,6 +74,7 @@ export default function WeldHrEmployeeDetailPage() {
     { id: 'personal' as const, label: t('weldhr.employees.detail.tabs.personal'), visible: canSensitive },
     { id: 'attendance' as const, label: t('weldhr.employees.detail.tabs.attendance'), visible: can('attendance:read') },
     { id: 'leave' as const, label: t('weldhr.employees.detail.tabs.leave'), visible: can('leave:read') },
+    { id: 'payroll' as const, label: t('weldhr.payroll.employeeTab'), visible: canSeePayroll },
   ];
   const tabs = allTabs.filter((tabDef) => tabDef.visible);
   // An old link can still carry a tab that no longer exists (?tab=coaching): show the overview.
@@ -142,6 +148,7 @@ export default function WeldHrEmployeeDetailPage() {
       {activeTab === 'personal' && canSensitive && <SensitivePanel employeeId={employeeId} />}
       {activeTab === 'attendance' && <EmployeeAttendanceTab employeeId={employeeId} />}
       {activeTab === 'leave' && <EmployeeLeaveTab employeeId={employeeId} />}
+      {activeTab === 'payroll' && canSeePayroll && <EmployeePayrollTab employeeId={employeeId} />}
 
       {dialog === 'edit' && <EditEmployeeDialog employee={employee} onClose={() => setDialog(null)} />}
       {dialog === 'delete' && (

@@ -168,7 +168,6 @@ export const weldhrTime = {
   absenteeism: {
     title: 'Absenteeism',
     tabs: {
-      mine: 'My absence',
       ongoing: 'Ongoing',
       completed: 'Completed',
     },
@@ -186,7 +185,6 @@ export const weldhrTime = {
     reportRecovered: 'Report recovered',
     mine: {
       loadFailed: 'Could not load your sick reports.',
-      notSetUp: 'Your account is not linked to an employee record yet. Ask HR to set this up, then you can report sick here.',
       well: {
         title: 'You are not reported sick',
         description: 'Not feeling well? Report sick here and your employer knows right away.',
