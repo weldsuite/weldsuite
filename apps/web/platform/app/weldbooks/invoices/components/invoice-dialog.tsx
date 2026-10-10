@@ -215,7 +215,7 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
     billingAddress: watched.billingAddress,
     shipToDifferent: watched.shipToDifferent,
     shippingAddress: watched.shippingAddress,
-    lines: (watchedItems ?? []).map(toTaxFormLine),
+    lines: (watchedItems ?? []).map((item) => toTaxFormLine(item)),
   });
 
   const setLine = (index: number, patch: Partial<SalesTaxLineValues>) => {

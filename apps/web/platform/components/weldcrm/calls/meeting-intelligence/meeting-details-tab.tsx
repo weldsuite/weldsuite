@@ -166,7 +166,7 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
               const participantColor = colors[i % colors.length];
 
               return (
-                <div key={`${participant.userId}-${i}`} className="py-1">
+                <div key={`${participant.userId}-${participant.firstJoinedAt ?? participant.joinedAt}`} className="py-1">
                   <div className="flex items-center gap-2">
                     {participant.userAvatar ? (
                       <img

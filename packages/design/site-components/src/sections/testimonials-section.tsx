@@ -2,6 +2,7 @@
 
 import { Card, CardContent } from "@weldsuite/ui/components/card";
 import { Star } from "lucide-react";
+import { keyedBy, tupleKey } from "../lib/keyed";
 
 interface TestimonialsSectionProps {
   title?: string;
@@ -43,12 +44,12 @@ export default function TestimonialsSection({
       <div className="container mx-auto">
         <h2 className="text-3xl font-bold text-center mb-12">{title}</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {testimonials.map((testimonial, index) => (
-            <Card key={index}>
+          {keyedBy(testimonials, (testimonial) => tupleKey(testimonial.name, testimonial.content)).map(({ item: testimonial, key }) => (
+            <Card key={key}>
               <CardContent className="pt-6">
                 <div className="flex mb-4">
-                  {[...new Array(testimonial.rating || 5)].map((_, i) => (
-                    <Star key={i} className="h-4 w-4 fill-primary text-primary" />
+                  {Array.from({ length: testimonial.rating || 5 }, (_, i) => i + 1).map((star) => (
+                    <Star key={star} className="h-4 w-4 fill-primary text-primary" />
                   ))}
                 </div>
                 <p className="text-muted-foreground mb-4">&quot;{testimonial.content}&quot;</p>

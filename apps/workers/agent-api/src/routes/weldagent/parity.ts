@@ -296,11 +296,11 @@ app.get('/agents/:id/computer/files', requirePermission('weldagent:read'), async
       path,
     });
     return success(c, result);
-  } catch (err) {
+  } catch (error_) {
     return success(c, {
       enabled: false,
       entries: [],
-      reason: err instanceof Error ? err.message : 'unavailable',
+      reason: error_ instanceof Error ? error_.message : 'unavailable',
     });
   }
 });
