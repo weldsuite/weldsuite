@@ -78,8 +78,13 @@ import {
   FileSpreadsheet,
   CalendarRange,
   Layers,
+  ListChecks,
+  Palmtree,
+  Target,
+  ChevronLeft,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
+import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
 import type { TranslationsType } from '@/lib/i18n/types';
 import { getAppLogoConfig } from '@/lib/apps/app-registry';
 
@@ -204,12 +209,29 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     appName: 'WeldHR',
     appIcon: UsersRound,
     appLogo: getAppLogoConfig('weldhr'),
+    // My HR (the member's own record) on top, then the HR team's view of everyone.
+    // An employee only has `employees:self`, so every group below My HR drops out.
+    // `useWeldhrSidebarItems` makes My HR collapsible and hides it for members
+    // without an employee record.
     getMenuItems: (t) => [
       {
-        group: t.navigation.moduleSidebar.weldhr.groups.people,
+        group: t.navigation.moduleSidebar.weldhr.groups.myHr,
+        groupKey: MY_HR_GROUP_KEY,
         items: [
-          { title: t.navigation.moduleSidebar.weldhr.myHr, href: '/weldhr/me', icon: UserRound, permission: 'employees:self' },
-          { title: t.navigation.moduleSidebar.weldhr.dashboard, href: '/weldhr', icon: LayoutDashboard },
+          { title: t.navigation.moduleSidebar.weldhr.me.overview, href: MY_HR_PATHS.overview, icon: UserRound, permission: 'employees:self' },
+          { title: t.navigation.moduleSidebar.weldhr.me.timeOff, href: MY_HR_PATHS.timeOff, icon: Palmtree, permission: 'employees:self' },
+          { title: t.navigation.moduleSidebar.weldhr.me.expenses, href: MY_HR_PATHS.expenses, icon: Wallet, permission: 'employees:self' },
+          { title: t.navigation.moduleSidebar.weldhr.me.schedule, href: MY_HR_PATHS.schedule, icon: CalendarClock, permission: 'employees:self' },
+          // Only with the weldhr-payroll flag and once the member is on payroll (see useWeldhrSidebarItems).
+          { title: t.navigation.moduleSidebar.weldhr.me.payroll, href: MY_HR_PATHS.payroll, icon: FileText, permission: 'employees:self' },
+          { title: t.navigation.moduleSidebar.weldhr.me.tasks, href: MY_HR_PATHS.tasks, icon: ListChecks, permission: 'employees:self' },
+          { title: t.navigation.moduleSidebar.weldhr.me.reviews, href: MY_HR_PATHS.reviews, icon: Target, permission: 'employees:self' },
+        ],
+      },
+      {
+        group: t.navigation.moduleSidebar.weldhr.groups.team,
+        items: [
+          { title: t.navigation.moduleSidebar.weldhr.dashboard, href: '/weldhr', icon: LayoutDashboard, permission: HR_DASHBOARD_PERMISSIONS },
           { title: t.navigation.moduleSidebar.weldhr.employees, href: '/weldhr/employees', icon: User, permission: 'employees:read' },
         ],
       },
@@ -217,8 +239,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         group: t.navigation.moduleSidebar.weldhr.groups.time,
         items: [
           { title: t.navigation.moduleSidebar.weldhr.attendance, href: '/weldhr/attendance', icon: CalendarCheck, permission: 'attendance:read' },
-          // No permission: employees report sick here, and the page shows HR's lists only with absences:read.
-          { title: t.navigation.moduleSidebar.weldhr.absenteeism, href: '/weldhr/absenteeism', icon: HeartPulse },
+          { title: t.navigation.moduleSidebar.weldhr.absenteeism, href: '/weldhr/absenteeism', icon: HeartPulse, permission: 'absences:read' },
           { title: t.navigation.moduleSidebar.weldhr.leave, href: '/weldhr/leave', icon: Plane, permission: 'leave:read' },
         ],
       },
@@ -502,6 +523,12 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     appLogo: getAppLogoConfig('weldsuite'),
     getMenuItems: () => [],
   },
+  // Menu, translated title and back button come from useSettingsSidebarItems.
+  settings: {
+    appName: 'Settings',
+    appIcon: ChevronLeft,
+    getMenuItems: () => [],
+  },
 };
 
 export function getModuleKey(pathname: string): string | null {
@@ -515,6 +542,11 @@ export function getModuleKey(pathname: string): string | null {
   const userAppMatch = /^\/apps\/([a-z][a-z0-9-]*)(?:\/|$)/.exec(pathname);
   if (userAppMatch) {
     return `user-app:${userAppMatch[1]}`;
+  }
+  // WeldObjects custom objects: `/objects/{slug}` (+ `/{recordId}`).
+  const objectMatch = /^\/objects\/([^/]+)(?:\/|$)/.exec(pathname);
+  if (objectMatch) {
+    return `object:${objectMatch[1]}`;
   }
   const first = pathname.split('/').find(Boolean);
   if (first && MODULE_CONFIGS[first]) {

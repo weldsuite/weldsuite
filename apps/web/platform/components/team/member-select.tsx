@@ -42,6 +42,12 @@ interface MemberSelectProps {
   panelRow?: boolean;
   /** 'assignee' variant: clicking the selected member calls this instead of opening the picker. */
   onOpenMember?: (userId: string) => void;
+  /**
+   * `assignee` variant only: show the hover "+" next to a chosen member. It
+   * reads as "add another", so single-owner fields (a table's Owner cell) turn
+   * it off — picking again already replaces the member.
+   */
+  showChangeIcon?: boolean;
 }
 const ASSIGNEE_AVATAR_PALETTE = [
   '#0d9488',
@@ -100,6 +106,7 @@ export function MemberSelect({
   variant = 'default',
   panelRow = false,
   onOpenMember,
+  showChangeIcon = true,
 }: Readonly<MemberSelectProps>) {
   const { getClient } = useAppApiClient();
   const { data, isLoading, isError } = useQuery({
@@ -198,12 +205,14 @@ export function MemberSelect({
                   </Button>
                 )}
               </div>
-              <span
-                className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
-                aria-label="Change"
-              >
-                <Plus className="h-4 w-4" />
-              </span>
+              {showChangeIcon && (
+                <span
+                  className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                  aria-label="Change"
+                >
+                  <Plus className="h-4 w-4" />
+                </span>
+              )}
             </>
           ) : (
             <span className="text-muted-foreground group-hover/field:underline">

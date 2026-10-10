@@ -1,7 +1,8 @@
 
 import { useState, useEffect, useMemo, useCallback, useId, useRef } from 'react';
+import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import {
@@ -42,7 +43,8 @@ import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { PageLoader } from '@/components/page-loader';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { getTranslations } from '@/lib/i18n';
+import { formatTaskNumber, taskNumberMatches } from '@/lib/task-number';
+import { formatHoursDecimalAsHm, formatHoursMinutes } from '@/lib/format-hours';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
   TimerAlreadyRunningError,
@@ -83,6 +85,9 @@ interface TimeEntry {
 interface ProjectTask {
   id: string;
   title: string;
+  /** Workspace-wide task number, shown so same-titled tasks can be told apart. */
+  number?: number | null;
+  status?: string;
 }
 
 // Raw shapes as returned by the app-api time-entries / tasks endpoints
@@ -106,6 +111,8 @@ interface RawTimeEntry {
 interface RawProjectTask {
   id: string;
   title: string;
+  number?: number | null;
+  status?: string;
 }
 
 interface ProjectMember {
@@ -129,14 +136,26 @@ interface WeekDay {
   isWeekend: boolean;
 }
 
-const ROUND_TO_OPTIONS = [
-  { value: 'none', label: 'No rounding' },
-  { value: '5', label: '5 min' },
-  { value: '10', label: '10 min' },
-  { value: '15', label: '15 min' },
-  { value: '30', label: '30 min' },
-  { value: '60', label: '1 hour' },
-];
+const ROUND_TO_VALUES = ['none', '5', '10', '15', '30', '60'] as const;
+
+/** A calendar day holds 24h; the API rejects any day that would total more. */
+const MAX_DAY_MINUTES = 24 * 60;
+/** Soft threshold: past this a day total is probably a typo (30 instead of 3). */
+const LONG_DAY_MINUTES = 12 * 60;
+
+/** Minutes already logged on `date` by the entries in view, `excludeId` aside. */
+function minutesLoggedOnDay(entries: TimeEntry[], date: Date, excludeId?: string | null): number {
+  const key = format(date, 'yyyy-MM-dd');
+  return entries.reduce(
+    (sum, e) => (e.id !== excludeId && format(e.date, 'yyyy-MM-dd') === key ? sum + e.duration : sum),
+    0,
+  );
+}
+
+/** Hours rounded to 2dp for display in messages. */
+function hoursLabel(minutes: number): string {
+  return String(Math.round((minutes / 60) * 100) / 100);
+}
 
 /** Format elapsed seconds as HH:MM:SS. */
 function formatTimer(seconds: number): string {
@@ -178,10 +197,10 @@ function resolveEntryMinutes(hours: string, minutes: string, startTime: string, 
   );
 }
 
-function formatDurationLabel(total: number): string {
+function formatDurationLabel(total: number, emptyLabel: string): string {
   const h = Math.floor(total / 60);
   const m = total % 60;
-  if (!h && !m) return 'Duration';
+  if (!h && !m) return emptyLabel;
   if (h && m) return `${h}h ${m}m`;
   if (h) return `${h}h`;
   return `${m}m`;
@@ -189,7 +208,23 @@ function formatDurationLabel(total: number): string {
 
 function filterTasksByQuery(tasks: ProjectTask[], query: string): ProjectTask[] {
   if (!query.trim()) return tasks;
-  return tasks.filter((task) => task.title.toLowerCase().includes(query.toLowerCase()));
+  return tasks.filter(
+    (task) =>
+      task.title.toLowerCase().includes(query.toLowerCase()) || taskNumberMatches(task.number, query),
+  );
+}
+
+/** Task row in the Log time / Start timer pickers: number + title + status. */
+function TaskPickerLabel({ task }: Readonly<{ task: ProjectTask }>) {
+  const number = formatTaskNumber(task.number);
+  const status = task.status ? task.status.replace(/_/g, ' ') : null;
+  return (
+    <>
+      {number && <span className="mr-1.5 flex-shrink-0 font-mono text-xs text-muted-foreground">{number}</span>}
+      <span className="truncate">{task.title}</span>
+      {status && <span className="ml-2 flex-shrink-0 text-xs capitalize text-muted-foreground">{status}</span>}
+    </>
+  );
 }
 
 /** Ref callback that focuses an element as it mounts (stable identity, runs once per mount). */
@@ -198,6 +233,16 @@ function focusOnMount(el: HTMLElement | null) {
 }
 
 function RoundToPopover({ value, onChange }: Readonly<{ value: string; onChange: (value: string) => void }>) {
+  const tt = useI18n().t.projects.projectTimesheets;
+  const roundOptions = ROUND_TO_VALUES.map((optionValue) => ({
+    value: optionValue,
+    label:
+      optionValue === 'none'
+        ? tt.roundNone
+        : optionValue === '60'
+          ? tt.roundOneHour
+          : tt.roundMinutes.replace('{count}', optionValue),
+  }));
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -209,11 +254,11 @@ function RoundToPopover({ value, onChange }: Readonly<{ value: string; onChange:
             value !== 'none' && "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800"
           )}
         >
-          {value !== 'none' ? `Round ${value}m` : 'Round'}
+          {value !== 'none' ? tt.roundValue.replace('{minutes}', value) : tt.roundLabel}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-1" align="start">
-        {ROUND_TO_OPTIONS.map((opt) => (
+        {roundOptions.map((opt) => (
           <Button
             key={opt.value}
             variant="ghost"
@@ -261,7 +306,7 @@ function DurationPopover({
   onHoursChange: (value: string) => void;
   onMinutesChange: (value: string) => void;
 }>) {
-  const tt = getTranslations('projects').projectTimesheets;
+  const tt = useI18n().t.projects.projectTimesheets;
   const derivedFromRange = minutesFromRange(startTime, endTime) !== null;
   const idPrefix = useId();
   return (
@@ -276,17 +321,18 @@ function DurationPopover({
               'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800',
           )}
         >
-          {formatDurationLabel(resolveEntryMinutes(hours, minutes, startTime, endTime))}
+          {formatDurationLabel(resolveEntryMinutes(hours, minutes, startTime, endTime), tt.durationFieldLabel)}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-3" align="start">
         <div className="flex items-end gap-2">
           <div className="flex flex-col gap-1.5">
-            <label htmlFor={`${idPrefix}-hours`} className="text-xs font-medium text-muted-foreground">Hours</label>
+            <label htmlFor={`${idPrefix}-hours`} className="text-xs font-medium text-muted-foreground">{tt.hoursLabel}</label>
             <Input
               id={`${idPrefix}-hours`}
               type="number"
               min="0"
+              max="24"
               step="1"
               placeholder="0"
               value={hours}
@@ -297,7 +343,7 @@ function DurationPopover({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label htmlFor={`${idPrefix}-minutes`} className="text-xs font-medium text-muted-foreground">Minutes</label>
+            <label htmlFor={`${idPrefix}-minutes`} className="text-xs font-medium text-muted-foreground">{tt.minutesLabel}</label>
             <Input
               id={`${idPrefix}-minutes`}
               type="number"
@@ -333,7 +379,7 @@ function TimeRangePopover({
   onStartTimeChange: (value: string) => void;
   onEndTimeChange: (value: string) => void;
 }>) {
-  const tt = getTranslations('projects').projectTimesheets;
+  const tt = useI18n().t.projects.projectTimesheets;
   const hasBoth = !!startTime && !!endTime;
   const idPrefix = useId();
   const label = hasBoth ? `${startTime} – ${endTime}` : startTime || endTime || tt.startEndRange;
@@ -466,7 +512,7 @@ function DeleteEntryDescription({ entry }: Readonly<{ entry: TimeEntry }>) {
     <>
       {st('sweep.weldflow.timesheetPage.deleteTimeEntryWillRemove')}{' '}
       <span className="font-medium">
-        {(entry.duration / 60).toFixed(2)}h
+        {formatHoursMinutes(entry.duration)}
       </span>
       {deleteTargetLabel}
       {' '}({format(entry.date, 'EEE, MMM d')}). {st('sweep.weldflow.timesheetPage.actionCannotBeUndone')}
@@ -478,7 +524,7 @@ function renderCellContent(hours: number, isHovered: boolean) {
   if (hours > 0) {
     return (
       <span className="text-[13px] font-medium tabular-nums text-[#111] dark:text-[#eee]">
-        {hours.toFixed(1)}h
+        {formatHoursDecimalAsHm(hours)}
       </span>
     );
   }
@@ -519,6 +565,7 @@ function TimesheetWeekView({
   setEntryToDelete: (entry: TimeEntry) => void;
 }>) {
   const st = useTranslations();
+  const tt = useI18n().t.projects.projectTimesheets;
   const [hoveredCell, setHoveredCell] = useState<{ task: string; day: number } | null>(null);
   return (
     <div className="min-w-[900px]">
@@ -559,7 +606,7 @@ function TimesheetWeekView({
           </div>
         ))}
         <div className="flex items-center justify-center border-l border-border bg-background">
-          <p className="text-[13px] font-mono font-medium text-[#999] uppercase tracking-wide">Total</p>
+          <p className="text-[13px] font-mono font-medium text-[#999] uppercase tracking-wide">{tt.totalLabel}</p>
         </div>
       </div>
 
@@ -640,7 +687,7 @@ function TimesheetWeekView({
                       <div className="min-w-0">
                         <div className="text-[13px] font-medium truncate">{task.name}</div>
                         <div className="text-[11px] text-muted-foreground">
-                          {format(day.date, 'EEE, MMM d')} · {hours.toFixed(1)}h total
+                          {format(day.date, 'EEE, MMM d')} · {formatHoursDecimalAsHm(hours)} total
                         </div>
                       </div>
                       <Button
@@ -659,7 +706,7 @@ function TimesheetWeekView({
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-[13px] font-semibold tabular-nums">
-                                {(entry.duration / 60).toFixed(2)}h
+                                {formatHoursMinutes(entry.duration)}
                               </span>
                               {entry.billable && (
                                 <DollarSign className="h-3 w-3 text-emerald-600" />
@@ -715,7 +762,7 @@ function TimesheetWeekView({
             })}
             <div className="px-2 py-3 flex items-center justify-center border-l border-[#e5e5e5] dark:border-[#222] bg-white dark:bg-[#111]">
               <span className="text-[13px] font-semibold text-[#111] dark:text-[#eee] tabular-nums">
-                {getTotalHoursForTask(task.id, task.name).toFixed(1)}h
+                {formatHoursDecimalAsHm(getTotalHoursForTask(task.id, task.name))}
               </span>
             </div>
           </div>
@@ -765,7 +812,7 @@ function TimesheetMonthView({
     <div className="flex flex-col h-full">
       {/* Calendar Header - Desktop */}
       <div className="hidden md:grid grid-cols-7 border-b border-[#e5e5e5] dark:border-[#222]">
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
+        {[0, 1, 2, 3, 4, 5, 6].map((weekdayOffset) => format(new Date(2024, 0, 1 + weekdayOffset), 'EEE')).map((day, index) => (
           <div
             key={day}
             className={cn(
@@ -826,7 +873,7 @@ function TimesheetMonthView({
                           ? "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
                           : "text-[#666] dark:text-[#888] bg-[#f0f0f0] dark:bg-[#222]"
                       )}>
-                        {totalHours.toFixed(1)}h
+                        {formatHoursDecimalAsHm(totalHours)}
                       </span>
                     )}
                   </div>
@@ -843,7 +890,7 @@ function TimesheetMonthView({
                             : "bg-[#f5f5f5] dark:bg-[#1a1a1a] text-[#666] dark:text-[#888]"
                         )}
                       >
-                        <span className="font-medium">{(entry.duration / 60).toFixed(1)}h</span>
+                        <span className="font-medium">{formatHoursMinutes(entry.duration)}</span>
                         <span className="ml-1">{entry.taskName}</span>
                       </div>
                     ))}
@@ -928,7 +975,7 @@ function TimesheetMonthView({
                         ? "text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20"
                         : "text-[#666] dark:text-[#888] bg-[#f0f0f0] dark:bg-[#222]"
                     )}>
-                      {totalHours.toFixed(1)}h
+                      {formatHoursDecimalAsHm(totalHours)}
                     </span>
                   )}
                   <Plus className="h-4 w-4 text-[#ccc] dark:text-[#555]" />
@@ -947,7 +994,7 @@ function TimesheetMonthView({
                           : "bg-[#f5f5f5] dark:bg-[#1a1a1a] text-[#666] dark:text-[#888]"
                       )}
                     >
-                      <span className="font-medium">{(entry.duration / 60).toFixed(1)}h</span>
+                      <span className="font-medium">{formatHoursMinutes(entry.duration)}</span>
                       <span className="ml-1.5">{entry.taskName}</span>
                     </div>
                   ))}
@@ -975,20 +1022,21 @@ function TimesheetWeekFooter({
   weeklyTotal: number;
   getTotalHoursForDate: (date: Date) => number;
 }>) {
+  const tt = useI18n().t.projects.projectTimesheets;
   return (
     <div className="border-t bg-white dark:bg-background">
       <div className="grid grid-cols-[240px_repeat(7,1fr)_80px] min-w-[900px]">
-        <div className="px-5 py-2 text-sm text-gray-500 dark:text-muted-foreground">Daily Total</div>
+        <div className="px-5 py-2 text-sm text-gray-500 dark:text-muted-foreground">{tt.dailyTotal}</div>
         {weekDays.map((day) => {
           const dayTotal = getTotalHoursForDate(day.date);
           return (
             <div key={day.date.getTime()} className="pl-4 pr-2 py-2 text-sm text-gray-500 dark:text-muted-foreground text-left border-l border-[#e5e5e5] dark:border-[#222]">
-              <span className="font-medium">{dayTotal > 0 ? `${dayTotal.toFixed(1)}h` : '—'}</span>
+              <span className="font-medium">{dayTotal > 0 ? formatHoursDecimalAsHm(dayTotal) : '—'}</span>
             </div>
           );
         })}
         <div className="px-2 py-2 text-sm font-medium text-gray-700 dark:text-muted-foreground text-center border-l border-[#e5e5e5] dark:border-[#222]">
-          {weeklyTotal.toFixed(1)}h
+          {formatHoursDecimalAsHm(weeklyTotal)}
         </div>
       </div>
     </div>
@@ -1098,6 +1146,7 @@ function AddEntryDialog({
   setSelectedDate,
   isSubmitting,
   handleAddEntry,
+  otherMinutesOnDay,
 }: Readonly<{
   tasks: ProjectTask[];
   showAddDialog: boolean;
@@ -1127,8 +1176,15 @@ function AddEntryDialog({
   setSelectedDate: (date: Date | null) => void;
   isSubmitting: boolean;
   handleAddEntry: () => void;
+  /** Minutes already logged on the selected date, excluding the entry being edited. */
+  otherMinutesOnDay: number;
 }>) {
   const st = useTranslations();
+  const entryMinutes = resolveEntryMinutes(newEntryHours, newEntryMinutes, newEntryStartTime, newEntryEndTime);
+  const projectedDayMinutes = otherMinutesOnDay + entryMinutes;
+  const exceedsDayLimit = entryMinutes > 0 && projectedDayMinutes > MAX_DAY_MINUTES;
+  const isLongDay = entryMinutes > 0 && !exceedsDayLimit && projectedDayMinutes > LONG_DAY_MINUTES;
+  const tt = useI18n().t.projects.projectTimesheets;
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState<Date | undefined>(undefined);
   const [taskSelectorOpen, setTaskSelectorOpen] = useState(false);
@@ -1143,7 +1199,7 @@ function AddEntryDialog({
       <DialogContent className="sm:max-w-[600px] p-0 gap-0 overflow-hidden" showCloseButton={false}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-border">
-          <DialogTitle className="text-base font-semibold">{editingEntryId ? 'Edit time entry' : 'Log time'}</DialogTitle>
+          <DialogTitle className="text-base font-semibold">{editingEntryId ? tt.editTimeEntry : tt.logTime}</DialogTitle>
           <Button
             variant="ghost"
             size="icon"
@@ -1200,7 +1256,7 @@ function AddEntryDialog({
                   !newEntryTaskName && 'text-gray-400',
                 )}
               >
-                {newEntryTaskName || 'Link a task (optional)...'}
+                {newEntryTaskName || tt.linkTaskOptional}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-[280px] p-0" align="start">
@@ -1218,7 +1274,7 @@ function AddEntryDialog({
                 onWheel={(e) => e.stopPropagation()}
               >
                 {filteredTasks.length === 0 ? (
-                  <div className="py-4 text-center text-sm text-muted-foreground">No tasks found.</div>
+                  <div className="py-4 text-center text-sm text-muted-foreground">{tt.noTasksFound}</div>
                 ) : (
                   filteredTasks.map((task) => (
                     <button
@@ -1235,7 +1291,7 @@ function AddEntryDialog({
                         newEntryTaskId === task.id && 'bg-accent text-accent-foreground',
                       )}
                     >
-                      <span className="truncate">{task.title}</span>
+                      <TaskPickerLabel task={task} />
                       {newEntryTaskId === task.id && (
                         <Check className="ml-auto h-4 w-4 flex-shrink-0" />
                       )}
@@ -1275,6 +1331,29 @@ function AddEntryDialog({
             </PopoverContent>
           </Popover>
         </div>
+
+        {/* Daily-total guard: hard stop past 24h, soft warning past 12h. */}
+        {selectedDate && (exceedsDayLimit || isLongDay) && (
+          <div
+            role={exceedsDayLimit ? 'alert' : 'status'}
+            className={cn(
+              'flex items-start gap-1.5 px-4 py-2 border-t text-xs',
+              exceedsDayLimit
+                ? 'border-red-100 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400'
+                : 'border-amber-100 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-400',
+            )}
+          >
+            <AlertCircle className="h-3.5 w-3.5 mt-px shrink-0" />
+            <span>
+              {st(
+                exceedsDayLimit
+                  ? 'sweep.weldflow.timesheetPage.dayLimitExceeded'
+                  : 'sweep.weldflow.timesheetPage.dayLongWarning',
+                { date: format(selectedDate, 'EEE, MMM d'), hours: hoursLabel(projectedDayMinutes) },
+              )}
+            </span>
+          </div>
+        )}
 
         {/* Bottom Bar */}
         <div className="flex items-end justify-between px-4 py-2 border-t border-gray-100 dark:border-border gap-2 w-full">
@@ -1343,9 +1422,9 @@ function AddEntryDialog({
                 {(() => {
                   const missing: string[] = [];
                   const mins = resolveEntryMinutes(newEntryHours, newEntryMinutes, newEntryStartTime, newEntryEndTime);
-                  if (!mins) missing.push('Duration');
-                  if (!selectedDate) missing.push('Date');
-                  const disabled = isSubmitting || !mins || !selectedDate;
+                  if (!mins) missing.push(tt.durationFieldLabel);
+                  if (!selectedDate) missing.push(tt.dateLabel);
+                  const disabled = isSubmitting || !mins || !selectedDate || exceedsDayLimit;
                   const btn = (
                     <Button
                       size="sm"
@@ -1355,8 +1434,10 @@ function AddEntryDialog({
                     >
                       {isSubmitting ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : editingEntryId ? (
+                        st('sweep.weldflow.timesheetPage.save')
                       ) : (
-                        'Log time'
+                        st('sweep.weldflow.timesheetPage.logTime')
                       )}
                     </Button>
                   );
@@ -1370,7 +1451,7 @@ function AddEntryDialog({
                         <span className="inline-flex">{btn}</span>
                       </TooltipTrigger>
                       <TooltipContent side="top" sideOffset={6}>
-                        Missing: {missing.join(', ')}
+                        {tt.missingLabel} {missing.join(', ')}
                       </TooltipContent>
                     </Tooltip>
                   );
@@ -1414,6 +1495,9 @@ function StartTimerDialog({
   startTimer: () => void;
 }>) {
   const st = useTranslations();
+  const tt = useI18n().t.projects.projectTimesheets;
+  // A timer needs something to say what it is for: a linked task or a description.
+  const canStartTimer = Boolean(timerTaskName || timerTaskId || timerDescription.trim());
   const [timerTaskSelectorOpen, setTimerTaskSelectorOpen] = useState(false);
   const [timerTaskSearchQuery, setTimerTaskSearchQuery] = useState('');
   const filteredTimerTasks = useMemo(
@@ -1426,7 +1510,7 @@ function StartTimerDialog({
       <DialogContent className="sm:max-w-[600px] p-0 gap-0 overflow-hidden" showCloseButton={false}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-border">
-          <DialogTitle className="text-base font-semibold">Start timer</DialogTitle>
+          <DialogTitle className="text-base font-semibold">{tt.startTimer}</DialogTitle>
           <Button
             variant="ghost"
             size="icon"
@@ -1449,7 +1533,7 @@ function StartTimerDialog({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if ((timerTaskName || timerTaskId)) startTimer();
+                if (canStartTimer) startTimer();
               }
             }}
             placeholder={st('sweep.weldflow.timesheetPage.addDescriptionPlaceholder')}
@@ -1476,7 +1560,7 @@ function StartTimerDialog({
                     timerTaskName && "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800"
                   )}
                 >
-                  {timerTaskName || 'Task'}
+                  {timerTaskName || tt.taskFallback}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[280px] p-0" align="start">
@@ -1494,7 +1578,7 @@ function StartTimerDialog({
                   onWheel={(e) => e.stopPropagation()}
                 >
                   {filteredTimerTasks.length === 0 ? (
-                    <div className="py-4 text-center text-sm text-muted-foreground">No tasks found.</div>
+                    <div className="py-4 text-center text-sm text-muted-foreground">{tt.noTasksFound}</div>
                   ) : (
                     filteredTimerTasks.map((task) => (
                       <button
@@ -1511,7 +1595,7 @@ function StartTimerDialog({
                           timerTaskId === task.id && "bg-accent text-accent-foreground"
                         )}
                       >
-                        <span className="truncate">{task.title}</span>
+                        <TaskPickerLabel task={task} />
                         {timerTaskId === task.id && (
                           <Check className="ml-auto h-4 w-4 flex-shrink-0" />
                         )}
@@ -1545,14 +1629,22 @@ function StartTimerDialog({
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            <Button
-              size="sm"
-              onClick={startTimer}
-              disabled={!timerTaskName && !timerTaskId}
-              className="h-7 text-xs px-3 bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {st('sweep.weldflow.timesheetPage.startTimer')}
-            </Button>
+            <span title={canStartTimer ? undefined : tt.timerNeedsTaskOrDescription}>
+              <Button
+                size="sm"
+                onClick={startTimer}
+                disabled={!canStartTimer}
+                aria-describedby={canStartTimer ? undefined : 'start-timer-hint'}
+                className="h-7 text-xs px-3 bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {st('sweep.weldflow.timesheetPage.startTimer')}
+              </Button>
+            </span>
+            {!canStartTimer && (
+              <span id="start-timer-hint" className="sr-only">
+                {tt.timerNeedsTaskOrDescription}
+              </span>
+            )}
           </div>
         </div>
       </DialogContent>
@@ -1597,7 +1689,7 @@ export default function TimesheetPage() {
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
   const [entryToDelete, setEntryToDelete] = useState<TimeEntry | null>(null);
 
-  const tt = getTranslations('projects').projectTimesheets;
+  const tt = useI18n().t.projects.projectTimesheets;
   const st = useTranslations();
 
   // Timer state. The running timer itself lives on the server (one per user),
@@ -1695,31 +1787,51 @@ export default function TimesheetPage() {
         const rawEntries = (Array.isArray(entriesResult.data)
           ? entriesResult.data
           : entriesResult.data?.items || []) as unknown as RawTimeEntry[];
-        const transformedEntries = rawEntries.map((entry) => ({
-          id: entry.id,
-          taskId: entry.taskId,
-          taskName: entry.task?.title || entry.description || 'Untitled',
-          description: entry.description,
-          date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
-          duration: Number(entry.duration) || entry.durationMinutes || 0,
-          startTime: entry.startTime ?? null,
-          endTime: entry.endTime ?? null,
-          userId: entry.userId,
-          userName: entry.user?.name || 'Unknown',
-          billable: entry.billable ?? entry.isBillable ?? true,
-          status: entry.status || 'draft',
-          task: entry.task,
-          user: entry.user,
-        }));
+        // The list payload nests `task` / `user`, but resolve against the
+        // project's task and member lists too so a row is never labelled with an
+        // entry description or "Unknown" when the lookup is simply absent.
+        const taskTitleById = new Map(
+          (tasksResult.success ? ((tasksResult.data || []) as RawProjectTask[]) : []).map((tk) => [tk.id, tk.title]),
+        );
+        const memberNameById = new Map(
+          (membersResult.success ? ((membersResult.data || []) as ProjectMember[]) : [])
+            .filter((m) => m.user?.name)
+            .map((m) => [m.userId, m.user!.name]),
+        );
+        const transformedEntries = rawEntries.map((entry) => {
+          const taskTitle = entry.task?.title || (entry.taskId ? taskTitleById.get(entry.taskId) : undefined);
+          return {
+            id: entry.id,
+            taskId: entry.taskId,
+            // An entry linked to a task is labelled by that task, never by its own
+            // description (which differs per entry and would rename the row).
+            taskName: taskTitle || (entry.taskId ? undefined : entry.description) || tt.untitled,
+            description: entry.description,
+            date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
+            duration: Number(entry.duration) || entry.durationMinutes || 0,
+            startTime: entry.startTime ?? null,
+            endTime: entry.endTime ?? null,
+            userId: entry.userId,
+            // Left undefined when unresolvable: the popover then omits the "by …"
+            // line instead of printing a misleading "by Unknown".
+            userName: entry.user?.name || memberNameById.get(entry.userId),
+            billable: entry.billable ?? entry.isBillable ?? true,
+            status: entry.status || 'draft',
+            task: entry.task ?? (entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined),
+            user: entry.user,
+          };
+        });
         setEntries(transformedEntries);
       } else {
-        setError(entriesResult.error || 'Failed to load time entries');
+        setError(entriesResult.error || tt.failedToLoadEntries);
       }
 
       if (tasksResult.success) {
         setTasks(((tasksResult.data || []) as RawProjectTask[]).map((task) => ({
           id: task.id,
           title: task.title,
+          number: task.number ?? null,
+          status: task.status,
         })));
       }
 
@@ -1728,10 +1840,13 @@ export default function TimesheetPage() {
       }
     } catch (err) {
       console.error('Error loading data:', err);
-      setError('Failed to load data');
+      setError(tt.failedToLoadData);
     } finally {
       setIsLoading(false);
     }
+    // The copy (`tt`) is deliberately not a dependency: a language switch must
+    // re-translate the labels, not refetch every time entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   useEffect(() => {
@@ -1767,7 +1882,7 @@ export default function TimesheetPage() {
       const key = e.taskId || `desc:${e.description || e.taskName || 'other'}`;
       if (!taskMap.has(key)) {
         taskMap.set(key, {
-          name: e.task?.title || e.taskName || e.description || 'Untitled',
+          name: e.task?.title || e.taskName || e.description || tt.untitled,
           taskId: e.taskId || null,
         });
       }
@@ -1778,7 +1893,7 @@ export default function TimesheetPage() {
       taskId: v.taskId,
       hasTask: !!v.taskId,
     }));
-  }, [entries]);
+  }, [entries, tt.untitled]);
 
   // Get entries matching a row key (real taskId or description-only) for a given date
   const getEntriesForCell = (rowKey: string, date: Date): TimeEntry[] => {
@@ -1873,6 +1988,19 @@ export default function TimesheetPage() {
       totalMinutes = Math.round(totalMinutes / roundToMinutes) * roundToMinutes;
     }
 
+    // Mirror of the API's 24h/day cap (it also counts entries from other
+    // projects, which are not loaded here), so a typo fails fast and readable.
+    const projectedDayMinutes = minutesLoggedOnDay(entries, submitDate, editingEntryId) + totalMinutes;
+    if (projectedDayMinutes > MAX_DAY_MINUTES) {
+      toast.error(
+        st('sweep.weldflow.timesheetPage.dayLimitExceeded', {
+          date: format(submitDate, 'EEE, MMM d'),
+          hours: hoursLabel(projectedDayMinutes),
+        }),
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const payload = {
@@ -1956,8 +2084,8 @@ export default function TimesheetPage() {
   // Start timer after dialog confirmation. The server owns the timer, so a
   // 409 here means one is already running (possibly started on another device).
   const startTimer = async () => {
-    if (!timerTaskName && !timerTaskId) {
-      toast.error(st('sweep.weldflow.timesheetPage.pleaseSelectTask'));
+    if (!timerTaskName && !timerTaskId && !timerDescription.trim()) {
+      toast.error(tt.timerNeedsTaskOrDescription);
       return;
     }
     try {
@@ -1997,7 +2125,7 @@ export default function TimesheetPage() {
         }
       }
 
-      toast.success(st('sweep.weldflow.timesheetPage.loggedHours', { hours: Math.round((durationMinutes / 60) * 10) / 10 }));
+      toast.success(tt.loggedDuration.replace('{duration}', formatHoursMinutes(durationMinutes)));
       resetTimerFields();
       void loadData();
     } catch {
@@ -2236,12 +2364,12 @@ export default function TimesheetPage() {
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 w-[90px] justify-between shadow-none text-sm text-muted-foreground">
-                {{ week: 'Week', month: 'Month' }[viewMode]}
+                {{ week: tt.viewWeek, month: tt.viewMonth }[viewMode]}
                 <ChevronDown className="h-3.5 w-3.5 opacity-50" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-[90px] p-1">
-              {([['week', 'Week'], ['month', 'Month']] as const).map(([value, label]) => (
+              {([['week', tt.viewWeek], ['month', tt.viewMonth]] as const).map(([value, label]) => (
                 <Button
                   key={value}
                   variant="ghost"
@@ -2462,6 +2590,7 @@ export default function TimesheetPage() {
         setSelectedDate={setSelectedDate}
         isSubmitting={isSubmitting}
         handleAddEntry={handleAddEntry}
+        otherMinutesOnDay={selectedDate ? minutesLoggedOnDay(entries, selectedDate, editingEntryId) : 0}
       />
 
       <StartTimerDialog

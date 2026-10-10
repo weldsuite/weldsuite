@@ -36,11 +36,17 @@ export function DealsTab({ entityId, entityKind }: Readonly<DealsTabProps>) {
 
   const opportunities = (data?.data ?? []) as Opportunity[];
 
+  // `DealsSection` has no outer padding of its own (the legacy page it came
+  // from supplied it), so without this the header and cards touch the panel
+  // edges.
   return (
-    <DealsSection
-      customer={{ id: entityId } as Customer}
-      opportunities={opportunities}
-      totalCount={opportunities.length}
-    />
+    <div className="p-4">
+      <DealsSection
+        customer={{ id: entityId } as Customer}
+        opportunities={opportunities}
+        totalCount={opportunities.length}
+        entityKind={entityKind}
+      />
+    </div>
   );
 }

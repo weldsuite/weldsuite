@@ -208,7 +208,17 @@ export function EntityList<T extends { id: string }>({
     return result;
   }, [filteredItems, groups]);
 
-  const hasNoResults = items.length > 0 && filteredItems.length === 0;
+  // A search or filter is narrowing the list. With server-side (controlled)
+  // search/filters `items` is already the narrowed set, so an empty list under
+  // an active query is "no results", not "nothing created yet".
+  const hasActiveQuery =
+    searchQuery.trim() !== '' ||
+    activeFilters.some((f) => f.operator !== '' && f.value !== '');
+  const hasNoResults =
+    (items.length > 0 || (hasActiveQuery && !!noResultsState)) && filteredItems.length === 0;
+  // Keep the desktop search box open while a query is active, otherwise the list
+  // stays filtered with no visible reason (e.g. after a re-render resets state).
+  const searchVisible = searchOpen || searchQuery !== '';
 
   // Clear all filters
   const clearFilters = () => {
@@ -340,7 +350,7 @@ export function EntityList<T extends { id: string }>({
               <div
                 className={cn(
                   "flex items-center transition-all duration-200 ease-out",
-                  searchOpen ? "w-48" : "w-8"
+                  searchVisible ? "w-48" : "w-8"
                 )}
               >
                 <Button
@@ -348,7 +358,7 @@ export function EntityList<T extends { id: string }>({
                   size="sm"
                   className={cn(
                     "h-8 w-8 p-0 flex-shrink-0 transition-opacity duration-200",
-                    searchOpen && "opacity-0 pointer-events-none absolute"
+                    searchVisible && "opacity-0 pointer-events-none absolute"
                   )}
                   onClick={() => setSearchOpen(true)}
                 >
@@ -356,7 +366,7 @@ export function EntityList<T extends { id: string }>({
                 </Button>
                 <div className={cn(
                   "relative transition-all duration-200 ease-out",
-                  searchOpen ? "opacity-100 w-48" : "opacity-0 w-0 pointer-events-none"
+                  searchVisible ? "opacity-100 w-48" : "opacity-0 w-0 pointer-events-none"
                 )}>
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <input
@@ -485,11 +495,13 @@ export function EntityList<T extends { id: string }>({
         )}
 
         {/* Empty state */}
-        {items.length === 0 && emptyState && (
+        {items.length === 0 && emptyState && !hasNoResults && (
           <div className={cn("flex flex-col items-center justify-center text-center px-6 min-h-[calc(100dvh-260px)]", emptyStateClassName)}>
             {emptyState.icon}
             <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{emptyState.title}</h3>
-            <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line">{emptyState.description}</p>
+            {/* `overflow-wrap:anywhere`: a long unbreakable token (an email address,
+                a URL) must wrap inside the column instead of being clipped by it. */}
+            <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">{emptyState.description}</p>
             {(emptyState.action || emptyState.secondaryAction) && (
               <div className="flex items-center gap-2">
                 {emptyState.action && (

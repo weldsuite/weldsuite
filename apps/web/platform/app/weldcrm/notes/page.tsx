@@ -56,7 +56,7 @@ function resolveRecord(activity: NoteActivity): {
 
 export default function NotesPage() {
   const { user } = useUser();
-  const { data, isLoading } = useNotes({ limit: 100 });
+  const { data, isPending } = useNotes({ limit: 100 });
   const { data: membersData } = useWorkspaceMembers(1, 100);
 
   // Lookup by Clerk user ID. Falls back to workspace_members row ID for
@@ -112,7 +112,10 @@ export default function NotesPage() {
     });
   }, [data, memberById, user]);
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  // `isPending` rather than `isLoading`: while the persisted query cache is
+  // still restoring after a reload the query is idle (`isLoading` false) with
+  // no data, and NotesView snapshots `initialNotes`, so it would stay empty.
+  if (isPending) return <PageLoader fullScreen={false} />;
 
   return (
     <div className="h-full overflow-y-auto">

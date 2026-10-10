@@ -500,36 +500,48 @@ export function ImportEntitiesDialog({
     [hasRequireMapped, parsedData, rowIsValid],
   );
 
-  // Rows that pass `requireOneOf` (so they count as "valid") but are missing
-  // every `requiredForCreate` field — these only import successfully if they
-  // happen to match an existing row (by party code/email); otherwise the
-  // server rejects them as a create. Surfaced here so the mapping step's
-  // "valid" count isn't misleadingly optimistic.
-  const rowsMissingCreateField = useMemo(() => {
-    if (!requiredForCreate || requiredForCreate.length === 0) return 0;
+  // With a `requiredForCreate` column mapped (Companies: Name) the file is
+  // meant to create rows, so a row that is blank in all of them cannot be
+  // created and is skipped like any other unusable row. Without one mapped the
+  // file can only update rows that already exist (matched by party code /
+  // email), so every row that passes `requireOneOf` is still sent.
+  const createFieldMapped = useMemo(
+    () =>
+      !requiredForCreate ||
+      requiredForCreate.length === 0 ||
+      Object.values(mappings).some((key) => requiredForCreate.includes(key)),
+    [mappings, requiredForCreate],
+  );
+
+  // The rows the import will send: what the footer calls "valid" and what the
+  // Import button counts, so the two always agree.
+  const importableRows = useMemo(() => {
+    if (!createFieldMapped || !requiredForCreate) return validRows;
     return validRows.filter((row) => {
       const record = buildRecord(row, mappings, fieldByKey);
-      return !requiredForCreate.some((key) => safeString(record[key]));
-    }).length;
-  }, [validRows, mappings, fieldByKey, requiredForCreate]);
+      return requiredForCreate.some((key) => safeString(record[key]));
+    });
+  }, [validRows, createFieldMapped, requiredForCreate, mappings, fieldByKey]);
 
+  // Update-only file (no create column mapped): rows import only when they
+  // match an existing record, which the server decides — say so up front.
+  const matchOnlyRows = createFieldMapped ? 0 : validRows.length;
   const missingCreateParams = {
-    n: rowsMissingCreateField,
+    n: matchOnlyRows,
     fields: requiredForCreate?.map((key) => fieldByKey.get(key)?.header ?? key).join(', ') ?? '',
   };
-  // A row without every `requiredForCreate` field (e.g. no Name) can only be
-  // imported by matching an existing record, so it does not count as valid.
   const fileStatsParams = {
     name: file?.name ?? '',
     rows: parsedData.length,
-    valid: validRows.length - rowsMissingCreateField,
+    valid: importableRows.length,
   };
+  const skippedRows = parsedData.length - importableRows.length;
 
   const mappedCount = useMemo(() => Object.values(mappings).filter(Boolean).length, [mappings]);
 
   const buildRecords = useCallback(
-    (): Record<string, unknown>[] => validRows.map((row) => buildRecord(row, mappings, fieldByKey)),
-    [validRows, mappings, fieldByKey],
+    (): Record<string, unknown>[] => importableRows.map((row) => buildRecord(row, mappings, fieldByKey)),
+    [importableRows, mappings, fieldByKey],
   );
 
   const handleImport = useCallback(async () => {
@@ -726,25 +738,25 @@ export function ImportEntitiesDialog({
                     </Alert>
                   )}
 
-                  {hasRequireMapped && validRows.length < parsedData.length && (
+                  {hasRequireMapped && skippedRows > 0 && (
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>{t('crm.importExport.someRowsSkipped')}</AlertTitle>
                       <AlertDescription>
-                        {plural(parsedData.length - validRows.length, {
-                          one: t('crm.importExport.someRowsSkippedDescOne', { n: parsedData.length - validRows.length }),
-                          other: t('crm.importExport.someRowsSkippedDesc', { n: parsedData.length - validRows.length }),
+                        {plural(skippedRows, {
+                          one: t('crm.importExport.someRowsSkippedDescOne', { n: skippedRows }),
+                          other: t('crm.importExport.someRowsSkippedDesc', { n: skippedRows }),
                         })}
                       </AlertDescription>
                     </Alert>
                   )}
 
-                  {hasRequireMapped && rowsMissingCreateField > 0 && (
+                  {hasRequireMapped && matchOnlyRows > 0 && (
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertTitle>{t('crm.importExport.missingCreateFieldTitle')}</AlertTitle>
                       <AlertDescription>
-                        {plural(rowsMissingCreateField, {
+                        {plural(matchOnlyRows, {
                           one: t('crm.importExport.missingCreateFieldDescOne', missingCreateParams),
                           other: t('crm.importExport.missingCreateFieldDesc', missingCreateParams),
                         })}
@@ -804,14 +816,14 @@ export function ImportEntitiesDialog({
                 <Button variant="outline" onClick={() => setStep('upload')}>
                   {t('crm.importExport.backBtn')}
                 </Button>
-                <Button disabled={!hasRequireMapped || validRows.length === 0 || isImporting} onClick={handleImport}>
+                <Button disabled={!hasRequireMapped || importableRows.length === 0 || isImporting} onClick={handleImport}>
                   {isImporting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-0.5 animate-spin" />
                       {t('crm.importExport.importingBtn')}
                     </>
                   ) : (
-                    t('crm.importExport.importBtn', { n: validRows.length })
+                    t('crm.importExport.importBtn', { n: importableRows.length })
                   )}
                 </Button>
               </div>

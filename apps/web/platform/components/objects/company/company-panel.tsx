@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   Bookmark,
@@ -29,8 +30,6 @@ import {
   MapPin,
   Phone,
   Receipt,
-  RotateCcw,
-  Settings2,
   Smile,
   Tag,
   Trash2,
@@ -52,16 +51,12 @@ import {
 } from '@/components/object-panel';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
+import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -72,6 +67,7 @@ import {
   StatusPropertyRow,
   TagsPropertyRow,
 } from '@/components/objects/_shared/property-row';
+import { collectKnownTags } from '@/components/objects/_shared/known-tags';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
 import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
@@ -87,6 +83,7 @@ import { EmailsTab } from '@/components/objects/_shared/emails-tab';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import {
+  companyKeys,
   useCompany,
   useCompanyChannel,
   useCompanyPeople,
@@ -242,42 +239,12 @@ function CompanyActions({
         {/* Stock shadcn menu: default widths, default icon sizing, the stock
             destructive item, and the tab toggles as a stock checkbox submenu. */}
         <DropdownMenuContent align="end">
-          <DropdownMenuSub>
-            {/* The shared sub-trigger lacks the stock shadcn gap and icon
-                styling that menu items have, so it is supplied here. */}
-            <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:shrink-0">
-              <Settings2 />
-              {st('sweep.entities.configureTabs')}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuLabel>{st('sweep.entities.visibleTabs')}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {tabFields.map((field) => {
-                const isOn = field.required || isTabVisible(field.id);
-                return (
-                  <DropdownMenuCheckboxItem
-                    key={field.id}
-                    checked={isOn}
-                    disabled={field.required}
-                    onCheckedChange={() => onToggleTab(field.id)}
-                    onSelect={(e) => e.preventDefault()}
-                  >
-                    {field.label}
-                  </DropdownMenuCheckboxItem>
-                );
-              })}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  onResetTabs();
-                }}
-              >
-                <RotateCcw />
-                {st('sweep.entities.resetToDefaults')}
-              </DropdownMenuItem>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <ConfigureTabsSubmenu
+            tabs={tabFields}
+            isTabVisible={isTabVisible}
+            onToggleTab={onToggleTab}
+            onResetTabs={onResetTabs}
+          />
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onArchiveToggle}>
             <Archive />
@@ -338,6 +305,7 @@ function CompanyDetailsTab({
   onUpdateFieldAsync: (patch: Record<string, unknown>) => Promise<void>;
 }>) {
   const st = useTranslations();
+  const queryClient = useQueryClient();
   const { options: statusOptions } = useCustomerStatusOptions();
   const lifecycleOptions = useLifecycleStageOptions();
   const languageOptions = useLanguageOptions();
@@ -396,6 +364,7 @@ function CompanyDetailsTab({
         label={st('sweep.entities.fieldTags')}
         value={company.tags}
         onChange={(next) => onUpdateField({ tags: next })}
+        getSuggestions={() => collectKnownTags(queryClient, companyKeys.lists())}
       />
       <PropertyRow
         icon={Building}
@@ -784,9 +753,11 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
   const chatSidebar = (
     <CompanyChat companyId={id} companyName={company?.displayName} />
   );
-  // The line above the chat only appears once the chat has had a message (its
-  // channel is created by the first one), as in the task panel.
-  const chatHasMessages = !!useCompanyChannel(id).data?.data;
+  // Until the first message exists (it creates the channel) the chat is only a
+  // composer: let it hug its height so the details above get the rest of the
+  // panel (see EntityDetailView), and leave out the divider line above it.
+  const channelQuery = useCompanyChannel(id);
+  const chatIsEmpty = !channelQuery.data?.data;
 
   return (
     <EntityDetailView
@@ -813,7 +784,8 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
-      sidebarDivider={chatHasMessages}
+      sidebarDivider={!chatIsEmpty}
+      sidebarFitContent={chatIsEmpty}
       sidebarDefaultSize={mode === 'panel' ? 320 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}

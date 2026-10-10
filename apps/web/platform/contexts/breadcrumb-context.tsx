@@ -1,5 +1,15 @@
 
-import { createContext, useContext, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react';
 
 export interface BreadcrumbSegment {
   label: string;
@@ -8,7 +18,7 @@ export interface BreadcrumbSegment {
 
 interface BreadcrumbContextValue {
   breadcrumbs: BreadcrumbSegment[];
-  setBreadcrumbs: (segments: BreadcrumbSegment[]) => void;
+  setBreadcrumbs: Dispatch<SetStateAction<BreadcrumbSegment[]>>;
   /** Breadcrumbs to fall back to once the page that set them unmounts. */
   defaultBreadcrumbs: BreadcrumbSegment[];
 }
@@ -42,6 +52,21 @@ export function BreadcrumbProvider({ children, defaultBreadcrumbs = NO_BREADCRUM
 }
 
 /**
+ * What to put back when a page that set `applied` unmounts: the provider's
+ * default, but only while `applied` is still showing. Navigating from one page
+ * to the next can mount (or enable) the next page's breadcrumbs *before* the
+ * previous page's cleanup runs, e.g. while the next route's chunk is still
+ * loading; resetting unconditionally then wiped the new page's crumbs and left
+ * only the module's default ("CRM") showing.
+ */
+function resetIfStillShowing(
+  applied: BreadcrumbSegment[] | null,
+  fallback: BreadcrumbSegment[],
+): (current: BreadcrumbSegment[]) => BreadcrumbSegment[] {
+  return (current) => (current === applied ? fallback : current);
+}
+
+/**
  * Hook to access breadcrumb context
  */
 function useBreadcrumbContext() {
@@ -71,9 +96,11 @@ export function useBreadcrumbs(
   const { setBreadcrumbs, defaultBreadcrumbs } = useBreadcrumbContext();
   const enabled = options?.enabled !== false;
   const segmentsKey = JSON.stringify(segments);
+  const appliedRef = useRef<BreadcrumbSegment[] | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
+    appliedRef.current = segments;
     setBreadcrumbs(segments);
     // Keyed by content (segmentsKey), not array reference — callers routinely
     // pass a fresh inline array each render, so depending on `segments`
@@ -90,8 +117,8 @@ export function useBreadcrumbs(
   defaultBreadcrumbsRef.current = defaultBreadcrumbs;
   useEffect(() => {
     if (!enabled) return;
-    return () => setBreadcrumbs(defaultBreadcrumbsRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () =>
+      setBreadcrumbs(resetIfStillShowing(appliedRef.current, defaultBreadcrumbsRef.current));
   }, [setBreadcrumbs, enabled]);
 }
 
@@ -105,8 +132,10 @@ export function useOptionalBreadcrumbs(segments: BreadcrumbSegment[]) {
   const context = useContext(BreadcrumbContext);
   const setBreadcrumbs = context?.setBreadcrumbs;
   const segmentsKey = JSON.stringify(segments);
+  const appliedRef = useRef<BreadcrumbSegment[] | null>(null);
 
   useEffect(() => {
+    appliedRef.current = segments;
     setBreadcrumbs?.(segments);
     // Keyed by content (segmentsKey), not array reference — see useBreadcrumbs above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,8 +147,8 @@ export function useOptionalBreadcrumbs(segments: BreadcrumbSegment[]) {
   defaultBreadcrumbsRef.current = context?.defaultBreadcrumbs ?? [];
   useEffect(() => {
     if (!setBreadcrumbs) return;
-    return () => setBreadcrumbs(defaultBreadcrumbsRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () =>
+      setBreadcrumbs(resetIfStillShowing(appliedRef.current, defaultBreadcrumbsRef.current));
   }, [setBreadcrumbs]);
 }
 

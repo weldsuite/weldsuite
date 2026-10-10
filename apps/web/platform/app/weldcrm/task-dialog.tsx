@@ -44,6 +44,9 @@ import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { RepeatConfigMenu, repeatLabel, type RepeatFrequency, type RepeatUnit } from '@/components/tasks/repeat-config';
+import { RecordKindBadge } from '@/components/objects/_shared/record-kind-badge';
+import { DURATION_PRESETS, formatMinutes } from '@/components/tasks/task-duration';
+import { InlineLabelCreator } from '@/components/tasks/inline-label-creator';
 import { runEditorCommand } from '@weldsuite/ui/lib/editor-commands';
 
 const statusConfig = {
@@ -226,15 +229,6 @@ type RepeatValue = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'cus
 type RepeatUnitValue = 'days' | 'weeks' | 'months' | 'years';
 type AssigneeOption = { id: string; name: string; avatar?: string };
 type CompanyOption = { id: string; name: string; avatar?: string; type?: string; icon?: LucideIcon; iconColor?: string | null };
-
-const DURATION_PRESETS = [15, 30, 45, 60, 90, 120];
-
-function formatMinutes(mins: number): string {
-  if (mins < 60) return `${mins}m`;
-  const rest = mins % 60;
-  const restLabel = rest ? ` ${rest}m` : '';
-  return `${Math.floor(mins / 60)}h${restLabel}`;
-}
 
 function normalizeAssignee(a: string | AssigneeOption): AssigneeOption {
   return typeof a === 'string' ? { id: a, name: a, avatar: undefined } : a;
@@ -471,11 +465,13 @@ function LabelsPopover({
   availableLabels,
   activeProjectId,
   onChange,
+  onCreateLabel,
 }: Readonly<{
   selectedLabels: string[];
   availableLabels: LabelOption[];
   activeProjectId: string | null | undefined;
   onChange: React.Dispatch<React.SetStateAction<string[]>>;
+  onCreateLabel?: (data: { name: string; color: string }) => Promise<LabelOption | null>;
 }>) {
   const tCrm = getTranslations('crm');
   // Only show labels that belong to the active project (or workspace-wide
@@ -540,6 +536,19 @@ function LabelsPopover({
               </Button>
             );
           })
+        )}
+        {onCreateLabel && (
+          <>
+            {visibleLabels.length > 0 && <div className="h-px bg-gray-200 dark:bg-accent my-1" />}
+            <InlineLabelCreator
+              existingNames={visibleLabels.map((l) => l.name)}
+              onCreate={async (data) => {
+                const created = await onCreateLabel(data);
+                if (created) onChange((prev) => [...prev, created.id]);
+                return created;
+              }}
+            />
+          </>
         )}
         {selectedLabels.length > 0 && (
           <>
@@ -848,6 +857,10 @@ function RecordPopover({
                     )}
                     <span className="truncate">{company.name}</span>
                   </span>
+                  {/* Companies and people share this list: say which is which, same as the Notes record picker. */}
+                  {(company.type === 'company' || company.type === 'person') && (
+                    <RecordKindBadge kind={company.type} />
+                  )}
                   {record === company.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
                 </CommandItem>
               ))}
@@ -961,7 +974,6 @@ export function TaskDialog({
   onRecordSearchChange,
   recordRequired,
   availableLabels = [],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- part of the public TaskDialog contract (inline label creation); not yet wired into this dialog's label picker UI.
   onCreateLabel,
   defaultRecord,
   defaultAssignee,
@@ -1472,6 +1484,7 @@ export function TaskDialog({
               availableLabels={availableLabels}
               activeProjectId={projectId ?? record}
               onChange={setSelectedLabels}
+              onCreateLabel={onCreateLabel}
             />
 
             <DurationPopover duration={duration} onChange={setDuration} />

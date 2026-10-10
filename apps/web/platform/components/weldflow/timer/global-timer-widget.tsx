@@ -12,11 +12,11 @@
  */
 
 import { useState } from 'react';
+import { useI18n } from '@/lib/i18n/provider';
 import { Square, Timer, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
-import { getTranslations } from '@/lib/i18n';
 import { useDraggablePosition } from '@/hooks/use-draggable-position';
 import {
   formatElapsed,
@@ -29,7 +29,7 @@ import {
 const TIMER_CHIP_POSITION_KEY = 'weldflow.timerChip.position';
 
 export function GlobalTimerWidget() {
-  const t = getTranslations('projects');
+  const t = useI18n().t.projects;
   const { data: timer } = useRunningTimer();
   const stopTimer = useStopTimer();
   const discardTimer = useDiscardTimer();

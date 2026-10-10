@@ -108,7 +108,15 @@ export const navigation = {
         projects: 'Projects',
       },
       weldhr: {
-        myHr: 'My HR',
+        me: {
+          overview: 'Overview',
+          timeOff: 'Time off',
+          expenses: 'Expenses',
+          schedule: 'Schedule & hours',
+          payroll: 'Payroll',
+          tasks: 'Tasks',
+          reviews: 'Reviews & goals',
+        },
         dashboard: 'Dashboard',
         employees: 'Employees',
         attendance: 'Attendance',
@@ -122,7 +130,8 @@ export const navigation = {
         filings: 'Filings',
         payrollSettings: 'Payroll settings',
         groups: {
-          people: 'People',
+          myHr: 'My HR',
+          team: 'Team',
           time: 'Time',
           expenses: 'Expenses',
           payroll: 'Payroll',
@@ -235,26 +244,6 @@ export const navigation = {
         team: 'Team',
         settings: 'Settings',
       },
-    },
-    dashboardSidebar: {
-      appName: 'Dashboard',
-      groupOverview: 'Overview',
-      itemHome: 'Home',
-      itemNewChat: 'New Chat',
-      groupAvailableApps: 'Available Apps',
-    },
-    checkoutCancel: {
-      title: 'Checkout Cancelled',
-      description: 'Your payment was not processed. No charges have been made.',
-      hint: 'You can return to billing settings anytime to choose a plan.',
-      backToSettings: 'Back to Settings',
-      close: 'Close',
-    },
-    checkoutSuccess: {
-      title: 'Payment Successful!',
-      description: 'Thank you for your purchase. Your subscription has been activated.',
-      redirecting: 'You will be redirected to your billing settings shortly...',
-      close: 'Close',
     },
     appstore: {
       title: 'App Store',

@@ -55,9 +55,8 @@ import {
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
-import { PropertyRow } from '@/components/objects/_shared/property-row';
+import { MemberPropertyRow, PropertyRow } from '@/components/objects/_shared/property-row';
 import { ComingSoonTab } from '@/components/objects/_shared/coming-soon-tab';
-import { MemberSelect } from '@/components/team/member-select';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import {
   Command,
@@ -81,7 +80,14 @@ import {
 import { usePipelines, usePipelineStages } from '@/hooks/queries/use-pipelines-queries';
 import { useCompany } from '@/components/objects/company/use-company-data';
 import { OPPORTUNITY_TABS, type OpportunityTab } from './opportunity-tabs';
-import { formatDealDate, formatDealMoney, getCurrencyOptions, resolveDealCurrency } from '@/lib/crm/deal-format';
+import {
+  formatDealDate,
+  formatDealMoney,
+  fromDateInputValue,
+  getCurrencyOptions,
+  resolveDealCurrency,
+  toDateInputValue,
+} from '@/lib/crm/deal-format';
 
 const OPPORTUNITY_PANEL_WIDTH = 400;
 
@@ -268,7 +274,7 @@ function getStatusOptions(
 
 function StageBadge({ label }: Readonly<{ label: string }>) {
   return (
-    <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+    <span className="inline-flex max-w-full items-center rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium break-words [overflow-wrap:anywhere]">
       {label}
     </span>
   );
@@ -280,7 +286,7 @@ function StatusBadge({ value }: Readonly<{ value: string }>) {
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
+        'inline-flex max-w-full items-center rounded-md px-1.5 py-0.5 text-xs font-medium',
         opt?.tone ?? 'bg-muted text-foreground',
       )}
     >
@@ -307,26 +313,31 @@ function SelectPropertyRow({
   const t = useTranslations();
   const [open, setOpen] = useState(false);
   return (
-    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
+    // `minmax(0,1fr)`, not `1fr`: a plain `1fr` track can't shrink below its
+    // content, so a wide value stretched the row past the 400px panel and the
+    // whole Details body scrolled sideways (TASK-1086). The trigger is a plain
+    // button with the shared Select/Status rows' geometry (the ghost `Button`
+    // centres its content and never wraps), pulled into the gutter so the badge
+    // text lines up with the rows above and below it.
+    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center group/row min-h-[32px]">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
       </div>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button
+          <button
             type="button"
-            variant="ghost"
-            className="text-sm min-w-0 text-left cursor-pointer rounded px-1.5 -mx-1.5 py-0.5 hover:bg-muted/40 transition-colors flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex min-w-0 w-[calc(100%+1rem)] -mx-2 px-2 min-h-[32px] py-1 items-center justify-start text-left text-sm cursor-pointer rounded-[9px] hover:bg-muted/50 data-[state=open]:bg-muted/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {value ? (
-              renderBadge(value)
+              <span className="-ml-1.5 flex min-w-0 max-w-full">{renderBadge(value)}</span>
             ) : (
               <span className="text-muted-foreground/70">
                 {t('sweep.entities.setFieldPlaceholder', { label })}
               </span>
             )}
-          </Button>
+          </button>
         </PopoverTrigger>
         <PopoverContent className="w-56 p-0" align="start">
           <Command>
@@ -352,38 +363,6 @@ function SelectPropertyRow({
           </Command>
         </PopoverContent>
       </Popover>
-      <div />
-    </div>
-  );
-}
-
-function MemberPropertyRow({
-  icon: Icon,
-  label,
-  value,
-  placeholder,
-  onChange,
-}: Readonly<{
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  placeholder: string;
-  onChange: (next: string) => void;
-}>) {
-  return (
-    <div className="grid grid-cols-[120px_1fr_auto] gap-2 items-center group/row min-h-[32px]">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="h-4 w-4" />
-        <span>{label}</span>
-      </div>
-      <div className="min-w-0 -mx-2">
-        <MemberSelect
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          variant="assignee"
-        />
-      </div>
       <div />
     </div>
   );
@@ -512,8 +491,11 @@ export function OpportunityDetailsTab({
       <PropertyRow
         icon={Calendar}
         label={t('sweep.entities.fieldCloseDate')}
-        value={formatDate(opportunity.closeDate)}
-        readOnly
+        type="date"
+        value={toDateInputValue(opportunity.closeDate)}
+        renderValue={() => formatDate(opportunity.closeDate ?? undefined)}
+        // Optional since TASK-671: clearing the input removes the close date.
+        onSave={(v) => onUpdateField({ closeDate: v ? fromDateInputValue(v) : null })}
       />
       <PropertyRow
         icon={Calendar}
@@ -762,9 +744,14 @@ export function OpportunityPanel(props: Readonly<ObjectPanelComponentProps>) {
   const handleUpdateField = useCallback(
     (patch: Partial<Opportunity>) => {
       if (!opportunity) return;
-      updateMut.mutate({ id: opportunity.id, data: patch });
+      // Per-call promise (not `mutate`'s callbacks, which only fire for the
+      // latest of several quick edits): every rejected edit is reported, and
+      // the hook's refetch puts the server's value back in the panel.
+      updateMut
+        .mutateAsync({ id: opportunity.id, data: patch })
+        .catch(() => toast.error(t('sweep.entities.updateFailed')));
     },
-    [opportunity, updateMut],
+    [opportunity, updateMut, t],
   );
 
   const handleMarkWon = useCallback(() => {

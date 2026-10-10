@@ -187,6 +187,17 @@ export const workspaces = pgTable('workspaces', {
   deletionReason: text('deletion_reason'),
   deletedAt: timestamp('deleted_at'),
 
+  // Complimentary ("comp") plan granted from the admin console. While
+  // `compGrantedAt` is set the workspace keeps `planId` + `purchasedSeats`
+  // without paying: the Stripe webhooks leave plan and seats alone and the
+  // trial-expiry paywall does not arm. billing-worker's comp sweep ends it at
+  // `compEndsAt` (null = no end date); the workspace is then treated like a
+  // subscription that ended (free plan, or the pay-or-delete grace window).
+  compGrantedAt: timestamp('comp_granted_at'),
+  compEndsAt: timestamp('comp_ends_at'),
+  compGrantedBy: varchar('comp_granted_by', { length: 255 }),
+  compReason: text('comp_reason'),
+
   // Status
   isActive: boolean('is_active').notNull().default(true),
 
@@ -200,6 +211,8 @@ export const workspaces = pgTable('workspaces', {
   index('workspaces_plan_id_idx').on(table.planId),
   // Drives the scheduled-deletion cron sweep (find workspaces due for teardown).
   index('workspaces_scheduled_deletion_at_idx').on(table.scheduledDeletionAt),
+  // Drives billing-worker's comp-expiry sweep.
+  index('workspaces_comp_ends_at_idx').on(table.compEndsAt),
 ]);
 
 export type Workspace = typeof workspaces.$inferSelect;
@@ -1194,6 +1207,47 @@ export type AdminUser = typeof adminUsers.$inferSelect;
 export type NewAdminUser = typeof adminUsers.$inferInsert;
 export type AdminRole = 'superadmin' | 'admin' | 'viewer';
 export const ADMIN_ROLES: readonly AdminRole[] = ['superadmin', 'admin', 'viewer'];
+
+// ============================================================================
+// ADMIN AUDIT EVENTS
+// ============================================================================
+
+export type AdminAuditTargetType = 'workspace' | 'plan';
+export type AdminAuditOutcome = 'success' | 'failure';
+
+// Every change an admin makes from the internal console (plan changes, comps,
+// credit adjustments, refunds, plan catalog edits, scheduled deletions), with
+// who did it and why. Failed attempts are recorded too. `workspaceId` is
+// deliberately not a foreign key: the trail must outlive a workspace teardown.
+export const adminAuditEvents = pgTable('admin_audit_events', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+
+  workspaceId: varchar('workspace_id', { length: 255 }),
+  targetType: varchar('target_type', { length: 30 }).$type<AdminAuditTargetType>().notNull(),
+  targetId: varchar('target_id', { length: 255 }).notNull(),
+
+  // Dotted verb, e.g. `subscription.update`, `comp.grant`, `plan.update`.
+  action: varchar('action', { length: 100 }).notNull(),
+  outcome: varchar('outcome', { length: 20 }).$type<AdminAuditOutcome>().notNull(),
+
+  actorEmail: varchar('actor_email', { length: 255 }).notNull(),
+  actorUserId: varchar('actor_user_id', { length: 255 }),
+
+  reason: text('reason'),
+  // Inputs and resulting ids (Stripe subscription/refund/invoice ids, before
+  // and after values). Never card data or secrets.
+  details: jsonb('details').$type<Record<string, unknown>>(),
+  error: text('error'),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('admin_audit_events_workspace_idx').on(table.workspaceId, table.createdAt),
+  index('admin_audit_events_target_idx').on(table.targetType, table.targetId),
+  index('admin_audit_events_created_at_idx').on(table.createdAt),
+]);
+
+export type AdminAuditEvent = typeof adminAuditEvents.$inferSelect;
+export type NewAdminAuditEvent = typeof adminAuditEvents.$inferInsert;
 
 // Re-export admin-related schemas for master database
 export { plans, type Plan, type NewPlan } from './plans';

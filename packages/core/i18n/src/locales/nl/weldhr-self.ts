@@ -18,14 +18,13 @@ export const weldhrSelf = {
       noJobTitle: 'Geen functietitel',
       manager: 'Leidinggevende: {name}',
     },
-    tabs: {
-      overview: 'Overzicht',
-      leave: 'Verlof',
-      declarations: 'Declaraties',
-      attendance: 'Aanwezigheid',
+    pages: {
+      timeOff: 'Verlof & ziekte',
+      expenses: 'Onkosten',
+      schedule: 'Rooster & uren',
+      payroll: 'Salaris',
       tasks: 'Taken',
-      reviews: 'Beoordelingen',
-      goals: 'Doelen',
+      reviews: 'Beoordelingen & doelen',
     },
     common: {
       viewAll: 'Alles bekijken',

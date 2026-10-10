@@ -2,9 +2,11 @@ import { getTranslations } from '@weldsuite/i18n';
 import {
   Building2,
   Coins,
+  CreditCard,
   Globe,
   Headphones,
   LayoutDashboard,
+  History,
   ListTree,
   Package,
   PackagePlus,
@@ -54,6 +56,7 @@ export function getNavAreas(): NavArea[] {
   const phonePricing = getTranslations('host').adminPhonePricing;
   const meetAiPricing = getTranslations('host').adminMeetAiPricing;
   const planPricing = getTranslations('host').adminPlanPricing;
+  const billing = getTranslations('admin').nav;
   return [
   {
     key: 'overview',
@@ -71,6 +74,8 @@ export function getNavAreas(): NavArea[] {
           { title: 'Support Inbox', href: '/support', icon: Headphones },
           { title: 'App Catalog', href: '/apps', icon: Package },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
+          { title: billing.plans, href: '/plans', icon: CreditCard },
+          { title: billing.activity, href: '/activity', icon: History },
           { title: 'AI Costs', href: '/ai-costs', icon: Coins },
           { title: planPricing.navJumpTo, href: '/plan-pricing', icon: Tags },
           { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe },
@@ -116,6 +121,26 @@ export function getNavAreas(): NavArea[] {
       {
         group: 'Tenants',
         items: [{ title: 'All Workspaces', href: '/workspaces', icon: Users }],
+      },
+    ],
+  },
+  {
+    key: 'billing',
+    name: billing.billingArea,
+    icon: CreditCard,
+    href: '/plans',
+    matches: ['/activity'],
+    groups: [
+      {
+        group: billing.catalogGroup,
+        items: [
+          { title: billing.plans, href: '/plans', icon: ListTree },
+          { title: billing.newPlan, href: '/plans/new', icon: PackagePlus },
+        ],
+      },
+      {
+        group: billing.auditGroup,
+        items: [{ title: billing.activity, href: '/activity', icon: History }],
       },
     ],
   },

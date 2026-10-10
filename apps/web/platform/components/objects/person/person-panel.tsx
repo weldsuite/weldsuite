@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   Briefcase,
@@ -49,13 +50,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
-import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
+import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
 import { useComposeSafe } from '@/contexts/compose-context';
 import {
   PropertyRow,
@@ -64,6 +66,7 @@ import {
   TagsPropertyRow,
 } from '@/components/objects/_shared/property-row';
 import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-statuses';
+import { collectKnownTags } from '@/components/objects/_shared/known-tags';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
 import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
@@ -80,6 +83,7 @@ import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fi
 import { EntityList } from '@/components/entity-list';
 import { useUnlinkPersonFromCompany } from '@/hooks/queries/use-person-companies-queries';
 import {
+  personKeys,
   usePerson,
   usePersonChannel,
   usePersonCompanies,
@@ -149,14 +153,29 @@ function PersonTitle({ person }: Readonly<{ person?: Person }>) {
   );
 }
 
+type TabConfigEntry = {
+  id: PersonTab['id'];
+  label: string;
+  required?: boolean;
+  defaultVisible: boolean;
+};
+
 function PersonActions({
   person,
   onDelete,
   onArchiveToggle,
+  tabFields,
+  isTabVisible,
+  onToggleTab,
+  onResetTabs,
 }: Readonly<{
   person?: Person;
   onDelete: () => void;
   onArchiveToggle: () => void;
+  tabFields: TabConfigEntry[];
+  isTabVisible: (id: string) => boolean;
+  onToggleTab: (id: string) => void;
+  onResetTabs: () => void;
 }>) {
   const st = useTranslations();
   const compose = useComposeSafe();
@@ -242,6 +261,13 @@ function PersonActions({
         </DropdownMenuTrigger>
         {/* Stock shadcn menu: default width, default icon sizing, stock destructive item. */}
         <DropdownMenuContent align="end">
+          <ConfigureTabsSubmenu
+            tabs={tabFields}
+            isTabVisible={isTabVisible}
+            onToggleTab={onToggleTab}
+            onResetTabs={onResetTabs}
+          />
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onArchiveToggle}>
             <Archive />
             {person.archivedAt ? st('sweep.entities.unarchive') : st('sweep.entities.archive')}
@@ -261,70 +287,31 @@ function PersonActions({
 function PersonPanelTabsBar({
   activeTab,
   setActiveTab,
-  mode,
   companyCount,
+  isTabVisible,
 }: Readonly<{
   activeTab: PersonTab['id'];
   setActiveTab: (id: PersonTab['id']) => void;
-  mode: 'panel' | 'fullscreen';
   companyCount: number;
+  isTabVisible: (id: string) => boolean;
 }>) {
-  const st = useTranslations();
-  const configEntries = useMemo(
-    () =>
-      PERSON_TABS.map((t) => ({
-        id: t.id,
-        label: t.label,
-        required: t.required,
-        defaultVisible:
-          mode === 'panel'
-            ? (t.defaultVisibleInPanel ?? false)
-            : (t.defaultVisibleInFullscreen ?? false),
-      })),
-    [mode],
-  );
-
-  const { visibility, isVisible, toggle, resetToDefaults } = useObjectPanelTabConfig({
-    objectType: 'person',
-    mode,
-    tabs: configEntries,
-  });
-
-  useEffect(() => {
-    if (isVisible(activeTab)) return;
-    const fallback = PERSON_TABS.find((t) => isVisible(t.id));
-    if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isVisible, setActiveTab]);
-
   const tabs = useMemo(
     () =>
-      PERSON_TABS.filter((t) => isVisible(t.id)).map((t) => ({
+      PERSON_TABS.filter((t) => isTabVisible(t.id)).map((t) => ({
         id: t.id,
         label: t.label,
         icon: t.icon,
         count: t.id === 'companies' ? companyCount : undefined,
       })),
-    [isVisible, companyCount],
+    [isTabVisible, companyCount],
   );
 
   return (
-    <div className="group/tabs-header relative">
-      <ObjectPanelTabs
-        tabs={tabs}
-        activeTab={activeTab}
-        onChange={(id) => setActiveTab(id as PersonTab['id'])}
-      />
-      <div className="absolute top-0 right-2 h-full flex items-center opacity-0 group-hover/tabs-header:opacity-100 focus-within:opacity-100 transition-opacity">
-        <DrawerFieldSettings
-          fields={configEntries}
-          fieldVisibility={visibility}
-          onToggle={toggle}
-          onReset={resetToDefaults}
-          label={st('sweep.entities.visibleTabs')}
-          title={st('sweep.entities.configureTabs')}
-        />
-      </div>
-    </div>
+    <ObjectPanelTabs
+      tabs={tabs}
+      activeTab={activeTab}
+      onChange={(id) => setActiveTab(id as PersonTab['id'])}
+    />
   );
 }
 
@@ -340,6 +327,7 @@ function PersonDetailsTab({
   onUpdateFieldAsync: (patch: Record<string, unknown>) => Promise<void>;
 }>) {
   const st = useTranslations();
+  const queryClient = useQueryClient();
   const { options: statusOptions } = useCustomerStatusOptions();
   const lifecycleOptions = useLifecycleStageOptions();
   const languageOptions = useLanguageOptions();
@@ -415,6 +403,7 @@ function PersonDetailsTab({
         label={st('sweep.entities.fieldTags')}
         value={person.tags}
         onChange={(next) => onUpdateField({ tags: next })}
+        getSuggestions={() => collectKnownTags(queryClient, personKeys.lists())}
       />
       <StatusPropertyRow
         value={person.status}
@@ -658,29 +647,75 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
   }, [initialTab]);
   const [activeTab, setActiveTab] = useState<PersonTab['id']>(initial);
 
+  // Tab visibility config — lifted here (like the company panel) so the
+  // "Configure tabs" control lives in the header's kebab menu while the tab
+  // strip stays a presentational consumer.
+  const tabConfigEntries = useMemo<TabConfigEntry[]>(
+    () =>
+      PERSON_TABS.map((t) => ({
+        id: t.id,
+        label: t.label,
+        required: t.required,
+        defaultVisible:
+          mode === 'panel'
+            ? (t.defaultVisibleInPanel ?? false)
+            : (t.defaultVisibleInFullscreen ?? false),
+      })),
+    [mode],
+  );
+
+  const {
+    isVisible: isTabVisible,
+    toggle: toggleTab,
+    resetToDefaults: resetTabs,
+  } = useObjectPanelTabConfig({
+    objectType: 'person',
+    mode,
+    tabs: tabConfigEntries,
+  });
+
+  useEffect(() => {
+    if (isTabVisible(activeTab)) return;
+    const fallback = PERSON_TABS.find((t) => isTabVisible(t.id));
+    if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
+  }, [activeTab, isTabVisible]);
+
   const chatSidebar = (
     <PersonChat personId={id} personName={person?.displayName} />
   );
-  // The line above the chat only appears once the chat has had a message (its
-  // channel is created by the first one), as in the task panel.
-  const chatHasMessages = !!usePersonChannel(id).data?.data;
+  // Until the first message exists (it creates the channel) the chat is only a
+  // composer: let it hug its height so the details above get the rest of the
+  // panel (see EntityDetailView), and leave out the divider line above it.
+  const channelQuery = usePersonChannel(id);
+  const chatIsEmpty = !channelQuery.data?.data;
 
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
       avatar={<PersonAvatar person={person} onUpload={(url) => handleUpdateField({ avatarUrl: url })} />}
       title={<PersonTitle person={person} />}
-      actions={<PersonActions person={person} onDelete={handleDelete} onArchiveToggle={handleArchiveToggle} />}
+      actions={
+        <PersonActions
+          person={person}
+          onDelete={handleDelete}
+          onArchiveToggle={handleArchiveToggle}
+          tabFields={tabConfigEntries}
+          isTabVisible={isTabVisible}
+          onToggleTab={toggleTab}
+          onResetTabs={resetTabs}
+        />
+      }
       tabs={
         <PersonPanelTabsBar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          mode={mode}
           companyCount={employments.length}
+          isTabVisible={isTabVisible}
         />
       }
+      sidebarFitContent={chatIsEmpty}
       sidebar={chatSidebar}
-      sidebarDivider={chatHasMessages}
+      sidebarDivider={!chatIsEmpty}
       sidebarDefaultSize={mode === 'panel' ? 320 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}

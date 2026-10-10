@@ -175,6 +175,12 @@ describe('isProjectUploadKey', () => {
     expect(isProjectUploadKey('workspaces/org_1/project-files/project/proj_1/1_a.pdf', ws, project)).toBe(true);
   });
 
+  it('accepts the current key shape with an unguessable segment', () => {
+    const segment = `1760000000000_${'a1b2c3d4'.repeat(4)}`;
+    expect(isProjectUploadKey(`workspaces/org_1/projects/project/proj_1/${segment}/e2e-notes.txt`, ws, project)).toBe(true);
+    expect(isProjectUploadKey(`workspaces/org_1/project-files/project/proj_1/${segment}/a.pdf`, ws, project)).toBe(true);
+  });
+
   it.each([
     ['another workspace', 'workspaces/org_2/projects/project/proj_1/1_a.pdf'],
     ['another project', 'workspaces/org_1/projects/project/proj_2/1_a.pdf'],
@@ -183,6 +189,9 @@ describe('isProjectUploadKey', () => {
     ['a project document', 'workspaces/org_1/documents/proj_1/1_a.docx'],
     ['a key without the workspaces root', 'imports/tasks/org_1/proj_1/job.json'],
     ['a nested object path', 'workspaces/org_1/projects/project/proj_1/sub/1_a.pdf'],
+    ['a nested path without an upload segment', 'workspaces/org_1/projects/project/proj_1/other/a.pdf'],
+    ['a dot-dot file name', `workspaces/org_1/projects/project/proj_1/1_${'a'.repeat(32)}/..`],
+    ['another project with an upload segment', `workspaces/org_1/projects/project/proj_2/1_${'a'.repeat(32)}/a.pdf`],
     ['a dot-dot segment', 'workspaces/org_1/projects/project/proj_1/..'],
     ['an empty object name', 'workspaces/org_1/projects/project/proj_1/'],
     ['an empty string', ''],

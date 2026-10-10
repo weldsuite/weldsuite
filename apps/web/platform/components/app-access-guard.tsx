@@ -30,13 +30,12 @@ const GUEST_ALLOWED_PREFIXES = ['/weldchat'];
 const GUEST_FALLBACK_PATH = '/weldchat';
 
 /**
- * Where EMPLOYEE members (WeldHR) may go: My HR, reporting sick, WeldChat and
- * their own account settings. Same idea as the guest list: the server ceiling is their
+ * Where EMPLOYEE members (WeldHR) may go: My HR (reporting sick included),
+ * WeldChat and their own account settings. Same idea as the guest list: the server ceiling is their
  * fixed permission set, this only keeps them off pages that would 403.
  */
 const EMPLOYEE_ALLOWED_PREFIXES = [
   '/weldhr/me',
-  '/weldhr/absenteeism',
   '/weldchat',
   '/settings/appearance',
   '/settings/notifications',
@@ -105,6 +104,16 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
         (prefix) => pathname === prefix || pathname.startsWith(prefix + '/')
       )
     ) {
+      return;
+    }
+
+    // WeldObjects live at `/objects/{slug}`. The slug is the object's code in
+    // the installed-app list, which only holds active objects the member may
+    // read, so being listed is the whole check.
+    const [firstSegment, objectSlug] = pathname.split('/').filter(Boolean);
+    if (firstSegment === 'objects') {
+      const isListed = installedApps.some((app) => app.appType === 'object' && app.appCode === objectSlug);
+      if (!isListed) router.replace('/');
       return;
     }
 

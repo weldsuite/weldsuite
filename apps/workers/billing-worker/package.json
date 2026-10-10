@@ -23,11 +23,13 @@
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.34",
     "nanoid": "^5.1.16",
-    "postgres": "^3.4.7"
+    "postgres": "^3.4.7",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
+    "@weldsuite/worker-kit": "workspace:*",
     "typescript": "^5.7",
     "wrangler": "^4.0.0"
   }

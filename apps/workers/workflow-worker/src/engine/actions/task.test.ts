@@ -36,7 +36,7 @@ describe('create_task', () => {
       key: '42',
       projectId: 'proj_1',
       title: 'Ship the thing',
-      url: '/weldflow/project/proj_1/tasks/task_1',
+      url: '/weldflow/task/task_1',
     });
     const [url, init] = fetch.mock.calls[0];
     expect(url).toBe('https://internal/api/internal/workflow-actions/create-task');

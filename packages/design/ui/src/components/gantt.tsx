@@ -2,6 +2,7 @@
 
 import {
   DndContext,
+  type DragMoveEvent,
   MouseSensor,
   useDraggable,
   useSensor,
@@ -10,23 +11,15 @@ import { restrictToHorizontalAxis } from '@dnd-kit/modifiers';
 import { useMouse, useThrottle, useWindowScroll } from '@uidotdev/usehooks';
 import {
   addDays,
-  addMonths,
   addWeeks,
   differenceInDays,
-  differenceInHours,
-  differenceInMonths,
-  differenceInWeeks,
-  endOfDay,
-  endOfMonth,
-  endOfWeek,
   format,
   formatDate,
   formatDistance,
-  getDate,
   getDaysInMonth,
   isSameDay,
+  type Locale,
   startOfDay,
-  startOfMonth,
   startOfWeek,
 } from 'date-fns';
 import { atom, useAtom } from 'jotai';
@@ -57,6 +50,20 @@ import {
   ContextMenuTrigger,
 } from './context-menu';
 import { cn } from '../lib/utils';
+import {
+  getAddRange,
+  getDateAtOffset,
+  getDifferenceIn,
+  getDragShiftDays,
+  getEndOf,
+  getInnerDifferenceIn,
+  getOffset,
+  getStartOf,
+  getWidth,
+  getsDaysIn,
+} from '../lib/gantt-math';
+
+const SIDEBAR_WIDTH = 380;
 
 const draggingAtom = atom(false);
 const scrollXAtom = atom(0);
@@ -79,6 +86,8 @@ export type GanttFeature = {
   lane?: string; // Optional: features with the same lane will share a row
   parentTaskId?: string;
   isSubtask?: boolean;
+  /** No dates yet: rendered as a ghost bar that is scheduled by dragging it. */
+  unscheduled?: boolean;
 };
 
 export type GanttMarkerProps = {
@@ -98,7 +107,20 @@ export type TimelineData = {
   }[];
 }[];
 
+/** Strings the chart renders itself, for hosts that translate. English when omitted. */
+export type GanttLabels = {
+  /** "Today" flag on the current-day line. */
+  today?: string;
+  /** "Week" prefix in the weekly header. */
+  week?: string;
+  /** Duration suffix for open-ended items. Receives the formatted distance. */
+  soFar?: (duration: string) => string;
+};
+
 export type GanttContextProps = {
+  /** date-fns locale for month, weekday and date labels. English when omitted. */
+  locale?: Locale;
+  labels?: GanttLabels;
   zoom: number;
   range: Range;
   columnWidth: number;
@@ -110,50 +132,6 @@ export type GanttContextProps = {
   timelineData: TimelineData;
   ref: RefObject<HTMLDivElement | null> | null;
   scrollToFeature?: (feature: GanttFeature) => void;
-};
-
-const getsDaysIn = (range: Range) => {
-  if (range === 'monthly' || range === 'quarterly') return getDaysInMonth;
-  if (range === 'weekly') return (_date: Date) => 7;
-  return (_date: Date) => 1; // daily
-};
-
-const getDifferenceIn = (range: Range) => {
-  if (range === 'monthly' || range === 'quarterly') return differenceInMonths;
-  if (range === 'weekly') {
-    // Monday-aligned week count so bar offsets and the today indicator
-    // anchor to the same week boundaries.
-    return (later: Date, earlier: Date) =>
-      differenceInWeeks(
-        startOfWeek(later, { weekStartsOn: 1 }),
-        startOfWeek(earlier, { weekStartsOn: 1 })
-      );
-  }
-  return differenceInDays; // daily
-};
-
-const getInnerDifferenceIn = (range: Range) => {
-  if (range === 'monthly' || range === 'quarterly') return differenceInDays;
-  if (range === 'weekly') return differenceInDays;
-  return differenceInHours; // daily
-};
-
-const getStartOf = (range: Range) => {
-  if (range === 'monthly' || range === 'quarterly') return startOfMonth;
-  if (range === 'weekly') return (date: Date) => startOfWeek(date, { weekStartsOn: 1 });
-  return startOfDay; // daily
-};
-
-const getEndOf = (range: Range) => {
-  if (range === 'monthly' || range === 'quarterly') return endOfMonth;
-  if (range === 'weekly') return (date: Date) => endOfWeek(date, { weekStartsOn: 1 });
-  return endOfDay; // daily
-};
-
-const getAddRange = (range: Range) => {
-  if (range === 'monthly' || range === 'quarterly') return addMonths;
-  if (range === 'weekly') return addWeeks;
-  return addDays; // daily
 };
 
 const getDateByMousePosition = (context: GanttContextProps, mouseX: number) => {
@@ -192,73 +170,6 @@ const createInitialTimelineData = (today: Date) => {
   }
 
   return data;
-};
-
-const getOffset = (
-  date: Date,
-  timelineStartDate: Date,
-  context: GanttContextProps
-) => {
-  const parsedColumnWidth = (context.columnWidth * context.zoom) / 100;
-  const differenceIn = getDifferenceIn(context.range);
-  const startOf = getStartOf(context.range);
-  const fullColumns = differenceIn(startOf(date), timelineStartDate);
-
-  if (context.range === 'daily') {
-    return parsedColumnWidth * fullColumns;
-  }
-
-  const partialColumns = date.getDate();
-  const daysInMonth = getDaysInMonth(date);
-  const pixelsPerDay = parsedColumnWidth / daysInMonth;
-
-  return fullColumns * parsedColumnWidth + partialColumns * pixelsPerDay;
-};
-
-const getWidth = (
-  startAt: Date,
-  endAt: Date | null,
-  context: GanttContextProps
-) => {
-  const parsedColumnWidth = (context.columnWidth * context.zoom) / 100;
-
-  if (!endAt) {
-    return parsedColumnWidth * 2;
-  }
-
-  const differenceIn = getDifferenceIn(context.range);
-
-  if (context.range === 'daily') {
-    const delta = differenceIn(endAt, startAt);
-
-    return parsedColumnWidth * (delta || 1);
-  }
-
-  const daysInStartMonth = getDaysInMonth(startAt);
-  const pixelsPerDayInStartMonth = parsedColumnWidth / daysInStartMonth;
-
-  if (isSameDay(startAt, endAt)) {
-    return pixelsPerDayInStartMonth;
-  }
-
-  const innerDifferenceIn = getInnerDifferenceIn(context.range);
-  const startOf = getStartOf(context.range);
-
-  if (isSameDay(startOf(startAt), startOf(endAt))) {
-    return innerDifferenceIn(endAt, startAt) * pixelsPerDayInStartMonth;
-  }
-
-  const startRangeOffset = daysInStartMonth - getDate(startAt);
-  const endRangeOffset = getDate(endAt);
-  const fullRangeOffset = differenceIn(startOf(endAt), startOf(startAt));
-  const daysInEndMonth = getDaysInMonth(endAt);
-  const pixelsPerDayInEndMonth = parsedColumnWidth / daysInEndMonth;
-
-  return (
-    (fullRangeOffset - 1) * parsedColumnWidth +
-    startRangeOffset * pixelsPerDayInStartMonth +
-    endRangeOffset * pixelsPerDayInEndMonth
-  );
 };
 
 const calculateInnerOffset = (
@@ -353,17 +264,22 @@ const DailyHeader: FC = () => {
             renderHeaderItem={(item: number) => (
               <div className="flex items-center justify-center gap-1">
                 <p>
-                  {format(addDays(new Date(year.year, index, 1), item), 'd')}
+                  {format(addDays(new Date(year.year, index, 1), item), 'd', {
+                    locale: gantt.locale,
+                  })}
                 </p>
                 <p className="text-muted-foreground">
                   {format(
                     addDays(new Date(year.year, index, 1), item),
-                    'EEEEE'
+                    'EEEEE',
+                    { locale: gantt.locale }
                   )}
                 </p>
               </div>
             )}
-            title={format(new Date(year.year, index, 1), 'MMMM yyyy')}
+            title={format(new Date(year.year, index, 1), 'MMMM yyyy', {
+              locale: gantt.locale,
+            })}
           />
           <GanttColumns
             columns={month.days}
@@ -386,7 +302,7 @@ const MonthlyHeader: FC = () => {
       <GanttContentHeader
         columns={year.quarters.flatMap((quarter) => quarter.months).length}
         renderHeaderItem={(item: number) => (
-          <p>{format(new Date(year.year, item, 1), 'MMM')}</p>
+          <p>{format(new Date(year.year, item, 1), 'MMM', { locale: gantt.locale })}</p>
         )}
         title={`${year.year}`}
       />
@@ -410,7 +326,9 @@ const QuarterlyHeader: FC = () => {
           columns={quarter.months.length}
           renderHeaderItem={(item: number) => (
             <p>
-              {format(new Date(year.year, quarterIndex * 3 + item, 1), 'MMM')}
+              {format(new Date(year.year, quarterIndex * 3 + item, 1), 'MMM', {
+                locale: gantt.locale,
+              })}
             </p>
           )}
           title={`Q${quarterIndex + 1} ${year.year}`}
@@ -461,7 +379,11 @@ const WeeklyHeader: FC = () => {
         renderHeaderItem={(item: number) => {
           const weekStart = addWeeks(startDate, group.firstWeekIndex + item);
           // ISO-style week-of-year (Mon-aligned), formatted "Week N".
-          return <p>Week {format(weekStart, 'I')}</p>;
+          return (
+            <p>
+              {gantt.labels?.week ?? 'Week'} {format(weekStart, 'I')}
+            </p>
+          );
         }}
         title={`${group.year}`}
       />
@@ -501,21 +423,28 @@ export type GanttSidebarItemProps = {
   feature: GanttFeature;
   onSelectItem?: (id: string) => void;
   className?: string;
+  /** Shown instead of the duration for features without dates. */
+  unscheduledLabel?: string;
 };
 
 export const GanttSidebarItem: FC<GanttSidebarItemProps> = ({
   feature,
   onSelectItem,
   className,
+  unscheduledLabel,
 }) => {
   const gantt = useContext(GanttContext);
   const tempEndAt =
     feature.endAt && isSameDay(feature.startAt, feature.endAt)
       ? addDays(feature.endAt, 1)
       : feature.endAt;
-  const duration = tempEndAt
-    ? formatDistance(feature.startAt, tempEndAt)
-    : `${formatDistance(feature.startAt, new Date())} so far`;
+  const duration = feature.unscheduled
+    ? (unscheduledLabel ?? 'No dates')
+    : tempEndAt
+      ? formatDistance(feature.startAt, tempEndAt, { locale: gantt.locale })
+      : (gantt.labels?.soFar ?? ((distance: string) => `${distance} so far`))(
+          formatDistance(feature.startAt, new Date(), { locale: gantt.locale })
+        );
 
   const handleClick: MouseEventHandler<HTMLButtonElement> = (event) => {
     if (event.target === event.currentTarget) {
@@ -803,7 +732,7 @@ export const GanttCreateMarkerTrigger: FC<GanttCreateMarkerTriggerProps> = ({
           <PlusIcon className="text-muted-foreground" size={12} />
         </button>
         <div className="whitespace-nowrap rounded-full border border-border/50 bg-background/90 px-2 py-1 text-foreground text-xs backdrop-blur-lg">
-          {formatDate(date, 'MMM dd, yyyy')}
+          {formatDate(date, 'MMM dd, yyyy', { locale: gantt.locale })}
         </div>
       </div>
     </div>
@@ -821,6 +750,7 @@ export const GanttFeatureDragHelper: FC<GanttFeatureDragHelperProps> = ({
   featureId,
   date,
 }) => {
+  const gantt = useContext(GanttContext);
   const [, setDragging] = useGanttDragging();
   const { attributes, listeners, setNodeRef } = useDraggable({
     id: `feature-drag-helper-${featureId}`,
@@ -857,7 +787,7 @@ export const GanttFeatureDragHelper: FC<GanttFeatureDragHelperProps> = ({
             isPressed && 'block'
           )}
         >
-          {format(date, 'MMM dd, yyyy')}
+          {format(date, 'MMM dd, yyyy', { locale: gantt.locale })}
         </div>
       )}
     </div>
@@ -867,12 +797,14 @@ export const GanttFeatureDragHelper: FC<GanttFeatureDragHelperProps> = ({
 export type GanttFeatureItemCardProps = Pick<GanttFeature, 'id'> & {
   children?: ReactNode;
   color?: string;
+  unscheduled?: boolean;
 };
 
 export const GanttFeatureItemCard: FC<GanttFeatureItemCardProps> = ({
   id,
   children,
   color,
+  unscheduled,
 }) => {
   const [, setDragging] = useGanttDragging();
   const { attributes, listeners, setNodeRef } = useDraggable({ id });
@@ -882,7 +814,10 @@ export const GanttFeatureItemCard: FC<GanttFeatureItemCardProps> = ({
 
   return (
     <div
-      className="h-full w-full rounded-md px-2 py-1 text-xs"
+      className={cn(
+        'h-full w-full rounded-md px-2 py-1 text-xs',
+        unscheduled && 'border border-dashed border-gray-500/60 opacity-60'
+      )}
       style={{
         backgroundColor: color || '#e5e7eb',
       }}
@@ -914,7 +849,6 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
   className,
   ...feature
 }) => {
-  const [scrollX] = useGanttScrollX();
   const gantt = useContext(GanttContext);
   const timelineStartDate = useMemo(
     () => new Date(gantt.timelineData.at(0)?.year ?? 0, 0, 1),
@@ -922,6 +856,16 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
   );
   const [startAt, setStartAt] = useState<Date>(feature.startAt);
   const [endAt, setEndAt] = useState<Date | null>(feature.endAt);
+
+  // Follow the dates the parent passes in (reload after a failed save,
+  // optimistic update, edit from the task panel). Keyed on the timestamps so a
+  // new Date instance with the same value does not reset an in-flight drag.
+  const featureStartMs = feature.startAt.getTime();
+  const featureEndMs = feature.endAt?.getTime() ?? null;
+  useEffect(() => {
+    setStartAt(new Date(featureStartMs));
+    setEndAt(featureEndMs === null ? null : new Date(featureEndMs));
+  }, [featureStartMs, featureEndMs]);
 
   // Memoize expensive calculations
   const width = useMemo(
@@ -934,11 +878,20 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
   );
 
   const addRange = useMemo(() => getAddRange(gantt.range), [gantt.range]);
-  const [mousePosition] = useMouse<HTMLDivElement>();
 
-  const [previousMouseX, setPreviousMouseX] = useState(0);
-  const [previousStartAt, setPreviousStartAt] = useState(startAt);
-  const [previousEndAt, setPreviousEndAt] = useState(endAt);
+  // Dates at the moment a drag began. Refs, not state: dnd-kit fires
+  // onDragMove right after onDragStart, before React re-renders, so state
+  // would still hold the previous drag's values.
+  const dragOrigin = useRef<{ start: Date; end: Date | null }>({
+    start: feature.startAt,
+    end: feature.endAt,
+  });
+  // The latest dates, readable from onDragEnd without waiting for a render.
+  const latest = useRef<{ start: Date; end: Date | null }>({
+    start: startAt,
+    end: endAt,
+  });
+  latest.current = { start: startAt, end: endAt };
 
   const mouseSensor = useSensor(MouseSensor, {
     activationConstraint: {
@@ -946,48 +899,68 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
     },
   });
 
-  const handleItemDragStart = useCallback(() => {
-    setPreviousMouseX(mousePosition.x);
-    setPreviousStartAt(startAt);
-    setPreviousEndAt(endAt);
-  }, [mousePosition.x, startAt, endAt]);
+  const handleDragStart = useCallback(() => {
+    dragOrigin.current = { start: startAt, end: endAt };
+  }, [startAt, endAt]);
 
-  const handleItemDragMove = useCallback(() => {
-    const currentDate = getDateByMousePosition(gantt, mousePosition.x);
-    const originalDate = getDateByMousePosition(gantt, previousMouseX);
-    const delta =
-      gantt.range === 'daily'
-        ? getDifferenceIn(gantt.range)(currentDate, originalDate)
-        : getInnerDifferenceIn(gantt.range)(currentDate, originalDate);
-    const newStartDate = addDays(previousStartAt, delta);
-    const newEndDate = previousEndAt ? addDays(previousEndAt, delta) : null;
+  // Moving the whole bar: shift both ends by the number of whole days the
+  // pointer travelled at the current scale (event.delta is pixels since the
+  // drag started). Time of day is preserved.
+  const handleItemDragMove = useCallback(
+    ({ delta }: DragMoveEvent) => {
+      const { start, end } = dragOrigin.current;
+      const days = getDragShiftDays(delta.x, start, timelineStartDate, gantt);
 
-    setStartAt(newStartDate);
-    setEndAt(newEndDate);
-  }, [gantt, mousePosition.x, previousMouseX, previousStartAt, previousEndAt]);
-
-  const onDragEnd = useCallback(
-    () => onMove?.(feature.id, startAt, endAt),
-    [onMove, feature.id, startAt, endAt]
+      latest.current = {
+        start: addDays(start, days),
+        end: end ? addDays(end, days) : null,
+      };
+      setStartAt(latest.current.start);
+      setEndAt(latest.current.end);
+    },
+    [gantt, timelineStartDate]
   );
 
-  const handleLeftDragMove = useCallback(() => {
-    const ganttRect = gantt.ref?.current?.getBoundingClientRect();
-    const x =
-      mousePosition.x - (ganttRect?.left ?? 0) + scrollX - gantt.sidebarWidth;
-    const newStartAt = getDateByMousePosition(gantt, x);
+  const handleLeftDragMove = useCallback(
+    ({ delta }: DragMoveEvent) => {
+      const { start, end } = dragOrigin.current;
+      const originOffset = getOffset(start, timelineStartDate, gantt);
+      const next = getDateAtOffset(originOffset + delta.x, timelineStartDate, gantt);
+      // The start can't pass the end.
+      const clamped = end && next > end ? startOfDay(end) : next;
 
-    setStartAt(newStartAt);
-  }, [gantt, mousePosition.x, scrollX]);
+      latest.current = { start: clamped, end: latest.current.end };
+      setStartAt(clamped);
+    },
+    [gantt, timelineStartDate]
+  );
 
-  const handleRightDragMove = useCallback(() => {
-    const ganttRect = gantt.ref?.current?.getBoundingClientRect();
-    const x =
-      mousePosition.x - (ganttRect?.left ?? 0) + scrollX - gantt.sidebarWidth;
-    const newEndAt = getDateByMousePosition(gantt, x);
+  const handleRightDragMove = useCallback(
+    ({ delta }: DragMoveEvent) => {
+      const { start, end } = dragOrigin.current;
+      const originEnd = end ?? addRange(start, 2);
+      const originOffset = getOffset(originEnd, timelineStartDate, gantt);
+      const next = getDateAtOffset(originOffset + delta.x, timelineStartDate, gantt);
+      // The end can't pass the start.
+      const clamped = next < start ? startOfDay(start) : next;
 
-    setEndAt(newEndAt);
-  }, [gantt, mousePosition.x, scrollX]);
+      latest.current = { start: latest.current.start, end: clamped };
+      setEndAt(clamped);
+    },
+    [gantt, timelineStartDate, addRange]
+  );
+
+  const onDragEnd = useCallback(() => {
+    const { start, end } = latest.current;
+    const origin = dragOrigin.current;
+    const unchanged =
+      start.getTime() === origin.start.getTime() &&
+      (end?.getTime() ?? null) === (origin.end?.getTime() ?? null);
+
+    if (!unchanged) {
+      onMove?.(feature.id, start, end);
+    }
+  }, [onMove, feature.id]);
 
   return (
     <div
@@ -1007,6 +980,7 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
             modifiers={[restrictToHorizontalAxis]}
             onDragEnd={onDragEnd}
             onDragMove={handleLeftDragMove}
+            onDragStart={handleDragStart}
             sensors={[mouseSensor]}
           >
             <GanttFeatureDragHelper
@@ -1020,10 +994,14 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
           modifiers={[restrictToHorizontalAxis]}
           onDragEnd={onDragEnd}
           onDragMove={handleItemDragMove}
-          onDragStart={handleItemDragStart}
+          onDragStart={handleDragStart}
           sensors={[mouseSensor]}
         >
-          <GanttFeatureItemCard id={feature.id} color={feature.status?.color}>
+          <GanttFeatureItemCard
+            id={feature.id}
+            color={feature.status?.color}
+            unscheduled={feature.unscheduled}
+          >
             {children ?? (
               <p className="flex-1 truncate text-xs">{feature.name}</p>
             )}
@@ -1034,6 +1012,7 @@ export const GanttFeatureItem: FC<GanttFeatureItemProps> = ({
             modifiers={[restrictToHorizontalAxis]}
             onDragEnd={onDragEnd}
             onDragMove={handleRightDragMove}
+            onDragStart={handleDragStart}
             sensors={[mouseSensor]}
           >
             <GanttFeatureDragHelper
@@ -1314,7 +1293,7 @@ export const GanttMarker: FC<
           >
             {label}
             <span className="max-h-[0] overflow-hidden opacity-80 transition-all group-hover:max-h-[2rem] group-focus-visible:max-h-[2rem]">
-              {formatDate(date, 'MMM dd, yyyy')}
+              {formatDate(date, 'MMM dd, yyyy', { locale: gantt.locale })}
             </span>
           </button>
         </ContextMenuTrigger>
@@ -1347,6 +1326,8 @@ export const GanttMarker: FC<
 GanttMarker.displayName = 'GanttMarker';
 
 export type GanttProviderProps = {
+  locale?: Locale;
+  labels?: GanttLabels;
   range?: Range;
   zoom?: number;
   onAddItem?: (date: Date) => void;
@@ -1355,6 +1336,8 @@ export type GanttProviderProps = {
 };
 
 export const GanttProvider: FC<GanttProviderProps> = ({
+  locale,
+  labels,
   zoom = 100,
   range = 'monthly',
   onAddItem,
@@ -1391,13 +1374,35 @@ export const GanttProvider: FC<GanttProviderProps> = ({
     [zoom, columnWidth, sidebarWidth]
   );
 
+  // Open on today: put the today line 20% into the visible timeline area
+  // (right of the sidebar). Runs on mount and when the range (day / week /
+  // month / quarter) changes, since column widths change and the old scroll
+  // position would land somewhere unrelated.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollLeft =
-        scrollRef.current.scrollWidth / 2 - scrollRef.current.clientWidth / 2;
-      setScrollX(scrollRef.current.scrollLeft);
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) {
+      return;
     }
-  }, [setScrollX]);
+
+    const hasSidebar = Boolean(
+      scrollElement.querySelector('[data-roadmap-ui="gantt-sidebar"]')
+    );
+    const sidebar = hasSidebar ? SIDEBAR_WIDTH : 0;
+    const timelineStart = new Date(timelineData.at(0)?.year ?? 0, 0, 1);
+    const todayOffset = getOffset(new Date(), timelineStart, {
+      range,
+      columnWidth,
+      zoom,
+    });
+
+    scrollElement.scrollLeft = Math.max(
+      0,
+      todayOffset - (scrollElement.clientWidth - sidebar) * 0.2
+    );
+    setScrollX(scrollElement.scrollLeft);
+    // Zoom changes are left to the host: it may want to keep the user's position.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range]);
 
   // Update sidebar width when DOM is ready
   useEffect(() => {
@@ -1405,7 +1410,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
       const sidebarElement = scrollRef.current?.querySelector(
         '[data-roadmap-ui="gantt-sidebar"]'
       );
-      const newWidth = sidebarElement ? 380 : 0;
+      const newWidth = sidebarElement ? SIDEBAR_WIDTH : 0;
       setSidebarWidth(newWidth);
     };
 
@@ -1523,13 +1528,6 @@ export const GanttProvider: FC<GanttProviderProps> = ({
       zoom,
       range,
       columnWidth,
-      sidebarWidth,
-      headerHeight,
-      rowHeight,
-      onAddItem,
-      placeholderLength: 2,
-      timelineData,
-      ref: scrollRef,
     });
 
     // Scroll to align the feature's start with the right side of the sidebar
@@ -1539,10 +1537,12 @@ export const GanttProvider: FC<GanttProviderProps> = ({
       left: targetScrollLeft,
       behavior: 'smooth',
     });
-  }, [timelineData, zoom, range, columnWidth, sidebarWidth, headerHeight, rowHeight, onAddItem]);
+  }, [timelineData, zoom, range, columnWidth]);
 
   const contextValue = useMemo(
     () => ({
+      locale,
+      labels,
       zoom,
       range,
       headerHeight,
@@ -1557,7 +1557,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
     }),
     [
       zoom, range, headerHeight, columnWidth, sidebarWidth, rowHeight, onAddItem, timelineData,
-      scrollRef, scrollToFeature,
+      scrollRef, scrollToFeature, locale, labels,
     ]
   );
 
@@ -1607,39 +1607,32 @@ export type GanttTodayProps = {
 };
 
 export const GanttToday: FC<GanttTodayProps> = ({ className }) => {
-  const label = 'Today';
   const date = useMemo(() => new Date(), []);
   const gantt = useContext(GanttContext);
-  const differenceIn = useMemo(
-    () => getDifferenceIn(gantt.range),
-    [gantt.range]
-  );
+  const label = gantt.labels?.today ?? 'Today';
   const timelineStartDate = useMemo(
     () => new Date(gantt.timelineData.at(0)?.year ?? 0, 0, 1),
     [gantt.timelineData]
   );
 
-  // Memoize expensive calculations
+  // Same scale and convention as the bars, so a task due today ends on the line.
   const offset = useMemo(
-    () => differenceIn(date, timelineStartDate),
-    [differenceIn, date, timelineStartDate]
-  );
-  const innerOffset = useMemo(
     () =>
-      calculateInnerOffset(
-        date,
-        gantt.range,
-        (gantt.columnWidth * gantt.zoom) / 100
-      ),
-    [date, gantt.range, gantt.columnWidth, gantt.zoom]
+      getOffset(date, timelineStartDate, {
+        range: gantt.range,
+        columnWidth: gantt.columnWidth,
+        zoom: gantt.zoom,
+      }),
+    [date, timelineStartDate, gantt.range, gantt.columnWidth, gantt.zoom]
   );
 
   return (
     <div
       className="pointer-events-none absolute top-0 left-0 z-20 flex h-full select-none flex-col items-center justify-center overflow-visible"
+      data-roadmap-ui="gantt-today"
       style={{
         width: 0,
-        transform: `translateX(calc(var(--gantt-column-width) * ${offset} + ${innerOffset}px))`,
+        transform: `translateX(${offset}px)`,
       }}
     >
       <div
@@ -1651,7 +1644,7 @@ export const GanttToday: FC<GanttTodayProps> = ({ className }) => {
       >
         {label}
         <span className="max-h-[0] overflow-hidden opacity-80 transition-all group-hover:max-h-[2rem]">
-          {formatDate(date, 'MMM dd, yyyy')}
+          {formatDate(date, 'MMM dd, yyyy', { locale: gantt.locale })}
         </span>
       </div>
       <div className="h-full w-px" style={{ backgroundColor: '#2563eb' }} />

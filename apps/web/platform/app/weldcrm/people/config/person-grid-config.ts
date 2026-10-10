@@ -268,6 +268,9 @@ export const personColumns: GridColumnDef<Person>[] = [
     visible: false,
     editable: true,
     sortable: false,
+    // Free-form: suggestions are the tags other people already use (injected
+    // by PeopleGrid), and a typed value can be created inline.
+    allowCreateOption: true,
     getValue: (p) => p.tags ?? [],
     setValue: (_p, v) => ({ tags: (v as string[]) ?? [] }),
   },

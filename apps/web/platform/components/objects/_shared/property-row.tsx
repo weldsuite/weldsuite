@@ -17,6 +17,7 @@
  *  - phone      single-line, type="tel"
  *  - url        single-line, type="url"; renders as a clickable link in read mode
  *  - address    multiline textarea, persisted as a free string
+ *  - date       native date input; value is `YYYY-MM-DD`, pair it with `renderValue`
  *
  * Additional types (user picker, multi-select, status select) can be added
  * later — they were intentionally left out of the first cut to keep this
@@ -25,10 +26,10 @@
  */
 
 import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
-import { Flag, X } from 'lucide-react';
+import { Flag, Plus, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
-import { RowOverlayButton } from '@/components/shared/row-overlay-button';
+import { KEEP_CONTROLS_ABOVE_OVERLAY, RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -44,11 +45,9 @@ import { MemberSelect } from '@/components/team/member-select';
 import { useObjectPanel } from '@/components/object-panel';
 import { PickerCheck } from '@/components/shared/picker-menu';
 import { STATUS_STYLE_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
+import { buildTagOptions, type CreateTagOption, type TagOption } from './known-tags';
 
-type PropertyRowType = 'text' | 'email' | 'phone' | 'url' | 'address';
-
-/** Links and buttons in read-only values stay clickable above the "edit" overlay button. */
-const KEEP_CONTROLS_ABOVE_OVERLAY = '[&_:is(a,button)]:relative [&_:is(a,button)]:z-[1]';
+type PropertyRowType = 'text' | 'email' | 'phone' | 'url' | 'address' | 'date';
 
 export interface PropertyRowProps {
   icon: ComponentType<{ className?: string }>;
@@ -85,6 +84,7 @@ const INPUT_TYPE_BY_ROW_TYPE: Record<PropertyRowType, string> = {
   phone: 'tel',
   url: 'url',
   address: 'text',
+  date: 'date',
 };
 
 // `min-w-0` + `overflow-wrap:anywhere`: values are flex children, so a long
@@ -374,7 +374,10 @@ export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusP
 // ─── TagsPropertyRow ────────────────────────────────────────────────────────
 // Editable tags row — chips + an inline text input, matching the row
 // geometry of `PropertyRow`. Enter (or a comma) commits the current draft as
-// a new tag; Backspace on an empty draft removes the last chip.
+// a new tag; Backspace on an empty draft removes the last chip. Under the input
+// the editor lists the tags other records already use (when `getSuggestions` is
+// given) plus an explicit "Create '…'" row for the text being typed; Arrow keys
+// move through the list and Enter picks the highlighted row.
 
 export interface TagsPropertyRowProps {
   icon: ComponentType<{ className?: string }>;
@@ -382,12 +385,17 @@ export interface TagsPropertyRowProps {
   value?: string[] | null;
   placeholder?: string;
   onChange: (next: string[]) => void;
+  /** Existing tags to offer while editing; read once each time the editor opens. */
+  getSuggestions?: () => readonly string[];
 }
 
-export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChange }: Readonly<TagsPropertyRowProps>) {
+export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChange, getSuggestions }: Readonly<TagsPropertyRowProps>) {
   const t = useTranslations();
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const [suggestions, setSuggestions] = useState<readonly string[]>([]);
+  // -1 = nothing highlighted, so Enter keeps committing what was typed.
+  const [highlight, setHighlight] = useState(-1);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const tags = value ?? [];
 
@@ -395,10 +403,26 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
     if (isEditing) inputRef.current?.focus();
   }, [isEditing]);
 
+  // Cheap (a handful of tags), so recomputed per render rather than memoised.
+  const options = isEditing ? buildTagOptions(draft, suggestions, tags) : [];
+
+  const startEditing = () => {
+    setSuggestions(getSuggestions?.() ?? []);
+    setHighlight(-1);
+    setIsEditing(true);
+  };
+
   const commitDraft = () => {
     const next = draft.trim();
     if (next && !tags.includes(next)) onChange([...tags, next]);
     setDraft('');
+    setHighlight(-1);
+  };
+
+  const pickOption = (option: TagOption | CreateTagOption) => {
+    if (!tags.includes(option.tag)) onChange([...tags, option.tag]);
+    setDraft('');
+    setHighlight(-1);
   };
 
   const removeTag = (tag: string) => onChange(tags.filter((x) => x !== tag));
@@ -410,16 +434,17 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
         <Icon className="h-4 w-4" />
         <span>{label}</span>
       </div>
+      <div className="min-w-0 -mx-2">
       <div
         className={cn(
           // Same box as PropertyRow: an always-present 1px border (transparent
           // at rest) that shows on hover and while editing — no hover fill.
-          'min-w-0 -mx-2 px-[7px] rounded-[9px] box-border border border-transparent flex flex-wrap items-center gap-1 min-h-[32px] py-1',
+          'min-w-0 px-[7px] rounded-[9px] box-border border border-transparent flex flex-wrap items-center gap-1 min-h-[32px] py-1',
           !isEditing && 'relative cursor-text transition-colors hover:border-border',
           isEditing && 'border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
       >
-        {!isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
+        {!isEditing && <RowOverlayButton label={label} onClick={startEditing} />}
         {tags.length === 0 && !isEditing && (
           <span className="text-muted-foreground/70 text-sm">
             {placeholder ?? t('sweep.entities.setFieldPlaceholder', { label })}
@@ -439,7 +464,7 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
                   removeTag(tag);
                 }}
                 className="ml-0.5 -mr-0.5 rounded hover:bg-muted-foreground/20"
-                aria-label={t('sweep.entities.unlink')}
+                aria-label={t('sweep.entities.removeTag', { tag })}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -450,11 +475,24 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
           <input
             ref={inputRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setHighlight(-1);
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ',') {
+              const highlighted = highlight >= 0 ? options[highlight] : undefined;
+              if (e.key === 'Enter' && highlighted) {
+                e.preventDefault();
+                pickOption(highlighted);
+              } else if (e.key === 'Enter' || e.key === ',') {
                 e.preventDefault();
                 commitDraft();
+              } else if (e.key === 'ArrowDown' && options.length > 0) {
+                e.preventDefault();
+                setHighlight((current) => (current + 1) % options.length);
+              } else if (e.key === 'ArrowUp' && options.length > 0) {
+                e.preventDefault();
+                setHighlight((current) => (current <= 0 ? options.length - 1 : current - 1));
               } else if (e.key === 'Backspace' && !draft && tags.length > 0) {
                 removeTag(tags[tags.length - 1]!);
               } else if (e.key === 'Escape') {
@@ -470,6 +508,40 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
             className="bg-transparent border-0 outline-none text-sm flex-1 min-w-[80px]"
           />
         )}
+      </div>
+      {isEditing && options.length > 0 && (
+        // In flow (not a popover) so it can't be clipped by the panel's scroll
+        // box, and the input keeps focus: every row swallows mousedown, otherwise
+        // the input's blur would commit the draft and close the editor first.
+        <ul
+          aria-label={t('sweep.entities.tagSuggestionsLabel')}
+          className="mt-1 rounded-[9px] border border-border bg-popover p-1 shadow-sm"
+        >
+          {options.map((option, index) => (
+            <li key={`${option.kind}:${option.tag}`}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setHighlight(index)}
+                onClick={() => pickOption(option)}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm',
+                  index === highlight ? 'bg-muted' : 'hover:bg-muted/60',
+                )}
+              >
+                {option.kind === 'create' ? (
+                  <>
+                    <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 truncate">{t('sweep.entities.createTagOption', { tag: option.tag })}</span>
+                  </>
+                ) : (
+                  <span className="min-w-0 truncate">{option.tag}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       </div>
       <div />
     </div>

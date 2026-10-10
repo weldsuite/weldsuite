@@ -6,7 +6,7 @@
 
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, desc, eq, isNull, like, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, like, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import {
@@ -37,7 +37,7 @@ app.get('/', requirePermission('pipelines:read'), async (c) => {
       .from(t).where(eq(t.id, q.cursor)).limit(1);
     if (cur?.createdAt) {
       conditions.push(
-        sql`(${t.createdAt} < ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} < ${cur.id}))`,
+        sql`(${t.createdAt} > ${cur.createdAt} OR (${t.createdAt} = ${cur.createdAt} AND ${t.id} > ${cur.id}))`,
       );
     }
   }
@@ -46,7 +46,11 @@ app.get('/', requirePermission('pipelines:read'), async (c) => {
 
   try {
     const [rows, countRes] = await Promise.all([
-      db.select().from(t).where(where).orderBy(desc(t.createdAt), desc(t.id)).limit(limit + 1),
+      // Oldest first, ties broken by id: the order pipelines are listed in the
+      // CRM sidebar. Newest-first made it flip on every reload, because a
+      // pipeline created in-session is appended at the end of the list.
+      // (There is no `position` column on `crm_pipelines`.)
+      db.select().from(t).where(where).orderBy(asc(t.createdAt), asc(t.id)).limit(limit + 1),
       db.select({ count: sql<number>`count(*)` }).from(t).where(and(...filterConditions)),
     ]);
     const hasMore = rows.length > limit;

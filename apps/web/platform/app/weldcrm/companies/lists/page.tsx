@@ -25,14 +25,16 @@ import { useTranslations } from '@weldsuite/i18n/client';
 export default function CompanyListsPage() {
   const t = useTranslations();
   const router = useRouter();
-  const { data, isLoading } = useLists('company');
+  const { data, isPending } = useLists('company');
   const create = useCreateList();
   const del = useDeleteList();
 
   const [isNewOpen, setIsNewOpen] = useState(false);
   const [newName, setNewName] = useState('');
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  // `isPending`, not `isLoading`: the latter is false while the persisted
+  // query cache restores, which flashed "no lists yet" before they appeared.
+  if (isPending) return <PageLoader fullScreen={false} />;
   const lists = data?.data ?? [];
 
   const handleCreate = async () => {

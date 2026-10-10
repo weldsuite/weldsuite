@@ -42,9 +42,8 @@ export interface PageTabsProps {
    *   "+N more" dropdown at the end of the row. When the active tab
    *   overflows, the trigger shows its icon + label (and "+M" for the rest)
    *   in the selected style instead of "+N more".
-   *   Only supported when no custom `renderTabWrapper` is provided
-   *   (wrappers imply bespoke per-tab markup); otherwise falls back to
-   *   `scroll`.
+   *   A custom `renderTabWrapper` wraps the visible tabs only; tabs that
+   *   collapse into the dropdown are plain menu items.
    */
   overflow?: 'scroll' | 'dropdown';
 }
@@ -153,19 +152,31 @@ function OverflowTabs({
   activeTab,
   onTabChange,
   linkComponent,
+  renderTabWrapper,
   innerClassName,
   children,
 }: Readonly<Pick<
   PageTabsProps,
-  'tabs' | 'activeTab' | 'onTabChange' | 'linkComponent' | 'innerClassName' | 'children'
+  | 'tabs'
+  | 'activeTab'
+  | 'onTabChange'
+  | 'linkComponent'
+  | 'renderTabWrapper'
+  | 'innerClassName'
+  | 'children'
 >>) {
   const rowRef = React.useRef<HTMLDivElement>(null);
   const measureRef = React.useRef<HTMLDivElement>(null);
   const moreRef = React.useRef<HTMLDivElement>(null);
   const moreActiveRef = React.useRef<HTMLDivElement>(null);
   const tabRefs = React.useRef<(HTMLDivElement | null)[]>([]);
+  const listRef = React.useRef<HTMLDivElement>(null);
 
-  const [available, setAvailable] = React.useState(0);
+  const [rowWidth, setRowWidth] = React.useState(0);
+  // Width taken by the trailing `children` (add-page / toolbar buttons). The
+  // tabs must leave room for them, or the row overflows.
+  const [trailingWidth, setTrailingWidth] = React.useState(0);
+  const available = Math.max(0, rowWidth - trailingWidth);
   const [widths, setWidths] = React.useState<number[]>([]);
   const [moreWidth, setMoreWidth] = React.useState(0);
 
@@ -175,12 +186,34 @@ function OverflowTabs({
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? 0;
-      setAvailable(w);
+      setRowWidth(w);
     });
     ro.observe(el);
-    setAvailable(el.clientWidth);
+    setRowWidth(el.clientWidth);
     return () => ro.disconnect();
   }, []);
+
+  // Everything in the row except the tab list is a trailing child; sum their
+  // widths so the tabs can leave room for them.
+  React.useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const measure = () => {
+      let total = 0;
+      for (const child of Array.from(row.children)) {
+        if (child === listRef.current || !(child instanceof HTMLElement)) continue;
+        // offsetWidth only: `ml-auto` margins resolve to the free space, not a size.
+        total += child.offsetWidth;
+      }
+      setTrailingWidth(total);
+    };
+    const ro = new ResizeObserver(measure);
+    for (const child of Array.from(row.children)) {
+      if (child !== listRef.current) ro.observe(child);
+    }
+    measure();
+    return () => ro.disconnect();
+  }, [children]);
 
   // Measure each tab + the "more" button from the hidden mirror.
   React.useLayoutEffect(() => {
@@ -243,11 +276,11 @@ function OverflowTabs({
   return (
     <div className="relative w-full min-w-0">
       <div ref={rowRef} className={cn('flex items-center w-full min-w-0', innerClassName)}>
-        <div role="tablist" className="flex items-center gap-2 min-w-0">
+        <div ref={listRef} role="tablist" className="flex items-center gap-2 min-w-0">
           {visibleIndices.map((tabIndex, pos) => {
             const tab = tabs[tabIndex];
             if (!tab) return null;
-            return (
+            const tabElement = (
               <TabButton
                 key={tab.id}
                 tab={tab}
@@ -256,6 +289,11 @@ function OverflowTabs({
                 onTabChange={onTabChange}
                 linkComponent={linkComponent}
               />
+            );
+            return renderTabWrapper ? (
+              <React.Fragment key={tab.id}>{renderTabWrapper(tab, tabIndex, tabElement)}</React.Fragment>
+            ) : (
+              tabElement
             );
           })}
 
@@ -342,40 +380,42 @@ function OverflowTabs({
         {children}
       </div>
 
-      {/* Hidden mirror used purely for width measurement. It lives inside a
-          zero-size clipping box: left on its own, the mirror is wider than a
-          narrow panel and makes the panel horizontally scrollable, so anything
-          that scrolls an element into view could shift the whole panel
-          sideways. `w-max` keeps the tabs at their natural widths inside it. */}
-      <div aria-hidden className="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0">
-      <div
-        ref={measureRef}
-        className="flex w-max items-center gap-2"
-      >
-        {tabs.map((tab, i) => (
-          <div
-            key={tab.id}
-            ref={(node) => {
-              tabRefs.current[i] = node;
-            }}
-            className="group/tab relative pb-2 flex items-center flex-shrink-0"
-          >
-            <TabInner tab={tab} isActive={false} isFirst={i === 0} />
+      {/* Hidden mirror used purely for width measurement. It lays every tab out
+          in one unwrapped row, which is far wider than the visible row, so it
+          sits in a zero-height clip box: otherwise its width becomes scrollable
+          overflow of every ancestor, and an `overflow: hidden` ancestor can
+          still be scrolled programmatically (focus, scrollIntoView), which
+          slid a whole object panel sideways. Clipping does not change the
+          measured `offsetWidth`s. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-0 overflow-hidden">
+        <div
+          ref={measureRef}
+          className="absolute left-0 top-0 flex items-center gap-2 opacity-0 pointer-events-none -z-10"
+        >
+          {tabs.map((tab, i) => (
+            <div
+              key={tab.id}
+              ref={(node) => {
+                tabRefs.current[i] = node;
+              }}
+              className="group/tab relative pb-2 flex items-center flex-shrink-0"
+            >
+              <TabInner tab={tab} isActive={false} isFirst={i === 0} />
+            </div>
+          ))}
+          <div ref={moreRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
+            <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
+              +88 more
+            </span>
           </div>
-        ))}
-        <div ref={moreRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
-          <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
-            +88 more
-          </span>
+          <div ref={moreActiveRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
+            <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
+              {LongestIcon && <LongestIcon className="h-4 w-4 mr-1" />}
+              <span className="truncate max-w-[8rem]">{longestTab?.label}</span>
+              <span className="text-xs font-normal ml-0.5">+88</span>
+            </span>
+          </div>
         </div>
-        <div ref={moreActiveRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
-          <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
-            {LongestIcon && <LongestIcon className="h-4 w-4 mr-1" />}
-            <span className="truncate max-w-[8rem]">{longestTab?.label}</span>
-            <span className="text-xs font-normal ml-0.5">+88</span>
-          </span>
-        </div>
-      </div>
       </div>
     </div>
   );
@@ -392,9 +432,9 @@ export function PageTabs({
   children,
   overflow = 'scroll',
 }: Readonly<PageTabsProps>) {
-  // Dropdown overflow mode (Attio-style "+N more"). Only supported when no
-  // custom tab wrapper is provided — wrappers imply bespoke per-tab markup.
-  if (overflow === 'dropdown' && !renderTabWrapper) {
+  // Dropdown overflow mode (Attio-style "+N more"). A custom tab wrapper
+  // (context menu, drag handle, …) is applied to the tabs that stay visible.
+  if (overflow === 'dropdown') {
     return (
       <div className={cn('relative', className)}>
         <div className="absolute left-0 right-0 bottom-0 h-px bg-border pointer-events-none" />
@@ -403,6 +443,7 @@ export function PageTabs({
           activeTab={activeTab}
           onTabChange={onTabChange}
           linkComponent={linkComponent}
+          renderTabWrapper={renderTabWrapper}
           innerClassName={innerClassName}
         >
           {children}

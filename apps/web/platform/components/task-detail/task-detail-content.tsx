@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useI18n } from '@/lib/i18n/provider';
+import type { TranslationsType } from '@/lib/i18n/types';
 import {
   Trash2,
   Repeat2,
@@ -30,7 +32,6 @@ import {
   Hash,
  ChartNoAxesGantt, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { getTranslations } from '@/lib/i18n';
 import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -80,7 +81,7 @@ import {
   PickerFooter,
   focusPickerList,
 } from '@/components/shared/picker-menu';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
@@ -90,6 +91,8 @@ import { MentionAutocomplete, type MentionSelection } from '@/app/weldchat/compo
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
+import { TaskDurationField } from './task-duration-field';
+import { Link } from '@/lib/router';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
@@ -188,12 +191,15 @@ function LabelsMenu({
   availableLabels,
   onUpdate,
   onRequestCreate,
+  settingsHref,
 }: Readonly<{
   task: Task;
   availableLabels: NonNullable<TaskDetailContentProps['availableLabels']>;
   onUpdate: (taskId: string, data: TaskUpdateData) => void;
   /** Set when labels can be created; opens the create-label dialog. */
   onRequestCreate?: () => void;
+  /** Where labels are managed, linked when there are none and none can be created here. */
+  settingsHref?: string;
 }>) {
   const t = useTranslations();
   const selected = task.labels ?? [];
@@ -231,19 +237,34 @@ function LabelsMenu({
               })}
             </CommandGroup>
           )}
-          {availableLabels.length === 0 && onRequestCreate && (
-            <CommandGroup>
-              <CommandItem onSelect={onRequestCreate}>
-                <Plus />
-                {t('sweep.shared.createLabel')}
-              </CommandItem>
-            </CommandGroup>
+          {availableLabels.length === 0 && !onRequestCreate && (
+            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+              {t('sweep.shared.noLabelsYet')}
+              {settingsHref && (
+                <Link href={settingsHref} className="mt-1 block text-foreground underline underline-offset-2">
+                  {t('sweep.shared.manageLabelsInSettings')}
+                </Link>
+              )}
+            </div>
           )}
         </PickerScrollArea>
-        {selected.length > 0 && (
-          <PickerFooter>
-            <ClearPickerItem label={t('sweep.shared.clearAll')} onSelect={() => onUpdate(task.id, { labels: [] })} />
-          </PickerFooter>
+        {(onRequestCreate || selected.length > 0) && (
+          // With no labels yet this group is the whole menu, so it needs no
+          // separator above it.
+          <>
+            {availableLabels.length > 0 && <CommandSeparator />}
+            <CommandGroup>
+              {onRequestCreate && (
+                <CommandItem onSelect={onRequestCreate}>
+                  <Plus />
+                  {t('sweep.shared.createLabel')}
+                </CommandItem>
+              )}
+              {selected.length > 0 && (
+                <ClearPickerItem label={t('sweep.shared.clearAll')} onSelect={() => onUpdate(task.id, { labels: [] })} />
+              )}
+            </CommandGroup>
+          </>
         )}
       </CommandList>
     </Command>
@@ -498,6 +519,8 @@ export interface TaskUpdateData {
   /** CRM person link, mutually exclusive with `linkedCompany`. */
   linkedPerson?: NonNullable<Task['linkedPerson']> | null;
   labels?: string[];
+  /** Estimated minutes; null clears the estimate. */
+  duration?: number | null;
   repeat?: NonNullable<Task['repeat']> | null;
   customFields?: Record<string, unknown>;
 }
@@ -518,6 +541,8 @@ export interface TaskDetailContentProps {
   onOpenAssignee?: (userId: string) => void;
   availableLabels?: { id: string; name: string; color: string }[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
+  /** Persists the time estimate (minutes, null clears it). The "Time estimate" row only renders when provided. */
+  onDurationChange?: (minutes: number | null) => void;
   projectId?: string;
   taskId?: string;
   attachments?: TaskAttachment[];
@@ -558,22 +583,25 @@ export interface TaskDetailContentProps {
   alwaysShowFields?: string[];
 }
 
-function formatRelativeTime(dateStr: string | null): string {
+type RelativeTimeLabels = TranslationsType['common']['agents']['relativeTime'];
+
+function formatRelativeTime(dateStr: string | null, labels: RelativeTimeLabels): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return labels.justNow;
+  if (diffMins < 60) return labels.minutesAgo.replace('{count}', String(diffMins));
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return labels.hoursAgo.replace('{count}', String(diffHours));
   const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
+  return labels.daysAgo.replace('{count}', String(diffDays));
 }
 
 function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
-  const t = getTranslations('settings');
+  const t = useI18n().t.settings;
+  const relativeTime = useI18n().t.common.agents.relativeTime;
   const github = t.integrations.github;
 
   const issueNumber = task.githubIssueNumber;
@@ -586,7 +614,7 @@ function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
     ? `https://github.com/${repoLink.repoFullName}/issues/${issueNumber}`
     : null;
 
-  const lastSynced = repoLink?.lastSyncedAt ? formatRelativeTime(repoLink.lastSyncedAt) : null;
+  const lastSynced = repoLink?.lastSyncedAt ? formatRelativeTime(repoLink.lastSyncedAt, relativeTime) : null;
 
   return (
     <div className="flex items-center gap-3">
@@ -670,13 +698,18 @@ function formatFileSize(bytes: number): string {
 function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }>) {
   const t = useTranslations();
   const priorityLabels = useTaskPriorityLabels(t);
+  const [open, setOpen] = useState(false);
+  const pick = (priority: Task['priority']) => {
+    setOpen(false);
+    onUpdate(task.id, { priority });
+  };
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 w-32 flex-shrink-0">
         <Flag className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">{t('sweep.shared.priority')}</span>
       </div>
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button variant="ghost" className="h-8 px-0 text-sm text-left cursor-pointer inline-flex items-center self-start group/field hover:bg-transparent dark:hover:bg-transparent">
             {task.priority ? (
@@ -699,7 +732,7 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
                   <CommandItem
                     key={key}
                     value={key}
-                    onSelect={() => onUpdate(task.id, { priority: key as Task['priority'] })}
+                    onSelect={() => pick(key as Task['priority'])}
                   >
                     {priorityLabels[key as keyof typeof priorityLabels]}
                     <PickerCheck selected={task.priority === key} />
@@ -966,6 +999,7 @@ export function TaskDetailContent({
   onOpenAssignee,
   availableLabels = [],
   onCreateLabel,
+  onDurationChange,
   projectId,
   taskId,
   attachments = [],
@@ -994,6 +1028,7 @@ export function TaskDetailContent({
   const t = useTranslations();
   const statusLabels = useTaskStatusLabels(t);
   const repeatLabels = useTaskRepeatLabels(t);
+  const [statusOpen, setStatusOpen] = useState(false);
   const {
     isFieldVisible: isFieldVisibleBase,
     fields,
@@ -1205,7 +1240,7 @@ export function TaskDetailContent({
               <CircleDot className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{t('sweep.shared.status')}</span>
             </div>
-            <Popover>
+            <Popover open={statusOpen} onOpenChange={setStatusOpen}>
               <PopoverTrigger asChild>
                 <Button variant="ghost" className="h-8 px-0 text-sm text-left cursor-pointer inline-flex items-center self-start group/field hover:bg-transparent dark:hover:bg-transparent">
                   <span className={cn(
@@ -1224,7 +1259,10 @@ export function TaskDetailContent({
                         <CommandItem
                           key={key}
                           value={key}
-                          onSelect={() => onUpdate(task.id, { status: key as Task['status'] })}
+                          onSelect={() => {
+                            setStatusOpen(false);
+                            onUpdate(task.id, { status: key as Task['status'] });
+                          }}
                         >
                           {statusLabels[key as keyof typeof statusLabels]}
                           <PickerCheck selected={task.status === key} />
@@ -1384,6 +1422,11 @@ export function TaskDetailContent({
           </div>
           )}
 
+          {/* Time estimate (minutes) */}
+          {isFieldVisible('duration') && onDurationChange && (
+            <TaskDurationField duration={task.duration} onChange={onDurationChange} />
+          )}
+
           {/* Labels */}
           {isFieldVisible('labels') && (
           <div className="flex items-start gap-3">
@@ -1457,6 +1500,7 @@ export function TaskDetailContent({
                   task={task}
                   availableLabels={availableLabels}
                   onUpdate={onUpdate}
+                  settingsHref={projectId ? `/weldflow/project/${projectId}/settings` : undefined}
                   onRequestCreate={
                     onCreateLabel
                       ? () => {
@@ -1824,6 +1868,7 @@ export function TaskDetailContent({
           <EntityAuditPanel
             entityType={projectId ? 'project_task' : 'personal_task'}
             entityId={taskId}
+            alwaysShowChanges
           />
         </div>
       )}
@@ -1924,8 +1969,9 @@ export function SubtasksSection({
   // root AND prepend the selected task into the list at depth 0 (shifting
   // the originally-loaded descendants down by one level). Effect: the panel
   // reads as "parent → selected → selected's children". Top-level tasks
-  // (no parent) keep the previous shape: selected as root, children below.
-  const effectiveRoot = parentTask ?? rootTask;
+  // (no parent) show only their children: repeating the open task as the
+  // first row made it read like the task was its own subtask.
+  const effectiveRoot = parentTask ?? undefined;
 
   // "Add subtask" only reveals an inline title field; the subtask is created
   // when the user submits a title (see InlineSubtaskInput).
@@ -2101,10 +2147,13 @@ export function SubtasksSection({
                     ))}
                     {/* Tree connector with rounded corner */}
                     <div style={{ width: 18, flexShrink: 0, position: 'relative' }}>
-                      {/* Vertical line above the curve */}
-                      <div
-                        style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
-                      />
+                      {/* Vertical line above the curve — nothing sits above the very first
+                          row when the list has no root row, so skip it there. */}
+                      {(index > 0 || !!effectiveRoot) && (
+                        <div
+                          style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
+                        />
+                      )}
                       {/* Rounded corner */}
                       <div
                         style={{
@@ -2184,10 +2233,9 @@ export function SubtasksSection({
         <div className="py-1">
           <InlineSubtaskInput
             placeholder={t('sweep.shared.subtaskTitlePlaceholder')}
-            onSubmit={(title) => {
-              setIsAdding(false);
-              onCreateSubtask(title);
-            }}
+            // The field stays open (and focused) after each Enter so several
+            // subtasks can be typed in a row; Escape or blurring it empty closes it.
+            onSubmit={onCreateSubtask}
             onCancel={() => setIsAdding(false)}
           />
         </div>

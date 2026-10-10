@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
 import {
   Table,
   TableBody,
@@ -14,7 +15,21 @@ import {
 } from '@weldsuite/ui/components/table';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import type { WorkspaceMemberRow, WorkspaceRow } from '@/lib/workspaces-data';
+import type {
+  AuditEventRow,
+  CreditsSummary,
+  InvoiceRow,
+  PaymentRow,
+  PlanOption,
+  SnapshotState,
+  WorkspaceBilling,
+} from '@/lib/billing-types';
+import { adminCopy } from '@/lib/i18n';
+import { ActivityTable } from '@/components/billing/activity-table';
 import { StatusBadge, formatDate } from '../workspace-presentation';
+import { SubscriptionCard } from './billing/subscription-card';
+import { CreditsCard } from './billing/credits-card';
+import { HistoryCard } from './billing/history-card';
 
 /** `org:admin` → `Admin`. Unknown Clerk roles fall through unchanged. */
 function roleLabel(role: string): string {
@@ -39,10 +54,29 @@ function initials(member: WorkspaceMemberRow): string {
 export function WorkspaceDetail({
   workspace,
   members,
+  billing,
+  plans,
+  credits,
+  invoices,
+  payments,
+  activity,
+  snapshotState,
+  canWrite,
 }: Readonly<{
   workspace: WorkspaceRow;
   members: WorkspaceMemberRow[];
+  billing: WorkspaceBilling;
+  plans: PlanOption[];
+  credits: CreditsSummary;
+  invoices: InvoiceRow[];
+  payments: PaymentRow[];
+  activity: AuditEventRow[];
+  snapshotState: SnapshotState;
+  canWrite: boolean;
 }>) {
+  const t = adminCopy();
+  // Credit and invoice changes run in the billing worker too, so they need it wired up.
+  const canWriteBilling = canWrite && snapshotState.kind !== 'not_configured';
   const active = members.filter((m) => m.status === 'ACTIVE');
   const pending = members.filter((m) => m.status === 'PENDING');
   const admins = active.filter((m) => m.role === 'org:admin');
@@ -73,102 +107,126 @@ export function WorkspaceDetail({
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          <StatCard label="Active members" value={active.length} />
-          <StatCard label="Admins" value={admins.length} />
-          <StatCard label="Pending invites" value={pending.length} />
-        </div>
+        <Tabs defaultValue="billing" className="gap-4">
+          <TabsList>
+            <TabsTrigger value="billing">{t.tabs.billing}</TabsTrigger>
+            <TabsTrigger value="members">
+              {t.tabs.members}
+              <span className="ml-1 text-muted-foreground tabular-nums">{members.length}</span>
+            </TabsTrigger>
+            <TabsTrigger value="activity">{t.tabs.activity}</TabsTrigger>
+          </TabsList>
 
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-medium">
-              {'Members'}
-              <span className="ml-1.5 text-muted-foreground tabular-nums">({members.length})</span>
-            </h2>
-          </div>
+          <TabsContent value="billing" className="space-y-4">
+            <SubscriptionCard billing={billing} snapshotState={snapshotState} plans={plans} canWrite={canWrite} />
+            <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
+            <HistoryCard workspaceId={workspace.id} invoices={invoices} payments={payments} canWrite={canWriteBilling} />
+          </TabsContent>
 
-          <div className="overflow-hidden rounded-lg border">
-            <Table>
-              <TableHeader className="[&_tr]:border-border/70">
-                <TableRow>
-                  <TableHead className="text-[13.5px]">Member</TableHead>
-                  <TableHead className="w-40 text-[13.5px]">Role</TableHead>
-                  <TableHead className="w-32 text-[13.5px]">Status</TableHead>
-                  <TableHead className="w-36 text-[13.5px]">Joined</TableHead>
-                  <TableHead className="w-36 text-[13.5px]">Invited</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody className="[&_tr]:border-border/70">
-                {members.length === 0 && (
-                  <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="py-16 text-center text-sm text-muted-foreground"
-                    >
-                      <Search className="mx-auto mb-2 h-5 w-5 opacity-50" />
-                      This workspace has no members yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-                {members.map((member) => (
-                  <TableRow key={member.id} className="h-12 hover:bg-muted/50">
-                    <TableCell className="py-2">
-                      <div className="flex items-center gap-2.5">
-                        <Avatar className="h-7 w-7">
-                          <AvatarImage src={member.imageUrl ?? undefined} alt={displayName(member)} />
-                          <AvatarFallback className="text-[11px]">
-                            {initials(member)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-medium">
-                              {displayName(member)}
-                            </span>
-                            {!member.userIsActive && (
-                              <Badge variant="outline" className="text-[10px]">
-                                deactivated
-                              </Badge>
+          <TabsContent value="activity" className="space-y-3">
+            <p className="text-sm text-muted-foreground">{t.activity.workspaceDescription}</p>
+            <ActivityTable events={activity} />
+          </TabsContent>
+
+          <TabsContent value="members" className="space-y-6">
+            <div className="grid grid-cols-3 gap-3">
+              <StatCard label="Active members" value={active.length} />
+              <StatCard label="Admins" value={admins.length} />
+              <StatCard label="Pending invites" value={pending.length} />
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-medium">
+                  {'Members'}
+                  <span className="ml-1.5 text-muted-foreground tabular-nums">({members.length})</span>
+                </h2>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border">
+                <Table>
+                  <TableHeader className="[&_tr]:border-border/70">
+                    <TableRow>
+                      <TableHead className="text-[13.5px]">Member</TableHead>
+                      <TableHead className="w-40 text-[13.5px]">Role</TableHead>
+                      <TableHead className="w-32 text-[13.5px]">Status</TableHead>
+                      <TableHead className="w-36 text-[13.5px]">Joined</TableHead>
+                      <TableHead className="w-36 text-[13.5px]">Invited</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody className="[&_tr]:border-border/70">
+                    {members.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={5}
+                          className="py-16 text-center text-sm text-muted-foreground"
+                        >
+                          <Search className="mx-auto mb-2 h-5 w-5 opacity-50" />
+                          This workspace has no members yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {members.map((member) => (
+                      <TableRow key={member.id} className="h-12 hover:bg-muted/50">
+                        <TableCell className="py-2">
+                          <div className="flex items-center gap-2.5">
+                            <Avatar className="h-7 w-7">
+                              <AvatarImage src={member.imageUrl ?? undefined} alt={displayName(member)} />
+                              <AvatarFallback className="text-[11px]">
+                                {initials(member)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate text-sm font-medium">
+                                  {displayName(member)}
+                                </span>
+                                {!member.userIsActive && (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    deactivated
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="truncate text-xs text-muted-foreground">
+                                {member.email}
+                                {member.jobTitle ? ` · ${member.jobTitle}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-2">
+                          <span className="inline-flex items-center gap-1.5 text-sm">
+                            {member.role === 'org:admin' && (
+                              <Crown className="h-3.5 w-3.5 text-amber-500" />
                             )}
-                          </div>
-                          <div className="truncate text-xs text-muted-foreground">
-                            {member.email}
-                            {member.jobTitle ? ` · ${member.jobTitle}` : ''}
-                          </div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-2">
-                      <span className="inline-flex items-center gap-1.5 text-sm">
-                        {member.role === 'org:admin' && (
-                          <Crown className="h-3.5 w-3.5 text-amber-500" />
-                        )}
-                        {roleLabel(member.role)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="py-2">
-                      <Badge variant={member.status === 'ACTIVE' ? 'success' : 'warning'}>
-                        {member.status === 'ACTIVE' ? 'Active' : 'Pending'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="py-2 text-xs tabular-nums text-muted-foreground">
-                      {member.joinedAt ? formatDate(member.joinedAt, false) : '—'}
-                    </TableCell>
-                    <TableCell className="py-2 text-xs tabular-nums text-muted-foreground">
-                      {member.invitedAt ? formatDate(member.invitedAt, false) : '—'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                            {roleLabel(member.role)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2">
+                          <Badge variant={member.status === 'ACTIVE' ? 'success' : 'warning'}>
+                            {member.status === 'ACTIVE' ? 'Active' : 'Pending'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="py-2 text-xs tabular-nums text-muted-foreground">
+                          {member.joinedAt ? formatDate(member.joinedAt, false) : '—'}
+                        </TableCell>
+                        <TableCell className="py-2 text-xs tabular-nums text-muted-foreground">
+                          {member.invitedAt ? formatDate(member.invitedAt, false) : '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
 
-          <p className="text-xs text-muted-foreground">
-            Memberships are owned by Clerk and mirrored into the master database — this screen is
-            read-only. Change roles or remove members from the Clerk dashboard.
-          </p>
-        </div>
+              <p className="text-xs text-muted-foreground">
+                Memberships are owned by Clerk and mirrored into the master database — this screen is
+                read-only. Change roles or remove members from the Clerk dashboard.
+              </p>
+            </div>
+          </TabsContent>
+        </Tabs>
       </PageBody>
     </PageContent>
   );

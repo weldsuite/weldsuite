@@ -4,7 +4,13 @@ import {
   parsePlanCountryPricing,
   resolveCountryPlanPrices,
 } from '@weldsuite/app-api-client/schemas/plan-country-pricing';
-import { planDisplayPrice, requestCountry } from './plan-country-pricing';
+import {
+  minorUnitsToCents,
+  planCheckoutPrice,
+  planDisplayPrice,
+  requestCountry,
+  toMinorUnits,
+} from './plan-country-pricing';
 
 const config = parsePlanCountryPricing({
   countries: {
@@ -72,5 +78,25 @@ describe('plan prices per country', () => {
     expect(requestCountry(new Request('https://x.test', { headers: { 'cf-ipcountry': 'be' } }))).toBe('BE');
     expect(requestCountry(new Request('https://x.test', { headers: { 'cf-ipcountry': 'XX' } }))).toBeNull();
     expect(requestCountry(new Request('https://x.test'))).toBeNull();
+  });
+
+  it('charges at checkout exactly what the plans page shows', () => {
+    const priced = (monthly: number, annual: number | null, currency = 'EUR') =>
+      ({ kind: 'priced', price: { monthly, annual }, currency }) as const;
+    expect(planCheckoutPrice(priced(39, 33), 'monthly')).toEqual({ currency: 'EUR', unitAmount: 3900, interval: 'month' });
+    // Annual: twelve months at the annual price, billed once a year.
+    expect(planCheckoutPrice(priced(39, 33.5), 'yearly')).toEqual({ currency: 'EUR', unitAmount: 40200, interval: 'year' });
+    // No annual price: twelve months at the monthly price.
+    expect(planCheckoutPrice(priced(59, null), 'yearly')).toEqual({ currency: 'EUR', unitAmount: 70800, interval: 'year' });
+    // Zero-decimal currencies are charged in whole units.
+    expect(planCheckoutPrice(priced(4900, null, 'JPY'), 'monthly')).toEqual({ currency: 'JPY', unitAmount: 4900, interval: 'month' });
+  });
+
+  it('converts between amounts, Stripe units and platform cents', () => {
+    expect(toMinorUnits(33.5, 'EUR')).toBe(3350);
+    expect(toMinorUnits(19.99, 'usd')).toBe(1999);
+    expect(toMinorUnits(4900, 'JPY')).toBe(4900);
+    expect(minorUnitsToCents(3350, 'EUR')).toBe(3350);
+    expect(minorUnitsToCents(4900, 'jpy')).toBe(490000);
   });
 });

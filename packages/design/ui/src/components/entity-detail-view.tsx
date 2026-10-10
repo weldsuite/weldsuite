@@ -87,6 +87,13 @@ export interface EntityDetailViewProps {
    * in fullscreen mode — that one uses `sidebarDefaultOpen`.
    */
   sidebarDefaultCollapsed?: boolean;
+  /**
+   * Panel mode: let the bottom sidebar hug its content (capped at its dragged /
+   * default height) instead of always reserving the full height. Use while the
+   * sidebar is only a composer (a chat with no conversation yet), so the details
+   * above it can use the otherwise empty space. Ignored in fullscreen mode.
+   */
+  sidebarFitContent?: boolean;
 
   /**
    * Panel mode: draw the horizontal divider line above the bottom sidebar.
@@ -120,10 +127,18 @@ export interface EntityDetailViewProps {
   contentClassName?: string;
 }
 
+/** Max share of the panel the bottom region takes before the user resizes it. */
+const DEFAULT_SIDEBAR_MAX_SHARE = 35;
+
 function toCssLength(value: number | string | undefined, fallback: string): string {
   if (value === undefined) return fallback;
   return typeof value === "number" ? `${value}px` : value;
 }
+
+/** Fullscreen layout: the record content never gets narrower than this when a sidebar is open. */
+const FULLSCREEN_MIN_CONTENT_WIDTH = 360;
+/** Fullscreen layout: the narrowest the sidebar is squeezed to so the content can keep its width. */
+const FULLSCREEN_MIN_SIDEBAR_WIDTH = 240;
 
 function readNumberFromStorage(key: string | undefined, fallback: number, min: number): number {
   if (!key || typeof window === "undefined") return fallback;
@@ -331,7 +346,7 @@ type LayoutProps = Omit<EntityDetailViewProps, RootOnlyProps> & HeaderRenderProp
 /** The inline fullscreen layout has no panel geometry and no collapsible bottom sidebar. */
 type InlineFullscreenLayoutProps = Omit<
   LayoutProps,
-  "width" | "topOffset" | "leftOffset" | "zIndex" | "sidebarDefaultCollapsed"
+  "width" | "topOffset" | "leftOffset" | "zIndex" | "sidebarDefaultCollapsed" | "sidebarFitContent"
 >;
 
 /* ---------------------------------------------------------------- */
@@ -371,6 +386,7 @@ function AnimatedShell({
   sidebarDefaultOpen,
   sidebarDefaultCollapsed = false,
   sidebarDivider = true,
+  sidebarFitContent = false,
   sidebarLocked = false,
   loading,
   className,
@@ -382,6 +398,23 @@ function AnimatedShell({
 
   const isFullscreen = mode === "fullscreen";
   const shellRef = React.useRef<HTMLDialogElement>(null);
+
+  // On phones the panel covers the whole viewport (see the panel-mode classes
+  // below), so there is no page strip left to tap on. Escape closes it, unless
+  // an inner layer (popover, dialog, inline editor) already handled the key or
+  // the user is typing in a field.
+  React.useEffect(() => {
+    if (!onClose || typeof window === "undefined") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (!window.matchMedia("(max-width: 767px)").matches) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [contenteditable='']")) return;
+      onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   const header = (
     <HeaderRow
@@ -417,6 +450,10 @@ function AnimatedShell({
           // the module content and attaches to it (or to the panel before it)
           // with a left divider.
           "relative flex shrink-0 flex-col overflow-hidden border-l border-border bg-background",
+          // Phones: a side column would overflow the viewport (pushing the
+          // header buttons off-screen), so the panel becomes a full-screen
+          // layer instead. The inline `width` is overridden with `!w-full`.
+          "max-md:fixed max-md:inset-0 max-md:z-50 max-md:!w-full max-md:border-l-0",
           className,
         )}
         style={{ width: widthCss }}
@@ -435,6 +472,7 @@ function AnimatedShell({
           sidebarPersistKey={sidebarPersistKey}
           sidebarDefaultCollapsed={sidebarDefaultCollapsed}
           sidebarDivider={sidebarDivider}
+          sidebarFitContent={sidebarFitContent}
         >
           {children}
         </PanelBody>
@@ -504,6 +542,7 @@ interface PanelBodyProps {
   sidebarPersistKey?: string;
   sidebarDefaultCollapsed: boolean;
   sidebarDivider: boolean;
+  sidebarFitContent: boolean;
   loading?: boolean;
   contentClassName?: string;
 }
@@ -520,12 +559,21 @@ function PanelBody({
   sidebarPersistKey,
   sidebarDefaultCollapsed,
   sidebarDivider,
+  sidebarFitContent,
   loading,
   contentClassName,
 }: Readonly<PanelBodyProps>) {
   const [sidebarHeight, setSidebarHeight] = React.useState<number>(() =>
     readNumberFromStorage(sidebarPersistKey, sidebarDefaultSize, sidebarMinSize),
   );
+  // Until the user drags the handle (or a saved size exists) the bottom region
+  // only takes its default size while that stays a modest share of the panel,
+  // so on a short viewport the details above it keep most of the height
+  // instead of shrinking into a small scroll box.
+  const [userSized, setUserSized] = React.useState<boolean>(() => {
+    if (!sidebarPersistKey || typeof window === "undefined") return false;
+    return window.localStorage.getItem(`${sidebarPersistKey}:size`) !== null;
+  });
   const [collapsed, setCollapsed] = React.useState<boolean>(() => {
     if (typeof window === "undefined") return sidebarDefaultCollapsed;
     if (!sidebarPersistKey) return sidebarDefaultCollapsed;
@@ -548,6 +596,7 @@ function PanelBody({
   }, [sidebarPersistKey, collapsed]);
 
   const tabsRowRef = React.useRef<HTMLDivElement>(null);
+  const sidebarRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef(false);
   const startYRef = React.useRef(0);
   const startHeightRef = React.useRef(0);
@@ -572,6 +621,10 @@ function PanelBody({
         : 80;
       const maxFromTabs = shellHeight - tabsBottom;
       maxHeightRef.current = Math.min(sidebarMaxSize ?? Number.POSITIVE_INFINITY, maxFromTabs);
+      // Start from what is actually on screen, not the uncapped default.
+      startHeightRef.current = sidebarRef.current?.offsetHeight ?? sidebarHeight;
+      setSidebarHeight(startHeightRef.current);
+      setUserSized(true);
       setIsDragging(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -628,6 +681,12 @@ function PanelBody({
     setCollapsed((v) => !v);
   }, []);
 
+  // Open height of the bottom region: the dragged / saved size, or until the
+  // user resizes it the default capped to a share of the panel.
+  const openSidebarHeight = userSized
+    ? sidebarHeight
+    : `min(${sidebarHeight}px, ${DEFAULT_SIDEBAR_MAX_SHARE}%)`;
+
   return (
     <>
       {subheader && (
@@ -659,14 +718,22 @@ function PanelBody({
         // forced to scroll. The grab line is always visible so the affordance
         // is discoverable regardless of whether a conversation exists yet.
         <div
+          ref={sidebarRef}
           className={cn(
             "relative flex-shrink-0 bg-background flex flex-col",
             !isDragging && "transition-[height] duration-200 ease-out",
           )}
-          style={{ height: collapsed ? 8 : sidebarHeight }}
+          // `sidebarFitContent`: hug the content (the composer alone) up to the
+          // open height, so the details above can use the space a fixed
+          // height would leave empty.
+          style={
+            sidebarFitContent && !collapsed
+              ? { maxHeight: openSidebarHeight }
+              : { height: collapsed ? 8 : openSidebarHeight }
+          }
         >
           {!collapsed && (
-            <div className="flex-1 min-h-0 overflow-hidden">{sidebar}</div>
+            <div className={cn("min-h-0 overflow-hidden", !sidebarFitContent && "flex-1")}>{sidebar}</div>
           )}
           {/* Full-width resize handle overlaying the top edge. The visible
               horizontal line always spans the panel so it reads as a clear
@@ -755,6 +822,31 @@ function FullscreenBody({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef(false);
 
+  // The sidebar must never squeeze the record content into a sliver: a width
+  // saved on a big screen (or the 500px default) would otherwise leave ~120px
+  // for the content once the module sidebar and a narrow window have eaten the
+  // overlay's width. Track the body width and cap the sidebar so the content
+  // keeps `FULLSCREEN_MIN_CONTENT_WIDTH`. The saved width is left untouched, so
+  // it is back as soon as there is room again.
+  const [containerWidth, setContainerWidth] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      setContainerWidth(entries[0]?.contentRect.width ?? null);
+    });
+    ro.observe(el);
+    setContainerWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  const maxFitSidebarWidth =
+    containerWidth === null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(FULLSCREEN_MIN_SIDEBAR_WIDTH, containerWidth - FULLSCREEN_MIN_CONTENT_WIDTH);
+  const maxFitSidebarWidthRef = React.useRef(maxFitSidebarWidth);
+  maxFitSidebarWidthRef.current = maxFitSidebarWidth;
+  const effectiveSidebarWidth = Math.min(sidebarWidth, maxFitSidebarWidth);
+
   const handleResizeMouseDown = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragRef.current = true;
@@ -769,7 +861,10 @@ function FullscreenBody({
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       e.preventDefault();
       const delta = e.key === "ArrowLeft" ? 16 : -16;
-      setSidebarWidth((w) => Math.max(sidebarMinSize, Math.min(sidebarMaxSize, w + delta)));
+      setSidebarWidth((w) => {
+        const fit = maxFitSidebarWidthRef.current;
+        return Math.max(sidebarMinSize, Math.min(sidebarMaxSize, fit, Math.min(w, fit) + delta));
+      });
     },
     [sidebarMinSize, sidebarMaxSize],
   );
@@ -783,7 +878,7 @@ function FullscreenBody({
         : window.innerWidth;
       const next = Math.max(
         sidebarMinSize,
-        Math.min(sidebarMaxSize, rightEdge - e.clientX),
+        Math.min(sidebarMaxSize, maxFitSidebarWidthRef.current, rightEdge - e.clientX),
       );
       setSidebarWidth(next);
     };
@@ -802,7 +897,10 @@ function FullscreenBody({
   }, [sidebarMinSize, sidebarMaxSize]);
 
   return (
-    <div ref={containerRef} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+    // `overflow-clip` (not `hidden`): a clipped box is never a scroll container,
+    // so focus / scrollIntoView on something inside can't slide the whole body
+    // sideways with no way back.
+    <div ref={containerRef} className="flex-1 min-h-0 min-w-0 flex flex-col overflow-clip">
       {subheader && (
         <div className="flex-shrink-0">{subheader}</div>
       )}
@@ -829,7 +927,7 @@ function FullscreenBody({
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-clip">
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
           <div
             className={cn(
@@ -845,7 +943,7 @@ function FullscreenBody({
         {sidebar && sidebarOpen && (
           <div
             className="relative flex-shrink-0 bg-background border-l border-border flex flex-col"
-            style={{ width: sidebarWidth }}
+            style={{ width: effectiveSidebarWidth }}
           >
             <div
               className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group"
@@ -854,7 +952,7 @@ function FullscreenBody({
               role="separator"
               tabIndex={0}
               aria-orientation="vertical"
-              aria-valuenow={sidebarWidth}
+              aria-valuenow={effectiveSidebarWidth}
               aria-valuemin={sidebarMinSize}
               aria-valuemax={sidebarMaxSize}
               title="Drag to resize"
