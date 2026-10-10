@@ -1,6 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
-import { useChannelMembers, useWorkspaceMembers, useAddChannelMembers, useRemoveChannelMember, useChannel } from '@/hooks/queries/use-weldchat-queries';
-import type { ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
+import { useChannelMembers, useWorkspaceMembers, useAddChannelMembers, useRemoveChannelMember, useChannel, type ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { X, ShieldCheck, Crown, Plus, Search, UserMinus, UserPlus } from 'lucide-react';
