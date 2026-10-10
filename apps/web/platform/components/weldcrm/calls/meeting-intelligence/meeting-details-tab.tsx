@@ -60,6 +60,9 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
   const fallbackParticipants: MeetingAttendeeDetail[] = call.attendeeDetails?.length
     ? call.attendeeDetails
     : (call.attendees?.map((name) => ({ name })) ?? []);
+  // Keyed by identity; a repeated identity (e.g. two name-only attendees with
+  // the same name) gets a `#n` occurrence suffix so keys stay unique.
+  const keyedFallbackParticipants = keyByIdentity(fallbackParticipants);
   const MediaIcon = mediaType === 'audio' ? Phone : Video;
 
   return (
@@ -223,8 +226,8 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
             <span className="text-[10px] font-mono w-[18px] h-[18px] flex items-center justify-center rounded-[5px] bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border text-gray-500 dark:text-muted-foreground normal-case tracking-normal"><span className="translate-y-[0.5px]">{fallbackParticipants.length}</span></span>
           </h3>
           <div className="space-y-2.5">
-            {fallbackParticipants.map((participant, i) => (
-              <ParticipantRow key={`${participant.email ?? ''}-${participant.workspaceMemberId ?? ''}-${participant.name ?? ''}`} participant={participant} index={i} />
+            {keyedFallbackParticipants.map(({ participant, key }, i) => (
+              <ParticipantRow key={key} participant={participant} index={i} />
             ))}
           </div>
         </div>
@@ -276,6 +279,16 @@ const PARTICIPANT_COLORS = [
  * A single fallback participant row. Linked to a team member profile (when
  * matched to a workspace member) or a CRM contact; otherwise a plain row.
  */
+function keyByIdentity(participants: readonly MeetingAttendeeDetail[]): { participant: MeetingAttendeeDetail; key: string }[] {
+  const seen = new Map<string, number>();
+  return participants.map((participant) => {
+    const base = `${participant.email ?? ''}-${participant.workspaceMemberId ?? ''}-${participant.name ?? ''}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return { participant, key: `${base}#${count}` };
+  });
+}
+
 function ParticipantRow({ participant, index }: Readonly<{ participant: MeetingAttendeeDetail; index: number }>) {
   const t = useTranslations();
   const label = participant.name || participant.email || t('sweep.weldcrm.meetingDetailsTab.unknown');
