@@ -108,7 +108,15 @@ export const navigation = {
         projects: 'Projects',
       },
       weldhr: {
-        myHr: 'My HR',
+        me: {
+          overview: 'Overview',
+          timeOff: 'Time off',
+          expenses: 'Expenses',
+          schedule: 'Schedule & hours',
+          payroll: 'Payroll',
+          tasks: 'Tasks',
+          reviews: 'Reviews & goals',
+        },
         dashboard: 'Dashboard',
         employees: 'Employees',
         attendance: 'Attendance',
@@ -122,7 +130,8 @@ export const navigation = {
         filings: 'Filings',
         payrollSettings: 'Payroll settings',
         groups: {
-          people: 'People',
+          myHr: 'My HR',
+          team: 'Team',
           time: 'Time',
           expenses: 'Expenses',
           payroll: 'Payroll',

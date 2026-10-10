@@ -1,4 +1,4 @@
-/** Absenteeism → My absence: report yourself sick or recovered, and your earlier reports. */
+/** My HR → Time off: report yourself sick or recovered, and your earlier sick reports. */
 
 import { useState } from 'react';
 import { CircleCheck, HeartPulse } from 'lucide-react';
@@ -7,27 +7,28 @@ import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfAbsence } from '@weldsuite/app-api-client/domains/weldhr';
-import { PageLoader } from '@/components/page-loader';
 import { useMyHrAbsences } from '@/hooks/queries/use-weldhr-queries';
+import { AbsenceDialog } from '../../absenteeism/components/absence-dialog';
+import { RecoverDialog } from '../../absenteeism/components/recover-dialog';
+import { formatDays } from '../../absenteeism/components/shared';
 import { EmptyText, SectionCard } from '../../components/page-kit';
 import { ErrorBanner, StatusBadge, errorMessage, formatDate } from '../../components/shared';
-import { AbsenceDialog } from './absence-dialog';
-import { RecoverDialog } from './recover-dialog';
-import { formatDays } from './shared';
+import { TabLoading } from './shared';
 
-export function MyAbsenceTab() {
+/** Whether you are reported sick right now, with the button to report sick or recovered. */
+export function SickStatusCard() {
   const t = useTranslations();
   const { data, isLoading, error } = useMyHrAbsences();
   const [reporting, setReporting] = useState(false);
   const [recovering, setRecovering] = useState<HrSelfAbsence | null>(null);
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  if (isLoading) return <TabLoading />;
   if (!data) return <ErrorBanner error={errorMessage(error, t('weldhr.absenteeism.mine.loadFailed'))} />;
 
-  const { current, history } = data;
+  const { current } = data;
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4">
+    <>
       <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -61,42 +62,53 @@ export function MyAbsenceTab() {
         </CardContent>
       </Card>
 
-      <SectionCard title={t('weldhr.absenteeism.mine.history.title')} contentClassName="p-0">
-        {history.length === 0 ? (
-          <EmptyText>{t('weldhr.absenteeism.mine.history.empty')}</EmptyText>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('weldhr.absenteeism.table.firstSickDay')}</TableHead>
-                <TableHead>{t('weldhr.absenteeism.table.lastSickDay')}</TableHead>
-                <TableHead>{t('weldhr.absenteeism.table.days')}</TableHead>
-                <TableHead>{t('weldhr.absenteeism.table.status')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {history.map((report) => (
-                <TableRow key={report.id}>
-                  <TableCell className="whitespace-nowrap">
-                    {formatDate(report.startDate)}
-                    {report.firstDay === 'half' && (
-                      <span className="text-muted-foreground"> · {t('weldhr.absenteeism.halfFirstDay')}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">{formatDate(report.endDate)}</TableCell>
-                  <TableCell className="tabular-nums">{formatDays(report.days)}</TableCell>
-                  <TableCell>
-                    <StatusBadge group="absence" status={report.status} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </SectionCard>
-
       {reporting && <AbsenceDialog mode={{ kind: 'self' }} onClose={() => setReporting(false)} />}
       {recovering && <RecoverDialog absence={recovering} self onClose={() => setRecovering(null)} />}
-    </div>
+    </>
+  );
+}
+
+/** Earlier sick reports. Renders nothing until the reports have loaded; `SickStatusCard` shows the spinner and errors. */
+export function SickHistoryCard() {
+  const t = useTranslations();
+  const { data } = useMyHrAbsences();
+
+  if (!data) return null;
+  const { history } = data;
+
+  return (
+    <SectionCard title={t('weldhr.absenteeism.mine.history.title')} contentClassName="p-0">
+      {history.length === 0 ? (
+        <EmptyText>{t('weldhr.absenteeism.mine.history.empty')}</EmptyText>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('weldhr.absenteeism.table.firstSickDay')}</TableHead>
+              <TableHead>{t('weldhr.absenteeism.table.lastSickDay')}</TableHead>
+              <TableHead>{t('weldhr.absenteeism.table.days')}</TableHead>
+              <TableHead>{t('weldhr.absenteeism.table.status')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {history.map((report) => (
+              <TableRow key={report.id}>
+                <TableCell className="whitespace-nowrap">
+                  {formatDate(report.startDate)}
+                  {report.firstDay === 'half' && (
+                    <span className="text-muted-foreground"> · {t('weldhr.absenteeism.halfFirstDay')}</span>
+                  )}
+                </TableCell>
+                <TableCell className="whitespace-nowrap">{formatDate(report.endDate)}</TableCell>
+                <TableCell className="tabular-nums">{formatDays(report.days)}</TableCell>
+                <TableCell>
+                  <StatusBadge group="absence" status={report.status} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </SectionCard>
   );
 }

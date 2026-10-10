@@ -1,113 +1,15 @@
-/**
- * My HR: the signed-in member's own WeldHR employee record. Overview, leave,
- * expense declarations, attendance, payroll (payslips and tax forms, with the weldhr-payroll flag), onboarding tasks, coaching and evaluations,
- * and goals. Every endpoint resolves the employee from the session, so this
- * page never takes an employee id. Members who are not linked to an employee
- * (or whose record is terminated) get a "not set up yet" state instead of tabs.
- */
-
-import { useNavigate, useSearch } from '@tanstack/react-router';
-import { UserRoundSearch } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { usePermissions } from '@weldsuite/permissions/react';
-import type { HrSelf } from '@weldsuite/app-api-client/domains/weldhr';
-import { PageLoader } from '@/components/page-loader';
-import { useMyHr, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
-import { useHrPayrollFlag, useMyPayrollDetails, useMyPayslips } from '@/hooks/queries/use-weldhr-payroll-queries';
-import { DetailHeader, DetailPage, DetailTabs, emptyIcon, useHrBreadcrumbs } from '../components/page-kit';
-import { EmployeeAvatar, ErrorBanner, StatusBadge, errorMessage } from '../components/shared';
-import { MyAttendanceTab } from './components/attendance-tab';
-import { MyDeclarationsTab } from './components/declarations-tab';
-import { MyGoalsTab } from './components/goals-tab';
-import { MyLeaveTab } from './components/leave-tab';
+import { DetailHeader, DetailPage } from '../components/page-kit';
+import { EmployeeAvatar, StatusBadge } from '../components/shared';
+import { useMyHrSelf } from './components/my-hr-context';
+import { useMyHrBreadcrumbs } from './components/my-hr-page';
 import { MyOverviewTab } from './components/overview-tab';
-import { MyPayrollTab, unsignedElections } from './components/payroll-tab';
-import { MyReviewsTab } from './components/reviews-tab';
-import { isMeTabId, type MeTabId } from './components/shared';
-import { MyTasksTab } from './components/tasks-tab';
 
+/** My HR → Overview: who you are in WeldHR (name, job, manager), the time clock and what needs your attention. */
 export default function WeldHrMePage() {
   const t = useTranslations();
-  useHrBreadcrumbs({ label: t('weldhr.me.title') });
-  const { can, isLoading: permissionsLoading } = usePermissions();
-  const allowed = can('employees:self');
-  const { data: self, isLoading, error } = useMyHr({ enabled: allowed });
-
-  if (permissionsLoading || isLoading) return <PageLoader fullScreen={false} />;
-
-  if (!allowed) {
-    return (
-      <DetailPage>
-        <ErrorBanner error={t('weldhr.common.noPermission')} />
-      </DetailPage>
-    );
-  }
-
-  if (!self) {
-    return (
-      <DetailPage>
-        <ErrorBanner error={errorMessage(error, t('weldhr.me.loadFailed'))} />
-      </DetailPage>
-    );
-  }
-
-  if (!self.employee) return <NotSetUp />;
-
-  return <MyHrContent employee={self.employee} features={self.features} />;
-}
-
-/** The member has My HR access but no (active) employee record to show. */
-function NotSetUp() {
-  const t = useTranslations();
-  return (
-    <DetailPage>
-      <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-        {emptyIcon(UserRoundSearch)}
-        <h2 className="mb-1.5 text-[15px] font-semibold">{t('weldhr.me.notSetUp.title')}</h2>
-        <p className="max-w-md text-sm leading-relaxed text-muted-foreground">{t('weldhr.me.notSetUp.description')}</p>
-      </div>
-    </DetailPage>
-  );
-}
-
-function MyHrContent({
-  employee,
-  features,
-}: Readonly<{
-  employee: NonNullable<HrSelf['employee']>;
-  features: HrSelf['features'];
-}>) {
-  const t = useTranslations();
-  const search = useSearch({ from: '/weldhr/me/' });
-  const navigate = useNavigate();
-  // Same query the Overview tab runs; here it only feeds the tab counters.
-  const { data: overview } = useMyHrOverview();
-  // Payroll shows up once the flag is on and the employee is on payroll (or already has payslips).
-  const payrollFlag = useHrPayrollFlag();
-  const { data: payrollDetails } = useMyPayrollDetails({ enabled: payrollFlag.enabled });
-  const { data: myPayslips } = useMyPayslips({ enabled: payrollFlag.enabled });
-  const showPayroll = payrollFlag.enabled && (Boolean(payrollDetails?.country) || (myPayslips?.length ?? 0) > 0);
-  const payrollTodo = payrollDetails ? payrollDetails.missing.length + unsignedElections(payrollDetails).length : 0;
-
-  const requestedTab: MeTabId = isMeTabId(search.tab) ? search.tab : 'overview';
-  // A link to ?tab=payroll without payroll access shows the overview.
-  const activeTab: MeTabId = requestedTab === 'payroll' && !showPayroll ? 'overview' : requestedTab;
-
-  function setTab(tab: MeTabId) {
-    void navigate({ to: '/weldhr/me', search: { tab }, replace: true });
-  }
-
-  const toAcknowledge = overview ? overview.toAcknowledge.coaching + overview.toAcknowledge.evaluations : 0;
-  const tabs = [
-    { id: 'overview', label: t('weldhr.me.tabs.overview') },
-    { id: 'leave', label: t('weldhr.me.tabs.leave') },
-    { id: 'declarations', label: t('weldhr.me.tabs.declarations') },
-    { id: 'attendance', label: t('weldhr.me.tabs.attendance') },
-    ...(showPayroll ? [{ id: 'payroll' as const, label: t('weldhr.payroll.me.tab'), count: payrollTodo }] : []),
-    { id: 'tasks', label: t('weldhr.me.tabs.tasks'), count: overview?.openTasks },
-    { id: 'reviews', label: t('weldhr.me.tabs.reviews'), count: toAcknowledge },
-    { id: 'goals', label: t('weldhr.me.tabs.goals') },
-  ] satisfies Array<{ id: MeTabId; label: string; count?: number }>;
+  useMyHrBreadcrumbs();
+  const { employee, features } = useMyHrSelf();
 
   return (
     <DetailPage>
@@ -131,18 +33,7 @@ function MyHrContent({
         }
       />
 
-      <DetailTabs tabs={tabs} activeTab={activeTab} onTabChange={(tab) => isMeTabId(tab) && setTab(tab)} />
-
-      {activeTab === 'overview' && (
-        <MyOverviewTab employee={employee} canClockIn={features.selfClockIn} onNavigate={setTab} />
-      )}
-      {activeTab === 'leave' && <MyLeaveTab canRequest={features.leaveRequests} />}
-      {activeTab === 'declarations' && <MyDeclarationsTab canSubmit={features.declarations} />}
-      {activeTab === 'attendance' && <MyAttendanceTab />}
-      {activeTab === 'payroll' && <MyPayrollTab employeeName={employee.displayName} />}
-      {activeTab === 'tasks' && <MyTasksTab />}
-      {activeTab === 'reviews' && <MyReviewsTab />}
-      {activeTab === 'goals' && <MyGoalsTab />}
+      <MyOverviewTab employee={employee} canClockIn={features.selfClockIn} />
     </DetailPage>
   );
 }

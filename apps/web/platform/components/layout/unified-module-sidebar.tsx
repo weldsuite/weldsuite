@@ -6,6 +6,7 @@ import { CreateWorkspaceDialog } from '@/components/workspace/create-workspace-d
 import { useI18n } from '@/lib/i18n/provider';
 import { useWorkspace } from '@/contexts/workspace-context';
 import { usePermissions } from '@weldsuite/permissions/react';
+import { menuPermissionAllows } from './menu-permission';
 import { MODULE_CONFIGS, getModuleKey } from './module-sidebar-configs';
 import { buildUserAppSidebarConfig, type UserAppNavItem } from './user-app-sidebar';
 import { buildCustomObjectSidebarConfig } from './custom-object-sidebar';
@@ -22,7 +23,7 @@ import { useAgentsSidebarItems } from '@/app/agents/hooks/use-agents-sidebar-ite
 import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconnect-sidebar-items';
 import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sidebar-items';
 import { useWeldbooksSidebarItems } from '@/app/weldbooks/hooks/use-weldbooks-sidebar-items';
-import { useWeldhrSidebarItems } from '@/app/weldhr/payroll/lib/use-weldhr-sidebar-items';
+import { useWeldhrSidebarItems } from '@/app/weldhr/hooks/use-weldhr-sidebar-items';
 import { useSettingsSidebarItems } from '@/app/settings/hooks/use-settings-sidebar-items';
 import { resolveAppCode } from '@/lib/apps/app-registry';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
@@ -57,6 +58,10 @@ function readNavigation(manifest: Record<string, unknown> | null | undefined): U
   return items.length > 0 ? items : null;
 }
 
+/**
+ * The sidebar of the module the current route is in: its static menu plus the
+ * module's own dynamic items, then filtered by the member's permissions.
+ */
 export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], installedApps }: Readonly<UnifiedModuleSidebarProps>) {
   const pathname = usePathname();
   const { t } = useI18n();
@@ -164,7 +169,8 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
       menuItems = weldbooksItems.adjust(staticItems);
       break;
     case 'weldhr':
-      // Payroll items follow the weldhr-payroll flag.
+      // My HR on top for whoever has it, collapsible next to the team view;
+      // payroll items follow the weldhr-payroll flag.
       menuItems = weldhrItems.adjust(staticItems);
       break;
     case 'settings':
@@ -183,7 +189,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
     .map((group) => {
       if (group.customContent) return group;
       const visibleItems = group.items.filter(
-        (item) => !item.permission || isOwner || can(item.permission)
+        (item) => menuPermissionAllows(item.permission, (permission) => isOwner || can(permission))
       );
       return { ...group, items: visibleItems };
     })
