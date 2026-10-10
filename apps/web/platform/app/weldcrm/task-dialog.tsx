@@ -1155,7 +1155,7 @@ export function TaskDialog({
       e.preventDefault();
       const dt = new DataTransfer();
       files.forEach(f => dt.items.add(f));
-      handleUploadFiles(dt.files);
+      void handleUploadFiles(dt.files);
     } else {
       // For plain text paste, prevent rich HTML paste
       e.preventDefault();
@@ -1182,7 +1182,7 @@ export function TaskDialog({
     e.preventDefault();
     setIsDraggingFile(false);
     if (e.dataTransfer?.files?.length) {
-      handleUploadFiles(e.dataTransfer.files);
+      void handleUploadFiles(e.dataTransfer.files);
     }
   }, [handleUploadFiles]);
 
@@ -1438,7 +1438,7 @@ export function TaskDialog({
             type="file"
             multiple
             onChange={(e) => {
-              handleUploadFiles(e.target.files);
+              void handleUploadFiles(e.target.files);
               if (fileInputRef.current) fileInputRef.current.value = '';
             }}
             className="hidden"
