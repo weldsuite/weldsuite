@@ -150,8 +150,8 @@ export async function findOrCreatePersonByEmail(
 
 /**
  * Batch variant. Dedupes by normalized email, does one SELECT to find existing
- * rows, then one INSERT per missing row. Returns one entry per valid input
- * email (skipping invalid ones).
+ * rows, then one multi-row INSERT for the missing ones. Returns one entry per
+ * valid input email (skipping invalid ones), in input order.
  */
 export async function findOrCreatePeopleByEmailBatch(
   db: AnyDb,
@@ -193,6 +193,7 @@ export async function findOrCreatePeopleByEmailBatch(
   }
 
   const results: ResolvedPerson[] = [];
+  const toInsert: (typeof schema.people.$inferInsert)[] = [];
   const now = new Date();
 
   for (const email of emails) {
@@ -207,7 +208,7 @@ export async function findOrCreatePeopleByEmailBatch(
     const displayName = deriveDisplayName(firstName, lastName, fullName, email);
     const id = generateId('person');
 
-    await db.insert(schema.people).values({
+    toInsert.push({
       id,
       createdAt: now,
       updatedAt: now,
@@ -224,6 +225,8 @@ export async function findOrCreatePeopleByEmailBatch(
 
     results.push({ personId: id, email, displayName, created: true });
   }
+
+  if (toInsert.length > 0) await db.insert(schema.people).values(toInsert);
 
   return results;
 }
