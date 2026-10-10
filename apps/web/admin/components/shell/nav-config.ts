@@ -10,6 +10,7 @@ import {
   PackagePlus,
   Phone,
   Receipt,
+  Tags,
   Users,
   Video,
   type LucideIcon,
@@ -52,6 +53,7 @@ export function getNavAreas(): NavArea[] {
   const pricing = getTranslations('host').adminPricing;
   const phonePricing = getTranslations('host').adminPhonePricing;
   const meetAiPricing = getTranslations('host').adminMeetAiPricing;
+  const planPricing = getTranslations('host').adminPlanPricing;
   return [
   {
     key: 'overview',
@@ -70,6 +72,7 @@ export function getNavAreas(): NavArea[] {
           { title: 'App Catalog', href: '/apps', icon: Package },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: 'AI Costs', href: '/ai-costs', icon: Coins },
+          { title: planPricing.navJumpTo, href: '/plan-pricing', icon: Tags },
           { title: pricing.navJumpTo, href: '/domain-pricing', icon: Globe },
           { title: phonePricing.navJumpTo, href: '/phone-pricing', icon: Phone },
           { title: meetAiPricing.navJumpTo, href: '/weldmeet-ai-pricing', icon: Video },
@@ -125,6 +128,18 @@ export function getNavAreas(): NavArea[] {
       {
         group: 'Spend',
         items: [{ title: 'Gateway Costs', href: '/ai-costs', icon: Receipt }],
+      },
+    ],
+  },
+  {
+    key: 'plan-pricing',
+    name: planPricing.navArea,
+    icon: Tags,
+    href: '/plan-pricing',
+    groups: [
+      {
+        group: planPricing.navGroup,
+        items: [{ title: planPricing.navPage, href: '/plan-pricing', icon: Tags }],
       },
     ],
   },
