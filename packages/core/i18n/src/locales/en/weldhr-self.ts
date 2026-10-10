@@ -18,14 +18,12 @@ export const weldhrSelf = {
       noJobTitle: 'No job title',
       manager: 'Manager: {name}',
     },
-    tabs: {
-      overview: 'Overview',
-      leave: 'Leave',
-      declarations: 'Declarations',
-      attendance: 'Attendance',
+    pages: {
+      timeOff: 'Time off',
+      expenses: 'Expenses',
+      schedule: 'Schedule & hours',
       tasks: 'Tasks',
-      reviews: 'Reviews',
-      goals: 'Goals',
+      reviews: 'Reviews & goals',
     },
     common: {
       viewAll: 'View all',

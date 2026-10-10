@@ -50,10 +50,14 @@ describe('AppAccessGuard · EMPLOYEE members', () => {
 
     renderAt('/weldhr/employees');
     expect(replace).toHaveBeenLastCalledWith('/weldhr/me');
+
+    // HR's sick-report lists; employees report sick under My HR → Time off.
+    renderAt('/weldhr/absenteeism');
+    expect(replace).toHaveBeenLastCalledWith('/weldhr/me');
   });
 
-  it('keeps them on My HR, reporting sick, WeldChat and their own settings', () => {
-    for (const path of ['/weldhr/me', '/weldhr/absenteeism', '/weldchat', '/weldchat/c/general', '/settings', '/settings/notifications']) {
+  it('keeps them on My HR, WeldChat and their own settings', () => {
+    for (const path of ['/weldhr/me', '/weldhr/me/time-off', '/weldchat', '/weldchat/c/general', '/settings', '/settings/notifications']) {
       renderAt(path);
     }
     expect(replace).not.toHaveBeenCalled();

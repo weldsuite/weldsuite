@@ -1,17 +1,9 @@
-/** Small pieces shared by the My HR tabs. */
+/** Small pieces shared by the My HR pages. */
 
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 
-export type MeTabId = 'overview' | 'leave' | 'declarations' | 'attendance' | 'tasks' | 'reviews' | 'goals';
-
-export const ME_TAB_IDS: readonly MeTabId[] = ['overview', 'leave', 'declarations', 'attendance', 'tasks', 'reviews', 'goals'];
-
-export function isMeTabId(value: string | undefined): value is MeTabId {
-  return ME_TAB_IDS.some((id) => id === value);
-}
-
-/** Centered spinner for a tab (or a card inside one) that is still loading. */
+/** Centered spinner for a section (or a card inside one) that is still loading. */
 export function TabLoading() {
   return (
     <div className="flex justify-center py-10">

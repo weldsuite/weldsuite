@@ -6,6 +6,7 @@ import { CreateWorkspaceDialog } from '@/components/workspace/create-workspace-d
 import { useI18n } from '@/lib/i18n/provider';
 import { useWorkspace } from '@/contexts/workspace-context';
 import { usePermissions } from '@weldsuite/permissions/react';
+import { menuPermissionAllows } from './menu-permission';
 import { MODULE_CONFIGS, getModuleKey } from './module-sidebar-configs';
 import { buildUserAppSidebarConfig, type UserAppNavItem } from './user-app-sidebar';
 import { useInstalledUserApps } from '@/hooks/queries/use-user-apps-queries';
@@ -20,6 +21,7 @@ import { useAgentsSidebarItems } from '@/app/agents/hooks/use-agents-sidebar-ite
 import { useWeldconnectSidebarItems } from '@/app/weldconnect/hooks/use-weldconnect-sidebar-items';
 import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sidebar-items';
 import { useWeldbooksSidebarItems } from '@/app/weldbooks/hooks/use-weldbooks-sidebar-items';
+import { useWeldhrSidebarItems } from '@/app/weldhr/hooks/use-weldhr-sidebar-items';
 import { resolveAppCode } from '@/lib/apps/app-registry';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 
@@ -89,6 +91,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
   const weldconnectItems = useWeldconnectSidebarItems(moduleKey === 'weldconnect');
   const weldknowItems = useWeldknowSidebarItems(moduleKey === 'weldknow');
   const weldbooksItems = useWeldbooksSidebarItems(moduleKey === 'weldbooks');
+  const weldhrItems = useWeldhrSidebarItems(moduleKey === 'weldhr');
 
   const config = userAppConfig ?? (moduleKey && !userAppCode ? MODULE_CONFIGS[moduleKey] : null);
   if (!config) return null;
@@ -137,6 +140,10 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
       // Tax item gated + labelled by the entity's jurisdiction.
       menuItems = weldbooksItems.adjust(staticItems);
       break;
+    case 'weldhr':
+      // My HR on top for whoever has it, collapsible next to the team view.
+      menuItems = weldhrItems.adjust(staticItems);
+      break;
     default:
       menuItems = staticItems;
   }
@@ -148,7 +155,7 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }
     .map((group) => {
       if (group.customContent) return group;
       const visibleItems = group.items.filter(
-        (item) => !item.permission || isOwner || can(item.permission)
+        (item) => menuPermissionAllows(item.permission, (permission) => isOwner || can(permission))
       );
       return { ...group, items: visibleItems };
     })

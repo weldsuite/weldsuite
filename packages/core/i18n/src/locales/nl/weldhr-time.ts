@@ -168,7 +168,6 @@ export const weldhrTime = {
   absenteeism: {
     title: 'Verzuim',
     tabs: {
-      mine: 'Mijn verzuim',
       ongoing: 'Lopend',
       completed: 'Afgerond',
     },
@@ -186,7 +185,6 @@ export const weldhrTime = {
     reportRecovered: 'Beter melden',
     mine: {
       loadFailed: 'Je ziekmeldingen konden niet worden geladen.',
-      notSetUp: 'Je account is nog niet gekoppeld aan een medewerker. Vraag HR om dit in te stellen, daarna kun je je hier ziek melden.',
       well: {
         title: 'Je bent niet ziek gemeld',
         description: 'Voel je je niet goed? Meld je hier ziek, dan weet je werkgever het meteen.',

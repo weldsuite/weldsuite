@@ -11,19 +11,17 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
 import { useHrDashboard } from '@/hooks/queries/use-weldhr-queries';
+import { HR_DASHBOARD_PERMISSIONS, MY_HR_PATHS } from './access';
 import { DashboardPage, KpiCard, KpiGrid, SectionCard, EmptyText, useHrBreadcrumbs } from './components/page-kit';
 import { EmployeeAvatar, ErrorBanner, errorMessage, formatDate } from './components/shared';
-
-/** Any of these opens the back-office dashboard; without one, a member with `employees:self` lands on My HR. */
-const BACK_OFFICE_PERMISSIONS = ['employees:read', 'attendance:read', 'leave:read', 'coaching:read', 'evaluations:read'];
 
 export default function WeldHrDashboardPage() {
   const { canAny, can, isLoading } = usePermissions();
   const navigate = useNavigate();
-  const selfServiceOnly = !isLoading && !canAny(...BACK_OFFICE_PERMISSIONS) && can('employees:self');
+  const selfServiceOnly = !isLoading && !canAny(...HR_DASHBOARD_PERMISSIONS) && can('employees:self');
 
   useEffect(() => {
-    if (selfServiceOnly) void navigate({ to: '/weldhr/me', replace: true });
+    if (selfServiceOnly) void navigate({ to: MY_HR_PATHS.overview, replace: true });
   }, [selfServiceOnly, navigate]);
 
   // Permissions are still loading, or the redirect above is in flight: do not fire the dashboard query.

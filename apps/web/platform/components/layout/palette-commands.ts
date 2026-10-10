@@ -36,6 +36,7 @@ import {
   Webhook,
 } from 'lucide-react';
 import type { TranslationsType } from '@/lib/i18n/types';
+import { menuPermissionAllows, type MenuPermission } from './menu-permission';
 import { MODULE_CONFIGS } from './module-sidebar-configs';
 
 export type PaletteIcon = ComponentType<{ className?: string }>;
@@ -69,7 +70,7 @@ export interface InstalledAppRef {
 export interface SidebarPage {
   title: string;
   href: string;
-  permission?: string;
+  permission?: MenuPermission;
   icon: PaletteIcon;
 }
 
@@ -118,7 +119,7 @@ export function navigationCommandsForApps(
     seenApps.add(app.appCode);
 
     const root = appHref(app);
-    const pages = pagesForApp(app.appCode).filter((page) => canSee(page.permission));
+    const pages = pagesForApp(app.appCode).filter((page) => menuPermissionAllows(page.permission, canSee));
     const rootPage = pages.find((page) => page.href === root);
 
     commands.push({

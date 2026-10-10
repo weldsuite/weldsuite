@@ -108,7 +108,14 @@ export const navigation = {
         projects: 'Projecten',
       },
       weldhr: {
-        myHr: 'Mijn HR',
+        me: {
+          overview: 'Overzicht',
+          timeOff: 'Verlof & ziekte',
+          expenses: 'Onkosten',
+          schedule: 'Rooster & uren',
+          tasks: 'Taken',
+          reviews: 'Beoordelingen & doelen',
+        },
         dashboard: 'Dashboard',
         employees: 'Medewerkers',
         attendance: 'Aanwezigheid',
@@ -117,7 +124,8 @@ export const navigation = {
         declarations: 'Declaraties',
         portal: 'Medewerkersportaal',
         groups: {
-          people: 'Mensen',
+          myHr: 'Mijn HR',
+          team: 'Team',
           time: 'Tijd',
           expenses: 'Onkosten',
         },

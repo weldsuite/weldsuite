@@ -72,6 +72,7 @@ import { Route as W9TokenRouteImport } from './routes/w9/$token'
 import { Route as DocumentsFileIdRouteImport } from './routes/documents/$fileId'
 import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/route'
 import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
+import { Route as WeldhrMeRouteRouteImport } from './routes/weldhr/me/route'
 import { Route as WeldcrmPeopleRouteRouteImport } from './routes/weldcrm/people/route'
 import { Route as WeldcrmCompaniesRouteRouteImport } from './routes/weldcrm/companies/route'
 import { Route as PreviewWeldmailRouteRouteImport } from './routes/preview/weldmail/route'
@@ -269,6 +270,11 @@ import { Route as WeldmailAiSummaryIndexRouteImport } from './routes/weldmail/ai
 import { Route as WeldmailAiSmartReplyIndexRouteImport } from './routes/weldmail/ai/smart-reply/index'
 import { Route as WeldmailAccountIdLabelSlugIndexRouteImport } from './routes/weldmail/$accountId/$labelSlug/index'
 import { Route as WeldknowPagePageIdIndexRouteImport } from './routes/weldknow/page/$pageId/index'
+import { Route as WeldhrMeTimeOffIndexRouteImport } from './routes/weldhr/me/time-off/index'
+import { Route as WeldhrMeTasksIndexRouteImport } from './routes/weldhr/me/tasks/index'
+import { Route as WeldhrMeScheduleIndexRouteImport } from './routes/weldhr/me/schedule/index'
+import { Route as WeldhrMeReviewsIndexRouteImport } from './routes/weldhr/me/reviews/index'
+import { Route as WeldhrMeExpensesIndexRouteImport } from './routes/weldhr/me/expenses/index'
 import { Route as WeldhrEmployeesEmployeeIdIndexRouteImport } from './routes/weldhr/employees/$employeeId/index'
 import { Route as WeldhostDomainsSearchIndexRouteImport } from './routes/weldhost/domains/search/index'
 import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldhost/domains/register/index'
@@ -775,6 +781,11 @@ const WeldmailAccountIdRouteRoute = WeldmailAccountIdRouteRouteImport.update({
   path: '/$accountId',
   getParentRoute: () => WeldmailRouteRoute,
 } as any)
+const WeldhrMeRouteRoute = WeldhrMeRouteRouteImport.update({
+  id: '/me',
+  path: '/me',
+  getParentRoute: () => WeldhrRouteRoute,
+} as any)
 const WeldcrmPeopleRouteRoute = WeldcrmPeopleRouteRouteImport.update({
   id: '/people',
   path: '/people',
@@ -954,9 +965,9 @@ const WeldhrPortalIndexRoute = WeldhrPortalIndexRouteImport.update({
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
 const WeldhrMeIndexRoute = WeldhrMeIndexRouteImport.update({
-  id: '/me/',
-  path: '/me/',
-  getParentRoute: () => WeldhrRouteRoute,
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldhrMeRouteRoute,
 } as any)
 const WeldhrLeaveIndexRoute = WeldhrLeaveIndexRouteImport.update({
   id: '/leave/',
@@ -1805,6 +1816,31 @@ const WeldknowPagePageIdIndexRoute = WeldknowPagePageIdIndexRouteImport.update({
   id: '/page/$pageId/',
   path: '/page/$pageId/',
   getParentRoute: () => WeldknowRouteRoute,
+} as any)
+const WeldhrMeTimeOffIndexRoute = WeldhrMeTimeOffIndexRouteImport.update({
+  id: '/time-off/',
+  path: '/time-off/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMeTasksIndexRoute = WeldhrMeTasksIndexRouteImport.update({
+  id: '/tasks/',
+  path: '/tasks/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMeScheduleIndexRoute = WeldhrMeScheduleIndexRouteImport.update({
+  id: '/schedule/',
+  path: '/schedule/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMeReviewsIndexRoute = WeldhrMeReviewsIndexRouteImport.update({
+  id: '/reviews/',
+  path: '/reviews/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMeExpensesIndexRoute = WeldhrMeExpensesIndexRouteImport.update({
+  id: '/expenses/',
+  path: '/expenses/',
+  getParentRoute: () => WeldhrMeRouteRoute,
 } as any)
 const WeldhrEmployeesEmployeeIdIndexRoute =
   WeldhrEmployeesEmployeeIdIndexRouteImport.update({
@@ -2981,6 +3017,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
+  '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
   '/documents/$fileId': typeof DocumentsFileIdRoute
@@ -3300,6 +3337,11 @@ export interface FileRoutesByFullPath {
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search/': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId/': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/expenses/': typeof WeldhrMeExpensesIndexRoute
+  '/weldhr/me/reviews/': typeof WeldhrMeReviewsIndexRoute
+  '/weldhr/me/schedule/': typeof WeldhrMeScheduleIndexRoute
+  '/weldhr/me/tasks/': typeof WeldhrMeTasksIndexRoute
+  '/weldhr/me/time-off/': typeof WeldhrMeTimeOffIndexRoute
   '/weldknow/page/$pageId/': typeof WeldknowPagePageIdIndexRoute
   '/weldmail/$accountId/$labelSlug/': typeof WeldmailAccountIdLabelSlugIndexRoute
   '/weldmail/ai/smart-reply/': typeof WeldmailAiSmartReplyIndexRoute
@@ -3714,6 +3756,11 @@ export interface FileRoutesByTo {
   '/weldhost/domains/register': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/expenses': typeof WeldhrMeExpensesIndexRoute
+  '/weldhr/me/reviews': typeof WeldhrMeReviewsIndexRoute
+  '/weldhr/me/schedule': typeof WeldhrMeScheduleIndexRoute
+  '/weldhr/me/tasks': typeof WeldhrMeTasksIndexRoute
+  '/weldhr/me/time-off': typeof WeldhrMeTimeOffIndexRoute
   '/weldknow/page/$pageId': typeof WeldknowPagePageIdIndexRoute
   '/weldmail/$accountId/$labelSlug': typeof WeldmailAccountIdLabelSlugIndexRoute
   '/weldmail/ai/smart-reply': typeof WeldmailAiSmartReplyIndexRoute
@@ -3849,6 +3896,7 @@ export interface FileRoutesById {
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
+  '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
   '/documents/$fileId': typeof DocumentsFileIdRoute
@@ -4168,6 +4216,11 @@ export interface FileRoutesById {
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search/': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId/': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/expenses/': typeof WeldhrMeExpensesIndexRoute
+  '/weldhr/me/reviews/': typeof WeldhrMeReviewsIndexRoute
+  '/weldhr/me/schedule/': typeof WeldhrMeScheduleIndexRoute
+  '/weldhr/me/tasks/': typeof WeldhrMeTasksIndexRoute
+  '/weldhr/me/time-off/': typeof WeldhrMeTimeOffIndexRoute
   '/weldknow/page/$pageId/': typeof WeldknowPagePageIdIndexRoute
   '/weldmail/$accountId/$labelSlug/': typeof WeldmailAccountIdLabelSlugIndexRoute
   '/weldmail/ai/smart-reply/': typeof WeldmailAiSmartReplyIndexRoute
@@ -4303,6 +4356,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail'
     | '/weldcrm/companies'
     | '/weldcrm/people'
+    | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
     | '/documents/$fileId'
@@ -4622,6 +4676,11 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register/'
     | '/weldhost/domains/search/'
     | '/weldhr/employees/$employeeId/'
+    | '/weldhr/me/expenses/'
+    | '/weldhr/me/reviews/'
+    | '/weldhr/me/schedule/'
+    | '/weldhr/me/tasks/'
+    | '/weldhr/me/time-off/'
     | '/weldknow/page/$pageId/'
     | '/weldmail/$accountId/$labelSlug/'
     | '/weldmail/ai/smart-reply/'
@@ -5036,6 +5095,11 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register'
     | '/weldhost/domains/search'
     | '/weldhr/employees/$employeeId'
+    | '/weldhr/me/expenses'
+    | '/weldhr/me/reviews'
+    | '/weldhr/me/schedule'
+    | '/weldhr/me/tasks'
+    | '/weldhr/me/time-off'
     | '/weldknow/page/$pageId'
     | '/weldmail/$accountId/$labelSlug'
     | '/weldmail/ai/smart-reply'
@@ -5170,6 +5234,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail'
     | '/weldcrm/companies'
     | '/weldcrm/people'
+    | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
     | '/documents/$fileId'
@@ -5489,6 +5554,11 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register/'
     | '/weldhost/domains/search/'
     | '/weldhr/employees/$employeeId/'
+    | '/weldhr/me/expenses/'
+    | '/weldhr/me/reviews/'
+    | '/weldhr/me/schedule/'
+    | '/weldhr/me/tasks/'
+    | '/weldhr/me/time-off/'
     | '/weldknow/page/$pageId/'
     | '/weldmail/$accountId/$labelSlug/'
     | '/weldmail/ai/smart-reply/'
@@ -6077,6 +6147,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldmailAccountIdRouteRouteImport
       parentRoute: typeof WeldmailRouteRoute
     }
+    '/weldhr/me': {
+      id: '/weldhr/me'
+      path: '/me'
+      fullPath: '/weldhr/me'
+      preLoaderRoute: typeof WeldhrMeRouteRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
     '/weldcrm/people': {
       id: '/weldcrm/people'
       path: '/people'
@@ -6324,10 +6401,10 @@ declare module '@tanstack/react-router' {
     }
     '/weldhr/me/': {
       id: '/weldhr/me/'
-      path: '/me'
+      path: '/'
       fullPath: '/weldhr/me/'
       preLoaderRoute: typeof WeldhrMeIndexRouteImport
-      parentRoute: typeof WeldhrRouteRoute
+      parentRoute: typeof WeldhrMeRouteRoute
     }
     '/weldhr/leave/': {
       id: '/weldhr/leave/'
@@ -7455,6 +7532,41 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldknow/page/$pageId/'
       preLoaderRoute: typeof WeldknowPagePageIdIndexRouteImport
       parentRoute: typeof WeldknowRouteRoute
+    }
+    '/weldhr/me/time-off/': {
+      id: '/weldhr/me/time-off/'
+      path: '/time-off'
+      fullPath: '/weldhr/me/time-off/'
+      preLoaderRoute: typeof WeldhrMeTimeOffIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/tasks/': {
+      id: '/weldhr/me/tasks/'
+      path: '/tasks'
+      fullPath: '/weldhr/me/tasks/'
+      preLoaderRoute: typeof WeldhrMeTasksIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/schedule/': {
+      id: '/weldhr/me/schedule/'
+      path: '/schedule'
+      fullPath: '/weldhr/me/schedule/'
+      preLoaderRoute: typeof WeldhrMeScheduleIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/reviews/': {
+      id: '/weldhr/me/reviews/'
+      path: '/reviews'
+      fullPath: '/weldhr/me/reviews/'
+      preLoaderRoute: typeof WeldhrMeReviewsIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/expenses/': {
+      id: '/weldhr/me/expenses/'
+      path: '/expenses'
+      fullPath: '/weldhr/me/expenses/'
+      preLoaderRoute: typeof WeldhrMeExpensesIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
     }
     '/weldhr/employees/$employeeId/': {
       id: '/weldhr/employees/$employeeId/'
@@ -9706,27 +9818,49 @@ const WeldhostRouteRouteWithChildren = WeldhostRouteRoute._addFileChildren(
   WeldhostRouteRouteChildren,
 )
 
+interface WeldhrMeRouteRouteChildren {
+  WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
+  WeldhrMeExpensesIndexRoute: typeof WeldhrMeExpensesIndexRoute
+  WeldhrMeReviewsIndexRoute: typeof WeldhrMeReviewsIndexRoute
+  WeldhrMeScheduleIndexRoute: typeof WeldhrMeScheduleIndexRoute
+  WeldhrMeTasksIndexRoute: typeof WeldhrMeTasksIndexRoute
+  WeldhrMeTimeOffIndexRoute: typeof WeldhrMeTimeOffIndexRoute
+}
+
+const WeldhrMeRouteRouteChildren: WeldhrMeRouteRouteChildren = {
+  WeldhrMeIndexRoute: WeldhrMeIndexRoute,
+  WeldhrMeExpensesIndexRoute: WeldhrMeExpensesIndexRoute,
+  WeldhrMeReviewsIndexRoute: WeldhrMeReviewsIndexRoute,
+  WeldhrMeScheduleIndexRoute: WeldhrMeScheduleIndexRoute,
+  WeldhrMeTasksIndexRoute: WeldhrMeTasksIndexRoute,
+  WeldhrMeTimeOffIndexRoute: WeldhrMeTimeOffIndexRoute,
+}
+
+const WeldhrMeRouteRouteWithChildren = WeldhrMeRouteRoute._addFileChildren(
+  WeldhrMeRouteRouteChildren,
+)
+
 interface WeldhrRouteRouteChildren {
+  WeldhrMeRouteRoute: typeof WeldhrMeRouteRouteWithChildren
   WeldhrIndexRoute: typeof WeldhrIndexRoute
   WeldhrAbsenteeismIndexRoute: typeof WeldhrAbsenteeismIndexRoute
   WeldhrAttendanceIndexRoute: typeof WeldhrAttendanceIndexRoute
   WeldhrDeclarationsIndexRoute: typeof WeldhrDeclarationsIndexRoute
   WeldhrEmployeesIndexRoute: typeof WeldhrEmployeesIndexRoute
   WeldhrLeaveIndexRoute: typeof WeldhrLeaveIndexRoute
-  WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
   WeldhrPortalIndexRoute: typeof WeldhrPortalIndexRoute
   WeldhrSettingsIndexRoute: typeof WeldhrSettingsIndexRoute
   WeldhrEmployeesEmployeeIdIndexRoute: typeof WeldhrEmployeesEmployeeIdIndexRoute
 }
 
 const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
+  WeldhrMeRouteRoute: WeldhrMeRouteRouteWithChildren,
   WeldhrIndexRoute: WeldhrIndexRoute,
   WeldhrAbsenteeismIndexRoute: WeldhrAbsenteeismIndexRoute,
   WeldhrAttendanceIndexRoute: WeldhrAttendanceIndexRoute,
   WeldhrDeclarationsIndexRoute: WeldhrDeclarationsIndexRoute,
   WeldhrEmployeesIndexRoute: WeldhrEmployeesIndexRoute,
   WeldhrLeaveIndexRoute: WeldhrLeaveIndexRoute,
-  WeldhrMeIndexRoute: WeldhrMeIndexRoute,
   WeldhrPortalIndexRoute: WeldhrPortalIndexRoute,
   WeldhrSettingsIndexRoute: WeldhrSettingsIndexRoute,
   WeldhrEmployeesEmployeeIdIndexRoute: WeldhrEmployeesEmployeeIdIndexRoute,
