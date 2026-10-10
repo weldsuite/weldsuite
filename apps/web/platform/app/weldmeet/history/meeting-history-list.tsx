@@ -439,19 +439,9 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
     return (
       <div
         key={meeting.id}
-        role="button"
-        tabIndex={0}
-        onClick={openMeeting}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            void openMeeting();
-          }
-        }}
         className={cn(
-          'flex items-center gap-6 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
-          meeting.status === 'cancelled' && '[&>*]:opacity-50',
+          'relative flex items-center gap-6 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group',
+          meeting.status === 'cancelled' && '[&>div]:opacity-50',
         )}
       >
         {/* Meeting (+ recording state) */}
@@ -500,7 +490,7 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -580,6 +570,13 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+
+        <button
+          type="button"
+          aria-label={meeting.title || t.historyPage.actions.viewDetails}
+          onClick={openMeeting}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
       </div>
     );
   }, [navigate, t, deleteMeeting, workspaceId, canPlayRecordings, canDeleteRecordings, canUseRecordingAi, downloadRecording]);
