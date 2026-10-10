@@ -10,7 +10,7 @@ export function TokenBridge({ children }: Readonly<{ children: ReactNode }>) {
   const { getToken, isSignedIn } = useAuth();
 
   if (isSignedIn) {
-    setPersonalApiTokenGetter(async () => getToken());
+    setPersonalApiTokenGetter(() => getToken());
   } else {
     setPersonalApiTokenGetter(null);
   }
