@@ -1411,7 +1411,7 @@ export function TaskDetailContent({
                 type="file"
                 multiple
                 onChange={(e) => {
-                  handleFiles(e.target.files);
+                  void handleFiles(e.target.files);
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
                 className="hidden"
@@ -2758,7 +2758,7 @@ export function DescriptionField({
         e.preventDefault();
         const dt = new DataTransfer();
         files.forEach(f => dt.items.add(f));
-        handleUploadFiles(dt.files);
+        void handleUploadFiles(dt.files);
         return;
       }
     }
@@ -2842,7 +2842,7 @@ export function DescriptionField({
       }}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setIsDraggingFile(true); } }}
       onDragLeave={(e) => { e.preventDefault(); setIsDraggingFile(false); }}
-      onDrop={(e) => { e.preventDefault(); setIsDraggingFile(false); if (e.dataTransfer?.files?.length) handleUploadFiles(e.dataTransfer.files); }}
+      onDrop={(e) => { e.preventDefault(); setIsDraggingFile(false); if (e.dataTransfer?.files?.length) void handleUploadFiles(e.dataTransfer.files); }}
     >
       {isEditing ? (
         <>
