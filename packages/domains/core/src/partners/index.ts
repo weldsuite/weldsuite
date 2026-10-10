@@ -9,3 +9,6 @@ export * from './types';
 export * from './licences';
 export * from './partners';
 export * from './statements';
+export * from './billing';
+export * from './portal';
+export * from './provisioning';

@@ -1,6 +1,6 @@
 # Reseller licensing (partner-managed workspaces)
 
-Status: **Phase 0 done** (credit self-grant closed, server-side app gate in place but dormant). No schema or migration yet.
+Status: **Phases 0–3 in progress** in one PR. Schema is in `packages/core/db/src/schema/partners.ts`; the master migration is not generated yet (the owner generates it).
 
 ## Problem
 
@@ -184,7 +184,7 @@ WeldBooks; the recorded price would then be the invoiced price.
 1. Freeze the previous month's statement.
 2. Create Stripe invoice items on the partner's Stripe customer, one line per workspace.
 3. Finalise a Stripe invoice with `collection_method: send_invoice` and net terms from the contract (e.g. 30 days), or charge a card on file.
-4. Existing `invoice.*` webhooks already record invoices in `billing_invoices`. Add `partner_id` so they show in the portal.
+4. The statement row stores its Stripe invoice (id, URL, PDF, due date, paid date). Partner invoices are kept out of `billing_invoices`, which requires a workspace; `invoice.paid` for a statement marks it paid.
 
 **Unpaid invoices** (days counted from the invoice due date; both numbers are on
 the contract, defaults 14 and 30)
@@ -290,8 +290,7 @@ allow `scale` or `enterprise`.
 - `partner_id` (nullable FK).
 - `billing_mode` (`direct` | `partner`, default `direct`).
 
-**On `billing_invoices`**
-- `partner_id` (nullable), so a partner invoice is not tied to a workspace.
+**Partner invoices** live on `partner_statements` (`stripe_invoice_id`, URL, PDF, `due_at`, `paid_at`), not in `billing_invoices`, whose `workspace_id` is required.
 
 **`partner_workspace_requests`** (territory signups, Phase 3)
 - `id`, `partner_id`, `requester_user_id`, `requester_email`, `company_name`, `country_code`.
@@ -340,7 +339,7 @@ The gate goes into every module worker at once, because they all use `apiAuth()`
 - At period start, set `monthlyAllocation` and `planCredits` to the licence's `monthly_credits`.
 - Grant up to the allowance with idempotency key `partner_grant:{ws}:{periodStart}`.
 - **Expire** the unused balance beyond the rollover cap with a negative `adjustment` (`credit_rollover_expired`), so "resets monthly" is true.
-- Purchased extra packs (below) are tracked as a separate transaction type and never expire.
+- Extra credits a partner grants (below) belong to the month they are granted in. At the reset, unused credits beyond the rollover cap expire whatever their source; a negative balance (debt from settled calls) is carried, never forgiven.
 - The period is the calendar month in UTC, matching the statement.
 
 **Licence changes mid-month**
