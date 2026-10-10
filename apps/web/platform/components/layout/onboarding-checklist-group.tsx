@@ -45,7 +45,11 @@ function ChecklistItemRow({ item, label }: Readonly<{ item: AppChecklistItem; la
 export function OnboardingChecklist({ collapsed }: Readonly<{ collapsed: boolean }>) {
   const pathname = usePathname();
   const { t } = useI18n();
-  const moduleKey = getModuleKey(pathname);
+  const routeModuleKey = getModuleKey(pathname);
+  // Settings and custom objects use the module sidebar too, but they are not
+  // apps with an onboarding checklist.
+  const moduleKey =
+    routeModuleKey === 'settings' || routeModuleKey?.startsWith('object:') ? null : routeModuleKey;
   const items = useAppChecklistItems(moduleKey);
   const dismiss = useDismissOnboardingChecklist();
   const [isCollapsed, setIsCollapsed] = useState(false);

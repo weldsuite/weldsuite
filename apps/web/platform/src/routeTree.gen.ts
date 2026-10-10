@@ -37,7 +37,6 @@ import { Route as PartnerRouteRouteImport } from './routes/partner/route'
 import { Route as AuthRouteRouteImport } from './routes/auth/route'
 import { Route as AppstoreRouteRouteImport } from './routes/appstore/route'
 import { Route as AgentsRouteRouteImport } from './routes/agents/route'
-import { Route as DashboardRouteRouteImport } from './routes/_dashboard/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WeldstashIndexRouteImport } from './routes/weldstash/index'
 import { Route as WeldpassIndexRouteImport } from './routes/weldpass/index'
@@ -74,6 +73,7 @@ import { Route as W9TokenRouteImport } from './routes/w9/$token'
 import { Route as DocumentsFileIdRouteImport } from './routes/documents/$fileId'
 import { Route as WeldmailSetupRouteRouteImport } from './routes/weldmail/setup/route'
 import { Route as WeldmailAccountIdRouteRouteImport } from './routes/weldmail/$accountId/route'
+import { Route as WeldhrMeRouteRouteImport } from './routes/weldhr/me/route'
 import { Route as WeldcrmPeopleRouteRouteImport } from './routes/weldcrm/people/route'
 import { Route as WeldcrmCompaniesRouteRouteImport } from './routes/weldcrm/companies/route'
 import { Route as PreviewWeldmailRouteRouteImport } from './routes/preview/weldmail/route'
@@ -282,6 +282,12 @@ import { Route as WeldhrPayrollSettingsIndexRouteImport } from './routes/weldhr/
 import { Route as WeldhrPayrollRunsIndexRouteImport } from './routes/weldhr/payroll/runs/index'
 import { Route as WeldhrPayrollFilingsIndexRouteImport } from './routes/weldhr/payroll/filings/index'
 import { Route as WeldhrPayrollEmployeesIndexRouteImport } from './routes/weldhr/payroll/employees/index'
+import { Route as WeldhrMeTimeOffIndexRouteImport } from './routes/weldhr/me/time-off/index'
+import { Route as WeldhrMeTasksIndexRouteImport } from './routes/weldhr/me/tasks/index'
+import { Route as WeldhrMeScheduleIndexRouteImport } from './routes/weldhr/me/schedule/index'
+import { Route as WeldhrMeReviewsIndexRouteImport } from './routes/weldhr/me/reviews/index'
+import { Route as WeldhrMePayrollIndexRouteImport } from './routes/weldhr/me/payroll/index'
+import { Route as WeldhrMeExpensesIndexRouteImport } from './routes/weldhr/me/expenses/index'
 import { Route as WeldhrEmployeesEmployeeIdIndexRouteImport } from './routes/weldhr/employees/$employeeId/index'
 import { Route as WeldhostDomainsSearchIndexRouteImport } from './routes/weldhost/domains/search/index'
 import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldhost/domains/register/index'
@@ -387,8 +393,6 @@ import { Route as PreviewSettingsTeamIndexRouteImport } from './routes/preview/s
 import { Route as PreviewAppstoreCodeIndexRouteImport } from './routes/preview/appstore/$code/index'
 import { Route as PartnerWorkspacesWorkspaceIdIndexRouteImport } from './routes/partner/workspaces/$workspaceId/index'
 import { Route as PartnerStatementsStatementIdIndexRouteImport } from './routes/partner/statements/$statementId/index'
-import { Route as DashboardCheckoutSuccessIndexRouteImport } from './routes/_dashboard/checkout/success/index'
-import { Route as DashboardCheckoutCancelIndexRouteImport } from './routes/_dashboard/checkout/cancel/index'
 import { Route as WeldchatDmGroupChannelIdRouteImport } from './routes/weldchat/dm/group/$channelId'
 import { Route as WeldchatChannelIdThreadMessageIdRouteImport } from './routes/weldchat/$channelId/thread/$messageId'
 import { Route as SettingsIntegrationsHubspotCallbackRouteImport } from './routes/settings/integrations/hubspot/callback'
@@ -618,10 +622,6 @@ const AgentsRouteRoute = AgentsRouteRouteImport.update({
   path: '/agents',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardRouteRoute = DashboardRouteRouteImport.update({
-  id: '/_dashboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -801,6 +801,11 @@ const WeldmailAccountIdRouteRoute = WeldmailAccountIdRouteRouteImport.update({
   id: '/$accountId',
   path: '/$accountId',
   getParentRoute: () => WeldmailRouteRoute,
+} as any)
+const WeldhrMeRouteRoute = WeldhrMeRouteRouteImport.update({
+  id: '/me',
+  path: '/me',
+  getParentRoute: () => WeldhrRouteRoute,
 } as any)
 const WeldcrmPeopleRouteRoute = WeldcrmPeopleRouteRouteImport.update({
   id: '/people',
@@ -986,9 +991,9 @@ const WeldhrPayrollIndexRoute = WeldhrPayrollIndexRouteImport.update({
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
 const WeldhrMeIndexRoute = WeldhrMeIndexRouteImport.update({
-  id: '/me/',
-  path: '/me/',
-  getParentRoute: () => WeldhrRouteRoute,
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldhrMeRouteRoute,
 } as any)
 const WeldhrLeaveIndexRoute = WeldhrLeaveIndexRouteImport.update({
   id: '/leave/',
@@ -1891,6 +1896,36 @@ const WeldhrPayrollEmployeesIndexRoute =
     path: '/payroll/employees/',
     getParentRoute: () => WeldhrRouteRoute,
   } as any)
+const WeldhrMeTimeOffIndexRoute = WeldhrMeTimeOffIndexRouteImport.update({
+  id: '/time-off/',
+  path: '/time-off/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMeTasksIndexRoute = WeldhrMeTasksIndexRouteImport.update({
+  id: '/tasks/',
+  path: '/tasks/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMeScheduleIndexRoute = WeldhrMeScheduleIndexRouteImport.update({
+  id: '/schedule/',
+  path: '/schedule/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMeReviewsIndexRoute = WeldhrMeReviewsIndexRouteImport.update({
+  id: '/reviews/',
+  path: '/reviews/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMePayrollIndexRoute = WeldhrMePayrollIndexRouteImport.update({
+  id: '/payroll/',
+  path: '/payroll/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
+const WeldhrMeExpensesIndexRoute = WeldhrMeExpensesIndexRouteImport.update({
+  id: '/expenses/',
+  path: '/expenses/',
+  getParentRoute: () => WeldhrMeRouteRoute,
+} as any)
 const WeldhrEmployeesEmployeeIdIndexRoute =
   WeldhrEmployeesEmployeeIdIndexRouteImport.update({
     id: '/employees/$employeeId/',
@@ -2508,18 +2543,6 @@ const PartnerStatementsStatementIdIndexRoute =
     path: '/statements/$statementId/',
     getParentRoute: () => PartnerRouteRoute,
   } as any)
-const DashboardCheckoutSuccessIndexRoute =
-  DashboardCheckoutSuccessIndexRouteImport.update({
-    id: '/checkout/success/',
-    path: '/checkout/success/',
-    getParentRoute: () => DashboardRouteRoute,
-  } as any)
-const DashboardCheckoutCancelIndexRoute =
-  DashboardCheckoutCancelIndexRouteImport.update({
-    id: '/checkout/cancel/',
-    path: '/checkout/cancel/',
-    getParentRoute: () => DashboardRouteRoute,
-  } as any)
 const WeldchatDmGroupChannelIdRoute =
   WeldchatDmGroupChannelIdRouteImport.update({
     id: '/dm/group/$channelId',
@@ -3090,6 +3113,7 @@ export interface FileRoutesByFullPath {
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
+  '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
   '/documents/$fileId': typeof DocumentsFileIdRoute
@@ -3313,8 +3337,6 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
-  '/checkout/cancel/': typeof DashboardCheckoutCancelIndexRoute
-  '/checkout/success/': typeof DashboardCheckoutSuccessIndexRoute
   '/partner/statements/$statementId/': typeof PartnerStatementsStatementIdIndexRoute
   '/partner/workspaces/$workspaceId/': typeof PartnerWorkspacesWorkspaceIdIndexRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
@@ -3420,6 +3442,12 @@ export interface FileRoutesByFullPath {
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search/': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId/': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/expenses/': typeof WeldhrMeExpensesIndexRoute
+  '/weldhr/me/payroll/': typeof WeldhrMePayrollIndexRoute
+  '/weldhr/me/reviews/': typeof WeldhrMeReviewsIndexRoute
+  '/weldhr/me/schedule/': typeof WeldhrMeScheduleIndexRoute
+  '/weldhr/me/tasks/': typeof WeldhrMeTasksIndexRoute
+  '/weldhr/me/time-off/': typeof WeldhrMeTimeOffIndexRoute
   '/weldhr/payroll/employees/': typeof WeldhrPayrollEmployeesIndexRoute
   '/weldhr/payroll/filings/': typeof WeldhrPayrollFilingsIndexRoute
   '/weldhr/payroll/runs/': typeof WeldhrPayrollRunsIndexRoute
@@ -3743,8 +3771,6 @@ export interface FileRoutesByTo {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
-  '/checkout/cancel': typeof DashboardCheckoutCancelIndexRoute
-  '/checkout/success': typeof DashboardCheckoutSuccessIndexRoute
   '/partner/statements/$statementId': typeof PartnerStatementsStatementIdIndexRoute
   '/partner/workspaces/$workspaceId': typeof PartnerWorkspacesWorkspaceIdIndexRoute
   '/preview/appstore/$code': typeof PreviewAppstoreCodeIndexRoute
@@ -3850,6 +3876,12 @@ export interface FileRoutesByTo {
   '/weldhost/domains/register': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/expenses': typeof WeldhrMeExpensesIndexRoute
+  '/weldhr/me/payroll': typeof WeldhrMePayrollIndexRoute
+  '/weldhr/me/reviews': typeof WeldhrMeReviewsIndexRoute
+  '/weldhr/me/schedule': typeof WeldhrMeScheduleIndexRoute
+  '/weldhr/me/tasks': typeof WeldhrMeTasksIndexRoute
+  '/weldhr/me/time-off': typeof WeldhrMeTimeOffIndexRoute
   '/weldhr/payroll/employees': typeof WeldhrPayrollEmployeesIndexRoute
   '/weldhr/payroll/filings': typeof WeldhrPayrollFilingsIndexRoute
   '/weldhr/payroll/runs': typeof WeldhrPayrollRunsIndexRoute
@@ -3949,7 +3981,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/_dashboard': typeof DashboardRouteRouteWithChildren
   '/agents': typeof AgentsRouteRouteWithChildren
   '/appstore': typeof AppstoreRouteRouteWithChildren
   '/auth': typeof AuthRouteRouteWithChildren
@@ -3991,6 +4022,7 @@ export interface FileRoutesById {
   '/preview/weldmail': typeof PreviewWeldmailRouteRouteWithChildren
   '/weldcrm/companies': typeof WeldcrmCompaniesRouteRouteWithChildren
   '/weldcrm/people': typeof WeldcrmPeopleRouteRouteWithChildren
+  '/weldhr/me': typeof WeldhrMeRouteRouteWithChildren
   '/weldmail/$accountId': typeof WeldmailAccountIdRouteRouteWithChildren
   '/weldmail/setup': typeof WeldmailSetupRouteRouteWithChildren
   '/documents/$fileId': typeof DocumentsFileIdRoute
@@ -4214,8 +4246,6 @@ export interface FileRoutesById {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
-  '/_dashboard/checkout/cancel/': typeof DashboardCheckoutCancelIndexRoute
-  '/_dashboard/checkout/success/': typeof DashboardCheckoutSuccessIndexRoute
   '/partner/statements/$statementId/': typeof PartnerStatementsStatementIdIndexRoute
   '/partner/workspaces/$workspaceId/': typeof PartnerWorkspacesWorkspaceIdIndexRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
@@ -4321,6 +4351,12 @@ export interface FileRoutesById {
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search/': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId/': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/expenses/': typeof WeldhrMeExpensesIndexRoute
+  '/weldhr/me/payroll/': typeof WeldhrMePayrollIndexRoute
+  '/weldhr/me/reviews/': typeof WeldhrMeReviewsIndexRoute
+  '/weldhr/me/schedule/': typeof WeldhrMeScheduleIndexRoute
+  '/weldhr/me/tasks/': typeof WeldhrMeTasksIndexRoute
+  '/weldhr/me/time-off/': typeof WeldhrMeTimeOffIndexRoute
   '/weldhr/payroll/employees/': typeof WeldhrPayrollEmployeesIndexRoute
   '/weldhr/payroll/filings/': typeof WeldhrPayrollFilingsIndexRoute
   '/weldhr/payroll/runs/': typeof WeldhrPayrollRunsIndexRoute
@@ -4462,6 +4498,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail'
     | '/weldcrm/companies'
     | '/weldcrm/people'
+    | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
     | '/documents/$fileId'
@@ -4685,8 +4722,6 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
-    | '/checkout/cancel/'
-    | '/checkout/success/'
     | '/partner/statements/$statementId/'
     | '/partner/workspaces/$workspaceId/'
     | '/preview/appstore/$code/'
@@ -4792,6 +4827,12 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register/'
     | '/weldhost/domains/search/'
     | '/weldhr/employees/$employeeId/'
+    | '/weldhr/me/expenses/'
+    | '/weldhr/me/payroll/'
+    | '/weldhr/me/reviews/'
+    | '/weldhr/me/schedule/'
+    | '/weldhr/me/tasks/'
+    | '/weldhr/me/time-off/'
     | '/weldhr/payroll/employees/'
     | '/weldhr/payroll/filings/'
     | '/weldhr/payroll/runs/'
@@ -5115,8 +5156,6 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
-    | '/checkout/cancel'
-    | '/checkout/success'
     | '/partner/statements/$statementId'
     | '/partner/workspaces/$workspaceId'
     | '/preview/appstore/$code'
@@ -5222,6 +5261,12 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register'
     | '/weldhost/domains/search'
     | '/weldhr/employees/$employeeId'
+    | '/weldhr/me/expenses'
+    | '/weldhr/me/payroll'
+    | '/weldhr/me/reviews'
+    | '/weldhr/me/schedule'
+    | '/weldhr/me/tasks'
+    | '/weldhr/me/time-off'
     | '/weldhr/payroll/employees'
     | '/weldhr/payroll/filings'
     | '/weldhr/payroll/runs'
@@ -5320,7 +5365,6 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/_dashboard'
     | '/agents'
     | '/appstore'
     | '/auth'
@@ -5362,6 +5406,7 @@ export interface FileRouteTypes {
     | '/preview/weldmail'
     | '/weldcrm/companies'
     | '/weldcrm/people'
+    | '/weldhr/me'
     | '/weldmail/$accountId'
     | '/weldmail/setup'
     | '/documents/$fileId'
@@ -5585,8 +5630,6 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
-    | '/_dashboard/checkout/cancel/'
-    | '/_dashboard/checkout/success/'
     | '/partner/statements/$statementId/'
     | '/partner/workspaces/$workspaceId/'
     | '/preview/appstore/$code/'
@@ -5692,6 +5735,12 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register/'
     | '/weldhost/domains/search/'
     | '/weldhr/employees/$employeeId/'
+    | '/weldhr/me/expenses/'
+    | '/weldhr/me/payroll/'
+    | '/weldhr/me/reviews/'
+    | '/weldhr/me/schedule/'
+    | '/weldhr/me/tasks/'
+    | '/weldhr/me/time-off/'
     | '/weldhr/payroll/employees/'
     | '/weldhr/payroll/filings/'
     | '/weldhr/payroll/runs/'
@@ -5791,7 +5840,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DashboardRouteRoute: typeof DashboardRouteRouteWithChildren
   AgentsRouteRoute: typeof AgentsRouteRouteWithChildren
   AppstoreRouteRoute: typeof AppstoreRouteRouteWithChildren
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
@@ -6039,13 +6087,6 @@ declare module '@tanstack/react-router' {
       path: '/agents'
       fullPath: '/agents'
       preLoaderRoute: typeof AgentsRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_dashboard': {
-      id: '/_dashboard'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof DashboardRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -6299,6 +6340,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldmail/$accountId'
       preLoaderRoute: typeof WeldmailAccountIdRouteRouteImport
       parentRoute: typeof WeldmailRouteRoute
+    }
+    '/weldhr/me': {
+      id: '/weldhr/me'
+      path: '/me'
+      fullPath: '/weldhr/me'
+      preLoaderRoute: typeof WeldhrMeRouteRouteImport
+      parentRoute: typeof WeldhrRouteRoute
     }
     '/weldcrm/people': {
       id: '/weldcrm/people'
@@ -6554,10 +6602,10 @@ declare module '@tanstack/react-router' {
     }
     '/weldhr/me/': {
       id: '/weldhr/me/'
-      path: '/me'
+      path: '/'
       fullPath: '/weldhr/me/'
       preLoaderRoute: typeof WeldhrMeIndexRouteImport
-      parentRoute: typeof WeldhrRouteRoute
+      parentRoute: typeof WeldhrMeRouteRoute
     }
     '/weldhr/leave/': {
       id: '/weldhr/leave/'
@@ -7756,6 +7804,48 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldhrPayrollEmployeesIndexRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
+    '/weldhr/me/time-off/': {
+      id: '/weldhr/me/time-off/'
+      path: '/time-off'
+      fullPath: '/weldhr/me/time-off/'
+      preLoaderRoute: typeof WeldhrMeTimeOffIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/tasks/': {
+      id: '/weldhr/me/tasks/'
+      path: '/tasks'
+      fullPath: '/weldhr/me/tasks/'
+      preLoaderRoute: typeof WeldhrMeTasksIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/schedule/': {
+      id: '/weldhr/me/schedule/'
+      path: '/schedule'
+      fullPath: '/weldhr/me/schedule/'
+      preLoaderRoute: typeof WeldhrMeScheduleIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/reviews/': {
+      id: '/weldhr/me/reviews/'
+      path: '/reviews'
+      fullPath: '/weldhr/me/reviews/'
+      preLoaderRoute: typeof WeldhrMeReviewsIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/payroll/': {
+      id: '/weldhr/me/payroll/'
+      path: '/payroll'
+      fullPath: '/weldhr/me/payroll/'
+      preLoaderRoute: typeof WeldhrMePayrollIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/expenses/': {
+      id: '/weldhr/me/expenses/'
+      path: '/expenses'
+      fullPath: '/weldhr/me/expenses/'
+      preLoaderRoute: typeof WeldhrMeExpensesIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
     '/weldhr/employees/$employeeId/': {
       id: '/weldhr/employees/$employeeId/'
       path: '/employees/$employeeId'
@@ -8491,20 +8581,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PartnerStatementsStatementIdIndexRouteImport
       parentRoute: typeof PartnerRouteRoute
     }
-    '/_dashboard/checkout/success/': {
-      id: '/_dashboard/checkout/success/'
-      path: '/checkout/success'
-      fullPath: '/checkout/success/'
-      preLoaderRoute: typeof DashboardCheckoutSuccessIndexRouteImport
-      parentRoute: typeof DashboardRouteRoute
-    }
-    '/_dashboard/checkout/cancel/': {
-      id: '/_dashboard/checkout/cancel/'
-      path: '/checkout/cancel'
-      fullPath: '/checkout/cancel/'
-      preLoaderRoute: typeof DashboardCheckoutCancelIndexRouteImport
-      parentRoute: typeof DashboardRouteRoute
-    }
     '/weldchat/dm/group/$channelId': {
       id: '/weldchat/dm/group/$channelId'
       path: '/dm/group/$channelId'
@@ -9123,20 +9199,6 @@ declare module '@tanstack/react-router' {
     }
   }
 }
-
-interface DashboardRouteRouteChildren {
-  DashboardCheckoutCancelIndexRoute: typeof DashboardCheckoutCancelIndexRoute
-  DashboardCheckoutSuccessIndexRoute: typeof DashboardCheckoutSuccessIndexRoute
-}
-
-const DashboardRouteRouteChildren: DashboardRouteRouteChildren = {
-  DashboardCheckoutCancelIndexRoute: DashboardCheckoutCancelIndexRoute,
-  DashboardCheckoutSuccessIndexRoute: DashboardCheckoutSuccessIndexRoute,
-}
-
-const DashboardRouteRouteWithChildren = DashboardRouteRoute._addFileChildren(
-  DashboardRouteRouteChildren,
-)
 
 interface AgentsRouteRouteChildren {
   AgentsIndexRoute: typeof AgentsIndexRoute
@@ -10066,14 +10128,38 @@ const WeldhostRouteRouteWithChildren = WeldhostRouteRoute._addFileChildren(
   WeldhostRouteRouteChildren,
 )
 
+interface WeldhrMeRouteRouteChildren {
+  WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
+  WeldhrMeExpensesIndexRoute: typeof WeldhrMeExpensesIndexRoute
+  WeldhrMePayrollIndexRoute: typeof WeldhrMePayrollIndexRoute
+  WeldhrMeReviewsIndexRoute: typeof WeldhrMeReviewsIndexRoute
+  WeldhrMeScheduleIndexRoute: typeof WeldhrMeScheduleIndexRoute
+  WeldhrMeTasksIndexRoute: typeof WeldhrMeTasksIndexRoute
+  WeldhrMeTimeOffIndexRoute: typeof WeldhrMeTimeOffIndexRoute
+}
+
+const WeldhrMeRouteRouteChildren: WeldhrMeRouteRouteChildren = {
+  WeldhrMeIndexRoute: WeldhrMeIndexRoute,
+  WeldhrMeExpensesIndexRoute: WeldhrMeExpensesIndexRoute,
+  WeldhrMePayrollIndexRoute: WeldhrMePayrollIndexRoute,
+  WeldhrMeReviewsIndexRoute: WeldhrMeReviewsIndexRoute,
+  WeldhrMeScheduleIndexRoute: WeldhrMeScheduleIndexRoute,
+  WeldhrMeTasksIndexRoute: WeldhrMeTasksIndexRoute,
+  WeldhrMeTimeOffIndexRoute: WeldhrMeTimeOffIndexRoute,
+}
+
+const WeldhrMeRouteRouteWithChildren = WeldhrMeRouteRoute._addFileChildren(
+  WeldhrMeRouteRouteChildren,
+)
+
 interface WeldhrRouteRouteChildren {
+  WeldhrMeRouteRoute: typeof WeldhrMeRouteRouteWithChildren
   WeldhrIndexRoute: typeof WeldhrIndexRoute
   WeldhrAbsenteeismIndexRoute: typeof WeldhrAbsenteeismIndexRoute
   WeldhrAttendanceIndexRoute: typeof WeldhrAttendanceIndexRoute
   WeldhrDeclarationsIndexRoute: typeof WeldhrDeclarationsIndexRoute
   WeldhrEmployeesIndexRoute: typeof WeldhrEmployeesIndexRoute
   WeldhrLeaveIndexRoute: typeof WeldhrLeaveIndexRoute
-  WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
   WeldhrPayrollIndexRoute: typeof WeldhrPayrollIndexRoute
   WeldhrPortalIndexRoute: typeof WeldhrPortalIndexRoute
   WeldhrSettingsIndexRoute: typeof WeldhrSettingsIndexRoute
@@ -10086,13 +10172,13 @@ interface WeldhrRouteRouteChildren {
 }
 
 const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
+  WeldhrMeRouteRoute: WeldhrMeRouteRouteWithChildren,
   WeldhrIndexRoute: WeldhrIndexRoute,
   WeldhrAbsenteeismIndexRoute: WeldhrAbsenteeismIndexRoute,
   WeldhrAttendanceIndexRoute: WeldhrAttendanceIndexRoute,
   WeldhrDeclarationsIndexRoute: WeldhrDeclarationsIndexRoute,
   WeldhrEmployeesIndexRoute: WeldhrEmployeesIndexRoute,
   WeldhrLeaveIndexRoute: WeldhrLeaveIndexRoute,
-  WeldhrMeIndexRoute: WeldhrMeIndexRoute,
   WeldhrPayrollIndexRoute: WeldhrPayrollIndexRoute,
   WeldhrPortalIndexRoute: WeldhrPortalIndexRoute,
   WeldhrSettingsIndexRoute: WeldhrSettingsIndexRoute,
@@ -10534,7 +10620,6 @@ const PreviewWeldmailRouteRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DashboardRouteRoute: DashboardRouteRouteWithChildren,
   AgentsRouteRoute: AgentsRouteRouteWithChildren,
   AppstoreRouteRoute: AppstoreRouteRouteWithChildren,
   AuthRouteRoute: AuthRouteRouteWithChildren,

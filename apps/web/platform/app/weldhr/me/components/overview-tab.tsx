@@ -1,6 +1,7 @@
 /** My HR → Overview: clock in/out, what needs attention, leave balances, upcoming shifts and the profile. */
 
 import { useState, type ReactNode } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { ClipboardList, Loader2, LogIn, LogOut, MessageSquareHeart, Star, Target } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -8,10 +9,11 @@ import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfOverview, HrSelfProfile } from '@weldsuite/app-api-client/domains/weldhr';
 import { useMyHrClock, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
+import { MY_HR_PATHS, type MyHrPath } from '../../access';
 import { EmptyText, FieldGrid, KpiCard, KpiGrid, SectionCard } from '../../components/page-kit';
 import { ErrorBanner, errorMessage, formatDate, formatDateTime, formatTime } from '../../components/shared';
 import { LeaveBalanceTiles } from './leave-balances';
-import { TabLoading, type MeTabId } from './shared';
+import { TabLoading } from './shared';
 import { UpcomingShiftsCard } from './shifts-card';
 
 /** Today's clock-ins read as a time, older ones as a date and time. */
@@ -19,16 +21,16 @@ function formatSince(since: string): string {
   return new Date(since).toDateString() === new Date().toDateString() ? formatTime(since) : formatDateTime(since);
 }
 
+/** The overview below the header; each KPI card links to the My HR page behind it. */
 export function MyOverviewTab({
   employee,
   canClockIn,
-  onNavigate,
 }: Readonly<{
   employee: HrSelfProfile;
   canClockIn: boolean;
-  onNavigate: (tab: MeTabId) => void;
 }>) {
   const t = useTranslations();
+  const navigate = useNavigate();
   const { data: overview, isLoading, error } = useMyHrOverview();
 
   if (isLoading) return <TabLoading />;
@@ -44,7 +46,7 @@ export function MyOverviewTab({
       {canClockIn && <ClockCard clock={overview.clock} />}
 
       <KpiGrid>
-        <KpiLink onClick={() => onNavigate('tasks')}>
+        <KpiLink to={MY_HR_PATHS.tasks}>
           <KpiCard
             label={t('weldhr.me.overview.kpis.openTasks')}
             value={overview.openTasks}
@@ -52,7 +54,7 @@ export function MyOverviewTab({
             tone={overview.openTasks > 0 ? 'warning' : 'default'}
           />
         </KpiLink>
-        <KpiLink onClick={() => onNavigate('reviews')}>
+        <KpiLink to={MY_HR_PATHS.reviews}>
           <KpiCard
             label={t('weldhr.me.overview.kpis.toAcknowledge')}
             value={toAcknowledge}
@@ -64,7 +66,7 @@ export function MyOverviewTab({
             })}
           />
         </KpiLink>
-        <KpiLink onClick={() => onNavigate('reviews')}>
+        <KpiLink to={MY_HR_PATHS.reviews}>
           <KpiCard
             label={t('weldhr.me.overview.kpis.latestEvaluation')}
             value={latestScore === null || latestScore === undefined ? '—' : latestScore.toFixed(1)}
@@ -76,7 +78,7 @@ export function MyOverviewTab({
             }
           />
         </KpiLink>
-        <KpiLink onClick={() => onNavigate('goals')}>
+        <KpiLink to={MY_HR_PATHS.reviews}>
           <KpiCard
             label={t('weldhr.me.overview.kpis.milestones')}
             value={`${overview.milestones.achieved}/${totalMilestones}`}
@@ -90,15 +92,17 @@ export function MyOverviewTab({
         <SectionCard
           title={t('weldhr.me.overview.leaveBalances')}
           action={
-            <Button variant="ghost" size="sm" onClick={() => onNavigate('leave')}>
-              {t('weldhr.me.common.viewAll')}
-            </Button>
+            <Link to={MY_HR_PATHS.timeOff}>
+              <Button variant="ghost" size="sm">
+                {t('weldhr.me.common.viewAll')}
+              </Button>
+            </Link>
           }
         >
           <LeaveBalanceTiles balances={overview.leaveBalances} />
         </SectionCard>
 
-        <UpcomingShiftsCard shifts={overview.upcomingShifts} limit={5} onViewAll={() => onNavigate('attendance')} />
+        <UpcomingShiftsCard shifts={overview.upcomingShifts} limit={5} onViewAll={() => void navigate({ to: MY_HR_PATHS.schedule })} />
 
         <SectionCard title={t('weldhr.me.overview.profile.title')}>
           <FieldGrid
@@ -131,16 +135,15 @@ export function MyOverviewTab({
   );
 }
 
-/** Makes a KPI card a button that jumps to the tab behind it. */
-function KpiLink({ onClick, children }: Readonly<{ onClick: () => void; children: ReactNode }>) {
+/** Makes a KPI card a link to the My HR page behind it. */
+function KpiLink({ to, children }: Readonly<{ to: MyHrPath; children: ReactNode }>) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <Link
+      to={to}
       className="block w-full rounded-lg text-left transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
-    </button>
+    </Link>
   );
 }
 

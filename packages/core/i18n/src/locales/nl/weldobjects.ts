@@ -7,6 +7,10 @@
  * "Machines" in elke taal.
  */
 export const weldobjects = {
+  sidebar: {
+    objectSettings: 'Objectinstellingen',
+  },
+
   list: {
     nameColumn: 'Naam',
     create: 'Nieuwe {object}',
