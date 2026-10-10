@@ -176,8 +176,8 @@ export function ElementRenderer({
               <Image
                 src={content?.src || content?.url || ''}
                 alt={content?.alt || ''}
-                width={parseInt(settings.width || '400')}
-                height={parseInt(settings.height || '300')}
+                width={Number.parseInt(settings.width || '400')}
+                height={Number.parseInt(settings.height || '300')}
                 className="w-full h-auto"
               />
             </div>

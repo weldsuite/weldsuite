@@ -570,7 +570,7 @@ export function SettingsDialogFull({
                                 <span className="text-muted-foreground">Storage Usage</span>
                                 <span>{workspace.storage}</span>
                               </div>
-                              <Progress value={parseInt(workspace.storage)} className="h-2" />
+                              <Progress value={Number.parseInt(workspace.storage)} className="h-2" />
                             </div>
                             <div className="flex gap-2">
                               <Button variant="outline" size="sm" className="flex-1">

@@ -35,7 +35,7 @@ export async function verifyStripeSignature(
     throw new Error('Invalid stripe-signature header format');
   }
 
-  const timestampNum = parseInt(timestamp, 10);
+  const timestampNum = Number.parseInt(timestamp, 10);
   const now = Math.floor(Date.now() / 1000);
   if (Math.abs(now - timestampNum) > toleranceSeconds) {
     throw new Error('Webhook timestamp outside tolerance');
