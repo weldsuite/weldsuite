@@ -12,6 +12,9 @@ import { BetaBadge } from '@/components/layout/beta-badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
+import { useI18n } from '@/lib/i18n/provider';
+import { useAppLicence } from '@/components/partner/use-app-licence';
+import { isNotLicensedError } from '@/lib/partner/api-errors';
 
 function AppLogo({ code, className = 'h-7 w-7' }: Readonly<{ code: string; className?: string }>) {
   const logoPath = getAppLogo(code, 'light');
@@ -50,6 +53,8 @@ function getCategoryIcon(category: string): LucideIcon {
 export function AppDetailClient({ app: initialApp, canManage = false, content }: Readonly<AppDetailClientProps>) {
   const { data: betaAppCodes } = useBetaAppCodes();
   const t = getTranslations('navigation');
+  const { t: allT, format } = useI18n();
+  const licence = useAppLicence();
   const router = useRouter();
   const [app, setApp] = useState(initialApp);
   const [isLoading, setIsLoading] = useState(false);
@@ -81,7 +86,10 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
       toast.success(t.appstore.installSuccess.replace('{name}', app.name));
     } catch (error) {
       console.error('Failed to install app:', error);
-      toast.error(error instanceof Error ? error.message : t.appstore.installError);
+      // A licence refusal is explained by the global toast (with the partner's name).
+      if (!isNotLicensedError(error)) {
+        toast.error(error instanceof Error ? error.message : t.appstore.installError);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -103,7 +111,19 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
   }
 
   let installControls: ReactNode = null;
-  if (canManage) {
+  if (!app.isInstalled && licence.managed && licence.isUnlicensed(app.code)) {
+    // Not in the partner's licence for this workspace: ask the partner instead.
+    installControls = (
+      <div className="flex flex-col items-end gap-2 text-right">
+        <p className="max-w-56 text-xs text-muted-foreground">
+          {format(allT.partner.appStore.notLicensedHint, { partner: licence.managed.partner.name })}
+        </p>
+        <Button onClick={() => licence.askPartner(app)}>
+          {format(allT.partner.appStore.askPartner, { partner: licence.managed.partner.name })}
+        </Button>
+      </div>
+    );
+  } else if (canManage) {
     installControls = (
       <div className="flex flex-col items-end gap-3">
         {!app.isInstalled && (

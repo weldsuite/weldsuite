@@ -36,6 +36,7 @@ import { useTheme } from '@/hooks/use-theme';
 import { getAppLogo, getAppLucideIcon, getAppSidebarIconClass } from '@/lib/apps/app-registry';
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { Button } from '@weldsuite/ui/components/button';
+import { PartnerPortalMobileEntry } from '@/components/partner/partner-portal-link';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
 import { ColoredSquareIcon } from '@/components/layout/colored-square-icon';
 
@@ -529,6 +530,9 @@ export function MobileSidebar({ installedApps }: Readonly<MobileSidebarProps>) {
                 ))}
               </div>
             )}
+
+            {/* Partner portal: resellers only (renders nothing for everyone else) */}
+            <PartnerPortalMobileEntry onNavigate={() => setIsOpen(false)} />
 
             {/* Settings */}
             <Button

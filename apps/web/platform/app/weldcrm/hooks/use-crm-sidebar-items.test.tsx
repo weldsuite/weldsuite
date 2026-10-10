@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('sonner', () => ({ toast: mocks.toast }));
+vi.mock('@/hooks/use-is-app-installed', () => ({ useIsAppInstalled: () => true }));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: mocks.push }) }));
 // Stable references: the hook re-runs its fetch effects when these change.
 vi.mock('@/lib/api/use-app-api', () => {

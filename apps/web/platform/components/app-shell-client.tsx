@@ -25,6 +25,7 @@ const GlobalFloatingCall = lazy(() =>
 import { PlatformShell } from '@/components/layout/platform-shell';
 import { CommandPalette } from '@/components/layout/command-palette';
 import { WorkspaceLockGate } from '@/components/billing/workspace-lock-gate';
+import { ManagedWorkspaceBanner } from '@/components/partner/managed-workspace-banner';
 import { ActiveCallProvider } from '@/contexts/active-call-context';
 import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
 import { WeldMeetCallProvider } from '@/contexts/weldmeet-call-context';
@@ -68,9 +69,25 @@ const MeetingPiPWidget = lazy(() =>
   import('@/app/weldmeet/components/meeting-pip-widget').then((m) => ({ default: m.MeetingPiPWidget })),
 );
 
+/**
+ * The partner portal (/partner) is not scoped to a workspace: a reseller may be
+ * a member of none. It has its own layout and its own sign-in check, so the
+ * shell neither activates an organization for it nor sends the user to
+ * /onboarding.
+ */
+function isPartnerPortalPath(pathname: string): boolean {
+  return pathname === '/partner' || pathname.startsWith('/partner/');
+}
+
 /** /auth, /onboarding and /invite bootstrap their own org context; the public /w9 form has none at all. */
 function bootstrapsOwnOrg(pathname: string): boolean {
-  return pathname.startsWith('/auth/') || pathname === '/onboarding' || pathname.startsWith('/invite') || pathname.startsWith('/w9/');
+  return (
+    pathname.startsWith('/auth/') ||
+    pathname === '/onboarding' ||
+    pathname.startsWith('/invite') ||
+    pathname.startsWith('/w9/') ||
+    isPartnerPortalPath(pathname)
+  );
 }
 
 /** Drop the persisted query cache (it belongs to the old org) and reload. */
@@ -112,6 +129,7 @@ function isMinimalPath(pathname: string): boolean {
     pathname.startsWith('/invite/') ||
     // The vendor-facing W-9 form: no shell, no sign-in, the token in the link is the credential.
     pathname.startsWith('/w9/') ||
+    isPartnerPortalPath(pathname) ||
     pathname === '/call-room'
   );
 }
@@ -248,6 +266,8 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
                     <WorkspaceLockGate>
                       <CommandPalette />
                       <DesktopNotificationBridge />
+                      {/* Read-only / partner past-due notice for managed workspaces. */}
+                      <ManagedWorkspaceBanner />
                       <PlatformShell>
                         {children}
                         <Suspense fallback={null}>

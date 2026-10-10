@@ -50,6 +50,7 @@ import { sweep } from './sweep';
 import { developer } from './developer';
 import { weldbooksUs } from './weldbooks-us';
 import { admin } from './admin';
+import { partner } from './partner';
 
 export const en = {
   common,
@@ -103,4 +104,5 @@ export const en = {
   developer,
   weldbooksUs,
   admin,
+  partner,
 };
