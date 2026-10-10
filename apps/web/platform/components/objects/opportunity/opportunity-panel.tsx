@@ -20,7 +20,6 @@ import {
   Briefcase,
   Building,
   Calendar,
-  Check,
   CircleCheck,
   CircleX,
   EllipsisVertical,
@@ -62,10 +61,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/component
 import {
   Command,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
+import { PickerCheck } from '@/components/shared/picker-menu';
 import { cn } from '@/lib/utils';
 import {
   useOpportunity,
@@ -139,32 +140,29 @@ function OpportunityActions({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none"
+            size="icon-sm"
+            className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
             aria-label={t('sweep.entities.moreActions')}
           >
-            <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
+            <EllipsisVertical className="size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuContent align="end">
           {!isClosed && (
             <>
               <DropdownMenuItem onClick={onMarkWon}>
-                <CircleCheck className="h-4 w-4 mr-0.5 text-emerald-600" />
+                <CircleCheck className="text-emerald-600" />
                 {t('sweep.entities.markAsWon')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onMarkLost}>
-                <CircleX className="h-4 w-4 mr-0.5 text-rose-600" />
+                <CircleX className="text-rose-600" />
                 {t('sweep.entities.markAsLost')}
               </DropdownMenuItem>
             </>
           )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-            onClick={onDelete}
-          >
-            <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+          <DropdownMenuItem variant="destructive" onClick={onDelete}>
+            <Trash2 />
             {t('sweep.entities.delete')}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -344,11 +342,10 @@ function SelectPropertyRow({
         <PopoverContent className="w-56 p-0" align="start">
           <Command>
             <CommandInput placeholder={t('sweep.entities.searchEllipsisPlaceholder')} />
-            <CommandList className="max-h-[260px] p-1">
+            <CommandList>
               <CommandEmpty>{t('sweep.entities.noOptionsFound')}</CommandEmpty>
-              {options.map((opt) => {
-                const isSelected = opt.value === value;
-                return (
+              <CommandGroup>
+                {options.map((opt) => (
                   <CommandItem
                     key={opt.value}
                     value={opt.label}
@@ -356,13 +353,12 @@ function SelectPropertyRow({
                       onChange(opt.value);
                       setOpen(false);
                     }}
-                    className="flex items-center justify-between gap-2 px-1.5"
                   >
                     {renderBadge(opt.value)}
-                    {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                    <PickerCheck selected={opt.value === value} />
                   </CommandItem>
-                );
-              })}
+                ))}
+              </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>

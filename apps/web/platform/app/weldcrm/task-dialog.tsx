@@ -32,7 +32,9 @@ import {
   Paperclip,
   Upload,
   Github,
+  type LucideIcon,
 } from 'lucide-react';
+import { ColoredSquareIcon } from '@/components/layout/colored-square-icon';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import type { Task } from '@/hooks/use-crm-tasks';
@@ -118,7 +120,8 @@ interface TaskDialogProps {
   onOpenChange: (open: boolean) => void;
   editingTask: Task | null;
   availableAssignees: string[] | { id: string; name: string; avatar?: string }[];
-  availableCompanies: Array<string | { id: string; name: string; avatar?: string; type?: string }>;
+  /** `icon` + `iconColor` draw a colored square instead of an avatar (WeldFlow projects). */
+  availableCompanies: Array<string | { id: string; name: string; avatar?: string; type?: string; icon?: LucideIcon; iconColor?: string | null }>;
   /** Offered alongside companies in the record picker — a task can link to a person instead. */
   availablePeople?: Array<string | { id: string; name: string; avatar?: string; type?: string }>;
   onRecordSearchChange?: (query: string) => void;
@@ -130,6 +133,9 @@ interface TaskDialogProps {
   /** Pre-selects the status field — e.g. the column a board "New task" button was clicked in. */
   defaultStatus?: Task['status'];
   recordLabel?: string;
+  /** Override the record picker's search placeholder and empty state when it lists something other than CRM records (WeldFlow projects). */
+  recordSearchPlaceholder?: string;
+  recordEmptyLabel?: string;
   hideRecord?: boolean;
   projectId?: string;
   // When provided, the status dropdown renders these options (project-specific
@@ -222,7 +228,7 @@ type PriorityValue = 'low' | 'medium' | 'high';
 type RepeatValue = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'custom';
 type RepeatUnitValue = 'days' | 'weeks' | 'months' | 'years';
 type AssigneeOption = { id: string; name: string; avatar?: string };
-type CompanyOption = { id: string; name: string; avatar?: string; type?: string };
+type CompanyOption = { id: string; name: string; avatar?: string; type?: string; icon?: LucideIcon; iconColor?: string | null };
 
 function normalizeAssignee(a: string | AssigneeOption): AssigneeOption {
   return typeof a === 'string' ? { id: a, name: a, avatar: undefined } : a;
@@ -668,9 +674,9 @@ function AssigneesButtonContent({ selected }: Readonly<{ selected: AssigneeOptio
     const a = selected[0];
     return (
       <>
-        <Avatar className="h-5 w-5 !rounded-[6px]">
-          {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[6px]" />}
-          <AvatarFallback className="!rounded-[6px] text-[10px] font-medium bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
+        <Avatar className="size-[18px] !rounded-[7px]">
+          {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[7px]" />}
+          <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
             {a.name.charAt(0).toUpperCase()}
           </AvatarFallback>
         </Avatar>
@@ -683,9 +689,9 @@ function AssigneesButtonContent({ selected }: Readonly<{ selected: AssigneeOptio
     <>
       <span className="flex -space-x-1">
         {shown.map((a) => (
-          <Avatar key={a.id} className="h-5 w-5 !rounded-[6px] ring-1 ring-blue-100 dark:ring-blue-900/30">
-            {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[6px]" />}
-            <AvatarFallback className="!rounded-[6px] text-[10px] font-medium bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
+          <Avatar key={a.id} className="size-[18px] !rounded-[7px] ring-1 ring-blue-100 dark:ring-blue-900/30">
+            {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[7px]" />}
+            <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-blue-200/60 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300">
               {a.name.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
@@ -771,6 +777,8 @@ function RecordPopover({
   selectedCompany,
   selectedCompanyLabel,
   defaultLabel,
+  searchPlaceholder,
+  emptyLabel,
   recordRequired,
   isSearching,
   onSearchChange,
@@ -781,6 +789,8 @@ function RecordPopover({
   selectedCompany: CompanyOption | undefined;
   selectedCompanyLabel: string | null;
   defaultLabel: string;
+  searchPlaceholder: string | undefined;
+  emptyLabel: string | undefined;
   recordRequired: boolean | undefined;
   isSearching: boolean;
   onSearchChange: ((value: string) => void) | undefined;
@@ -795,7 +805,10 @@ function RecordPopover({
           record && "bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 pl-1",
           recordRequired && !record && "border-red-300 text-red-600 dark:border-red-900 dark:text-red-400",
         )}>
-          {record && (
+          {record && selectedCompany?.icon && (
+            <ColoredSquareIcon icon={selectedCompany.icon} color={selectedCompany.iconColor} className="size-[18px] rounded-[7px]" />
+          )}
+          {record && !selectedCompany?.icon && (
             <Avatar className="h-5 w-5 !rounded-[6px]">
               {selectedCompany?.avatar && (
                 <AvatarImage src={selectedCompany.avatar} alt={selectedCompanyLabel || ''} className="!rounded-[6px]" />
@@ -811,7 +824,7 @@ function RecordPopover({
       <PopoverContent className="w-[260px] p-0" align="start">
         <Command>
           <CommandInput
-            placeholder={tCrm.taskDialog.searchRecords}
+            placeholder={searchPlaceholder ?? tCrm.taskDialog.searchRecords}
             className="h-9"
             onValueChange={onSearchChange}
           />
@@ -820,7 +833,7 @@ function RecordPopover({
               e.currentTarget.scrollTop += e.deltaY;
             }}
           >
-            <CommandEmpty>{isSearching ? tCrm.taskDialog.searchingRecords : tCrm.taskDialog.noRecordsFound}</CommandEmpty>
+            <CommandEmpty>{isSearching ? tCrm.taskDialog.searchingRecords : (emptyLabel ?? tCrm.taskDialog.noRecordsFound)}</CommandEmpty>
             <CommandGroup className="px-1 py-1">
               {companies.map((company) => (
                 <CommandItem
@@ -830,14 +843,18 @@ function RecordPopover({
                   className="flex items-center justify-between gap-2 px-1.5"
                 >
                   <span className="flex items-center gap-2 min-w-0 flex-1">
-                    <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
-                      {company.avatar && (
-                        <AvatarImage src={company.avatar} alt={company.name} className="!rounded-[7px]" />
-                      )}
-                      <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                        {company.name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+                    {company.icon ? (
+                      <ColoredSquareIcon icon={company.icon} color={company.iconColor} />
+                    ) : (
+                      <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
+                        {company.avatar && (
+                          <AvatarImage src={company.avatar} alt={company.name} className="!rounded-[7px]" />
+                        )}
+                        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                          {company.name.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                    )}
                     <span className="truncate">{company.name}</span>
                   </span>
                   {/* Companies and people share this list: say which is which, same as the Notes record picker. */}
@@ -848,19 +865,6 @@ function RecordPopover({
                 </CommandItem>
               ))}
             </CommandGroup>
-            {record && (
-              <div className="p-1">
-                <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-                <Button
-                  variant="ghost"
-                  onClick={() => onChange(null)}
-                  className={CLEAR_ITEM_CLASS}
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-2" />
-                  <span>{tCrm.taskDialog.clearAll}</span>
-                </Button>
-              </div>
-            )}
           </CommandList>
         </Command>
       </PopoverContent>
@@ -975,6 +979,8 @@ export function TaskDialog({
   defaultAssignee,
   defaultStatus,
   recordLabel = 'Select record',
+  recordSearchPlaceholder,
+  recordEmptyLabel,
   hideRecord,
   projectId,
   availableStatuses,
@@ -1427,7 +1433,7 @@ export function TaskDialog({
                 e.stopPropagation();
                 fileInputRef.current?.click();
               }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:underline hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100 hover:underline hover:bg-transparent dark:hover:bg-transparent hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer"
             >
               {tCrm.taskDialog.pasteOrDropFiles}
             </Button>
@@ -1504,6 +1510,8 @@ export function TaskDialog({
                 selectedCompany={selectedCompany}
                 selectedCompanyLabel={selectedCompanyLabel}
                 defaultLabel={effectiveRecordLabel}
+                searchPlaceholder={recordSearchPlaceholder}
+                emptyLabel={recordEmptyLabel}
                 recordRequired={recordRequired}
                 isSearching={isSearchingRecords}
                 onSearchChange={onRecordSearchChange ? handleRecordSearch : undefined}

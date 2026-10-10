@@ -1,4 +1,5 @@
 import React from 'react';
+import { Check } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import {
   DropdownMenu,
@@ -331,7 +332,9 @@ function OverflowTabs({
                   )}
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
+              {/* Stock shadcn menu: default width and item layout; the open tab
+                  is marked with a trailing check. */}
+              <DropdownMenuContent align="end">
                 {overflowIndices.map((tabIndex) => {
                   const tab = tabs[tabIndex];
                   if (!tab) return null;
@@ -340,13 +343,14 @@ function OverflowTabs({
 
                   const itemContent = (
                     <>
-                      {Icon && <Icon className="h-4 w-4 mr-2 text-muted-foreground" />}
-                      <span className="flex-1 truncate">{tab.label}</span>
+                      {Icon && <Icon />}
+                      <span className="truncate">{tab.label}</span>
                       {tab.count !== undefined && tab.count > 0 && (
-                        <span className="ml-2 text-[10px] font-mono text-muted-foreground bg-muted border border-border min-w-[15px] h-[15px] flex items-center justify-center rounded-[5px] px-1">
+                        <span className="text-[10px] font-mono text-muted-foreground bg-muted border border-border min-w-[15px] h-[15px] flex items-center justify-center rounded-[5px] px-1">
                           {tab.count}
                         </span>
                       )}
+                      {isActive && <Check className="ml-auto" />}
                     </>
                   );
 
@@ -355,12 +359,8 @@ function OverflowTabs({
                   if (tab.href) {
                     const LinkComponent = linkComponent ?? 'a';
                     return (
-                      <DropdownMenuItem
-                        key={tab.id}
-                        asChild
-                        className={cn(isActive && 'bg-muted')}
-                      >
-                        <LinkComponent href={tab.href} className="flex w-full items-center">
+                      <DropdownMenuItem key={tab.id} asChild>
+                        <LinkComponent href={tab.href}>
                           {itemContent}
                         </LinkComponent>
                       </DropdownMenuItem>
@@ -368,11 +368,7 @@ function OverflowTabs({
                   }
 
                   return (
-                    <DropdownMenuItem
-                      key={tab.id}
-                      onClick={() => onTabChange?.(tab.id)}
-                      className={cn(isActive && 'bg-muted')}
-                    >
+                    <DropdownMenuItem key={tab.id} onClick={() => onTabChange?.(tab.id)}>
                       {itemContent}
                     </DropdownMenuItem>
                   );

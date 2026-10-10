@@ -14,7 +14,6 @@
 import { useMemo, useState, type ComponentType } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useI18n } from '@/lib/i18n/provider';
-import { cn } from '@/lib/utils';
 import { Button } from '@weldsuite/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { AddressFields } from '@/components/address/address-fields';
@@ -129,15 +128,14 @@ export function AddressPropertyRow({
           <button
             type="button"
             aria-label={label}
-            className={cn(
-              'text-sm min-w-0 w-[calc(100%+1rem)] -mx-2 px-2 min-h-[32px] py-1 text-left cursor-pointer rounded-[9px]',
-              'hover:bg-muted/50 data-[state=open]:bg-muted/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            )}
+            // No hover box: the value (or placeholder) underlines on hover,
+            // like the other picker rows.
+            className="group/field text-sm min-w-0 justify-self-start min-h-[32px] py-1 text-left cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {display ? (
-              <span className="text-foreground break-words [overflow-wrap:anywhere]">{display}</span>
+              <span className="text-foreground break-words [overflow-wrap:anywhere] group-hover/field:underline">{display}</span>
             ) : (
-              <span className="text-muted-foreground/70">{placeholder}</span>
+              <span className="text-muted-foreground group-hover/field:underline">{placeholder}</span>
             )}
           </button>
         </PopoverTrigger>

@@ -41,7 +41,11 @@ export function RowOverlayButton({ label, onClick, onDoubleClick, className }: R
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       className={cn(
-        'absolute inset-0 cursor-pointer rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        // `!absolute !z-0`: rows lift their own controls with a descendant rule
+        // (`[&_:is(a,button)]:relative … z-[1]`) that also matches this button;
+        // without the override it turns `relative`, collapses to 0×0 and the
+        // row stops being clickable.
+        '!absolute inset-0 !z-0 cursor-pointer rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         className,
       )}
     />

@@ -45,6 +45,21 @@ interface EntityChatProps {
   headerSlot?: React.ReactNode;
 }
 
+const entityChannelQueryKey = (entityType: string, entityId: string) => ['entity-channel', entityType, entityId];
+
+/**
+ * The chat channel of an entity, or `null` while it has none. The channel is
+ * created lazily by the first message, so "has a channel" also answers "has
+ * this entity's chat ever had a message" for callers outside the chat.
+ */
+export function useEntityChannel(entityType: string, entityId: string) {
+  return useQuery<EntityChannel | null>({
+    queryKey: entityChannelQueryKey(entityType, entityId),
+    queryFn: () => weldchatEntityApi.getEntityChannel(entityType, entityId),
+    retry: false,
+  });
+}
+
 /**
  * Generic entity-chat surface. Renders the same WeldChat `MessageList` +
  * composer regardless of whether the channel already exists or is being
@@ -93,14 +108,10 @@ export function EntityChat({ entityType, entityId, fallbackName, hideCallButtons
   );
 
   const channelQueryKey = useMemo(
-    () => ['entity-channel', entityType, entityId],
+    () => entityChannelQueryKey(entityType, entityId),
     [entityType, entityId],
   );
-  const channelQuery = useQuery<EntityChannel | null>({
-    queryKey: channelQueryKey,
-    queryFn: () => weldchatEntityApi.getEntityChannel(entityType, entityId),
-    retry: false,
-  });
+  const channelQuery = useEntityChannel(entityType, entityId);
 
   const channel = channelQuery.data ?? null;
 

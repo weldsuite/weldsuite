@@ -167,19 +167,20 @@ function PanelActions({ openHref }: Readonly<{ openHref?: string }>) {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none"
+          size="icon-sm"
+          className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
           aria-label={t('sweep.entities.moreActions')}
         >
-          <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
+          <EllipsisVertical className="size-4 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
+      <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={handleOpenNewTab}>
-          <SquareArrowOutUpRight className="h-4 w-4 mr-0.5" />
+          <SquareArrowOutUpRight />
           {t('sweep.entities.openInNewTab')}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleCopyLink}>
-          <LinkIcon className="h-4 w-4 mr-0.5" />
+          <LinkIcon />
           {t('sweep.entities.copyLink')}
         </DropdownMenuItem>
       </DropdownMenuContent>

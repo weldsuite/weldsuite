@@ -69,6 +69,7 @@ export const drawerFieldRegistry: Record<string, DrawerFieldConfig> = {
     panelName: 'panel:task-detail',
     label: 'Task Fields',
     fields: [
+      { id: 'number', label: 'Number', defaultVisible: true },
       { id: 'status', label: 'Status', defaultVisible: true, required: true },
       { id: 'priority', label: 'Priority', defaultVisible: true },
       { id: 'assignee', label: 'Assignee', defaultVisible: true },
