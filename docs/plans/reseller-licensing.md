@@ -34,6 +34,14 @@ The rest of this plan builds those pieces on what already exists.
 | Credits | **A monthly allowance per workspace**, set by the reseller and reset every month. |
 | Reseller UI | **A partner portal inside the WeldSuite platform app.** |
 | Pricing shape | **Flat fee per workspace or per user.** The reseller chooses per workspace; per-seat is never forced. |
+| Credits in the floor | **Yes.** Credits above an included amount carry a minimum price per credit, which raises the floor. |
+| Currency | **USD.** One contract currency; resale prices are recorded in USD. |
+| Trials | **None for now.** The floor applies from a workspace's first day. |
+| Per-user count | **The highest active member count in the month.** |
+| Unpaid partner invoice | Banner and `past_due` **14 days** after the due date; workspaces read-only at **30 days**. Never deleted. |
+| Territory | **Enforced.** People creating a workspace from a territory country are pointed to the reseller; direct checkout is closed for those countries. |
+| Languages | **Out of scope.** Tracked as a separate WeldSuite task (#1092: Spanish + pt-BR). |
+| Partner access to customer data | **None by default.** Consented support access may come later. |
 
 ## What exists today (and what it means for this plan)
 
@@ -94,7 +102,10 @@ From a survey of the repo at `74fd7d68`:
 resale        = flat_amount                                  (flat)
               | unit_amount × max(billable_seats, min_seats)  (per seat)
 
-weldsuite_due = max(resale × revenue_share, base_minimum)
+floor         = base_minimum
+              + max(0, licensed_credits − included_credits) × credit_floor_price
+
+weldsuite_due = max(resale × revenue_share, floor)
               + extra credit packs granted this month        (see Credits)
 
 partner_keeps = resale − weldsuite_due
@@ -102,7 +113,7 @@ partner_keeps = resale − weldsuite_due
 
 **Defaults**
 - `revenue_share` is 0.75. It is stored as basis points (`7500`) on the contract, not in code.
-- `base_minimum` is set per contract, in the contract currency.
+- `base_minimum`, `included_credits` and `credit_floor_price` are set per contract, in USD.
 
 **Billable seats**
 - The highest active member count seen in the month.
@@ -113,38 +124,36 @@ partner_keeps = resale − weldsuite_due
 - Licence changes and workspaces created or ended mid-month are prorated by day.
 - Each day is charged under the licence that was in force that day; the history table below makes this possible.
 
-**Worked examples** (contract: 75%, $50 floor):
+**Worked examples** (contract: 75%, $50 base minimum, 2,000 included credits,
+$0.004 per credit above that; the figures are placeholders, not contract values):
 
-| Workspace | Reseller charges | 75% | WeldSuite bills | Reseller keeps |
-|---|---|---|---|---|
-| Acme (flat) | $400 | $300 | **$300** | $100 (25%) |
-| Beta (per seat, $12 × 5) | $60 | $45 | **$50** (floor) | $10 |
-| Gamma (flat, trial at $0) | $0 | $0 | **$50** (floor) | −$50 |
+| Workspace | Licensed credits | Floor | Reseller charges | 75% | WeldSuite bills | Reseller keeps |
+|---|---|---|---|---|---|---|
+| Acme (flat) | 2,000 | $50 | $400 | $300 | **$300** | $100 (25%) |
+| Beta (per seat, $12 × 5) | 2,000 | $50 | $60 | $45 | **$50** (floor) | $10 |
+| Gamma (flat) | 20,000 | $50 + 18,000 × $0.004 = $122 | $150 | $112.50 | **$122** (floor) | $28 |
+| Delta (given away at $0) | 2,000 | $50 | $0 | $0 | **$50** (floor) | −$50 |
 
-The floor is what protects WeldSuite against a reseller giving workspaces away.
-The third row is deliberate: a free trial for a customer costs the reseller the
-floor. If trials should be free, the contract gets a trial allowance; see Open
-decisions.
+The floor is what protects WeldSuite against a reseller giving workspaces away
+or licensing credits below cost. There are no trials: a workspace costs at least
+the floor from its first day, whatever the reseller charges.
 
-### Credits carry a real cost, so the floor should follow them
+### Why credits raise the floor
 
 Credits are spent on AI (Cloudflare AI Gateway), telephony, OCR and similar
 services, and every one has a hard cost to WeldSuite. With only a flat floor, a
 reseller could license 1,000,000 credits at $50 and WeldSuite would lose money.
+So the contract has two credit terms:
+- `included_credits`: credits covered by the base minimum.
+- `credit_floor_price`: the minimum price per licensed credit above that.
 
-**Recommendation:** the contract has two parts.
-- `included_credits`: credits covered by the base minimum, e.g. 2,000.
-- `credit_floor_price`: e.g. $0.004 per credit above that.
+Licensed credits are what the licence grants each month, used or not, because
+the reseller decides the allowance. The 75% share still applies on top. If the
+reseller charges enough, the floor never bites.
 
-The floor then becomes:
-
-```
-base_minimum + max(0, licensed_credits − included_credits) × credit_floor_price
-```
-
-The 75% share still applies on top. If the reseller charges enough, the floor
-never bites. Setting `credit_floor_price = 0` gives exactly the simple floor
-agreed above, so the schema supports both and the contract decides.
+`credit_floor_price` should sit above the blended cost per credit (AI model
+rates in `ai_model_rates` plus telephony and OCR), with margin. Set it from the
+real cost data before the contract is signed.
 
 ### Recording the price (the reseller's 25%)
 
@@ -164,7 +173,7 @@ WeldBooks; the recorded price would then be the invoiced price.
 
 ### Currency and tax
 
-- **Currency:** one contract currency, USD by default. Resale prices are recorded in it.
+- **Currency:** USD. Resale prices, floors and statements are all in USD.
   - A reseller selling in BRL or MXN converts on their side.
   - FX is the reseller's risk, and WeldSuite never needs an exchange rate.
 - **Tax:** the reseller is WeldSuite's only customer for these workspaces, so tax on WeldSuite's invoice is a B2B question between WeldSuite and the reseller's entity. The reseller handles tax towards their own customers. Confirm the VAT treatment with the accountant; `accounting-nl` and `accounting-us` can help.
@@ -177,10 +186,23 @@ WeldBooks; the recorded price would then be the invoiced price.
 3. Finalise a Stripe invoice with `collection_method: send_invoice` and net terms from the contract (e.g. 30 days), or charge a card on file.
 4. Existing `invoice.*` webhooks already record invoices in `billing_invoices`. Add `partner_id` so they show in the portal.
 
-**Unpaid invoices**
-1. Reminders.
-2. After the contract's grace period, the partner is `past_due`. Its workspaces get a banner, but nothing is blocked yet.
-3. After a second period, workspaces go **read-only**, never deleted. The decision belongs to WeldSuite staff, in admin, not to a cron alone.
+**Unpaid invoices** (days counted from the invoice due date; both numbers are on
+the contract, defaults 14 and 30)
+1. Stripe reminders before and on the due date.
+2. **Day 14:** the partner becomes `past_due`.
+   - Partner owners and billing members are emailed, and the portal shows a banner.
+   - Its workspaces get a banner, but nothing is blocked yet.
+3. **Day 23:** a final warning to the partner that workspaces go read-only in 7 days.
+4. **Day 30:** the partner becomes `suspended` and every one of its workspaces goes **read-only**.
+   - Members can sign in, view and export data, but every mutation returns `403 WORKSPACE_READ_ONLY`.
+   - Credits are not consumed.
+   - Nothing is deleted.
+5. **Payment lifts it.** Status returns to `active` on the `invoice.paid` webhook.
+6. **Staff override.** WeldSuite staff can pause the clock for a partner in admin, for example during a payment plan.
+
+The partner sweep runs daily in billing-worker. Read-only uses the same
+workspace KV context as the app gate, and is enforced in `apiAuth()`: any
+non-GET request fails for a suspended partner's workspace.
 
 **What end customers see**
 - A managed workspace never sees WeldSuite pricing, checkout, upgrade buttons or invoices.
@@ -214,7 +236,9 @@ allow `scale` or `enterprise`.
 - `id` (`ptr_`), `name`, `legal_name`, `country`, `tax_id`.
 - `billing_email`, `support_email`, `support_url`, `logo_url` (shown to end customers).
 - `stripe_customer_id`.
-- `status` (`active` | `past_due` | `suspended`).
+- `status` (`active` | `past_due` | `suspended`), `status_changed_at`.
+- `dunning_paused_until` (staff override for the 14/30-day clock).
+- `website_url` (shown on the territory screen at signup).
 - `created_at`.
 
 **`partner_members`**
@@ -223,12 +247,17 @@ allow `scale` or `enterprise`.
 
 **`partner_contracts`** (effective-dated, never edited in place)
 - `partner_id`, `effective_from`, `effective_to`.
-- `currency`.
+- `currency` (`USD`).
 - `revenue_share_bps` (7500), `base_minimum` (numeric).
 - `included_credits`, `credit_floor_price`, `extra_credit_pack_price`.
 - `allowed_feature_plan_ids` (jsonb), `payment_terms_days`.
-- `trial_days_free` (default 0), `territory` (jsonb list of ISO-2 codes, informational).
+- `past_due_after_days` (14), `read_only_after_days` (30).
 - `notes`.
+
+**`partner_territories`**
+- `country_code` (ISO-2, **primary key**), `partner_id`, `effective_from`.
+- The primary key on the country makes it impossible to give one country to two partners.
+- Kept separate from the contract so a territory change does not need a new contract row, and so the signup check is a single-key lookup.
 
 **`partner_licence_packages`**
 - `id` (`plp_`), `partner_id`, `name`.
@@ -238,7 +267,8 @@ allow `scale` or `enterprise`.
 **`workspace_licences`** (one row per managed workspace)
 - `workspace_id` (unique), `partner_id`, `package_id` (nullable).
 - `allowed_apps`, `monthly_credits`, `credit_rollover`, `max_seats`, `feature_plan_id`, `storage_gb`.
-- `resale_pricing`, `status` (`trial` | `active` | `suspended` | `ended`).
+- `resale_pricing`, `status` (`active` | `suspended` | `ended`).
+  - No trial status: the floor applies from `starts_at`. A trial state can be added later without touching the rest.
 - `starts_at`, `ends_at`, `updated_by`, `updated_at`.
 
 **`workspace_licence_changes`**: an append-only snapshot of the full licence after each change, with `changed_by`, `changed_at` and `reason`. Statements prorate from this table.
@@ -263,6 +293,12 @@ allow `scale` or `enterprise`.
 **On `billing_invoices`**
 - `partner_id` (nullable), so a partner invoice is not tied to a workspace.
 
+**`partner_workspace_requests`** (territory signups, Phase 3)
+- `id`, `partner_id`, `requester_user_id`, `requester_email`, `company_name`, `country_code`.
+- `selected_apps` (jsonb, from onboarding), `message`.
+- `status` (`new` | `contacted` | `provisioned` | `declined`), `workspace_id` (set when provisioned).
+- `created_at`.
+
 **Why master, not tenant**
 - The partner portal reads across many workspaces.
 - Enforcement must be cheap. The licence joins the cached workspace context the kit already loads (`getWorkspaceContextForOrg`), not a tenant query on every request.
@@ -281,6 +317,13 @@ Add a `licenceGate()` middleware to `@weldsuite/worker-kit` and put it in `apiAu
 4. Direct workspaces pass straight through in v1. The same gate can later enforce plan-based app access for direct customers, by filling `allowedApps` from the plan instead of a licence.
 
 The gate goes into every module worker at once, because they all use `apiAuth()`. **app-api's forwarder runs before auth**, so forwarded calls are checked in the module worker. external-api (wsk_ keys) and the mcp-server need the same check through their own auth middleware.
+
+**The same gate enforces read-only for a suspended partner.**
+- The cached context also carries `partnerStatus`.
+- When it is `suspended`, mutations return `403 WORKSPACE_READ_ONLY`. Mutations are every method except GET and HEAD, apart from a short allowlist of POST routes that only read (search, export, report queries).
+- Sign-in, Clerk and data export keep working.
+- The platform shows a read-only banner naming the partner.
+- Background writers also skip a suspended partner's workspaces: workflow runs, sequences, scheduled social posts and inbound mail rules. Inbound mail is still stored, so nothing is lost.
 
 ### Installed apps follow the licence
 
@@ -351,6 +394,44 @@ From the partner portal: **New workspace**. Fields:
 
 **Moving a workspace back to direct, or ending a licence:** the workspace falls back to the normal paywall flow (`paidPlanRequired`), with a grace period, and keeps its data.
 
+## Territory: pointing direct signups to the reseller
+
+Countries in `partner_territories` belong to the reseller. Someone in those
+countries who tries to create a workspace themselves is sent to the reseller.
+They do not get a direct WeldSuite workspace.
+
+**Which country counts**
+- The country chosen in the create-workspace dialog. The dialog pre-fills it from the IP.
+- `POST /api/onboarding/create-workspace` (`apps/workers/app-api/src/routes/onboarding/index.ts:160,234`) currently takes only `name`, `region` and `selectedApps`. It gains `country`.
+- The server falls back to `CF-IPCountry` when `country` is missing, as the country-pricing resolver already does.
+- Someone can pick a different country to get around this. That is accepted: the billing country is checked again at checkout (below), and the contract covers the rest.
+
+**Signup flow, territory country**
+1. `create-workspace` looks up `partner_territories`. When the country belongs to an active partner, it returns `409 { error: { code: 'PARTNER_TERRITORY', details: { partner: { name, logoUrl, websiteUrl, supportEmail } } } }` and creates no workspace.
+2. The dialog shows "WeldSuite in {country} is provided by {Partner}". It offers:
+   - a **Request a workspace** form (company name, message; the user's email and selected apps are already known);
+   - a link to the partner's website.
+3. The request lands in `partner_workspace_requests`, and partner admins are emailed.
+4. In the portal, **Requests** lists them. **Provision** opens the New workspace form pre-filled, with the requester as the customer owner. Once provisioned, the requester's pending signup ends in the normal invite.
+
+Phase 1 ships steps 1–2 with only the partner's contact details and website.
+The request form and portal inbox come with the portal in Phase 3.
+
+**Pricing and checkout**
+- `GET /plans` and `/plans-page` return `partnerManaged: { name, websiteUrl }` instead of prices when the caller's country is in the territory.
+- `POST /checkout` refuses a workspace whose billing country (`workspace_settings.country`) is in the territory, with `PARTNER_TERRITORY`. The guard sits next to the existing "on request" check (`apps/workers/app-api/src/routes/billing/index.ts:689`).
+- **The marketing site keeps its own copy of the country price resolver in another repo.** It needs the same "Available through {Partner}" state, fed by a public `GET /api/public/partner-territories` (country → partner name, website).
+
+**Who is not affected**
+- Invited members of existing workspaces. Territory only applies when someone creates a workspace.
+- **Direct workspaces that already exist in the territory stay direct.** They keep their subscription and can renew, upgrade and add seats. The checkout guard only blocks a *new* subscription, not changes to a running one.
+- Moving one of them to the reseller is a manual admin action, done only with the customer's agreement.
+- Desktop and mobile apps sign in to existing workspaces only. Workspace creation goes through the same endpoint, so the check covers them.
+
+**Which countries**
+- Stored as data, not code. Staff edit the list per partner in admin.
+- Whether "North and South America" includes Central America and the Caribbean is a contract question. The list makes either answer one edit.
+
 ## Partner portal (platform SPA)
 
 A new top-level area at `/partner`, shown only to users in `partner_members`. Components live in `apps/web/platform/app/partner/`, route wrappers in `src/routes/partner/`. It runs in the platform shell but is **not scoped to a workspace**: a partner user may also belong to zero or many workspaces.
@@ -360,6 +441,7 @@ A new top-level area at `/partner`, shown only to users in `partner_members`. Co
 | Overview | Active workspaces, this month's resale total, WeldSuite share, partner margin, credits used vs licensed, workspaces near their credit limit |
 | Workspaces | Table with name, customer owner, package, price model, seats, credits used, status. Actions: create, edit licence, suspend or end licence, grant extra credits |
 | Workspace detail | Licence editor with live "WeldSuite bills / you keep" preview, licence history, seat and credit usage chart |
+| Requests | Workspace requests from territory signups: requester, company, country, wanted apps. Actions: provision (pre-fills New workspace), mark contacted, decline |
 | Packages | Create, edit and archive licence packages |
 | Statements | Current month preview (live), past statements with lines, Stripe invoice PDF and pay link, CSV export so the reseller can invoice their own customers |
 | Team | Partner members and roles |
@@ -384,12 +466,16 @@ Partner routes use `clerkMiddleware()` and a new `partnerAuth()`:
 
 **Audit trail:** every licence change, credit grant and workspace creation publishes an entity event (`partner_workspace`, `workspace_licence`; add both to the catalog), as CLAUDE.md requires for mutations.
 
-**i18n:** every new string in `en` and `nl`. Spanish and Portuguese matter for this reseller. `es` exists but is partial; `pt` would be new. That is a separate decision.
+**i18n:** every new string goes in `en` and `nl`, as usual. Spanish and Portuguese are out of scope here and tracked in WeldSuite task #1092. Once that lands, the portal and the territory screen are translated first.
+
+**No access to customer data.** Partner users manage licences and see usage numbers only: seat counts, credits used, installed apps. They never see records, files or messages inside a customer workspace. `partnerAuth()` never sets a tenant DB on the context, and partner services read only the master DB and the tenant `workspace_installed_apps` table.
 
 ## Admin console (`apps/web/admin`)
 
 - **Partners list and detail.** Create a partner, invite its first owner, edit the contract (new effective-dated row), set status.
 - **Partner workspaces.** See and override any licence, with an audit trail in the existing `admin_audit_events`. Move a workspace in or out of a partner.
+- **Territories.** Assign countries to a partner. A country can belong to only one partner.
+- **Payment status.** See each partner's overdue days, pause the 14/30-day clock (`dunning_paused_until`), or lift read-only manually.
 - **Statements.** Preview, re-run a draft, void, and see Stripe status.
 - **Actions.** Server actions go to billing-worker `/api/internal/admin/partners/*` with `x-admin-secret`, like the existing admin billing actions.
 
@@ -401,11 +487,12 @@ Partner routes use `clerkMiddleware()` and a new `partnerAuth()`:
 3. Add `appCode` to `@weldsuite/api-modules`.
 
 **Phase 1: partner and licence, admin-managed**
-1. Schema (after migration approval): partners, contracts, packages, licences, history, `workspaces.partner_id` / `billing_mode`.
-2. Admin console: create partners, managed workspaces and licences.
+1. Schema (after migration approval): partners, contracts, territories, packages, licences, history, `workspaces.partner_id` / `billing_mode`.
+2. Admin console: create partners, assign territories, create managed workspaces and licences.
 3. Provisioning with licence, skipping `setup-billing`.
 4. Licence → installed apps sync, credit sweep with reset, seat cap.
 5. Managed-workspace billing page ("managed by {Partner}").
+6. Territory: `country` on create-workspace, the `PARTNER_TERRITORY` check with the partner's contact screen, the checkout guard, and `partnerManaged` on the plans endpoints and the public territory endpoint for the marketing site.
 
 At the end of this phase, WeldSuite staff can run the reseller deal by hand.
 
@@ -413,13 +500,14 @@ At the end of this phase, WeldSuite staff can run the reseller deal by hand.
 1. Seat snapshot sweep.
 2. Statement calculation with daily proration.
 3. Monthly Stripe invoice to the partner; extra credit packs on the statement.
-4. Partner `past_due` / `suspended` handling.
+4. Payment sweep: `past_due` at day 14, warning at day 23, `suspended` and read-only at day 30, lifted on `invoice.paid`. Includes the read-only branch of the gate and the background writers that skip suspended workspaces.
 
 **Phase 3: partner portal**
 1. `/api/partner/*` routes with `partnerAuth()`.
 2. Portal pages, packages, the live price preview, statements, CSV export.
-3. Team management.
-4. Help docs (`apps/web/docs`) for partners.
+3. Territory requests: the request form at signup, `partner_workspace_requests`, the Requests inbox, provisioning from a request.
+4. Team management.
+5. Help docs (`apps/web/docs`) for partners.
 
 **Phase 4: later**
 - Support access: a partner user joins a customer workspace with the customer's consent, time-boxed and audited.
@@ -429,18 +517,16 @@ At the end of this phase, WeldSuite staff can run the reseller deal by hand.
 - Plan-based app gating for direct customers through the same gate.
 - WeldBooks invoicing for the reseller's own customers.
 
-## Open decisions
+## Still open
 
-The owner needs to answer these. Each has a recommendation.
+The design questions are answered (see "Decisions taken"). What remains is
+contract data and two business calls. None of them blocks Phase 0 or the Phase 1
+code, because every one is a value stored per partner.
 
-1. **Does the floor grow with licensed credits?** Recommended: yes (`included_credits` + `credit_floor_price`). Otherwise credits are WeldSuite's uncapped cost.
-2. **Contract currency.** Recommended: USD, with resale prices recorded in USD.
-3. **Free trials.** Should a workspace in `trial` cost the floor? Recommended: `trial_days_free` on the contract (e.g. 14 days), after which the floor applies even at a $0 price.
-4. **Per-seat basis.** Recommended: peak active members in the month, with optional `min_seats`. Alternative: members on the last day of the month.
-5. **Unpaid partner.** Recommended: reminders, then banner after N days, then read-only after M days, with staff confirmation before read-only. N and M are on the contract.
-6. **Territory.** Should people who sign up directly from the Americas be pointed to the reseller, or is the territory informational only? Recommended: informational in v1, no signup routing.
-7. **Languages.** Is a Spanish/Portuguese platform in scope for this deal?
-8. **Should partner users see their customers' data?** Recommended: no by default, with consented support access in Phase 4.
+1. **Contract numbers:** `base_minimum`, `included_credits`, `credit_floor_price` and `extra_credit_pack_price`. Set `credit_floor_price` from real cost per credit (AI model rates, telephony, OCR) plus margin.
+2. **Territory country list.** Do Central America and the Caribbean count as "North and South America"?
+3. **Existing direct customers in the territory.** The design keeps them direct. Does the reseller contract say anything about them (commission, transfer)?
+4. **VAT and tax treatment** of WeldSuite's invoice to the reseller's entity. Confirm with the accountant.
 
 ## Issues found along the way (independent of this feature)
 
