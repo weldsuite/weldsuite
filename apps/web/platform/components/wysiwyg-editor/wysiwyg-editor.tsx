@@ -1364,7 +1364,6 @@ export function DefaultToolbar({
         <PopoverTrigger asChild>
           <Button
             variant="outline"
-            role="combobox"
             aria-expanded={fontFamilyOpen}
             className="hidden md:flex h-8 w-44 justify-between text-xs shadow-none"
             style={{ fontFamily: `'${fontFamily}', sans-serif` }}
@@ -1413,7 +1412,6 @@ export function DefaultToolbar({
         <PopoverTrigger asChild>
           <Button
             variant="outline"
-            role="combobox"
             aria-expanded={fontSizeOpen}
             className="hidden md:flex h-8 w-20 justify-between text-xs shadow-none"
           >

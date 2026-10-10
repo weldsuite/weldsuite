@@ -585,7 +585,6 @@ export default function DocumentsPage() {
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  role="combobox"
                   aria-expanded={fontFamilyOpen}
                   className="h-8 w-40 justify-between text-xs shadow-none"
                 >
@@ -630,7 +629,6 @@ export default function DocumentsPage() {
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  role="combobox"
                   aria-expanded={fontSizeOpen}
                   className="h-8 w-20 justify-between text-xs shadow-none"
                 >

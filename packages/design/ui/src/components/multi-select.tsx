@@ -131,7 +131,6 @@ export function MultiSelect({
             id={id}
             type="button"
             variant="ghost"
-            role="combobox"
             aria-expanded={open}
             aria-label={ariaLabel}
             aria-labelledby={ariaLabel ? undefined : valueId}
