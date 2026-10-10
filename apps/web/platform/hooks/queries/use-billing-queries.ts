@@ -189,7 +189,7 @@ export function useChangePlan() {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.all });
+      void qc.invalidateQueries({ queryKey: billingKeys.all });
     },
   });
 }
@@ -211,8 +211,8 @@ export function useUpdateSeats() {
       return { success: true, ...res.data };
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
-      qc.invalidateQueries({ queryKey: billingKeys.limits() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.limits() });
     },
   });
 }
@@ -228,7 +228,7 @@ export function useCancelSubscription() {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
 }
@@ -243,7 +243,7 @@ export function useReactivateSubscription() {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
 }// =============================================================================
@@ -302,9 +302,9 @@ export function useSetDefaultPaymentMethod() {
       return res.data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
+      void qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
       // The paywall gate keys off whether a method is on file.
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
 }
@@ -318,8 +318,8 @@ export function useRemovePaymentMethod() {
       await client.delete(`/billing/payment-methods/${paymentMethodId}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
-      qc.invalidateQueries({ queryKey: billingKeys.subscription() });
+      void qc.invalidateQueries({ queryKey: billingKeys.paymentMethods() });
+      void qc.invalidateQueries({ queryKey: billingKeys.subscription() });
     },
   });
 }

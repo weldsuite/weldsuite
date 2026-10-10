@@ -166,7 +166,7 @@ export function WorkspaceProvider({ children }: Readonly<{ children: React.React
       setLoading(false);
       return;
     }
-    fetchWorkspaces();
+    void fetchWorkspaces();
   }, [isLoaded, isSignedIn, fetchWorkspaces]);
 
   const value = useMemo(() => ({

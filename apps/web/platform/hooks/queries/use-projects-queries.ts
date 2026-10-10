@@ -379,7 +379,7 @@ export function useCreateProjectAnalyticsReport() {
       return client.post<{ data: { id: string } }>('/project-analytics/reports', data);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
     },
   });
 }
@@ -393,8 +393,8 @@ export function useUpdateProjectAnalyticsReport() {
       return client.put<{ data: { id: string } }>(`/project-analytics/reports/${reportId}`, data);
     },
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
     },
   });
 }
@@ -408,7 +408,7 @@ export function useDeleteProjectAnalyticsReport() {
       return client.delete<{ data: { deleted: boolean } }>(`/project-analytics/reports/${reportId}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
     },
   });
 }
@@ -442,9 +442,9 @@ export function useCreateProjectAnalyticsChart() {
       return client.post<{ data: { id: string } }>(`/project-analytics/reports/${reportId}/charts`, data);
     },
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsCharts(variables.reportId) });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
-      qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsCharts(variables.reportId) });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReport(variables.reportId) });
+      void qc.invalidateQueries({ queryKey: projectKeys.analyticsReports() });
     },
   });
 }

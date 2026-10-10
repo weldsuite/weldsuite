@@ -1735,7 +1735,7 @@ export default function TimesheetPage() {
   }, [projectId]);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
   // Generate week days
@@ -1902,7 +1902,7 @@ export default function TimesheetPage() {
         setNewEntryStartTime('');
         setNewEntryEndTime('');
         setSelectedDate(null);
-        loadData();
+        void loadData();
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.saveFailed'));
       }
@@ -1936,7 +1936,7 @@ export default function TimesheetPage() {
       const result = await timeEntriesApi.delete(projectId, entryId);
       if (result.success) {
         toast.success(st('sweep.weldflow.timesheetPage.timeEntryDeleted'));
-        loadData();
+        void loadData();
       } else {
         toast.error(result.error || st('sweep.weldflow.timesheetPage.deleteFailed'));
       }
@@ -1999,7 +1999,7 @@ export default function TimesheetPage() {
 
       toast.success(st('sweep.weldflow.timesheetPage.loggedHours', { hours: Math.round((durationMinutes / 60) * 10) / 10 }));
       resetTimerFields();
-      loadData();
+      void loadData();
     } catch {
       toast.error(st('sweep.weldflow.timesheetPage.saveFailed'));
     }

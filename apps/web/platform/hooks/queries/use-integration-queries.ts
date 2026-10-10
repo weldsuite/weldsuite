@@ -154,7 +154,7 @@ export function useAttioCallback() {
       );
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: integrationKeys.connections() });
+      void qc.invalidateQueries({ queryKey: integrationKeys.connections() });
     },
   });
 }
@@ -171,8 +171,8 @@ export function useTriggerSync() {
       );
     },
     onSuccess: (_, connectionId) => {
-      qc.invalidateQueries({ queryKey: integrationKeys.connection(connectionId) });
-      qc.invalidateQueries({ queryKey: integrationKeys.connections() });
+      void qc.invalidateQueries({ queryKey: integrationKeys.connection(connectionId) });
+      void qc.invalidateQueries({ queryKey: integrationKeys.connections() });
     },
   });
 }
@@ -187,7 +187,7 @@ export function useDisconnectIntegration() {
       await client.delete<void>(`/integrations/connections/${connectionId}`);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: integrationKeys.connections() });
+      void qc.invalidateQueries({ queryKey: integrationKeys.connections() });
     },
   });
 }
@@ -225,8 +225,8 @@ export function useUpdateConnectionSettings() {
       );
     },
     onSuccess: (_, { connectionId }) => {
-      qc.invalidateQueries({ queryKey: integrationKeys.connection(connectionId) });
-      qc.invalidateQueries({ queryKey: integrationKeys.connections() });
+      void qc.invalidateQueries({ queryKey: integrationKeys.connection(connectionId) });
+      void qc.invalidateQueries({ queryKey: integrationKeys.connections() });
     },
   });
 }
@@ -260,7 +260,7 @@ export function useProviderCallback() {
       );
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: integrationKeys.connections() });
+      void qc.invalidateQueries({ queryKey: integrationKeys.connections() });
     },
   });
 }
@@ -341,7 +341,7 @@ export function useUpdateFieldMappings() {
       );
     },
     onSuccess: (_, { connectionId, entityType }) => {
-      qc.invalidateQueries({ queryKey: integrationKeys.fieldMappings(connectionId, entityType) });
+      void qc.invalidateQueries({ queryKey: integrationKeys.fieldMappings(connectionId, entityType) });
     },
   });
 }
@@ -407,7 +407,7 @@ export function useResolveConflict() {
       );
     },
     onSuccess: (_, { connectionId }) => {
-      qc.invalidateQueries({ queryKey: integrationKeys.conflicts(connectionId) });
+      void qc.invalidateQueries({ queryKey: integrationKeys.conflicts(connectionId) });
     },
   });
 }

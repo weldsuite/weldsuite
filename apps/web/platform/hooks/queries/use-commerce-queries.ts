@@ -226,8 +226,8 @@ export function useUpdateCommerceProduct() {
       return client.patch<DataResponse<CommerceProduct>>(`/products/${id}`, data);
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: commerceKeys.products() });
-      qc.invalidateQueries({ queryKey: commerceKeys.product(vars.id) });
+      void qc.invalidateQueries({ queryKey: commerceKeys.products() });
+      void qc.invalidateQueries({ queryKey: commerceKeys.product(vars.id) });
     },
   });
 }
@@ -266,8 +266,8 @@ export function useSalesChannelTargets(enabled = true) {
 }
 
 function invalidateProductSalesChannels(qc: ReturnType<typeof useQueryClient>, productId: string) {
-  qc.invalidateQueries({ queryKey: commerceKeys.products() });
-  qc.invalidateQueries({ queryKey: commerceKeys.product(productId) });
+  void qc.invalidateQueries({ queryKey: commerceKeys.products() });
+  void qc.invalidateQueries({ queryKey: commerceKeys.product(productId) });
 }
 
 export function useAddProductSalesChannel() {
@@ -485,9 +485,9 @@ export function useAttachCategoryProducts() {
       );
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: commerceKeys.categoryProducts(vars.categoryId) });
+      void qc.invalidateQueries({ queryKey: commerceKeys.categoryProducts(vars.categoryId) });
       for (const productId of vars.productIds) {
-        qc.invalidateQueries({ queryKey: commerceKeys.productCategories(productId) });
+        void qc.invalidateQueries({ queryKey: commerceKeys.productCategories(productId) });
       }
     },
   });
@@ -502,8 +502,8 @@ export function useDetachCategoryProduct() {
       return client.delete<void>(`/categories/${categoryId}/products/${productId}`);
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: commerceKeys.categoryProducts(vars.categoryId) });
-      qc.invalidateQueries({ queryKey: commerceKeys.productCategories(vars.productId) });
+      void qc.invalidateQueries({ queryKey: commerceKeys.categoryProducts(vars.categoryId) });
+      void qc.invalidateQueries({ queryKey: commerceKeys.productCategories(vars.productId) });
     },
   });
 }
@@ -529,8 +529,8 @@ export function useUpdateCommerceCategory() {
       return client.patch<DataResponse<CommerceCategory>>(`/categories/${id}`, data);
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: commerceKeys.categories() });
-      qc.invalidateQueries({ queryKey: commerceKeys.category(vars.id) });
+      void qc.invalidateQueries({ queryKey: commerceKeys.categories() });
+      void qc.invalidateQueries({ queryKey: commerceKeys.category(vars.id) });
     },
   });
 }
@@ -627,8 +627,8 @@ export function useUpdateCommerceOrder() {
       return client.patch<DataResponse<CommerceOrder>>(`/orders/${id}`, data);
     },
     onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: commerceKeys.orders() });
-      qc.invalidateQueries({ queryKey: commerceKeys.order(vars.id) });
+      void qc.invalidateQueries({ queryKey: commerceKeys.orders() });
+      void qc.invalidateQueries({ queryKey: commerceKeys.order(vars.id) });
     },
   });
 }
