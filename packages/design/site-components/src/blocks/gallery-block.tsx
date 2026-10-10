@@ -116,7 +116,7 @@ export function GalleryBlock({
           <button
             type="button"
             aria-label="Close"
-            className="absolute top-4 right-4 text-white text-4xl hover:opacity-80"
+            className="absolute top-4 right-4 z-10 text-white text-4xl hover:opacity-80"
             onClick={closeLightbox}
           >
             &times;
@@ -124,7 +124,7 @@ export function GalleryBlock({
           <button
             type="button"
             aria-label="Previous image"
-            className="absolute left-4 text-white text-4xl hover:opacity-80"
+            className="absolute left-4 z-10 text-white text-4xl hover:opacity-80"
             onClick={(e) => {
               e.stopPropagation();
               navigateLightbox('prev');
@@ -135,7 +135,7 @@ export function GalleryBlock({
           <button
             type="button"
             aria-label="Next image"
-            className="absolute right-4 text-white text-4xl hover:opacity-80"
+            className="absolute right-4 z-10 text-white text-4xl hover:opacity-80"
             onClick={(e) => {
               e.stopPropagation();
               navigateLightbox('next');
