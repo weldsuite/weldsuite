@@ -14,6 +14,7 @@ export function useMyHrBreadcrumbs(page?: string) {
   );
 }
 
+/** A My HR page other than the overview: sets its breadcrumb and stacks its sections. */
 export function MyHrPage({ title, children }: Readonly<{ title: string; children: ReactNode }>) {
   useMyHrBreadcrumbs(title);
   return (

@@ -42,6 +42,7 @@ const COUNTED: Partial<Record<string, keyof WeldhrMenuState['counts']>> = {
   [MY_HR_PATHS.payroll]: 'payroll',
 };
 
+/** Puts each count on its My HR item as a badge; a zero count shows none. */
 function withCounts(items: MenuItemProps[], counts: WeldhrMenuState['counts']): MenuItemProps[] {
   return items.map((item) => {
     const key = COUNTED[item.href];
@@ -50,6 +51,7 @@ function withCounts(items: MenuItemProps[], counts: WeldhrMenuState['counts']): 
   });
 }
 
+/** The HR team's payroll pages (`/weldhr/payroll` and below); My HR → Payroll is not one of them. */
 function isPayrollPage(href: string): boolean {
   return href === PAYROLL_PREFIX || href.startsWith(PAYROLL_PREFIX + '/');
 }
@@ -107,6 +109,7 @@ export function adjustWeldhrMenu(groups: MenuGroupProps[], state: WeldhrMenuStat
   ];
 }
 
+/** The remembered collapse state of My HR; expanded when storage is unavailable. */
 function readCollapsed(): boolean {
   try {
     return globalThis.localStorage?.getItem(COLLAPSED_STORAGE_KEY) === '1';
@@ -115,6 +118,7 @@ function readCollapsed(): boolean {
   }
 }
 
+/** Remembers the collapse state for the next visit, where storage allows. */
 function writeCollapsed(collapsed: boolean) {
   try {
     globalThis.localStorage?.setItem(COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0');
@@ -123,6 +127,11 @@ function writeCollapsed(collapsed: boolean) {
   }
 }
 
+/**
+ * Loads what `adjustWeldhrMenu` needs (employee record, counts, payroll, the
+ * collapse state) and returns the `adjust` the sidebar applies to the static
+ * WeldHR menu. Outside WeldHR (`enabled` false) it leaves the menu alone.
+ */
 export function useWeldhrSidebarItems(enabled: boolean) {
   const pathname = usePathname();
   const { can, isOwner } = usePermissions();

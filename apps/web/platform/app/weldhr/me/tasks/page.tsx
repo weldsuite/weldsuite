@@ -1,9 +1,8 @@
-/** My HR → Tasks: your onboarding / offboarding checklist tasks. */
-
 import { useTranslations } from '@weldsuite/i18n/client';
 import { MyHrPage } from '../components/my-hr-page';
 import { MyTasksTab } from '../components/tasks-tab';
 
+/** My HR → Tasks: your onboarding / offboarding checklist tasks. */
 export default function MyTasksPage() {
   const t = useTranslations();
 

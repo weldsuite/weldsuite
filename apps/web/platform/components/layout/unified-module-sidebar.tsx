@@ -53,6 +53,10 @@ function readNavigation(manifest: Record<string, unknown> | null | undefined): U
   return items.length > 0 ? items : null;
 }
 
+/**
+ * The sidebar of the module the current route is in: its static menu plus the
+ * module's own dynamic items, then filtered by the member's permissions.
+ */
 export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [] }: Readonly<UnifiedModuleSidebarProps>) {
   const pathname = usePathname();
   const { t } = useI18n();

@@ -15,6 +15,7 @@ import { HR_DASHBOARD_PERMISSIONS, MY_HR_PATHS } from './access';
 import { DashboardPage, KpiCard, KpiGrid, SectionCard, EmptyText, useHrBreadcrumbs } from './components/page-kit';
 import { EmployeeAvatar, ErrorBanner, errorMessage, formatDate } from './components/shared';
 
+/** The dashboard for HR; a member who only has My HR is sent there instead. */
 export default function WeldHrDashboardPage() {
   const { canAny, can, isLoading } = usePermissions();
   const navigate = useNavigate();

@@ -13,6 +13,7 @@ const HR_MANAGER = [
   'declarations:read', 'absences:read', 'coaching:read', 'evaluations:read', 'payroll:read', 'payroll:manage',
 ];
 
+/** A member with `permissions`, linked to an employee, payroll flag off, nothing waiting. */
 function state(permissions: string[], overrides: Partial<WeldhrMenuState> = {}): WeldhrMenuState {
   return {
     hasEmployee: true,

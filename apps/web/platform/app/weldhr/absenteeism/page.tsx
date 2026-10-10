@@ -14,6 +14,7 @@ import { AbsencesTab } from './components/absences-tab';
 
 type Tab = 'ongoing' | 'completed';
 
+/** Ongoing and completed sick reports, one tab each; without `absences:read` it says so instead. */
 export default function WeldHrAbsenteeismPage() {
   const t = useTranslations();
   const navigate = useNavigate();
@@ -38,6 +39,7 @@ export default function WeldHrAbsenteeismPage() {
   ];
   const tab: Tab = search.tab === 'completed' ? 'completed' : 'ongoing';
 
+  /** Ongoing is the default, so it keeps the URL clean. */
   function setTab(next: string) {
     void navigate({ to: '/weldhr/absenteeism', search: { tab: next === 'ongoing' ? undefined : next }, replace: true });
   }

@@ -1,12 +1,3 @@
-/**
- * My HR: the signed-in member's own WeldHR employee record, one page per
- * sidebar item (overview, time off, expenses, schedule, tasks, reviews).
- * Every endpoint resolves the employee from the session, so these pages never
- * take an employee id. This layout loads that record once; members who are not
- * linked to an employee (or whose record is terminated) get a "not set up yet"
- * state instead of the page.
- */
-
 import type { ReactNode } from 'react';
 import { UserRoundSearch } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -18,6 +9,14 @@ import { ErrorBanner, errorMessage } from '../components/shared';
 import { MyHrProvider } from './components/my-hr-context';
 import { useMyHrBreadcrumbs } from './components/my-hr-page';
 
+/**
+ * My HR: the signed-in member's own WeldHR employee record, one page per
+ * sidebar item (overview, time off, expenses, schedule, payroll, tasks, reviews).
+ * Every endpoint resolves the employee from the session, so these pages never
+ * take an employee id. This layout loads that record once; members who are not
+ * linked to an employee (or whose record is terminated) get a "not set up yet"
+ * state instead of the page.
+ */
 export default function MyHrLayout({ children }: Readonly<{ children: ReactNode }>) {
   const t = useTranslations();
   const { can, isOwner, isLoading: permissionsLoading } = usePermissions();

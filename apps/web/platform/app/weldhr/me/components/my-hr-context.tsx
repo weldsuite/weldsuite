@@ -10,6 +10,7 @@ export interface MyHrSelf {
 
 const MyHrContext = createContext<MyHrSelf | null>(null);
 
+/** Hands the loaded employee record to the My HR page rendered inside it. */
 export function MyHrProvider({ value, children }: Readonly<{ value: MyHrSelf; children: ReactNode }>) {
   return <MyHrContext.Provider value={value}>{children}</MyHrContext.Provider>;
 }

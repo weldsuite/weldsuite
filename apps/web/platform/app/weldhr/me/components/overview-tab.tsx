@@ -21,6 +21,7 @@ function formatSince(since: string): string {
   return new Date(since).toDateString() === new Date().toDateString() ? formatTime(since) : formatDateTime(since);
 }
 
+/** The overview below the header; each KPI card links to the My HR page behind it. */
 export function MyOverviewTab({
   employee,
   canClockIn,

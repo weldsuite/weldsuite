@@ -80,6 +80,7 @@ export function appHref(app: InstalledAppRef): string {
   return `/${app.appCode}`;
 }
 
+/** Every page in a module's static sidebar menu, with the permission that gates it. */
 export function pagesForModule(appCode: string, t: TranslationsType): SidebarPage[] {
   const config = MODULE_CONFIGS[appCode];
   if (!config) return [];
@@ -105,6 +106,7 @@ export function pagesForModule(appCode: string, t: TranslationsType): SidebarPag
   return pages;
 }
 
+/** An entry per installed app, plus one per sidebar page the member may open. */
 export function navigationCommandsForApps(
   apps: InstalledAppRef[],
   pagesForApp: (appCode: string) => SidebarPage[],
