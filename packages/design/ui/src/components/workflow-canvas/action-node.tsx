@@ -255,7 +255,7 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
           </div>
         )}
 
-        <Handle type="source" position={Position.Bottom} className="!w-3 !h-3 !bg-white dark:!bg-background !border-[1.5px] !border-blue-400 !z-10 !hidden lg:!block" style={{ bottom: '1px' }} />
+        <Handle type="source" position={Position.Bottom} className="!w-3 !h-3 !bg-white dark:!bg-background !border-[1.5px] !border-blue-400 !z-10 !invisible lg:!visible" style={{ bottom: '1px' }} />
 
         {nodeData.actionType === 'ai_agent' && (
           <Handle type="source" position={Position.Right} id="subagents" className="!w-2.5 !h-2.5 !bg-white dark:!bg-background !border-[1.5px] !border-border !right-0" />

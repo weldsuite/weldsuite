@@ -33,6 +33,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSkeleton,
   SidebarMenuSub,
   SidebarMenuSubItem,
   SidebarMenuSubButton,
@@ -163,6 +164,12 @@ export interface MenuGroupProps {
   hideLabel?: boolean;
   /** Override the label shown on the empty-state "+ Add ..." dashed button. Defaults to a singularized form of `group`. */
   addLabel?: string;
+  /**
+   * The group's items are still being fetched. While true and there are no
+   * items yet, skeleton rows show instead of the empty-state "+ Add ..." button,
+   * which would otherwise flash before the real items arrive.
+   */
+  loading?: boolean;
 }
 
 export interface EmailAccount {
@@ -1079,7 +1086,17 @@ function SidebarMenuGroup({ group, pathname, allMenuItems }: Readonly<SidebarMen
           group.customContent
         ) : (
           <SidebarMenu>
-            {group.items.length === 0 && group.onAdd && !group.collapsed && (
+            {group.items.length === 0 && group.loading && !group.collapsed && (
+              <>
+                <SidebarMenuItem>
+                  <SidebarMenuSkeleton showIcon />
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuSkeleton showIcon />
+                </SidebarMenuItem>
+              </>
+            )}
+            {group.items.length === 0 && group.onAdd && !group.collapsed && !group.loading && (
               <SidebarMenuItem>
                 <Button
                   variant="ghost"

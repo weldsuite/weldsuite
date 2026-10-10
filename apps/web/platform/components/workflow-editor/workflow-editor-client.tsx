@@ -276,6 +276,8 @@ interface WorkflowEditorClientProps {
   }>;
   excludeVariableGroups?: string[];
   publishLabel?: string;
+  /** Toast shown after a plain save; hosts that do not call their thing a "workflow" (CRM sequences) name it here. */
+  savedMessage?: string;
   onPublish?: () => Promise<{ success: boolean; error?: string }>;
   /** Hide the publish/start button entirely (e.g. for draft wizard flows) */
   hidePublish?: boolean;
@@ -2024,7 +2026,8 @@ function useNodeSummaryLabels(): NodeSummaryLabels {
     return {
       configured: summary.configured,
       to: action.descTo,
-      delay: action.descDelay,
+      delay: summary.delay,
+      duration: summary.duration,
       entity: action.descEntity,
       trigger: {
         manual: trigger.manuallyTriggered,
@@ -3105,6 +3108,7 @@ export function WorkflowEditorClient({
   extraVariableGroups,
   excludeVariableGroups,
   publishLabel,
+  savedMessage,
   onPublish,
   hidePublish,
   hideNavTabs,
@@ -3623,7 +3627,7 @@ export function WorkflowEditorClient({
     }
   }, [editingStep, editingBranch, showTriggerPanel, showAddActionPanel]);
 
-  const handleSave = async (savedMessage: string = tec.toasts.workflowSaved) => {
+  const handleSave = async (toastMessage: string = savedMessage ?? tec.toasts.workflowSaved) => {
     // A malformed cron expression is stored as typed and then never fires.
     if (triggerWarning === 'invalidCron') {
       handleSelectTrigger();
@@ -3642,7 +3646,7 @@ export function WorkflowEditorClient({
         },
       });
       savedSnapshotRef.current = JSON.stringify({ triggers: workflow.triggers, steps: workflow.steps });
-      toast.success(savedMessage);
+      toast.success(toastMessage);
       return true;
     } catch (err) {
       toast.error(isUnsupportedWorkflowError(err) ? tec.toasts.publishUnsupported : tec.toasts.saveFailed);

@@ -49,6 +49,79 @@ export function formatDealMoney(
   }
 }
 
+/** An amount in a deal's own currency (`currency` empty = the caller's fallback). */
+export interface DealAmount {
+  amount: number;
+  currency?: string | null;
+}
+
+/**
+ * Sum amounts per currency, in first-seen order. Adding euros to dollars into
+ * one number and labelling it with a single symbol is wrong, so totals stay
+ * split by currency.
+ */
+export function sumByCurrency(
+  items: readonly DealAmount[],
+  fallbackCurrency: string = DEFAULT_DEAL_CURRENCY,
+): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const item of items) {
+    const code = resolveDealCurrency(item.currency, fallbackCurrency);
+    totals.set(code, (totals.get(code) ?? 0) + item.amount);
+  }
+  return totals;
+}
+
+/**
+ * The currency most of `items` carry (ties go to the one seen first), or
+ * `fallback` when there are none. Used to give an empty total ("Won €0") the
+ * same currency as the totals around it instead of a hard-coded default.
+ */
+export function dominantCurrency(
+  items: readonly { currency?: string | null }[],
+  fallback: string = DEFAULT_DEAL_CURRENCY,
+): string {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const code = resolveDealCurrency(item.currency, fallback);
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+  let best = fallback;
+  let bestCount = 0;
+  for (const [code, count] of counts) {
+    if (count > bestCount) {
+      best = code;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/**
+ * Format per-currency totals as one string ("€1,200 + $500"). With nothing to
+ * add it shows a zero in `emptyCurrency`.
+ */
+export function formatCurrencyTotals(
+  totals: ReadonlyMap<string, number>,
+  emptyCurrency: string = DEFAULT_DEAL_CURRENCY,
+  options?: FormatDealMoneyOptions,
+): string {
+  if (totals.size === 0) return formatDealMoney(0, emptyCurrency, options);
+  return [...totals.entries()].map(([code, sum]) => formatDealMoney(sum, code, options)).join(' + ');
+}
+
+/**
+ * `sumByCurrency` + `formatCurrencyTotals`: the total value of a set of deals.
+ * A deal without a currency counts as `DEFAULT_DEAL_CURRENCY`, the same as on
+ * its card; `emptyCurrency` only decides which zero an empty set shows.
+ */
+export function formatDealTotals(
+  deals: readonly DealAmount[],
+  { emptyCurrency, ...options }: FormatDealMoneyOptions & { emptyCurrency?: string } = {},
+): string {
+  return formatCurrencyTotals(sumByCurrency(deals), emptyCurrency, options);
+}
+
 /** Just the currency symbol (`€`, `$`, ...) for input adornments. */
 export function dealCurrencySymbol(currency: string | null | undefined): string {
   const code = resolveDealCurrency(currency);
@@ -72,6 +145,25 @@ export function formatDealDate(value: string | Date | null | undefined): string 
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return typeof value === 'string' ? value : null;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** Local `YYYY-MM-DD` of a stored timestamp, for a native date input. */
+export function toDateInputValue(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
+ * Local midnight of a `YYYY-MM-DD` input value as ISO: the same instant the
+ * create-deal date picker stores, so both show the same calendar day.
+ */
+export function fromDateInputValue(value: string): string | null {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day).toISOString();
 }
 
 export interface CurrencyOption {

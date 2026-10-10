@@ -10,6 +10,7 @@ import {
   Flag,
   CircleDot,
   Clock,
+  Timer,
   Tags,
   Plus,
   Upload,
@@ -74,6 +75,7 @@ import { InlineSubtaskInput } from './inline-subtask-input';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
+import { DURATION_PRESETS, formatMinutes, parseDurationMinutes } from '@/components/tasks/task-duration';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -288,6 +290,8 @@ export interface TaskUpdateData {
   priority?: NonNullable<Task['priority']>;
   dueDate?: Date;
   startDate?: Date;
+  /** Minutes; `null` clears it. */
+  duration?: number | null;
   assignee?: NonNullable<Task['assignee']> | null;
   assignees?: NonNullable<Task['assignees']> | null;
   linkedCompany?: NonNullable<Task['linkedCompany']> | null;
@@ -552,6 +556,127 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
               </Button>
             </div>
           )}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+/**
+ * How long the task takes, in minutes. Set from the task dialog's duration chip
+ * (30m by default) and used to size the task's calendar block, so it has to be
+ * visible and editable here too, not only at creation time.
+ */
+function DurationField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }>) {
+  const t = useTranslations();
+  const [open, setOpen] = useState(false);
+  const [customMinutes, setCustomMinutes] = useState('');
+  const duration = task.duration ?? null;
+  // The last value sent and not yet reflected in `task`: Enter commits and then
+  // closes the popover, whose blur would otherwise commit the same value twice.
+  const lastSentRef = useRef<number | null | undefined>(undefined);
+
+  // The custom box only holds a value that is not one of the presets; commit on
+  // Enter / blur so typing "45" doesn't fire a PATCH for "4" first.
+  useEffect(() => {
+    if (open) setCustomMinutes(duration != null && !DURATION_PRESETS.includes(duration) ? String(duration) : '');
+  }, [open, duration]);
+
+  useEffect(() => {
+    lastSentRef.current = undefined;
+  }, [duration]);
+
+  const commit = useCallback(
+    (next: number | null) => {
+      if (next === duration || next === lastSentRef.current) return;
+      lastSentRef.current = next;
+      onUpdate(task.id, { duration: next });
+    },
+    [duration, onUpdate, task.id],
+  );
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 w-32 flex-shrink-0">
+        <Timer className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">{t('sweep.shared.duration')}</span>
+      </div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" className={cn(
+            "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors",
+            duration != null && "border border-transparent hover:border-border hover:bg-muted/40",
+          )}>
+            {duration != null ? (
+              <span>{formatMinutes(duration)}</span>
+            ) : (
+              <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setDuration')}</span>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-48 p-1" align="start">
+          <div className="flex flex-col">
+            {DURATION_PRESETS.map((mins) => (
+              <Button
+                variant="ghost"
+                key={mins}
+                onClick={() => {
+                  commit(mins);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex items-center justify-between px-2 py-1.5 text-sm rounded hover:bg-muted",
+                  duration === mins && "bg-muted",
+                )}
+              >
+                <span>{formatMinutes(mins)}</span>
+                {duration === mins && <Check className="h-3.5 w-3.5 text-primary" />}
+              </Button>
+            ))}
+            <div className="h-px bg-border my-1" />
+            <div className="px-2 py-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('sweep.shared.customDurationMinutes')}
+                <Input
+                  type="number"
+                  min="1"
+                  value={customMinutes}
+                  onChange={(e) => setCustomMinutes(e.target.value)}
+                  onBlur={() => {
+                    // A blank / invalid box leaves the current duration alone;
+                    // clearing is what the Clear button below is for.
+                    const parsed = parseDurationMinutes(customMinutes);
+                    if (parsed !== null) commit(parsed);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    const parsed = parseDurationMinutes(customMinutes);
+                    if (parsed !== null) {
+                      commit(parsed);
+                      setOpen(false);
+                    }
+                  }}
+                  className="h-7 text-sm mt-1"
+                />
+              </label>
+            </div>
+            {duration != null && (
+              <>
+                <div className="h-px bg-border my-1" />
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    commit(null);
+                    setOpen(false);
+                  }}
+                  className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
+                  <span>{t('sweep.shared.clear')}</span>
+                </Button>
+              </>
+            )}
+          </div>
         </PopoverContent>
       </Popover>
     </div>
@@ -967,6 +1092,11 @@ export function TaskDetailContent({
           {/* Due Date */}
           {isFieldVisible('dueDate') && (
           <DueDateField task={task} onUpdate={onUpdate} />
+          )}
+
+          {/* Duration */}
+          {isFieldVisible('duration') && (
+          <DurationField task={task} onUpdate={onUpdate} />
           )}
 
           {/* Scheduled slot — read-only, sourced from the linked calendar event.

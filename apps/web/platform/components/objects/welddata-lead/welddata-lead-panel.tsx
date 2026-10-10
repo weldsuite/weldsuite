@@ -9,19 +9,8 @@ import {
   type ObjectPanelComponentProps,
   type SimpleObjectPanelProps,
 } from '@/components/objects/_shared/simple-object-panel';
-import { welddataLeadCacheAtom, type WelddataLeadPanelData } from './welddata-lead-data';
-
-/** Profile photo / company logo, falling back to the domain favicon. */
-function leadAvatarUrl(lead: WelddataLeadPanelData): string | undefined {
-  if (lead.avatarUrl) return lead.avatarUrl;
-  if (lead.domain) {
-    const clean = lead.domain.replace(/^https?:\/\//, '').replace(/\/[\s\S]*/, '');
-    if (clean) {
-      return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(clean)}&sz=64`;
-    }
-  }
-  return undefined;
-}
+import { useCompanyLogo } from '@/lib/crm/company-logo';
+import { welddataLeadCacheAtom } from './welddata-lead-data';
 
 function normalizeUrl(url: string): string {
   return /^https?:\/\//.test(url) ? url : `https://${url}`;
@@ -66,7 +55,10 @@ export function WelddataLeadPanel(props: Readonly<ObjectPanelComponentProps>) {
     ? lead?.industry ?? lead?.domain ?? undefined
     : lead?.title ?? lead?.companyName ?? undefined;
 
-  const avatarUrl = lead ? leadAvatarUrl(lead) : undefined;
+  // Profile photo / company logo from the provider, else the logo our API found
+  // on the company's own website (never a third-party favicon service).
+  const companyLogo = useCompanyLogo(lead?.avatarUrl ? undefined : lead?.domain);
+  const avatarUrl = lead?.avatarUrl || companyLogo || undefined;
   const initial = (displayName?.trim()[0] ?? '#').toUpperCase();
 
   let fields: SimpleObjectPanelProps['fields'];

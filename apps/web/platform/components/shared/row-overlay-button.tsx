@@ -8,6 +8,15 @@ import { cn } from '@/lib/utils';
 export const ROW_CELL_PASSTHROUGH =
   'relative pointer-events-none [&_:is(a,button,input,select,textarea,label,[role=checkbox],[role=menuitem],[role=combobox])]:pointer-events-auto';
 
+/**
+ * Put on a row that holds a `RowOverlayButton`: lifts the row's own links and
+ * buttons above the overlay so they keep their clicks. The overlay itself is
+ * excluded — matching it would turn its `absolute inset-0` into `relative`
+ * and collapse the click target to 0×0 (TASK-1082).
+ */
+export const KEEP_CONTROLS_ABOVE_OVERLAY =
+  '[&_:is(a,button):not([data-row-overlay])]:relative [&_:is(a,button):not([data-row-overlay])]:z-[1]';
+
 interface RowOverlayButtonProps {
   /** Accessible name, e.g. the row's title. */
   label: string;
@@ -20,13 +29,15 @@ interface RowOverlayButtonProps {
  * Native button stretched over a clickable list row or card (the row needs
  * `relative`). It makes the row keyboard- and screen-reader-operable without
  * nesting the row's own controls inside a button: put `relative z-[1]` on
- * those controls so they stay above the overlay and keep their own clicks.
+ * those controls (or `KEEP_CONTROLS_ABOVE_OVERLAY` on the row) so they stay
+ * above the overlay and keep their own clicks.
  */
 export function RowOverlayButton({ label, onClick, onDoubleClick, className }: Readonly<RowOverlayButtonProps>) {
   return (
     <button
       type="button"
       aria-label={label}
+      data-row-overlay=""
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       className={cn(

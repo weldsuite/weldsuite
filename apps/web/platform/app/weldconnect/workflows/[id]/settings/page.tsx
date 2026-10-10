@@ -35,9 +35,14 @@ interface WorkflowSettingsContentProps {
   showGeneral?: boolean;
   /** Offer "Save as template" (WeldConnect; not for CRM sequences, which have no template gallery). */
   showSaveAsTemplate?: boolean;
+  /**
+   * Reword the two notification switches for a host that does not call its
+   * thing a "workflow" (CRM sequences: "Get notified when this sequence fails").
+   */
+  notificationLabels?: { onError?: string; onComplete?: string };
 }
 
-export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader, showGeneral, showSaveAsTemplate }: Readonly<WorkflowSettingsContentProps>) {
+export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/workflows', editorHref, replaceExecutionsTab, hideHeader, showGeneral, showSaveAsTemplate, notificationLabels }: Readonly<WorkflowSettingsContentProps>) {
   const { t } = useI18n();
   const tws = t.weldconnect.workflowSettings;
   const nameFieldId = useId();
@@ -312,7 +317,7 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
 
             <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label htmlFor={notifyOnErrorId} className="text-sm font-medium">{tws.notifications.notifyOnErrorLabel}</Label>
+                <Label htmlFor={notifyOnErrorId} className="text-sm font-medium">{notificationLabels?.onError ?? tws.notifications.notifyOnErrorLabel}</Label>
                 <p className="text-sm text-muted-foreground">
                   {tws.notifications.notifyOnErrorHint}
                 </p>
@@ -326,7 +331,7 @@ export function WorkflowSettingsContent({ workflowId, basePath = '/weldconnect/w
 
             <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
-                <Label htmlFor={notifyOnCompleteId} className="text-sm font-medium">{tws.notifications.notifyOnCompleteLabel}</Label>
+                <Label htmlFor={notifyOnCompleteId} className="text-sm font-medium">{notificationLabels?.onComplete ?? tws.notifications.notifyOnCompleteLabel}</Label>
                 <p className="text-sm text-muted-foreground">
                   {tws.notifications.notifyOnCompleteHint}
                 </p>

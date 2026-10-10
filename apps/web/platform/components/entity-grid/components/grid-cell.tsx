@@ -570,6 +570,8 @@ function MemberCell({ ctx }: Readonly<MemberCellProps>) {
         onChange={(next) => ctx.persistValue(next || null)}
         placeholder="—"
         variant="assignee"
+        // Owner is a single member: no "+" next to it, it would read as "add another".
+        showChangeIcon={false}
       />
     </CellWrapper>
   );

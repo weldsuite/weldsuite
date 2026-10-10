@@ -445,6 +445,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     if (data.priority !== undefined) payload.priority = data.priority;
     if (data.dueDate !== undefined) payload.dueDate = data.dueDate.toISOString();
     if (data.startDate !== undefined) payload.startDate = data.startDate.toISOString();
+    if (data.duration !== undefined) payload.duration = data.duration;
     if (data.labels !== undefined) payload.labels = data.labels;
     if (data.repeat !== undefined) payload.repeat = data.repeat || null;
     if (data.customFields !== undefined) payload.customFields = data.customFields;
@@ -501,6 +502,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
         ...(apiTask.assigneeId ? { assigneeId: apiTask.assigneeId } : {}),
         ...(apiTask.dueDate ? { dueDate: apiTask.dueDate } : {}),
         ...(apiTask.startDate ? { startDate: apiTask.startDate } : {}),
+        ...(apiTask.duration != null ? { duration: apiTask.duration } : {}),
         ...(apiTask.labels ? { labels: apiTask.labels } : {}),
         ...(apiTask.tags ? { tags: apiTask.tags } : {}),
       });

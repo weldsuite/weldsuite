@@ -489,7 +489,9 @@ export function EntityList<T extends { id: string }>({
           <div className={cn("flex flex-col items-center justify-center text-center px-6 min-h-[calc(100dvh-260px)]", emptyStateClassName)}>
             {emptyState.icon}
             <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{emptyState.title}</h3>
-            <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line">{emptyState.description}</p>
+            {/* `overflow-wrap:anywhere`: a long unbreakable token (an email address,
+                a URL) must wrap inside the column instead of being clipped by it. */}
+            <p className="text-sm text-muted-foreground mb-5 max-w-[320px] leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere]">{emptyState.description}</p>
             {(emptyState.action || emptyState.secondaryAction) && (
               <div className="flex items-center gap-2">
                 {emptyState.action && (

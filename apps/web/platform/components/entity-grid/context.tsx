@@ -23,6 +23,8 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useQueryClient } from '@tanstack/react-query';
 import { gridViewQueryKey } from '@/hooks/queries/use-settings-queries';
 import { useGridViewPersistence, type GridViewPayload } from './use-grid-view-persistence';
+import { reconcileSavedVisibility, reconcileSavedWidths, sameRecord } from './saved-view';
+import { matchesFilter } from './utils/grid-filter';
 
 // Create the context with a generic type
 const GridContext = createContext<GridContextValue<unknown> | null>(null);
@@ -239,6 +241,36 @@ export function GridProvider<TEntity>({
   const [isExporting, setIsExporting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // The saved view can reach us after we mounted (the grid renders with the
+  // config defaults while the persisted query cache is still restoring after a
+  // reload, or the view is refetched). Layer it onto what is showing, leaving
+  // columns the user changed in the meantime alone. Done while rendering rather
+  // than in an effect so the corrected columns commit together with the new
+  // view: the persistence hook below must never see the new baseline next to
+  // stale columns, or it would save the defaults over the user's view.
+  const [appliedView, setAppliedView] = useState({
+    visibility: config.initialVisibility,
+    widths: config.initialColumnWidths,
+  });
+  if (
+    !sameRecord(appliedView.visibility, config.initialVisibility) ||
+    !sameRecord(appliedView.widths, config.initialColumnWidths)
+  ) {
+    const previous = appliedView;
+    const { initialVisibility, initialColumnWidths, columns: configColumns } = config;
+    setAppliedView({ visibility: initialVisibility, widths: initialColumnWidths });
+    setColumns((current) =>
+      reconcileSavedVisibility(current, { previous: previous.visibility, next: initialVisibility, configColumns }),
+    );
+    setColumnWidths((current) =>
+      reconcileSavedWidths(current, {
+        previous: previous.widths,
+        next: initialColumnWidths,
+        configWidths: Object.fromEntries(configColumns.map((col) => [col.id, col.width])),
+      }),
+    );
+  }
+
   // Persist visibility + widths (debounced) — but only when the user actually
   // changed them relative to the last-saved view, never while hydrating.
   // Config re-syncs (custom fields / statuses arriving, unrelated row updates)
@@ -321,32 +353,7 @@ export function GridProvider<TEntity>({
         const column = columns.find((c) => c.id === filter.field);
         if (!column) return true;
 
-        const value = column.getValue(entity);
-        const filterValue = String(filter.value ?? '').toLowerCase();
-        const entityValue = String(value || '').toLowerCase();
-
-        switch (filter.operator) {
-          case 'contains':
-            return entityValue.includes(filterValue);
-          case 'equals':
-            return entityValue === filterValue;
-          case 'starts_with':
-            return entityValue.startsWith(filterValue);
-          case 'is_empty':
-            return !value || entityValue.trim() === '';
-          case 'is_not_empty':
-            return value && entityValue.trim() !== '';
-          case 'gt':
-            return Number.parseFloat(entityValue) > Number.parseFloat(filterValue);
-          case 'lt':
-            return Number.parseFloat(entityValue) < Number.parseFloat(filterValue);
-          case 'gte':
-            return Number.parseFloat(entityValue) >= Number.parseFloat(filterValue);
-          case 'lte':
-            return Number.parseFloat(entityValue) <= Number.parseFloat(filterValue);
-          default:
-            return true;
-        }
+        return matchesFilter(column.getValue(entity), filter);
       });
     });
   }, [entities, filters, columns]);

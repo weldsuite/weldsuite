@@ -1,4 +1,3 @@
-
 import { useParams } from '@/lib/router';
 import { ServerPipelineKanban } from '@/components/weldcrm/pipeline/server-pipeline-kanban';
 import { usePipeline } from '@/hooks/queries/use-pipelines-queries';
@@ -10,12 +9,15 @@ export default function DynamicPipelinePage() {
   const id = params.id as string;
   const t = useTranslations();
 
-  const { data, isLoading } = usePipeline(id);
+  // `isPending`, not `isLoading`: while the persisted query cache restores
+  // after a reload the query has no data yet but isn't fetching, and
+  // `isLoading` would flash "not found" (TASK-1085).
+  const { data, isPending } = usePipeline(id);
 
-  if (isLoading) return <PageLoader fullScreen={false} label={t('crm.pipeline.loading')} />;
+  if (isPending) return <PageLoader fullScreen={false} label={t('crm.pipeline.loading')} />;
 
   if (!data?.data) {
-    return <div className="flex items-center justify-center p-8">{t('crm.pipeline.dealNotFound')}</div>;
+    return <div className="flex items-center justify-center p-8">{t('crm.sidebar.pipelineNotFound')}</div>;
   }
 
   return (

@@ -66,7 +66,8 @@ export const updateTaskSchema = z.object({
   startDate: createTaskSchema.shape.startDate,
   dueDate: createTaskSchema.shape.dueDate,
   estimatedHours: createTaskSchema.shape.estimatedHours,
-  duration: createTaskSchema.shape.duration,
+  // Null clears the duration (the task panel's Duration row has a Clear action).
+  duration: createTaskSchema.shape.duration.nullable(),
   storyPoints: createTaskSchema.shape.storyPoints,
   labels: createTaskSchema.shape.labels,
   tags: createTaskSchema.shape.tags,

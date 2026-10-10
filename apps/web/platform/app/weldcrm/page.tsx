@@ -308,7 +308,9 @@ export default function CrmTasksClient() {
   const t = useTranslations();
   const { locale: language } = useLocale();
   const intlLocale = localeConfig[language as keyof typeof localeConfig]?.intlLocale ?? 'en-US';
-  const { data: tasks = [], isLoading, error } = useCrmTasks(user?.id);
+  // `isPending`, not `isLoading`: the latter is false while the persisted query
+  // cache restores after a reload, which showed the empty task list first.
+  const { data: tasks = [], isPending: isLoading, error } = useCrmTasks(user?.id);
   const { data: membersData } = useWorkspaceMembers(1, 100);
   const [customerSearch, setCustomerSearch] = useState('');
   const { data: companiesData } = useCompanies({

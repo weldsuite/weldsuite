@@ -8,6 +8,7 @@ import type { Opportunity as DomainOpportunity } from '@/lib/api/domains/weldcrm
 import { useWorkspace } from '@/contexts/workspace-context';
 import { Loader2, ChevronRight, GitBranch } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDealTotals } from '@/lib/crm/deal-format';
 import { EntityList, type HeaderColumn } from '@/components/entity-list';
 import { useCustomerDetailContextSafe } from '../customer-detail-provider';
 import type { Customer, Opportunity } from '../types';
@@ -52,7 +53,8 @@ interface PipelineRow {
   stages: PipelineStage[];
   opportunities: Opportunity[];
   dealCount: number;
-  totalValue: number;
+  /** Total value of the pipeline's deals, one amount per currency ("€1,200 + $500"). */
+  totalLabel: string;
 }
 
 function mapOpportunityToDeal(opp: Opportunity, customer: Customer) {
@@ -95,16 +97,6 @@ const COLOR_MAP: Record<string, string> = {
 function getColorClass(color?: string): string {
   if (!color) return 'bg-violet-500';
   return COLOR_MAP[color] || color || 'bg-violet-500';
-}
-
-function formatCurrency(value: number) {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-  }).format(value);
 }
 
 export function DealsPipelineSection({ customer, opportunities }: Readonly<DealsPipelineSectionProps>) {
@@ -158,8 +150,13 @@ export function DealsPipelineSection({ customer, opportunities }: Readonly<Deals
           const opps = pipelineMap.get(pipelineId) || [];
           // Only count deals that have a matching stage in this pipeline
           const matchedOpps = opps.filter(opp => stageIds.has(opp.stage));
-          const totalValue = matchedOpps.reduce(
-            (sum, opp) => sum + (opp.amount ? Number.parseFloat(opp.amount) : 0), 0
+          // In each deal's own currency: summing euros and dollars into one
+          // number under a hard-coded "$" was wrong.
+          const totalLabel = formatDealTotals(
+            matchedOpps.map((opp) => ({
+              amount: opp.amount ? Number.parseFloat(opp.amount) || 0 : 0,
+              currency: opp.currency,
+            })),
           );
           return {
             id: pipelineId,
@@ -168,7 +165,7 @@ export function DealsPipelineSection({ customer, opportunities }: Readonly<Deals
             stages: stagesList,
             opportunities: matchedOpps,
             dealCount: matchedOpps.length,
-            totalValue,
+            totalLabel,
           };
         }).filter(g => g.dealCount > 0);
 
@@ -332,7 +329,7 @@ function MultiPipelineList({
           {/* Total value */}
           <div className="w-[120px]">
             <span className="text-sm text-muted-foreground">
-              {formatCurrency(pipeline.totalValue)}
+              {pipeline.totalLabel}
             </span>
           </div>
 

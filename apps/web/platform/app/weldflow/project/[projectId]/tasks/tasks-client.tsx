@@ -84,6 +84,8 @@ interface Task {
   assigneeIds?: string[];
   assignees?: { id: string; name: string; email?: string; avatar?: string }[];
   dueDate?: Date;
+  /** Minutes; shown/edited in the task dialog, saved on the `tasks.duration` column. */
+  duration?: number;
   createdAt: Date;
   tags?: string[];
   labels?: string[];
@@ -170,6 +172,7 @@ interface RawApiTask extends Projects.ProjectTask {
   subtaskCount?: number;
   completedSubtaskCount?: number;
   repeat?: { frequency: string; interval?: number; unit?: string } | null;
+  duration?: number | null;
   children?: RawApiTask[];
 }
 
@@ -192,6 +195,7 @@ function transformApiTask(apiTask: RawApiTask): Task {
     assigneeIds: apiTask.assigneeIds || (apiTask.assigneeId ? [apiTask.assigneeId] : undefined),
     assignees: apiTask.assignees || (apiTask.assignee ? [apiTask.assignee] : undefined),
     dueDate: apiTask.dueDate ? new Date(apiTask.dueDate) : undefined,
+    duration: apiTask.duration ?? undefined,
     createdAt: new Date(apiTask.createdAt),
     tags: apiTask.tags || undefined,
     labels: apiTask.labels || undefined,
@@ -266,6 +270,29 @@ const statusFromCrm: Record<string, Task['status']> = {
 const STATUS_SORT_ORDER = ['todo', 'in_progress', 'review', 'done', 'cancelled'];
 const PRIORITY_SORT_ORDER = ['low', 'medium', 'high', 'urgent'];
 
+// Entity mode embeds the board in a ~400px object panel (or in the column next
+// to the chat when the panel is expanded), but the full column set needs ~820px
+// and the cells have fixed widths, so the right-hand columns (priority first)
+// ended up cut off by the panel edge. The board is wrapped in an `@container`
+// (`EntityContainerScope`), and the secondary columns drop out by the board's
+// own width rather than the viewport's: below 820px the status column (the
+// groups already say it) and the counts go, below 560px the assignee goes too
+// and what is left tightens up. Header and row cells share these classes so
+// they stay aligned. They are only applied in entity mode; outside it there is
+// no `@container`, and the project board keeps its full layout.
+const ENTITY_HIDE_WHEN_COMPACT = '@max-[820px]:hidden';
+const ENTITY_HIDE_WHEN_NARROW = '@max-[560px]:hidden';
+const ENTITY_NARROW_TITLE = '@max-[560px]:min-w-0';
+const ENTITY_NARROW_PRIORITY = '@max-[560px]:w-[80px]';
+const ENTITY_NARROW_DUE = '@max-[560px]:w-[68px]';
+const ENTITY_NARROW_ACTIONS = '@max-[560px]:w-[28px]';
+const ENTITY_NARROW_GAP = '@max-[560px]:gap-2';
+
+/** Makes the board a size container in entity mode; a no-op wrapper elsewhere. */
+function EntityContainerScope({ enabled, children }: Readonly<{ enabled: boolean; children: React.ReactNode }>) {
+  return enabled ? <div className="@container min-w-0 w-full">{children}</div> : <>{children}</>;
+}
+
 function toCrmTask(
   task: Task,
   projectMembers: ProjectMember[],
@@ -309,6 +336,7 @@ function toCrmTask(
     assignee: primaryAssignee,
     assignees: assigneesList,
     dueDate: task.dueDate,
+    duration: task.duration,
     createdAt: task.createdAt,
     labels: task.labels,
     customFields: task.customFields,
@@ -909,6 +937,7 @@ export function TasksClient({
     assigneeId?: string;
     assigneeIds?: string[];
     dueDate?: Date;
+    duration?: number;
     labels?: string[];
     repeat?: { frequency: string; interval?: number; unit?: string };
   }) => {
@@ -944,6 +973,9 @@ export function TasksClient({
           priority: data.priority,
           assigneeIds,
           dueDate: data.dueDate?.toISOString(),
+          // The dialog defaults the duration chip to 30m; dropping it here saved
+          // `duration: null` for every task created from a company/person panel.
+          duration: data.duration,
           labels: data.labels,
           repeat,
           customerId: entityScope!.kind === 'company' ? entityScope!.id : undefined,
@@ -1515,12 +1547,12 @@ export function TasksClient({
   // Header columns
   const headerColumns: HeaderColumn[] = useMemo(() => [
     { id: 'checkbox', header: t.projects.tasks.headerTask, width: 'w-4 flex-shrink-0' },
-    { id: 'task', header: '', width: 'min-w-[200px] flex-1' },
-    { id: 'status', header: t.projects.tasks.headerStatus, width: 'w-[120px]', sortable: true },
-    { id: 'priority', header: t.projects.tasks.headerPriority, width: 'w-[100px]', sortable: true },
-    { id: 'dueDate', header: t.projects.tasks.headerDue, width: 'w-[100px]', sortable: true },
-    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: 'w-[120px]', sortable: true },
-  ], [t]);
+    { id: 'task', header: '', width: cn('min-w-[200px] flex-1', isEntityMode && ENTITY_NARROW_TITLE) },
+    { id: 'status', header: t.projects.tasks.headerStatus, width: cn('w-[120px]', isEntityMode && ENTITY_HIDE_WHEN_COMPACT), sortable: true },
+    { id: 'priority', header: t.projects.tasks.headerPriority, width: cn('w-[100px]', isEntityMode && ENTITY_NARROW_PRIORITY), sortable: true },
+    { id: 'dueDate', header: t.projects.tasks.headerDue, width: cn('w-[100px]', isEntityMode && ENTITY_NARROW_DUE), sortable: true },
+    { id: 'assignee', header: t.projects.tasks.headerAssignee, width: cn('w-[120px]', isEntityMode && ENTITY_HIDE_WHEN_NARROW), sortable: true },
+  ], [t, isEntityMode]);
 
   // Render a single task row (reused for top-level and subtask rows). `depth`
   // is the nesting level WITHIN the subtree (0 = direct child of a top-level
@@ -1543,6 +1575,7 @@ export function TasksClient({
         key={task.id}
         className={cn(
           "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group",
+          isEntityMode && ENTITY_NARROW_GAP,
           !isSubtask && "border-b border-gray-200/70 dark:border-border",
           isVisuallyDone && !isCompleting && "opacity-50",
           isCompleting && "task-completing-inner"
@@ -1567,7 +1600,7 @@ export function TasksClient({
         </div>
 
         {/* Task Title */}
-        <div className="min-w-[200px] flex-1 flex items-center gap-2">
+        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2", isEntityMode && ENTITY_NARROW_TITLE)}>
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="flex-shrink-0" />
           )}
@@ -1618,7 +1651,7 @@ export function TasksClient({
         </div>
 
         {/* Attachments & Subtask count */}
-        <div className="w-[60px] flex justify-end gap-1">
+        <div className={cn("w-[60px] flex justify-end gap-1", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
           {(task.attachmentCount ?? 0) > 0 && (
             <span className="-translate-y-[1.5px] inline-flex items-center justify-center gap-1.5 h-[22px] px-1.5 text-[11px] leading-none font-mono tabular-nums text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] flex-shrink-0">
               <Paperclip className="h-3 w-3 shrink-0" />
@@ -1634,7 +1667,7 @@ export function TasksClient({
         </div>
 
         {/* Status */}
-        <div className="relative z-[1] w-[120px]">
+        <div className={cn("relative z-[1] w-[120px]", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
@@ -1675,7 +1708,7 @@ export function TasksClient({
         </div>
 
         {/* Priority */}
-        <div className="relative z-[1] w-[100px]">
+        <div className={cn("relative z-[1] w-[100px]", isEntityMode && ENTITY_NARROW_PRIORITY)}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1699,7 +1732,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className="relative z-[1] w-[100px]">
+        <div className={cn("relative z-[1] w-[100px]", isEntityMode && ENTITY_NARROW_DUE)}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1734,7 +1767,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className="relative z-[1] w-[120px]">
+        <div className={cn("relative z-[1] w-[120px]", isEntityMode && ENTITY_HIDE_WHEN_NARROW)}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1809,7 +1842,7 @@ export function TasksClient({
         </div>
 
         {/* Actions - only show for users with write permission */}
-        <div className="relative z-[1] w-[40px] flex justify-end">
+        <div className={cn("relative z-[1] w-[40px] flex justify-end", isEntityMode && ENTITY_NARROW_ACTIONS)}>
           {canWrite && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1965,11 +1998,13 @@ export function TasksClient({
           items={sortedTasks.map(t => t.id)}
           strategy={verticalListSortingStrategy}
         >
+          <EntityContainerScope enabled={isEntityMode}>
           <EntityList<Task>
             items={sortedTasks}
             isLoading={false}
             error={null}
             headerColumns={headerColumns}
+            columnGap={isEntityMode ? `gap-4 ${ENTITY_NARROW_GAP}` : undefined}
             filters={filterConfigs}
             groups={groupConfigs}
             maxFilters={5}
@@ -1988,7 +2023,10 @@ export function TasksClient({
             isLoadingMore={isFetchingNextPage}
             onLoadMore={onLoadMore}
             topBarClassName="pt-2 pb-2"
-            emptyStateClassName="min-h-[calc(100dvh-350px)]"
+            // A panel's task list sits in a short, scrolling box: a viewport-sized,
+            // vertically centred empty state pushed its text below the fold and
+            // left only the illustration on screen.
+            emptyStateClassName={isEntityMode ? 'min-h-0 py-10' : 'min-h-[calc(100dvh-350px)]'}
         createButton={canWrite ? {
           label: t.projects.tasks.addTaskBtn,
           // Both modes open the task dialog. In entity mode the dialog shows a
@@ -1997,7 +2035,13 @@ export function TasksClient({
           onClick: () => setShowAddDialog(true),
         } : undefined}
         emptyState={{
-          icon: (
+          // The 240x170 illustration is for the full-page board; in a panel it
+          // takes the whole visible height and the text never shows.
+          icon: isEntityMode ? (
+            <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center mb-3">
+              <ListTodo className="h-5 w-5 text-muted-foreground" />
+            </div>
+          ) : (
             <EmptyStateIllustration>
               <svg width="120" height="140" viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ transform: 'perspective(600px) rotateY(-6deg) rotateX(4deg)' }}>
                 {/* Clipboard body */}
@@ -2037,6 +2081,7 @@ export function TasksClient({
           description: t.projects.tasks.noResultsDesc,
         }}
       />
+          </EntityContainerScope>
         </SortableContext>
       </DndContext>
 
@@ -2072,6 +2117,11 @@ export function TasksClient({
           }
           if (data.priority) projectData.priority = data.priority;
           if (data.dueDate !== undefined) projectData.dueDate = data.dueDate?.toISOString();
+          // Only a changed duration is sent: the dialog echoes the current value
+          // back on every save, and a write re-plans the task's calendar block.
+          if (data.duration !== undefined && data.duration !== editingCrmTask?.duration) {
+            projectData.duration = data.duration;
+          }
           if (data.labels !== undefined) projectData.labels = data.labels;
           if (data.repeat !== undefined) projectData.repeat = data.repeat;
 

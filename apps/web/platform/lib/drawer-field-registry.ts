@@ -73,6 +73,7 @@ export const drawerFieldRegistry: Record<string, DrawerFieldConfig> = {
       { id: 'priority', label: 'Priority', defaultVisible: true },
       { id: 'assignee', label: 'Assignee', defaultVisible: true },
       { id: 'dueDate', label: 'Due Date', defaultVisible: true },
+      { id: 'duration', label: 'Duration', defaultVisible: true },
       { id: 'subtasks', label: 'Subtasks', defaultVisible: true },
       { id: 'labels', label: 'Labels', defaultVisible: true },
       { id: 'company', label: 'Company', defaultVisible: false },
