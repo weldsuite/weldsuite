@@ -114,13 +114,13 @@ test.describe('WeldCall · /history — call list', () => {
   });
 });
 
-// ─── /weldcall/contacts ──────────────────────────────────────────────────────
+// ─── /weldcall/people ────────────────────────────────────────────────────────
 
-test.describe('WeldCall · /contacts — EntityGrid', () => {
+test.describe('WeldCall · /people — EntityGrid', () => {
   test('page renders the EntityGrid with the create button', async ({ page }) => {
-    await page.goto('/weldcall/contacts');
+    await page.goto('/weldcall/people');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
-    await expect(page).toHaveURL(/\/weldcall\/contacts/);
+    await expect(page).toHaveURL(/\/weldcall\/people/);
 
     // EntityGrid renders with a data-testid="entity-grid".
     await expect(page.getByTestId('entity-grid')).toBeVisible({ timeout: 10_000 });
@@ -128,13 +128,19 @@ test.describe('WeldCall · /contacts — EntityGrid', () => {
     await expect(page.getByTestId('entity-grid-create-btn')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('EntityGrid displays the sample contacts (Name column header visible)', async ({ page }) => {
-    await page.goto('/weldcall/contacts');
+  test('EntityGrid displays people (Name column header visible)', async ({ page }) => {
+    await page.goto('/weldcall/people');
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     await expect(page.getByTestId('entity-grid')).toBeVisible({ timeout: 10_000 });
-    // The grid is seeded with hard-coded sample contacts — at least one row should render.
+    // Lists the workspace's CRM people with a phone number — at least one row should render.
     await expect(page.getByTestId('entity-grid-row').first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('the old /weldcall/contacts URL redirects to /weldcall/people', async ({ page }) => {
+    await page.goto('/weldcall/contacts');
+    await expect(page).toHaveURL(/\/weldcall\/people/, { timeout: 15_000 });
+    await expect(page.getByTestId('entity-grid')).toBeVisible({ timeout: 10_000 });
   });
 });
 

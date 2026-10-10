@@ -121,7 +121,7 @@ export const navigation = {
     "weldcall": {
       "newCall": "[TRANSLATE] New Call",
       "history": "[TRANSLATE] History",
-      "contacts": "[TRANSLATE] Contacts"
+      "people": "[TRANSLATE] People"
     },
     "welddrive": {
       "myDrive": "[TRANSLATE] My Drive",

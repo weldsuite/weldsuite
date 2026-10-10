@@ -1,7 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import PageComponent from '@/app/weldcall/contacts/page';
-import '@/lib/breadcrumbs/types';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+// WeldCall's Contacts page became People; keep old links and bookmarks working.
 export const Route = createFileRoute('/weldcall/contacts/')({
-  component: PageComponent,
+  beforeLoad: () => {
+    throw redirect({ to: '/weldcall/people', replace: true });
+  },
 });
