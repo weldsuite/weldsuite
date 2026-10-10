@@ -198,6 +198,12 @@ export const workspaces = pgTable('workspaces', {
   compGrantedBy: varchar('comp_granted_by', { length: 255 }),
   compReason: text('comp_reason'),
 
+  // Reseller licensing (docs/plans/reseller-licensing.md). A `partner`
+  // workspace is billed to its partner, never directly: no Stripe customer,
+  // no paywall. What it may use comes from `workspace_licences`.
+  partnerId: varchar('partner_id', { length: 30 }),
+  billingMode: varchar('billing_mode', { length: 20 }).$type<'direct' | 'partner'>().notNull().default('direct'),
+
   // Status
   isActive: boolean('is_active').notNull().default(true),
 
@@ -213,6 +219,7 @@ export const workspaces = pgTable('workspaces', {
   index('workspaces_scheduled_deletion_at_idx').on(table.scheduledDeletionAt),
   // Drives billing-worker's comp-expiry sweep.
   index('workspaces_comp_ends_at_idx').on(table.compEndsAt),
+  index('workspaces_partner_id_idx').on(table.partnerId),
 ]);
 
 export type Workspace = typeof workspaces.$inferSelect;
@@ -1307,3 +1314,54 @@ export {
 } from './user-apps';
 // Billable payroll usage (one row per final WeldHR payslip); see the file header.
 export { payrollUsageEvents, type PayrollUsageEvent, type NewPayrollUsageEvent } from './payroll-usage';
+// Reseller licensing: partners, contracts, territories, licences, statements.
+export {
+  partners,
+  partnerMembers,
+  partnerContracts,
+  partnerTerritories,
+  partnerLicencePackages,
+  workspaceLicences,
+  workspaceLicenceChanges,
+  workspaceSeatSnapshots,
+  partnerCreditGrants,
+  partnerStatements,
+  partnerStatementLines,
+  partnerWorkspaceRequests,
+  PARTNER_STATUSES,
+  PARTNER_MEMBER_ROLES,
+  WORKSPACE_LICENCE_STATUSES,
+  PARTNER_STATEMENT_STATUSES,
+  PARTNER_REQUEST_STATUSES,
+  type Partner,
+  type NewPartner,
+  type PartnerMember,
+  type NewPartnerMember,
+  type PartnerContract,
+  type NewPartnerContract,
+  type PartnerTerritory,
+  type NewPartnerTerritory,
+  type PartnerLicencePackage,
+  type NewPartnerLicencePackage,
+  type WorkspaceLicence,
+  type NewWorkspaceLicence,
+  type WorkspaceLicenceSnapshot,
+  type WorkspaceLicenceChange,
+  type NewWorkspaceLicenceChange,
+  type WorkspaceSeatSnapshot,
+  type NewWorkspaceSeatSnapshot,
+  type PartnerCreditGrant,
+  type NewPartnerCreditGrant,
+  type PartnerStatement,
+  type NewPartnerStatement,
+  type PartnerStatementLine,
+  type NewPartnerStatementLine,
+  type PartnerWorkspaceRequest,
+  type NewPartnerWorkspaceRequest,
+  type PartnerStatus,
+  type PartnerMemberRole,
+  type WorkspaceLicenceStatus,
+  type PartnerStatementStatus,
+  type PartnerRequestStatus,
+  type ResalePricing,
+} from './partners';

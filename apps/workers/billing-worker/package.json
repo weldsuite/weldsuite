@@ -14,9 +14,11 @@
   "dependencies": {
     "@clerk/backend": "^2.33.3",
     "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/cloudflare-registrar": "workspace:*",
     "@weldsuite/cloudflare-zones": "workspace:*",
     "@weldsuite/realtime-registrar": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
     "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/text": "workspace:*",
