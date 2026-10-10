@@ -10,8 +10,15 @@
  * Response shape preserved as `{ success, data }` to match the existing
  * api-worker contract its platform consumers still expect. No object-level
  * `requirePermission` on reads (mirrors the source) — Clerk auth + org
- * resolution is enforced by the shared `/api/*` middleware. Spend writes
- * (`POST /checkout`, `POST /adjust`) require `billing:manage`.
+ * resolution is enforced by the shared `/api/*` middleware. The topup
+ * checkout (`POST /checkout`) requires `billing:manage`.
+ *
+ * Nothing here writes the balance. Workspace members must never be able to
+ * grant, refund or reallocate their own credits, and an OWNER holds
+ * `billing:manage`, so that permission is no guard. Grants come only from
+ * billing-worker: Stripe webhooks (plan allowance, topups) and the
+ * admin-secret `/api/internal/admin` routes. Consumption happens in the
+ * workers that run the metered service, through `@weldsuite/credits`.
  *
  * `POST /checkout` proxies to billing-worker (Stripe Checkout session +
  * webhook grant). App-api never mutates the prepaid balance on checkout —
@@ -26,20 +33,15 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, gte, lte, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import {
-  consumeCredits,
-  refundCredits,
-  grantCredits,
-  LOW_BALANCE_THRESHOLD,
-} from '@weldsuite/credits';
+import { LOW_BALANCE_THRESHOLD } from '@weldsuite/credits';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type { Env, Variables } from '../../types';
 import { getMasterDb, masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
-import { getOrCreateWorkspaceCredits, updateSubscriptionCredits, createCreditTopupCheckout } from '../../services/credits';
+import { getOrCreateWorkspaceCredits, createCreditTopupCheckout } from '../../services/credits';
 import { success, error as apiError } from '@weldsuite/worker-kit/response';
 import { creditTopupCheckoutSchema } from '@weldsuite/app-api-client/schemas/credits';
 
-const { workspaceCredits, creditTransactions, creditPackages, workspaces, plans } = masterSchema;
+const { creditTransactions, creditPackages, workspaces, plans } = masterSchema;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -211,120 +213,6 @@ app.post('/check', zValidator('json', checkAvailabilitySchema), async (c) => {
 });
 
 // ============================================================================
-// POST /consume
-// ============================================================================
-
-const consumeSchema = z.object({
-  serviceType: z.enum([
-    'ai_tokens',
-    'parcel_label',
-    'meeting_bot',
-    'call_transcription',
-    'sms',
-    'voip_call',
-    'data_enrichment',
-    'social_post',
-  ]),
-  amount: z.number().int().min(1),
-  referenceId: z.string(),
-  referenceType: z.string(),
-  idempotencyKey: z.string().max(255).optional(),
-  description: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
-});
-
-app.post('/consume', requirePermission('billing:manage'), zValidator('json', consumeSchema), async (c) => {
-  const userId = c.get('userId');
-  const { serviceType, amount, referenceId, referenceType, idempotencyKey, description, metadata } =
-    c.req.valid('json');
-
-  try {
-    const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
-    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
-
-    const result = await consumeCredits(masterDb, {
-      workspaceId,
-      amount,
-      serviceType,
-      idempotencyKey,
-      referenceId,
-      referenceType,
-      description,
-      metadata,
-      userId,
-    });
-
-    if (!result.ok) {
-      return c.json({
-        success: false,
-        creditsDeducted: 0,
-        newBalance: result.currentBalance,
-        error: 'insufficient_credits',
-        message: `Insufficient credits. Available: ${result.currentBalance}, Required: ${amount}`,
-      });
-    }
-
-    return c.json({
-      success: true,
-      creditsDeducted: result.duplicate ? 0 : amount,
-      newBalance: result.newBalance,
-      transactionId: result.transactionId,
-    });
-  } catch (err) {
-    console.error('[app-api/credits] consume failed:', err);
-    return c.json(
-      { success: false, creditsDeducted: 0, newBalance: 0, error: 'service_error', message: 'Failed to consume credits' },
-      500,
-    );
-  }
-});
-
-// ============================================================================
-// POST /refund
-// ============================================================================
-
-const refundSchema = z.object({
-  amount: z.number().int().min(1),
-  referenceId: z.string(),
-  referenceType: z.string(),
-  idempotencyKey: z.string().max(255).optional(),
-  reason: z.string().optional(),
-});
-
-app.post('/refund', requirePermission('billing:manage'), zValidator('json', refundSchema), async (c) => {
-  const userId = c.get('userId');
-  const { amount, referenceId, referenceType, idempotencyKey, reason } = c.req.valid('json');
-
-  try {
-    const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
-    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
-
-    const result = await refundCredits(masterDb, {
-      workspaceId,
-      amount,
-      idempotencyKey,
-      referenceId,
-      referenceType,
-      description: reason || 'Credit refund',
-      metadata: { reason },
-      userId,
-    });
-
-    return c.json({
-      success: true,
-      creditsRefunded: result.duplicate ? 0 : amount,
-      newBalance: result.newBalance,
-      transactionId: result.transactionId,
-    });
-  } catch (err) {
-    console.error('[app-api/credits] refund failed:', err);
-    return c.json({ error: 'internal_error', message: 'Failed to refund credits' }, 500);
-  }
-});
-
-// ============================================================================
 // GET /packages
 // ============================================================================
 
@@ -446,95 +334,8 @@ app.get('/usage', async (c) => {
 });
 
 // ============================================================================
-// POST /allocate-monthly
+// GET /subscription
 // ============================================================================
-
-app.post('/allocate-monthly', requirePermission('billing:manage'), async (c) => {
-  try {
-    const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
-    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
-
-    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
-
-    const now = new Date();
-    if (credits.periodEnd > now) {
-      return c.json({ success: false, message: 'Current period has not ended yet', periodEnd: credits.periodEnd });
-    }
-
-    const newPeriodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-    const newPeriodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
-
-    // Prepaid wallet: the monthly allocation is granted ON TOP of the
-    // remaining balance — purchased topups are never wiped by a period roll.
-    await masterDb
-      .update(workspaceCredits)
-      .set({
-        rolledOverCredits: 0,
-        periodStart: newPeriodStart,
-        periodEnd: newPeriodEnd,
-        lastResetAt: now,
-        updatedAt: now,
-      })
-      .where(eq(workspaceCredits.workspaceId, workspaceId));
-
-    let newBalance = credits.currentBalance;
-    if (credits.monthlyAllocation > 0) {
-      const grant = await grantCredits(masterDb, {
-        workspaceId,
-        amount: credits.monthlyAllocation,
-        type: 'monthly_allocation',
-        idempotencyKey: `monthly_grant:${workspaceId}:${newPeriodStart.toISOString()}`,
-        description: `Monthly plan credits: +${credits.monthlyAllocation}`,
-      });
-      newBalance = grant.newBalance;
-    }
-
-    return c.json({
-      success: true,
-      data: {
-        previousBalance: credits.currentBalance,
-        monthlyAllocation: credits.monthlyAllocation,
-        newBalance,
-        periodStart: newPeriodStart,
-        periodEnd: newPeriodEnd,
-      },
-    });
-  } catch (err) {
-    console.error('[app-api/credits] allocate-monthly failed:', err);
-    return c.json({ error: 'internal_error', message: 'Failed to allocate monthly credits' }, 500);
-  }
-});
-
-// ============================================================================
-// POST /subscription + GET /subscription
-// ============================================================================
-
-const updateSubscriptionCreditsSchema = z.object({
-  planCredits: z.number().min(0),
-  subscribedCredits: z.number().min(0),
-  stripeCreditsItemId: z.string().optional(),
-  stripeCreditsPriceId: z.string().optional(),
-  periodStart: z.string().optional(),
-  periodEnd: z.string().optional(),
-  resetPeriod: z.boolean().optional(),
-});
-
-app.post('/subscription', requirePermission('billing:manage'), zValidator('json', updateSubscriptionCreditsSchema), async (c) => {
-  const params = c.req.valid('json');
-
-  try {
-    const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
-    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
-
-    const result = await updateSubscriptionCredits(masterDb, workspaceId, params);
-    return c.json({ success: true, data: result });
-  } catch (err) {
-    console.error('[app-api/credits] subscription update failed:', err);
-    return c.json({ error: 'internal_error', message: 'Failed to update subscription credits' }, 500);
-  }
-});
 
 app.get('/subscription', async (c) => {
   try {
@@ -557,54 +358,6 @@ app.get('/subscription', async (c) => {
   } catch (err) {
     console.error('[app-api/credits] subscription fetch failed:', err);
     return c.json({ error: 'internal_error', message: 'Failed to fetch subscription credits' }, 500);
-  }
-});
-
-// ============================================================================
-// POST /adjust
-// ============================================================================
-
-const adjustSchema = z.object({
-  amount: z.number(),
-  reason: z.string(),
-  adminNote: z.string().optional(),
-});
-
-app.post('/adjust', requirePermission('billing:manage'), zValidator('json', adjustSchema), async (c) => {
-  const userId = c.get('userId');
-  const { amount, reason, adminNote } = c.req.valid('json');
-
-  try {
-    const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
-    if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
-
-    const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
-    if (!Number.isInteger(amount) || amount === 0) {
-      return c.json({ error: 'invalid_amount', message: 'Adjustment must be a non-zero integer' }, 400);
-    }
-
-    const result = await grantCredits(masterDb, {
-      workspaceId,
-      amount,
-      type: 'adjustment',
-      description: reason,
-      metadata: { reason, adminNote, adminUserId: userId },
-      userId,
-    });
-
-    return c.json({
-      success: true,
-      data: {
-        previousBalance: credits.currentBalance,
-        adjustment: amount,
-        newBalance: result.newBalance,
-        transactionId: result.transactionId,
-      },
-    });
-  } catch (err) {
-    console.error('[app-api/credits] adjust failed:', err);
-    return c.json({ error: 'internal_error', message: 'Failed to adjust credits' }, 500);
   }
 });
 
