@@ -634,7 +634,7 @@ function DueDatePopover({
             today.setHours(0, 0, 0, 0);
             return date < today;
           }}
-          initialFocus
+          autoFocus
         />
         {dueDate && (
           <div className="p-1 border-t border-gray-200 dark:border-border">
