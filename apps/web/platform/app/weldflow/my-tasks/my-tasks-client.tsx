@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useTransition, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -458,6 +459,7 @@ export function MyTasksClient({
   onSortChange,
 }: Readonly<MyTasksClientProps>) {
   const { t } = useI18n();
+  const { formatShort } = useDateLocale();
   useBreadcrumbs([
     { label: t.projects.title, href: '/weldflow' },
     { label: t.projects.myTasks.title },
@@ -918,9 +920,7 @@ export function MyTasksClient({
     }
   }, [queryClient, t]);
 
-  const formatDateShort = useCallback((date: Date) => {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }, []);
+  const formatDateShort = useCallback((date: Date) => formatShort(date), [formatShort]);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [

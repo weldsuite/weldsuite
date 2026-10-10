@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useMemo, useCallback, useId, useRef } from 'react';
+import { useI18n } from '@/lib/i18n/provider';
 import { useParams } from '@/lib/router';
 import { format } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
@@ -42,7 +43,6 @@ import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { PageLoader } from '@/components/page-loader';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { getTranslations } from '@/lib/i18n';
 import { formatTaskNumber, taskNumberMatches } from '@/lib/task-number';
 import { formatHoursDecimalAsHm, formatHoursMinutes } from '@/lib/format-hours';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -303,7 +303,7 @@ function DurationPopover({
   onHoursChange: (value: string) => void;
   onMinutesChange: (value: string) => void;
 }>) {
-  const tt = getTranslations('projects').projectTimesheets;
+  const tt = useI18n().t.projects.projectTimesheets;
   const derivedFromRange = minutesFromRange(startTime, endTime) !== null;
   const idPrefix = useId();
   return (
@@ -376,7 +376,7 @@ function TimeRangePopover({
   onStartTimeChange: (value: string) => void;
   onEndTimeChange: (value: string) => void;
 }>) {
-  const tt = getTranslations('projects').projectTimesheets;
+  const tt = useI18n().t.projects.projectTimesheets;
   const hasBoth = !!startTime && !!endTime;
   const idPrefix = useId();
   const label = hasBoth ? `${startTime} – ${endTime}` : startTime || endTime || tt.startEndRange;
@@ -1179,7 +1179,7 @@ function AddEntryDialog({
   const projectedDayMinutes = otherMinutesOnDay + entryMinutes;
   const exceedsDayLimit = entryMinutes > 0 && projectedDayMinutes > MAX_DAY_MINUTES;
   const isLongDay = entryMinutes > 0 && !exceedsDayLimit && projectedDayMinutes > LONG_DAY_MINUTES;
-  const tt = getTranslations('projects').projectTimesheets;
+  const tt = useI18n().t.projects.projectTimesheets;
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [datePickerMonth, setDatePickerMonth] = useState<Date | undefined>(undefined);
   const [taskSelectorOpen, setTaskSelectorOpen] = useState(false);
@@ -1490,7 +1490,7 @@ function StartTimerDialog({
   startTimer: () => void;
 }>) {
   const st = useTranslations();
-  const tt = getTranslations('projects').projectTimesheets;
+  const tt = useI18n().t.projects.projectTimesheets;
   // A timer needs something to say what it is for: a linked task or a description.
   const canStartTimer = Boolean(timerTaskName || timerTaskId || timerDescription.trim());
   const [timerTaskSelectorOpen, setTimerTaskSelectorOpen] = useState(false);
@@ -1684,7 +1684,7 @@ export default function TimesheetPage() {
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
   const [entryToDelete, setEntryToDelete] = useState<TimeEntry | null>(null);
 
-  const tt = getTranslations('projects').projectTimesheets;
+  const tt = useI18n().t.projects.projectTimesheets;
   const st = useTranslations();
 
   // Timer state. The running timer itself lives on the server (one per user),

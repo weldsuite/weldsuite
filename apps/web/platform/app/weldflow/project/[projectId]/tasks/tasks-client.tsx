@@ -2,6 +2,8 @@
 import React, { useState, useMemo, useTransition, useEffect, useLayoutEffect, useCallback, useRef, useContext } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useDateLocale } from '@/lib/i18n/date-locale';
+import { useStageLabel } from '../../../lib/stage-labels';
 import { flushSync } from 'react-dom';
 import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useCompanies } from '@/components/objects/company/use-company-data';
@@ -589,6 +591,8 @@ export function TasksClient({
   entityScope,
 }: Readonly<TasksClientProps>) {
   const { t } = useI18n();
+  const { formatShort } = useDateLocale();
+  const stageLabel = useStageLabel();
   // Entity mode: board is embedded inside a CRM panel scoped to a company/person.
   // Tasks span multiple projects; project-only features are suppressed.
   const isEntityMode = !!entityScope;
@@ -1128,10 +1132,7 @@ export function TasksClient({
     });
   }, [tasks, inlineSubtasks, projectId, startTransition, t.projects.tasks.failedToDeleteTask, t.projects.tasks.taskDeleted]);
 
-  const formatDateShort = useCallback((date: Date | string) => {
-    const d = date instanceof Date ? date : new Date(date);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }, []);
+  const formatDateShort = useCallback((date: Date | string) => formatShort(date), [formatShort]);
 
   const handleStageChange = useCallback(async (taskId: string, stageId: string) => {
     const task = tasks.find(t => t.id === taskId);
@@ -1346,14 +1347,14 @@ export function TasksClient({
     }
     return projectStages.map((stage, i) => ({
       id: stage.id,
-      label: stage.name,
+      label: stageLabel(stage.name, stage.systemStatus),
       sortOrder: i + 1,
       filter: (t: Task) => {
         const s = getTaskStage(t);
         return s?.id === stage.id;
       },
     }));
-  }, [groupBy, projectStages, getTaskStage, projectMembers, t]);
+  }, [groupBy, projectStages, getTaskStage, projectMembers, t, stageLabel]);
 
   const groupByOptions = [
     { value: 'status' as const, label: t.projects.tasks.groupByStatus },
@@ -1631,7 +1632,7 @@ export function TasksClient({
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
-                {stage?.name ?? statusFallback.label}
+                {stage ? stageLabel(stage.name, stage.systemStatus) : statusFallback.label}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1" align="start">
@@ -1645,7 +1646,7 @@ export function TasksClient({
                   >
                     <span className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-                      <span>{s.name}</span>
+                      <span>{stageLabel(s.name, s.systemStatus)}</span>
                     </span>
                     {(stage?.id ?? null) === s.id && <Check className="h-3.5 w-3.5 text-primary" />}
                   </Button>
@@ -1855,7 +1856,7 @@ export function TasksClient({
         </div>
       </div>
     );
-  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig, openTaskPanel]);
+  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig, openTaskPanel, stageLabel]);
 
   // Subtask container — keeps the rows mounted and toggles visibility via
   // `hidden`. Unmounting/remounting dozens of nested rows on every click is
@@ -2047,7 +2048,7 @@ export function TasksClient({
         availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name, avatar: m.user?.avatar }))}
         availableCompanies={availableCompanies}
         availableLabels={availableLabels}
-        availableStatuses={projectStages.map(s => ({ id: s.id, label: s.name, color: s.color }))}
+        availableStatuses={projectStages.map(s => ({ id: s.id, label: stageLabel(s.name, s.systemStatus), color: s.color }))}
         onCreateLabel={handleCreateLabel}
         hideRecord
         defaultAssignee={isEntityMode ? currentUserId ?? undefined : undefined}
@@ -2095,7 +2096,7 @@ export function TasksClient({
         availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name, avatar: m.user?.avatar }))}
         availableCompanies={availableCompanies}
         availableLabels={availableLabels}
-        availableStatuses={projectStages.map(s => ({ id: s.id, label: s.name, color: s.color }))}
+        availableStatuses={projectStages.map(s => ({ id: s.id, label: stageLabel(s.name, s.systemStatus), color: s.color }))}
         onCreateLabel={handleCreateLabel}
         hideRecord
         projectId={projectId}

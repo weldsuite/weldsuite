@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useI18n } from '@/lib/i18n/provider';
 import {
   Check,
   Trash2,
@@ -29,7 +30,6 @@ import {
   ExternalLink,
  ListCollapse, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { getTranslations } from '@/lib/i18n';
 import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -374,7 +374,7 @@ function formatRelativeTime(dateStr: string | null): string {
 }
 
 function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
-  const t = getTranslations('settings');
+  const t = useI18n().t.settings;
   const github = t.integrations.github;
 
   const issueNumber = task.githubIssueNumber;

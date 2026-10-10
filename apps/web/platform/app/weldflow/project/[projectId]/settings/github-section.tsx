@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useI18n } from '@/lib/i18n/provider';
 import {
   Github,
   ExternalLink,
@@ -42,7 +43,6 @@ import {
   useUnlinkProject,
   useProjectSync,
 } from '@/hooks/queries/use-github-queries';
-import { getTranslations } from '@/lib/i18n';
 import { PageLoader } from '@/components/page-loader';
 import { stagesApi } from '@/app/weldflow/lib/api-client';
 import type {
@@ -81,7 +81,7 @@ interface LinkProjectDialogProps {
 }
 
 function LinkProjectDialog({ open, onOpenChange, projectId }: Readonly<LinkProjectDialogProps>) {
-  const t = getTranslations('settings');
+  const t = useI18n().t.settings;
   const gp = t.integrations.github.projects;
 
   const [search, setSearch] = useState('');
@@ -338,7 +338,7 @@ interface GithubSectionProps {
 }
 
 export function GithubSection({ projectId, isAdmin }: Readonly<GithubSectionProps>) {
-  const t = getTranslations('settings');
+  const t = useI18n().t.settings;
   const gp = t.integrations.github.projects;
 
   const router = useRouter();
@@ -500,7 +500,7 @@ function ProjectLinkRow({
   onSync: () => void;
   onUnlink: () => void;
 }>) {
-  const t = getTranslations('settings');
+  const t = useI18n().t.settings;
   const gp = t.integrations.github.projects;
   const updateMutation = useUpdateProjectLink(link.id);
 
