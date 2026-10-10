@@ -4248,6 +4248,9 @@ importers:
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/emails':
+        specifier: workspace:*
+        version: link:../../../packages/core/emails
       '@weldsuite/realtime-registrar':
         specifier: workspace:*
         version: link:../../../packages/core/realtime-registrar

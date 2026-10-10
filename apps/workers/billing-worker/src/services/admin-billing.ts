@@ -75,6 +75,8 @@ export class AdminBillingError extends Error {
   constructor(
     readonly code: AdminErrorCode,
     message: string,
+    /** Structured context for the console (e.g. the conflicting countries). */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'AdminBillingError';
@@ -102,6 +104,23 @@ async function loadWorkspace(masterDb: MasterDb, workspaceId: string): Promise<W
   const [workspace] = await masterDb.select().from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
   if (!workspace) throw new AdminBillingError('NOT_FOUND', 'Workspace not found');
   if (workspace.deletedAt) throw new AdminBillingError('CONFLICT', 'This workspace has been deleted');
+  return workspace;
+}
+
+/**
+ * A workspace whose own billing may be changed. Partner-managed workspaces are
+ * billed by their partner (a licence, not a plan or a subscription), so plan,
+ * seat, subscription, discount and comp changes are refused with a pointer to
+ * where the change belongs.
+ */
+async function loadDirectWorkspace(masterDb: MasterDb, workspaceId: string): Promise<WorkspaceRow> {
+  const workspace = await loadWorkspace(masterDb, workspaceId);
+  if (workspace.billingMode === 'partner') {
+    throw new AdminBillingError(
+      'CONFLICT',
+      'This workspace is managed by a partner and billed through the partner statement. Change its licence under Partners instead, or detach it from the partner first.',
+    );
+  }
   return workspace;
 }
 
@@ -498,7 +517,7 @@ export async function previewSubscriptionChange(
   workspaceId: string,
   input: SubscriptionChangeInput,
 ): Promise<{ available: boolean; amountDueCents: number; currency: string; lines: Array<{ description: string; amountCents: number }> }> {
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   const plan = await loadPlan(ctx.masterDb, input.planId);
   const priceId = priceIdFor(plan, input.cycle);
   const key = stripeKey(ctx.env);
@@ -530,7 +549,7 @@ export async function changeSubscription(
   workspaceId: string,
   input: SubscriptionChangeInput,
 ): Promise<SubscriptionChangeResult> {
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   if (isCompActive(workspace)) {
     throw new AdminBillingError(
       'CONFLICT',
@@ -675,7 +694,7 @@ export async function cancelSubscription(
   workspaceId: string,
   mode: 'period_end' | 'immediately',
 ): Promise<{ subscriptionId: string; mode: string; endsAt: string | null; outcome?: SubscriptionEndedOutcome | 'kept_comp' }> {
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   const subscriptionId = requireSubscriptionId(workspace);
   const key = stripeKey(ctx.env);
 
@@ -712,7 +731,7 @@ export async function cancelSubscription(
 }
 
 export async function reactivateSubscription(ctx: AdminContext, workspaceId: string): Promise<{ subscriptionId: string }> {
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   const subscriptionId = requireSubscriptionId(workspace);
   await setCancelAtPeriodEnd(stripeKey(ctx.env), subscriptionId, false);
   await ctx.masterDb
@@ -734,7 +753,7 @@ export async function setTrialEnd(
   if (trialEnd.getTime() > now + MAX_TRIAL_DAYS * DAY_MS) {
     throw new AdminBillingError('BAD_REQUEST', 'Stripe allows a trial of at most two years.');
   }
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   const subscriptionId = requireSubscriptionId(workspace);
   const sub = await setSubscriptionTrialEnd(
     stripeKey(ctx.env),
@@ -782,7 +801,7 @@ export async function applyDiscount(
   if ((input.percentOff === undefined) === (input.amountOffCents === undefined)) {
     throw new AdminBillingError('BAD_REQUEST', 'Give either a percentage or a fixed amount off.');
   }
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   const subscriptionId = requireSubscriptionId(workspace);
   const key = stripeKey(ctx.env);
   const sub = await retrieveSubscriptionForAdmin(key, subscriptionId);
@@ -807,7 +826,7 @@ export async function applyDiscount(
 }
 
 export async function removeDiscount(ctx: AdminContext, workspaceId: string): Promise<{ subscriptionId: string }> {
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   const subscriptionId = requireSubscriptionId(workspace);
   await clearSubscriptionDiscounts(stripeKey(ctx.env), subscriptionId);
   return { subscriptionId };
@@ -839,7 +858,7 @@ export async function grantComp(
   if (input.endsAt && input.endsAt.getTime() < Date.now() + HOUR_MS) {
     throw new AdminBillingError('BAD_REQUEST', 'The comp must end at least an hour from now.');
   }
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   const plan = await loadPlan(ctx.masterDb, input.planId);
   assertSeatsWithinPlan(plan, input.seats);
 
@@ -949,7 +968,7 @@ export async function endCompForWorkspace(
 }
 
 export async function endComp(ctx: AdminContext, workspaceId: string) {
-  const workspace = await loadWorkspace(ctx.masterDb, workspaceId);
+  const workspace = await loadDirectWorkspace(ctx.masterDb, workspaceId);
   const result = await endCompForWorkspace(ctx.env, ctx.masterDb, workspace);
   return { ...result, before: { planId: workspace.planId, compEndsAt: workspace.compEndsAt?.toISOString() ?? null } };
 }

@@ -12,8 +12,11 @@ import { generateId } from './id';
 
 const { adminAuditEvents } = masterSchema;
 
-/** Actor for changes the billing worker makes on its own (the comp sweep). */
+/** Actor for changes the billing worker makes on its own (the comp and partner sweeps). */
 export const SYSTEM_ACTOR = { email: 'system', userId: null } as const;
+
+/** `admin_audit_events.target_type` for reseller partners. */
+export const PARTNER_TARGET: AdminAuditTargetType = 'partner';
 
 export interface AdminAuditEntry {
   actor: { email: string; userId: string | null };

@@ -10,7 +10,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, or, isNull } from 'drizzle-orm';
+import { eq, and, or, isNull, ne } from 'drizzle-orm';
 import type { Env } from '../index';
 import { getMasterDb, masterSchema } from '../lib/db';
 import { createStripeCustomer, createStripeSubscription } from '../lib/stripe';
@@ -203,6 +203,8 @@ backfillRoutes.post('/billing', async (c) => {
     .where(
       and(
         eq(workspaces.isActive, true),
+        // Partner-managed workspaces have no Stripe customer or subscription of their own.
+        ne(workspaces.billingMode, 'partner'),
         or(
           isNull(workspaces.stripeCustomerId),
           isNull(workspaces.stripeSubscriptionId),

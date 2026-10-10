@@ -1219,7 +1219,7 @@ export const ADMIN_ROLES: readonly AdminRole[] = ['superadmin', 'admin', 'viewer
 // ADMIN AUDIT EVENTS
 // ============================================================================
 
-export type AdminAuditTargetType = 'workspace' | 'plan';
+export type AdminAuditTargetType = 'workspace' | 'plan' | 'partner';
 export type AdminAuditOutcome = 'success' | 'failure';
 
 // Every change an admin makes from the internal console (plan changes, comps,

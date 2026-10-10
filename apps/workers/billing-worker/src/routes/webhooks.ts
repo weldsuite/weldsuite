@@ -31,6 +31,8 @@ import {
   unixToDate,
 } from '../services/subscription-policy';
 import { grantCredits } from '@weldsuite/credits';
+import { isPartnerStatementInvoice } from '@weldsuite/core-domain/partners';
+import { handlePartnerInvoicePaid, handlePartnerInvoiceVoided } from '../services/partner-billing';
 import {
   RealtimeRegistrar,
   RealtimeRegistrarError,
@@ -204,6 +206,14 @@ webhookRoutes.post('/', async (c) => {
         await handleInvoicePaid(c.env, masterDb, event.data.object as StripeInvoice);
         break;
 
+      case 'invoice.voided':
+        // Only partner statements react to a void; workspace invoices keep
+        // their last status until the admin console or a later event updates them.
+        if (await isPartnerInvoice(masterDb, event.data.object as StripeInvoice)) {
+          await handlePartnerInvoiceVoided(c.env, masterDb, (event.data.object as StripeInvoice).id);
+        }
+        break;
+
       case 'invoice.created':
       case 'invoice.finalized':
         await handleInvoiceUpsert(masterDb, event.data.object as StripeInvoice);
@@ -329,12 +339,21 @@ async function handleCheckoutCompleted(
       planId: workspaces.planId,
       clerkOrgId: workspaces.clerkOrgId,
       stripeSubscriptionId: workspaces.stripeSubscriptionId,
+      billingMode: workspaces.billingMode,
     })
     .from(workspaces)
     .where(eq(workspaces.id, workspaceId));
 
   if (!workspace) {
     console.error(`[Stripe Webhook] Workspace not found: ${workspaceId}`);
+    return;
+  }
+
+  // A partner bills this workspace; a direct subscription must not change its
+  // plan, seats or credits. (Checkout is closed for partner workspaces, so this
+  // is a stale session; it needs a human, not a silent plan change.)
+  if (workspace.billingMode === 'partner') {
+    console.warn(`[Stripe Webhook] Checkout completed for partner-managed workspace ${workspaceId}, ignoring`);
     return;
   }
 
@@ -570,6 +589,16 @@ async function handleSubscriptionUpdated(
   const workspace = await resolveWorkspaceForSubscription(masterDb, subscription);
   if (!workspace) return;
 
+  // Partner-managed: the partner pays, so the workspace's own (cancelled, or
+  // being cancelled at period end) subscription changes nothing about it.
+  if (workspace.billingMode === 'partner') {
+    console.log(`[Stripe Webhook] Workspace ${workspace.id} is partner-managed, ignoring subscription update`);
+    if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
+      await handleSubscriptionDeleted(env, masterDb, subscription);
+    }
+    return;
+  }
+
   // Get the price ID, product ID, and quantity from the subscription
   const priceId = subscription.items.data[0]?.price.id;
   const productId = subscription.items.data[0]?.price.product;
@@ -793,6 +822,25 @@ async function handleSubscriptionDeleted(
     return;
   }
 
+  // A workspace moved under a partner while its direct subscription ran to
+  // period end: just forget the link, there is no policy to apply.
+  if (workspace.billingMode === 'partner') {
+    await masterDb
+      .update(workspaces)
+      .set({
+        stripeSubscriptionId: null,
+        subscriptionStatus: null,
+        subscriptionCycle: null,
+        subscriptionCurrentPeriodStart: null,
+        subscriptionCurrentPeriodEnd: null,
+        subscriptionCancelAtPeriodEnd: false,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.id, workspace.id));
+    console.log(`[Stripe Webhook] Cleared the direct subscription of partner-managed workspace ${workspace.id}`);
+    return;
+  }
+
   // An admin-granted comp keeps its plan and seats when the Stripe
   // subscription goes away; only the subscription link is dropped.
   if (isCompActive(workspace)) {
@@ -939,12 +987,25 @@ async function handleConnectAccountUpdated(
 // Invoice Paid
 // ============================================================================
 
+/** True for the Stripe invoice of a partner statement (metadata, else the DB). */
+async function isPartnerInvoice(masterDb: MasterDb, invoice: StripeInvoice): Promise<boolean> {
+  if (invoice.metadata?.kind === 'partner_statement') return true;
+  return isPartnerStatementInvoice(masterDb, invoice.id, invoice.customer);
+}
+
 async function handleInvoicePaid(
   env: Env,
   masterDb: ReturnType<typeof getMasterDb>,
   invoice: StripeInvoice
 ) {
   console.log('[Stripe Webhook] Processing invoice.paid');
+
+  // A partner's monthly statement: it has no workspace, so it is not a
+  // `billing_invoices` row. Marks the statement paid and lifts dunning.
+  if (await isPartnerInvoice(masterDb, invoice)) {
+    await handlePartnerInvoicePaid(env, masterDb, invoice.id);
+    return;
+  }
 
   // Always upsert the invoice into the database
   await handleInvoiceUpsert(masterDb, invoice);
@@ -985,12 +1046,20 @@ async function handleInvoicePaid(
       planId: workspaces.planId,
       compGrantedAt: workspaces.compGrantedAt,
       compEndsAt: workspaces.compEndsAt,
+      billingMode: workspaces.billingMode,
     })
     .from(workspaces)
     .where(eq(workspaces.stripeSubscriptionId, subscriptionId));
 
   if (!workspace) {
     console.log('[Stripe Webhook] No workspace found for invoice subscription', subscriptionId);
+    return;
+  }
+
+  // Partner-managed: credits come from the licence (partner credit reset),
+  // seats from the licence cap. A leftover direct invoice grants nothing.
+  if (workspace.billingMode === 'partner') {
+    console.log(`[Stripe Webhook] Workspace ${workspace.id} is partner-managed, skipping seat and credit sync`);
     return;
   }
 
@@ -1058,6 +1127,12 @@ async function handleInvoiceUpsert(
   invoice: StripeInvoice
 ) {
   console.log(`[Stripe Webhook] Upserting invoice ${invoice.id}`);
+
+  // Partner statement invoices belong to a partner, not a workspace.
+  if (await isPartnerInvoice(masterDb, invoice)) {
+    console.log(`[Stripe Webhook] Invoice ${invoice.id} is a partner statement, not recording it as a workspace invoice`);
+    return;
+  }
 
   const subscriptionId = extractSubscriptionId(invoice.subscription);
   const customerId = invoice.customer;

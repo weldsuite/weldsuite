@@ -31,10 +31,19 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 APP_API_URL = "http://localhost:8789"
+# Platform SPA origin: links in partner emails (portal, statements).
+APP_URL = "http://localhost:3000"
+# Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
+# simulated and writes mail to disk instead of sending it.
+EMAIL_TRANSPORT = "cloudflare"
 
-# Hourly comp sweep: ends expired comp plans and renews comped workspaces'
-# monthly credits (services/comp-sweep.ts). Test locally with
-# `wrangler dev --test-scheduled` + GET /__scheduled.
+# Hourly sweeps. Test locally with `wrangler dev --test-scheduled` + GET /__scheduled.
+#  - comp sweep: ends expired comp plans and renews comped workspaces' monthly
+#    credits (services/comp-sweep.ts)
+#  - partner sweeps (reseller licensing, services/partner-sweep.ts), gated by
+#    UTC hour inside the worker and idempotent: 02:xx daily seat snapshots,
+#    licensed-credit reset and dunning sweep; 03:xx on days 1-3 the monthly
+#    statement run (days 2-3 only catch up a run that failed or was missed).
 [triggers]
 crons = ["17 * * * *"]
 
@@ -46,6 +55,11 @@ localConnectionString = "postgresql://postgres:__LOCAL_DEV_PASSWORD__@localhost:
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
+
+# Cloudflare Email Sending binding: partner dunning and invitation emails
+# (@weldsuite/emails workerTransport).
+[[send_email]]
+name = "SEND_EMAIL"
 
 # call-api's CallInternal entrypoint: paid phone-number fulfilment. Reachable only
 # over a service binding, so no secret. `remote = true` lets plain `wrangler dev`
@@ -68,6 +82,8 @@ routes = [
 [env.test.vars]
 ENVIRONMENT = "test"
 APP_API_URL = "https://app-api-test.weldsuite.org"
+APP_URL = "https://app-test.weldsuite.org"
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -77,6 +93,11 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 binding = "CALL_INTERNAL"
 service = "weldsuite-call-api-test"
 entrypoint = "CallInternal"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [env.test.triggers]
 crons = ["17 * * * *"]
@@ -96,6 +117,8 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 APP_API_URL = "https://app-api.weldsuite.org"
+APP_URL = "https://app.weldsuite.org"
+EMAIL_TRANSPORT = "cloudflare"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
@@ -110,6 +133,11 @@ id = "99689831a815455ba7f836175e5e17c9"
 binding = "CALL_INTERNAL"
 service = "weldsuite-call-api"
 entrypoint = "CallInternal"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
 
 [env.production.triggers]
 crons = ["17 * * * *"]
