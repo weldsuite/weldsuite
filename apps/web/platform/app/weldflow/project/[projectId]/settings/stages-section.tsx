@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useStageLabel } from '../../../lib/stage-labels';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
@@ -476,6 +477,7 @@ function StageRow({
   onDelete: () => void;
 }>) {
   const { t } = useI18n();
+  const stageLabel = useStageLabel();
   const SYSTEM_STATUS_LABELS: Record<string, string> = {
     backlog: t.projects.settings.backlogStatus,
     todo: t.projects.settings.todoStatus,
@@ -497,7 +499,7 @@ function StageRow({
             badge.bg,
           )}
         >
-          {stage.name}
+          {stageLabel(stage.name, stage.systemStatus)}
         </span>
       </div>
       <div className="truncate whitespace-nowrap text-sm text-muted-foreground">{systemLabel}</div>
@@ -542,6 +544,7 @@ function StageRow({
 }
 
 function ColorSwatch({ color, onChange }: Readonly<{ color: string; onChange: (c: string) => void }>) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -550,7 +553,7 @@ function ColorSwatch({ color, onChange }: Readonly<{ color: string; onChange: (c
           type="button"
           variant="ghost"
           className="w-9 h-9 rounded-md flex-shrink-0 border border-input p-1.5"
-          aria-label="Pick color"
+          aria-label={t.projects.settings.pickColor}
         >
           <div className="w-full h-full rounded" style={{ backgroundColor: color }} />
         </Button>

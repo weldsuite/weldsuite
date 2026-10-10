@@ -136,14 +136,7 @@ interface WeekDay {
   isWeekend: boolean;
 }
 
-const ROUND_TO_OPTIONS = [
-  { value: 'none', label: 'No rounding' },
-  { value: '5', label: '5 min' },
-  { value: '10', label: '10 min' },
-  { value: '15', label: '15 min' },
-  { value: '30', label: '30 min' },
-  { value: '60', label: '1 hour' },
-];
+const ROUND_TO_VALUES = ['none', '5', '10', '15', '30', '60'] as const;
 
 /** A calendar day holds 24h; the API rejects any day that would total more. */
 const MAX_DAY_MINUTES = 24 * 60;
@@ -204,10 +197,10 @@ function resolveEntryMinutes(hours: string, minutes: string, startTime: string, 
   );
 }
 
-function formatDurationLabel(total: number): string {
+function formatDurationLabel(total: number, emptyLabel: string): string {
   const h = Math.floor(total / 60);
   const m = total % 60;
-  if (!h && !m) return 'Duration';
+  if (!h && !m) return emptyLabel;
   if (h && m) return `${h}h ${m}m`;
   if (h) return `${h}h`;
   return `${m}m`;
@@ -240,6 +233,16 @@ function focusOnMount(el: HTMLElement | null) {
 }
 
 function RoundToPopover({ value, onChange }: Readonly<{ value: string; onChange: (value: string) => void }>) {
+  const tt = useI18n().t.projects.projectTimesheets;
+  const roundOptions = ROUND_TO_VALUES.map((optionValue) => ({
+    value: optionValue,
+    label:
+      optionValue === 'none'
+        ? tt.roundNone
+        : optionValue === '60'
+          ? tt.roundOneHour
+          : tt.roundMinutes.replace('{count}', optionValue),
+  }));
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -251,11 +254,11 @@ function RoundToPopover({ value, onChange }: Readonly<{ value: string; onChange:
             value !== 'none' && "bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800"
           )}
         >
-          {value !== 'none' ? `Round ${value}m` : 'Round'}
+          {value !== 'none' ? tt.roundValue.replace('{minutes}', value) : tt.roundLabel}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-1" align="start">
-        {ROUND_TO_OPTIONS.map((opt) => (
+        {roundOptions.map((opt) => (
           <Button
             key={opt.value}
             variant="ghost"
@@ -318,13 +321,13 @@ function DurationPopover({
               'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800',
           )}
         >
-          {formatDurationLabel(resolveEntryMinutes(hours, minutes, startTime, endTime))}
+          {formatDurationLabel(resolveEntryMinutes(hours, minutes, startTime, endTime), tt.durationFieldLabel)}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-3" align="start">
         <div className="flex items-end gap-2">
           <div className="flex flex-col gap-1.5">
-            <label htmlFor={`${idPrefix}-hours`} className="text-xs font-medium text-muted-foreground">Hours</label>
+            <label htmlFor={`${idPrefix}-hours`} className="text-xs font-medium text-muted-foreground">{tt.hoursLabel}</label>
             <Input
               id={`${idPrefix}-hours`}
               type="number"
@@ -340,7 +343,7 @@ function DurationPopover({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label htmlFor={`${idPrefix}-minutes`} className="text-xs font-medium text-muted-foreground">Minutes</label>
+            <label htmlFor={`${idPrefix}-minutes`} className="text-xs font-medium text-muted-foreground">{tt.minutesLabel}</label>
             <Input
               id={`${idPrefix}-minutes`}
               type="number"
@@ -562,6 +565,7 @@ function TimesheetWeekView({
   setEntryToDelete: (entry: TimeEntry) => void;
 }>) {
   const st = useTranslations();
+  const tt = useI18n().t.projects.projectTimesheets;
   const [hoveredCell, setHoveredCell] = useState<{ task: string; day: number } | null>(null);
   return (
     <div className="min-w-[900px]">
@@ -602,7 +606,7 @@ function TimesheetWeekView({
           </div>
         ))}
         <div className="flex items-center justify-center border-l border-border bg-background">
-          <p className="text-[13px] font-mono font-medium text-[#999] uppercase tracking-wide">Total</p>
+          <p className="text-[13px] font-mono font-medium text-[#999] uppercase tracking-wide">{tt.totalLabel}</p>
         </div>
       </div>
 
@@ -808,7 +812,7 @@ function TimesheetMonthView({
     <div className="flex flex-col h-full">
       {/* Calendar Header - Desktop */}
       <div className="hidden md:grid grid-cols-7 border-b border-[#e5e5e5] dark:border-[#222]">
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
+        {[0, 1, 2, 3, 4, 5, 6].map((weekdayOffset) => format(new Date(2024, 0, 1 + weekdayOffset), 'EEE')).map((day, index) => (
           <div
             key={day}
             className={cn(
@@ -1018,10 +1022,11 @@ function TimesheetWeekFooter({
   weeklyTotal: number;
   getTotalHoursForDate: (date: Date) => number;
 }>) {
+  const tt = useI18n().t.projects.projectTimesheets;
   return (
     <div className="border-t bg-white dark:bg-background">
       <div className="grid grid-cols-[240px_repeat(7,1fr)_80px] min-w-[900px]">
-        <div className="px-5 py-2 text-sm text-gray-500 dark:text-muted-foreground">Daily Total</div>
+        <div className="px-5 py-2 text-sm text-gray-500 dark:text-muted-foreground">{tt.dailyTotal}</div>
         {weekDays.map((day) => {
           const dayTotal = getTotalHoursForDate(day.date);
           return (
@@ -1194,7 +1199,7 @@ function AddEntryDialog({
       <DialogContent className="sm:max-w-[600px] p-0 gap-0 overflow-hidden" showCloseButton={false}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-border">
-          <DialogTitle className="text-base font-semibold">{editingEntryId ? 'Edit time entry' : 'Log time'}</DialogTitle>
+          <DialogTitle className="text-base font-semibold">{editingEntryId ? tt.editTimeEntry : tt.logTime}</DialogTitle>
           <Button
             variant="ghost"
             size="icon"
@@ -1269,7 +1274,7 @@ function AddEntryDialog({
                 onWheel={(e) => e.stopPropagation()}
               >
                 {filteredTasks.length === 0 ? (
-                  <div className="py-4 text-center text-sm text-muted-foreground">No tasks found.</div>
+                  <div className="py-4 text-center text-sm text-muted-foreground">{tt.noTasksFound}</div>
                 ) : (
                   filteredTasks.map((task) => (
                     <button
@@ -1417,8 +1422,8 @@ function AddEntryDialog({
                 {(() => {
                   const missing: string[] = [];
                   const mins = resolveEntryMinutes(newEntryHours, newEntryMinutes, newEntryStartTime, newEntryEndTime);
-                  if (!mins) missing.push('Duration');
-                  if (!selectedDate) missing.push('Date');
+                  if (!mins) missing.push(tt.durationFieldLabel);
+                  if (!selectedDate) missing.push(tt.dateLabel);
                   const disabled = isSubmitting || !mins || !selectedDate || exceedsDayLimit;
                   const btn = (
                     <Button
@@ -1446,7 +1451,7 @@ function AddEntryDialog({
                         <span className="inline-flex">{btn}</span>
                       </TooltipTrigger>
                       <TooltipContent side="top" sideOffset={6}>
-                        Missing: {missing.join(', ')}
+                        {tt.missingLabel} {missing.join(', ')}
                       </TooltipContent>
                     </Tooltip>
                   );
@@ -1555,7 +1560,7 @@ function StartTimerDialog({
                     timerTaskName && "bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800"
                   )}
                 >
-                  {timerTaskName || 'Task'}
+                  {timerTaskName || tt.taskFallback}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-[280px] p-0" align="start">
@@ -1573,7 +1578,7 @@ function StartTimerDialog({
                   onWheel={(e) => e.stopPropagation()}
                 >
                   {filteredTimerTasks.length === 0 ? (
-                    <div className="py-4 text-center text-sm text-muted-foreground">No tasks found.</div>
+                    <div className="py-4 text-center text-sm text-muted-foreground">{tt.noTasksFound}</div>
                   ) : (
                     filteredTimerTasks.map((task) => (
                       <button
@@ -1800,7 +1805,7 @@ export default function TimesheetPage() {
             taskId: entry.taskId,
             // An entry linked to a task is labelled by that task, never by its own
             // description (which differs per entry and would rename the row).
-            taskName: taskTitle || (entry.taskId ? undefined : entry.description) || 'Untitled',
+            taskName: taskTitle || (entry.taskId ? undefined : entry.description) || tt.untitled,
             description: entry.description,
             date: new Date(String(entry.date).substring(0, 10) + 'T00:00:00'),
             duration: Number(entry.duration) || entry.durationMinutes || 0,
@@ -1818,7 +1823,7 @@ export default function TimesheetPage() {
         });
         setEntries(transformedEntries);
       } else {
-        setError(entriesResult.error || 'Failed to load time entries');
+        setError(entriesResult.error || tt.failedToLoadEntries);
       }
 
       if (tasksResult.success) {
@@ -1835,7 +1840,7 @@ export default function TimesheetPage() {
       }
     } catch (err) {
       console.error('Error loading data:', err);
-      setError('Failed to load data');
+      setError(tt.failedToLoadData);
     } finally {
       setIsLoading(false);
     }
@@ -1874,7 +1879,7 @@ export default function TimesheetPage() {
       const key = e.taskId || `desc:${e.description || e.taskName || 'other'}`;
       if (!taskMap.has(key)) {
         taskMap.set(key, {
-          name: e.task?.title || e.taskName || e.description || 'Untitled',
+          name: e.task?.title || e.taskName || e.description || tt.untitled,
           taskId: e.taskId || null,
         });
       }
@@ -2356,12 +2361,12 @@ export default function TimesheetPage() {
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 w-[90px] justify-between shadow-none text-sm text-muted-foreground">
-                {{ week: 'Week', month: 'Month' }[viewMode]}
+                {{ week: tt.viewWeek, month: tt.viewMonth }[viewMode]}
                 <ChevronDown className="h-3.5 w-3.5 opacity-50" />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-[90px] p-1">
-              {([['week', 'Week'], ['month', 'Month']] as const).map(([value, label]) => (
+              {([['week', tt.viewWeek], ['month', tt.viewMonth]] as const).map(([value, label]) => (
                 <Button
                   key={value}
                   variant="ghost"

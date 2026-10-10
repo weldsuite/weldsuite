@@ -436,7 +436,7 @@ function LabelEditRow({ isNew, draft, setDraft, onSave, onCancel, busy }: Readon
                 variant="ghost"
                 className={cn('w-5 h-5 rounded shrink-0 ring-1 ring-border p-0', draftColor.className)}
                 style={draftColor.style}
-                aria-label="Pick color"
+                aria-label={t.projects.settings.pickColor}
               />
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1" align="start">
@@ -489,6 +489,7 @@ function LabelColorSwatch({
   color: string;
   onChange: (c: string) => void;
 }>) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const swatch = resolveLabelColor(color);
   return (
@@ -498,7 +499,7 @@ function LabelColorSwatch({
           type="button"
           variant="ghost"
           className="w-9 h-9 rounded-md flex-shrink-0 border border-input p-1.5"
-          aria-label="Pick color"
+          aria-label={t.projects.settings.pickColor}
         >
           <div className={cn('w-full h-full rounded', swatch.className)} style={swatch.style} />
         </Button>
