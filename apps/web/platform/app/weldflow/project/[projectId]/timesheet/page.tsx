@@ -1510,7 +1510,7 @@ function StartTimerDialog({
       <DialogContent className="sm:max-w-[600px] p-0 gap-0 overflow-hidden" showCloseButton={false}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-border">
-          <DialogTitle className="text-base font-semibold">Start timer</DialogTitle>
+          <DialogTitle className="text-base font-semibold">{tt.startTimer}</DialogTitle>
           <Button
             variant="ghost"
             size="icon"

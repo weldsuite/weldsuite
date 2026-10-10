@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
+import type { TranslationsType } from '@/lib/i18n/types';
 import {
   Check,
   Trash2,
@@ -359,22 +360,25 @@ export interface TaskDetailContentProps {
   alwaysShowFields?: string[];
 }
 
-function formatRelativeTime(dateStr: string | null): string {
+type RelativeTimeLabels = TranslationsType['common']['agents']['relativeTime'];
+
+function formatRelativeTime(dateStr: string | null, labels: RelativeTimeLabels): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return labels.justNow;
+  if (diffMins < 60) return labels.minutesAgo.replace('{count}', String(diffMins));
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return labels.hoursAgo.replace('{count}', String(diffHours));
   const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
+  return labels.daysAgo.replace('{count}', String(diffDays));
 }
 
 function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
   const t = useI18n().t.settings;
+  const relativeTime = useI18n().t.common.agents.relativeTime;
   const github = t.integrations.github;
 
   const issueNumber = task.githubIssueNumber;
@@ -387,7 +391,7 @@ function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
     ? `https://github.com/${repoLink.repoFullName}/issues/${issueNumber}`
     : null;
 
-  const lastSynced = repoLink?.lastSyncedAt ? formatRelativeTime(repoLink.lastSyncedAt) : null;
+  const lastSynced = repoLink?.lastSyncedAt ? formatRelativeTime(repoLink.lastSyncedAt, relativeTime) : null;
 
   return (
     <div className="flex items-center gap-3">

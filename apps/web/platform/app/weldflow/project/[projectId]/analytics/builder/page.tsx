@@ -31,68 +31,83 @@ import {
 } from "@weldsuite/ui/components/card"
 import { ChartPreview } from '@/app/weldflow/analytics/_components/chart-preview';
 
-const chartTypes = [
-  { id: 'area-chart', name: 'Area Chart', icon: AreaChartIcon },
-  { id: 'area-linear', name: 'Area Chart - Linear', icon: AreaChartIcon },
-  { id: 'area-stacked', name: 'Area Chart - Stacked', icon: Layers },
-  { id: 'bar-multiple', name: 'Bar Chart - Multiple', icon: BarChart3 },
-  { id: 'bar-mixed', name: 'Bar Chart - Mixed', icon: BarChart3 },
-  { id: 'bar-stacked', name: 'Bar Chart - Stacked', icon: Layers },
-  { id: 'bar-negative', name: 'Bar Chart - Negative', icon: TrendingUpDown },
-  { id: 'pie-label', name: 'Pie Chart - Label', icon: PieChart },
-  { id: 'pie-donut', name: 'Pie Chart - Donut', icon: Activity },
-  { id: 'radar-lines', name: 'Radar Chart', icon: Activity },
-  { id: 'radial-simple', name: 'Radial Chart', icon: Activity },
-  { id: 'radial-text', name: 'Radial Chart - Text', icon: Activity },
+const chartTypeDefs = [
+  { id: 'area-chart', icon: AreaChartIcon },
+  { id: 'area-linear', icon: AreaChartIcon },
+  { id: 'area-stacked', icon: Layers },
+  { id: 'bar-multiple', icon: BarChart3 },
+  { id: 'bar-mixed', icon: BarChart3 },
+  { id: 'bar-stacked', icon: Layers },
+  { id: 'bar-negative', icon: TrendingUpDown },
+  { id: 'pie-label', icon: PieChart },
+  { id: 'pie-donut', icon: Activity },
+  { id: 'radar-lines', icon: Activity },
+  { id: 'radial-simple', icon: Activity },
+  { id: 'radial-text', icon: Activity },
 ];
 
-const entities = [
-  { id: 'projects', name: 'Projects', icon: FolderKanban },
-  { id: 'tasks', name: 'Tasks', icon: CheckSquare },
-  { id: 'time_entries', name: 'Time Entries', icon: Clock },
-  { id: 'milestones', name: 'Milestones', icon: Target },
+const entityDefs = [
+  { id: 'projects', icon: FolderKanban },
+  { id: 'tasks', icon: CheckSquare },
+  { id: 'time_entries', icon: Clock },
+  { id: 'milestones', icon: Target },
 ];
 
-const metrics: Record<string, Array<{ id: string; name: string; description: string }>> = {
+const metricDefs: Record<string, Array<{ id: string }>> = {
   projects: [
-    { id: 'total_projects', name: 'Total Projects', description: 'Number of all projects' },
-    { id: 'active_projects', name: 'Active Projects', description: 'Currently active projects' },
-    { id: 'projects_by_status', name: 'Projects by Status', description: 'Breakdown by status' },
-    { id: 'projects_by_health', name: 'Projects by Health', description: 'On Track/At Risk/Off Track' },
-    { id: 'completion_rate', name: 'Completion Rate', description: 'Task completion percentage' },
-    { id: 'budget_utilization', name: 'Budget Utilization', description: 'Actual vs budgeted amount' },
-    { id: 'hours_utilization', name: 'Hours Utilization', description: 'Actual vs budgeted hours' },
-    { id: 'avg_progress', name: 'Average Progress', description: 'Mean project progress' },
+    { id: 'total_projects' },
+    { id: 'active_projects' },
+    { id: 'projects_by_status' },
+    { id: 'projects_by_health' },
+    { id: 'completion_rate' },
+    { id: 'budget_utilization' },
+    { id: 'hours_utilization' },
+    { id: 'avg_progress' },
   ],
   tasks: [
-    { id: 'total_tasks', name: 'Total Tasks', description: 'Number of all tasks' },
-    { id: 'completed_tasks', name: 'Completed Tasks', description: 'Tasks marked as done' },
-    { id: 'overdue_tasks', name: 'Overdue Tasks', description: 'Tasks past due date' },
-    { id: 'tasks_by_status', name: 'Tasks by Status', description: 'Breakdown by status' },
-    { id: 'tasks_by_priority', name: 'Tasks by Priority', description: 'Urgent/High/Medium/Low' },
-    { id: 'tasks_by_type', name: 'Tasks by Type', description: 'Task/Bug/Story/Epic' },
-    { id: 'throughput', name: 'Throughput', description: 'Tasks completed per period' },
-    { id: 'estimation_accuracy', name: 'Estimation Accuracy', description: 'Actual vs estimated hours' },
+    { id: 'total_tasks' },
+    { id: 'completed_tasks' },
+    { id: 'overdue_tasks' },
+    { id: 'tasks_by_status' },
+    { id: 'tasks_by_priority' },
+    { id: 'tasks_by_type' },
+    { id: 'throughput' },
+    { id: 'estimation_accuracy' },
   ],
   time_entries: [
-    { id: 'total_hours', name: 'Total Hours', description: 'Sum of all logged hours' },
-    { id: 'billable_hours', name: 'Billable Hours', description: 'Hours marked as billable' },
-    { id: 'non_billable_hours', name: 'Non-Billable Hours', description: 'Hours not billable' },
-    { id: 'utilization_rate', name: 'Utilization Rate', description: 'Billable percentage' },
-    { id: 'total_cost', name: 'Total Cost', description: 'Sum of time entry costs' },
+    { id: 'total_hours' },
+    { id: 'billable_hours' },
+    { id: 'non_billable_hours' },
+    { id: 'utilization_rate' },
+    { id: 'total_cost' },
   ],
   milestones: [
-    { id: 'total_milestones', name: 'Total Milestones', description: 'Number of all milestones' },
-    { id: 'milestones_by_status', name: 'Milestones by Status', description: 'Breakdown by status' },
-    { id: 'completed_milestones', name: 'Completed Milestones', description: 'Milestones marked done' },
-    { id: 'overdue_milestones', name: 'Overdue Milestones', description: 'Milestones past due' },
-    { id: 'on_time_milestones', name: 'On Time Milestones', description: 'Completed on schedule' },
-    { id: 'avg_milestone_progress', name: 'Average Progress', description: 'Mean milestone progress' },
+    { id: 'total_milestones' },
+    { id: 'milestones_by_status' },
+    { id: 'completed_milestones' },
+    { id: 'overdue_milestones' },
+    { id: 'on_time_milestones' },
+    { id: 'avg_milestone_progress' },
   ],
 };
 
 export default function ProjectAnalyticsBuilderPage() {
   const { t } = useI18n();
+  const catalog = t.projects.analyticsBuilderCatalog;
+  const chartTypes = React.useMemo(() => {
+    const names: Record<string, { name: string; description: string }> = catalog.chartTypes;
+    return chartTypeDefs.map((chart) => ({ ...chart, ...names[chart.id] }));
+  }, [catalog]);
+  const entities = React.useMemo(() => {
+    const names: Record<string, string> = catalog.entities;
+    return entityDefs.map((entity) => ({ ...entity, name: names[entity.id] }));
+  }, [catalog]);
+  const metrics = React.useMemo(() => {
+    const names: Record<string, { name: string; description: string }> = catalog.metrics;
+    return Object.fromEntries(
+      Object.entries(metricDefs).map(([entityId, list]) => [entityId, list.map((metric) => ({ ...metric, ...names[metric.id] }))]),
+    );
+  }, [catalog]);
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -131,7 +146,7 @@ export default function ProjectAnalyticsBuilderPage() {
     startTransition(async () => {
       try {
         const result = await analyticsApi.createChart(reportId, {
-          title: chartTitle || 'Untitled Chart',
+          title: chartTitle || catalog.untitledChart,
           description: chartDescription || '',
           chartType: selectedChart.id,
           entity: selectedEntity,

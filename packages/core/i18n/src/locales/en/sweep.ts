@@ -2740,6 +2740,8 @@ export const sweep = {
       "unsavedChangesTitle": "Unsaved changes"
     },
     "goalsCanvas": {
+      "filterTimePeriod": "Time Period",
+      "filterOwner": "Owner",
       "addChild": "Add child",
       "addChildGoal": "Add Child Goal",
       "atRisk": "At Risk",

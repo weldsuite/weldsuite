@@ -28,133 +28,124 @@ import {
 } from "@weldsuite/ui/components/card"
 import { ChartPreview } from '@/app/weldflow/analytics/_components/chart-preview';
 
-const chartTypes = [
+const chartTypeDefs = [
   {
     id: 'area-chart',
-    name: 'Area Chart',
     icon: AreaChartIcon,
-    description: 'Display trends over time with filled areas',
   },
   {
     id: 'area-linear',
-    name: 'Area Chart - Linear',
     icon: AreaChartIcon,
-    description: 'Linear area chart with dot indicator',
   },
   {
     id: 'area-stacked',
-    name: 'Area Chart - Stacked',
     icon: Layers,
-    description: 'Stacked area chart showing cumulative values',
   },
   {
     id: 'bar-multiple',
-    name: 'Bar Chart - Multiple',
     icon: BarChart3,
-    description: 'Multiple bar chart for comparing values',
   },
   {
     id: 'bar-mixed',
-    name: 'Bar Chart - Mixed',
     icon: BarChart3,
-    description: 'Horizontal bar chart with mixed colors',
   },
   {
     id: 'bar-stacked',
-    name: 'Bar Chart - Stacked',
     icon: Layers,
-    description: 'Stacked bar chart with legend',
   },
   {
     id: 'bar-negative',
-    name: 'Bar Chart - Negative',
     icon: TrendingUpDown,
-    description: 'Bar chart with negative values',
   },
   {
     id: 'pie-label',
-    name: 'Pie Chart - Label',
     icon: PieChart,
-    description: 'Pie chart with label list',
   },
   {
     id: 'pie-donut',
-    name: 'Pie Chart - Donut',
     icon: Activity,
-    description: 'Donut chart with center text',
   },
   {
     id: 'radar-lines',
-    name: 'Radar Chart - Lines Only',
     icon: Activity,
-    description: 'Radar chart with lines only',
   },
   {
     id: 'radial-simple',
-    name: 'Radial Chart',
     icon: Activity,
-    description: 'Simple radial bar chart',
   },
   {
     id: 'radial-text',
-    name: 'Radial Chart - Text',
     icon: Activity,
-    description: 'Radial chart with center text',
   },
 ];
 
 // Projects-specific entities
-const entities = [
-  { id: 'projects', name: 'Projects', icon: FolderKanban },
-  { id: 'tasks', name: 'Tasks', icon: CheckSquare },
-  { id: 'time_entries', name: 'Time Entries', icon: Clock },
-  { id: 'milestones', name: 'Milestones', icon: Target },
+const entityDefs = [
+  { id: 'projects', icon: FolderKanban },
+  { id: 'tasks', icon: CheckSquare },
+  { id: 'time_entries', icon: Clock },
+  { id: 'milestones', icon: Target },
 ];
 
 // Projects-specific metrics
-const metrics: Record<string, Array<{ id: string; name: string; description: string }>> = {
+const metricDefs: Record<string, Array<{ id: string }>> = {
   projects: [
-    { id: 'total_projects', name: 'Total Projects', description: 'Number of all projects' },
-    { id: 'active_projects', name: 'Active Projects', description: 'Currently active projects' },
-    { id: 'projects_by_status', name: 'Projects by Status', description: 'Breakdown by status' },
-    { id: 'projects_by_health', name: 'Projects by Health', description: 'On Track/At Risk/Off Track' },
-    { id: 'completion_rate', name: 'Completion Rate', description: 'Task completion percentage' },
-    { id: 'budget_utilization', name: 'Budget Utilization', description: 'Actual vs budgeted amount' },
-    { id: 'hours_utilization', name: 'Hours Utilization', description: 'Actual vs budgeted hours' },
-    { id: 'avg_progress', name: 'Average Progress', description: 'Mean project progress' },
-    { id: 'projects_by_day', name: 'Projects by Day', description: 'Daily project count' },
+    { id: 'total_projects' },
+    { id: 'active_projects' },
+    { id: 'projects_by_status' },
+    { id: 'projects_by_health' },
+    { id: 'completion_rate' },
+    { id: 'budget_utilization' },
+    { id: 'hours_utilization' },
+    { id: 'avg_progress' },
+    { id: 'projects_by_day' },
   ],
   tasks: [
-    { id: 'total_tasks', name: 'Total Tasks', description: 'Number of all tasks' },
-    { id: 'completed_tasks', name: 'Completed Tasks', description: 'Tasks marked as done' },
-    { id: 'overdue_tasks', name: 'Overdue Tasks', description: 'Tasks past due date' },
-    { id: 'tasks_by_status', name: 'Tasks by Status', description: 'Breakdown by status' },
-    { id: 'tasks_by_priority', name: 'Tasks by Priority', description: 'Urgent/High/Medium/Low' },
-    { id: 'tasks_by_type', name: 'Tasks by Type', description: 'Task/Bug/Story/Epic' },
-    { id: 'throughput', name: 'Throughput', description: 'Tasks completed per period' },
-    { id: 'estimation_accuracy', name: 'Estimation Accuracy', description: 'Actual vs estimated hours' },
-    { id: 'tasks_by_day', name: 'Tasks by Day', description: 'Daily task count' },
+    { id: 'total_tasks' },
+    { id: 'completed_tasks' },
+    { id: 'overdue_tasks' },
+    { id: 'tasks_by_status' },
+    { id: 'tasks_by_priority' },
+    { id: 'tasks_by_type' },
+    { id: 'throughput' },
+    { id: 'estimation_accuracy' },
+    { id: 'tasks_by_day' },
   ],
   time_entries: [
-    { id: 'total_hours', name: 'Total Hours', description: 'Sum of all logged hours' },
-    { id: 'billable_hours', name: 'Billable Hours', description: 'Hours marked as billable' },
-    { id: 'non_billable_hours', name: 'Non-Billable Hours', description: 'Hours not billable' },
-    { id: 'utilization_rate', name: 'Utilization Rate', description: 'Billable percentage' },
-    { id: 'total_cost', name: 'Total Cost', description: 'Sum of time entry costs' },
-    { id: 'hours_by_day', name: 'Hours by Day', description: 'Daily hours tracking' },
+    { id: 'total_hours' },
+    { id: 'billable_hours' },
+    { id: 'non_billable_hours' },
+    { id: 'utilization_rate' },
+    { id: 'total_cost' },
+    { id: 'hours_by_day' },
   ],
   milestones: [
-    { id: 'total_milestones', name: 'Total Milestones', description: 'Number of all milestones' },
-    { id: 'milestones_by_status', name: 'Milestones by Status', description: 'Breakdown by status' },
-    { id: 'completed_milestones', name: 'Completed Milestones', description: 'Milestones marked done' },
-    { id: 'overdue_milestones', name: 'Overdue Milestones', description: 'Milestones past due' },
-    { id: 'on_time_milestones', name: 'On Time Milestones', description: 'Completed on schedule' },
-    { id: 'avg_milestone_progress', name: 'Average Progress', description: 'Mean milestone progress' },
+    { id: 'total_milestones' },
+    { id: 'milestones_by_status' },
+    { id: 'completed_milestones' },
+    { id: 'overdue_milestones' },
+    { id: 'on_time_milestones' },
+    { id: 'avg_milestone_progress' },
   ],
 };
 
 export default function ProjectsAnalyticsBuilderPage() {
   const { t } = useI18n();
+  const catalog = t.projects.analyticsBuilderCatalog;
+  const chartTypes = React.useMemo(() => {
+    const names: Record<string, { name: string; description: string }> = catalog.chartTypes;
+    return chartTypeDefs.map((chart) => ({ ...chart, ...names[chart.id] }));
+  }, [catalog]);
+  const entities = React.useMemo(() => {
+    const names: Record<string, string> = catalog.entities;
+    return entityDefs.map((entity) => ({ ...entity, name: names[entity.id] }));
+  }, [catalog]);
+  const metrics = React.useMemo(() => {
+    const names: Record<string, { name: string; description: string }> = catalog.metrics;
+    return Object.fromEntries(
+      Object.entries(metricDefs).map(([entityId, list]) => [entityId, list.map((metric) => ({ ...metric, ...names[metric.id] }))]),
+    );
+  }, [catalog]);
   const router = useRouter();
   const searchParams = useSearchParams();
   const reportId = searchParams.get('reportId');
@@ -190,7 +181,7 @@ export default function ProjectsAnalyticsBuilderPage() {
       await createChartMutation.mutateAsync({
         reportId,
         data: {
-          title: chartTitle || 'Untitled Chart',
+          title: chartTitle || catalog.untitledChart,
           description: chartDescription || '',
           chartType: selectedChart.id,
           entity: selectedEntity,

@@ -678,7 +678,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('bold') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('bold')}
-              title="Bold (Ctrl+B)"
+              title={t.sweep.helpEditor.boldTooltip}
             >
               <Bold className="h-3.5 w-3.5" />
             </Button>
@@ -688,7 +688,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('italic') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('italic')}
-              title="Italic (Ctrl+I)"
+              title={t.sweep.helpEditor.italicTooltip}
             >
               <Italic className="h-3.5 w-3.5" />
             </Button>
@@ -698,7 +698,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('underline') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('underline')}
-              title="Underline (Ctrl+U)"
+              title={t.sweep.helpEditor.underlineTooltip}
             >
               <Underline className="h-3.5 w-3.5" />
             </Button>
@@ -708,7 +708,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('strikethrough') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('strikeThrough')}
-              title="Strikethrough"
+              title={t.sweep.helpEditor.strikethroughTooltip}
             >
               <Strikethrough className="h-3.5 w-3.5" />
             </Button>
@@ -722,7 +722,7 @@ export default function DocumentsPage() {
               className="p-0"
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => changeTextColor('#000000')}
-              title="Text Color"
+              title={t.sweep.helpEditor.textColorTooltip}
             >
               <Palette className="h-3.5 w-3.5" />
             </Button>
@@ -732,7 +732,7 @@ export default function DocumentsPage() {
               className="p-0"
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => changeBackgroundColor('#ffff00')}
-              title="Highlight Color"
+              title={t.sweep.helpEditor.highlightColorTooltip}
             >
               <Highlighter className="h-3.5 w-3.5" />
             </Button>
@@ -746,7 +746,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('alignLeft') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('justifyLeft')}
-              title="Align Left"
+              title={t.sweep.helpEditor.alignLeftTooltip}
             >
               <AlignLeft className="h-3.5 w-3.5" />
             </Button>
@@ -756,7 +756,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('alignCenter') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('justifyCenter')}
-              title="Align Center"
+              title={t.sweep.helpEditor.alignCenterTooltip}
             >
               <AlignCenter className="h-3.5 w-3.5" />
             </Button>
@@ -766,7 +766,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('alignRight') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('justifyRight')}
-              title="Align Right"
+              title={t.sweep.helpEditor.alignRightTooltip}
             >
               <AlignRight className="h-3.5 w-3.5" />
             </Button>
@@ -776,7 +776,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('alignJustify') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('justifyFull')}
-              title="Justify"
+              title={t.sweep.helpEditor.justifyTooltip}
             >
               <AlignJustify className="h-3.5 w-3.5" />
             </Button>
@@ -790,7 +790,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('bulletList') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('insertUnorderedList')}
-              title="Bullet List"
+              title={t.sweep.helpEditor.bulletListTooltip}
             >
               <List className="h-3.5 w-3.5" />
             </Button>
@@ -800,7 +800,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('numberedList') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('insertOrderedList')}
-              title="Numbered List"
+              title={t.sweep.helpEditor.numberedListTooltip}
             >
               <ListOrdered className="h-3.5 w-3.5" />
             </Button>
@@ -880,7 +880,7 @@ export default function DocumentsPage() {
         {/* Cover Image Section */}
         {coverImage && (
           <div className="relative mb-12 -mx-24 group">
-            <img src={coverImage} alt="Cover" className="w-full h-[40vh] object-cover rounded-lg" />
+            <img src={coverImage} alt={t.sweep.helpEditor.coverImageAlt} className="w-full h-[40vh] object-cover rounded-lg" />
             <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
               <Button
                 variant="secondary"

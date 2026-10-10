@@ -425,27 +425,27 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
   const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       field: 'status',
-      label: 'Status',
+      label: st('projects.tasks.filterStatus'),
       options: [
-        { value: 'on-track', label: 'On Track' },
-        { value: 'at-risk', label: 'At Risk' },
-        { value: 'off-track', label: 'Off Track' },
-        { value: 'not-started', label: 'Not Started' },
-        { value: 'completed', label: 'Completed' },
+        { value: 'on-track', label: st('sweep.weldflow.goalsCanvas.onTrack') },
+        { value: 'at-risk', label: st('sweep.weldflow.goalsCanvas.atRisk') },
+        { value: 'off-track', label: st('sweep.weldflow.goalsCanvas.offTrack') },
+        { value: 'not-started', label: st('sweep.weldflow.goalsCanvas.notStarted') },
+        { value: 'completed', label: st('sweep.weldflow.goalsCanvas.completed') },
       ],
     },
     {
       field: 'timePeriod',
-      label: 'Time Period',
+      label: st('sweep.weldflow.goalsCanvas.filterTimePeriod'),
       options: Array.from(new Set([quarterLabel(new Date()), ...goals.map(g => g.timePeriod).filter(Boolean)]))
         .map(period => ({ value: period, label: period })),
     },
     {
       field: 'owner',
-      label: 'Owner',
+      label: st('sweep.weldflow.goalsCanvas.filterOwner'),
       options: Array.from(new Set(goals.map(g => g.owner.name))).map(name => ({ value: name, label: name })),
     },
-  ], [goals]);
+  ], [goals, st]);
 
   // Auto-organize goals into a proper tree layout
   const organizeGoals = (goalsToOrganize: GoalCard[], missionCard: MissionCard): GoalCard[] => {
