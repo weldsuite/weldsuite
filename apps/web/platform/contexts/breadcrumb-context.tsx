@@ -1,5 +1,5 @@
 
-import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 
 export interface BreadcrumbSegment {
   label: string;
@@ -26,11 +26,8 @@ interface BreadcrumbProviderProps {
 const NO_BREADCRUMBS: BreadcrumbSegment[] = [];
 
 export function BreadcrumbProvider({ children, defaultBreadcrumbs = NO_BREADCRUMBS }: Readonly<BreadcrumbProviderProps>) {
-  const [breadcrumbs, setBreadcrumbsState] = useState<BreadcrumbSegment[]>(defaultBreadcrumbs);
-
-  const setBreadcrumbs = useCallback((segments: BreadcrumbSegment[]) => {
-    setBreadcrumbsState(segments);
-  }, []);
+  // The state setter is stable across renders, so it goes into the context as is.
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbSegment[]>(defaultBreadcrumbs);
 
   const value = useMemo(
     () => ({ breadcrumbs, setBreadcrumbs, defaultBreadcrumbs }),

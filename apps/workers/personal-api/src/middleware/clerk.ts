@@ -42,9 +42,9 @@ function decodeJwtPayload(token: string): ClerkJwtPayload {
 
 function pemToArrayBuffer(pem: string): ArrayBuffer {
   const base64 = normalizePem(pem)
-    .replace(/-----BEGIN PUBLIC KEY-----/g, '')
-    .replace(/-----END PUBLIC KEY-----/g, '')
-    .replace(/\s/g, '');
+    .replaceAll('-----BEGIN PUBLIC KEY-----', '')
+    .replaceAll('-----END PUBLIC KEY-----', '')
+    .replaceAll(/\s/g, '');
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
@@ -54,7 +54,7 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 }
 
 function base64UrlToArrayBuffer(base64url: string): ArrayBuffer {
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const base64 = base64url.replaceAll('-', '+').replaceAll('_', '/');
   const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);

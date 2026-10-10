@@ -304,7 +304,14 @@ function HeaderRow({
   );
 }
 
-type LayoutProps = EntityDetailViewProps & HeaderRenderProps;
+/** Props the root resolves itself (mode, visibility, overlay) and layouts never read. */
+type RootOnlyProps = "mode" | "defaultMode" | "isOpen" | "fullscreenOverlay";
+type LayoutProps = Omit<EntityDetailViewProps, RootOnlyProps> & HeaderRenderProps;
+/** The inline fullscreen layout has no panel geometry and no collapsible bottom sidebar. */
+type InlineFullscreenLayoutProps = Omit<
+  LayoutProps,
+  "width" | "topOffset" | "leftOffset" | "zIndex" | "sidebarDefaultCollapsed"
+>;
 
 /* ---------------------------------------------------------------- */
 /*  Unified animated shell                                            */
@@ -865,7 +872,7 @@ function InlineFullscreenLayout({
   loading,
   className,
   contentClassName,
-}: LayoutProps) {
+}: Readonly<InlineFullscreenLayoutProps>) {
   return (
     <div className={cn("h-full w-full flex flex-col bg-background", className)}>
       <HeaderRow

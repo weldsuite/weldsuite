@@ -66,7 +66,7 @@ export function useI18n(): I18nContextValue {
 }
 
 export function statusLabel(t: Translations, status: string): string {
-  return (t.status as Record<string, string>)[status] ?? status.replace(/_/g, ' ');
+  return (t.status as Record<string, string>)[status] ?? status.replaceAll('_', ' ');
 }
 
 export function priorityLabel(t: Translations, priority: string): string {

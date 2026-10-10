@@ -331,9 +331,9 @@ export function AnnouncementEditorClient({ announcementId }: Readonly<Announceme
   };
 
   const openLinkDialog = () => {
-    const selection = window.getSelection();
-    if (selection && selection.toString()) {
-      setLinkText(selection.toString());
+    const selectedText = window.getSelection()?.toString();
+    if (selectedText) {
+      setLinkText(selectedText);
     }
     setShowCommandMenu(false);
     setCommandFilter('');
@@ -805,7 +805,7 @@ export function AnnouncementEditorClient({ announcementId }: Readonly<Announceme
       )}
 
       {/* Custom Styles for contenteditable */}
-      <style>{`
+      <style>{String.raw`
         /* Subtle scrollbar styles */
         * {
           scrollbar-width: thin;
@@ -856,7 +856,7 @@ export function AnnouncementEditorClient({ announcementId }: Readonly<Announceme
           text-align: left;
         }
         [contenteditable] p:empty:before {
-          content: '\\200B';
+          content: '\200B';
         }
         [contenteditable] h1 {
           font-size: 2em;

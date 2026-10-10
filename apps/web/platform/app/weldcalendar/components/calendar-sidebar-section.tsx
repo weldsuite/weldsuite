@@ -64,7 +64,7 @@ interface CalendarSidebarSectionProps {
 
 export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSectionProps>) {
   const t = getTranslations('weldcalendar');
-  const [visibleIds, setVisibleIdsState] = useState<Set<string>>(() => {
+  const [visibleIds, setVisibleIds] = useState<Set<string>>(() => {
     const stored = getVisibleCalendarIds();
     // Default: all visible
     return stored.size === 0 ? new Set(calendars.map((c) => c.id)) : stored;
@@ -86,7 +86,7 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
     if (newIds.length === 0) return;
 
     // Reflect the new calendars as checked in this section right away.
-    setVisibleIdsState((prev) => {
+    setVisibleIds((prev) => {
       const next = new Set(prev);
       newIds.forEach((id) => next.add(id));
       return next;
@@ -113,7 +113,7 @@ export function CalendarSidebarSection({ calendars }: Readonly<CalendarSidebarSe
     } else {
       next.add(id);
     }
-    setVisibleIdsState(next);
+    setVisibleIds(next);
     setVisibleCalendarIds(next);
   };
 

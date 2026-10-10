@@ -89,11 +89,11 @@ const mockApiKeys = [
 
 // Mock data for audit log
 const mockAuditLog = [
-  { id: 1, user: "John Doe", action: "Updated user permissions", target: "Jane Smith", time: "2 minutes ago", ip: "192.168.1.1" },
+  { id: 1, user: "John Doe", action: "Updated user permissions", target: "Jane Smith", time: "2 minutes ago", ip: "192.0.2.1" },
   { id: 2, user: "System", action: "Automated backup completed", target: "Database", time: "1 hour ago", ip: "System" },
-  { id: 3, user: "Jane Smith", action: "Created new workspace", target: "Design Studio", time: "3 hours ago", ip: "192.168.1.2" },
-  { id: 4, user: "Alice Brown", action: "Deleted API key", target: "Legacy Integration", time: "Yesterday", ip: "192.168.1.3" },
-  { id: 5, user: "Bob Johnson", action: "Changed billing plan", target: "Pro to Enterprise", time: "2 days ago", ip: "192.168.1.4" },
+  { id: 3, user: "Jane Smith", action: "Created new workspace", target: "Design Studio", time: "3 hours ago", ip: "192.0.2.2" },
+  { id: 4, user: "Alice Brown", action: "Deleted API key", target: "Legacy Integration", time: "Yesterday", ip: "192.0.2.3" },
+  { id: 5, user: "Bob Johnson", action: "Changed billing plan", target: "Pro to Enterprise", time: "2 days ago", ip: "192.0.2.4" },
 ]
 
 const tabs = [

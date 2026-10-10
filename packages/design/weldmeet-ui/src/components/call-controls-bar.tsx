@@ -365,7 +365,7 @@ const ARROW_HIGHLIGHT_CLASSES: Record<HighlightTone, string> = {
 
 /** Wraps the icon of a `group/icon` button. `fill` highlights the whole
  *  button instead of a square around the icon. */
-function IconHighlight({ tone, fill, children }: { tone: HighlightTone; fill?: boolean; children: React.ReactNode }) {
+function IconHighlight({ tone, fill, children }: Readonly<{ tone: HighlightTone; fill?: boolean; children: React.ReactNode }>) {
   return (
     <span className={cn("flex items-center justify-center transition-colors", fill ? "h-full w-full" : "h-8 w-8 rounded-lg", ICON_HIGHLIGHT_CLASSES[tone])}>
       {children}
@@ -374,7 +374,7 @@ function IconHighlight({ tone, fill, children }: { tone: HighlightTone; fill?: b
 }
 
 /** Chevron inside a `group/arrow` dropdown trigger. */
-function ArrowChevron({ tone }: { tone: HighlightTone }) {
+function ArrowChevron({ tone }: Readonly<{ tone: HighlightTone }>) {
   return (
     <span className={cn("flex h-6 w-6 -translate-x-[6px] items-center justify-center rounded-md transition-colors", ARROW_HIGHLIGHT_CLASSES[tone])}>
       <ChevronUp className="h-4 w-4 transition-transform duration-200 group-data-[state=open]/arrow:rotate-180" />

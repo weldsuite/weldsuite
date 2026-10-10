@@ -331,8 +331,8 @@ app.post('/agents/:id/browser/live-view', requirePermission('weldagent:read'), a
         action: 'live_view',
       });
       return success(c, result);
-    } catch (inner) {
-      return error.internal(c, inner instanceof Error ? inner.message : 'Live view unavailable');
+    } catch (innerError) {
+      return error.internal(c, innerError instanceof Error ? innerError.message : 'Live view unavailable');
     }
   }
 });

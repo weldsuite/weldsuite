@@ -1246,7 +1246,9 @@ function isConnectionSyncDue(connection: IntegrationConnectionRow, now: number):
     MIN_SYNC_INTERVAL_HOURS,
   );
   const lastSync = connection.lastSyncAt ? new Date(connection.lastSyncAt).getTime() : 0;
-  return !(now < lastSync + intervalHours * 60 * 60 * 1000);
+  const dueAt = lastSync + intervalHours * 60 * 60 * 1000;
+  // An unparseable lastSyncAt (NaN) counts as due, as before.
+  return Number.isNaN(dueAt) || now >= dueAt;
 }
 
 /** Google Calendar watch-channel renewal via connect-api's internal router. */

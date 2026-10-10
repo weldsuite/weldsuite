@@ -55,7 +55,7 @@ function splitDisplayName(displayName: string): { firstName: string; lastName: s
   if (tokens.length === 1) return { firstName: tokens[0]!, lastName: '' };
   return {
     firstName: tokens.slice(0, -1).join(' '),
-    lastName: tokens[tokens.length - 1]!,
+    lastName: tokens.at(-1)!,
   };
 }
 
