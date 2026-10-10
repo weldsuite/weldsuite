@@ -1,9 +1,11 @@
 import { getTranslations } from '@weldsuite/i18n';
+import { partnersCopy } from '@/lib/partners-copy';
 import {
   Building2,
   Coins,
   CreditCard,
   Globe,
+  Handshake,
   Headphones,
   LayoutDashboard,
   History,
@@ -57,6 +59,7 @@ export function getNavAreas(): NavArea[] {
   const meetAiPricing = getTranslations('host').adminMeetAiPricing;
   const planPricing = getTranslations('host').adminPlanPricing;
   const billing = getTranslations('admin').nav;
+  const partners = partnersCopy().nav;
   return [
   {
     key: 'overview',
@@ -75,6 +78,7 @@ export function getNavAreas(): NavArea[] {
           { title: 'App Catalog', href: '/apps', icon: Package },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: billing.plans, href: '/plans', icon: CreditCard },
+          { title: partners.jumpTo, href: '/partners', icon: Handshake },
           { title: billing.activity, href: '/activity', icon: History },
           { title: 'AI Costs', href: '/ai-costs', icon: Coins },
           { title: planPricing.navJumpTo, href: '/plan-pricing', icon: Tags },
@@ -141,6 +145,21 @@ export function getNavAreas(): NavArea[] {
       {
         group: billing.auditGroup,
         items: [{ title: billing.activity, href: '/activity', icon: History }],
+      },
+    ],
+  },
+  {
+    key: 'partners',
+    name: partners.area,
+    icon: Handshake,
+    href: '/partners',
+    groups: [
+      {
+        group: partners.group,
+        items: [
+          { title: partners.list, href: '/partners', icon: ListTree },
+          { title: partners.new, href: '/partners/new', icon: PackagePlus },
+        ],
       },
     ],
   },

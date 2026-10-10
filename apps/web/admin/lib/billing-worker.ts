@@ -11,7 +11,8 @@ import type { SnapshotState, StripeSnapshot } from './billing-types';
  * so every change is attributed in the worker's audit trail.
  */
 
-export type WorkerResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
+/** `details` is the worker's structured error payload (e.g. the countries of a TERRITORY_CONFLICT). */
+export type WorkerResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string; details?: unknown };
 
 const TIMEOUT_MS = 25_000;
 
@@ -27,7 +28,7 @@ export function isBillingWorkerConfigured(): boolean {
 }
 
 export async function callBillingWorker<T>(
-  method: 'GET' | 'POST' | 'PATCH',
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   path: string,
   options: { identity: AdminIdentity; body?: unknown; requestId?: string },
 ): Promise<WorkerResult<T>> {
@@ -61,12 +62,16 @@ export async function callBillingWorker<T>(
     };
   }
 
+  // 204 No Content (deletes) has no body.
+  if (res.status === 204) return { ok: true, data: undefined as T };
+
   const payload = (await res.json().catch(() => null)) as
-    | { data?: T; error?: { code?: string; message?: string } }
+    | { data?: T; error?: { code?: string; message?: string; details?: unknown } }
     | null;
   if (res.ok && payload && 'data' in payload) return { ok: true, data: payload.data as T };
   return {
     ok: false,
+    details: payload?.error?.details,
     // No error body on a 5xx means the worker itself failed, possibly after
     // Stripe already did the work: report it as ambiguous (UPSTREAM).
     code: payload?.error?.code ?? (res.status >= 500 ? 'UPSTREAM' : undefined),
