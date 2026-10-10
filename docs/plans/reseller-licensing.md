@@ -1,6 +1,6 @@
 # Reseller licensing (partner-managed workspaces)
 
-Status: **Phases 0–3 in progress** in one PR. Schema is in `packages/core/db/src/schema/partners.ts`; the master migration is not generated yet (the owner generates it).
+Status: **Phases 0–3 implemented** (one PR). Schema is in `packages/core/db/src/schema/partners.ts`; the **master migration is not generated yet** and must be applied before this deploys (app-api reads the new `workspaces` columns). See "Known gaps" at the end.
 
 ## Problem
 
@@ -546,3 +546,25 @@ These turned up in the survey and stand on their own:
 4. **Seat cap may double-count included users.** The Clerk cap is `includedUsers + purchasedSeats`, while checkout's quantity is the total seat count (`apps/workers/app-api/src/services/billing.ts:44-68` vs `routes/billing/index.ts:662-681`).
 5. **Admin `changeSubscription` ignores country prices.** It uses the plan row's default Stripe price (`apps/workers/billing-worker/src/services/admin-billing.ts:541`), not the per-country price that checkout uses.
 6. **Monthly plan credits never expire or cap.** They are added on top at each `invoice.paid`, and `rolloverCap` is never enforced (`apps/workers/billing-worker/src/services/credits.ts:32-113`).
+
+## Known gaps (after the Phase 0–3 build)
+
+- **Migration**
+  - The master migration for the partner tables and the two new `workspaces` columns still has to be generated and applied.
+  - Until then, billing-worker's `comp.integration.test.ts` fails locally, because its pglite database is built from migrations. CI does not run it.
+- **Read-only for background jobs**
+  - Read-only is enforced on API writes only.
+  - Background writers do not skip a suspended partner's workspaces yet: workflow runs, sequences, scheduled social posts, inbound mail rules.
+- **Cache delay**
+  - external-api (`API_CACHE`, `ws:<workspaceId>`) and mcp-server (`mcp:org:<org>`) pick up licence and partner-status changes after their 300 s TTL.
+  - worker-kit contexts are invalidated at once.
+- **Clerk assumptions** (verify on test)
+  - Portal workspace creation creates the Clerk org with no creating user and invites the owner with no inviter.
+  - If Clerk refuses either, creation fails with `CLERK_ORG_FAILED` / `INVITE_FAILED`.
+- **Still billed to the workspace:** phone numbers, agent packs and WeldApps app subscriptions on a partner workspace.
+- **Tax:** no automatic tax on partner invoices; the VAT treatment is still open.
+- **Seats:** the seat peak is the daily 02:17 UTC snapshot.
+- **Large partners:** invoice items are created one per workspace line, so a partner with several hundred workspaces may approach the Workers subrequest limit.
+- **Portal emails:** the partner invite and territory-request emails from app-api are plain-text English. The billing-worker dunning and invitation emails have en/nl templates.
+- **Admin console:** does not manage licence packages; the partners manage those in the portal.
+
