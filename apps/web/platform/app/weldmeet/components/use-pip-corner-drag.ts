@@ -129,8 +129,8 @@ export function usePipCornerDrag(
       // Don't hijack presses that belong to interactive controls. A control marked
       // `data-drag-surface` (the video tile's click-to-expand button) still starts a drag.
       const target = e.target as HTMLElement;
-      const control = target.closest('button, a, input, select, textarea, [role="menuitem"], [data-no-drag]');
-      if (control && !control.hasAttribute('data-drag-surface')) {
+      const control = target.closest<HTMLElement>('button, a, input, select, textarea, [role="menuitem"], [data-no-drag]');
+      if (control && control.dataset.dragSurface === undefined) {
         return;
       }
       if (snapTimer.current) {
@@ -158,7 +158,7 @@ export function usePipCornerDrag(
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       const d = drag.current;
-      if (!d || e.pointerId !== d.pointerId) return;
+      if (d?.pointerId !== e.pointerId) return;
       const dx = e.clientX - d.startX;
       const dy = e.clientY - d.startY;
       if (!d.moved) {
@@ -182,7 +182,7 @@ export function usePipCornerDrag(
   const onPointerUp = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       const d = drag.current;
-      if (!d || e.pointerId !== d.pointerId) return;
+      if (d?.pointerId !== e.pointerId) return;
       drag.current = null;
       ref.current?.releasePointerCapture?.(e.pointerId);
       if (!d.moved) {

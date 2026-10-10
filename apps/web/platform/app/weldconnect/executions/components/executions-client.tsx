@@ -198,7 +198,7 @@ export function ExecutionsClient() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const handleRefresh = useCallback(() => {
     setIsRefreshing(true);
-    refetch().finally(() => setIsRefreshing(false));
+    void refetch().finally(() => setIsRefreshing(false));
   }, [refetch]);
 
   const retryExecutionMutation = useRetryExecution();
