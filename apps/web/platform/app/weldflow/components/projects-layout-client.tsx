@@ -3,12 +3,16 @@ import { ReactNode } from 'react';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
 import { ProjectsHeader } from './projects-header';
 import { ModuleContent } from '@/components/layout/module-content';
+import { useTaskPanelUrlSync } from '../hooks/use-task-panel-url-sync';
 
 interface ProjectsLayoutClientProps {
   children: ReactNode;
 }
 
 export function ProjectsLayoutClient({ children }: Readonly<ProjectsLayoutClientProps>) {
+  // Open task panels get a shareable `?stack=task:{id}:panel` URL.
+  useTaskPanelUrlSync();
+
   // When embedded inside another panel (e.g. WeldChat's project Expand
   // overlay), hide the weldflow module header so the iframed page reads as
   // "just the project" with no duplicate chrome.

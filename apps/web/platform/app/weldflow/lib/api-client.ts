@@ -655,10 +655,13 @@ export const projectsApi = {
 
   create: (data: {
     name: string;
+    description?: string;
     status?: string;
     priority?: string;
     color?: string;
     icon?: string;
+    startDate?: string;
+    endDate?: string;
   }) => appApiPost<ApiProject>('/projects', data),
 
   update: (
@@ -1522,7 +1525,7 @@ export const tablesApi = {
     } as ApiResponse<SheetSummary[]>;
   },
 
-  createTable: async (projectId: string, data: { name: string }) => {
+  createTable: async (projectId: string, data: { name: string; copyFromFileId?: string }) => {
     const res = await appApiPost<SheetFileRow>(`/project-sheets/${projectId}`, data);
     if (!res.success || !res.data) return res as unknown as ApiResponse<SheetSummary>;
     return {

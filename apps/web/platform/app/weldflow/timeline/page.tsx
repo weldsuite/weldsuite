@@ -1,5 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import { formatMediumDateNow, formatMonthYearNow, formatShortDateNow } from '@/lib/i18n/date-locale';
 import "./timeline.css";
 import { Button } from "@weldsuite/ui/components/button";
 import { Input } from "@weldsuite/ui/components/input";
@@ -557,7 +558,7 @@ export default function TimelinePage() {
                   )}
                   {task.endDate && (
                     <span className="task-date">
-                      {task.endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      {formatShortDateNow(task.endDate)}
                     </span>
                   )}
                 </div>
@@ -588,7 +589,7 @@ export default function TimelinePage() {
             <div className="timeline-months">
               {timelineHeaders.map((date) => (
                 <div key={date.getTime()}className="timeline-month" style={{ minWidth: `${120 * zoomLevel}px` }}>
-                  {date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                  {formatMonthYearNow(date)}
                 </div>
               ))}
             </div>
@@ -744,11 +745,11 @@ export default function TimelinePage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm text-muted-foreground">{st('sweep.weldflow.timeline.startDate')}</label>
-                <p>{selectedTask.startDate.toLocaleDateString()}</p>
+                <p>{formatMediumDateNow(selectedTask.startDate)}</p>
               </div>
               <div>
                 <label className="text-sm text-muted-foreground">{st('sweep.weldflow.timeline.endDate')}</label>
-                <p>{selectedTask.endDate.toLocaleDateString()}</p>
+                <p>{formatMediumDateNow(selectedTask.endDate)}</p>
               </div>
             </div>
             <div>

@@ -156,6 +156,7 @@ const FieldCombobox = ({
   usedFields,
 }: FieldComboboxProps) => {
   const { t } = useI18n();
+  const descriptions: Record<string, string> = t.projects.settings.importFieldDescriptions;
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -223,8 +224,8 @@ const FieldCombobox = ({
                         {column.header}
                         {column.required && <span className="text-red-500">*</span>}
                       </span>
-                      {column.description && (
-                        <span className="text-xs text-muted-foreground">{column.description}</span>
+                      {(descriptions[column.accessorKey] ?? column.description) && (
+                        <span className="text-xs text-muted-foreground">{descriptions[column.accessorKey] ?? column.description}</span>
                       )}
                     </div>
                     {isUsed && <span className="ml-auto text-xs text-muted-foreground">{t.projects.settings.usedBadge}</span>}
@@ -528,7 +529,7 @@ export function ImportTasksDialog({ open, onOpenChange, projectId }: Readonly<Im
         setStep("mapping");
       } catch (error) {
         console.error("[Import] Parse error:", error);
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        const errorMessage = error instanceof Error ? error.message : t.common.labels.unknown;
         setParseError(t.projects.settings.fileParseError.replace('{error}', errorMessage));
         setFile(null);
       }

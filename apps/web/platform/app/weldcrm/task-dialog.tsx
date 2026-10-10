@@ -42,6 +42,7 @@ import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { RepeatConfigMenu, repeatLabel, type RepeatFrequency, type RepeatUnit } from '@/components/tasks/repeat-config';
+import { InlineLabelCreator } from '@/components/tasks/inline-label-creator';
 import { runEditorCommand } from '@weldsuite/ui/lib/editor-commands';
 
 const statusConfig = {
@@ -465,11 +466,13 @@ function LabelsPopover({
   availableLabels,
   activeProjectId,
   onChange,
+  onCreateLabel,
 }: Readonly<{
   selectedLabels: string[];
   availableLabels: LabelOption[];
   activeProjectId: string | null | undefined;
   onChange: React.Dispatch<React.SetStateAction<string[]>>;
+  onCreateLabel?: (data: { name: string; color: string }) => Promise<LabelOption | null>;
 }>) {
   const tCrm = getTranslations('crm');
   // Only show labels that belong to the active project (or workspace-wide
@@ -534,6 +537,19 @@ function LabelsPopover({
               </Button>
             );
           })
+        )}
+        {onCreateLabel && (
+          <>
+            {visibleLabels.length > 0 && <div className="h-px bg-gray-200 dark:bg-accent my-1" />}
+            <InlineLabelCreator
+              existingNames={visibleLabels.map((l) => l.name)}
+              onCreate={async (data) => {
+                const created = await onCreateLabel(data);
+                if (created) onChange((prev) => [...prev, created.id]);
+                return created;
+              }}
+            />
+          </>
         )}
         {selectedLabels.length > 0 && (
           <>
@@ -957,7 +973,6 @@ export function TaskDialog({
   onRecordSearchChange,
   recordRequired,
   availableLabels = [],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- part of the public TaskDialog contract (inline label creation); not yet wired into this dialog's label picker UI.
   onCreateLabel,
   defaultRecord,
   defaultAssignee,
@@ -1466,6 +1481,7 @@ export function TaskDialog({
               availableLabels={availableLabels}
               activeProjectId={projectId ?? record}
               onChange={setSelectedLabels}
+              onCreateLabel={onCreateLabel}
             />
 
             <DurationPopover duration={duration} onChange={setDuration} />

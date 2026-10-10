@@ -46,7 +46,7 @@ export const weldhr = {
 
   status: {
     employee: {
-      onboarding: 'Onboarding',
+      onboarding: 'Inwerkperiode',
       active: 'Actief',
       on_leave: 'Met verlof',
       offboarding: 'Uitdiensttreding',
@@ -124,7 +124,7 @@ export const weldhr = {
       cancelled: 'Geannuleerd',
     },
     checklistKind: {
-      onboarding: 'Onboarding',
+      onboarding: 'Inwerken',
       offboarding: 'Uitdiensttreding',
     },
     assigneeRole: {

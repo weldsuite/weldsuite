@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { formatMediumDateNow } from '@/lib/i18n/date-locale';
 import { useI18n } from '@/lib/i18n/provider';
-import { Trash2, EllipsisVertical, Pencil, Table2 } from 'lucide-react';
+import { Trash2, EllipsisVertical, Pencil, Table2, Copy } from 'lucide-react';
 import { isToday, isYesterday, isThisWeek, isThisMonth, subMonths, isAfter } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -24,6 +25,7 @@ import { useParams, useRouter } from '@/lib/router';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { tablesApi } from '@/app/weldflow/lib/api-client';
 import { PageLoader } from '@/components/page-loader';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 
 interface TableItem {
@@ -34,11 +36,7 @@ interface TableItem {
 }
 
 function formatDate(date: string) {
-  return new Date(date).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatMediumDateNow(date);
 }
 
 export default function ProjectTablePage() {
@@ -128,8 +126,26 @@ export default function ProjectTablePage() {
     { id: 'created', header: t.projects.table.headerCreated, width: 'w-[140px]' },
   ], [t]);
 
+  // Deleting has no undo, so the menu only sets the target; the confirm dialog deletes.
+  const [deleteTarget, setDeleteTarget] = useState<TableItem | null>(null);
+
+  const handleDuplicateTable = useCallback(async (item: TableItem) => {
+    const result = await tablesApi.createTable(projectId, {
+      name: t.projects.table.tableCopyName.replace('{name}', item.name),
+      copyFromFileId: item.id,
+    });
+    if (result.success && result.data) {
+      const created = result.data;
+      setItems(prev => [created, ...prev]);
+      toast.success(t.projects.table.tableDuplicated);
+    } else {
+      toast.error(t.projects.table.failedToDuplicateTable);
+    }
+  }, [projectId, t.projects.table.tableCopyName, t.projects.table.tableDuplicated, t.projects.table.failedToDuplicateTable]);
+
   const handleDeleteTable = useCallback(async (tableId: string) => {
     const result = await tablesApi.deleteTable(projectId, tableId);
+    setDeleteTarget(null);
     if (result.success) {
       setItems(prev => prev.filter(t => t.id !== tableId));
       toast.success(t.projects.table.tableDeleted);
@@ -201,8 +217,14 @@ export default function ProjectTablePage() {
                 {t.projects.table.renameTable}
               </DropdownMenuItem>
               {canWrite && (
+                <DropdownMenuItem onClick={() => handleDuplicateTable(item)}>
+                  <Copy className="h-4 w-4 mr-0.5" />
+                  {t.projects.table.duplicateTable}
+                </DropdownMenuItem>
+              )}
+              {canWrite && (
                 <DropdownMenuItem
-                  onClick={() => handleDeleteTable(item.id)}
+                  onClick={() => setDeleteTarget(item)}
                   className="text-destructive focus:text-destructive focus:bg-destructive/10"
                 >
                   <Trash2 className="h-4 w-4 mr-0.5 text-destructive" />
@@ -214,7 +236,7 @@ export default function ProjectTablePage() {
         </div>
       </div>
     );
-  }, [canWrite, handleDeleteTable, openRenameDialog, openTable, t]);
+  }, [canWrite, handleDuplicateTable, openRenameDialog, openTable, t]);
 
   const openCreateDialog = () => {
     setNewTableName('');
@@ -325,6 +347,17 @@ export default function ProjectTablePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title={t.projects.table.deleteTableConfirmTitle}
+        description={t.projects.table.deleteTableConfirmDesc.replace('{name}', deleteTarget?.name ?? '')}
+        confirmLabel={t.projects.table.deleteTable}
+        cancelLabel={t.projects.table.cancelBtn}
+        variant="destructive"
+        onConfirm={() => (deleteTarget ? handleDeleteTable(deleteTarget.id) : undefined)}
+      />
 
       {/* Rename dialog */}
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>

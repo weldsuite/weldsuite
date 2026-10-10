@@ -43,17 +43,27 @@ describe('SubtasksSection inline add', () => {
     expect(onCreateSubtask).not.toHaveBeenCalled();
   });
 
-  it('creates the subtask with the typed (trimmed) title on Enter and closes the input', () => {
+  it('creates the subtask with the typed (trimmed) title on Enter and keeps the input open for the next one', () => {
     const { onCreateSubtask } = renderSection();
     fireEvent.click(screen.getByRole('button', { name: ADD_LABEL }));
 
     const input = screen.getByPlaceholderText(PLACEHOLDER);
-    fireEvent.change(input, { target: { value: '  Mobile version  ' } });
+    fireEvent.change(input, { target: { value: '  Sub A  ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
     expect(onCreateSubtask).toHaveBeenCalledTimes(1);
-    expect(onCreateSubtask).toHaveBeenCalledWith('Mobile version');
-    expect(screen.queryByPlaceholderText(PLACEHOLDER)).not.toBeInTheDocument();
+    expect(onCreateSubtask).toHaveBeenLastCalledWith('Sub A');
+
+    // Still there, emptied and focused: the next title can be typed right away.
+    const again = screen.getByPlaceholderText(PLACEHOLDER);
+    expect(again).toHaveValue('');
+    expect(again).toHaveFocus();
+
+    fireEvent.change(again, { target: { value: 'Sub B' } });
+    fireEvent.keyDown(again, { key: 'Enter' });
+
+    expect(onCreateSubtask).toHaveBeenCalledTimes(2);
+    expect(onCreateSubtask).toHaveBeenLastCalledWith('Sub B');
   });
 
   it('does not create anything on Enter with a blank title', () => {
@@ -94,5 +104,29 @@ describe('SubtasksSection inline add', () => {
 
     expect(screen.getByPlaceholderText(PLACEHOLDER)).toHaveFocus();
     expect(onCreateSubtask).not.toHaveBeenCalled();
+  });
+});
+
+describe('SubtasksSection rows', () => {
+  it('does not list the open task itself as a subtask', () => {
+    renderSection([{ id: 'task_child', title: 'Existing subtask', status: 'todo', assignee: null }]);
+
+    expect(screen.getByText('Existing subtask')).toBeInTheDocument();
+    expect(screen.queryByText('Parent')).not.toBeInTheDocument();
+  });
+
+  it('shows the real parent above the open task when the task is itself a subtask', () => {
+    render(
+      <SubtasksSection
+        subtasks={[]}
+        parentTask={{ id: 'task_root', title: 'Grandparent', status: 'todo' }}
+        currentTaskId="task_parent"
+        rootTask={{ id: 'task_parent', title: 'Parent', status: 'todo' }}
+        onCreateSubtask={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Grandparent')).toBeInTheDocument();
+    expect(screen.getByText('Parent')).toBeInTheDocument();
   });
 });

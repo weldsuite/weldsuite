@@ -66,7 +66,8 @@ export const updateTaskSchema = z.object({
   startDate: createTaskSchema.shape.startDate,
   dueDate: createTaskSchema.shape.dueDate,
   estimatedHours: createTaskSchema.shape.estimatedHours,
-  duration: createTaskSchema.shape.duration,
+  // Clients send null to clear the time estimate.
+  duration: z.number().nullable().optional(),
   storyPoints: createTaskSchema.shape.storyPoints,
   labels: createTaskSchema.shape.labels,
   tags: createTaskSchema.shape.tags,

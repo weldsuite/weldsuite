@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useTransition } from "react";
+import { useI18n } from '@/lib/i18n/provider';
+import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { getTranslations } from '@/lib/i18n';
 import { Link } from '@/lib/router';
 import { useRouter } from '@/lib/router/use-router';
 import {
@@ -85,7 +86,10 @@ function mapApiStatusToTableStatus(apiStatus: string): TableStatus {
     'cancelled': 'off-track',
     'archived': 'completed'
   };
-  return statusMap[apiStatus] || 'on-track';
+  // Stored statuses are mixed-case / spaced ("Planning", "On Hold"); key on a
+  // lowercase snake_case form so every spelling resolves.
+  const key = apiStatus.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  return statusMap[key] || 'on-track';
 }
 
 function mapHealthToTableStatus(health: string): TableStatus {
@@ -161,7 +165,8 @@ export function AllProjectsClient({
   sortState: sortStateProp,
   onSortChange,
 }: Readonly<AllProjectsClientProps>) {
-  const t = getTranslations('projects');
+  const t = useI18n().t.projects;
+  const { formatShort } = useDateLocale();
 
   const statusConfig: Record<TableStatus, { label: string; color: string; bg: string; icon: React.ElementType }> = useMemo(() => ({
     'on-track': { label: t.allProjects.statusOnTrack, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950', icon: CheckCircle2 },
@@ -363,11 +368,10 @@ export function AllProjectsClient({
     }
   };
 
-  const formatDateShort = (dateString: string) => {
+  const formatDateShort = useCallback((dateString: string) => {
     if (!dateString) return null;
-    const date = new Date(dateString + 'T00:00:00');
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
+    return formatShort(new Date(dateString + 'T00:00:00'));
+  }, [formatShort]);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -656,7 +660,7 @@ export function AllProjectsClient({
         </div>
       </div>
     );
-  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate]);
+  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate, formatDateShort]);
 
   return (
     <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">

@@ -194,9 +194,10 @@ async function queryStandaloneTasks(
 }
 
 /** Map the internal query shape to the email template's plain-object task shape. */
-function toEmailTasks(tasks: DigestTask[]): FlowDigestEmailProps['overdue'] {
+function toEmailTasks(tasks: DigestTask[], platformUrl: string): FlowDigestEmailProps['overdue'] {
   return tasks.map((t) => ({
     title: t.title,
+    url: `${platformUrl}/weldflow/task/${t.id}`,
     projectName: t.projectName ?? null,
     personal: t.type === 'personal',
     dueDate: t.dueDate ? t.dueDate.toISOString() : null,
@@ -303,12 +304,12 @@ export class SendDigestWorkflow extends WorkflowEntrypoint<SendDigestEnv, SendDi
       const props: FlowDigestEmailProps = {
         firstName,
         workspaceName,
-        overdue: toEmailTasks(overdue),
-        dueToday: toEmailTasks(dueToday),
-        dueThisWeek: toEmailTasks(dueThisWeek),
+        overdue: toEmailTasks(overdue, platformUrl),
+        dueToday: toEmailTasks(dueToday, platformUrl),
+        dueThisWeek: toEmailTasks(dueThisWeek, platformUrl),
         timezone: wsTimezone,
         date: new Date().toISOString(),
-        tasksUrl: `${platformUrl}/task`,
+        tasksUrl: `${platformUrl}/weldflow`,
         settingsUrl: unsubscribeUrl,
       };
 

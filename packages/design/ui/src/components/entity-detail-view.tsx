@@ -112,6 +112,9 @@ export interface EntityDetailViewProps {
   contentClassName?: string;
 }
 
+/** Max share of the panel the bottom region takes before the user resizes it. */
+const DEFAULT_SIDEBAR_MAX_SHARE = 35;
+
 function toCssLength(value: number | string | undefined, fallback: string): string {
   if (value === undefined) return fallback;
   return typeof value === "number" ? `${value}px` : value;
@@ -361,6 +364,23 @@ function AnimatedShell({
   const isFullscreen = mode === "fullscreen";
   const shellRef = React.useRef<HTMLDialogElement>(null);
 
+  // On phones the panel covers the whole viewport (see the panel-mode classes
+  // below), so there is no page strip left to tap on. Escape closes it, unless
+  // an inner layer (popover, dialog, inline editor) already handled the key or
+  // the user is typing in a field.
+  React.useEffect(() => {
+    if (!onClose || typeof window === "undefined") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (!window.matchMedia("(max-width: 767px)").matches) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable='true'], [contenteditable='']")) return;
+      onClose();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const header = (
     <HeaderRow
       avatar={avatar}
@@ -395,6 +415,10 @@ function AnimatedShell({
           // the module content and attaches to it (or to the panel before it)
           // with a left divider.
           "relative flex shrink-0 flex-col overflow-hidden border-l border-border bg-background",
+          // Phones: a side column would overflow the viewport (pushing the
+          // header buttons off-screen), so the panel becomes a full-screen
+          // layer instead. The inline `width` is overridden with `!w-full`.
+          "max-md:fixed max-md:inset-0 max-md:z-50 max-md:!w-full max-md:border-l-0",
           className,
         )}
         style={{ width: widthCss }}
@@ -501,6 +525,14 @@ function PanelBody({
   const [sidebarHeight, setSidebarHeight] = React.useState<number>(() =>
     readNumberFromStorage(sidebarPersistKey, sidebarDefaultSize, sidebarMinSize),
   );
+  // Until the user drags the handle (or a saved size exists) the bottom region
+  // only takes its default size while that stays a modest share of the panel,
+  // so on a short viewport the details above it keep most of the height
+  // instead of shrinking into a small scroll box.
+  const [userSized, setUserSized] = React.useState<boolean>(() => {
+    if (!sidebarPersistKey || typeof window === "undefined") return false;
+    return window.localStorage.getItem(`${sidebarPersistKey}:size`) !== null;
+  });
   const [collapsed, setCollapsed] = React.useState<boolean>(() => {
     if (typeof window === "undefined") return sidebarDefaultCollapsed;
     if (!sidebarPersistKey) return sidebarDefaultCollapsed;
@@ -523,6 +555,7 @@ function PanelBody({
   }, [sidebarPersistKey, collapsed]);
 
   const tabsRowRef = React.useRef<HTMLDivElement>(null);
+  const sidebarRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef(false);
   const startYRef = React.useRef(0);
   const startHeightRef = React.useRef(0);
@@ -547,6 +580,10 @@ function PanelBody({
         : 80;
       const maxFromTabs = shellHeight - tabsBottom;
       maxHeightRef.current = Math.min(sidebarMaxSize ?? Number.POSITIVE_INFINITY, maxFromTabs);
+      // Start from what is actually on screen, not the uncapped default.
+      startHeightRef.current = sidebarRef.current?.offsetHeight ?? sidebarHeight;
+      setSidebarHeight(startHeightRef.current);
+      setUserSized(true);
       setIsDragging(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -634,11 +671,18 @@ function PanelBody({
         // forced to scroll. The grab line is always visible so the affordance
         // is discoverable regardless of whether a conversation exists yet.
         <div
+          ref={sidebarRef}
           className={cn(
             "relative flex-shrink-0 bg-background flex flex-col",
             !isDragging && "transition-[height] duration-200 ease-out",
           )}
-          style={{ height: collapsed ? 8 : sidebarHeight }}
+          style={{
+            height: collapsed
+              ? 8
+              : userSized
+                ? sidebarHeight
+                : `min(${sidebarHeight}px, ${DEFAULT_SIDEBAR_MAX_SHARE}%)`,
+          }}
         >
           {!collapsed && (
             <div className="flex-1 min-h-0 overflow-hidden">{sidebar}</div>

@@ -33,7 +33,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNowLocalized as formatDistanceToNow } from '@/lib/i18n/date-locale';
 import { messagesApi } from '@/app/weldflow/lib/api-client';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 
