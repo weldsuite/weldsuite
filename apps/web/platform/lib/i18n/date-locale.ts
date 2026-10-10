@@ -51,6 +51,18 @@ export function formatMediumDate(value: DateInput, language: Language): string {
   }).format(date);
 }
 
+/** "Fri, Oct 9, 2026" / "vr 9 okt 2026" */
+export function formatWeekdayDate(value: DateInput, language: Language): string {
+  const date = toDate(value);
+  if (!date) return '';
+  return new Intl.DateTimeFormat(getIntlLocale(language), {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
+
 /** "Oct 2026" / "okt 2026" */
 export function formatMonthYear(value: DateInput, language: Language): string {
   const date = toDate(value);
@@ -69,6 +81,7 @@ export function useDateLocale() {
 
   const formatShort = useCallback((value: DateInput) => formatShortDate(value, language), [language]);
   const formatMedium = useCallback((value: DateInput) => formatMediumDate(value, language), [language]);
+  const formatWeekday = useCallback((value: DateInput) => formatWeekdayDate(value, language), [language]);
   const formatMonthYearLabel = useCallback((value: DateInput) => formatMonthYear(value, language), [language]);
   /** date-fns `format` with the current locale applied. */
   const formatPattern = useCallback(
@@ -82,6 +95,7 @@ export function useDateLocale() {
     intlLocale,
     formatShort,
     formatMedium,
+    formatWeekday,
     formatMonthYear: formatMonthYearLabel,
     formatPattern,
   };

@@ -881,6 +881,8 @@ export const projects = {
     },
 
     gantt: {
+      atTime: 'om {time}',
+      durationSoFar: '{duration} tot nu toe',
       viewTask: 'Taak bekijken',
       rename: 'Hernoemen',
       copyLink: 'Link kopiëren',

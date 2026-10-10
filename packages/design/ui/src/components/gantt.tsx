@@ -18,6 +18,7 @@ import {
   formatDistance,
   getDaysInMonth,
   isSameDay,
+  type Locale,
   startOfDay,
   startOfWeek,
 } from 'date-fns';
@@ -106,7 +107,20 @@ export type TimelineData = {
   }[];
 }[];
 
+/** Strings the chart renders itself, for hosts that translate. English when omitted. */
+export type GanttLabels = {
+  /** "Today" flag on the current-day line. */
+  today?: string;
+  /** "Week" prefix in the weekly header. */
+  week?: string;
+  /** Duration suffix for open-ended items. Receives the formatted distance. */
+  soFar?: (duration: string) => string;
+};
+
 export type GanttContextProps = {
+  /** date-fns locale for month, weekday and date labels. English when omitted. */
+  locale?: Locale;
+  labels?: GanttLabels;
   zoom: number;
   range: Range;
   columnWidth: number;
@@ -250,17 +264,22 @@ const DailyHeader: FC = () => {
             renderHeaderItem={(item: number) => (
               <div className="flex items-center justify-center gap-1">
                 <p>
-                  {format(addDays(new Date(year.year, index, 1), item), 'd')}
+                  {format(addDays(new Date(year.year, index, 1), item), 'd', {
+                    locale: gantt.locale,
+                  })}
                 </p>
                 <p className="text-muted-foreground">
                   {format(
                     addDays(new Date(year.year, index, 1), item),
-                    'EEEEE'
+                    'EEEEE',
+                    { locale: gantt.locale }
                   )}
                 </p>
               </div>
             )}
-            title={format(new Date(year.year, index, 1), 'MMMM yyyy')}
+            title={format(new Date(year.year, index, 1), 'MMMM yyyy', {
+              locale: gantt.locale,
+            })}
           />
           <GanttColumns
             columns={month.days}
@@ -283,7 +302,7 @@ const MonthlyHeader: FC = () => {
       <GanttContentHeader
         columns={year.quarters.flatMap((quarter) => quarter.months).length}
         renderHeaderItem={(item: number) => (
-          <p>{format(new Date(year.year, item, 1), 'MMM')}</p>
+          <p>{format(new Date(year.year, item, 1), 'MMM', { locale: gantt.locale })}</p>
         )}
         title={`${year.year}`}
       />
@@ -307,7 +326,9 @@ const QuarterlyHeader: FC = () => {
           columns={quarter.months.length}
           renderHeaderItem={(item: number) => (
             <p>
-              {format(new Date(year.year, quarterIndex * 3 + item, 1), 'MMM')}
+              {format(new Date(year.year, quarterIndex * 3 + item, 1), 'MMM', {
+                locale: gantt.locale,
+              })}
             </p>
           )}
           title={`Q${quarterIndex + 1} ${year.year}`}
@@ -358,7 +379,11 @@ const WeeklyHeader: FC = () => {
         renderHeaderItem={(item: number) => {
           const weekStart = addWeeks(startDate, group.firstWeekIndex + item);
           // ISO-style week-of-year (Mon-aligned), formatted "Week N".
-          return <p>Week {format(weekStart, 'I')}</p>;
+          return (
+            <p>
+              {gantt.labels?.week ?? 'Week'} {format(weekStart, 'I')}
+            </p>
+          );
         }}
         title={`${group.year}`}
       />
@@ -416,8 +441,10 @@ export const GanttSidebarItem: FC<GanttSidebarItemProps> = ({
   const duration = feature.unscheduled
     ? (unscheduledLabel ?? 'No dates')
     : tempEndAt
-      ? formatDistance(feature.startAt, tempEndAt)
-      : `${formatDistance(feature.startAt, new Date())} so far`;
+      ? formatDistance(feature.startAt, tempEndAt, { locale: gantt.locale })
+      : (gantt.labels?.soFar ?? ((distance: string) => `${distance} so far`))(
+          formatDistance(feature.startAt, new Date(), { locale: gantt.locale })
+        );
 
   const handleClick: MouseEventHandler<HTMLButtonElement> = (event) => {
     if (event.target === event.currentTarget) {
@@ -705,7 +732,7 @@ export const GanttCreateMarkerTrigger: FC<GanttCreateMarkerTriggerProps> = ({
           <PlusIcon className="text-muted-foreground" size={12} />
         </button>
         <div className="whitespace-nowrap rounded-full border border-border/50 bg-background/90 px-2 py-1 text-foreground text-xs backdrop-blur-lg">
-          {formatDate(date, 'MMM dd, yyyy')}
+          {formatDate(date, 'MMM dd, yyyy', { locale: gantt.locale })}
         </div>
       </div>
     </div>
@@ -723,6 +750,7 @@ export const GanttFeatureDragHelper: FC<GanttFeatureDragHelperProps> = ({
   featureId,
   date,
 }) => {
+  const gantt = useContext(GanttContext);
   const [, setDragging] = useGanttDragging();
   const { attributes, listeners, setNodeRef } = useDraggable({
     id: `feature-drag-helper-${featureId}`,
@@ -759,7 +787,7 @@ export const GanttFeatureDragHelper: FC<GanttFeatureDragHelperProps> = ({
             isPressed && 'block'
           )}
         >
-          {format(date, 'MMM dd, yyyy')}
+          {format(date, 'MMM dd, yyyy', { locale: gantt.locale })}
         </div>
       )}
     </div>
@@ -1265,7 +1293,7 @@ export const GanttMarker: FC<
           >
             {label}
             <span className="max-h-[0] overflow-hidden opacity-80 transition-all group-hover:max-h-[2rem] group-focus-visible:max-h-[2rem]">
-              {formatDate(date, 'MMM dd, yyyy')}
+              {formatDate(date, 'MMM dd, yyyy', { locale: gantt.locale })}
             </span>
           </button>
         </ContextMenuTrigger>
@@ -1298,6 +1326,8 @@ export const GanttMarker: FC<
 GanttMarker.displayName = 'GanttMarker';
 
 export type GanttProviderProps = {
+  locale?: Locale;
+  labels?: GanttLabels;
   range?: Range;
   zoom?: number;
   onAddItem?: (date: Date) => void;
@@ -1306,6 +1336,8 @@ export type GanttProviderProps = {
 };
 
 export const GanttProvider: FC<GanttProviderProps> = ({
+  locale,
+  labels,
   zoom = 100,
   range = 'monthly',
   onAddItem,
@@ -1509,6 +1541,8 @@ export const GanttProvider: FC<GanttProviderProps> = ({
 
   const contextValue = useMemo(
     () => ({
+      locale,
+      labels,
       zoom,
       range,
       headerHeight,
@@ -1523,7 +1557,7 @@ export const GanttProvider: FC<GanttProviderProps> = ({
     }),
     [
       zoom, range, headerHeight, columnWidth, sidebarWidth, rowHeight, onAddItem, timelineData,
-      scrollRef, scrollToFeature,
+      scrollRef, scrollToFeature, locale, labels,
     ]
   );
 
@@ -1573,9 +1607,9 @@ export type GanttTodayProps = {
 };
 
 export const GanttToday: FC<GanttTodayProps> = ({ className }) => {
-  const label = 'Today';
   const date = useMemo(() => new Date(), []);
   const gantt = useContext(GanttContext);
+  const label = gantt.labels?.today ?? 'Today';
   const timelineStartDate = useMemo(
     () => new Date(gantt.timelineData.at(0)?.year ?? 0, 0, 1),
     [gantt.timelineData]
@@ -1610,7 +1644,7 @@ export const GanttToday: FC<GanttTodayProps> = ({ className }) => {
       >
         {label}
         <span className="max-h-[0] overflow-hidden opacity-80 transition-all group-hover:max-h-[2rem]">
-          {formatDate(date, 'MMM dd, yyyy')}
+          {formatDate(date, 'MMM dd, yyyy', { locale: gantt.locale })}
         </span>
       </div>
       <div className="h-full w-px" style={{ backgroundColor: '#2563eb' }} />

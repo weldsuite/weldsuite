@@ -60,7 +60,9 @@ import { useObjectPanel } from '@/components/object-panel';
 import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { useI18n } from '@/lib/i18n/provider';
+import { useDateLocale } from '@/lib/i18n/date-locale';
 import { copyText } from '@/lib/clipboard';
+import type { TranslationsType } from '@/lib/i18n/types';
 
 const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
@@ -100,6 +102,28 @@ const statuses = Object.entries(statusConfig).map(([id, config]) => ({
   name: config.name,
   color: config.color,
 }));
+
+/** Built-in status name in the UI language; unknown ids keep the English config name. */
+function localizedStatusName(id: string, tasks: TranslationsType['projects']['tasks']): string {
+  switch (id) {
+    case 'backlog':
+      return tasks.statusBacklog;
+    case 'todo':
+      return tasks.statusTodo;
+    case 'in_progress':
+      return tasks.statusInProgress;
+    case 'in_review':
+      return tasks.statusInReview;
+    case 'testing':
+      return tasks.statusTesting;
+    case 'done':
+      return tasks.statusDone;
+    case 'cancelled':
+      return tasks.statusCancelled;
+    default:
+      return statusConfig[id]?.name ?? id;
+  }
+}
 
 const markerColors = [
   { name: 'Blue', className: 'bg-blue-100 text-blue-900', color: '#dbeafe' },
@@ -398,8 +422,32 @@ const GanttPage = () => {
   const projectId = params.projectId as string;
   const { canWrite } = useProjectPermissions();
   const { t } = useI18n();
+  const { dateFnsLocale, formatMedium } = useDateLocale();
 
-  const [features, setFeatures] = useState<GanttFeature[]>([]);
+  const [rawFeatures, setFeatures] = useState<GanttFeature[]>([]);
+  // Status names are stored in English; label them in the UI language at render
+  // so a language switch re-translates without refetching.
+  const features = useMemo(() => {
+    const label = (feature: GanttFeature): GanttFeature => ({
+      ...feature,
+      status: { ...feature.status, name: localizedStatusName(feature.status.id, t.projects.tasks) },
+      group: feature.group
+        ? { ...feature.group, name: localizedStatusName(feature.group.id, t.projects.tasks) }
+        : feature.group,
+      subtasks: feature.subtasks?.map(label),
+    });
+    return rawFeatures.map(label);
+  }, [rawFeatures, t]);
+  const markerColorNames: Record<string, string> = {
+    Blue: t.sweep.weldflow.workloadView.colorBlue,
+    Green: t.sweep.weldflow.workloadView.colorGreen,
+    Purple: t.sweep.weldflow.workloadView.colorPurple,
+    Red: t.sweep.weldflow.workloadView.colorRed,
+    Orange: t.sweep.weldflow.workloadView.colorOrange,
+    Teal: t.sweep.weldflow.workloadView.colorTeal,
+    Yellow: t.sweep.weldflow.workloadView.colorYellow,
+    Pink: t.sweep.weldflow.workloadView.colorPink,
+  };
   const [markers, setMarkers] = useState<GanttMarkerType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -581,7 +629,7 @@ const GanttPage = () => {
       {
         field: 'status',
         label: t.projects.gantt.filterStatus,
-        options: statuses.map(s => ({ value: s.id, label: s.name })),
+        options: statuses.map(s => ({ value: s.id, label: localizedStatusName(s.id, t.projects.tasks) })),
       },
       {
         field: 'assignee',
@@ -1160,6 +1208,12 @@ const GanttPage = () => {
         // from the sidebar's + button.
         range={range}
         zoom={effectiveZoom}
+        locale={dateFnsLocale}
+        labels={{
+          today: t.projects.gantt.today,
+          week: t.projects.gantt.viewWeek,
+          soFar: (duration) => t.projects.gantt.durationSoFar.replace('{duration}', duration),
+        }}
       >
       <GanttSidebar
         onAddTask={canWrite ? () => handleAddFeature() : undefined}
@@ -1453,13 +1507,9 @@ const GanttPage = () => {
                   <div className="px-2 py-1.5">
                     <p className="text-sm font-medium leading-none truncate">{selectedMarker.label}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {selectedMarker.date.toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
+                      {formatMedium(selectedMarker.date)}
                       {(selectedMarker.date.getHours() !== 0 || selectedMarker.date.getMinutes() !== 0) && (
-                        <span> at {selectedMarker.date.getHours().toString().padStart(2, '0')}:{selectedMarker.date.getMinutes().toString().padStart(2, '0')}</span>
+                        <span> {t.projects.gantt.atTime.replace('{time}', `${selectedMarker.date.getHours().toString().padStart(2, '0')}:${selectedMarker.date.getMinutes().toString().padStart(2, '0')}`)}</span>
                       )}
                     </p>
                   </div>
@@ -1482,7 +1532,7 @@ const GanttPage = () => {
                           )}
                           style={{ backgroundColor: colorOption.color }}
                           onClick={() => handleChangeMarkerColor(selectedMarker.id, colorOption.className)}
-                          title={colorOption.name}
+                          title={markerColorNames[colorOption.name] ?? colorOption.name}
                         >
                           {selectedMarker.className === colorOption.className && (
                             <Check className="h-3 w-3 text-foreground/60" />

@@ -881,6 +881,8 @@ export const projects = {
     },
 
     gantt: {
+      atTime: 'at {time}',
+      durationSoFar: '{duration} so far',
       viewTask: 'View task',
       rename: 'Rename',
       copyLink: 'Copy link',
