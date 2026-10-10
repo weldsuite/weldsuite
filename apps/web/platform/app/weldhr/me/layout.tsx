@@ -20,8 +20,9 @@ import { useMyHrBreadcrumbs } from './components/my-hr-page';
 
 export default function MyHrLayout({ children }: Readonly<{ children: ReactNode }>) {
   const t = useTranslations();
-  const { can, isLoading: permissionsLoading } = usePermissions();
-  const allowed = can('employees:self');
+  const { can, isOwner, isLoading: permissionsLoading } = usePermissions();
+  // Same rule as the sidebar: the owner always passes (the server resolves an owner to '*').
+  const allowed = isOwner || can('employees:self');
   const { data: self, isLoading, error } = useMyHr({ enabled: allowed });
 
   if (permissionsLoading || isLoading) return <PageLoader fullScreen={false} />;
