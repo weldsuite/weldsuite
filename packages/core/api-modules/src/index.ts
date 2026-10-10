@@ -114,6 +114,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/object-templates',
     '/api/objects',
     '/api/onboarding',
+    '/api/partner',
     '/api/prepaid-seats',
     '/api/push-tokens',
     '/api/related',
@@ -128,6 +129,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/workspace-api-keys',
     '/api/workspace-settings',
     '/api/workspaces',
+    '/public/partner-territories',
     '/public/user-apps',
   ]),
   mod('crm', 8801, ['weldcrm', 'weldcommerce', 'welddesk', 'weldflow', 'weldmail', 'weldmeet', 'weldcalendar', 'weldcall', 'weldhr', 'welddata'], [

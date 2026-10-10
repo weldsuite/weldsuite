@@ -26,6 +26,12 @@
  *     POST /finalize        — mark onboarding complete in the master DB and
  *                             install the selected apps in the tenant DB
  *
+ *   Reseller territory (docs/plans/reseller-licensing.md):
+ *     create-workspace takes an optional `country` (ISO-2, else the request's
+ *     country) and answers 409 PARTNER_TERRITORY, creating nothing, when a
+ *     reseller serves that country.
+ *     POST /partner-request — ask that reseller for a workspace (Clerk only).
+ *
  * IMPORTANT — middleware: this router needs Clerk auth but NOT the workspace-DB
  * middleware. The user is creating a NEW workspace, so requiring an active org
  * (and resolving its tenant DB) would be wrong. Like `auth-desktop`, it applies
@@ -49,6 +55,12 @@ import { success, error } from '@weldsuite/worker-kit/response';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { createWorkspaceRequest, PartnerPortalError, partnerAdminEmails } from '@weldsuite/core-domain/partners';
+import { normalizeCountryCode } from '@weldsuite/app-api-client/schemas/plan-country-pricing';
+import { partnerWorkspaceRequestSchema } from '@weldsuite/app-api-client/schemas/partners';
+import { requestCountry } from '../../services/plan-country-pricing';
+import { partnerTerritoryResponse, territoryPartnerInfo } from '../../services/partner/managed';
+import { sendWorkspaceRequestEmail } from '../../services/partner/notify';
 
 /**
  * Default apps installed when a workspace is created from the platform's
@@ -160,6 +172,12 @@ const FALLBACK_CATALOG = [
 const createWorkspaceInput = z.object({
   name: z.string().min(1).max(255),
   region: z.string().optional(),
+  /**
+   * ISO-2 country the workspace is for. Falls back to the request's country
+   * (CF-IPCountry). A country served by a reseller refuses direct creation
+   * (409 PARTNER_TERRITORY).
+   */
+  country: z.string().max(64).optional(),
   /** App codes the user selected in the dialog. Falls back to the default set when omitted/empty. */
   selectedApps: z.array(z.string().min(1)).optional(),
 });
@@ -237,10 +255,20 @@ app.post('/create-workspace', zValidator('json', createWorkspaceInput), async (c
     return error.unauthorized(c, 'Not authenticated');
   }
 
-  const { name, region, selectedApps } = c.req.valid('json');
+  const { name, region, selectedApps, country } = c.req.valid('json');
   const workspaceName = name.trim();
   if (!workspaceName) {
     return error.badRequest(c, 'Workspace name is required');
+  }
+
+  // Territory: in a country a reseller serves, WeldSuite is provided by that
+  // reseller. Nothing is created; the dialog shows who to contact. The country
+  // the user chose wins, the request's country is only the fallback (a user can
+  // pick another country; checkout checks the billing country again).
+  const workspaceCountry = normalizeCountryCode(country) ?? requestCountry(c.req.raw);
+  const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), workspaceCountry);
+  if (territoryPartner && workspaceCountry) {
+    return partnerTerritoryResponse(c, workspaceCountry, territoryPartner);
   }
 
   // Use the user's picks when provided; otherwise ship the default set.
@@ -266,6 +294,8 @@ app.post('/create-workspace', zValidator('json', createWorkspaceInput), async (c
       firstName,
       lastName,
       region,
+      // Only a country the user chose; the request's country is just a check.
+      country: normalizeCountryCode(country) ?? undefined,
       selectedApps: appsToInstall,
       createNewOrg: true,
       seedSampleData: false,
@@ -289,6 +319,66 @@ app.post('/create-workspace', zValidator('json', createWorkspaceInput), async (c
   } catch (err) {
     console.error('[Onboarding] Error creating additional workspace:', err);
     return error.internal(c, 'Failed to create workspace');
+  }
+});
+
+// ============================================================================
+// POST /partner-request — ask a country's reseller for a workspace
+// ============================================================================
+
+// Clerk only (no org): the person asking is, by definition, not in a workspace
+// yet. The request lands in the partner's portal inbox and its owners and
+// admins are emailed.
+app.post('/partner-request', zValidator('json', partnerWorkspaceRequestSchema), async (c) => {
+  const userId = c.get('userId');
+  if (!userId) return error.unauthorized(c, 'Not authenticated');
+
+  const body = c.req.valid('json');
+  const masterDb = getMasterDb(c.env);
+
+  const partner = await territoryPartnerInfo(masterDb, body.country);
+  if (!partner) return error.notFound(c, 'Partner for this country');
+
+  try {
+    const { email, firstName, lastName } = await fetchClerkUser(c.env, userId);
+    if (!email) return error.badRequest(c, 'Your account has no email address');
+    const requesterName = [firstName, lastName].filter(Boolean).join(' ') || null;
+
+    const { id } = await createWorkspaceRequest(masterDb, {
+      partnerId: partner.id,
+      requesterUserId: userId,
+      requesterEmail: email,
+      requesterName,
+      companyName: body.companyName,
+      countryCode: body.country,
+      selectedApps: body.selectedApps,
+      message: body.message,
+    });
+
+    c.executionCtx.waitUntil(
+      partnerAdminEmails(masterDb, partner.id)
+        .then((to) =>
+          sendWorkspaceRequestEmail(c.env, {
+            to,
+            partnerName: partner.name,
+            companyName: body.companyName,
+            countryCode: body.country,
+            requesterEmail: email,
+            requesterName,
+            selectedApps: body.selectedApps,
+            message: body.message,
+          }),
+        )
+        .catch((err) => console.error('[Onboarding] Partner request notification failed:', err)),
+    );
+
+    return success(c, { id }, 201);
+  } catch (err) {
+    if (err instanceof PartnerPortalError && err.code === 'RATE_LIMITED') {
+      return c.json({ error: { code: 'RATE_LIMITED', message: err.message } }, 429);
+    }
+    console.error('[Onboarding] Error creating partner request:', err);
+    return error.internal(c, 'Failed to send your request');
   }
 });
 

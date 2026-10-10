@@ -20,6 +20,10 @@
  * admin-secret `/api/internal/admin` routes. Consumption happens in the
  * workers that run the metered service, through `@weldsuite/credits`.
  *
+ * `POST /checkout` is refused (403 PARTNER_MANAGED) for a partner-managed
+ * workspace: its allowance is the licence's, extra credits come from its
+ * partner (docs/plans/reseller-licensing.md).
+ *
  * `POST /checkout` proxies to billing-worker (Stripe Checkout session +
  * webhook grant). App-api never mutates the prepaid balance on checkout —
  * that remains webhook-owned on billing-worker.
@@ -40,6 +44,7 @@ import { getMasterDb, masterSchema, type MasterDatabase } from '@weldsuite/worke
 import { getOrCreateWorkspaceCredits, createCreditTopupCheckout } from '../../services/credits';
 import { success, error as apiError } from '@weldsuite/worker-kit/response';
 import { creditTopupCheckoutSchema } from '@weldsuite/app-api-client/schemas/credits';
+import { blockPartnerManaged } from '../../middleware/partner-managed';
 
 const { creditTransactions, creditPackages, workspaces, plans } = masterSchema;
 
@@ -373,6 +378,8 @@ app.get('/subscription', async (c) => {
 app.post(
   '/checkout',
   requirePermission('billing:manage'),
+  // A partner workspace's credits come from its licence and its partner, not Stripe.
+  blockPartnerManaged(),
   zValidator('json', creditTopupCheckoutSchema),
   async (c) => {
     const orgId = c.get('orgId');

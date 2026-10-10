@@ -656,3 +656,86 @@ export function partnerStatusForStage(stage: DunningStage): PartnerStatus {
   if (stage === 'current') return 'active';
   return 'past_due';
 }
+
+// ============================================================================
+// Partner portal response shapes (app-api `/api/partner/*`)
+// ============================================================================
+
+/** `GET /api/partner/overview`. `currentMonth` needs `billing:read`, else null. */
+export interface PartnerOverview {
+  partner: PartnerPublicInfo & { status: PartnerStatus };
+  role: PartnerMemberRole;
+  /** Null while the partner has no contract in force. */
+  contract: PartnerContractView | null;
+  workspaceCount: number;
+  activeWorkspaceCount: number;
+  currentMonth: { totalResale: string; totalDue: string; totalMargin: string; currency: string } | null;
+  /** Active licences whose balance is at or below 20% of the monthly allowance. */
+  nearCreditLimit: Array<{ workspaceId: string; name: string; creditBalance: number; monthlyCredits: number }>;
+}
+
+/** `GET /api/partner/workspaces/:id`. */
+export interface ManagedWorkspaceDetail extends ManagedWorkspaceRow {
+  history: LicenceChangeView[];
+}
+
+/** A licence package (`/api/partner/packages`). */
+export interface PartnerLicencePackageView {
+  id: string;
+  partnerId: string;
+  name: string;
+  description: string | null;
+  allowedApps: string[];
+  monthlyCredits: number;
+  maxSeats: number | null;
+  featurePlanId: string | null;
+  storageGb: number | null;
+  defaultResalePricing: ResalePricing;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET /api/partner/catalog`. */
+export interface PartnerCatalog {
+  apps: Array<{ code: string; name: string; icon: string }>;
+  featurePlans: Array<{ id: string; name: string; slug: string }>;
+}
+
+/** A territory workspace request (`/api/partner/requests`). */
+export interface PartnerWorkspaceRequestView {
+  id: string;
+  partnerId: string;
+  requesterUserId: string | null;
+  requesterEmail: string;
+  requesterName: string | null;
+  companyName: string;
+  countryCode: string;
+  selectedApps: string[];
+  message: string | null;
+  status: PartnerRequestStatus;
+  workspaceId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A portal user (`/api/partner/team`). */
+export interface PartnerTeamMember {
+  id: string;
+  email: string;
+  role: PartnerMemberRole;
+  /** Null until the invitee first opens the portal. */
+  userId: string | null;
+  acceptedAt: string | null;
+  name: string | null;
+}
+
+/**
+ * `POST /api/partner/workspaces/:id/credits`. `amount` is the number of credits
+ * granted; `charge` is what the grant adds to this month's statement (USD).
+ */
+export interface PartnerCreditGrantResult {
+  newBalance: number;
+  amount: number;
+  charge: string;
+}
