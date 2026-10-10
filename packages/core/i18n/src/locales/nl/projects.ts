@@ -478,8 +478,8 @@ export const projects = {
 
     // Analytics
     analytics: {
-      title: 'Analytics',
-      projectAnalytics: 'Project Analytics',
+      title: 'Analyse',
+      projectAnalytics: 'Projectanalyse',
       timeTracking: 'Tijdregistratie',
       budgetTracking: 'Budget Tracking',
       teamPerformance: 'Team Prestaties',
@@ -512,7 +512,7 @@ export const projects = {
 
     // Analytics
     analyticsReports: {
-      title: 'Projecten Analytics',
+      title: 'Projectanalyse',
       description: 'Maak en beheer analyserapporten voor projecten, taken, tijdregistraties en mijlpalen',
       newReport: 'Nieuw Rapport',
       noReports: 'Nog geen rapporten',
@@ -856,10 +856,10 @@ export const projects = {
         workload: 'Werkdruk',
         files: 'Bestanden',
         timesheet: 'Urenstaat',
-        pipeline: 'Pipeline',
+        pipeline: 'Pijplijn',
         documents: 'Documenten',
         goals: 'Doelen',
-        analytics: 'Analytics',
+        analytics: 'Analyse',
         settings: 'Instellingen',
       },
       addPage: 'Pagina Toevoegen',
@@ -880,7 +880,7 @@ export const projects = {
         messages: 'Berichten',
         files: 'Bestanden',
         goals: 'Doelen',
-        analytics: 'Analytics',
+        analytics: 'Analyse',
         workload: 'Werkdruk',
         settings: 'Instellingen',
         sprints: 'Sprints',
@@ -898,7 +898,7 @@ export const projects = {
       myTasks: 'Mijn Taken',
       allProjects: 'Alle Projecten',
       workload: 'Werkdruk',
-      analytics: 'Analytics',
+      analytics: 'Analyse',
       newSubProject: 'Nieuw Subproject',
       duplicate: 'Dupliceren',
       rename: 'Hernoemen',

@@ -14,6 +14,7 @@ import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 import { useMeetingPanelOpen } from '@/hooks/use-meeting-panel-open';
 import { CommandPaletteTrigger } from '@/components/layout/command-palette';
+import { useI18n } from '@/lib/i18n/provider';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -82,6 +83,7 @@ export function BreadcrumbHeader({
   onNotificationsToggle,
   calendarOpen,
 }: Readonly<BreadcrumbHeaderProps>) {
+  const { t } = useI18n();
   // WeldAgent open state — read from sessionStorage-backed hook so every BreadcrumbHeader instance
   // is in sync with the global MobileNavProvider, even after navigation between apps.
   const mobileNav = useMobileNavOptional();
@@ -238,7 +240,7 @@ export function BreadcrumbHeader({
             <Button
               onClick={toggleCalendar}
               data-testid="calendar-toggle"
-              aria-label="Calendar"
+              aria-label={t.sweep.shared.calendar}
               variant="outline"
               size="sm"
               className={cn(
@@ -257,7 +259,7 @@ export function BreadcrumbHeader({
             <Button
               onClick={toggleNotifications}
               data-testid="notifications-bell"
-              aria-label="Notifications"
+              aria-label={t.sweep.shared.notifications}
               variant="outline"
               size="sm"
               className={cn(
