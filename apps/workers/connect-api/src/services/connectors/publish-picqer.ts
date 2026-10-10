@@ -222,21 +222,22 @@ export async function pushOrderToPicqer(args: {
     }
   }
 
-  const products: Array<Record<string, unknown>> = [];
-  for (const item of items) {
-    let idproduct: PicqerId;
-    if (item.productId) {
-      const mapping = await findExternalId(args.db, args.connectionId, 'picqer_product', item.productId);
-      if (mapping) idproduct = Number(mapping.externalEntityId) || mapping.externalEntityId;
-    }
-    products.push({
-      idproduct,
-      productcode: item.sku || undefined,
-      name: item.name,
-      amount: item.quantity,
-      price: Number(item.unitPrice) || 0,
-    });
-  }
+  const products: Array<Record<string, unknown>> = await Promise.all(
+    items.map(async (item) => {
+      let idproduct: PicqerId;
+      if (item.productId) {
+        const mapping = await findExternalId(args.db, args.connectionId, 'picqer_product', item.productId);
+        if (mapping) idproduct = Number(mapping.externalEntityId) || mapping.externalEntityId;
+      }
+      return {
+        idproduct,
+        productcode: item.sku || undefined,
+        name: item.name,
+        amount: item.quantity,
+        price: Number(item.unitPrice) || 0,
+      };
+    }),
+  );
 
   const body: Record<string, unknown> = {
     reference: order.orderNumber || order.externalOrderId || order.id,
@@ -441,19 +442,20 @@ export async function pushPurchaseOrderToPicqer(args: {
     if (mapping) idwarehouse = Number(mapping.externalEntityId) || mapping.externalEntityId;
   }
 
-  const products: Array<Record<string, unknown>> = [];
-  for (const item of items) {
-    let idproduct: PicqerId;
-    if (item.productId) {
-      const mapping = await findExternalId(args.db, args.connectionId, 'picqer_product', item.productId);
-      if (mapping) idproduct = Number(mapping.externalEntityId) || mapping.externalEntityId;
-    }
-    products.push({
-      idproduct,
-      amount: item.quantityOrdered ?? 1,
-      price: Number(item.unitPrice ?? 0) || undefined,
-    });
-  }
+  const products: Array<Record<string, unknown>> = await Promise.all(
+    items.map(async (item) => {
+      let idproduct: PicqerId;
+      if (item.productId) {
+        const mapping = await findExternalId(args.db, args.connectionId, 'picqer_product', item.productId);
+        if (mapping) idproduct = Number(mapping.externalEntityId) || mapping.externalEntityId;
+      }
+      return {
+        idproduct,
+        amount: item.quantityOrdered ?? 1,
+        price: Number(item.unitPrice ?? 0) || undefined,
+      };
+    }),
+  );
 
   const body = {
     idsupplier,

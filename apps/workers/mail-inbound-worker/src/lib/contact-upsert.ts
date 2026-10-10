@@ -84,28 +84,31 @@ export async function upsertContactsFromMailMessage(
       if (!nameByEmail.has(normalized)) nameByEmail.set(normalized, name);
     }
 
-    for (const row of created) {
-      try {
-        const seedName = nameByEmail.get(row.email) || row.email;
-        const svg = generateInitialsAvatarSvg(seedName);
-        const { r2Key, publicPath } = buildContactAvatarPath(clerkOrgId, row.contactId);
+    // One independent avatar per new contact; each handles its own failure.
+    await Promise.all(
+      created.map(async (row) => {
+        try {
+          const seedName = nameByEmail.get(row.email) || row.email;
+          const svg = generateInitialsAvatarSvg(seedName);
+          const { r2Key, publicPath } = buildContactAvatarPath(clerkOrgId, row.contactId);
 
-        await env.STORAGE.put(r2Key, svg, {
-          httpMetadata: { contentType: 'image/svg+xml' },
-        });
+          await env.STORAGE.put(r2Key, svg, {
+            httpMetadata: { contentType: 'image/svg+xml' },
+          });
 
-        const avatarUrl = `${r2PublicUrl}/${publicPath}`;
-        await tenantDb
-          .update(tenantSchema.contacts)
-          .set({ avatarUrl })
-          .where(eq(tenantSchema.contacts.id, row.contactId));
-      } catch (err) {
-        console.error(
-          `[mail-contacts] Failed to generate avatar for ${row.email} (${row.contactId}):`,
-          err,
-        );
-      }
-    }
+          const avatarUrl = `${r2PublicUrl}/${publicPath}`;
+          await tenantDb
+            .update(tenantSchema.contacts)
+            .set({ avatarUrl })
+            .where(eq(tenantSchema.contacts.id, row.contactId));
+        } catch (err) {
+          console.error(
+            `[mail-contacts] Failed to generate avatar for ${row.email} (${row.contactId}):`,
+            err,
+          );
+        }
+      }),
+    );
   } catch (err) {
     console.error(`[mail-contacts] upsertContactsFromMailMessage failed for workspace ${workspaceId}:`, err);
   }
