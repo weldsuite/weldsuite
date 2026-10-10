@@ -293,6 +293,24 @@ describe('hasObjectAccessInApp (sidebar / app gating)', () => {
     expect(hasPermission(SYSTEM_ROLES.MEMBER!.permissions, 'knowledge:manage')).toBe(false);
     expect(hasPermission(SYSTEM_ROLES.ADMIN!.permissions, 'knowledge:manage')).toBe(true);
   });
+
+  // A member can use My HR (their own leave, expenses, attendance) but not the
+  // HR team's view of everyone, and approves nothing. VIEWER gets no WeldHR.
+  it('opens My HR for a system MEMBER without the HR team view', () => {
+    const member = SYSTEM_ROLES.MEMBER!.permissions;
+    expect(hasObjectAccessInApp(subject(member), 'employees', 'weldhr')).toBe(true);
+    expect(hasPermission(member, 'employees:self')).toBe(true);
+    for (const key of [
+      'employees:read', 'employees:sensitive', 'employees:manage',
+      'leave:read', 'leave:approve', 'attendance:read', 'attendance:approve',
+      'declarations:read', 'declarations:approve', 'absences:read', 'payroll:read',
+    ]) {
+      expect(hasPermission(member, key), key).toBe(false);
+    }
+    const viewer = subject(SYSTEM_ROLES.VIEWER!.permissions);
+    const hr = PERMISSION_APPS.find((app) => app.code === 'weldhr')!;
+    expect(hr.objects.some((o) => hasObjectAccessInApp(viewer, o, 'weldhr'))).toBe(false);
+  });
 });
 
 describe('X-Weld-App: workspace', () => {
