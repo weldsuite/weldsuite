@@ -120,7 +120,7 @@ function toCssLength(value: number | string | undefined, fallback: string): stri
 function readNumberFromStorage(key: string | undefined, fallback: number, min: number): number {
   if (!key || typeof window === "undefined") return fallback;
   const raw = window.localStorage.getItem(`${key}:size`);
-  const parsed = raw ? Number(raw) : NaN;
+  const parsed = raw ? Number(raw) : Number.NaN;
   return Number.isFinite(parsed) && parsed >= min ? parsed : fallback;
 }
 
@@ -526,7 +526,7 @@ function PanelBody({
   const dragRef = React.useRef(false);
   const startYRef = React.useRef(0);
   const startHeightRef = React.useRef(0);
-  const maxHeightRef = React.useRef<number>(Infinity);
+  const maxHeightRef = React.useRef<number>(Number.POSITIVE_INFINITY);
   const rafRef = React.useRef<number | null>(null);
   const pendingHeightRef = React.useRef<number | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
@@ -546,7 +546,7 @@ function PanelBody({
           (shell?.getBoundingClientRect().top ?? 0)
         : 80;
       const maxFromTabs = shellHeight - tabsBottom;
-      maxHeightRef.current = Math.min(sidebarMaxSize ?? Infinity, maxFromTabs);
+      maxHeightRef.current = Math.min(sidebarMaxSize ?? Number.POSITIVE_INFINITY, maxFromTabs);
       setIsDragging(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
