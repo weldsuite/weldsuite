@@ -259,6 +259,8 @@ export const importCompanyRecordSchema = z.object({
   mobile: z.string().max(50).optional(),
   fax: z.string().max(50).optional(),
   website: z.string().max(500).optional(),
+  // The grid's Primary Address column, so an export re-imports with it mapped.
+  primaryAddress: addressSchema.optional(),
   vatNumber: z.string().max(50).optional(),
   registrationNumber: z.string().max(100).optional(),
   industry: z.string().max(100).optional(),

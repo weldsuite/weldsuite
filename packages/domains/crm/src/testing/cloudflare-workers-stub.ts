@@ -28,4 +28,5 @@ export type WorkflowEvent<T> = { payload: T; timestamp: Date; instanceId: string
 export type WorkflowStep = {
   do: <T>(name: string, ...rest: unknown[]) => Promise<T>;
   sleep: (name: string, duration: string | number) => Promise<void>;
+  waitForEvent: (name: string, options: { type: string; timeout?: string | number }) => Promise<unknown>;
 };

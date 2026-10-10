@@ -205,6 +205,39 @@ describe('/api/companies · pglite integration', () => {
     expect(matched[0]?.version).toBe(2);
   });
 
+  it('POST /import stores the Primary Address column the grid export writes, on create and on update', async () => {
+    const { request } = createTestApp('/api/companies', companiesRoutes, {
+      context: { permissions: permissions('companies:create'), tenantDb: db },
+    });
+    const post = (records: unknown[]) =>
+      request('/api/companies/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records }),
+      });
+
+    // The client turns the exported `{"city":"Amsterdam","country":"NL"}` cell into this object.
+    const created = await post([
+      { partyCode: 'IMP-ADDR-1', name: 'Addressed Co', primaryAddress: { city: 'Amsterdam', country: 'NL' } },
+    ]);
+    expect(created.status).toBe(200);
+    expect(((await created.json()) as { data: { imported: number } }).data.imported).toBe(1);
+
+    const [row] = await db
+      .select()
+      .from(schema.companies)
+      .where(eq(schema.companies.partyCode, 'IMP-ADDR-1'));
+    expect(row?.primaryAddress).toEqual({ city: 'Amsterdam', country: 'NL' });
+
+    const updated = await post([{ partyCode: 'IMP-ADDR-1', primaryAddress: { city: 'Utrecht', country: 'NL' } }]);
+    expect(((await updated.json()) as { data: { updated: number } }).data.updated).toBe(1);
+    const [after] = await db
+      .select()
+      .from(schema.companies)
+      .where(eq(schema.companies.partyCode, 'IMP-ADDR-1'));
+    expect(after?.primaryAddress).toEqual({ city: 'Utrecht', country: 'NL' });
+  });
+
   it('GET /export returns all matching rows (no pagination) honoring search', async () => {
     // companies:scope:all required so the export isn't filtered to a single
     // owner — the import route doesn't set ownerId, so exported rows have

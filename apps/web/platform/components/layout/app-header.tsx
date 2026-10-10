@@ -100,24 +100,31 @@ export function AppHeader({
   return (
     <header
         data-slot="app-header"
-        className="sticky top-0 z-40 hidden md:flex h-[60px] shrink-0 items-center bg-[var(--shell-panel)] border-b border-border relative"
+        // `@container`: the layout follows the header's own width (it shares the
+        // row with a sidebar and detail panels), not the viewport's.
+        className="@container sticky top-0 z-40 hidden md:flex h-[60px] shrink-0 items-center bg-[var(--shell-panel)] border-b border-border relative"
       >
         <div className="flex items-center gap-2 px-4 w-full relative z-10">
           <SidebarTrigger className="-ml-1 hidden md:flex" />
           <div className="ml-px mr-[8px] h-[19px] w-px bg-gray-200/70 dark:bg-secondary/70 hidden md:block shrink-0" />
 
-          {/* Breadcrumb trail — capped width so it doesn't run into the centered search */}
-          <div className="hidden md:flex overflow-hidden max-w-[calc(50%-280px)]">
+          {/* Breadcrumb trail. Wide header: capped so it doesn't run into the
+              centered search. Narrow header: it takes the room the search and
+              the buttons leave and truncates inside it, never wrapping. */}
+          <div className="hidden md:flex min-w-0 flex-1 overflow-hidden @min-[1000px]:flex-none @min-[1000px]:max-w-[calc(50%-280px)]">
             <AppHeaderTrail onResolved={(handle) => setHideAll(handle.hideAll)} />
           </div>
 
-          {/* Centered command palette trigger */}
-          <div className="absolute left-1/2 -translate-x-1/2 hidden md:block w-[448px]">
+          {/* Command palette trigger: centered over the header when it is wide
+              enough for the trail, the search and the buttons side by side;
+              otherwise it takes its place in the row, as wide as a share of the
+              header allows (140px to 448px). */}
+          <div className="hidden md:block w-[clamp(140px,30cqw,448px)] shrink-0 @min-[1000px]:absolute @min-[1000px]:left-1/2 @min-[1000px]:-translate-x-1/2 @min-[1000px]:w-[448px]">
             <CommandPaletteTrigger />
           </div>
 
           {/* Right Actions */}
-          <div className="ml-auto hidden md:flex items-center gap-2">
+          <div className="ml-auto hidden md:flex shrink-0 items-center gap-2">
             <Button
               onClick={toggleCalendar}
               variant="outline"

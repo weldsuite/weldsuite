@@ -50,6 +50,7 @@ import {
   type ListKind,
 } from '@/hooks/queries/use-lists-queries';
 import type { Pipeline, PipelineStage, Opportunity } from '@/lib/api/domains/weldcrm';
+import { sortPipelines } from './pipeline-order';
 
 // Pipeline icons round-trip through the API as string names. The create
 // dialog and the sidebar item menu both pick from `coloredSquareIcons`, so we
@@ -121,6 +122,17 @@ function getIconName(icon: LucideIcon): string {
   return coloredSquareIcons.find((option) => option.value === icon)?.label ?? 'TrendingUp';
 }
 
+/**
+ * `crm_pipelines.name` is a varchar(255). Builds a suffixed name ("X (Copy)")
+ * and trims the original part, never the suffix, when it would not fit.
+ */
+const MAX_PIPELINE_NAME_LENGTH = 255;
+function fitPipelineName(build: (name: string) => string, name: string): string {
+  const full = build(name);
+  if (full.length <= MAX_PIPELINE_NAME_LENGTH) return full;
+  return build(name.slice(0, Math.max(1, name.length - (full.length - MAX_PIPELINE_NAME_LENGTH))));
+}
+
 /** A stage as written by "Export pipeline" (all fields optional in a hand-edited file). */
 interface ImportedStage {
   name: string;
@@ -186,10 +198,13 @@ export function useCrmSidebarItems(isActive: boolean): {
   const deleteListMutation = useDeleteList();
   // All-kinds lists for the sidebar. Only enabled when the CRM module is
   // active, so other modules don't fire this query.
-  const { data: sidebarListsResp } = useLists();
+  const { data: sidebarListsResp, isPending: listsPending } = useLists();
 
   const [customerPages, setCustomerPages] = React.useState<PageData[]>([]);
   const [pipelinePages, setPipelinePages] = React.useState<PageData[]>([]);
+  // False until the first pipelines request has settled, so the Deals group
+  // shows skeleton rows instead of its empty-state "Add pipeline" button.
+  const [pipelinesLoaded, setPipelinesLoaded] = React.useState(false);
   const [templateDialogOpen, setTemplateDialogOpen] = React.useState(false);
   const [createListDialogOpen, setCreateListDialogOpen] = React.useState(false);
   const [createPipelineDialogOpen, setCreatePipelineDialogOpen] = React.useState(false);
@@ -209,7 +224,8 @@ export function useCrmSidebarItems(isActive: boolean): {
         const client = await getClient();
         const pipelinesResult = await client.get<{ data?: Pipeline[] }>('/pipelines');
 
-        const pipelines = pipelinesResult.data || [];
+        // Oldest first, like where an in-session create is appended below.
+        const pipelines = sortPipelines(pipelinesResult.data || []);
         if (pipelines.length) {
           setPipelinePages(
             pipelines.map((p) => ({
@@ -223,6 +239,8 @@ export function useCrmSidebarItems(isActive: boolean): {
         }
       } catch (error) {
         console.error('Failed to fetch sidebar data:', error);
+      } finally {
+        setPipelinesLoaded(true);
       }
     };
 
@@ -405,7 +423,7 @@ export function useCrmSidebarItems(isActive: boolean): {
         setPipelinePages((prev) =>
           prev.map((p) => (p.id === renamingList.id ? { ...p, title: newName } : p))
         );
-        toast.success(t('crm.sidebar.dealRenamed'));
+        toast.success(t('crm.sidebar.pipelineRenamed'));
       } else {
         await updateListMutation.mutateAsync({ id: renamingList.id, data: { name: newName } });
         setCustomerPages((prev) =>
@@ -453,14 +471,14 @@ export function useCrmSidebarItems(isActive: boolean): {
           iconColor: pipeline.color || color,
         };
         setPipelinePages((prev) => [...prev, newPage]);
-        toast.success(t('crm.sidebar.dealCreated'));
+        toast.success(t('crm.sidebar.pipelineCreated'));
         router.push(`/weldcrm/pipeline/${pipeline.id}`);
       } else {
-        toast.error(t('crm.sidebar.dealCreateFailed'));
+        toast.error(t('crm.sidebar.pipelineCreateFailed'));
       }
     } catch (error) {
-      console.error('Failed to create deal:', error);
-      toast.error(t('crm.sidebar.dealCreateFailed'));
+      console.error('Failed to create pipeline:', error);
+      toast.error(t('crm.sidebar.pipelineCreateFailed'));
     }
   };
 
@@ -487,14 +505,14 @@ export function useCrmSidebarItems(isActive: boolean): {
           iconColor: pipeline.color || color,
         };
         setPipelinePages((prev) => [...prev, newPage]);
-        toast.success(t('crm.sidebar.dealCreated'));
+        toast.success(t('crm.sidebar.pipelineCreated'));
         router.push(`/weldcrm/pipeline/${pipeline.id}`);
       } else {
-        toast.error(t('crm.sidebar.dealCreateFailed'));
+        toast.error(t('crm.sidebar.pipelineCreateFailed'));
       }
     } catch (error) {
-      console.error('Failed to create deal:', error);
-      toast.error(t('crm.sidebar.dealCreateFailed'));
+      console.error('Failed to create pipeline:', error);
+      toast.error(t('crm.sidebar.pipelineCreateFailed'));
     }
   };
 
@@ -508,7 +526,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       // when none are left.
       const remaining = pipelinePages.filter((p) => p.id !== pageId);
       setPipelinePages(remaining);
-      toast.success(t('crm.sidebar.dealDeleted'));
+      toast.success(t('crm.sidebar.pipelineDeleted'));
       if (remaining[0]) {
         router.push(`/weldcrm/pipeline/${remaining[0].id}`);
       } else {
@@ -516,7 +534,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       }
     } catch (error) {
       console.error('Failed to delete pipeline:', error);
-      toast.error(t('crm.sidebar.dealDeleteFailed'));
+      toast.error(t('crm.sidebar.pipelineDeleteFailed'));
     }
   };
 
@@ -568,7 +586,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       const original = originalResult.data;
       // Create new pipeline
       const pipeline = await createPipelineMutation.mutateAsync({
-        name: `${page.title} (Copy)`,
+        name: fitPipelineName((name) => t('crm.sidebar.pipelineCopyName', { name }), page.title),
         color: original.color,
         icon: original.icon,
         template: original.template,
@@ -604,18 +622,20 @@ export function useCrmSidebarItems(isActive: boolean): {
           id: pipeline.id,
           title: pipeline.name,
           href: `/weldcrm/pipeline/${pipeline.id}`,
-          icon: TrendingUp,
+          // The copy keeps the original's icon (it was saved with it above); a
+          // hard-coded one made the copy look different until the next reload.
+          icon: page.icon,
           iconColor: pipeline.color || page.iconColor,
         };
         setPipelinePages((prev) => [...prev, newPage]);
-        toast.success(t('crm.sidebar.dealDuplicated'));
+        toast.success(t('crm.sidebar.pipelineDuplicated'));
         router.push(`/weldcrm/pipeline/${pipeline.id}`);
       } else {
-        toast.error(t('crm.sidebar.dealDuplicateFailed'));
+        toast.error(t('crm.sidebar.pipelineDuplicateFailed'));
       }
     } catch (error) {
       console.error('Failed to duplicate pipeline:', error);
-      toast.error(t('crm.sidebar.dealDuplicateFailed'));
+      toast.error(t('crm.sidebar.pipelineDuplicateFailed'));
     }
   };
 
@@ -628,7 +648,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       );
     } catch (error) {
       console.error('Failed to update pipeline color:', error);
-      toast.error(t('crm.sidebar.dealColorUpdateFailed'));
+      toast.error(t('crm.sidebar.pipelineColorUpdateFailed'));
     }
   };
 
@@ -642,7 +662,7 @@ export function useCrmSidebarItems(isActive: boolean): {
       );
     } catch (error) {
       console.error('Failed to update pipeline icon:', error);
-      toast.error(t('crm.sidebar.dealIconUpdateFailed'));
+      toast.error(t('crm.sidebar.pipelineIconUpdateFailed'));
     }
   };
 
@@ -663,13 +683,15 @@ export function useCrmSidebarItems(isActive: boolean): {
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (!data.pipeline || !data.stages) {
+        if (!data.pipeline || !data.stages || typeof data.pipeline.name !== 'string' || !data.pipeline.name.trim()) {
           toast.error(t('crm.sidebar.invalidPipelineFile'));
           return;
         }
-        // Create the pipeline
+        // Create the pipeline. Suffixed like a duplicate's "(Copy)": importing a
+        // pipeline's own export otherwise puts two identically named entries
+        // in the sidebar.
         const pipeline = await createPipelineMutation.mutateAsync({
-          name: data.pipeline.name,
+          name: fitPipelineName((name) => t('crm.sidebar.pipelineImportedName', { name }), data.pipeline.name.trim()),
           description: data.pipeline.description,
           color: data.pipeline.color,
           icon: data.pipeline.icon,
@@ -705,10 +727,10 @@ export function useCrmSidebarItems(isActive: boolean): {
             iconColor: pipeline.color || 'bg-blue-500',
           };
           setPipelinePages((prev) => [...prev, newPage]);
-          toast.success(t('crm.sidebar.dealImported'));
+          toast.success(t('crm.sidebar.pipelineImported'));
           router.push(`/weldcrm/pipeline/${pipeline.id}`);
         } else {
-          toast.error(t('crm.sidebar.dealImportFailed'));
+          toast.error(t('crm.sidebar.pipelineImportFailed'));
         }
       } catch (error) {
         console.error('Failed to import pipeline:', error);
@@ -781,10 +803,10 @@ export function useCrmSidebarItems(isActive: boolean): {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast.success(t('crm.sidebar.dealExported'));
+      toast.success(t('crm.sidebar.pipelineExported'));
     } catch (error) {
       console.error('Failed to export pipeline:', error);
-      toast.error(t('crm.sidebar.dealExportFailed'));
+      toast.error(t('crm.sidebar.pipelineExportFailed'));
     }
   };
 
@@ -826,10 +848,17 @@ export function useCrmSidebarItems(isActive: boolean): {
     onExport: () => handlePipelineExport(page.id),
   }));
 
+  // The lists are copied from the query into local state by an effect, so for
+  // one render after the response arrives the query has lists the state does
+  // not: still "loading", or the empty-state button would flash in that gap.
+  const listsLoading =
+    listsPending || ((sidebarListsResp?.data?.length ?? 0) > 0 && customerPages.length === 0);
+
   const menuGroups: MenuGroupProps[] = [
     {
       group: t('crm.sidebar.lists'),
       items: customerItems,
+      loading: listsLoading,
       onAdd: handleAddCustomerPage,
       // Keep the header + empty-state "Add" button visible after the last list
       // is deleted, so the user can still create a new one from the sidebar.
@@ -839,6 +868,7 @@ export function useCrmSidebarItems(isActive: boolean): {
     {
       group: t('crm.sidebar.deals'),
       items: pipelineItems,
+      loading: !pipelinesLoaded,
       onAdd: handleAddPipeline,
       // Keep the header + empty-state "Add" button visible after the last
       // pipeline is deleted, otherwise the whole Deals section disappears.
@@ -857,7 +887,10 @@ export function useCrmSidebarItems(isActive: boolean): {
 
   const pipelineDealCount = pipelineToDelete?.dealCount;
   let deletePipelineDescription = t('crm.sidebar.deletePipelineDescriptionGeneric');
-  if (pipelineDealCount === 1) {
+  if (pipelineDealCount === 0) {
+    // No deals: the "They will stay in your CRM…" sentence would be about nothing.
+    deletePipelineDescription = t('crm.sidebar.deletePipelineDescriptionEmpty');
+  } else if (pipelineDealCount === 1) {
     deletePipelineDescription = t('crm.sidebar.deletePipelineDescriptionWithDealsSingular');
   } else if (pipelineDealCount != null) {
     deletePipelineDescription = t('crm.sidebar.deletePipelineDescriptionWithDealsPlural', { count: pipelineDealCount });

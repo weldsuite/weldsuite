@@ -452,8 +452,8 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     if (data.priority !== undefined) payload.priority = data.priority;
     if (data.dueDate !== undefined) payload.dueDate = data.dueDate.toISOString();
     if (data.startDate !== undefined) payload.startDate = data.startDate.toISOString();
-    if (data.labels !== undefined) payload.labels = data.labels;
     if (data.duration !== undefined) payload.duration = data.duration;
+    if (data.labels !== undefined) payload.labels = data.labels;
     if (data.repeat !== undefined) payload.repeat = data.repeat || null;
     if (data.customFields !== undefined) payload.customFields = data.customFields;
     // A task links to a company OR a person: setting one clears the other.
@@ -519,6 +519,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
         ...(apiTask.assigneeIds?.length ? { assigneeIds: apiTask.assigneeIds } : {}),
         ...(apiTask.dueDate ? { dueDate: apiTask.dueDate } : {}),
         ...(apiTask.startDate ? { startDate: apiTask.startDate } : {}),
+        ...(apiTask.duration == null ? {} : { duration: apiTask.duration }),
         ...(apiTask.storyPoints == null ? {} : { storyPoints: apiTask.storyPoints }),
         ...(apiTask.estimatedHours == null ? {} : { estimatedHours: String(apiTask.estimatedHours) }),
         ...(apiTask.labels ? { labels: apiTask.labels } : {}),
