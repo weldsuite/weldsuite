@@ -1,6 +1,6 @@
 # Reseller licensing (partner-managed workspaces)
 
-Status: **Phases 0–3 implemented** (one PR). Schema is in `packages/core/db/src/schema/partners.ts`; the **master migration is not generated yet** and must be applied before this deploys (app-api reads the new `workspaces` columns). See "Known gaps" at the end.
+Status: **Phases 0–3 implemented** (one PR). Schema is in `packages/core/db/src/schema/partners.ts`; master migration `0053_partner_licensing` must be applied before this deploys (app-api reads the new `workspaces` columns). See "Known gaps" at the end.
 
 ## Problem
 
@@ -230,7 +230,7 @@ allow `scale` or `enterprise`.
 
 ## Data model (master DB)
 
-**Proposed. Per CLAUDE.md, no migration is written until approved.**
+Migration: `packages/core/db/drizzle/master-migrations/0053_partner_licensing.sql` (approved and generated).
 
 **`partners`**
 - `id` (`ptr_`), `name`, `legal_name`, `country`, `tax_id`.
@@ -550,8 +550,7 @@ These turned up in the survey and stand on their own:
 ## Known gaps (after the Phase 0–3 build)
 
 - **Migration**
-  - The master migration for the partner tables and the two new `workspaces` columns still has to be generated and applied.
-  - Until then, billing-worker's `comp.integration.test.ts` fails locally, because its pglite database is built from migrations. CI does not run it.
+  - `0053_partner_licensing` (master) creates the partner tables and adds the two `workspaces` columns. It has to be applied before the workers deploy.
 - **Read-only for background jobs**
   - Read-only is enforced on API writes only.
   - Background writers do not skip a suspended partner's workspaces yet: workflow runs, sequences, scheduled social posts, inbound mail rules.
