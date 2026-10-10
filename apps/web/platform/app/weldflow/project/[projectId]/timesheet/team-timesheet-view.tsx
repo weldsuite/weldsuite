@@ -1,6 +1,6 @@
 
 import { useMemo } from 'react';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { AlertCircle, AlertTriangle, Download, Users } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';

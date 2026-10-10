@@ -61,7 +61,7 @@ import { cn } from '@/lib/utils';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import type { Task } from '@/hooks/use-crm-tasks';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';

@@ -324,7 +324,7 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
       status: task.status?.toLowerCase() as 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled' || 'todo',
       assignee: task.assignee ? {
         id: task.assignee.id || task.assigneeId || '',
-        name: task.assignee.name || 'Unknown',
+        name: task.assignee.name || st('common.labels.unknown'),
         avatarUrl: task.assignee.avatarUrl,
       } : undefined,
       linkedCompany: task.company ? {

@@ -21,7 +21,7 @@ import {
   X,
   Pin,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { cn } from '@/lib/utils';
 import { useTranslations } from '@weldsuite/i18n/client';
 

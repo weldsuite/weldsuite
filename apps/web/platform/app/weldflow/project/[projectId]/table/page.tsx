@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { formatMediumDateNow } from '@/lib/i18n/date-locale';
 import { useI18n } from '@/lib/i18n/provider';
 import { Trash2, EllipsisVertical, Pencil, Table2, Copy } from 'lucide-react';
 import { isToday, isYesterday, isThisWeek, isThisMonth, subMonths, isAfter } from 'date-fns';
@@ -35,11 +36,7 @@ interface TableItem {
 }
 
 function formatDate(date: string) {
-  return new Date(date).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatMediumDateNow(date);
 }
 
 export default function ProjectTablePage() {

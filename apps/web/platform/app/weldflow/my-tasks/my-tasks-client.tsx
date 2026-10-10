@@ -1278,7 +1278,7 @@ export function MyTasksClient({
               const fromAssignees = task.assignees?.find((a) => a.id === id);
               return {
                 id,
-                name: fromDirectory?.name || fromAssignees?.name || (id === task.assigneeId ? task.assignee : '') || 'Unknown',
+                name: fromDirectory?.name || fromAssignees?.name || (id === task.assigneeId ? task.assignee : '') || t.common.labels.unknown,
                 avatar: fromDirectory?.avatar || fromAssignees?.avatar,
               };
             });

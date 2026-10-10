@@ -826,7 +826,7 @@ export interface WorkloadViewProps {
 
 export function WorkloadView({ initialData, error, projectId }: Readonly<WorkloadViewProps>) {
   const st = useTranslations();
-  const { dateFnsLocale } = useDateLocale();
+  const { dateFnsLocale, formatMedium } = useDateLocale();
   const { canWrite } = useProjectPermissions();
   // Milestones only exist on the project-scoped page, and viewers can read them but not change them.
   const canEditMilestones = !!projectId && canWrite;
@@ -1397,7 +1397,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
                   <div className="px-2 py-1.5">
                     <p className="text-sm font-medium leading-none truncate">{selectedMarker.label}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      {selectedMarker.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {formatMedium(selectedMarker.date)}
                       {(selectedMarker.date.getHours() !== 0 || selectedMarker.date.getMinutes() !== 0) && (
                         <span> at {selectedMarker.date.getHours().toString().padStart(2, '0')}:{selectedMarker.date.getMinutes().toString().padStart(2, '0')}</span>
                       )}

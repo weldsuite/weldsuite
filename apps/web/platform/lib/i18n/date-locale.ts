@@ -7,7 +7,8 @@
  * instead of always rendering in US English.
  */
 import { useCallback, useMemo } from 'react';
-import { format as dateFnsFormat, type Locale } from 'date-fns';
+import { format as dateFnsFormat, formatDistanceToNow as dateFnsFormatDistanceToNow, type Locale } from 'date-fns';
+import { getLocale } from '@weldsuite/i18n';
 import { enUS } from 'date-fns/locale/en-US';
 import { es } from 'date-fns/locale/es';
 import { fr } from 'date-fns/locale/fr';
@@ -23,6 +24,21 @@ export function getDateFnsLocale(language: Language): Locale {
 
 export function getIntlLocale(language: Language): string {
   return localeConfig[language]?.intlLocale ?? 'en-US';
+}
+
+/**
+ * date-fns `format` in the current UI language, for code that is not a hook
+ * (module helpers, callbacks). Reads the stored locale on every call, so it
+ * follows a language switch on the next render. Prefer `useDateLocale()` in
+ * components; use numeric patterns (`yyyy-MM-dd`, `HH:mm`) for machine values.
+ */
+export function formatLocalized(date: Date | number, pattern: string): string {
+  return dateFnsFormat(date, pattern, { locale: getDateFnsLocale(getLocale()) });
+}
+
+/** date-fns `formatDistanceToNow` in the current UI language (see {@link formatLocalized}). */
+export function formatDistanceToNowLocalized(date: Date | number, options?: { addSuffix?: boolean }): string {
+  return dateFnsFormatDistanceToNow(date, { ...options, locale: getDateFnsLocale(getLocale()) });
 }
 
 type DateInput = Date | string | number | null | undefined;
@@ -99,4 +115,19 @@ export function useDateLocale() {
     formatMonthYear: formatMonthYearLabel,
     formatPattern,
   };
+}
+
+/** {@link formatMediumDate} in the current UI language, for code that is not a hook. */
+export function formatMediumDateNow(value: DateInput): string {
+  return formatMediumDate(value, getLocale());
+}
+
+/** {@link formatShortDate} in the current UI language, for code that is not a hook. */
+export function formatShortDateNow(value: DateInput): string {
+  return formatShortDate(value, getLocale());
+}
+
+/** {@link formatMonthYear} in the current UI language, for code that is not a hook. */
+export function formatMonthYearNow(value: DateInput): string {
+  return formatMonthYear(value, getLocale());
 }

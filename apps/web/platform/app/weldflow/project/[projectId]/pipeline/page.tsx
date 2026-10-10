@@ -76,6 +76,8 @@ import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
 import { useI18n } from '@/lib/i18n/provider';
+import { formatShortDateNow } from '@/lib/i18n/date-locale';
+import { useStageLabel } from '../../../lib/stage-labels';
 import { useProjectPermissions } from '@/app/weldflow/contexts/project-permission-context';
 import { buildStatusToStageId } from '@/app/weldflow/lib/stage-resolution';
 
@@ -234,7 +236,6 @@ function mapTaskToFeature(task: RawPipelineTask, statusToStageId?: Map<string, s
   };
 }
 
-const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
 
 // ---------- DroppableStage ----------
 
@@ -396,7 +397,7 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
         <div className="flex items-center gap-2 mt-2.5">
           <CalendarClock className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
           <span className="text-sm text-gray-600 dark:text-muted-foreground">
-            {shortDateFormatter.format(feature.startAt)}
+            {formatShortDateNow(feature.startAt)}
           </span>
         </div>
       )}
@@ -406,7 +407,7 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
         <div className="flex items-center gap-2 mt-2.5">
           <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
           <span className="text-sm text-gray-600 dark:text-muted-foreground">
-            {shortDateFormatter.format(feature.endAt)}
+            {formatShortDateNow(feature.endAt)}
           </span>
         </div>
       )}
@@ -514,6 +515,7 @@ function PipelineStageHeader({ stage, taskCount, canWrite, onAddTask, onEditStag
   isLast: boolean;
 }>) {
   const { t } = useI18n();
+  const stageLabel = useStageLabel();
   const [isOpen, setIsOpen] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const [dropdownWidth, setDropdownWidth] = useState(0);
@@ -536,7 +538,7 @@ function PipelineStageHeader({ stage, taskCount, canWrite, onAddTask, onEditStag
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center gap-2 ml-1 h-auto p-0">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: stage.color }} />
-                <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stage.name}</h3>
+                <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stageLabel(stage.name, stage.systemStatus)}</h3>
                 <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px]">
                   {taskCount}
                 </span>
@@ -576,7 +578,7 @@ function PipelineStageHeader({ stage, taskCount, canWrite, onAddTask, onEditStag
         ) : (
           <div className="flex items-center gap-2 ml-1">
             <div className="w-3 h-3 rounded" style={{ backgroundColor: stage.color }} />
-            <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stage.name}</h3>
+            <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">{stageLabel(stage.name, stage.systemStatus)}</h3>
             <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[16px] h-[16px] flex items-center justify-center rounded-[5px]">
               {taskCount}
             </span>
@@ -670,6 +672,7 @@ const PipelinePage = () => {
   const params = useParams();
   const projectId = params.projectId as string;
   const { t } = useI18n();
+  const stageLabel = useStageLabel();
   const { canWrite } = useProjectPermissions();
 
   const [features, setFeatures] = useState<TaskFeature[]>([]);
@@ -729,11 +732,11 @@ const PipelinePage = () => {
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
 
   const pipelineFilterConfigs: FilterConfig[] = useMemo(() => [
-    { field: 'stage', label: t.projects.pipeline.filterStage, options: columns.map(c => ({ value: c.id, label: c.name })) },
+    { field: 'stage', label: t.projects.pipeline.filterStage, options: columns.map(c => ({ value: c.id, label: stageLabel(c.name, c.systemStatus) })) },
     { field: 'priority', label: t.projects.pipeline.filterPriority, options: [{ value: 'urgent', label: t.projects.pipeline.priorityUrgent }, { value: 'high', label: t.projects.pipeline.priorityHigh }, { value: 'medium', label: t.projects.pipeline.priorityMedium }, { value: 'low', label: t.projects.pipeline.priorityLow }] },
-    { field: 'assignee', label: t.projects.pipeline.filterAssignee, options: [{ value: '__unassigned__', label: t.projects.pipeline.filterUnassigned }, ...projectMembers.map(m => ({ value: m.user?.name || m.userId, label: m.user?.name || m.user?.email || 'Unknown' }))] },
+    { field: 'assignee', label: t.projects.pipeline.filterAssignee, options: [{ value: '__unassigned__', label: t.projects.pipeline.filterUnassigned }, ...projectMembers.map(m => ({ value: m.user?.name || m.userId, label: m.user?.name || m.user?.email || t.common.labels.unknown }))] },
     { field: 'due', label: t.projects.pipeline.filterDueDate, filterType: 'date' as const, options: [] },
-  ], [columns, projectMembers, t]);
+  ], [columns, projectMembers, t, stageLabel]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const stagesScrollRef = useRef<HTMLDivElement>(null);
@@ -1202,7 +1205,7 @@ const PipelinePage = () => {
                   )}
                   <div className="flex items-center gap-2 mt-2">
                     <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                    <span className="text-sm text-gray-600 dark:text-muted-foreground">{shortDateFormatter.format(activeDeal.endAt)}</span>
+                    <span className="text-sm text-gray-600 dark:text-muted-foreground">{formatShortDateNow(activeDeal.endAt)}</span>
                   </div>
                   {activeDeal.labels && activeDeal.labels.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
@@ -1287,7 +1290,7 @@ const PipelinePage = () => {
         availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name }))}
         availableCompanies={[]}
         availableLabels={availableLabels}
-        availableStatuses={columns.map(c => ({ id: c.id, label: c.name, color: c.color }))}
+        availableStatuses={columns.map(c => ({ id: c.id, label: stageLabel(c.name, c.systemStatus), color: c.color }))}
         onCreateLabel={handleCreateLabel}
         hideRecord
         onSave={handleTaskDialogSave}
