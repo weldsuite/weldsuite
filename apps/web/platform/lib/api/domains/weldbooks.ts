@@ -275,7 +275,7 @@ export interface RecordInvoicePaymentInput {
 }
 
 export interface CreatePaymentInput {
-  type: 'received' | 'made' | string;
+  type: 'received' | 'made' | (string & {});
   amount: string;
   date: string;
   contactId: string;

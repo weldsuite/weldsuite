@@ -333,7 +333,7 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
       } : undefined,
       dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
       createdAt: new Date(task.createdAt),
-      labels: task.labels || [],
+      labels: task.labels ?? [],
     }));
   };
 

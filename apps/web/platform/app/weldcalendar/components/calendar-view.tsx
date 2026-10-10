@@ -3821,12 +3821,11 @@ function TimeSlotEvent({
       {/* Auto-schedule / pin state indicator */}
       {isAutoScheduled && (
         <span
-          role="img"
-          aria-label={t.viewExtras.autoScheduled}
           title={t.viewExtras.autoScheduled}
           className="absolute top-1 right-1.5 opacity-80"
         >
           <Sparkles className="h-2.5 w-2.5 text-white" aria-hidden />
+          <span className="sr-only">{t.viewExtras.autoScheduled}</span>
         </span>
       )}
       {isPinned && (
