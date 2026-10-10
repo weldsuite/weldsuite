@@ -1,6 +1,6 @@
 # Reseller licensing (partner-managed workspaces)
 
-Status: **design, not started.** No schema, migration or code yet.
+Status: **Phase 0 done** (credit self-grant closed, server-side app gate in place but dormant). No schema or migration yet.
 
 ## Problem
 
@@ -310,9 +310,9 @@ allow `scale` or `enterprise`.
 Add a `licenceGate()` middleware to `@weldsuite/worker-kit` and put it in `apiAuth()` after `workspaceDbMiddleware()`. Flow:
 
 1. `getWorkspaceContextForOrg` already returns `{ db, suspended }` from a KV-cached record. Extend that record with `billingMode` and `allowedApps`. The licence write path invalidates the workspace KV entry; the TTL is the fallback.
-2. Map the request path to its module with the existing `@weldsuite/api-modules` index (`findModuleForPath`, longest prefix wins). Then map module → app code. Add an `appCode` field to each module definition, e.g. `desk` → `welddesk`, `pass` → `weldpass`.
+2. Map the request path to its module with the existing `@weldsuite/api-modules` index (`findModuleForPath`, longest prefix wins). Each module lists the apps that open it (`apps`): its own app first, then the apps whose screens read its objects.
 3. Decide:
-   - If `billingMode === 'partner'` and the app is not licensed, return `403 { error: { code: 'APP_NOT_LICENSED', message, details: { app } } }`.
+   - If the workspace has a licence and none of the module's apps is in it, return `403 { error: { code: 'APP_NOT_LICENSED', message, details: { app } } }`.
    - Core paths (app-api: settings, members, files, search, notifications) are always allowed.
 4. Direct workspaces pass straight through in v1. The same gate can later enforce plan-based app access for direct customers, by filling `allowedApps` from the plan instead of a licence.
 
@@ -481,10 +481,19 @@ Partner routes use `clerkMiddleware()` and a new `partnerAuth()`:
 
 ## Phases
 
-**Phase 0: prerequisites** (worth doing even without resellers)
-1. Close the credit self-grant routes.
-2. Add the server-side app gate in worker-kit, external-api and mcp-server. Enforce it for partner workspaces only.
-3. Add `appCode` to `@weldsuite/api-modules`.
+**Phase 0: prerequisites** (worth doing even without resellers) — **done**
+1. Close the credit self-grant routes. app-api's `POST /api/credits/{consume,refund,adjust,allocate-monthly,subscription}` were deleted; nothing called them. Grants now come only from billing-worker.
+2. Add the server-side app gate:
+   - `licenceGate()` in worker-kit's `apiAuth()` covers app-api and every module worker;
+   - `licenceMiddleware` covers external-api;
+   - the internal `apiApp` middleware covers mcp-server.
+   - Each reads `licensedApps` from its cached workspace context, which is `null` (unrestricted) for every workspace until Phase 1 fills it from `workspace_licences`.
+3. `@weldsuite/api-modules` gives each module an `apps` list rather than a single app code.
+   - Each module's list names its own app first, then every app whose `PERMISSION_APPS` objects it serves. Example: the crm module opens for WeldDesk, because WeldDesk screens read companies and people.
+   - `null` means never gated (core, agent).
+   - `findModuleForExternalPath` maps `/v1/<object>` onto the same table.
+   - Tests fail when an external-api object escapes to core, or when an app code is unknown.
+   - Review this table with real partner workspaces in Phase 1. The platform shell must also stop calling unlicensed modules (e.g. chat widgets) so a licensed workspace sees no 403 noise.
 
 **Phase 1: partner and licence, admin-managed**
 1. Schema (after migration approval): partners, contracts, territories, packages, licences, history, `workspaces.partner_id` / `billing_mode`.

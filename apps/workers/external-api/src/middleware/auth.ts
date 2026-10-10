@@ -37,6 +37,12 @@ interface CachedWorkspaceDetails {
   hasApiAccess: boolean;
   /** Absent on entries cached before it was added; callers fall back to a lookup. */
   clerkOrgId?: string | null;
+  /**
+   * Licensed app codes, null = unrestricted. Absent on entries cached before it
+   * was added, read as null. Only partner-managed workspaces will carry one
+   * (docs/plans/reseller-licensing.md); until then every workspace is null.
+   */
+  licensedApps?: string[] | null;
 }
 
 interface CachedAppToken {
@@ -191,6 +197,7 @@ async function getWorkspaceDetails(
     tier: getTierFromPlan(row.planSlug),
     hasApiAccess: row.hasApiAccess ?? false,
     clerkOrgId: row.clerkOrgId ?? null,
+    licensedApps: null,
   };
   await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
 
@@ -278,6 +285,7 @@ async function validateApiKey(
         hasApiAccess: workspace.hasApiAccess,
         databaseUrl: workspace.databaseUrl,
         clerkOrgId: workspace.clerkOrgId,
+        licensedApps: workspace.licensedApps ?? null,
       };
     } else {
       // Personal key
@@ -315,6 +323,7 @@ async function validateApiKey(
         hasApiAccess: workspace.hasApiAccess,
         databaseUrl: workspace.databaseUrl,
         clerkOrgId: workspace.clerkOrgId,
+        licensedApps: workspace.licensedApps ?? null,
       };
     }
   } catch (error) {
@@ -442,6 +451,7 @@ async function validateAppToken(
       hasApiAccess: true,
       databaseUrl: workspace.databaseUrl,
       clerkOrgId: workspace.clerkOrgId,
+      licensedApps: workspace.licensedApps ?? null,
       appId: cached.appId,
       appCode: cached.appCode,
       installId: cached.installId,

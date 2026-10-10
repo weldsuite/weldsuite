@@ -92,6 +92,11 @@ export interface ApiKeySession {
   /** Whether the workspace plan has API access. */
   hasApiAccess: boolean;
   /**
+   * Apps the workspace is licensed for (partner-managed workspaces), or null
+   * when unrestricted. Checked per request by licenceMiddleware.
+   */
+  licensedApps: readonly string[] | null;
+  /**
    * The workspace's Clerk org id, which R2 keys and the shared mail/social
    * packages key on (unlike `workspaceId`, the master `workspaces.id`).
    * Undefined when the workspace came from an older cache entry; resolve it with

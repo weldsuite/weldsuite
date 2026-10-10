@@ -1,7 +1,8 @@
 /**
  * Resolves the tenant database for the authenticated org and injects it
  * into the Hono context. Rejects requests without an active org (403
- * ORG_REQUIRED) and suspended workspaces (403 WORKSPACE_SUSPENDED).
+ * ORG_REQUIRED) and suspended workspaces (403 WORKSPACE_SUSPENDED). Also sets
+ * the workspace licence (`licensedApps`) that `licenceGate()` checks.
  */
 
 import { createMiddleware } from 'hono/factory';
@@ -14,6 +15,7 @@ type WorkspaceDbVariables = {
   sessionId: string;
   tenantDb: Database;
   workspaceId: string;
+  licensedApps: readonly string[] | null;
 };
 
 export const workspaceDbMiddleware = () => {
@@ -35,7 +37,7 @@ export const workspaceDbMiddleware = () => {
       );
     }
 
-    const { db, suspended } = await getWorkspaceContextForOrg(c.env, orgId);
+    const { db, suspended, licensedApps } = await getWorkspaceContextForOrg(c.env, orgId);
 
     // A suspended workspace (isActive=false) has been scheduled for deletion by
     // an admin. Reject all tenant access until it is either restored (cancelled)
@@ -54,6 +56,7 @@ export const workspaceDbMiddleware = () => {
 
     c.set('tenantDb', db);
     c.set('workspaceId', orgId);
+    c.set('licensedApps', licensedApps);
 
     await next();
   });

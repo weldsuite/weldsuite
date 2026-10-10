@@ -36,17 +36,29 @@ interface CachedWorkspace {
    * extra master-DB read; propagation is bounded by KV_TTL_SECONDS.
    */
   suspended: boolean;
+  /**
+   * App codes this workspace is licensed for, or null when it is unrestricted
+   * (every app). Only partner-managed workspaces carry a licence
+   * (docs/plans/reseller-licensing.md); until `workspace_licences` exists every
+   * workspace resolves to null. `licenceGate()` enforces it per request.
+   */
+  licensedApps: string[] | null;
 }
 
 async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<CachedWorkspace> {
   const cacheKey = `ws:${clerkOrgId}`;
-  // `suspended` was added later — an entry cached before this field existed
-  // omits it, so read it as optional and default a missing flag to
-  // not-suspended (the entry refreshes within KV_TTL_SECONDS anyway).
+  // `suspended` and `licensedApps` were added later — an entry cached before
+  // they existed omits them, so read them as optional and default to
+  // not-suspended and unrestricted (the entry refreshes within KV_TTL_SECONDS).
   const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as
-    | (Omit<CachedWorkspace, 'suspended'> & { suspended?: boolean })
+    | (Omit<CachedWorkspace, 'suspended' | 'licensedApps'> & {
+        suspended?: boolean;
+        licensedApps?: string[] | null;
+      })
     | null;
-  if (cached) return { ...cached, suspended: cached.suspended ?? false };
+  if (cached) {
+    return { ...cached, suspended: cached.suspended ?? false, licensedApps: cached.licensedApps ?? null };
+  }
 
   const masterDb = getMasterDb(env);
   const [workspace] = await masterDb
@@ -82,7 +94,12 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
     { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 },
   );
 
-  const entry: CachedWorkspace = { id: workspace.id, databaseUrl, suspended: !workspace.isActive };
+  const entry: CachedWorkspace = {
+    id: workspace.id,
+    databaseUrl,
+    suspended: !workspace.isActive,
+    licensedApps: null,
+  };
   await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(entry), {
     expirationTtl: KV_TTL_SECONDS,
   });
@@ -99,19 +116,26 @@ export async function getTenantDbForWorkspace(
 }
 
 /**
- * Resolve the tenant DB together with the workspace's suspension state. The
- * request middleware uses this to reject suspended workspaces (a 403) instead
- * of serving them a working DB handle.
+ * Resolve the tenant DB together with the workspace's suspension state and
+ * licence. The request middleware uses this to reject suspended workspaces (a
+ * 403) instead of serving them a working DB handle, and hands the licence to
+ * `licenceGate()`.
  */
 export async function getWorkspaceContextForOrg(
   env: DbEnv,
   clerkOrgId: string,
-): Promise<{ id: string; db: NeonHttpDatabase<typeof schema>; suspended: boolean }> {
+): Promise<{
+  id: string;
+  db: NeonHttpDatabase<typeof schema>;
+  suspended: boolean;
+  licensedApps: string[] | null;
+}> {
   const workspace = await getCachedWorkspaceUrl(env, clerkOrgId);
   return {
     id: workspace.id,
     db: createNeonTenantDb(workspace.databaseUrl),
     suspended: workspace.suspended,
+    licensedApps: workspace.licensedApps,
   };
 }
 

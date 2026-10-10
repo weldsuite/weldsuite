@@ -73,6 +73,12 @@ interface CachedWorkspace {
   name: string;
   tier: TenantTier;
   databaseUrl: string;
+  /**
+   * Licensed app codes, null = unrestricted. Absent on entries cached before it
+   * was added, read as null. Only partner-managed workspaces will carry one
+   * (docs/plans/reseller-licensing.md); until then every workspace is null.
+   */
+  licensedApps?: string[] | null;
 }
 
 function getTierFromPlan(planSlug: string | null | undefined): TenantTier {
@@ -161,6 +167,7 @@ async function getWorkspaceForOrg(
     name: row.name,
     tier: getTierFromPlan(row.planSlug),
     databaseUrl,
+    licensedApps: null,
   };
   await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: KV_TTL_SECONDS });
 
@@ -410,6 +417,7 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     permissionDenies,
     role,
     clientId,
+    licensedApps: workspace.licensedApps ?? null,
   };
 
   c.set('session', session);

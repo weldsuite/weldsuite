@@ -4968,6 +4968,9 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/api-modules':
+        specifier: workspace:*
+        version: link:../../../packages/core/api-modules
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/app-api-client
@@ -5600,6 +5603,9 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/api-modules':
+        specifier: workspace:*
+        version: link:../../../packages/core/api-modules
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/app-api-client

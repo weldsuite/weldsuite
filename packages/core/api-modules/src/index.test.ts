@@ -4,8 +4,11 @@ import { describe, expect, it } from 'vitest';
 import {
   API_MODULES,
   createApiOriginResolver,
+  findModuleForExternalPath,
   findModuleForPath,
   getApiModule,
+  missingLicensedApp,
+  MODULE_WORKERS,
   moduleOriginFrom,
   coreOriginFrom,
   originForPathFrom,
@@ -203,5 +206,59 @@ describe('origins', () => {
       overrides: { pass: 'http://127.0.0.1:9999/' },
     });
     expect(resolver.originForPath('/api/weldpass')).toBe('http://127.0.0.1:9999');
+  });
+});
+
+describe('licence gate lookups', () => {
+  const licensed = (...apps: string[]) => new Set(apps);
+
+  it('never gates core or WeldAgent, and names an owning app for every other module', () => {
+    expect(getApiModule('core').apps).toBeNull();
+    expect(getApiModule('agent').apps).toBeNull();
+    for (const m of MODULE_WORKERS.filter((w) => w.id !== 'agent')) {
+      expect(m.apps?.length, m.id).toBeGreaterThan(0);
+      expect(new Set(m.apps).size, `${m.id} lists an app twice`).toBe(m.apps!.length);
+    }
+  });
+
+  it('lets a module through when any app that reads it is licensed', () => {
+    const deskOnly = licensed('welddesk');
+    expect(missingLicensedApp(findModuleForPath('/api/tickets/1'), deskOnly)).toBeNull();
+    // WeldDesk screens read CRM companies and people.
+    expect(missingLicensedApp(findModuleForPath('/api/companies'), deskOnly)).toBeNull();
+    expect(missingLicensedApp(findModuleForPath('/api/settings/profile'), deskOnly)).toBeNull();
+    expect(missingLicensedApp(findModuleForPath('/api/ai/chat'), deskOnly)).toBeNull();
+  });
+
+  it("names the module's own app when nothing that reads it is licensed", () => {
+    const deskOnly = licensed('welddesk');
+    expect(missingLicensedApp(findModuleForPath('/api/invoices'), deskOnly)).toBe('weldbooks');
+    expect(missingLicensedApp(findModuleForPath('/api/weldpass/vaults'), deskOnly)).toBe('weldpass');
+    expect(missingLicensedApp(findModuleForPath('/api/tickets'), licensed())).toBe('welddesk');
+  });
+
+  it('maps external-api paths onto the first-party module', () => {
+    expect(findModuleForExternalPath('/v1/tickets/123').id).toBe('desk');
+    expect(findModuleForExternalPath('/v1/mail-accounts/a1/send').id).toBe('mail');
+    expect(findModuleForExternalPath('/v1/knowledge-pages').id).toBe('know');
+    expect(findModuleForExternalPath('/v1/quotes?limit=5').id).toBe('crm');
+    expect(findModuleForExternalPath('/v1/files').id).toBe('core');
+    expect(findModuleForExternalPath('/v1').id).toBe('core');
+    expect(findModuleForExternalPath('/health').id).toBe('core');
+  });
+
+  it('places every external-api object in a module, or in the known core list', () => {
+    // Objects external-api serves that genuinely belong to the core platform.
+    // Anything else falling through to core would silently escape the gate.
+    const coreObjects = new Set([
+      'app-storage', 'custom-objects', 'drive', 'files', 'folders', 'settings', 'user-apps', 'webhooks',
+    ]);
+    const source = readFileSync(path.resolve(WORKERS_DIR, 'external-api/src/routes/v1/index.ts'), 'utf8');
+    const objects = [...source.matchAll(/v1\.route\(\s*'\/([^'/]+)'/g)].map((m) => m[1]!);
+    expect(objects.length).toBeGreaterThan(50);
+    const escaped = objects.filter(
+      (o) => findModuleForExternalPath(`/v1/${o}`).id === 'core' && !coreObjects.has(o),
+    );
+    expect(escaped).toEqual([]);
   });
 });

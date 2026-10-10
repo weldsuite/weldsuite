@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { appNotLicensedBody, findModuleForExternalPath, missingLicensedApp } from '@weldsuite/api-modules';
 import { v1 } from './routes/v1';
 import { createTenantDb } from './db';
 import type { ApiKeySession, HonoEnv } from './types';
@@ -63,6 +64,16 @@ apiApp.use('*', async (c, next) => {
       { error: { code: 'UNAUTHORIZED', message: 'Internal dispatch is missing its session' } },
       500,
     );
+  }
+
+  // A licensed (partner-managed) workspace reaches only the modules its apps
+  // read; the same table the first-party workers use (`@weldsuite/api-modules`).
+  if (session.licensedApps) {
+    const missing = missingLicensedApp(
+      findModuleForExternalPath(c.req.path),
+      new Set(session.licensedApps),
+    );
+    if (missing) return c.json(appNotLicensedBody(missing), 403);
   }
 
   const apiSession = toApiSession(session);

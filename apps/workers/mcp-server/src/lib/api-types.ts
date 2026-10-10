@@ -39,6 +39,11 @@ export interface McpSession {
   role: string;
   /** The OAuth client that obtained the token, for logging/diagnostics. */
   clientId: string | null;
+  /**
+   * Apps the workspace is licensed for (partner-managed workspaces), or null
+   * when unrestricted. The internal API rejects tool calls into other modules.
+   */
+  licensedApps: readonly string[] | null;
 }
 
 /**
