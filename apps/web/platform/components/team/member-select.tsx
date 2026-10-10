@@ -11,10 +11,12 @@ import { Button } from '@weldsuite/ui/components/button';
 import {
   Command,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
+import { ClearPickerItem, PickerCheck, PickerFooter, PickerScrollArea } from '@/components/shared/picker-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +34,14 @@ interface MemberSelectProps {
    * rounded-[7px] colored avatar, search input, and clear-row.
    */
   variant?: 'default' | 'assignee';
+  /**
+   * 'assignee' variant inside a panel's field row: the member sits on the
+   * value column's left edge with the smaller 18px avatar and no inline clear
+   * button (clearing happens from the picker), as in the task panel.
+   */
+  panelRow?: boolean;
+  /** 'assignee' variant: clicking the selected member calls this instead of opening the picker. */
+  onOpenMember?: (userId: string) => void;
   /**
    * `assignee` variant only: show the hover "+" next to a chosen member. It
    * reads as "add another", so single-owner fields (a table's Owner cell) turn
@@ -94,6 +104,8 @@ export function MemberSelect({
   className,
   placeholder = '--',
   variant = 'default',
+  panelRow = false,
+  onOpenMember,
   showChangeIcon = true,
 }: Readonly<MemberSelectProps>) {
   const { getClient } = useAppApiClient();
@@ -118,17 +130,40 @@ export function MemberSelect({
     : null;
 
   if (variant === 'assignee') {
+    const selectedName = selected ? selected.name?.trim() || selectedEmail || selected.userId : '';
+    const memberContent = selected ? (
+      <>
+        <AssigneeAvatar
+          id={selected.userId}
+          name={selectedName}
+          picture={selected.picture}
+          className={panelRow ? 'size-[18px]' : undefined}
+        />
+        <span
+          className={cn(
+            'text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px]',
+            onOpenMember && 'group-hover/member:underline',
+          )}
+        >
+          {selectedLabel}
+        </span>
+      </>
+    ) : null;
+
     return (
       <Popover>
         <div
           className={cn(
-            'relative text-sm flex items-center justify-between gap-2 h-8 w-full group/field px-2',
+            'relative text-sm flex items-center justify-between gap-2 h-8 w-full group/field',
+            // Panel rows sit on the value column's left edge; elsewhere (grid
+            // cells) the field keeps its own inset.
+            !panelRow && 'px-2',
             (disabled || isError) && 'pointer-events-none opacity-60',
             className,
           )}
         >
           {/* The popover trigger is a native button stretched over the field,
-              so the clear button below can sit above it without nesting
+              so the controls below can sit above it without nesting
               interactive elements. */}
           <PopoverTrigger asChild>
             <button
@@ -140,32 +175,35 @@ export function MemberSelect({
           </PopoverTrigger>
           {selected ? (
             <>
-              <div className="flex flex-col gap-1 min-w-0">
-                <div className="flex items-center gap-2 pr-1.5 py-0.5 rounded-[6px] group/assignee">
-                  <AssigneeAvatar
-                    id={selected.userId}
-                    name={selected.name?.trim() || selectedEmail || selected.userId}
-                    picture={selected.picture}
-                  />
-                  <span className="text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px]">
-                    {selectedLabel}
-                  </span>
-                  {allowClear && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        onChange('');
-                      }}
-                      className="relative z-[1] inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/field:opacity-100 focus-visible:opacity-100 transition-[opacity,color,background-color]"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
+              <div className="flex min-w-0 items-center gap-2">
+                {onOpenMember ? (
+                  // Clicking the member opens them; it sits above the trigger
+                  // so the picker doesn't open as well.
+                  <button
+                    type="button"
+                    onClick={() => onOpenMember(selected.userId)}
+                    className="group/member relative z-[1] flex h-8 min-w-0 cursor-pointer items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {memberContent}
+                  </button>
+                ) : (
+                  memberContent
+                )}
+                {allowClear && !panelRow && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onChange('');
+                    }}
+                    className="relative z-[1] inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/field:opacity-100 focus-visible:opacity-100 transition-[opacity,color,background-color]"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
               {showChangeIcon && (
                 <span
@@ -182,50 +220,36 @@ export function MemberSelect({
             </span>
           )}
         </div>
+        {/* Stock shadcn Command list — same pieces as the task panel's pickers. */}
         <PopoverContent className="w-64 p-0" align="start">
           <Command>
             <CommandInput placeholder="Search…" />
-            <CommandList className="max-h-[260px] p-1">
-              <CommandEmpty>No members found.</CommandEmpty>
-              {members.map((member) => {
-                const email = 'email' in member ? member.email : null;
-                const label = member.name?.trim() || email || member.userId;
-                const isSelected = member.userId === value;
-                return (
-                  <CommandItem
-                    key={member.userId}
-                    value={label}
-                    onSelect={() => onChange(isSelected ? '' : member.userId)}
-                    className="flex items-center justify-between gap-2 px-1.5"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <AssigneeAvatar
-                        id={member.userId}
-                        name={label}
-                        picture={member.picture}
-                      />
-                      <span className="truncate">{label}</span>
-                    </div>
-                    {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                  </CommandItem>
-                );
-              })}
+            <CommandList className="max-h-none overflow-visible">
+              <PickerScrollArea>
+                <CommandEmpty>No members found.</CommandEmpty>
+                <CommandGroup>
+                  {members.map((member) => {
+                    const email = 'email' in member ? member.email : null;
+                    const label = member.name?.trim() || email || member.userId;
+                    const isSelected = member.userId === value;
+                    return (
+                      <CommandItem
+                        key={member.userId}
+                        value={label}
+                        onSelect={() => onChange(isSelected ? '' : member.userId)}
+                      >
+                        <AssigneeAvatar id={member.userId} name={label} picture={member.picture} />
+                        <span className="truncate">{label}</span>
+                        <PickerCheck selected={isSelected} />
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </PickerScrollArea>
               {selected && allowClear && (
-                <>
-                  <div className="h-px bg-border my-1" />
-                  <CommandItem
-                    value="__clear__"
-                    onSelect={() => onChange('')}
-                    className="px-1.5 text-red-600 data-[selected=true]:text-red-600 data-[selected=true]:bg-red-50 dark:data-[selected=true]:bg-red-950"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="h-5 w-5 flex items-center justify-center shrink-0">
-                        <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                      </div>
-                      <span>Clear</span>
-                    </div>
-                  </CommandItem>
-                </>
+                <PickerFooter>
+                  <ClearPickerItem label="Clear" onSelect={() => onChange('')} />
+                </PickerFooter>
               )}
             </CommandList>
           </Command>

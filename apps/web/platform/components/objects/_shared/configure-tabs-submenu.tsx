@@ -1,15 +1,15 @@
 /**
  * `ConfigureTabsSubmenu` — the "Configure tabs" entry of an object panel's
  * "More actions" (kebab) menu: a checkbox per tab plus a reset-to-defaults
- * button. Shared by the company and person panels so both menus offer the same
+ * item. Shared by the company and person panels so both menus offer the same
  * thing; the visibility state itself lives in `useObjectPanelTabConfig`.
  */
 
 import { RotateCcw, Settings2 } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { Button } from '@weldsuite/ui/components/button';
 import {
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -40,28 +40,16 @@ export function ConfigureTabsSubmenu({
   const st = useTranslations();
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
-        <Settings2 className="h-4 w-4 mr-0.5" />
+      {/* The shared sub-trigger lacks the stock shadcn gap and icon styling
+          that menu items have, so it is supplied here. */}
+      <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:shrink-0">
+        <Settings2 />
         {st('sweep.entities.configureTabs')}
       </DropdownMenuSubTrigger>
-      <DropdownMenuSubContent className="w-52">
-        <DropdownMenuLabel className="flex items-center justify-between gap-2">
-          <span>{st('sweep.entities.visibleTabs')}</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={(e) => {
-              e.preventDefault();
-              onResetTabs();
-            }}
-            className="p-1 -mr-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
-            title={st('sweep.entities.resetToDefaults')}
-            aria-label={st('sweep.entities.resetToDefaults')}
-          >
-            <RotateCcw className="h-3 w-3" />
-          </Button>
-        </DropdownMenuLabel>
+      {/* Stock shadcn submenu: default width, checkbox items, and reset as a
+          plain item under a separator. */}
+      <DropdownMenuSubContent>
+        <DropdownMenuLabel>{st('sweep.entities.visibleTabs')}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {tabs.map((tab) => {
           const isOn = tab.required || isTabVisible(tab.id);
@@ -77,6 +65,16 @@ export function ConfigureTabsSubmenu({
             </DropdownMenuCheckboxItem>
           );
         })}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            onResetTabs();
+          }}
+        >
+          <RotateCcw />
+          {st('sweep.entities.resetToDefaults')}
+        </DropdownMenuItem>
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );

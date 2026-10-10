@@ -71,18 +71,11 @@ export function EmptyDetailState() {
   return (
     <div className="h-full hidden md:flex flex-col items-center justify-center text-center px-6">
       <EmptyStateIllustration>
-        <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-          {/* Envelope body */}
-          <rect x="20" y="35" width="80" height="55" rx="4" className="fill-white dark:fill-secondary" />
-          <rect x="20" y="35" width="80" height="55" rx="4" className="stroke-gray-200 dark:stroke-border" strokeWidth="1" />
-          {/* Bottom V fold lines */}
-          <path d="M20 90L52 65" className="stroke-gray-100 dark:stroke-border" strokeWidth="1" />
-          <path d="M100 90L68 65" className="stroke-gray-100 dark:stroke-border" strokeWidth="1" />
-          {/* Envelope flap background */}
-          <path d="M20.5 38C20.5 36.3 21.8 35 23.5 35H96.5C98.2 35 99.5 36.3 99.5 38L60 64Z" className="fill-gray-50 dark:fill-border/30" />
-          {/* Envelope flap stroke */}
-          <path d="M20 35L60 64L100 35" className="stroke-gray-200 dark:stroke-border" strokeWidth="1" fill="none" />
-        </svg>
+        {/* WeldMail logo as a mask, so it takes the theme colour instead of the brand orange */}
+        <span
+          aria-hidden="true"
+          className="block w-20 aspect-[937/669] bg-muted-foreground/20 [mask:url(/assets/images/weldmail/icon.svg)_center/contain_no-repeat]"
+        />
       </EmptyStateIllustration>
       <h3 className="text-[15px] font-semibold text-foreground mb-1.5">{t.mail.emptyState.selectMessage}</h3>
       <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed">{t.mail.emptyState.selectMessageDescription}</p>

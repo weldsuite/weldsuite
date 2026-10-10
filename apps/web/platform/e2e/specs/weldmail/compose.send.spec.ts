@@ -54,7 +54,7 @@ test.describe('WeldMail · Compose send payload', () => {
 
     await page.getByPlaceholder(/subject/i).fill('CC/BCC payload test');
 
-    const toInput = page.getByPlaceholder(/add recipients/i);
+    const toInput = page.getByTestId('compose-to-input');
     await toInput.fill('to@example.com');
     await toInput.press('Enter');
 
@@ -87,7 +87,7 @@ test.describe('WeldMail · Compose send payload', () => {
     await page.goto(`/weldmail/${accountId}/INBOX/compose`);
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
-    const toInput = page.getByPlaceholder(/add recipients/i);
+    const toInput = page.getByTestId('compose-to-input');
     await toInput.fill('primary@example.com');
     await toInput.press('Enter');
 
@@ -133,7 +133,7 @@ test.describe('WeldMail · Compose send payload', () => {
     await expect(page.getByTestId('app-sidebar')).toBeVisible({ timeout: 15_000 });
 
     await page.getByPlaceholder(/subject/i).fill('With attachment');
-    const toInput = page.getByPlaceholder(/add recipients/i);
+    const toInput = page.getByTestId('compose-to-input');
     await toInput.fill('rcpt@example.com');
     await toInput.press('Enter');
 

@@ -30,7 +30,6 @@ import {
 import { cn } from '@/lib/utils';
 import { InlineTextEditor } from '@/components/shared/inline-text-editor';
 import type { Task } from '@/hooks/use-crm-tasks';
-import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { TaskDetailContent, DescriptionField, type TaskAttachment, type TaskComment, type SubtaskItem, type DependencyTask, type TaskUpdateData } from './task-detail-content';
 import { TaskChat } from './task-chat';
 
@@ -364,13 +363,6 @@ export function TaskDetailPanel({
             <X className="h-4 w-4 text-gray-500" />
           </Button>
         </div>
-
-        {/* Task number — human-friendly identifier, click to copy */}
-        {task.number != null && (
-          <div className="pb-1.5">
-            <TaskNumberBadge number={task.number} />
-          </div>
-        )}
 
         {/* Title Section — pr reserves room for the 3-dots + close buttons
             (the gear moved to the tabs row) incl. the title's `-mx-1.5`

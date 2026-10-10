@@ -1,5 +1,5 @@
 import {
-  LayoutGrid,
+  ChartNoAxesGantt,
   SquareActivity,
   Building,
   Mail,
@@ -39,7 +39,7 @@ export interface PersonTab extends ObjectPanelTabDescriptor {
 }
 
 export const PERSON_TABS: PersonTab[] = [
-  { id: 'overview', label: 'Details', icon: LayoutGrid, required: true, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
+  { id: 'overview', label: 'Details', icon: ChartNoAxesGantt, required: true, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'activity', label: 'Activity', icon: SquareActivity, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'companies', label: 'Companies', icon: Building, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'emails', label: 'Emails', icon: Mail, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },

@@ -90,7 +90,6 @@ export function LinkCompanyPopover({ personId, linkedCompanyIds }: Readonly<Link
               value={c.displayName + (c.industry ? ` ${c.industry}` : '')}
               disabled={already || linkMut.isPending}
               onSelect={() => handlePick(c)}
-              className="flex items-center gap-2"
             >
               <Avatar className="h-6 w-6 rounded-md">
                 <AvatarImage
@@ -107,7 +106,7 @@ export function LinkCompanyPopover({ personId, linkedCompanyIds }: Readonly<Link
                   <div className="text-xs text-muted-foreground truncate">{c.industry}</div>
                 )}
               </div>
-              {already && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
+              {already && <Check className="ml-auto" />}
             </CommandItem>
           );
         })}
@@ -133,7 +132,7 @@ export function LinkCompanyPopover({ personId, linkedCompanyIds }: Readonly<Link
             value={search}
             onValueChange={setSearch}
           />
-          <CommandList className="max-h-[260px]">
+          <CommandList>
             {companiesContent}
           </CommandList>
         </Command>
