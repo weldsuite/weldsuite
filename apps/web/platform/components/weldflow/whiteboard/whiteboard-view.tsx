@@ -1591,12 +1591,9 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
         };
       }
       case 'arrow': {
-        const length = Math.sqrt(
-          Math.pow(point.x - startPoint.x, 2) +
-          Math.pow(point.y - startPoint.y, 2)
-        );
+        const length = Math.hypot(point.x - startPoint.x, point.y - startPoint.y);
         // Only create arrow if it has some length
-        if (!(length > 5)) return null;
+        if (length <= 5) return null;
         return {
           id: Date.now().toString(),
           type: 'arrow',

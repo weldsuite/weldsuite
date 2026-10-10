@@ -1777,7 +1777,6 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           toast.error(t.mail.messageDetail.failedToUpdateSpamStatus);
         },
       });
-      return;
     } else {
       try {
         if (isCurrentlySpam) {
