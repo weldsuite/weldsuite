@@ -29,7 +29,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -37,7 +37,7 @@ import { error, list, noContent, success } from '@weldsuite/worker-kit/response'
 import { generateId } from '@weldsuite/worker-kit/id';
 import { timeEntryAnalyticsPayload } from '../../lib/weldflow-analytics-payload';
 import { canManageProject } from '../../lib/project-access';
-import { schema } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.timeEntries;
@@ -99,6 +99,53 @@ function computeCost(rate?: string | number | null, duration?: string | number |
   return String((d / 60) * r);
 }
 
+/** A calendar day only has 24 hours; no one user can log more than that. */
+const MAX_MINUTES_PER_DAY = 24 * 60;
+
+function formatHours(minutes: number): string {
+  return `${Math.round((minutes / 60) * 100) / 100}h`;
+}
+
+/**
+ * Daily-limit guard for create / update. Returns a user-facing message when the
+ * entry itself is not a valid duration, exceeds 24h, or would push the user's
+ * total for `date` (every other live entry, `excludeId` aside) past 24h.
+ * Returns null when the entry is acceptable.
+ */
+async function dailyLimitViolation(
+  db: Database,
+  params: { userId: string; date: string; minutes: string | number; excludeId?: string },
+): Promise<string | null> {
+  const raw = typeof params.minutes === 'string' ? params.minutes.trim() : params.minutes;
+  const minutes = raw === '' ? Number.NaN : Number(raw);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    return 'Duration must be a non-negative number of minutes';
+  }
+  if (minutes > MAX_MINUTES_PER_DAY) {
+    return `A time entry cannot be longer than 24 hours (got ${formatHours(minutes)})`;
+  }
+
+  const conditions: SQL[] = [
+    isNull(t.deletedAt),
+    eq(t.userId, params.userId),
+    sql`${t.date} = ${params.date}`,
+  ];
+  if (params.excludeId) conditions.push(ne(t.id, params.excludeId));
+  const [row] = await db
+    .select({ minutes: sql<number>`coalesce(sum(${t.duration}), 0)::float8` })
+    .from(t)
+    .where(and(...conditions));
+  const alreadyLogged = Number(row?.minutes ?? 0);
+
+  if (alreadyLogged + minutes > MAX_MINUTES_PER_DAY) {
+    return (
+      `You cannot log more than 24 hours on a single day: ${params.date} already has ` +
+      `${formatHours(alreadyLogged)} logged, and adding ${formatHours(minutes)} would exceed the limit`
+    );
+  }
+  return null;
+}
+
 // ============================================================================
 // GET / — list with filters + page/limit pagination (matches api-worker shape).
 //
@@ -150,71 +197,41 @@ app.get('/', requirePermission('time:read'), zValidator('query', listFiltersSche
       return { totalCount, hasMore: offset + returned < totalCount, cursor: null };
     };
 
-    // Team reads join the member/task lookups the grid needs to label a row the
-    // caller did not author. Kept as a separate branch rather than a ternary so
-    // each query keeps its own row type — a union of the two breaks inference.
-    if (wantsTeam) {
-      const [rawRows, countRes] = await Promise.all([
-        db
-          .select({
-            id: t.id,
-            projectId: t.projectId,
-            taskId: t.taskId,
-            userId: t.userId,
-            date: t.date,
-            startTime: t.startTime,
-            endTime: t.endTime,
-            duration: t.duration,
-            description: t.description,
-            activity: t.activity,
-            billable: t.billable,
-            status: t.status,
-            approvedBy: t.approvedBy,
-            approvedAt: t.approvedAt,
-            createdAt: t.createdAt,
-            updatedAt: t.updatedAt,
-            userName: schema.workspaceMembers.name,
-            userEmail: schema.workspaceMembers.email,
-            userAvatar: schema.workspaceMembers.picture,
-            taskTitle: schema.tasks.title,
-          })
-          .from(t)
-          .leftJoin(schema.workspaceMembers, eq(t.userId, schema.workspaceMembers.userId))
-          .leftJoin(schema.tasks, eq(t.taskId, schema.tasks.id))
-          .where(where)
-          .orderBy(desc(t.date), desc(t.createdAt))
-          .limit(limit)
-          .offset(offset),
-        countQuery,
-      ]);
-
-      // Reshape the joined columns into the nested `user` / `task` objects the
-      // timesheet grid already reads (`entry.user?.name`, `entry.task?.title`).
-      const rows = rawRows.map(({ userName, userEmail, userAvatar, taskTitle, ...entry }) => ({
-        ...entry,
-        user: {
-          id: entry.userId,
-          name: userName ?? userEmail ?? entry.userId,
-          email: userEmail ?? '',
-          avatar: userAvatar ?? '',
-        },
-        task: entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined,
-      }));
-      return list(c, rows, paginate(countRes, rows.length));
-    }
-
-    // Own scope keeps the plain `select()` so the personal timesheet's payload
-    // shape is untouched.
-    const [rows, countRes] = await Promise.all([
+    // Both scopes join the member/task lookups the grid needs to label an entry
+    // with its author and a task row with the task's title. Without them the
+    // personal ("Mine") grid had only the entry description to go on, so a task
+    // row was named after one entry's description and the author read "Unknown".
+    const [rawRows, countRes] = await Promise.all([
       db
-        .select()
+        .select({
+          ...getTableColumns(t),
+          userName: schema.workspaceMembers.name,
+          userEmail: schema.workspaceMembers.email,
+          userAvatar: schema.workspaceMembers.picture,
+          taskTitle: schema.tasks.title,
+        })
         .from(t)
+        .leftJoin(schema.workspaceMembers, eq(t.userId, schema.workspaceMembers.userId))
+        .leftJoin(schema.tasks, eq(t.taskId, schema.tasks.id))
         .where(where)
         .orderBy(desc(t.date), desc(t.createdAt))
         .limit(limit)
         .offset(offset),
       countQuery,
     ]);
+
+    // Reshape the joined columns into the nested `user` / `task` objects the
+    // timesheet grid reads (`entry.user?.name`, `entry.task?.title`).
+    const rows = rawRows.map(({ userName, userEmail, userAvatar, taskTitle, ...entry }) => ({
+      ...entry,
+      user: {
+        id: entry.userId,
+        name: userName ?? userEmail ?? entry.userId,
+        email: userEmail ?? '',
+        avatar: userAvatar ?? '',
+      },
+      task: entry.taskId && taskTitle ? { id: entry.taskId, title: taskTitle } : undefined,
+    }));
     return list(c, rows, paginate(countRes, rows.length));
   } catch (err) {
     console.error('[app-api/time-entries] list failed:', err);
@@ -666,6 +683,13 @@ app.post(
     const now = new Date();
 
     try {
+      const violation = await dailyLimitViolation(db, {
+        userId,
+        date: data.date,
+        minutes: data.duration,
+      });
+      if (violation) return error.badRequest(c, violation);
+
       await db.insert(t).values({
         id,
         projectId: data.projectId ?? null,
@@ -767,6 +791,18 @@ app.patch(
         .where(and(eq(t.id, id), isNull(t.deletedAt), eq(t.userId, callerId)))
         .limit(1);
       if (!existing) return error.notFound(c, 'Time entry', id);
+
+      // Moving an entry to another day or lengthening it can both break the
+      // 24h/day cap, so re-check whenever either changes.
+      if (data.duration !== undefined || (data.date !== undefined && data.date !== existing.date)) {
+        const violation = await dailyLimitViolation(db, {
+          userId: existing.userId,
+          date: data.date ?? existing.date,
+          minutes: data.duration ?? existing.duration,
+          excludeId: id,
+        });
+        if (violation) return error.badRequest(c, violation);
+      }
 
       const update = buildTimeEntryUpdate(data, existing);
 

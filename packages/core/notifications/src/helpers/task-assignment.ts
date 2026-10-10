@@ -20,7 +20,7 @@ interface TaskAssignmentParams<Env extends NotificationEnv> {
   taskId: string;
   taskTitle: string;
   category: 'projects' | 'task' | 'crm';
-  /** Relative action path, e.g. `/weldflow/tasks/task_abc123`. Prefixed
+  /** Relative action path, e.g. `/weldflow/task/task_abc123`. Prefixed
    *  with `env.PUBLIC_APP_URL` for the absolute link in the email
    *  template; in-app + push keep it as a path. */
   actionUrl: string;

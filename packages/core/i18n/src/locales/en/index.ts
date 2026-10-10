@@ -49,6 +49,7 @@ import { weldobjects } from './weldobjects';
 import { sweep } from './sweep';
 import { developer } from './developer';
 import { weldbooksUs } from './weldbooks-us';
+import { admin } from './admin';
 
 export const en = {
   common,
@@ -101,4 +102,5 @@ export const en = {
   sweep,
   developer,
   weldbooksUs,
+  admin,
 };

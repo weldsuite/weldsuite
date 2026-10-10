@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useI18n } from '@/lib/i18n/provider';
+import type { TranslationsType } from '@/lib/i18n/types';
 import {
   Check,
   Trash2,
@@ -10,7 +12,6 @@ import {
   Flag,
   CircleDot,
   Clock,
-  Timer,
   Tags,
   Plus,
   Upload,
@@ -30,7 +31,6 @@ import {
   ExternalLink,
  ListCollapse, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { getTranslations } from '@/lib/i18n';
 import { Input } from '@weldsuite/ui/components/input';
 import { Button } from '@weldsuite/ui/components/button';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
@@ -62,7 +62,7 @@ import { cn } from '@/lib/utils';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import type { Task } from '@/hooks/use-crm-tasks';
-import { format } from 'date-fns';
+import { formatLocalized as format } from '@/lib/i18n/date-locale';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
@@ -72,10 +72,12 @@ import { MentionAutocomplete, type MentionSelection } from '@/app/weldchat/compo
 import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useLinkedRepos } from '@/hooks/queries/use-github-queries';
 import { InlineSubtaskInput } from './inline-subtask-input';
+import { InlineLabelCreator } from '@/components/tasks/inline-label-creator';
+import { TaskDurationField } from './task-duration-field';
+import { Link } from '@/lib/router';
 import { descriptionToHtml, escapeHtml } from './description-html';
 import { activateOnKey } from '@/lib/activate-on-key';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
-import { DURATION_PRESETS, formatMinutes, parseDurationMinutes } from '@/components/tasks/task-duration';
 
 // Status configuration (color only — labels are translated at render time via
 // `useTaskStatusLabels()` / `useTaskPriorityLabels()` / `useTaskRepeatLabels()` below)
@@ -290,14 +292,14 @@ export interface TaskUpdateData {
   priority?: NonNullable<Task['priority']>;
   dueDate?: Date;
   startDate?: Date;
-  /** Minutes; `null` clears it. */
-  duration?: number | null;
   assignee?: NonNullable<Task['assignee']> | null;
   assignees?: NonNullable<Task['assignees']> | null;
   linkedCompany?: NonNullable<Task['linkedCompany']> | null;
   /** CRM person link, mutually exclusive with `linkedCompany`. */
   linkedPerson?: NonNullable<Task['linkedPerson']> | null;
   labels?: string[];
+  /** Estimated minutes; null clears the estimate. */
+  duration?: number | null;
   repeat?: NonNullable<Task['repeat']> | null;
   customFields?: Record<string, unknown>;
 }
@@ -316,6 +318,8 @@ export interface TaskDetailContentProps {
   onOpenRecord?: (type: 'company' | 'person', id: string) => void;
   availableLabels?: { id: string; name: string; color: string }[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
+  /** Persists the time estimate (minutes, null clears it). The "Time estimate" row only renders when provided. */
+  onDurationChange?: (minutes: number | null) => void;
   projectId?: string;
   taskId?: string;
   attachments?: TaskAttachment[];
@@ -356,22 +360,25 @@ export interface TaskDetailContentProps {
   alwaysShowFields?: string[];
 }
 
-function formatRelativeTime(dateStr: string | null): string {
+type RelativeTimeLabels = TranslationsType['common']['agents']['relativeTime'];
+
+function formatRelativeTime(dateStr: string | null, labels: RelativeTimeLabels): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffMins < 1) return labels.justNow;
+  if (diffMins < 60) return labels.minutesAgo.replace('{count}', String(diffMins));
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffHours < 24) return labels.hoursAgo.replace('{count}', String(diffHours));
   const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
+  return labels.daysAgo.replace('{count}', String(diffDays));
 }
 
 function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
-  const t = getTranslations('settings');
+  const t = useI18n().t.settings;
+  const relativeTime = useI18n().t.common.agents.relativeTime;
   const github = t.integrations.github;
 
   const issueNumber = task.githubIssueNumber;
@@ -384,7 +391,7 @@ function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
     ? `https://github.com/${repoLink.repoFullName}/issues/${issueNumber}`
     : null;
 
-  const lastSynced = repoLink?.lastSyncedAt ? formatRelativeTime(repoLink.lastSyncedAt) : null;
+  const lastSynced = repoLink?.lastSyncedAt ? formatRelativeTime(repoLink.lastSyncedAt, relativeTime) : null;
 
   return (
     <div className="flex items-center gap-3">
@@ -460,13 +467,18 @@ function formatFileSize(bytes: number): string {
 function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }>) {
   const t = useTranslations();
   const priorityLabels = useTaskPriorityLabels(t);
+  const [open, setOpen] = useState(false);
+  const pick = (priority: Task['priority']) => {
+    setOpen(false);
+    onUpdate(task.id, { priority });
+  };
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2 w-32 flex-shrink-0">
         <Flag className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">{t('sweep.shared.priority')}</span>
       </div>
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
             {task.priority ? (
@@ -486,7 +498,7 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
             <Button
               variant="ghost"
               key={key}
-              onClick={() => onUpdate(task.id, { priority: key as Task['priority'] })}
+              onClick={() => pick(key as Task['priority'])}
               className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
             >
               <span>{priorityLabels[key as keyof typeof priorityLabels]}</span>
@@ -498,7 +510,7 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
               <div className="h-px bg-border my-1" />
               <Button
                 variant="ghost"
-                onClick={() => onUpdate(task.id, { priority: undefined })}
+                onClick={() => pick(undefined)}
                 className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
               >
                 <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
@@ -556,127 +568,6 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
               </Button>
             </div>
           )}
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-/**
- * How long the task takes, in minutes. Set from the task dialog's duration chip
- * (30m by default) and used to size the task's calendar block, so it has to be
- * visible and editable here too, not only at creation time.
- */
-function DurationField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (taskId: string, data: TaskUpdateData) => void }>) {
-  const t = useTranslations();
-  const [open, setOpen] = useState(false);
-  const [customMinutes, setCustomMinutes] = useState('');
-  const duration = task.duration ?? null;
-  // The last value sent and not yet reflected in `task`: Enter commits and then
-  // closes the popover, whose blur would otherwise commit the same value twice.
-  const lastSentRef = useRef<number | null | undefined>(undefined);
-
-  // The custom box only holds a value that is not one of the presets; commit on
-  // Enter / blur so typing "45" doesn't fire a PATCH for "4" first.
-  useEffect(() => {
-    if (open) setCustomMinutes(duration != null && !DURATION_PRESETS.includes(duration) ? String(duration) : '');
-  }, [open, duration]);
-
-  useEffect(() => {
-    lastSentRef.current = undefined;
-  }, [duration]);
-
-  const commit = useCallback(
-    (next: number | null) => {
-      if (next === duration || next === lastSentRef.current) return;
-      lastSentRef.current = next;
-      onUpdate(task.id, { duration: next });
-    },
-    [duration, onUpdate, task.id],
-  );
-
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex items-center gap-2 w-32 flex-shrink-0">
-        <Timer className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">{t('sweep.shared.duration')}</span>
-      </div>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" className={cn(
-            "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors",
-            duration != null && "border border-transparent hover:border-border hover:bg-muted/40",
-          )}>
-            {duration != null ? (
-              <span>{formatMinutes(duration)}</span>
-            ) : (
-              <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setDuration')}</span>
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-48 p-1" align="start">
-          <div className="flex flex-col">
-            {DURATION_PRESETS.map((mins) => (
-              <Button
-                variant="ghost"
-                key={mins}
-                onClick={() => {
-                  commit(mins);
-                  setOpen(false);
-                }}
-                className={cn(
-                  "flex items-center justify-between px-2 py-1.5 text-sm rounded hover:bg-muted",
-                  duration === mins && "bg-muted",
-                )}
-              >
-                <span>{formatMinutes(mins)}</span>
-                {duration === mins && <Check className="h-3.5 w-3.5 text-primary" />}
-              </Button>
-            ))}
-            <div className="h-px bg-border my-1" />
-            <div className="px-2 py-1.5">
-              <label className="text-xs font-medium text-muted-foreground">
-                {t('sweep.shared.customDurationMinutes')}
-                <Input
-                  type="number"
-                  min="1"
-                  value={customMinutes}
-                  onChange={(e) => setCustomMinutes(e.target.value)}
-                  onBlur={() => {
-                    // A blank / invalid box leaves the current duration alone;
-                    // clearing is what the Clear button below is for.
-                    const parsed = parseDurationMinutes(customMinutes);
-                    if (parsed !== null) commit(parsed);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return;
-                    const parsed = parseDurationMinutes(customMinutes);
-                    if (parsed !== null) {
-                      commit(parsed);
-                      setOpen(false);
-                    }
-                  }}
-                  className="h-7 text-sm mt-1"
-                />
-              </label>
-            </div>
-            {duration != null && (
-              <>
-                <div className="h-px bg-border my-1" />
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    commit(null);
-                    setOpen(false);
-                  }}
-                  className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
-                  <span>{t('sweep.shared.clear')}</span>
-                </Button>
-              </>
-            )}
-          </div>
         </PopoverContent>
       </Popover>
     </div>
@@ -883,6 +774,7 @@ export function TaskDetailContent({
   onOpenRecord,
   availableLabels = [],
   onCreateLabel,
+  onDurationChange,
   projectId,
   taskId,
   attachments = [],
@@ -911,6 +803,7 @@ export function TaskDetailContent({
   const t = useTranslations();
   const statusLabels = useTaskStatusLabels(t);
   const repeatLabels = useTaskRepeatLabels(t);
+  const [statusOpen, setStatusOpen] = useState(false);
   const {
     isFieldVisible: isFieldVisibleBase,
     fields,
@@ -1056,7 +949,7 @@ export function TaskDetailContent({
               <CircleDot className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{t('sweep.shared.status')}</span>
             </div>
-            <Popover>
+            <Popover open={statusOpen} onOpenChange={setStatusOpen}>
               <PopoverTrigger asChild>
                 <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
                   <span className={cn(
@@ -1072,7 +965,10 @@ export function TaskDetailContent({
                   <Button
                     variant="ghost"
                     key={key}
-                    onClick={() => onUpdate(task.id, { status: key as Task['status'] })}
+                    onClick={() => {
+                      setStatusOpen(false);
+                      onUpdate(task.id, { status: key as Task['status'] });
+                    }}
                     className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
                   >
                     <span>{statusLabels[key as keyof typeof statusLabels]}</span>
@@ -1092,11 +988,6 @@ export function TaskDetailContent({
           {/* Due Date */}
           {isFieldVisible('dueDate') && (
           <DueDateField task={task} onUpdate={onUpdate} />
-          )}
-
-          {/* Duration */}
-          {isFieldVisible('duration') && (
-          <DurationField task={task} onUpdate={onUpdate} />
           )}
 
           {/* Scheduled slot — read-only, sourced from the linked calendar event.
@@ -1261,6 +1152,11 @@ export function TaskDetailContent({
           </div>
           )}
 
+          {/* Time estimate (minutes) */}
+          {isFieldVisible('duration') && onDurationChange && (
+            <TaskDurationField duration={task.duration} onChange={onDurationChange} />
+          )}
+
           {/* Labels */}
           {isFieldVisible('labels') && (
           <div className="flex items-center gap-3">
@@ -1301,6 +1197,19 @@ export function TaskDetailContent({
                 })()}
               </PopoverTrigger>
               <PopoverContent className="w-auto p-1 min-w-[200px]" align="start">
+                {availableLabels.length === 0 && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    {t('sweep.shared.noLabelsYet')}
+                    {!onCreateLabel && projectId && (
+                      <Link
+                        href={`/weldflow/project/${projectId}/settings`}
+                        className="mt-1 block text-foreground underline underline-offset-2"
+                      >
+                        {t('sweep.shared.manageLabelsInSettings')}
+                      </Link>
+                    )}
+                  </div>
+                )}
                 {availableLabels.map((label) => {
                   const isSelected = task.labels?.includes(label.id) ?? false;
                   return (
@@ -1329,6 +1238,21 @@ export function TaskDetailContent({
                     </Button>
                   );
                 })}
+                {onCreateLabel && (
+                  <>
+                    {availableLabels.length > 0 && <div className="h-px bg-border my-1" />}
+                    <InlineLabelCreator
+                      existingNames={availableLabels.map((l) => l.name)}
+                      onCreate={async (data) => {
+                        const created = await onCreateLabel(data);
+                        if (created) {
+                          onUpdate(task.id, { labels: [...(task.labels ?? []), created.id] });
+                        }
+                        return created;
+                      }}
+                    />
+                  </>
+                )}
                 {task.labels && task.labels.length > 0 && (
                   <>
                     <div className="h-px bg-border my-1" />
@@ -1683,6 +1607,7 @@ export function TaskDetailContent({
           <EntityAuditPanel
             entityType={projectId ? 'project_task' : 'personal_task'}
             entityId={taskId}
+            alwaysShowChanges
           />
         </div>
       )}
@@ -1783,8 +1708,9 @@ export function SubtasksSection({
   // root AND prepend the selected task into the list at depth 0 (shifting
   // the originally-loaded descendants down by one level). Effect: the panel
   // reads as "parent → selected → selected's children". Top-level tasks
-  // (no parent) keep the previous shape: selected as root, children below.
-  const effectiveRoot = parentTask ?? rootTask;
+  // (no parent) show only their children: repeating the open task as the
+  // first row made it read like the task was its own subtask.
+  const effectiveRoot = parentTask ?? undefined;
 
   // "Add subtask" only reveals an inline title field; the subtask is created
   // when the user submits a title (see InlineSubtaskInput).
@@ -1960,10 +1886,13 @@ export function SubtasksSection({
                     ))}
                     {/* Tree connector with rounded corner */}
                     <div style={{ width: 18, flexShrink: 0, position: 'relative' }}>
-                      {/* Vertical line above the curve */}
-                      <div
-                        style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
-                      />
+                      {/* Vertical line above the curve — nothing sits above the very first
+                          row when the list has no root row, so skip it there. */}
+                      {(index > 0 || !!effectiveRoot) && (
+                        <div
+                          style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
+                        />
+                      )}
                       {/* Rounded corner */}
                       <div
                         style={{
@@ -2043,10 +1972,9 @@ export function SubtasksSection({
         <div className="py-1">
           <InlineSubtaskInput
             placeholder={t('sweep.shared.subtaskTitlePlaceholder')}
-            onSubmit={(title) => {
-              setIsAdding(false);
-              onCreateSubtask(title);
-            }}
+            // The field stays open (and focused) after each Enter so several
+            // subtasks can be typed in a row; Escape or blurring it empty closes it.
+            onSubmit={onCreateSubtask}
             onCancel={() => setIsAdding(false)}
           />
         </div>

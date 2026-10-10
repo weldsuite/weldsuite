@@ -1,6 +1,7 @@
 ﻿
 import { useState, useRef, useMemo, useCallback } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useDateLocale } from '@/lib/i18n/date-locale';
 import {
   DndContext,
   DragEndEvent,
@@ -107,8 +108,6 @@ const priorityConfigBase: Record<string, { color: string; bg: string }> = {
   critical: { color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
 };
 
-const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
-
 // ---------- Filtering ----------
 
 function searchTasks(tasks: Task[], searchQuery: string): Task[] {
@@ -183,6 +182,7 @@ function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; 
 
 function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel, onClick }: Readonly<{ task: Task; availableLabels?: ProjectLabel[]; priorityConfig: Record<string, { label: string; color: string; bg: string }>; unassignedLabel: string; onClick?: () => void }>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
+  const { formatShort } = useDateLocale();
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -258,7 +258,7 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
         <div className="flex items-center gap-2 mt-2.5">
           <CalendarClock className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
           <span className="text-sm text-gray-600 dark:text-muted-foreground">
-            {shortDateFormatter.format(task.startDate)}
+            {formatShort(task.startDate)}
           </span>
         </div>
       )}
@@ -268,7 +268,7 @@ function TaskCard({ task, availableLabels = [], priorityConfig, unassignedLabel,
         <div className="flex items-center gap-2 mt-2.5">
           <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
           <span className="text-sm text-gray-600 dark:text-muted-foreground">
-            {shortDateFormatter.format(task.dueDate)}
+            {formatShort(task.dueDate)}
           </span>
         </div>
       )}
@@ -380,6 +380,7 @@ export function MyTasksPipeline({
   viewToggle,
 }: Readonly<MyTasksPipelineProps>) {
   const { t } = useI18n();
+  const { formatShort } = useDateLocale();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const columns = useMemo<PipelineColumn[]>(() => [
@@ -616,7 +617,7 @@ export function MyTasksPipeline({
                   {activeTask.dueDate && (
                     <div className="flex items-center gap-2 mt-2">
                       <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                      <span className="text-sm text-gray-600 dark:text-muted-foreground">{shortDateFormatter.format(activeTask.dueDate)}</span>
+                      <span className="text-sm text-gray-600 dark:text-muted-foreground">{formatShort(activeTask.dueDate)}</span>
                     </div>
                   )}
                 </div>

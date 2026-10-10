@@ -159,7 +159,7 @@ const TARGETS: Record<string, TargetDefinition> = {
     titleColumn: (t) => t.title,
     readPermission: 'tasks:read',
     label: 'Task',
-    href: (id) => `/weldflow/tasks/${id}`,
+    href: (id) => `/weldflow/task/${id}`,
     softDeletes: true,
   }),
   product: defineTarget({

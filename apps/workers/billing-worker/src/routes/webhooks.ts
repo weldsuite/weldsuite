@@ -15,14 +15,21 @@ import {
   verifyStripeSignature,
   isOurOwnSync,
   retrieveSubscription,
-  createStripeSubscription,
   cancelSubscriptionImmediately,
   retrievePaymentIntent,
   retrieveCustomer,
   setCustomerDefaultPaymentMethod,
 } from '../lib/stripe';
-import { calculateEffectiveSeatLimit, syncClerkSeatLimit, getMemberCount } from '../lib/clerk';
+import { applyClerkSeatLimit, trySyncClerkSeatLimit } from '../lib/clerk';
 import { updateSubscriptionCredits } from '../services/credits';
+import {
+  applySubscriptionEnded,
+  detachEndedSubscriptionFromComp,
+  findPlanForStripePrice,
+  isCompActive,
+  syncSubscriptionCredits,
+  unixToDate,
+} from '../services/subscription-policy';
 import { grantCredits } from '@weldsuite/credits';
 import {
   RealtimeRegistrar,
@@ -57,12 +64,6 @@ const {
   userAppInstalls,
   appDeveloperAccounts,
 } = masterSchema;
-
-// "Trial ended → add payment or workspace is deleted" policy grace period.
-// Applies only to workspaces.paidPlanRequired === true (new signups; existing
-// workspaces are grandfathered onto the free-downgrade path). See
-// handleSubscriptionDeleted below and workspace-worker's deletion-sweep cron.
-const GRACE_PERIOD_DAYS = 30;
 
 // ============================================================================
 // Domain Registration helpers (Task 5b)
@@ -132,45 +133,6 @@ function extractSubscriptionId(subscription: string | { id: string } | null): st
 }
 
 type MasterDb = ReturnType<typeof getMasterDb>;
-type SeatPlan = Parameters<typeof calculateEffectiveSeatLimit>[0];
-
-// Helper: convert a Stripe unix-seconds timestamp to a Date (null when absent)
-function unixToDate(seconds: number | null | undefined): Date | null {
-  return seconds ? new Date(seconds * 1000) : null;
-}
-
-// Helper: recompute the workspace's effective seat limit and push it to Clerk
-async function applyClerkSeatLimit(
-  env: Env,
-  clerkSecretKey: string,
-  masterDb: MasterDb,
-  clerkOrgId: string,
-  workspaceId: string,
-  plan: SeatPlan,
-  seats: number,
-): Promise<void> {
-  const memberCount = await getMemberCount(env, masterDb, clerkOrgId, workspaceId);
-  const effectiveLimit = calculateEffectiveSeatLimit(plan, seats, memberCount);
-  await syncClerkSeatLimit(clerkSecretKey, clerkOrgId, effectiveLimit);
-}
-
-// Helper: best-effort Clerk seat-limit sync for an already-resolved plan
-async function trySyncClerkSeatLimit(
-  env: Env,
-  masterDb: MasterDb,
-  clerkOrgId: string | null,
-  workspaceId: string,
-  plan: SeatPlan | null | undefined,
-  seats: number,
-  context: string,
-): Promise<void> {
-  if (!clerkOrgId || !env.CLERK_SECRET_KEY || !plan) return;
-  try {
-    await applyClerkSeatLimit(env, env.CLERK_SECRET_KEY, masterDb, clerkOrgId, workspaceId, plan, seats);
-  } catch (err) {
-    console.error(`[Stripe Webhook] Failed to sync Clerk seat limit after ${context}:`, err);
-  }
-}
 
 export const webhookRoutes = new Hono<{ Bindings: Env }>();
 
@@ -400,6 +362,11 @@ async function handleCheckoutCompleted(
       // paywall/deletion schedule, if one was set.
       trialExpiredAt: null,
       scheduledDeletionAt: null,
+      // The customer now pays for their plan, so an admin-granted comp ends.
+      compGrantedAt: null,
+      compEndsAt: null,
+      compGrantedBy: null,
+      compReason: null,
       updatedAt: new Date(),
     })
     .where(eq(workspaces.id, workspaceId))
@@ -613,6 +580,28 @@ async function handleSubscriptionUpdated(
     return;
   }
 
+  // An admin-granted comp owns the plan and seats while it lasts: mirror the
+  // Stripe subscription's own state, but leave plan, seats, credits and the
+  // Clerk seat cap alone.
+  if (isCompActive(workspace)) {
+    await masterDb
+      .update(workspaces)
+      .set({
+        subscriptionStatus: subscription.status,
+        subscriptionCycle: getSubscriptionCycle(subscription),
+        subscriptionCurrentPeriodStart: unixToDate(subscription.current_period_start),
+        subscriptionCurrentPeriodEnd: unixToDate(subscription.current_period_end),
+        subscriptionCancelAtPeriodEnd: subscription.cancel_at_period_end,
+        updatedAt: new Date(),
+      })
+      .where(eq(workspaces.id, workspace.id));
+    console.log(`[Stripe Webhook] Workspace ${workspace.id} is comped, kept its plan and seats`);
+    if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
+      await handleSubscriptionDeleted(env, masterDb, subscription);
+    }
+    return;
+  }
+
   // Find the plan by Stripe price ID, falling back to the Stripe product ID
   const matchedPlan = await findPlanForStripePrice(masterDb, priceId, productId);
 
@@ -760,46 +749,6 @@ async function resolveWorkspaceForSubscription(
   return workspaceByCustomer;
 }
 
-/** Match a plan by monthly/yearly Stripe price ID, falling back to the Stripe product ID. */
-async function findPlanForStripePrice(
-  masterDb: MasterDb,
-  priceId: string,
-  productId: string | undefined,
-): Promise<PlanRow | undefined> {
-  const [plan] = await masterDb
-    .select()
-    .from(plans)
-    .where(and(
-      eq(plans.stripePriceIdMonthly, priceId),
-      isNull(plans.deletedAt)
-    ));
-
-  const [yearlyPlan] = plan ? [] : await masterDb
-    .select()
-    .from(plans)
-    .where(and(
-      eq(plans.stripePriceIdYearly, priceId),
-      isNull(plans.deletedAt)
-    ));
-
-  const matchedPlan = plan || yearlyPlan;
-  if (matchedPlan || !productId) return matchedPlan;
-
-  // Fallback: find plan by Stripe product ID (handles new price IDs created by Stripe)
-  const [productPlan] = await masterDb
-    .select()
-    .from(plans)
-    .where(and(
-      eq(plans.stripeProductId, productId),
-      isNull(plans.deletedAt)
-    ));
-
-  if (productPlan) {
-    console.log(`[Stripe Webhook] Matched plan ${productPlan.name} by product ID ${productId} (price ID ${priceId} not found)`);
-  }
-  return productPlan;
-}
-
 // ============================================================================
 // Subscription Deleted
 // ============================================================================
@@ -844,113 +793,18 @@ async function handleSubscriptionDeleted(
     return;
   }
 
-  // New-signup / no-free-plan policy: the trial/subscription ended without an
-  // active paid subscription. Instead of downgrading to a free plan, start (or
-  // preserve) the 30-day "add payment or be deleted" grace period — the
-  // workspace-worker deletion-sweep cron tears the workspace down once
-  // scheduledDeletionAt elapses.
-  if (workspace.paidPlanRequired) {
-    if (!workspace.isActive) {
-      console.log(`[Stripe Webhook] Workspace ${workspace.id} is already inactive, skipping deletion scheduling`);
-      return;
-    }
-
-    // Idempotent: if a grace period is already running (e.g. a duplicate/
-    // retried webhook, or subscription.updated already handled it), don't
-    // push the deletion date out further.
-    const trialExpiredAt = workspace.trialExpiredAt ?? new Date();
-    const scheduledDeletionAt =
-      workspace.scheduledDeletionAt ??
-      new Date(trialExpiredAt.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000);
-
-    await masterDb
-      .update(workspaces)
-      .set({
-        subscriptionStatus: 'canceled',
-        stripeSubscriptionId: null,
-        subscriptionCancelAtPeriodEnd: false,
-        trialExpiredAt,
-        scheduledDeletionAt,
-        updatedAt: new Date(),
-      })
-      .where(eq(workspaces.id, workspace.id));
-
-    console.log(
-      `[Stripe Webhook] Workspace ${workspace.id} trial/subscription ended with no active paid subscription — scheduled for deletion at ${scheduledDeletionAt.toISOString()}`,
-    );
+  // An admin-granted comp keeps its plan and seats when the Stripe
+  // subscription goes away; only the subscription link is dropped.
+  if (isCompActive(workspace)) {
+    await detachEndedSubscriptionFromComp(masterDb, workspace.id);
+    console.log(`[Stripe Webhook] Subscription ended for comped workspace ${workspace.id}, kept its comp plan`);
     return;
   }
 
-  // Grandfathered workspace (paidPlanRequired === false) — keep the existing
-  // free-plan downgrade behavior.
-  const [freePlan] = await masterDb
-    .select()
-    .from(plans)
-    .where(and(
-      eq(plans.slug, 'free'),
-      isNull(plans.deletedAt)
-    ));
-
-  // Downgrade to free plan, reset purchased seats, clear subscription state
-  await masterDb
-    .update(workspaces)
-    .set({
-      planId: freePlan?.id || null,
-      stripeSubscriptionId: null,
-      purchasedSeats: 0,
-      subscriptionStatus: 'canceled',
-      subscriptionCycle: null,
-      subscriptionCurrentPeriodStart: null,
-      subscriptionCurrentPeriodEnd: null,
-      subscriptionCancelAtPeriodEnd: false,
-      updatedAt: new Date(),
-    })
-    .where(eq(workspaces.id, workspace.id));
-
-  console.log(`[Stripe Webhook] Downgraded workspace ${workspace.id} to free plan`);
-
-  // Reset credits to free tier
-  if (workspace.clerkOrgId) {
-    await resetCreditsToFreeTier(env, masterDb, workspace.id, workspace.clerkOrgId);
-  }
-
-  // Sync seat limit to Clerk (free plan's maxUsers, purchasedSeats = 0)
-  if (workspace.clerkOrgId && env.CLERK_SECRET_KEY && freePlan) {
-    try {
-      const effectiveLimit = freePlan.maxUsers ?? 0;
-      await syncClerkSeatLimit(env.CLERK_SECRET_KEY, workspace.clerkOrgId, effectiveLimit);
-    } catch (err) {
-      console.error('[Stripe Webhook] Failed to sync Clerk seat limit after downgrade:', err);
-    }
-  }
-
-  // Create a new $0 free subscription so invoice.paid continues firing
-  if (freePlan?.stripePriceIdMonthly && workspace.stripeCustomerId && env.STRIPE_SECRET_KEY) {
-    try {
-      const newSubscription = await createStripeSubscription(env.STRIPE_SECRET_KEY, {
-        customerId: workspace.stripeCustomerId,
-        priceId: freePlan.stripePriceIdMonthly,
-        metadata: {
-          workspaceId: workspace.id,
-          planId: freePlan.id,
-        },
-      });
-
-      await masterDb
-        .update(workspaces)
-        .set({
-          stripeSubscriptionId: newSubscription.id,
-          subscriptionStatus: 'active',
-          subscriptionCycle: 'monthly',
-          updatedAt: new Date(),
-        })
-        .where(eq(workspaces.id, workspace.id));
-
-      console.log(`[Stripe Webhook] Created new free subscription ${logSafe(newSubscription.id)} for workspace ${logSafe(workspace.id)}`);
-    } catch (subError) {
-      console.error('[Stripe Webhook] Failed to create free subscription after downgrade:', subError);
-    }
-  }
+  // No paid plan subscription left: pay-or-delete grace for new signups,
+  // free-plan downgrade for grandfathered workspaces.
+  const outcome = await applySubscriptionEnded(env, masterDb, workspace);
+  console.log(`[Stripe Webhook] Subscription ended for workspace ${workspace.id}: ${outcome}`);
 }
 
 // ============================================================================
@@ -1129,12 +983,20 @@ async function handleInvoicePaid(
       id: workspaces.id,
       clerkOrgId: workspaces.clerkOrgId,
       planId: workspaces.planId,
+      compGrantedAt: workspaces.compGrantedAt,
+      compEndsAt: workspaces.compEndsAt,
     })
     .from(workspaces)
     .where(eq(workspaces.stripeSubscriptionId, subscriptionId));
 
   if (!workspace) {
     console.log('[Stripe Webhook] No workspace found for invoice subscription', subscriptionId);
+    return;
+  }
+
+  // Comped seats are set by the admin, not by what the subscription bills.
+  if (isCompActive(workspace)) {
+    console.log(`[Stripe Webhook] Workspace ${workspace.id} is comped, skipping seat and credit sync`);
     return;
   }
 
@@ -1612,66 +1474,6 @@ async function handleChargeRefunded(
 }
 
 // ============================================================================
-// Credits Sync Helpers
-// ============================================================================
-
-async function syncSubscriptionCredits(
-  env: Env,
-  masterDb: ReturnType<typeof getMasterDb>,
-  workspaceId: string,
-  clerkOrgId: string,
-  planId: string,
-) {
-  try {
-    const [plan] = await masterDb
-      .select()
-      .from(plans)
-      .where(eq(plans.id, planId));
-
-    if (!plan) {
-      console.error('[Stripe Webhook] Plan not found for credits sync:', planId);
-      return;
-    }
-
-    const planCredits = plan.monthlyCredits || 0;
-
-    await updateSubscriptionCredits(masterDb, workspaceId, {
-      planCredits,
-      subscribedCredits: 0,
-    });
-
-    console.log(`[Stripe Webhook] Credits synced for workspace ${workspaceId}`);
-  } catch (error) {
-    console.error('[Stripe Webhook] Error syncing credits:', error);
-  }
-}
-
-async function resetCreditsToFreeTier(
-  env: Env,
-  masterDb: ReturnType<typeof getMasterDb>,
-  workspaceId: string,
-  clerkOrgId: string
-) {
-  try {
-    const [freePlan] = await masterDb
-      .select()
-      .from(plans)
-      .where(and(eq(plans.slug, 'free'), isNull(plans.deletedAt)));
-
-    const freeCredits = freePlan?.monthlyCredits || 0;
-
-    await updateSubscriptionCredits(masterDb, workspaceId, {
-      planCredits: freeCredits,
-      subscribedCredits: 0,
-    });
-
-    console.log(`[Stripe Webhook] Credits reset to free tier for workspace ${workspaceId}`);
-  } catch (error) {
-    console.error('[Stripe Webhook] Error resetting credits:', error);
-  }
-}
-
-// ============================================================================
 // Product/Price Sync Handlers
 // ============================================================================
 
@@ -1752,6 +1554,9 @@ async function handlePriceUpdated(
   price: StripePrice
 ) {
   if (isOurOwnSync(price.metadata)) return;
+  // An archived price must never become a plan's current price (the admin
+  // console archives the old price whenever it reprices a plan).
+  if (price.active === false) return;
 
   const planId = price.metadata?.planId;
   const billingCycle = price.metadata?.billingCycle;

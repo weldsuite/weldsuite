@@ -25,6 +25,7 @@ import {
   useInvoices,
   useChangePlan,
   useUpdateSeats,
+  useSeatPrice,
 } from '@/hooks/queries/use-billing-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { formatPlanFeatures, resolvePlanKey } from './plan-features';
@@ -74,11 +75,21 @@ const EMAIL_CREDIT_OPTIONS = [
   { value: 1000000, label: '1M' },
 ];
 
-// Price per credit: $0.0012 = 0.12 cents
+// Price per credit: $0.0012 = 0.12 US cents
 const PRICE_PER_CREDIT_CENTS = 0.12;
 
-const getEmailPrice = (_planName: string, creditCount: number): number => {
+/** Currency the email credit rate above is set in. */
+const EMAIL_PRICE_CURRENCY = 'USD';
+
+/**
+ * Monthly price of `creditCount` extra emails in `currency` cents. The rate
+ * only exists in USD, so for a plan priced in another currency (per-country
+ * pricing) there is no amount to show: `null`, and the add-on stays out of
+ * the subtotal instead of being labelled in a currency it isn't priced in.
+ */
+const getEmailPrice = (_planName: string, creditCount: number, currency: string): number | null => {
   if (creditCount <= 0) return 0;
+  if (currency !== EMAIL_PRICE_CURRENCY) return null;
   return Math.round(creditCount * PRICE_PER_CREDIT_CENTS);
 };
 
@@ -285,10 +296,14 @@ const CheckoutDialog = memo(function CheckoutDialog({
   const monthlyPricePerSeat = selectedPlan.monthlyPrice;
   const annualPricePerSeat = yearlyPriceOf(selectedPlan);
   const pricePerSeat = isBillingAnnual ? annualPricePerSeat : monthlyPricePerSeat;
-  const creditsPriceMonthly = getEmailPrice(selectedPlan.name, emailCredits);
-  const creditsPrice = isBillingAnnual ? creditsPriceMonthly * 12 : creditsPriceMonthly;
+  const creditsPriceMonthly = getEmailPrice(selectedPlan.name, emailCredits, currency);
+  let creditsPrice = creditsPriceMonthly;
+  if (creditsPriceMonthly !== null && isBillingAnnual) creditsPrice = creditsPriceMonthly * 12;
   const seatsTotal = pricePerSeat * seatCount;
-  const subtotal = seatsTotal + creditsPrice;
+  const subtotal = seatsTotal + (creditsPrice ?? 0);
+  let creditsPriceMonthlyLabel = t('sweep.settings.billing.checkout.included');
+  if (creditsPriceMonthly === null) creditsPriceMonthlyLabel = t('sweep.settings.billing.checkout.pricedSeparately');
+  else if (creditsPriceMonthly > 0) creditsPriceMonthlyLabel = `${formatPlanPrice(creditsPriceMonthly, currency)}/${t('sweep.settings.billing.month')}`;
 
   return (
     <Dialog open={!!selectedPlan} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -387,7 +402,7 @@ const CheckoutDialog = memo(function CheckoutDialog({
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-medium">{t('sweep.settings.billing.checkout.extraMonthlyEmails')}</p>
                       <span className="text-sm font-medium">
-                        {creditsPriceMonthly > 0 ? `${formatPlanPrice(creditsPriceMonthly, currency)}/${t('sweep.settings.billing.month')}` : t('sweep.settings.billing.checkout.included')}
+                        {creditsPriceMonthlyLabel}
                       </span>
                     </div>
                     <p className="text-sm text-muted-foreground">
@@ -456,11 +471,15 @@ const CheckoutDialog = memo(function CheckoutDialog({
                 <div className="flex justify-between text-sm">
                   <div>
                     <p>{t('sweep.settings.billing.checkout.extraEmailsLine', { count: (emailCredits / 1000).toFixed(0) })}</p>
-                    <p className="text-muted-foreground text-xs">
-                      ({t('sweep.settings.billing.checkout.atPricePerCycle', { price: formatPlanPrice(creditsPrice, currency), cycle: isBillingAnnual ? t('sweep.settings.billing.year') : t('sweep.settings.billing.month') })})
-                    </p>
+                    {creditsPrice !== null && (
+                      <p className="text-muted-foreground text-xs">
+                        ({t('sweep.settings.billing.checkout.atPricePerCycle', { price: formatPlanPrice(creditsPrice, currency), cycle: isBillingAnnual ? t('sweep.settings.billing.year') : t('sweep.settings.billing.month') })})
+                      </p>
+                    )}
                   </div>
-                  <span className="font-medium">{formatPlanPrice(creditsPrice, currency)}</span>
+                  <span className="font-medium">
+                    {creditsPrice === null ? t('sweep.settings.billing.checkout.pricedSeparately') : formatPlanPrice(creditsPrice, currency)}
+                  </span>
                 </div>
               )}
 
@@ -1280,6 +1299,7 @@ function ManageSeatsDialog({
   max,
   perSeatPrice,
   currency,
+  interval,
   processing,
   onConfirm,
 }: Readonly<{
@@ -1291,12 +1311,18 @@ function ManageSeatsDialog({
   onSeatCountChange: (count: number) => void;
   min: number;
   max: number | undefined;
+  /** Per seat per `interval`, in cents. */
   perSeatPrice: number;
   currency: string;
+  interval: 'month' | 'year';
   processing: boolean;
   onConfirm: () => void;
 }>) {
   const t = useTranslations();
+  // Shown per month; an annual price as its monthly equivalent, billed annually.
+  const isAnnual = interval === 'year';
+  const perSeatMonthly = isAnnual ? Math.round(perSeatPrice / 12) : perSeatPrice;
+  const totalMonthly = isAnnual ? Math.round((seatCount * perSeatPrice) / 12) : seatCount * perSeatPrice;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -1345,9 +1371,9 @@ function ManageSeatsDialog({
           {perSeatPrice > 0 && (
             <p className="text-sm text-muted-foreground">
               {t('sweep.settings.billing.manageSeatsDialog.seatCount', { count: seatCount })} &times;{' '}
-              {formatPlanPrice(perSeatPrice, currency)}/{t('sweep.settings.billing.seat')} ={' '}
+              {formatPlanPrice(perSeatMonthly, currency)}/{t('sweep.settings.billing.seat')} ={' '}
               <span className="font-medium text-foreground">
-                {formatPlanPrice(seatCount * perSeatPrice, currency)}/{subscription?.cycle === Billing.BillingCycle.Yearly ? t('sweep.settings.billing.monthBilledAnnually') : t('sweep.settings.billing.month')}
+                {formatPlanPrice(totalMonthly, currency)}/{isAnnual ? t('sweep.settings.billing.monthBilledAnnually') : t('sweep.settings.billing.month')}
               </span>
             </p>
           )}
@@ -1689,9 +1715,20 @@ function BillingOverview({
   const currentPlanForSeats = plans.find(p => p.id === subscription?.planId);
   const manageSeatsMin = Math.max(1, planLimits?.currentUsage.memberCount || 1);
   const manageSeatsMax = currentPlanForSeats?.maxMembers || undefined;
+  // A seat change is billed at the price of the existing Stripe subscription,
+  // which keeps the currency it was bought in even after the workspace's
+  // billing country (and so the plan offer) changes. The plan offer is only
+  // the fallback while that loads or when there is no subscription.
+  const { data: subscriptionSeatPrice } = useSeatPrice(manageSeatsOpen && !!subscription);
   let perSeatPrice = 0;
-  if (currentPlanForSeats) {
-    perSeatPrice = subscription?.cycle === Billing.BillingCycle.Yearly
+  let seatCurrency = currentPlanForSeats ? planCurrency(currentPlanForSeats) : 'USD';
+  let seatInterval: 'month' | 'year' = subscription?.cycle === Billing.BillingCycle.Yearly ? 'year' : 'month';
+  if (subscriptionSeatPrice) {
+    perSeatPrice = subscriptionSeatPrice.amount;
+    seatCurrency = subscriptionSeatPrice.currency;
+    seatInterval = subscriptionSeatPrice.interval;
+  } else if (currentPlanForSeats) {
+    perSeatPrice = seatInterval === 'year'
       ? yearlyPriceOf(currentPlanForSeats)
       : currentPlanForSeats.monthlyPrice;
   }
@@ -1709,7 +1746,8 @@ function BillingOverview({
         min={manageSeatsMin}
         max={manageSeatsMax}
         perSeatPrice={perSeatPrice}
-        currency={currentPlanForSeats ? planCurrency(currentPlanForSeats) : 'USD'}
+        currency={seatCurrency}
+        interval={seatInterval}
         processing={processing}
         onConfirm={onConfirmUpdateSeats}
       />

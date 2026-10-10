@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useRef } from 'react';
+import { formatShortDateNow } from '@/lib/i18n/date-locale';
 import { Dialog, DialogContent, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Button } from '@weldsuite/ui/components/button';
 import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
@@ -139,7 +140,7 @@ export function NewTaskModal({ isOpen, onClose, onSave }: Readonly<NewTaskModalP
                 onClick={() => document.getElementById('dueDate')?.click()}
               >
                 <Calendar className="h-3 w-3 mr-1.5" />
-                {dueDate ? new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : st('sweep.weldflow.newTaskModal.dueDate')}
+                {dueDate ? formatShortDateNow(dueDate) : st('sweep.weldflow.newTaskModal.dueDate')}
               </Button>
               <input
                 id="dueDate"

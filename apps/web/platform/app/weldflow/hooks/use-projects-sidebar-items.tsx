@@ -26,7 +26,7 @@ import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
-import { projectsApi, type ApiProject } from '../lib/api-client';
+import { projectsApi, stagesApi, type ApiProject } from '../lib/api-client';
 import { toast } from 'sonner';
 import { useDataEvent } from '@/lib/events/data-events';
 import { useTopic } from '@weldsuite/realtime/react';
@@ -103,6 +103,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
   const handleAddSubProjectRef = React.useRef<(projectId: string) => void>(() => {});
   const reloadProjectsRef = React.useRef<() => Promise<void>>(async () => {});
   const handleMoveProjectRef = React.useRef<(projectHref: string, direction: 'up' | 'down') => void>(() => {});
+  const handleDuplicateProjectRef = React.useRef<(projectId: string) => Promise<void>>(async () => {});
 
   // Transform API projects to menu items
   const transformProjectsToMenuItems = React.useCallback((projects: ApiProject[]) => {
@@ -130,7 +131,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
           setShowRenameDialog(true);
         }),
         onDuplicate: whenAllowed(canWrite, () => {
-          // TODO: implement duplicate
+          void handleDuplicateProjectRef.current(projectId);
         }),
         onDelete: whenAllowed(isAdmin, () => {
           setProjectToDelete({ id: projectId, name: project.name });
@@ -145,8 +146,8 @@ export function useProjectsSidebarItems(isActive: boolean): {
           await projectsApi.update(projectId, { icon: iconLabel });
           await reloadProjectsRef.current();
         }),
-        onMoveUp: () => handleMoveProjectRef.current(`/weldflow/project/${projectId}/tasks`, 'up'),
-        onMoveDown: () => handleMoveProjectRef.current(`/weldflow/project/${projectId}/tasks`, 'down'),
+        onMoveUp: () => handleMoveProjectRef.current(`/weldflow/project/${projectId}`, 'up'),
+        onMoveDown: () => handleMoveProjectRef.current(`/weldflow/project/${projectId}`, 'down'),
       };
     });
   }, []);
@@ -196,6 +197,61 @@ export function useProjectsSidebarItems(isActive: boolean): {
   React.useEffect(() => {
     handleMoveProjectRef.current = handleMoveProject;
   }, [handleMoveProject]);
+
+  // Duplicate a project: a new project with the same settings and (custom)
+  // statuses. Tasks and files are intentionally not copied.
+  const handleDuplicateProject = React.useCallback(async (projectId: string) => {
+    const source = await projectsApi.get(projectId);
+    if (!source.success || !source.data) {
+      toast.error(t.projects.sidebar.error, {
+        description: source.error || t.projects.sidebar.projectDuplicateFailed,
+      });
+      return;
+    }
+    const project = source.data;
+    const copyName = `${project.name} (${t.projects.sidebar.copySuffix})`;
+    const created = await projectsApi.create({
+      name: copyName,
+      description: project.description ?? undefined,
+      status: project.status,
+      priority: project.priority,
+      color: project.color ?? undefined,
+      icon: project.icon ?? undefined,
+      startDate: project.startDate ?? undefined,
+      endDate: project.endDate ?? undefined,
+    });
+    if (!created.success || !created.data) {
+      toast.error(t.projects.sidebar.error, {
+        description: created.error || t.projects.sidebar.projectDuplicateFailed,
+      });
+      return;
+    }
+
+    // Carry the statuses over (in order). Best-effort: without any, the new
+    // project simply seeds the default set on first use.
+    const stages = await stagesApi.list(projectId);
+    if (stages.success && stages.data && stages.data.length > 0) {
+      const ordered = [...stages.data].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      for (const [position, stage] of ordered.entries()) {
+        const copied = await stagesApi.create(created.data.id, {
+          name: stage.name,
+          color: stage.color ?? undefined,
+          position,
+          systemStatus: stage.systemStatus ?? undefined,
+        });
+        if (!copied.success) break;
+      }
+    }
+
+    await reloadProjects();
+    toast.success(t.projects.sidebar.projectDuplicated, {
+      description: t.projects.sidebar.projectDuplicatedDescription.replace('{name}', copyName),
+    });
+  }, [reloadProjects, t.projects.sidebar.error, t.projects.sidebar.projectDuplicateFailed, t.projects.sidebar.copySuffix, t.projects.sidebar.projectDuplicated, t.projects.sidebar.projectDuplicatedDescription]);
+
+  React.useEffect(() => {
+    handleDuplicateProjectRef.current = handleDuplicateProject;
+  }, [handleDuplicateProject]);
 
   // Listen for projects:changed events
   useDataEvent('projects:changed', reloadProjects);
@@ -332,7 +388,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
     const iconLabel = coloredSquareIcons.find((i) => i.value === selectedIcon)?.label || '';
     const result = await projectsApi.create({
       name: projectName,
-      status: 'planning',
+      status: 'Planning',
       priority: 'medium',
       color: selectedColor,
       icon: iconLabel,
@@ -375,14 +431,25 @@ export function useProjectsSidebarItems(isActive: boolean): {
     },
     {
       group: t.projects.sidebar.projects,
-      items: projectPages,
+      // Only offer a move that has somewhere to go (no "Move Up" on the first
+      // project, no "Move Down" on the last, neither when there is just one).
+      items: projectPages.map((page, index) => ({
+        ...page,
+        onMoveUp: index === 0 ? undefined : page.onMoveUp,
+        onMoveDown: index === projectPages.length - 1 ? undefined : page.onMoveDown,
+      })),
       onAdd: handleAddProject,
       // Keep the header + empty-state "Add project" button visible when there
       // are no projects yet, so the user can create one from the sidebar.
       keepWhenEmpty: true,
       addLabel: t.projects.sidebar.addProject,
       draggable: true,
-      onReorder: (reorderedItems) => setProjectPages(reorderedItems),
+      // The items handed back carry the per-position move gating above; map them
+      // back to the stored items so those callbacks are not lost after a reorder.
+      onReorder: (reorderedItems) =>
+        setProjectPages(
+          reorderedItems.map((item) => projectPages.find((page) => page.href === item.href) ?? item),
+        ),
     },
   ];
 

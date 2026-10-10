@@ -2,6 +2,8 @@
 import React, { useState, useMemo, useTransition, useEffect, useLayoutEffect, useCallback, useRef, useContext } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useDateLocale } from '@/lib/i18n/date-locale';
+import { useStageLabel } from '../../../lib/stage-labels';
 import { flushSync } from 'react-dom';
 import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useCompanies } from '@/components/objects/company/use-company-data';
@@ -617,6 +619,8 @@ export function TasksClient({
   entityScope,
 }: Readonly<TasksClientProps>) {
   const { t } = useI18n();
+  const { formatShort } = useDateLocale();
+  const stageLabel = useStageLabel();
   // Entity mode: board is embedded inside a CRM panel scoped to a company/person.
   // Tasks span multiple projects; project-only features are suppressed.
   const isEntityMode = !!entityScope;
@@ -734,11 +738,6 @@ export function TasksClient({
   const { canWrite } = isEntityMode ? { canWrite: true } : rawPermCtx;
   const [availableLabels, setAvailableLabels] = useState<ProjectLabel[]>([]);
   const [projectStages, setProjectStages] = useState<Array<{ id: string; name: string; color: string; systemStatus: string }>>([]);
-  // Parents the user checked while at least one subtask was still open. They
-  // render as completed (strikethrough, checkbox on) but stay in their current
-  // status group until every subtask is done — at which point we persist the
-  // real `done` status and drop them from this set.
-  const [pendingParentCompletionIds, setPendingParentCompletionIds] = useState<Set<string>>(new Set());
 
   // Drag-and-drop state
   const dndSensors = useSensors(
@@ -1025,17 +1024,6 @@ export function TasksClient({
   const handleCheckboxToggle = useCallback(async (taskId: string, currentStatus: Task['status']) => {
     if (!canWrite) return;
 
-    // Unchecking a pending-complete parent — just drop it from the set,
-    // don't touch the server (status was never changed).
-    if (pendingParentCompletionIds.has(taskId)) {
-      setPendingParentCompletionIds(prev => {
-        const next = new Set(prev);
-        next.delete(taskId);
-        return next;
-      });
-      return;
-    }
-
     // Look for the task in the main list first, then in any expanded parent's
     // inlineSubtasks (subtasks may only exist there).
     const { task, subtaskParentId } = findTaskWithParent(tasks, inlineSubtasks, taskId);
@@ -1069,26 +1057,20 @@ export function TasksClient({
       return;
     }
 
-    // Parent with at least one open subtask: mark as pending-complete locally,
-    // don't persist the status change yet. When every subtask is done the
-    // `pendingParentCompletionIds` effect promotes it to a real 'done' status.
-    const hasSubtasks = (task.subtaskCount ?? 0) > 0;
-    const subtasksForTask = inlineSubtasks[task.id] || [];
-    const allSubtasksDone =
-      hasSubtasks && subtasksForTask.length > 0 && subtasksForTask.every(s => s.status === 'done');
-    if (hasSubtasks && !allSubtasksDone) {
-      setPendingParentCompletionIds(prev => {
-        if (prev.has(task!.id)) return prev;
-        const next = new Set(prev);
-        next.add(task!.id);
-        return next;
-      });
+    // A parent can't be completed while subtasks are still open. Say so instead
+    // of ticking a box that is never saved. Prefer the loaded subtask rows
+    // (they follow local edits); fall back to the server counts for a
+    // collapsed parent whose subtasks haven't been fetched yet.
+    const loadedSubtasks = inlineSubtasks[task.id];
+    const openSubtaskCount = loadedSubtasks && loadedSubtasks.length > 0
+      ? loadedSubtasks.filter(s => s.status !== 'done' && s.status !== 'cancelled').length
+      : Math.max(0, (task.subtaskCount ?? 0) - (task.completedSubtaskCount ?? 0));
+    if (openSubtaskCount > 0) {
+      toast.error(t.projects.tasks.completeSubtasksFirst);
       return;
     }
 
-    // If this is a subtask, persist immediately (no flash animation) so the
-    // parent's pendingParentCompletionIds effect can fire as soon as the last
-    // subtask is done.
+    // If this is a subtask, persist immediately (no flash animation).
     if (subtaskParentId) {
       patchTaskStatus('done');
       void tasksApi.toggle(projectId, taskId, task.status).then((result) => {
@@ -1142,39 +1124,7 @@ export function TasksClient({
     if (result.success && result.data?.nextTaskId) {
       await prependNextRecurringTask(result.data.nextTaskId);
     }
-  }, [canWrite, tasks, projectId, pendingParentCompletionIds, inlineSubtasks, prependNextRecurringTask, stageIdForStatus, t.projects.tasks.failedToUpdateTask]);
-
-  // When a pending-complete parent has all its subtasks finished, promote it
-  // to a real 'done' status via the API. This moves it into the Done group.
-  useEffect(() => {
-    if (pendingParentCompletionIds.size === 0) return;
-    for (const parentId of pendingParentCompletionIds) {
-      const subtasks = inlineSubtasks[parentId];
-      if (!subtasks || subtasks.length === 0) continue;
-      const allDone = subtasks.every(s => s.status === 'done');
-      if (!allDone) continue;
-      const parent = tasks.find(t => t.id === parentId);
-      if (!parent || parent.status === 'done') continue;
-
-      // Persist and flush local state. No flash animation — the parent was
-      // already visually "done"; we're just swapping its section.
-      setPendingParentCompletionIds(prev => {
-        const next = new Set(prev);
-        next.delete(parentId);
-        return next;
-      });
-      void tasksApi.toggle(projectId, parentId, parent.status).then((result) => {
-        if (result.success) {
-          setTasks(prev => prev.map(t => t.id === parentId
-            ? { ...t, status: 'done' as Task['status'], stageId: stageIdForStatus(t, 'done') }
-            : t
-          ));
-        } else {
-          toast.error(t.projects.tasks.failedToCompleteTask);
-        }
-      });
-    }
-  }, [pendingParentCompletionIds, inlineSubtasks, tasks, projectId, stageIdForStatus, t.projects.tasks.failedToCompleteTask]);
+  }, [canWrite, tasks, projectId, inlineSubtasks, prependNextRecurringTask, stageIdForStatus, t.projects.tasks.failedToUpdateTask, t.projects.tasks.completeSubtasksFirst]);
 
   const deleteTask = useCallback((taskId: string) => {
     // The task may be a subtask that only lives in inlineSubtasks; resolve it
@@ -1214,10 +1164,7 @@ export function TasksClient({
     });
   }, [tasks, inlineSubtasks, projectId, startTransition, t.projects.tasks.failedToDeleteTask, t.projects.tasks.taskDeleted]);
 
-  const formatDateShort = useCallback((date: Date | string) => {
-    const d = date instanceof Date ? date : new Date(date);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }, []);
+  const formatDateShort = useCallback((date: Date | string) => formatShort(date), [formatShort]);
 
   const handleStageChange = useCallback(async (taskId: string, stageId: string) => {
     const task = tasks.find(t => t.id === taskId);
@@ -1321,7 +1268,6 @@ export function TasksClient({
         { value: 'low', label: t.projects.tasks.priorityLow },
         { value: 'medium', label: t.projects.tasks.priorityMedium },
         { value: 'high', label: t.projects.tasks.priorityHigh },
-        { value: 'urgent', label: t.projects.tasks.priorityUrgent },
       ],
     },
     {
@@ -1329,7 +1275,26 @@ export function TasksClient({
       label: t.projects.tasks.filterLabel,
       options: availableLabels.map(l => ({ value: l.id, label: l.name })),
     },
-  ], [availableLabels, t]);
+    {
+      field: 'assignee',
+      label: t.projects.tasks.filterAssignee,
+      searchable: true,
+      options: projectMembers
+        .filter(m => m.user?.name)
+        .map(m => ({ value: m.userId, label: m.user!.name })),
+    },
+    {
+      field: 'dueDate',
+      label: t.projects.tasks.filterDueDate,
+      options: [
+        { value: 'overdue', label: t.projects.tasks.groupOverdue },
+        { value: 'today', label: t.projects.tasks.groupToday },
+        { value: 'this-week', label: t.projects.tasks.groupThisWeek },
+        { value: 'later', label: t.projects.tasks.groupLater },
+        { value: 'no-date', label: t.projects.tasks.groupNoDate },
+      ],
+    },
+  ], [availableLabels, projectMembers, t]);
 
   // Resolve a task to its pipeline stage. Prefer `stageId`; fall back to matching
   // the task's `status` against each stage's `systemStatus` (for legacy tasks that
@@ -1414,14 +1379,14 @@ export function TasksClient({
     }
     return projectStages.map((stage, i) => ({
       id: stage.id,
-      label: stage.name,
+      label: stageLabel(stage.name, stage.systemStatus),
       sortOrder: i + 1,
       filter: (t: Task) => {
         const s = getTaskStage(t);
         return s?.id === stage.id;
       },
     }));
-  }, [groupBy, projectStages, getTaskStage, projectMembers, t]);
+  }, [groupBy, projectStages, getTaskStage, projectMembers, t, stageLabel]);
 
   const groupByOptions = [
     { value: 'status' as const, label: t.projects.tasks.groupByStatus },
@@ -1480,6 +1445,29 @@ export function TasksClient({
         result = filter.operator === 'is'
           ? result.filter(t => Array.isArray(t.labels) && t.labels.includes(filter.value))
           : result.filter(t => !Array.isArray(t.labels) || !t.labels.includes(filter.value));
+      } else if (filter.field === 'assignee') {
+        result = filter.operator === 'is'
+          ? result.filter(t => getTaskAssigneeIds(t).includes(filter.value))
+          : result.filter(t => !getTaskAssigneeIds(t).includes(filter.value));
+      } else if (filter.field === 'dueDate') {
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const startOfTomorrow = new Date(startOfToday);
+        startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+        const startOfNextWeek = new Date(startOfToday);
+        startOfNextWeek.setDate(startOfNextWeek.getDate() + 7);
+        const inBucket = (t: Task): boolean => {
+          const due = t.dueDate;
+          switch (filter.value) {
+            case 'overdue': return !!due && due < startOfToday;
+            case 'today': return !!due && due >= startOfToday && due < startOfTomorrow;
+            case 'this-week': return !!due && due >= startOfTomorrow && due < startOfNextWeek;
+            case 'later': return !!due && due >= startOfNextWeek;
+            case 'no-date': return !due;
+            default: return true;
+          }
+        };
+        result = filter.operator === 'is' ? result.filter(inBucket) : result.filter(t => !inBucket(t));
       }
     });
     return result;
@@ -1566,15 +1554,15 @@ export function TasksClient({
     const hasSubtasks = (task.subtaskCount ?? 0) > 0;
     const isExpanded = expandedTaskIds.has(task.id);
     const isCompleting = completingTaskIds.has(task.id);
-    const isPendingComplete = pendingParentCompletionIds.has(task.id);
-    // Visually-done = actually done OR pending (parent waiting on subtasks).
-    const isVisuallyDone = task.status === 'done' || isPendingComplete;
+    const isVisuallyDone = task.status === 'done';
 
     return (
       <div
         key={task.id}
         className={cn(
-          "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group",
+          // Phones: let the metadata columns wrap under the title instead of
+          // running past the viewport edge (the list container clips overflow).
+          "relative flex items-center gap-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-1.5",
           isEntityMode && ENTITY_NARROW_GAP,
           !isSubtask && "border-b border-gray-200/70 dark:border-border",
           isVisuallyDone && !isCompleting && "opacity-50",
@@ -1586,7 +1574,13 @@ export function TasksClient({
         <button
           type="button"
           aria-label={task.title}
-          onClick={() => setSelectedTask(task)}
+          onClick={() => {
+            setSelectedTask(task);
+            // Open directly as well: the selection effect is keyed on the id, so
+            // it would not fire again for a task that is still "selected" after
+            // its panel was closed.
+            openTaskPanel({ type: 'task', id: task.id });
+          }}
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         />
         {/* Checkbox */}
@@ -1600,7 +1594,7 @@ export function TasksClient({
         </div>
 
         {/* Task Title */}
-        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2", isEntityMode && ENTITY_NARROW_TITLE)}>
+        <div className={cn("min-w-[200px] flex-1 flex items-center gap-2 max-md:min-w-0 max-md:basis-[calc(100%-2rem)]", isEntityMode && ENTITY_NARROW_TITLE)}>
           {task.number != null && (
             <TaskNumberBadge number={task.number} className="flex-shrink-0" />
           )}
@@ -1651,7 +1645,7 @@ export function TasksClient({
         </div>
 
         {/* Attachments & Subtask count */}
-        <div className={cn("w-[60px] flex justify-end gap-1", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
+        <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
           {(task.attachmentCount ?? 0) > 0 && (
             <span className="-translate-y-[1.5px] inline-flex items-center justify-center gap-1.5 h-[22px] px-1.5 text-[11px] leading-none font-mono tabular-nums text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] flex-shrink-0">
               <Paperclip className="h-3 w-3 shrink-0" />
@@ -1667,11 +1661,11 @@ export function TasksClient({
         </div>
 
         {/* Status */}
-        <div className={cn("relative z-[1] w-[120px]", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
+        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", statusFallback.color, statusFallback.bg)}>
-                {stage?.name ?? statusFallback.label}
+                {stage ? stageLabel(stage.name, stage.systemStatus) : statusFallback.label}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1" align="start">
@@ -1685,7 +1679,7 @@ export function TasksClient({
                   >
                     <span className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: s.color }} />
-                      <span>{s.name}</span>
+                      <span>{stageLabel(s.name, s.systemStatus)}</span>
                     </span>
                     {(stage?.id ?? null) === s.id && <Check className="h-3.5 w-3.5 text-primary" />}
                   </Button>
@@ -1708,7 +1702,7 @@ export function TasksClient({
         </div>
 
         {/* Priority */}
-        <div className={cn("relative z-[1] w-[100px]", isEntityMode && ENTITY_NARROW_PRIORITY)}>
+        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", isEntityMode && ENTITY_NARROW_PRIORITY)}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("-translate-y-[1.5px] inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority.color, priority.bg)}>
@@ -1732,7 +1726,7 @@ export function TasksClient({
         </div>
 
         {/* Due Date */}
-        <div className={cn("relative z-[1] w-[100px]", isEntityMode && ENTITY_NARROW_DUE)}>
+        <div className={cn("relative z-[1] w-[100px] max-md:w-auto", isEntityMode && ENTITY_NARROW_DUE)}>
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -1767,7 +1761,7 @@ export function TasksClient({
         </div>
 
         {/* Assignee(s) */}
-        <div className={cn("relative z-[1] w-[120px]", isEntityMode && ENTITY_HIDE_WHEN_NARROW)}>
+        <div className={cn("relative z-[1] w-[120px] max-md:w-auto", isEntityMode && ENTITY_HIDE_WHEN_NARROW)}>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1895,7 +1889,7 @@ export function TasksClient({
         </div>
       </div>
     );
-  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, pendingParentCompletionIds, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig]);
+  }, [isPending, canWrite, deleteTask, availableLabels, expandedTaskIds, toggleExpandTask, handleStageChange, getTaskStage, projectStages, updateTaskInline, projectMembers, formatDateShort, startTransition, projectId, completingTaskIds, handleCheckboxToggle, showMoveTask, t, availableCompanies, isEntityMode, priorityConfig, statusConfig, openTaskPanel, stageLabel]);
 
   // Subtask container — keeps the rows mounted and toggles visibility via
   // `hidden`. Unmounting/remounting dozens of nested rows on every click is
@@ -2076,8 +2070,11 @@ export function TasksClient({
             onClick: () => setShowAddDialog(true),
           } : undefined,
         }}
-        noResultsState={{
-          title: t.projects.tasks.noTasksTitle,
+        noResultsState={searchQueryProp?.trim() ? {
+          title: t.projects.tasks.noTasksMatchTitle,
+          description: t.projects.tasks.noTasksMatchSearchDesc.replace('{query}', searchQueryProp.trim()),
+        } : {
+          title: t.projects.tasks.noTasksMatchTitle,
           description: t.projects.tasks.noResultsDesc,
         }}
       />
@@ -2096,7 +2093,7 @@ export function TasksClient({
         availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name, avatar: m.user?.avatar }))}
         availableCompanies={availableCompanies}
         availableLabels={availableLabels}
-        availableStatuses={projectStages.map(s => ({ id: s.id, label: s.name, color: s.color }))}
+        availableStatuses={projectStages.map(s => ({ id: s.id, label: stageLabel(s.name, s.systemStatus), color: s.color }))}
         onCreateLabel={handleCreateLabel}
         hideRecord
         defaultAssignee={isEntityMode ? currentUserId ?? undefined : undefined}
@@ -2149,7 +2146,7 @@ export function TasksClient({
         availableAssignees={projectMembers.filter(m => m.user?.name).map(m => ({ id: m.userId, name: m.user!.name, avatar: m.user?.avatar }))}
         availableCompanies={availableCompanies}
         availableLabels={availableLabels}
-        availableStatuses={projectStages.map(s => ({ id: s.id, label: s.name, color: s.color }))}
+        availableStatuses={projectStages.map(s => ({ id: s.id, label: stageLabel(s.name, s.systemStatus), color: s.color }))}
         onCreateLabel={handleCreateLabel}
         hideRecord
         projectId={projectId}

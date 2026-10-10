@@ -137,18 +137,19 @@ export async function stripeApiRequest(
   key: string,
   method: string,
   path: string,
-  body?: Record<string, string>
+  body?: Record<string, string>,
+  options_?: { idempotencyKey?: string },
 ): Promise<any> {
   const credentials = `${key}:`;
   const auth = `Basic ${btoa(credentials)}`;
 
-  const options: RequestInit = {
-    method,
-    headers: {
-      'Authorization': auth,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
+  const headers: Record<string, string> = {
+    'Authorization': auth,
+    'Content-Type': 'application/x-www-form-urlencoded',
   };
+  if (options_?.idempotencyKey) headers['Idempotency-Key'] = options_.idempotencyKey;
+
+  const options: RequestInit = { method, headers };
 
   if (body) {
     options.body = new URLSearchParams(body).toString();
@@ -225,7 +226,8 @@ export async function createStripeCustomer(
     email?: string;
     name?: string;
     metadata?: Record<string, string>;
-  }
+  },
+  idempotencyKey?: string,
 ): Promise<any> {
   const body: Record<string, string> = {};
 
@@ -238,7 +240,7 @@ export async function createStripeCustomer(
     }
   }
 
-  return stripeApiRequest(key, 'POST', '/v1/customers', body);
+  return stripeApiRequest(key, 'POST', '/v1/customers', body, { idempotencyKey });
 }
 
 /** Flatten a string map into Stripe's `<prefix>[key]` form-encoded fields. */
@@ -529,12 +531,17 @@ export async function updateStripeProduct(
   productId: string,
   params: {
     name?: string;
+    /** Empty string clears the description. */
+    description?: string;
+    active?: boolean;
     metadata?: Record<string, string>;
   }
 ): Promise<any> {
   const body: Record<string, string> = {};
 
   if (params.name) body.name = params.name;
+  if (params.description !== undefined) body.description = params.description;
+  if (params.active !== undefined) body.active = String(params.active);
 
   if (params.metadata) {
     for (const [k, v] of Object.entries(params.metadata)) {

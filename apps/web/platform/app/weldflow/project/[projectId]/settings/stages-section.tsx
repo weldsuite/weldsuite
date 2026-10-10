@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
+import { useStageLabel } from '../../../lib/stage-labels';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
@@ -22,6 +23,8 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
+  ArrowDown,
+  ArrowUp,
   Plus,
   Trash2,
   Check,
@@ -201,6 +204,22 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
     }
   };
 
+  // Swap a stage with its neighbour in the full (unfiltered) order and persist it.
+  const moveStage = async (stageId: string, direction: -1 | 1) => {
+    const from = stages.findIndex((s) => s.id === stageId);
+    const to = from + direction;
+    if (from < 0 || to < 0 || to >= stages.length) return;
+    const previous = stages;
+    const next = [...stages];
+    [next[from], next[to]] = [next[to], next[from]];
+    setStages(next.map((s, i) => ({ ...s, position: i })));
+    const res = await stagesApi.reorder(projectId, next.map((s) => s.id));
+    if (!res.success) {
+      setStages(previous);
+      toast.error(res.error || t.projects.settings.failedToReorderStatuses);
+    }
+  };
+
   const filteredStages = useMemo(() => {
     let result = stages;
     if (searchQuery) {
@@ -240,6 +259,8 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
             stage={stage}
             isAdmin={isAdmin}
             onEdit={() => setEditingStage(stage)}
+            onMoveUp={stages[0]?.id === stage.id ? undefined : () => void moveStage(stage.id, -1)}
+            onMoveDown={stages.at(-1)?.id === stage.id ? undefined : () => void moveStage(stage.id, 1)}
             onDelete={() => { setDeletingStage(stage); setReassignTargetId(''); }}
           />
         ))}
@@ -306,10 +327,10 @@ export function StagesSection({ projectId, isAdmin }: Readonly<StagesSectionProp
 
       <div className="rounded-md border border-border/70 overflow-hidden">
         {/* Header */}
-        <div className="grid grid-cols-[1fr_160px_128px_48px] items-center h-10 px-3 border-b border-border/70 text-sm font-medium">
-          <div>{t.projects.settings.columnStatus}</div>
-          <div>{t.projects.settings.columnCountsAs}</div>
-          <div>{t.projects.settings.columnUsage}</div>
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(110px,160px)_64px_48px] gap-x-3 items-center h-10 px-3 border-b border-border/70 text-sm font-medium whitespace-nowrap">
+          <div className="truncate">{t.projects.settings.columnStatus}</div>
+          <div className="truncate">{t.projects.settings.columnCountsAs}</div>
+          <div className="truncate">{t.projects.settings.columnUsage}</div>
           <div />
         </div>
 
@@ -444,14 +465,19 @@ function StageRow({
   stage,
   isAdmin,
   onEdit,
+  onMoveUp,
+  onMoveDown,
   onDelete,
 }: Readonly<{
   stage: Stage;
   isAdmin: boolean;
   onEdit: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   onDelete: () => void;
 }>) {
   const { t } = useI18n();
+  const stageLabel = useStageLabel();
   const SYSTEM_STATUS_LABELS: Record<string, string> = {
     backlog: t.projects.settings.backlogStatus,
     todo: t.projects.settings.todoStatus,
@@ -464,19 +490,19 @@ function StageRow({
 
   const badge = SYSTEM_STATUS_BADGE[stage.systemStatus] ?? DEFAULT_BADGE;
   return (
-    <div className="group grid grid-cols-[1fr_160px_128px_48px] items-center h-[46px] px-3 hover:bg-muted/50 bg-background">
-      <div>
+    <div className="group grid grid-cols-[minmax(0,1fr)_minmax(110px,160px)_64px_48px] gap-x-3 items-center h-[46px] px-3 hover:bg-muted/50 bg-background">
+      <div className="min-w-0">
         <span
           className={cn(
-            'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none',
+            'inline-flex max-w-full items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none whitespace-nowrap truncate',
             badge.color,
             badge.bg,
           )}
         >
-          {stage.name}
+          {stageLabel(stage.name, stage.systemStatus)}
         </span>
       </div>
-      <div className="text-sm text-muted-foreground">{systemLabel}</div>
+      <div className="truncate whitespace-nowrap text-sm text-muted-foreground">{systemLabel}</div>
       <div className="font-mono tabular-nums text-sm text-muted-foreground">
         {stage.usageCount ?? 0}
       </div>
@@ -497,6 +523,14 @@ function StageRow({
                 <Pencil className="h-4 w-4 mr-0.5" />
                 {t.projects.settings.editStageMenuItem}
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={onMoveUp} disabled={!onMoveUp}>
+                <ArrowUp className="h-4 w-4 mr-0.5" />
+                {t.projects.settings.moveStageUpMenuItem}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onMoveDown} disabled={!onMoveDown}>
+                <ArrowDown className="h-4 w-4 mr-0.5" />
+                {t.projects.settings.moveStageDownMenuItem}
+              </DropdownMenuItem>
               <DropdownMenuItem variant="destructive" onClick={onDelete}>
                 <Trash2 className="h-4 w-4 mr-0.5" />
                 {t.projects.settings.deleteStageMenuItem}
@@ -510,6 +544,7 @@ function StageRow({
 }
 
 function ColorSwatch({ color, onChange }: Readonly<{ color: string; onChange: (c: string) => void }>) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -518,7 +553,7 @@ function ColorSwatch({ color, onChange }: Readonly<{ color: string; onChange: (c
           type="button"
           variant="ghost"
           className="w-9 h-9 rounded-md flex-shrink-0 border border-input p-1.5"
-          aria-label="Pick color"
+          aria-label={t.projects.settings.pickColor}
         >
           <div className="w-full h-full rounded" style={{ backgroundColor: color }} />
         </Button>

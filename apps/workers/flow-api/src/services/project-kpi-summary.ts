@@ -6,6 +6,14 @@ import { and, eq, gte, inArray, isNotNull, isNull, lt, lte, sql } from 'drizzle-
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { ProjectKpiPeriod, ProjectKpiSummary } from '@weldsuite/core-api-client/schemas/project-analytics';
+import { normalizeProjectStatus } from '@weldsuite/app-api-client/schemas/projects';
+
+/** Completed / cancelled projects, whatever spelling the row was stored with. */
+function isClosedProjectStatus(status: string | null): boolean {
+  if (!status) return false;
+  const normalized = normalizeProjectStatus(status);
+  return normalized === 'Completed' || normalized === 'Cancelled';
+}
 
 function periodDays(period: ProjectKpiPeriod): number {
   if (period === '7d') return 7;
@@ -163,7 +171,7 @@ export async function getProjectKpiSummary(
   ]);
 
   const activeProjects = projectRows.filter(
-    (p) => p.isActive && p.status !== 'Completed' && p.status !== 'Cancelled',
+    (p) => p.isActive && !isClosedProjectStatus(p.status),
   ).length;
 
   const totalTasks = taskRows.length;
@@ -193,7 +201,7 @@ export async function getProjectKpiSummary(
     completionRate,
     hoursLoggedMinutes: Math.round(Number(hours?.total ?? 0)),
     billableHoursMinutes: Math.round(Number(hours?.billable ?? 0)),
-    projectsByStatus: countByKey(projectRows.map((p) => ({ key: p.status }))),
+    projectsByStatus: countByKey(projectRows.map((p) => ({ key: p.status ? normalizeProjectStatus(p.status) : p.status }))),
     projectsByHealth: countByKey(
       projectRows.filter((p) => p.health).map((p) => ({ key: p.health })),
     ),
