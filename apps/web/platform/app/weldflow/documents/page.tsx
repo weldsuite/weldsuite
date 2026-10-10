@@ -678,7 +678,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('bold') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('bold')}
-              title={t.sweep.helpEditor.boldTooltip}
+              title={t.sweep.welddesk.helpEditor.boldTooltip}
             >
               <Bold className="h-3.5 w-3.5" />
             </Button>
@@ -688,7 +688,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('italic') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('italic')}
-              title={t.sweep.helpEditor.italicTooltip}
+              title={t.sweep.welddesk.helpEditor.italicTooltip}
             >
               <Italic className="h-3.5 w-3.5" />
             </Button>
@@ -698,7 +698,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('underline') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('underline')}
-              title={t.sweep.helpEditor.underlineTooltip}
+              title={t.sweep.welddesk.helpEditor.underlineTooltip}
             >
               <Underline className="h-3.5 w-3.5" />
             </Button>
@@ -708,7 +708,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('strikethrough') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('strikeThrough')}
-              title={t.sweep.helpEditor.strikethroughTooltip}
+              title={t.sweep.welddesk.helpEditor.strikethroughTooltip}
             >
               <Strikethrough className="h-3.5 w-3.5" />
             </Button>
@@ -722,7 +722,7 @@ export default function DocumentsPage() {
               className="p-0"
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => changeTextColor('#000000')}
-              title={t.sweep.helpEditor.textColorTooltip}
+              title={t.sweep.welddesk.helpEditor.textColorTooltip}
             >
               <Palette className="h-3.5 w-3.5" />
             </Button>
@@ -732,7 +732,7 @@ export default function DocumentsPage() {
               className="p-0"
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => changeBackgroundColor('#ffff00')}
-              title={t.sweep.helpEditor.highlightColorTooltip}
+              title={t.sweep.welddesk.helpEditor.highlightColorTooltip}
             >
               <Highlighter className="h-3.5 w-3.5" />
             </Button>
@@ -746,7 +746,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('alignLeft') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('justifyLeft')}
-              title={t.sweep.helpEditor.alignLeftTooltip}
+              title={t.sweep.welddesk.helpEditor.alignLeftTooltip}
             >
               <AlignLeft className="h-3.5 w-3.5" />
             </Button>
@@ -756,7 +756,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('alignCenter') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('justifyCenter')}
-              title={t.sweep.helpEditor.alignCenterTooltip}
+              title={t.sweep.welddesk.helpEditor.alignCenterTooltip}
             >
               <AlignCenter className="h-3.5 w-3.5" />
             </Button>
@@ -766,7 +766,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('alignRight') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('justifyRight')}
-              title={t.sweep.helpEditor.alignRightTooltip}
+              title={t.sweep.welddesk.helpEditor.alignRightTooltip}
             >
               <AlignRight className="h-3.5 w-3.5" />
             </Button>
@@ -776,7 +776,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('alignJustify') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('justifyFull')}
-              title={t.sweep.helpEditor.justifyTooltip}
+              title={t.sweep.welddesk.helpEditor.justifyTooltip}
             >
               <AlignJustify className="h-3.5 w-3.5" />
             </Button>
@@ -790,7 +790,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('bulletList') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('insertUnorderedList')}
-              title={t.sweep.helpEditor.bulletListTooltip}
+              title={t.sweep.welddesk.helpEditor.bulletListTooltip}
             >
               <List className="h-3.5 w-3.5" />
             </Button>
@@ -800,7 +800,7 @@ export default function DocumentsPage() {
               className={cn("p-0", activeFormats.has('numberedList') && "bg-muted")}
               style={{ height: '28px', width: '28px', minHeight: '28px' }}
               onClick={() => formatText('insertOrderedList')}
-              title={t.sweep.helpEditor.numberedListTooltip}
+              title={t.sweep.welddesk.helpEditor.numberedListTooltip}
             >
               <ListOrdered className="h-3.5 w-3.5" />
             </Button>
@@ -880,7 +880,7 @@ export default function DocumentsPage() {
         {/* Cover Image Section */}
         {coverImage && (
           <div className="relative mb-12 -mx-24 group">
-            <img src={coverImage} alt={t.sweep.helpEditor.coverImageAlt} className="w-full h-[40vh] object-cover rounded-lg" />
+            <img src={coverImage} alt={t.sweep.welddesk.helpEditor.coverImageAlt} className="w-full h-[40vh] object-cover rounded-lg" />
             <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
               <Button
                 variant="secondary"
