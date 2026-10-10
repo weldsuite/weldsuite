@@ -1,10 +1,10 @@
 import { useRef } from 'react';
-import { Paperclip } from 'lucide-react';
+import { Paperclip, type LucideIcon } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 
 /**
- * Paperclip toolbar control that opens the native file picker.
+ * Toolbar control (a paperclip by default) that opens the native file picker.
  *
  * A wrapping `<label>` + hidden input looks equivalent, but the compose
  * toolbar calls `preventDefault()` on mousedown to keep the editor focused
@@ -18,12 +18,15 @@ export function ComposeAttachButton({
   testId = 'compose-attach-input',
   className,
   iconClassName,
+  icon: Icon = Paperclip,
 }: Readonly<{
   onFilesSelected: (files: File[]) => void;
   title: string;
   testId?: string;
   className?: string;
   iconClassName?: string;
+  /** Icon shown on the button; the paperclip unless a surface asks for another. */
+  icon?: LucideIcon;
 }>) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -52,7 +55,7 @@ export function ComposeAttachButton({
         title={title}
         aria-label={title}
       >
-        <Paperclip className={cn('h-4 w-4', iconClassName)} />
+        <Icon className={cn('h-4 w-4', iconClassName)} />
       </Button>
     </>
   );
