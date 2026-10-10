@@ -4230,18 +4230,27 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
       '@weldsuite/cloudflare-registrar':
         specifier: workspace:*
         version: link:../../../packages/core/cloudflare-registrar
       '@weldsuite/cloudflare-zones':
         specifier: workspace:*
         version: link:../../../packages/core/cloudflare-zones
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
       '@weldsuite/credits':
         specifier: workspace:*
         version: link:../../../packages/core/credits
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/emails':
+        specifier: workspace:*
+        version: link:../../../packages/core/emails
       '@weldsuite/realtime-registrar':
         specifier: workspace:*
         version: link:../../../packages/core/realtime-registrar
@@ -4968,6 +4977,9 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/api-modules':
+        specifier: workspace:*
+        version: link:../../../packages/core/api-modules
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/app-api-client
@@ -5600,6 +5612,9 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/api-modules':
+        specifier: workspace:*
+        version: link:../../../packages/core/api-modules
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/app-api-client
@@ -6095,9 +6110,15 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
       '@weldsuite/cloudflare-zones':
         specifier: workspace:*
         version: link:../../../packages/core/cloudflare-zones
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db

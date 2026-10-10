@@ -408,7 +408,11 @@ export function removeMessageFromCache(
 // Channel Queries
 // ============================================================================
 
-export function useChannels() {
+/**
+ * `enabled` lets always-mounted callers (the shell sidebar) skip the request
+ * while WeldChat is not installed or licensed for the workspace.
+ */
+export function useChannels(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: weldchatKeys.channels(),
@@ -416,6 +420,7 @@ export function useChannels() {
       const client = await getClient();
       return client.get<ListEnvelope<ChatChannel>>('/channels');
     },
+    enabled,
   });
 }
 
@@ -1175,7 +1180,7 @@ export function useUnarchiveChannel() {
 // DM Queries
 // ============================================================================
 
-export function useDmChannels() {
+export function useDmChannels(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: weldchatKeys.dms(),
@@ -1183,6 +1188,7 @@ export function useDmChannels() {
       const client = await getClient();
       return client.get<ListEnvelope<ChatDm>>('/chat-dm');
     },
+    enabled,
   });
 }
 
@@ -1294,7 +1300,7 @@ export function useDeleteBookmark() {
  * legacy route auto-seeded a default "Channels" section on first read — app-api
  * does not, so a brand-new workspace now starts with zero sections.
  */
-export function useSections() {
+export function useSections(enabled = true) {
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: weldchatKeys.sections(),
@@ -1304,6 +1310,7 @@ export function useSections() {
       const sections = [...(res.data ?? [])].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       return { data: sections };
     },
+    enabled,
   });
 }
 

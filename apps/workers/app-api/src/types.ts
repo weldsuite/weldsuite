@@ -4,6 +4,14 @@ import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
 import type { DeferredEmailParams } from '@weldsuite/notifications/types';
+import type { PartnerOnboardInput, PartnerRow, ResolvedPartnerMember } from '@weldsuite/core-domain/partners';
+
+/**
+ * Input of workspace-worker's `onboardPartnerWorkspace` RPC: a workspace
+ * created for a reseller's customer (docs/plans/reseller-licensing.md). The
+ * partner user is NOT made a member; `ownerEmail` is invited as the owner.
+ */
+export type { PartnerOnboardInput };
 
 /**
  * App API worker — Cloudflare bindings.
@@ -55,6 +63,14 @@ export interface Env {
       error?: string;
       status?: number;
     }>;
+    /**
+     * Creates a partner-managed workspace (no Stripe, licence applied). Added
+     * to workspace-worker's `WorkspaceOnboardEntrypoint` by the reseller
+     * licensing work; absent on older deployments.
+     */
+    onboardPartnerWorkspace?(
+      input: PartnerOnboardInput,
+    ): Promise<{ workspaceId: string; clerkOrgId: string }>;
   };
   NEON_API_KEY: string;
   DATABASE_ENCRYPTION_KEY?: string;
@@ -288,4 +304,10 @@ export type Variables = {
    *  trusted by topology): /api/internal accepts it in place of the
    *  INTERNAL_API_SECRET bearer. Never set on the public path. */
   internalTrusted?: boolean;
+  /** Set by `partnerAuth()` on `/api/partner/*`: the partner the caller acts for. */
+  partner?: PartnerRow;
+  /** The caller's membership of `partner` (role drives `PARTNER_PERMISSIONS`). */
+  partnerMember?: ResolvedPartnerMember;
+  /** Every partner the caller belongs to (set by `partnerIdentity()`/`partnerAuth()`). */
+  partnerMemberships?: ResolvedPartnerMember[];
 };

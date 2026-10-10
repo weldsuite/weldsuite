@@ -4,7 +4,7 @@
  * `createExternalTestApp(options)` builds a fresh Hono app, injects a stub
  * that sets the same context variables the real auth + tenant-db middleware
  * would (`apiSession`, `tenantDb`, `workspaceId`, `userId`), then mounts the
- * real `v1` router under `/v1`. The real `authMiddleware` /
+ * real `licenceMiddleware` and `v1` router under `/v1`. The real `authMiddleware` /
  * `tenantDbMiddleware` / `rateLimitMiddleware` (which need KV / Hyperdrive /
  * Neon / Durable Objects) are bypassed — exactly the seam app-api's harness
  * uses for Clerk.
@@ -23,6 +23,7 @@
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { v1 } from '../routes/v1';
+import { licenceMiddleware } from '../middleware/licence';
 import type { ApiKeySession, Env, HonoEnv } from '../types';
 import type { Database } from '../db';
 
@@ -53,6 +54,7 @@ const defaultSession = (scopes: string[]): ApiKeySession => ({
   tier: 'enterprise',
   hasApiAccess: true,
   databaseUrl: null,
+  licensedApps: null,
 });
 
 /** Minimal env — only `publishEntityEvent` reads `c.env`, and only the queue
@@ -108,6 +110,8 @@ export function createExternalTestApp(options: CreateExternalTestAppOptions = {}
 
   const app = new Hono<HonoEnv>();
   app.use('*', stub);
+  // The real licence gate: it only reads the session, so it needs no bindings.
+  app.use('/v1/*', licenceMiddleware);
   app.route('/v1', v1);
 
   return {

@@ -62,7 +62,7 @@ export const listKeys = {
  * `kind` is optional — pass undefined to load lists of both kinds (used by
  * the CRM sidebar, which groups all lists together).
  */
-export function useLists(kind?: ListKind, search?: string) {
+export function useLists(kind?: ListKind, search?: string, enabled = true) {
   const { getClient } = useAppApiClient();
   const filters: Partial<ListListsQueryV2> = {};
   if (kind) filters.kind = kind;
@@ -75,6 +75,7 @@ export function useLists(kind?: ListKind, search?: string) {
         `/lists${buildQueryString(filters as Record<string, unknown>)}`,
       );
     },
+    enabled,
   });
 }
 

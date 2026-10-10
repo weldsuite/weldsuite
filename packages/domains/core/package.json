@@ -11,6 +11,7 @@
     "./custom-field-values": "./src/custom-field-values.ts",
     "./custom-objects": "./src/custom-objects.ts",
     "./files": "./src/files.ts",
+    "./partners": "./src/partners/index.ts",
     "./workspaces": "./src/workspaces.ts"
   },
   "scripts": {

@@ -9,6 +9,18 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Loader2, Database, Shield, Sparkles, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MultiSelect, type MultiSelectOption } from '@weldsuite/ui/components/multi-select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
+import type { PartnerTerritoryErrorDetails } from '@weldsuite/app-api-client/schemas/partners';
+import { TerritoryScreen } from '@/components/partner/territory-screen';
+import { COUNTRIES } from '@/lib/constants/countries';
+import { territoryErrorDetails } from '@/lib/partner/api-errors';
+import { detectUserCountry } from '@/app/onboarding/types';
 import { useDatabaseStatus, useCreateWorkspace, useFinalizeOnboarding, useAvailableApps } from '@/hooks/use-onboarding';
 import { getAppIcon, getAppShortName, isHiddenFromOnboarding } from '@/lib/apps/app-registry';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
@@ -73,6 +85,13 @@ interface CreateWorkspaceDialogProps {
 export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWorkspaceDialogProps>) {
   const t = useTranslations();
   const [workspaceName, setWorkspaceName] = React.useState('');
+  // Where the company is based. Decides whether a partner provides WeldSuite
+  // there (then the server answers 409 PARTNER_TERRITORY instead of creating).
+  const [country, setCountry] = React.useState(() => {
+    const detected = detectUserCountry();
+    return COUNTRIES.some((c) => c.code === detected) ? detected : '';
+  });
+  const [territory, setTerritory] = React.useState<PartnerTerritoryErrorDetails | null>(null);
   const [selectedApps, setSelectedApps] = React.useState<string[]>([]);
   const didInitApps = React.useRef(false);
   const [isCreating, setIsCreating] = React.useState(false);
@@ -215,6 +234,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
       const result = await createWorkspaceMutation.mutateAsync({
         name: workspaceName.trim(),
         selectedApps,
+        ...(country ? { country } : {}),
       });
 
       if (!result?.success || !result.organizationId) {
@@ -272,6 +292,14 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
       // Provisioning was already triggered server-side by /api/onboard; the
       // effect below polls database-status and finalizes once it's ready.
     } catch (error: unknown) {
+      // A partner serves this country: no workspace was created. Show who to
+      // contact instead of an error.
+      const territoryDetails = territoryErrorDetails(error);
+      if (territoryDetails) {
+        setTerritory(territoryDetails);
+        setIsCreating(false);
+        return;
+      }
       const clerkError = error as { errors?: Array<{ longMessage?: string; message?: string }>; message?: string };
       const errorMessage = clerkError?.errors?.[0]?.longMessage || clerkError?.errors?.[0]?.message || clerkError?.message || t('sweep.shared.failedToCreateWorkspace');
       console.error('Failed to create workspace:', error);
@@ -283,14 +311,29 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
   const handleClose = () => {
     if (!isCreating && !isProvisioning) {
       setWorkspaceName('');
+      setTerritory(null);
       onOpenChange(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[425px]" onInteractOutside={(e) => { if (isProvisioning) e.preventDefault(); }}>
-        {isProvisioning ? (
+      <DialogContent className={territory ? 'max-h-[92vh] overflow-y-auto sm:max-w-lg' : 'sm:max-w-[425px]'} onInteractOutside={(e) => { if (isProvisioning) e.preventDefault(); }}>
+        {territory ? (
+          <>
+            <DialogHeader className="sr-only">
+              <DialogTitle>{t('sweep.shared.createNewWorkspace')}</DialogTitle>
+              <DialogDescription>{t('sweep.shared.createNewWorkspaceDescription')}</DialogDescription>
+            </DialogHeader>
+            <TerritoryScreen
+              details={territory}
+              defaultCompany={workspaceName.trim()}
+              selectedApps={selectedApps}
+              onBack={() => setTerritory(null)}
+              onClose={handleClose}
+            />
+          </>
+        ) : isProvisioning ? (
           <>
             <DialogHeader>
               <DialogTitle>{t('sweep.shared.settingUpYourWorkspace')}</DialogTitle>
@@ -343,6 +386,23 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
                   disabled={isCreating}
                   autoFocus
                 />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="workspace-country">{t('partner.createWorkspace.country')}</Label>
+                <Select value={country || undefined} onValueChange={setCountry} disabled={isCreating}>
+                  <SelectTrigger id="workspace-country">
+                    <SelectValue placeholder={t('partner.createWorkspace.countryPlaceholder')} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    {COUNTRIES.map((c) => (
+                      <SelectItem key={c.code} value={c.code}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground -mt-1">{t('partner.createWorkspace.countryHint')}</p>
               </div>
 
               <div className="grid gap-2">

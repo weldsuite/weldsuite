@@ -67,6 +67,12 @@ creditTopupRoutes.post('/checkout', async (c) => {
 
   if (!workspace) return c.json({ error: 'Workspace not found' }, 404);
 
+  // A partner-managed workspace gets extra credits from its partner, never
+  // from a WeldSuite checkout.
+  if (workspace.billingMode === 'partner') {
+    return c.json({ error: 'This workspace is managed by a partner. Ask your partner for extra credits.', code: 'PARTNER_MANAGED' }, 403);
+  }
+
   // Ensure the workspace has a Stripe customer.
   let customerId: string = workspace.stripeCustomerId || '';
   if (!customerId) {

@@ -55,6 +55,8 @@ import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { PaymentMethodsSection } from './payment-methods-section';
+import { ManagedBillingView } from '@/components/partner/managed-billing-view';
+import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
 
 interface WorkspaceBusinessSettings {
   email?: string;
@@ -379,7 +381,7 @@ function formatBillingAddress(details: {
   return parts.join(', ');
 }
 
-export default function BillingSettingsPage() {
+function DirectBillingSettings() {
   const { t } = useI18n();
   const st = useTranslations();
   const ts = t.settings.billing;
@@ -1049,4 +1051,17 @@ export default function BillingSettingsPage() {
       </Dialog>
     </div>
   );
+}
+
+/**
+ * A partner-managed workspace is billed by its partner: it sees who to contact
+ * and what its licence includes instead of plans, checkout and invoices. The
+ * direct-billing queries only mount for workspaces that are billed directly.
+ */
+export default function BillingSettingsPage() {
+  const { data: managed, isLoading } = useManagedBilling();
+
+  if (isLoading) return <PageLoader fullScreen={false} />;
+  if (managed) return <ManagedBillingView info={managed} />;
+  return <DirectBillingSettings />;
 }

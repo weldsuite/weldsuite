@@ -39,6 +39,9 @@
  * `/appstore/:code` links and flip app-store-client's APP_CODE_OVERRIDES
  * (which keys on `mail`). Default stays legacy — mobile is unaffected.
  *
+ * Install on a partner-managed workspace is limited to its licence
+ * (403 APP_NOT_LICENSED); see docs/plans/reseller-licensing.md.
+ *
  * Entity events: none — `workspace_app` is not in the packages/core/entity-events
  * catalog (see services/app-catalog.ts), so install/uninstall intentionally
  * publish nothing.
@@ -51,6 +54,8 @@ import { error, success, noContent } from '@weldsuite/worker-kit/response';
 import { toDbCode, toLegacyCode } from '../../lib/legacy-app-codes';
 import { getMasterDb } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner } from '@weldsuite/mail-domain/access';
+import { appNotLicensedBody } from '@weldsuite/api-modules';
+import { getManagedContext } from '../../services/partner/managed';
 import {
   listCatalogApps,
   listCatalogCategories,
@@ -135,6 +140,14 @@ app.post('/:code/install', async (c) => {
   const isAdmin = await isAdminOrOwner(tenantDb, userId);
   if (!isAdmin) {
     return error.forbidden(c, 'Only workspace admins can install apps');
+  }
+
+  // A partner-managed workspace installs only what its licence lists (and the
+  // API gate would refuse the app's module anyway).
+  const orgId = c.get('orgId');
+  const managed = orgId ? await getManagedContext(masterDb, orgId) : null;
+  if (managed && !managed.licence?.allowedApps.includes(appCode)) {
+    return c.json(appNotLicensedBody(appCode), 403);
   }
 
   // Body is optional — `{ settings }` when present.

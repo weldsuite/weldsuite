@@ -15,6 +15,15 @@ export { generateId } from './id';
 export { logSafe } from './log-safe';
 export { clerkMiddleware } from './middleware/clerk';
 export { featureFlagsMiddleware } from './middleware/feature-flags';
+export { licenceGate } from './middleware/licence-gate';
 export { requestId } from './middleware/request-id';
 export { workspaceDbMiddleware } from './middleware/workspace-db';
+export {
+  computeWorkspaceRestrictions,
+  isReadOnlyRequestAllowed,
+  workspaceReadOnlyBody,
+  type ReadOnlyReason,
+  type WorkspaceRestrictionInput,
+  type WorkspaceRestrictions,
+} from './read-only';
 export { cursorPagination, error, list, noContent, success, type PaginationMeta } from './response';

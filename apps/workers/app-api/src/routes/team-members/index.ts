@@ -397,6 +397,9 @@ async function checkSeatsForInvite(env: Env, orgId: string): Promise<string | nu
   }
   if (!seats) return null;
   if (seats.atLimit) {
+    if (seats.managedBy) {
+      return `Your licence includes ${seats.limit} ${seats.limit === 1 ? 'member' : 'members'}. Ask ${seats.managedBy} to add more seats.`;
+    }
     return `Your ${seats.planName} plan includes ${seats.limit} ${seats.limit === 1 ? 'member' : 'members'}. Upgrade your plan to invite more people.`;
   }
   await alignClerkCapWithPlan(env, orgId, seats.limit);

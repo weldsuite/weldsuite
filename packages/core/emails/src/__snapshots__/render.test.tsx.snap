@@ -1022,6 +1022,194 @@ Je ontvangt deze e-mail omdat e-mailmeldingen aan staan. · Meldingsinstellingen
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'partner.dunning' / 'finalWarning' / 'en' > matches the text snapshot 1`] = `
+"Final warning: your workspaces go read-only on November 30, 2026
+
+Final warning
+
+Andes Cloud SAS
+
+Your WeldSuite statement for September 2026 ($1,842.50) is still unpaid. On November 30, 2026 every workspace you manage becomes read-only: members can still sign in, view and export their data, but cannot change anything.
+
+Statement: September 2026
+
+Amount: $1,842.50
+
+Due date: October 31, 2026
+
+Overdue: 23 days
+
+Read-only from: November 30, 2026
+
+Pay invoice https://invoice.stripe.com/i/acct_1/test_abc
+
+If you have already paid, no action is needed: the status updates when the payment arrives.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'partner.dunning' / 'finalWarning' / 'nl' > matches the text snapshot 1`] = `
+"Laatste waarschuwing: je workspaces worden op 30 november 2026 alleen-lezen
+
+Laatste waarschuwing
+
+Andes Cloud SAS
+
+Je WeldSuite-afrekening over september 2026 (US$ 1.842,50) is nog niet betaald. Op 30 november 2026 worden alle workspaces die je beheert alleen-lezen: leden kunnen nog inloggen en hun gegevens bekijken en exporteren, maar niets meer wijzigen.
+
+Afrekening: september 2026
+
+Bedrag: US$ 1.842,50
+
+Vervaldatum: 31 oktober 2026
+
+Te laat: 23 dagen
+
+Alleen-lezen vanaf: 30 november 2026
+
+Factuur betalen https://invoice.stripe.com/i/acct_1/test_abc
+
+Heb je al betaald, dan hoef je niets te doen: de status wordt bijgewerkt zodra de betaling binnen is.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'partner.dunning' / 'pastDue' / 'en' > matches the text snapshot 1`] = `
+"Payment overdue: WeldSuite statement for September 2026
+
+Payment overdue
+
+Andes Cloud SAS
+
+Your WeldSuite statement for September 2026 ($1,842.50) was due on October 31, 2026. If it stays unpaid, the workspaces you manage become read-only on November 30, 2026.
+
+Statement: September 2026
+
+Amount: $1,842.50
+
+Due date: October 31, 2026
+
+Overdue: 14 days
+
+Pay invoice https://invoice.stripe.com/i/acct_1/test_abc
+
+If you have already paid, no action is needed: the status updates when the payment arrives.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'partner.dunning' / 'pastDue' / 'nl' > matches the text snapshot 1`] = `
+"Betaling te laat: WeldSuite-afrekening over september 2026
+
+Betaling te laat
+
+Andes Cloud SAS
+
+Je WeldSuite-afrekening over september 2026 (US$ 1.842,50) had op 31 oktober 2026 betaald moeten zijn. Blijft die onbetaald, dan worden de workspaces die je beheert op 30 november 2026 alleen-lezen.
+
+Afrekening: september 2026
+
+Bedrag: US$ 1.842,50
+
+Vervaldatum: 31 oktober 2026
+
+Te laat: 14 dagen
+
+Factuur betalen https://invoice.stripe.com/i/acct_1/test_abc
+
+Heb je al betaald, dan hoef je niets te doen: de status wordt bijgewerkt zodra de betaling binnen is.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'partner.dunning' / 'suspendedNoInvoiceLink' / 'en' > matches the text snapshot 1`] = `
+"Your workspaces are read-only: WeldSuite statement for September 2026 unpaid
+
+Workspaces read-only
+
+Andes Cloud SAS
+
+Your WeldSuite statement for September 2026 ($1,842.50) is 30 days overdue, so every workspace you manage is now read-only. Members can still sign in, view and export their data. Nothing is deleted, and paying the statement lifts the restriction automatically.
+
+Statement: September 2026
+
+Amount: $1,842.50
+
+Due date: October 31, 2026
+
+Overdue: 30 days
+
+Read-only from: November 30, 2026
+
+Open partner portal https://app.weldsuite.org/partner/statements
+
+If you have already paid, no action is needed: the status updates when the payment arrives.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'partner.dunning' / 'suspendedNoInvoiceLink' / 'nl' > matches the text snapshot 1`] = `
+"Je workspaces zijn alleen-lezen: WeldSuite-afrekening over september 2026 onbetaald
+
+Workspaces alleen-lezen
+
+Andes Cloud SAS
+
+Je WeldSuite-afrekening over september 2026 (US$ 1.842,50) is 30 dagen te laat, dus alle workspaces die je beheert zijn nu alleen-lezen. Leden kunnen nog inloggen en hun gegevens bekijken en exporteren. Er wordt niets verwijderd, en zodra je betaalt wordt de beperking automatisch opgeheven.
+
+Afrekening: september 2026
+
+Bedrag: US$ 1.842,50
+
+Vervaldatum: 31 oktober 2026
+
+Te laat: 30 dagen
+
+Alleen-lezen vanaf: 30 november 2026
+
+Partnerportaal openen https://app.weldsuite.org/partner/statements
+
+Heb je al betaald, dan hoef je niets te doen: de status wordt bijgewerkt zodra de betaling binnen is.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'partner.invitation' / 'default' / 'en' > matches the text snapshot 1`] = `
+"You are invited to the Andes Cloud SAS partner portal
+
+Partner portal invitation
+
+Andes Cloud SAS
+
+You have been added to Andes Cloud SAS in the WeldSuite partner portal as Owner. Sign in with this email address to manage workspaces, licences and statements.
+
+Open partner portal https://app.weldsuite.org/partner
+
+Or open this link: https://app.weldsuite.org/partner
+
+This invitation was sent to ana@andes.example.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'partner.invitation' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je bent uitgenodigd voor het partnerportaal van Andes Cloud SAS
+
+Uitnodiging partnerportaal
+
+Andes Cloud SAS
+
+Je bent als Eigenaar toegevoegd aan Andes Cloud SAS in het WeldSuite-partnerportaal. Log in met dit e-mailadres om workspaces, licenties en afrekeningen te beheren.
+
+Partnerportaal openen https://app.weldsuite.org/partner
+
+Of open deze link: https://app.weldsuite.org/partner
+
+Deze uitnodiging is verstuurd naar ana@andes.example.
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'portal.sign-in' / 'code' / 'en' > matches the text snapshot 1`] = `
 "Your Acme employee portal sign-in code: 482913
 

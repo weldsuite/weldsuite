@@ -49,6 +49,7 @@ import {
   useDeleteList,
   type ListKind,
 } from '@/hooks/queries/use-lists-queries';
+import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
 import type { Pipeline, PipelineStage, Opportunity } from '@/lib/api/domains/weldcrm';
 import { sortPipelines } from './pipeline-order';
 
@@ -196,9 +197,11 @@ export function useCrmSidebarItems(isActive: boolean): {
   const createListMutation = useCreateList();
   const updateListMutation = useUpdateList();
   const deleteListMutation = useDeleteList();
-  // All-kinds lists for the sidebar. Only enabled when the CRM module is
-  // active, so other modules don't fire this query.
-  const { data: sidebarListsResp, isPending: listsPending } = useLists();
+  // All-kinds lists for the sidebar. This hook is mounted in every module, so
+  // only fetch when the workspace actually has WeldCRM (or the user is in it):
+  // a partner licence that leaves CRM out would answer 403.
+  const crmInstalled = useIsAppInstalled('weldcrm');
+  const { data: sidebarListsResp, isPending: listsPending } = useLists(undefined, undefined, isActive || crmInstalled);
 
   const [customerPages, setCustomerPages] = React.useState<PageData[]>([]);
   const [pipelinePages, setPipelinePages] = React.useState<PageData[]>([]);

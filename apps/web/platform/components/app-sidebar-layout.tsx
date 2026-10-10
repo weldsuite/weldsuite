@@ -70,6 +70,8 @@ import { Button } from "@weldsuite/ui/components/button"
 import { useMobileNavActions } from "@/contexts/mobile-nav-context"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { InviteMemberButton } from "@/components/invite-member-button"
+import { PartnerPortalLink } from "@/components/partner/partner-portal-link"
+import { useManagedBilling } from "@/hooks/queries/use-partner-queries"
 import { UpgradeButton } from "@/components/upgrade-button"
 import { useFeatureFlag } from "@/hooks/queries/use-feature-flags-queries"
 import { ResourceUsage } from "@/components/resource-usage"
@@ -1154,7 +1156,10 @@ export function AppSidebarLayout({
 
   // Sidebar Upgrade button is gated behind a Cloudflare Flagship feature flag.
   // Hidden by default — shown only to segments the flag targets.
-  const showUpgradeButton = useFeatureFlag("upgrade-button")
+  const upgradeFlag = useFeatureFlag("upgrade-button")
+  // A partner-managed workspace has nothing to upgrade to: its partner bills it.
+  const { data: managedBilling } = useManagedBilling()
+  const showUpgradeButton = upgradeFlag && !managedBilling
 
   // Track whether the sidebar content actually overflows (i.e. can scroll).
   // Only relevant when the scrollbar is visible (hideScrollbar=false, e.g.
@@ -1331,6 +1336,7 @@ export function AppSidebarLayout({
         <ResourceUsage collapsed={state === "collapsed"} />
         <OnboardingChecklist collapsed={state === "collapsed"} />
         {showUpgradeButton && <UpgradeButton collapsed={state === "collapsed"} />}
+        <PartnerPortalLink collapsed={state === "collapsed"} />
         <InviteMemberButton collapsed={state === "collapsed"} />
         {user && (
           <SidebarUserMenu

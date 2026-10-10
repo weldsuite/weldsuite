@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+vi.mock('@/hooks/use-is-app-installed', () => ({ useIsAppInstalled: () => true }));
 vi.mock('@/lib/router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/lib/api/use-app-api', () => {
   const client = { get: mocks.get, post: vi.fn() };

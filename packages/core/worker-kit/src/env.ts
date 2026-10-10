@@ -49,6 +49,11 @@ export type KitVariables = {
   sessionId: string;
   tenantDb: Database;
   workspaceId: string;
+  /** Apps the workspace is licensed for; null = unrestricted (workspaceDbMiddleware). */
+  licensedApps?: readonly string[] | null;
+  /** Partner suspended or licence inactive: writes are refused (licenceGate). */
+  readOnly?: boolean;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
   userPermissions?: ResolvedPermissions;
   /** Canonical app code from the X-Weld-App header (appContextMiddleware). */
   app?: string;

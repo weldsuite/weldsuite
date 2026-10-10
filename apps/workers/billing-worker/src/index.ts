@@ -21,6 +21,7 @@ import { appSubscriptionsRoutes } from './routes/app-subscriptions';
 import { appDeveloperAccountsRoutes } from './routes/app-developer-accounts';
 import { adminRoutes } from './routes/admin';
 import { runCompSweep } from './services/comp-sweep';
+import { runPartnerSweeps } from './services/partner-sweep';
 import { sql } from 'drizzle-orm';
 import { getMasterDb } from './lib/db';
 
@@ -58,6 +59,15 @@ export interface Env {
   /** app-api base URL — FALLBACK path only (through app-api's forwarder) to order
    *  Telnyx numbers while CALL_INTERNAL is unbound or the entrypoint is not deployed. */
   APP_API_URL?: string;
+  /** Platform SPA origin; links in partner emails. Defaults to production. */
+  APP_URL?: string;
+  /** Cloudflare Email Sending binding (partner dunning and invitation emails). */
+  SEND_EMAIL?: SendEmail;
+  /** `resend` forces Resend (migration switch, needs RESEND_API_KEY). */
+  EMAIL_TRANSPORT?: string;
+  RESEND_API_KEY?: string;
+  /** Migration only: send from this address instead of the system one. */
+  SYSTEM_EMAIL_FROM?: string;
   /** Fallback path only; shared with app-api and call-api. Bearer for the public
    *  POST /api/internal/telephony/fulfill-number (served by call-api; app-api
    *  forwards it there). */
@@ -182,10 +192,17 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   // Hourly (wrangler.toml [triggers]): end expired comp plans and renew the
-  // monthly credits of comped workspaces.
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+  // monthly credits of comped workspaces, then the reseller-licensing sweeps
+  // (seat snapshots, licensed-credit reset, dunning daily at 02:xx UTC; the
+  // statement run on the 1st at 03:xx UTC), which gate themselves by UTC hour.
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
       runCompSweep(env).catch((err) => console.error('[Comp Sweep] Run failed:', err)),
+    );
+    ctx.waitUntil(
+      runPartnerSweeps(env, new Date(event.scheduledTime)).catch((err) =>
+        console.error('[Partner Sweep] Run failed:', err),
+      ),
     );
   },
 } satisfies ExportedHandler<Env>;

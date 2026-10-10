@@ -76,7 +76,7 @@ export function useChatActivity(filter: ListActivityQuery['filter'] = 'all') {
   });
 }
 
-export function useChatActivityUnread() {
+export function useChatActivityUnread(enabled = true) {
   const { getClient } = useAppApiClient();
   const queryKey = weldchatExtrasKeys.activityUnread();
   // Mounted for every module (sidebar badge), so the poll must stop when the
@@ -91,6 +91,7 @@ export function useChatActivityUnread() {
     },
     refetchOnWindowFocus: true,
     refetchInterval,
+    enabled,
   });
 }
 
@@ -113,7 +114,7 @@ export function useMarkActivityRead() {
 // Drafts hooks
 // ============================================================================
 
-export function useChatDrafts() {
+export function useChatDrafts(enabled = true) {
   const { getClient } = useAppApiClient();
 
   return useQuery({
@@ -155,6 +156,7 @@ export function useChatDrafts() {
         });
       return { data };
     },
+    enabled,
   });
 }
 

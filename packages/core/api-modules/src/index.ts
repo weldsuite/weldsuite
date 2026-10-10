@@ -55,11 +55,23 @@ export interface ApiModule {
    * Longest prefix wins, so `/api/desk/phone` (call) beats a shorter prefix.
    */
   prefixes: readonly string[];
+  /**
+   * App codes (the `PERMISSION_APPS` codes in `@weldsuite/permissions`) whose
+   * screens call this module. A licensed workspace (partner-managed, see
+   * docs/plans/reseller-licensing.md) reaches the module only when at least
+   * one of them is licensed. The first entry is the module's own app, the one
+   * an `APP_NOT_LICENSED` error names; the rest are the apps that list one of
+   * the module's objects (`companies`, `tasks`, `calendars`, …) in
+   * `PERMISSION_APPS`. `null` means never gated: the core platform, and
+   * WeldAgent, which is workspace-level and metered by credits.
+   */
+  apps: readonly string[] | null;
 }
 
 const mod = (
   id: ApiModuleId,
   devPort: number,
+  apps: readonly string[] | null,
   prefixes: readonly string[],
 ): ApiModule => ({
   id,
@@ -67,10 +79,11 @@ const mod = (
   binding: id === 'core' ? 'APP_API' : `${id.toUpperCase()}_API`,
   devPort,
   prefixes,
+  apps,
 });
 
 export const API_MODULES: readonly ApiModule[] = [
-  mod('core', 8789, [
+  mod('core', 8789, null, [
     '/api/access-requests',
     '/api/account',
     '/api/api-keys',
@@ -101,6 +114,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/object-templates',
     '/api/objects',
     '/api/onboarding',
+    '/api/partner',
     '/api/prepaid-seats',
     '/api/push-tokens',
     '/api/related',
@@ -115,9 +129,10 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/workspace-api-keys',
     '/api/workspace-settings',
     '/api/workspaces',
+    '/public/partner-territories',
     '/public/user-apps',
   ]),
-  mod('crm', 8801, [
+  mod('crm', 8801, ['weldcrm', 'weldcommerce', 'welddesk', 'weldflow', 'weldmail', 'weldmeet', 'weldcalendar', 'weldcall', 'weldhr', 'welddata'], [
     '/api/activities',
     '/api/companies',
     '/api/company-logos',
@@ -134,7 +149,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/pipelines',
     '/api/sequences',
   ]),
-  mod('desk', 8802, [
+  mod('desk', 8802, ['welddesk'], [
     '/api/article-folders',
     '/api/articles',
     '/api/canned-responses',
@@ -167,7 +182,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/tickets',
     '/public/helpcenter',
   ]),
-  mod('mail', 8803, [
+  mod('mail', 8803, ['weldmail'], [
     '/api/mail-accounts',
     '/api/mail-ai',
     '/api/mail-attachments',
@@ -188,7 +203,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/mail-weldmail',
     '/api/mailboxes',
   ]),
-  mod('flow', 8804, [
+  mod('flow', 8804, ['weldflow', 'weldcrm', 'weldmail', 'weldchat', 'weldcalendar'], [
     '/api/digest-settings',
     '/api/documents',
     '/api/goals',
@@ -211,7 +226,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/time-entries',
     '/api/whiteboards',
   ]),
-  mod('books', 8805, [
+  mod('books', 8805, ['weldbooks'], [
     '/api/accounting-contacts',
     '/api/accounting-dashboard',
     '/api/accounting-documents',
@@ -253,7 +268,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/w9-requests',
     '/public/w9',
   ]),
-  mod('commerce', 8806, [
+  mod('commerce', 8806, ['weldcommerce', 'weldstash'], [
     '/api/carriers',
     '/api/categories',
     '/api/commerce-portal',
@@ -277,7 +292,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/public/commerce-portal',
     '/webhooks/woocommerce',
   ]),
-  mod('stash', 8807, [
+  mod('stash', 8807, ['weldstash', 'weldcommerce'], [
     '/api/boxes',
     '/api/cycle-counts',
     '/api/inventory',
@@ -293,7 +308,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/wms-activity',
     '/api/wms-suppliers',
   ]),
-  mod('host', 8808, [
+  mod('host', 8808, ['weldhost'], [
     '/api/dns-records',
     '/api/dns-zones',
     '/api/domain-transfers',
@@ -301,14 +316,14 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/email-forwards',
     '/public/webhooks/realtime-register',
   ]),
-  mod('calendar', 8809, [
+  mod('calendar', 8809, ['weldcalendar', 'weldmail', 'weldmeet'], [
     '/api/booking-pages',
     '/api/bookings',
     '/api/calendar-events',
     '/api/calendars',
     '/api/working-hours',
   ]),
-  mod('meet', 8810, [
+  mod('meet', 8810, ['weldmeet', 'weldcalendar'], [
     '/api/meeting-messages',
     '/api/meeting-sessions',
     '/api/meeting-waitlist',
@@ -319,7 +334,7 @@ export const API_MODULES: readonly ApiModule[] = [
     // minted by POST /api/meeting-sessions/:id/recording/access is the credential.
     '/public/meeting-recordings',
   ]),
-  mod('chat', 8811, [
+  mod('chat', 8811, ['weldchat', 'weldflow', 'weldmail'], [
     '/api/channel-members',
     '/api/channels',
     '/api/chat-activity',
@@ -335,7 +350,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/chat-sections',
     '/api/chat-status',
   ]),
-  mod('call', 8812, [
+  mod('call', 8812, ['weldcall', 'weldcrm', 'welddesk'], [
     '/api/call-intelligence',
     '/api/calls',
     '/api/desk/phone',
@@ -346,7 +361,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/telephony',
     '/public/webhooks/telnyx',
   ]),
-  mod('connect', 8813, [
+  mod('connect', 8813, ['weldconnect', 'weldcrm', 'welddesk', 'weldstash', 'weldflow', 'weldcalendar'], [
     '/api/connectors',
     '/api/external-webhooks',
     '/api/github-connections',
@@ -370,11 +385,11 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/workflow-webhooks',
     '/api/workflows',
   ]),
-  mod('agent', 8814, ['/api/ai', '/api/ai-models', '/api/chat-agent', '/api/weldagent']),
-  mod('data', 8815, ['/api/enrich-fields', '/api/enrichments', '/api/welddata']),
-  mod('know', 8816, ['/api/knowledge']),
-  mod('hr', 8817, ['/api/weldhr', '/public/hr-portal']),
-  mod('social', 8818, [
+  mod('agent', 8814, null, ['/api/ai', '/api/ai-models', '/api/chat-agent', '/api/weldagent']),
+  mod('data', 8815, ['welddata'], ['/api/enrich-fields', '/api/enrichments', '/api/welddata']),
+  mod('know', 8816, ['weldknow'], ['/api/knowledge']),
+  mod('hr', 8817, ['weldhr'], ['/api/weldhr', '/public/hr-portal']),
+  mod('social', 8818, ['weldsocial'], [
     '/api/social-accounts',
     '/api/social-analytics',
     '/api/social-approvals',
@@ -385,8 +400,8 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/social-team-members',
     '/public/social/postpeer',
   ]),
-  mod('ads', 8819, ['/api/ad-accounts', '/api/ad-campaigns', '/api/ad-connections']),
-  mod('pass', 8820, ['/api/weldpass']),
+  mod('ads', 8819, ['weldads'], ['/api/ad-accounts', '/api/ad-campaigns', '/api/ad-connections']),
+  mod('pass', 8820, ['weldpass'], ['/api/weldpass']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));
@@ -423,6 +438,46 @@ export function findModuleForPath(path: string): ApiModule {
     if (ownsPath(entry.prefix, path)) return entry.module;
   }
   return getApiModule('core');
+}
+
+// external-api (and mcp-server's in-process copy of it) serves `/v1/<object>`.
+// Most objects keep their first-party name; these are the ones that do not.
+const EXTERNAL_OBJECT_MODULES: Readonly<Record<string, ApiModuleId>> = {
+  'knowledge-pages': 'know',
+  'knowledge-spaces': 'know',
+  quotes: 'crm',
+};
+
+/**
+ * The module that owns an external-api path (`/v1/tickets/123`), found by
+ * mapping it onto the first-party path for the same object.
+ */
+export function findModuleForExternalPath(path: string): ApiModule {
+  const match = /^\/v1\/([^/?]+)/.exec(path);
+  if (!match) return getApiModule('core');
+  const aliased = EXTERNAL_OBJECT_MODULES[match[1]!];
+  if (aliased) return getApiModule(aliased);
+  return findModuleForPath(`/api${path.slice('/v1'.length)}`);
+}
+
+/**
+ * Licence check: `null` when a workspace licensed for `licensedApps` may call
+ * the module, otherwise the app it is missing (the module's own app).
+ */
+export function missingLicensedApp(module: ApiModule, licensedApps: ReadonlySet<string>): string | null {
+  if (!module.apps) return null;
+  return module.apps.some((code) => licensedApps.has(code)) ? null : module.apps[0]!;
+}
+
+/** The 403 body every licence gate returns, so all workers answer alike. */
+export function appNotLicensedBody(app: string) {
+  return {
+    error: {
+      code: 'APP_NOT_LICENSED',
+      message: `This workspace is not licensed for ${app}.`,
+      details: { app },
+    },
+  } as const;
 }
 
 /**

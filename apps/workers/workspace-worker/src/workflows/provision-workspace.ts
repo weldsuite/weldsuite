@@ -27,7 +27,9 @@ import { encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import type { Env } from '../index';
 import { getMasterDb } from '../db';
 import { generateId } from '../lib/id';
+import { getPartnerProvisionContext, initialiseLicensedCredits } from '@weldsuite/core-domain/partners';
 import { setupWorkspaceBilling, resolveOwnerEmail } from '../services/provisioning';
+import { ensurePartnerOwnerInvited } from '../services/partner-onboarding';
 import { provisionMailDomain } from '../services/mail-provisioning';
 import { applyTenantMigrations } from '../lib/tenant-migrations';
 import { getDefaultHelpdeskWorkflows, DEFAULT_WORKFLOW_TEMPLATE_IDS } from './default-helpdesk-workflows';
@@ -121,7 +123,15 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
   }
 
   private async provisionSteps(event: WorkflowEvent<ProvisionWorkspaceParams>, step: WorkflowStep) {
-    const { workspaceId, databaseUrl, workspaceName, initialMember, selectedApps, slug, seedSampleData: shouldSeedSampleData } = event.payload;
+    const { workspaceId, databaseUrl, workspaceName, initialMember, selectedApps: paramApps, slug, seedSampleData: shouldSeedSampleData } = event.payload;
+
+    // Partner-managed workspace (reseller licensing): its licence, not the
+    // signup payload, decides the installed apps and the credits, and there is
+    // no Stripe customer. Null for a normal (direct) workspace.
+    const partnerContext = await step.do('load-partner-context', {
+      retries: { limit: 2, delay: '5 seconds', backoff: 'exponential' },
+    }, async () => getPartnerProvisionContext(getMasterDb(this.env), workspaceId));
+    const selectedApps = partnerContext ? partnerContext.allowedApps : paramApps;
 
     // ── Step 1: Apply schema migrations ──────────────────────────────────
     // Delta-applier shared with RefillPoolWorkflow — a warm pool database has
@@ -251,6 +261,28 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
       console.log(`[Provision] Workspace ${workspaceId} marked as provisioned`);
       return { provisioned: true, migrationsApplied: migrationResult.applied };
     });
+
+    // ── Step 4b: Invite the workspace owner (partner-managed only) ───────
+    // The Clerk org has no members: the customer's owner is invited once the
+    // database exists, so the invitation and membership webhooks find it. A no-op
+    // when the RPC already invited them. Non-fatal for the rest of provisioning;
+    // a failure is logged and the partner can re-send from the portal.
+    if (partnerContext) {
+      await step.do('invite-owner', {
+        retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
+      }, async () => {
+        const masterDb = getMasterDb(this.env);
+        const [row] = await masterDb
+          .select({ clerkOrgId: workspaces.clerkOrgId })
+          .from(workspaces)
+          .where(eq(workspaces.id, workspaceId))
+          .limit(1);
+        if (!row?.clerkOrgId) return { invited: false };
+        return { invited: await ensurePartnerOwnerInvited(this.env, row.clerkOrgId) };
+      }).catch((err) => {
+        console.error(`[Provision] Owner invitation failed for partner workspace ${workspaceId}:`, err);
+      });
+    }
 
     if (selectedApps && selectedApps.length > 0) {
       // ── Step 5: Seed default helpdesk workflows ──────────────────────
@@ -492,6 +524,13 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
     }, async () => {
       const masterDb = getMasterDb(this.env);
 
+      // Partner workspace: the licence's monthly allowance, not a plan's.
+      if (partnerContext) {
+        const { granted } = await initialiseLicensedCredits(masterDb, workspaceId, partnerContext);
+        console.log(`[Provision] Allocated ${granted} licensed credits`);
+        return { credits: granted, licensed: true };
+      }
+
       const [workspaceRow] = await masterDb
         .select({ planId: workspaces.planId })
         .from(workspaces)
@@ -554,10 +593,17 @@ export class ProvisionWorkspaceWorkflow extends WorkflowEntrypoint<Env, Provisio
       const masterDb = getMasterDb(this.env);
 
       const [workspaceRow] = await masterDb
-        .select({ clerkOrgId: workspaces.clerkOrgId })
+        .select({ clerkOrgId: workspaces.clerkOrgId, billingMode: workspaces.billingMode })
         .from(workspaces)
         .where(eq(workspaces.id, workspaceId))
         .limit(1);
+
+      // A partner-managed workspace is billed to its partner: no Stripe
+      // customer or subscription of its own.
+      if (workspaceRow?.billingMode === 'partner') {
+        console.log(`[Provision] Skipping Stripe billing: workspace ${workspaceId} is partner-managed`);
+        return { skipped: 'partner_managed' };
+      }
 
       // The Stripe customer needs the signing-up user's email so Stripe can
       // actually reach them (failed-payment, receipts).

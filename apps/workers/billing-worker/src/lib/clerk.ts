@@ -6,6 +6,7 @@
  */
 
 import { eq } from 'drizzle-orm';
+import { managedSeatCap } from '@weldsuite/core-domain/partners';
 import type { Env } from '../index';
 import { type getMasterDb, masterSchema } from './db';
 import { logSafe } from '@weldsuite/text';
@@ -26,16 +27,23 @@ const { userWorkspaces } = masterSchema;
  *     so existing members aren't locked out.
  *  3. Otherwise return 0, which means "unlimited" in Clerk (we'll pass 0 to
  *     Clerk, which removes the limit).
+ *
+ * A partner-managed workspace ignores the plan: its limit is the licence's
+ * `maxSeats` (null = unlimited = 0). Pass `managed` for those.
  */
 export function calculateEffectiveSeatLimit(
   plan: {
     maxUsers: number | null;
     pricePerUser: string | null;
     includedUsers: number | null;
-  },
+  } | null,
   purchasedSeats: number,
   activeMemberCount: number,
+  managed?: { maxSeats: number | null },
 ): number {
+  if (managed) return managed.maxSeats != null && managed.maxSeats > 0 ? managed.maxSeats : 0;
+  if (!plan) return 0;
+
   // Hard cap takes precedence
   if (plan.maxUsers != null && plan.maxUsers > 0) {
     return plan.maxUsers;
@@ -109,15 +117,25 @@ export async function applyClerkSeatLimit(
   masterDb: ReturnType<typeof getMasterDb>,
   clerkOrgId: string,
   workspaceId: string,
-  plan: SeatPlan,
+  plan: SeatPlan | null,
   seats: number,
 ): Promise<void> {
+  const cap = await managedSeatCap(masterDb, workspaceId);
+  if (cap.managed) {
+    // Partner workspace: the licence decides, not the plan or purchased seats.
+    await syncClerkSeatLimit(clerkSecretKey, clerkOrgId, calculateEffectiveSeatLimit(null, 0, 0, cap));
+    return;
+  }
+  if (!plan) return;
   const memberCount = await getMemberCount(env, masterDb, clerkOrgId, workspaceId);
   const effectiveLimit = calculateEffectiveSeatLimit(plan, seats, memberCount);
   await syncClerkSeatLimit(clerkSecretKey, clerkOrgId, effectiveLimit);
 }
 
-/** Best-effort Clerk seat-limit sync for an already-resolved plan. Never throws. */
+/**
+ * Best-effort Clerk seat-limit sync for an already-resolved plan. Never throws.
+ * Partner-managed workspaces use the licence's seat cap and need no plan.
+ */
 export async function trySyncClerkSeatLimit(
   env: Env,
   masterDb: ReturnType<typeof getMasterDb>,
@@ -127,9 +145,9 @@ export async function trySyncClerkSeatLimit(
   seats: number,
   context: string,
 ): Promise<void> {
-  if (!clerkOrgId || !env.CLERK_SECRET_KEY || !plan) return;
+  if (!clerkOrgId || !env.CLERK_SECRET_KEY) return;
   try {
-    await applyClerkSeatLimit(env, env.CLERK_SECRET_KEY, masterDb, clerkOrgId, workspaceId, plan, seats);
+    await applyClerkSeatLimit(env, env.CLERK_SECRET_KEY, masterDb, clerkOrgId, workspaceId, plan ?? null, seats);
   } catch (err) {
     console.error(`[Clerk Sync] Failed to sync seat limit after ${context}:`, err);
   }
