@@ -98,7 +98,7 @@ export function EntityList<T extends { id: string }>({
   itemsClassName,
   columnGap,
   stickyOffset = 0,
-}: EntityListProps<T>) {
+}: Readonly<EntityListProps<T>>) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [internalSearchQuery, setInternalSearchQuery] = useState('');
   const [internalActiveFilters, setInternalActiveFilters] = useState<ActiveFilter[]>([]);

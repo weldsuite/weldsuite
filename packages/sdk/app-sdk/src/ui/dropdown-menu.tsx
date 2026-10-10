@@ -211,7 +211,7 @@ export function DropdownMenuContent({
 
 export interface DropdownMenuItemProps extends HTMLAttributes<HTMLButtonElement> {}
 
-export function DropdownMenuItem({ className, onClick, children, ...props }: DropdownMenuItemProps) {
+export function DropdownMenuItem({ className, onClick, children, ...props }: Readonly<DropdownMenuItemProps>) {
   const { setOpen } = useDropdownContext('DropdownMenuItem');
 
   return (
@@ -230,6 +230,6 @@ export function DropdownMenuItem({ className, onClick, children, ...props }: Dro
   );
 }
 
-export function DropdownMenuSeparator({ className, ...props }: HTMLAttributes<HTMLHRElement>) {
+export function DropdownMenuSeparator({ className, ...props }: Readonly<HTMLAttributes<HTMLHRElement>>) {
   return <hr className={cn('wui-dropdown-separator', className)} {...props} />;
 }
