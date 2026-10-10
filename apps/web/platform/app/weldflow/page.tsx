@@ -89,7 +89,7 @@ export default function MyTasksPage() {
     <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">
       <MyTasksClient
         initialTasks={allTasks}
-        projects={projects.map(p => ({ id: p.id, name: p.name }))}
+        projects={projects.map(p => ({ id: p.id, name: p.name, color: p.color, icon: p.icon }))}
         hasNextPage={!!hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={() => fetchNextPage()}

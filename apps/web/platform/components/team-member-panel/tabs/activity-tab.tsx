@@ -1,18 +1,8 @@
 import * as React from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { Button } from '@weldsuite/ui/components/button';
 import {
   SquareActivity,
   Lock,
-  Plus,
-  Trash2,
-  Archive,
-  ArrowRightLeft,
-  UserPlus,
-  AlertTriangle,
-  Flag,
-  Settings,
-  Pencil,
   ChevronDown,
   User,
   Building2,
@@ -20,14 +10,13 @@ import {
   FolderKanban,
   Ticket,
   CheckSquare,
-  StickyNote,
   Mail,
   FileText,
   Package,
   ShoppingCart,
   Tag,
-  Users,
   Calendar,
+  Box,
 } from 'lucide-react';
 import {
   isToday,
@@ -39,274 +28,128 @@ import {
   format,
 } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { useMemberActivity } from '@/hooks/queries/use-team-queries';
 import type { MemberActivityItem } from '@weldsuite/core-api-client/schemas/member-profile';
 import { asText } from '@weldsuite/text';
 
+/**
+ * Member "Activity" tab — a timeline.
+ *
+ * Each day is a list of events on a thin vertical rail: a round icon marker,
+ * a sentence ("daniel s created 4 × Project") with the time on the right, and
+ * underneath it one bordered card per record the event is about. Cards for
+ * edits show which fields changed and open to the before → after values.
+ */
+
 interface ActivityTabProps {
   userId: string;
   canView: boolean;
+  /** The member's display name — the subject of every event sentence. */
+  memberName?: string;
 }
+
+type Translator = (path: string, params?: Record<string, unknown>) => string;
 
 // ────────────────────────────────────────────────────────────────────
-// Action styling
+// Record types
 
-type Tone =
-  | 'emerald'
-  | 'red'
-  | 'slate'
-  | 'blue'
-  | 'green'
-  | 'amber'
-  | 'orange';
-
-const ACTION_META: Record<
-  string,
-  { icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; tone: Tone; verb: string }
-> = {
-  created: { icon: Plus, tone: 'emerald', verb: 'created' },
-  deleted: { icon: Trash2, tone: 'red', verb: 'deleted' },
-  archived: { icon: Archive, tone: 'slate', verb: 'archived' },
-  status_changed: { icon: ArrowRightLeft, tone: 'blue', verb: 'changed status of' },
-  assigned: { icon: UserPlus, tone: 'green', verb: 'assigned' },
-  escalated: { icon: AlertTriangle, tone: 'amber', verb: 'escalated' },
-  priority_changed: { icon: Flag, tone: 'orange', verb: 'changed priority of' },
-  updated: { icon: Pencil, tone: 'slate', verb: 'updated' },
-};
-
-const TONE_CSS: Record<Tone, { dotFill: string; dotIcon: string; dotRing: string; verb: string; icon: string }> = {
-  emerald: {
-    dotFill: 'bg-emerald-100 dark:bg-emerald-500/15',
-    dotIcon: 'text-emerald-600 dark:text-emerald-400',
-    dotRing: 'ring-emerald-500/25',
-    verb: 'text-emerald-700 dark:text-emerald-400',
-    icon: 'text-emerald-600 dark:text-emerald-400',
-  },
-  red: {
-    dotFill: 'bg-red-100 dark:bg-red-500/15',
-    dotIcon: 'text-red-600 dark:text-red-400',
-    dotRing: 'ring-red-500/25',
-    verb: 'text-red-700 dark:text-red-400',
-    icon: 'text-red-600 dark:text-red-400',
-  },
-  slate: {
-    dotFill: 'bg-slate-200 dark:bg-slate-500/20',
-    dotIcon: 'text-slate-600 dark:text-slate-300',
-    dotRing: 'ring-slate-500/20',
-    verb: 'text-slate-700 dark:text-slate-300',
-    icon: 'text-slate-600 dark:text-slate-400',
-  },
-  blue: {
-    dotFill: 'bg-blue-100 dark:bg-blue-500/15',
-    dotIcon: 'text-blue-600 dark:text-blue-400',
-    dotRing: 'ring-blue-500/25',
-    verb: 'text-blue-700 dark:text-blue-400',
-    icon: 'text-blue-600 dark:text-blue-400',
-  },
-  green: {
-    dotFill: 'bg-green-100 dark:bg-green-500/15',
-    dotIcon: 'text-green-600 dark:text-green-400',
-    dotRing: 'ring-green-500/25',
-    verb: 'text-green-700 dark:text-green-400',
-    icon: 'text-green-600 dark:text-green-400',
-  },
-  amber: {
-    dotFill: 'bg-amber-100 dark:bg-amber-500/15',
-    dotIcon: 'text-amber-600 dark:text-amber-400',
-    dotRing: 'ring-amber-500/25',
-    verb: 'text-amber-700 dark:text-amber-400',
-    icon: 'text-amber-600 dark:text-amber-400',
-  },
-  orange: {
-    dotFill: 'bg-orange-100 dark:bg-orange-500/15',
-    dotIcon: 'text-orange-600 dark:text-orange-400',
-    dotRing: 'ring-orange-500/25',
-    verb: 'text-orange-700 dark:text-orange-400',
-    icon: 'text-orange-600 dark:text-orange-400',
-  },
-};
-
-function getMeta(action: string) {
-  const meta = ACTION_META[action] ?? { icon: Settings, tone: 'slate' as Tone, verb: action.replace(/_/g, ' ') };
-  return { ...meta, tones: TONE_CSS[meta.tone] };
-}
-
-function humanEntity(entityType?: string) {
-  if (!entityType) return '';
-  return entityType.replace(/[_-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-// ────────────────────────────────────────────────────────────────────
-// Entity chip
-
-const ENTITY_STYLE: Record<
-  string,
-  { icon: React.ComponentType<{ className?: string }>; tone: string; labelKey: string }
-> = {
-  contact: { icon: User, tone: 'violet', labelKey: 'sweep.shared.entityType.person' },
-  person: { icon: User, tone: 'violet', labelKey: 'sweep.shared.entityType.person' },
-  customer: { icon: User, tone: 'violet', labelKey: 'sweep.shared.entityType.customer' },
-  user: { icon: User, tone: 'violet', labelKey: 'sweep.shared.entityType.user' },
-  member: { icon: User, tone: 'violet', labelKey: 'sweep.shared.entityType.member' },
-  company: { icon: Building2, tone: 'sky', labelKey: 'sweep.shared.entityType.company' },
-  account: { icon: Building2, tone: 'sky', labelKey: 'sweep.shared.entityType.account' },
-  organization: { icon: Building2, tone: 'sky', labelKey: 'sweep.shared.entityType.organization' },
-  deal: { icon: Briefcase, tone: 'emerald', labelKey: 'sweep.shared.entityType.deal' },
-  opportunity: { icon: Briefcase, tone: 'emerald', labelKey: 'sweep.shared.entityType.opportunity' },
-  lead: { icon: Briefcase, tone: 'emerald', labelKey: 'sweep.shared.entityType.lead' },
-  project: { icon: FolderKanban, tone: 'indigo', labelKey: 'sweep.shared.entityType.project' },
-  ticket: { icon: Ticket, tone: 'rose', labelKey: 'sweep.shared.entityType.ticket' },
-  conversation: { icon: Ticket, tone: 'rose', labelKey: 'sweep.shared.entityType.conversation' },
-  task: { icon: CheckSquare, tone: 'amber', labelKey: 'sweep.shared.entityType.task' },
-  note: { icon: StickyNote, tone: 'yellow', labelKey: 'sweep.shared.entityType.note' },
-  email: { icon: Mail, tone: 'cyan', labelKey: 'sweep.shared.entityType.email' },
-  message: { icon: Mail, tone: 'cyan', labelKey: 'sweep.shared.entityType.message' },
-  document: { icon: FileText, tone: 'slate', labelKey: 'sweep.shared.entityType.document' },
-  product: { icon: Package, tone: 'orange', labelKey: 'sweep.shared.entityType.product' },
-  order: { icon: ShoppingCart, tone: 'orange', labelKey: 'sweep.shared.entityType.order' },
-  tag: { icon: Tag, tone: 'pink', labelKey: 'sweep.shared.entityType.tag' },
-  team: { icon: Users, tone: 'teal', labelKey: 'sweep.shared.entityType.team' },
-  event: { icon: Calendar, tone: 'fuchsia', labelKey: 'sweep.shared.entityType.event' },
-};
-
-const ENTITY_TONE: Record<string, string> = {
-  violet: 'bg-violet-500/10 text-violet-700 dark:text-violet-300 ring-1 ring-violet-500/15',
-  sky: 'bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-1 ring-sky-500/15',
-  emerald: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/15',
-  indigo: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500/15',
-  rose: 'bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-1 ring-rose-500/15',
-  amber: 'bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/15',
-  yellow: 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 ring-1 ring-yellow-500/15',
-  cyan: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 ring-1 ring-cyan-500/15',
-  slate: 'bg-slate-500/10 text-slate-700 dark:text-slate-300 ring-1 ring-slate-500/15',
-  orange: 'bg-orange-500/10 text-orange-700 dark:text-orange-300 ring-1 ring-orange-500/15',
-  pink: 'bg-pink-500/10 text-pink-700 dark:text-pink-300 ring-1 ring-pink-500/15',
-  teal: 'bg-teal-500/10 text-teal-700 dark:text-teal-300 ring-1 ring-teal-500/15',
-  fuchsia: 'bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300 ring-1 ring-fuchsia-500/15',
-};
-
-function getEntityStyle(entityType?: string) {
-  if (!entityType) return { icon: Tag, tone: 'slate', labelKey: null as string | null, fallbackLabel: '', classes: ENTITY_TONE.slate };
-  const key = entityType.toLowerCase();
-  const style = ENTITY_STYLE[key];
-  if (style) return { ...style, fallbackLabel: '', classes: ENTITY_TONE[style.tone] ?? ENTITY_TONE.slate };
-  return { icon: Tag, tone: 'slate', labelKey: null as string | null, fallbackLabel: humanEntity(entityType), classes: ENTITY_TONE.slate };
-}
-
-function EntityChip({ name, entityType }: Readonly<{ name: string; entityType?: string }>) {
-  const t = useTranslations();
-  const style = getEntityStyle(entityType);
-  const styleLabel = style.labelKey ? t(style.labelKey) : style.fallbackLabel;
-
-  return (
-    <Badge
-      variant="secondary"
-      className="rounded-[5px] px-1"
-      title={styleLabel ? `${styleLabel}: ${name}` : name}
-    >
-      <span className="truncate max-w-[180px]">{name}</span>
-    </Badge>
-  );
-}
-
-// Entity nouns to emphasize in the description (not action verbs like "created").
-const NOUN_WORDS = [
-  'conversation',
-  'conversations',
-  'message',
-  'messages',
-  'ticket',
-  'tickets',
-  'contact',
-  'contacts',
-  'customer',
-  'customers',
-  'company',
-  'companies',
-  'deal',
-  'deals',
-  'lead',
-  'leads',
-  'opportunity',
-  'opportunities',
-  'task',
-  'tasks',
-  'project',
-  'projects',
-  'note',
-  'notes',
-  'email',
-  'emails',
-  'document',
-  'documents',
-  'order',
-  'orders',
-  'product',
-  'products',
-  'event',
-  'events',
-  'invoice',
-  'invoices',
-  'member',
-  'members',
-];
-const NOUN_REGEX_SRC = String.raw`\b(${NOUN_WORDS.join('|')})\b`;
+type IconComponent = React.ComponentType<{ className?: string }>;
 
 /**
- * Renders the description, turning quoted names into EntityChips and
- * emphasizing entity nouns (conversation, message, …) with semibold foreground text.
- * Action verbs (created, updated, …) are left as plain text.
+ * Icon per record type, matched on a keyword in the type. Order matters:
+ * `project_task` is a task and `project_member` a member, so the generic
+ * `project` match comes last.
  */
-function renderDescription(description: string, entityType?: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  const regex = /'([^']+)'|"([^"]+)"/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-  let firstReplaced = false;
+const ENTITY_ICONS: Array<[keywords: string[], icon: IconComponent]> = [
+  [['task', 'checklist'], CheckSquare],
+  [['label', 'tag'], Tag],
+  [['member', 'user', 'person', 'contact', 'customer'], User],
+  [['company', 'account', 'organization'], Building2],
+  [['deal', 'opportunity', 'lead'], Briefcase],
+  [['ticket', 'conversation'], Ticket],
+  [['email', 'message'], Mail],
+  [['meeting', 'session', 'event'], Calendar],
+  [['page', 'document', 'note'], FileText],
+  [['order'], ShoppingCart],
+  [['product'], Package],
+  [['project'], FolderKanban],
+];
 
-  const pushText = (text: string) => {
-    if (!text) return;
-    const nounRegex = new RegExp(NOUN_REGEX_SRC, 'gi');
-    let lastEnd = 0;
-    let m: RegExpExecArray | null;
-    while ((m = nounRegex.exec(text)) !== null) {
-      if (m.index > lastEnd) {
-        parts.push(<React.Fragment key={`t${key++}`}>{text.slice(lastEnd, m.index)}</React.Fragment>);
-      }
-      parts.push(
-        <span key={`n${key++}`} className="font-medium text-foreground">
-          {m[0]}
-        </span>,
-      );
-      lastEnd = m.index + m[0].length;
-    }
-    if (lastEnd < text.length) {
-      parts.push(<React.Fragment key={`t${key++}`}>{text.slice(lastEnd)}</React.Fragment>);
-    }
-  };
+function entityIcon(entityType: string): IconComponent {
+  const key = entityType.toLowerCase();
+  return ENTITY_ICONS.find(([keywords]) => keywords.some((k) => key.includes(k)))?.[1] ?? Box;
+}
 
-  while ((match = regex.exec(description)) !== null) {
-    if (match.index > lastIndex) {
-      pushText(description.slice(lastIndex, match.index));
-    }
-    const name = match[1] ?? match[2] ?? '';
-    if (!firstReplaced) {
-      // The subject of the activity (first quoted name) → styled entity chip
-      parts.push(<EntityChip key={`c${key++}`} name={name} entityType={entityType} />);
-      firstReplaced = true;
-    } else {
-      // Subsequent quoted names (people, companies, etc.) stay as plain text
-      pushText(name);
-    }
-    lastIndex = match.index + match[0].length;
+/** Record types that have a translated name under `sweep.shared.entityType`. */
+const TRANSLATED_ENTITY_TYPES = new Set([
+  'person', 'customer', 'user', 'member', 'company', 'account', 'organization', 'deal', 'opportunity', 'lead',
+  'project', 'ticket', 'conversation', 'task', 'note', 'email', 'message', 'document', 'product', 'order',
+  'tag', 'team', 'event',
+]);
+
+/** "Task", "Company", "Meeting session", … */
+function entityTypeLabel(entityType: string, t: Translator): string {
+  const key = entityType.toLowerCase();
+  // `personal_task` / `project_task` → `task`
+  const candidate = TRANSLATED_ENTITY_TYPES.has(key) ? key : (key.split(/[_-]/).pop() ?? key);
+  if (TRANSLATED_ENTITY_TYPES.has(candidate)) return t(`sweep.shared.entityType.${candidate}`);
+  const words = entityType.replace(/[_-]/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// What happened
+
+const ACTION_LABEL_KEYS: Record<string, string> = {
+  created: 'created',
+  updated: 'updated',
+  deleted: 'deleted',
+  archived: 'archived',
+  status_changed: 'statusChanged',
+  assigned: 'assigned',
+  escalated: 'escalated',
+  priority_changed: 'priorityChanged',
+  added: 'added',
+  removed: 'removed',
+};
+
+function sentenceCase(raw: string): string {
+  const words = raw
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]/g, ' ')
+    .trim()
+    .toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function actionLabel(action: string, t: Translator): string {
+  const key = ACTION_LABEL_KEYS[action];
+  return key ? t(`sweep.shared.activityAction.${key}`) : sentenceCase(action);
+}
+
+const QUOTED_NAME = /'([^']+)'|"([^"]+)"/;
+
+/** The record name an event quotes (`'rf' was created` → `rf`), if any. */
+function quotedName(description: string): string | null {
+  const match = QUOTED_NAME.exec(description);
+  return match ? (match[1] ?? match[2] ?? null) : null;
+}
+
+/** Readable form of a changed value: "frequency: custom, interval: 2" rather than raw JSON. */
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (Array.isArray(value)) return value.length > 0 ? value.map((v) => formatValue(v)).join(', ') : '—';
+  if (typeof value === 'object') {
+    const pairs = Object.entries(value as Record<string, unknown>).map(([k, v]) => `${k}: ${formatValue(v)}`);
+    return pairs.length > 0 ? pairs.join(', ') : '—';
   }
-  if (lastIndex < description.length) {
-    pushText(description.slice(lastIndex));
+  // ISO timestamps (due dates and the like) read as a date, not as raw machine text.
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return format(date, 'MMM d, yyyy');
   }
-  return parts.length > 0 ? parts : [description];
+  return asText(value);
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -315,12 +158,34 @@ function renderDescription(description: string, entityType?: string): React.Reac
 interface DayBucket {
   key: string;
   label: string;
-  isToday: boolean;
   date: Date;
   entries: MemberActivityItem[];
 }
 
-type Translator = (path: string, params?: Record<string, unknown>) => string;
+/** One card: a record (or several unnamed records of one kind) inside an event. */
+interface RecordCard {
+  key: string;
+  /** The record's name, or its type when the events never name it. */
+  title: string;
+  /** How many different records are folded into this card (unnamed ones only). */
+  recordCount: number;
+  entries: MemberActivityItem[];
+}
+
+/**
+ * One timeline event: everything of one kind the member did to one type of
+ * record on one day — "created 4 × Project", "updated Task".
+ */
+interface TimelineEvent {
+  key: string;
+  action: string;
+  entityType: string;
+  cards: RecordCard[];
+  /** Newest entry in the event; drives the time on the right. */
+  latest: MemberActivityItem;
+  /** Different records touched — the count in the sentence. */
+  recordCount: number;
+}
 
 function bucketLabel(date: Date, t: Translator): string {
   if (isToday(date)) return t('sweep.shared.today');
@@ -342,9 +207,64 @@ function smartTime(date: Date, t: Translator, now: Date = new Date()): string {
   return t('sweep.shared.fullDateAtTime', { date: format(date, 'MMM d, yyyy'), time: format(date, 'HH:mm') });
 }
 
+/** Edits with field details all read as "updated", whatever their raw action. */
+function eventAction(entry: MemberActivityItem): string {
+  if (entry.action !== 'created' && entry.changes && Object.keys(entry.changes).length > 0) return 'updated';
+  return entry.action;
+}
+
+/**
+ * Builds a day's timeline. `names` maps a record id to its name, collected
+ * from every loaded entry that quotes one — so an entry that only says
+ * "changed Repeat" still lands on the card of the task it belongs to.
+ * Records that are never named share one card per event ("Member ×5").
+ */
+function buildTimeline(entries: MemberActivityItem[], names: Map<string, string>, t: Translator): TimelineEvent[] {
+  const events = new Map<string, TimelineEvent & { cardMap: Map<string, RecordCard & { ids: Set<string> }>; ids: Set<string> }>();
+  for (const entry of entries) {
+    const action = eventAction(entry);
+    const eventKey = `${action}:${entry.entityType}`;
+    let event = events.get(eventKey);
+    if (!event) {
+      event = {
+        key: eventKey,
+        action,
+        entityType: entry.entityType,
+        cards: [],
+        latest: entry,
+        recordCount: 0,
+        cardMap: new Map(),
+        ids: new Set(),
+      };
+      events.set(eventKey, event);
+    }
+    const name = names.get(entry.entityId) ?? null;
+    const cardKey = name ? entry.entityId : 'unnamed';
+    let card = event.cardMap.get(cardKey);
+    if (!card) {
+      card = {
+        key: cardKey,
+        title: name ?? entityTypeLabel(entry.entityType, t),
+        recordCount: 0,
+        entries: [],
+        ids: new Set(),
+      };
+      event.cardMap.set(cardKey, card);
+      event.cards.push(card);
+    }
+    card.entries.push(entry);
+    card.ids.add(entry.entityId);
+    card.recordCount = card.ids.size;
+    event.ids.add(entry.entityId);
+    event.recordCount = event.ids.size;
+  }
+  // Entries arrive newest first, so insertion order is already newest event first.
+  return Array.from(events.values());
+}
+
 // ────────────────────────────────────────────────────────────────────
 
-export function ActivityTab({ userId, canView }: Readonly<ActivityTabProps>) {
+export function ActivityTab({ userId, canView, memberName }: Readonly<ActivityTabProps>) {
   const t = useTranslations();
   const query = useMemberActivity(userId, { limit: 50 }, { enabled: canView });
   const items = React.useMemo(
@@ -352,12 +272,21 @@ export function ActivityTab({ userId, canView }: Readonly<ActivityTabProps>) {
     [query.data],
   );
 
-  const grouped = React.useMemo<DayBucket[]>(() => {
+  const recordNames = React.useMemo(() => {
+    const names = new Map<string, string>();
+    for (const item of items) {
+      const name = quotedName(item.description);
+      if (name && !names.has(item.entityId)) names.set(item.entityId, name);
+    }
+    return names;
+  }, [items]);
+
+  const days = React.useMemo<DayBucket[]>(() => {
     const map = new Map<string, DayBucket>();
     for (const it of items) {
       const d = new Date(it.createdAt);
       const key = format(d, 'yyyy-MM-dd');
-      const bucket = map.get(key) ?? { key, label: bucketLabel(d, t), isToday: isToday(d), date: d, entries: [] };
+      const bucket = map.get(key) ?? { key, label: bucketLabel(d, t), date: d, entries: [] };
       bucket.entries.push(it);
       map.set(key, bucket);
     }
@@ -397,138 +326,179 @@ export function ActivityTab({ userId, canView }: Readonly<ActivityTabProps>) {
   }
 
   return (
-    <div className="px-4 py-4">
-      {grouped.map((bucket, idx) => (
-        <DaySection key={bucket.key} bucket={bucket} isFirst={idx === 0} />
+    <div className="p-4 space-y-6">
+      {days.map((day) => (
+        <section key={day.key}>
+          <h4 className="mb-3 text-[13px] leading-5 text-muted-foreground">{day.label}</h4>
+          <ol>
+            {buildTimeline(day.entries, recordNames, t).map((event, index, all) => (
+              <TimelineRow
+                key={event.key}
+                event={event}
+                memberName={memberName}
+                isLast={index === all.length - 1}
+              />
+            ))}
+          </ol>
+        </section>
       ))}
     </div>
   );
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Day section
+// Timeline event: round marker on the rail, sentence + time, record cards
 
-function DaySection({ bucket, isFirst }: Readonly<{ bucket: DayBucket; isFirst: boolean }>) {
-  const showSeparator = !bucket.isToday;
-
-  return (
-    <section className="relative">
-      {showSeparator && (
-        <div className={cn('flex items-center gap-3', isFirst ? 'pt-2 pb-2' : 'pt-8 pb-2')}>
-          <span className="text-[11px] font-medium text-gray-400 dark:text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-            {bucket.label}
-          </span>
-          <div className="flex-1 h-px bg-gray-100 dark:bg-border" />
-        </div>
-      )}
-
-      <ol className="relative">
-        {/* Timeline rail */}
-        <div
-          className="pointer-events-none absolute left-[8px] top-1 bottom-1 w-px bg-border"
-          aria-hidden
-        />
-        {bucket.entries.map((entry) => (
-          <ActivityRow key={entry.id} entry={entry} />
-        ))}
-      </ol>
-    </section>
-  );
-}
-
-// ────────────────────────────────────────────────────────────────────
-// Activity row — minimalist timeline, no card border
-
-function ActivityRow({ entry }: Readonly<{ entry: MemberActivityItem }>) {
+function TimelineRow({
+  event,
+  memberName,
+  isLast,
+}: Readonly<{ event: TimelineEvent; memberName?: string; isLast: boolean }>) {
   const t = useTranslations();
-  const [expanded, setExpanded] = React.useState(false);
-  const meta = getMeta(entry.action);
-  const Icon = meta.icon;
-  const changes = entry.changes ? Object.entries(entry.changes) : [];
-  const hasChanges = changes.length > 0;
-  const createdAt = new Date(entry.createdAt);
+  const Icon = entityIcon(event.entityType);
+  const latest = new Date(event.latest.createdAt);
+  const typeLabel = entityTypeLabel(event.entityType, t);
+  // A card for records that are never named would only repeat the sentence
+  // ("added 5 × Member" + a "Member ×5" card), so those events stay a single
+  // line — unless the card has changed fields to show.
+  const cards = event.cards.filter((card) => card.key !== 'unnamed' || changedFields(card.entries) !== '');
+  const entryCount = event.cards.reduce((n, card) => n + card.entries.length, 0);
+  const repeats = cards.length === 0 && entryCount > event.recordCount ? entryCount : 0;
 
   return (
-    <li className="group relative">
-      {/* Square marker with icon inside, pinned on the rail */}
+    <li className={cn('relative pl-9', !isLast && 'pb-5')}>
+      {/* Rail: runs from under the marker to the next event's marker. */}
+      {!isLast && (
+        <span className="absolute bottom-0 left-[11.5px] top-7 w-px bg-border" aria-hidden />
+      )}
       <span
-        className={cn(
-          'absolute left-0 top-[10px] z-10 flex items-center justify-center',
-          'h-[18px] w-[18px] rounded-[6px] ring-[3px] ring-background',
-          meta.tones.dotFill,
-        )}
+        className="absolute left-0 top-0 flex size-6 items-center justify-center rounded-full border border-border bg-muted/50"
         aria-hidden
       >
-        <Icon className={cn('h-[10px] w-[10px]', meta.tones.dotIcon)} strokeWidth={2.75} />
+        <Icon className="size-3 text-muted-foreground" />
       </span>
 
-      <div
-        className={cn(
-          'w-[calc(100%+32px)] -ml-4 transition-colors',
-          hasChanges && 'group-hover:bg-muted/60',
-        )}
-      >
-      <Button
-        type="button"
-        variant="ghost"
-        disabled={!hasChanges}
-        onClick={() => setExpanded((v) => !v)}
-        className={cn(
-          'text-left w-full pl-11 pr-6 py-2.5 cursor-default',
-          hasChanges && 'cursor-pointer',
-        )}
-      >
-        <p className="text-[13px] leading-snug text-foreground flex flex-wrap items-center gap-x-1 gap-y-1">
-          {renderDescription(entry.description, entry.entityType)}
-        </p>
-
-        <div className="mt-0.5 flex items-center gap-2 text-[12px] font-mono text-muted-foreground">
-          <time dateTime={entry.createdAt} title={format(createdAt, 'PPpp')}>
-            {smartTime(createdAt, t)}
-          </time>
-          {hasChanges && (
+      <div className="flex min-h-6 items-start justify-between gap-3">
+        <p className="min-w-0 text-[13px] leading-6 text-muted-foreground [overflow-wrap:anywhere]">
+          {memberName && <span className="text-foreground">{memberName} </span>}
+          {actionLabel(event.action, t).toLowerCase()}{' '}
+          <span className="font-medium text-foreground">
+            {event.recordCount > 1 ? `${event.recordCount} × ${typeLabel}` : typeLabel}
+          </span>
+          {repeats > 0 && (
             <>
-              <span aria-hidden>·</span>
-              <span className="inline-flex items-center gap-0.5 group-hover:text-foreground transition-colors">
-                {t(changes.length === 1 ? 'sweep.shared.changeCountOne' : 'sweep.shared.changeCountOther', { count: changes.length })}
-                <ChevronDown className={cn('h-3 w-3 transition-transform', expanded && 'rotate-180')} />
-              </span>
+              {' '}
+              <CountChip>×{repeats}</CountChip>
             </>
           )}
-        </div>
-      </Button>
+        </p>
+        <time
+          dateTime={event.latest.createdAt}
+          title={format(latest, 'PPpp')}
+          className="shrink-0 text-xs leading-6 tabular-nums text-muted-foreground"
+        >
+          {/* The day heading already says which day; older days just show the clock time. */}
+          {isToday(latest) ? smartTime(latest, t) : format(latest, 'HH:mm')}
+        </time>
+      </div>
 
-      {expanded && hasChanges && (
-        <div className="pl-11 pr-6 pb-2">
-          <div className="rounded-md border border-border/70 bg-background divide-y divide-border/50 text-[11px]">
-            {changes.map(([key, { from, to }]) => (
-              <div key={key} className="grid grid-cols-[100px_1fr] gap-2 px-2.5 py-1.5">
-                <span className="font-medium text-muted-foreground capitalize">
-                  {key.replace(/_/g, ' ')}
-                </span>
-                <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
-                  <code className="line-through decoration-red-400/60 text-muted-foreground truncate max-w-[180px]">
-                    {formatValue(from)}
-                  </code>
-                  <ArrowRightLeft className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                  <code className="text-foreground font-medium truncate max-w-[180px]">
-                    {formatValue(to)}
-                  </code>
-                </div>
-              </div>
-            ))}
-          </div>
+      {cards.length > 0 && (
+        <div className="mt-1.5 space-y-1.5">
+          {cards.map((card) => (
+            <RecordCardRow key={card.key} card={card} entityType={event.entityType} />
+          ))}
         </div>
       )}
-      </div>
     </li>
   );
 }
 
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return asText(value);
+/** Which fields an edit touched: "Repeat ×6 · Labels". Empty for events without field details. */
+function changedFields(entries: MemberActivityItem[]): string {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    for (const field of Object.keys(entry.changes ?? {})) {
+      const label = sentenceCase(field);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts, ([label, n]) => (n > 1 ? `${label} ×${n}` : label)).join(' · ');
+}
+
+function RecordCardRow({ card, entityType }: Readonly<{ card: RecordCard; entityType: string }>) {
+  const [open, setOpen] = React.useState(false);
+  const Icon = entityIcon(entityType);
+  const fields = changedFields(card.entries);
+  const withChanges = card.entries.filter((e) => e.changes && Object.keys(e.changes).length > 0);
+  const expandable = withChanges.length > 0;
+  // Several plain events on one record ("Updated" five times) show as a count.
+  const repeats = fields ? 0 : card.entries.length / Math.max(card.recordCount, 1);
+
+  const row = (
+    <>
+      <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{card.title}</span>
+      {card.recordCount > 1 && <CountChip>×{card.recordCount}</CountChip>}
+      {repeats > 1 && card.recordCount <= 1 && <CountChip>×{repeats}</CountChip>}
+      {fields && <span className="max-w-[55%] shrink-0 truncate text-xs text-muted-foreground">{fields}</span>}
+      {expandable && (
+        <ChevronDown
+          className={cn(
+            'size-3.5 shrink-0 text-muted-foreground transition-transform group-hover/card:text-foreground',
+            open && 'rotate-180',
+          )}
+          aria-hidden
+        />
+      )}
+    </>
+  );
+
+  return (
+    <div className="rounded-lg border border-border/70 bg-muted/30">
+      {expandable ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="group/card flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {row}
+        </button>
+      ) : (
+        <div className="flex h-9 items-center gap-2.5 px-3">{row}</div>
+      )}
+
+      {open && expandable && (
+        <ol className="space-y-2 border-t border-border/70 px-3 py-2.5">
+          {withChanges.flatMap((entry) =>
+            Object.entries(entry.changes ?? {}).map(([key, { from, to }]) => (
+              <li key={`${entry.id}:${key}`} className="text-xs leading-5">
+                <div className="flex items-baseline gap-2">
+                  <span className="min-w-0 flex-1 text-foreground">{sentenceCase(key)}</span>
+                  <time dateTime={entry.createdAt} className="shrink-0 tabular-nums text-muted-foreground">
+                    {format(new Date(entry.createdAt), 'HH:mm')}
+                  </time>
+                </div>
+                <div className="text-muted-foreground [overflow-wrap:anywhere]">
+                  <span className="line-through decoration-muted-foreground/50">{formatValue(from)}</span>
+                  <span aria-hidden> → </span>
+                  <span className="text-foreground/80">{formatValue(to)}</span>
+                </div>
+              </li>
+            )),
+          )}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function CountChip({ children }: Readonly<{ children: React.ReactNode }>) {
+  return (
+    <span className="inline-flex h-[17px] min-w-[17px] shrink-0 items-center justify-center rounded-[5px] border border-border bg-muted px-1 font-mono text-[10px] text-muted-foreground">
+      {children}
+    </span>
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -536,20 +506,20 @@ function formatValue(value: unknown): string {
 
 function ActivitySkeleton() {
   return (
-    <div className="px-4 py-4 space-y-6">
+    <div className="p-4 space-y-6">
       {[0, 1].map((i) => (
         <div key={i}>
-          <Skeleton className="h-5 w-28 rounded-full mb-3" />
-          <div className="relative">
-            <div className="pointer-events-none absolute left-[8px] top-1 bottom-1 w-px bg-border" aria-hidden />
-            {[0, 1, 2].map((j) => (
-              <div key={j} className="relative py-1.5 pl-7">
-                <Skeleton className="absolute left-0 top-2 h-[18px] w-[18px] rounded-[6px]" />
-                <Skeleton className="h-3 w-3/4 mb-1.5" />
-                <Skeleton className="h-2.5 w-1/4" />
+          <Skeleton className="mb-3 h-3 w-20" />
+          {[0, 1].map((j) => (
+            <div key={j} className="relative pb-5 pl-9">
+              <Skeleton className="absolute left-0 top-0 size-6 rounded-full" />
+              <div className="flex h-6 items-center justify-between">
+                <Skeleton className="h-3 w-2/5" />
+                <Skeleton className="h-3 w-10" />
               </div>
-            ))}
-          </div>
+              <Skeleton className="mt-1.5 h-9 w-full rounded-lg" />
+            </div>
+          ))}
         </div>
       ))}
     </div>

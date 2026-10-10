@@ -96,6 +96,14 @@ export interface EntityDetailViewProps {
   sidebarFitContent?: boolean;
 
   /**
+   * Panel mode: draw the horizontal divider line above the bottom sidebar.
+   * Defaults to `true`. Pass `false` while the sidebar has nothing above its
+   * composer (e.g. a chat with no messages yet) so an empty panel isn't cut
+   * in two; the resize handle keeps working either way.
+   */
+  sidebarDivider?: boolean;
+
+  /**
    * Lock the sidebar always-open in fullscreen mode — the toggle button is
    * hidden and the open/closed state is no longer persisted. Resize still
    * works. Use for panels where the sidebar is essential context (e.g. the
@@ -226,19 +234,20 @@ function HeaderControls({
   "onClose" | "isExpanded" | "onToggleExpand" | "showExpandButton" | "showCloseButton"
 >>) {
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-1.5">
       {showExpandButton && (
         <Button
           variant="ghost"
           size="icon-sm"
+          className="size-7"
           onClick={onToggleExpand}
           aria-label={isExpanded ? "Minimize" : "Expand"}
           title={isExpanded ? "Minimize" : "Expand"}
         >
           {isExpanded ? (
-            <Minimize className="h-4 w-4 text-muted-foreground" />
+            <Minimize className="size-4 text-muted-foreground" />
           ) : (
-            <Maximize className="h-4 w-4 text-muted-foreground" />
+            <Maximize className="size-4 text-muted-foreground" />
           )}
         </Button>
       )}
@@ -246,11 +255,15 @@ function HeaderControls({
         <Button
           variant="ghost"
           size="icon-sm"
+          className="size-7"
           onClick={onClose}
           aria-label="Close"
           title="Close"
         >
-          <X className="h-4 w-4 text-muted-foreground" />
+          {/* Lucide's X only fills half its box, so at size-4 it reads smaller
+              than Maximize next to it. Drawn larger, with the stroke scaled
+              back so the line weight still matches the other header icons. */}
+          <X className="size-[18px] text-muted-foreground" strokeWidth={1.78} />
         </Button>
       )}
     </div>
@@ -272,7 +285,10 @@ function HeaderRow({
   return (
     <div
       className={cn(
-        "flex gap-2 px-3 md:px-4 py-[12.5px] flex-shrink-0 min-h-[52px]",
+        // 12px above + 13px below: with 28px controls the row is 53px and its
+        // contents centre on a whole pixel (26px), the same line the page
+        // toolbar next to the panel centres on (52px + 1px border).
+        "flex gap-2 px-3 md:px-4 pt-3 pb-[13px] flex-shrink-0 min-h-[52px]",
         // A wrapping title makes the row taller than its controls, so pin the
         // avatar and buttons to the first line instead of floating them in the
         // vertical middle of a multi-line block.
@@ -283,11 +299,12 @@ function HeaderRow({
         <Button
           variant="ghost"
           size="icon-sm"
+          className="size-7"
           onClick={onBack}
           aria-label="Back"
           title="Back"
         >
-          <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+          <ChevronLeft className="size-4 text-muted-foreground" />
         </Button>
       )}
       {avatar && <div className="flex-shrink-0">{avatar}</div>}
@@ -305,16 +322,20 @@ function HeaderRow({
           </div>
         )}
       </div>
-      {actions && (
-        <div className="flex items-center gap-0.5 md:gap-1">{actions}</div>
-      )}
-      <HeaderControls
-        onClose={onClose}
-        isExpanded={isExpanded}
-        onToggleExpand={onToggleExpand}
-        showExpandButton={showExpandButton}
-        showCloseButton={showCloseButton}
-      />
+      {/* One group, so panel actions sit as close to Expand/Close as those
+          two sit to each other instead of a full row gap away. */}
+      <div className="flex items-center gap-1.5">
+        {actions && (
+          <div className="flex items-center gap-1.5">{actions}</div>
+        )}
+        <HeaderControls
+          onClose={onClose}
+          isExpanded={isExpanded}
+          onToggleExpand={onToggleExpand}
+          showExpandButton={showExpandButton}
+          showCloseButton={showCloseButton}
+        />
+      </div>
     </div>
   );
 }
@@ -364,6 +385,7 @@ function AnimatedShell({
   sidebarPersistKey,
   sidebarDefaultOpen,
   sidebarDefaultCollapsed = false,
+  sidebarDivider = true,
   sidebarFitContent = false,
   sidebarLocked = false,
   loading,
@@ -449,6 +471,7 @@ function AnimatedShell({
           sidebarMaxSize={sidebarMaxSize}
           sidebarPersistKey={sidebarPersistKey}
           sidebarDefaultCollapsed={sidebarDefaultCollapsed}
+          sidebarDivider={sidebarDivider}
           sidebarFitContent={sidebarFitContent}
         >
           {children}
@@ -518,6 +541,7 @@ interface PanelBodyProps {
   sidebarMaxSize?: number;
   sidebarPersistKey?: string;
   sidebarDefaultCollapsed: boolean;
+  sidebarDivider: boolean;
   sidebarFitContent: boolean;
   loading?: boolean;
   contentClassName?: string;
@@ -534,6 +558,7 @@ function PanelBody({
   sidebarMaxSize,
   sidebarPersistKey,
   sidebarDefaultCollapsed,
+  sidebarDivider,
   sidebarFitContent,
   loading,
   contentClassName,
@@ -724,8 +749,11 @@ function PanelBody({
             className="absolute inset-x-0 top-0 h-2 -translate-y-1/2 cursor-row-resize flex items-center justify-center group z-10"
             title="Drag to resize, double-click to collapse"
           >
-            {/* Always-visible full-width divider line. */}
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-border group-hover:bg-muted-foreground/40 transition-colors pointer-events-none" />
+            {/* Full-width divider line (callers can switch it off, see
+                `sidebarDivider`). */}
+            {sidebarDivider && (
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-border group-hover:bg-muted-foreground/40 transition-colors pointer-events-none" />
+            )}
             {/* Centered grab pill — surfaces on hover to signal it's draggable. */}
             <div className="relative h-[3px] w-9 rounded-full bg-transparent group-hover:bg-gray-400 dark:group-hover:bg-muted-foreground/60 transition-colors pointer-events-none" />
           </div>

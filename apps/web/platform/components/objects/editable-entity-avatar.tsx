@@ -67,27 +67,32 @@ export function EditableEntityAvatar({
       onClick={() => inputRef.current?.click()}
       disabled={isUploading}
       aria-label={t('sweep.entities.uploadAvatar')}
+      // 22×22 with 8px corners and no border — the same header avatar as the
+      // team member panel. `p-0`: the ghost button's own padding otherwise
+      // forces it wider than the avatar it wraps. `flex` (not the button's
+      // default inline-flex): an inline box sits in a text line and drops the
+      // avatar below the header's centre line.
       className={cn(
-        'group relative h-7 w-7 shrink-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'group relative flex size-[22px] shrink-0 rounded-[8px] p-0 outline-none hover:bg-transparent dark:hover:bg-transparent focus-visible:ring-2 focus-visible:ring-ring',
         className,
       )}
     >
-      <Avatar className="h-7 w-7 rounded-lg border border-border">
-        {src && <AvatarImage src={src} className="rounded-lg object-cover" />}
-        <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+      <Avatar className="size-[22px] !rounded-[8px]">
+        {src && <AvatarImage src={src} className="!rounded-[8px] object-cover" />}
+        <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
           {initial}
         </AvatarFallback>
       </Avatar>
       <span
         className={cn(
-          'absolute inset-0 flex items-center justify-center rounded-lg bg-black/45 transition-opacity',
+          'absolute inset-0 flex items-center justify-center rounded-[8px] bg-black/45 transition-opacity',
           isUploading ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
         )}
       >
         {isUploading ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
+          <Loader2 className="size-3 animate-spin text-white" />
         ) : (
-          <Camera className="h-3.5 w-3.5 text-white" />
+          <Camera className="size-3 text-white" />
         )}
       </span>
       <input
