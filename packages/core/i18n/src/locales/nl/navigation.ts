@@ -236,26 +236,6 @@ export const navigation = {
         settings: 'Instellingen',
       },
     },
-    dashboardSidebar: {
-      appName: 'Dashboard',
-      groupOverview: 'Overzicht',
-      itemHome: 'Home',
-      itemNewChat: 'Nieuwe chat',
-      groupAvailableApps: 'Beschikbare apps',
-    },
-    checkoutCancel: {
-      title: 'Afrekenen geannuleerd',
-      description: 'Uw betaling is niet verwerkt. Er zijn geen kosten in rekening gebracht.',
-      hint: 'U kunt op elk moment terugkeren naar de factuurerinstellingen om een abonnement te kiezen.',
-      backToSettings: 'Terug naar instellingen',
-      close: 'Sluiten',
-    },
-    checkoutSuccess: {
-      title: 'Betaling geslaagd!',
-      description: 'Bedankt voor uw aankoop. Uw abonnement is geactiveerd.',
-      redirecting: 'U wordt zo dadelijk doorgestuurd naar uw factuurerinstellingen...',
-      close: 'Sluiten',
-    },
     appstore: {
       title: 'App Store',
       categories: 'Categorieën',

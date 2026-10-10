@@ -173,26 +173,6 @@ export const navigation = {
         settings: 'Configuración',
       },
     },
-    dashboardSidebar: {
-      appName: 'Panel',
-      groupOverview: 'Resumen',
-      itemHome: 'Inicio',
-      itemNewChat: 'Nuevo chat',
-      groupAvailableApps: 'Aplicaciones disponibles',
-    },
-    checkoutCancel: {
-      title: 'Pago cancelado',
-      description: 'Tu pago no fue procesado. No se ha realizado ningún cargo.',
-      hint: 'Puedes volver a la configuración de facturación en cualquier momento para elegir un plan.',
-      backToSettings: 'Volver a configuración',
-      close: 'Cerrar',
-    },
-    checkoutSuccess: {
-      title: '¡Pago realizado con éxito!',
-      description: 'Gracias por tu compra. Tu suscripción ha sido activada.',
-      redirecting: 'Serás redirigido a tu configuración de facturación en breve...',
-      close: 'Cerrar',
-    },
     appstore: {
       title: 'App Store',
       categories: 'Categorías',

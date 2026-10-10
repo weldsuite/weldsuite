@@ -5,6 +5,7 @@ import { AppAccessGuard } from './app-access-guard';
 let pathname = '/';
 let memberType: 'INTERNAL' | 'EXTERNAL_GUEST' | 'EMPLOYEE' = 'EMPLOYEE';
 let installed = ['weldhr', 'weldchat', 'weldcrm'];
+let installedObjects: string[] = [];
 const replace = vi.fn();
 
 vi.mock('@/lib/router', () => ({
@@ -13,7 +14,13 @@ vi.mock('@/lib/router', () => ({
 }));
 
 vi.mock('@/hooks/use-installed-apps', () => ({
-  useInstalledApps: () => ({ data: installed.map((appCode) => ({ appCode })), isLoading: false }),
+  useInstalledApps: () => ({
+    data: [
+      ...installed.map((appCode) => ({ appCode })),
+      ...installedObjects.map((appCode) => ({ appCode, appType: 'object' })),
+    ],
+    isLoading: false,
+  }),
 }));
 
 vi.mock('@/hooks/use-current-member', () => ({
@@ -74,5 +81,25 @@ describe('AppAccessGuard · EMPLOYEE members', () => {
     memberType = 'INTERNAL';
     renderAt('/weldcrm/companies');
     expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+describe('AppAccessGuard · custom objects', () => {
+  beforeEach(() => {
+    memberType = 'INTERNAL';
+    installed = ['weldcrm'];
+    installedObjects = ['machines'];
+    replace.mockClear();
+  });
+
+  it('opens the list and records of an object in the installed list', () => {
+    renderAt('/objects/machines');
+    renderAt('/objects/machines/rec_123');
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('sends an object that is not in the list home', () => {
+    renderAt('/objects/invoices');
+    expect(replace).toHaveBeenLastCalledWith('/');
   });
 });
