@@ -1,16 +1,16 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Check,
   Trash2,
   Repeat2,
   User,
   Calendar as CalendarIcon,
+  CalendarX,
   Building,
   Flag,
   CircleDot,
   Clock,
-  Tags,
+  Tag,
   Plus,
   Upload,
   X,
@@ -27,7 +27,8 @@ import {
   Sparkles,
   Github,
   ExternalLink,
- ListCollapse, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
+  Hash,
+ ChartNoAxesGantt, History, Smile, Bold, Italic, Strikethrough, Code, List, ListOrdered, Highlighter } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { getTranslations } from '@/lib/i18n';
 import { Input } from '@weldsuite/ui/components/input';
@@ -42,6 +43,8 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
+  CommandShortcut,
 } from '@weldsuite/ui/components/command';
 import {
   Popover,
@@ -57,10 +60,26 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Calendar } from '@weldsuite/ui/components/calendar';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@weldsuite/ui/components/dialog';
+import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
 import { useDrawerFieldVisibility } from '@/hooks/use-drawer-field-visibility';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import type { Task } from '@/hooks/use-crm-tasks';
+import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
+import {
+  PickerCheck,
+  ClearPickerItem,
+  PickerScrollArea,
+  PickerFooter,
+  focusPickerList,
+} from '@/components/shared/picker-menu';
 import { format } from 'date-fns';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
@@ -156,6 +175,191 @@ const LABEL_TAILWIND_TO_HEX: Record<string, string> = {
   'bg-amber-500': '#f59e0b',
   'bg-gray-500': '#6b7280',
 };
+
+const LABEL_COLOR_OPTIONS = Object.keys(LABEL_TAILWIND_TO_HEX);
+
+/**
+ * Labels picker — the stock shadcn Command list (same as the Assignees
+ * picker): toggle labels, clear them, and, while the workspace has no labels
+ * yet, a "Create label" item that opens the create-label dialog.
+ */
+function LabelsMenu({
+  task,
+  availableLabels,
+  onUpdate,
+  onRequestCreate,
+}: Readonly<{
+  task: Task;
+  availableLabels: NonNullable<TaskDetailContentProps['availableLabels']>;
+  onUpdate: (taskId: string, data: TaskUpdateData) => void;
+  /** Set when labels can be created; opens the create-label dialog. */
+  onRequestCreate?: () => void;
+}>) {
+  const t = useTranslations();
+  const selected = task.labels ?? [];
+
+  return (
+    <Command className="outline-hidden">
+      <CommandList className="max-h-none overflow-visible">
+        <PickerScrollArea>
+          {availableLabels.length > 0 && (
+            <CommandGroup>
+              {availableLabels.map((label) => {
+                const isSelected = selected.includes(label.id);
+                return (
+                  <CommandItem
+                    key={label.id}
+                    value={`${label.name} ${label.id}`}
+                    onSelect={() =>
+                      onUpdate(task.id, {
+                        labels: isSelected ? selected.filter((id) => id !== label.id) : [...selected, label.id],
+                      })
+                    }
+                  >
+                    <span
+                      className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none"
+                      style={{
+                        backgroundColor: resolveLabelHex(label.color),
+                        color: readableLabelTextColor(label.color),
+                      }}
+                    >
+                      {label.name}
+                    </span>
+                    <PickerCheck selected={isSelected} />
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          )}
+          {availableLabels.length === 0 && onRequestCreate && (
+            <CommandGroup>
+              <CommandItem onSelect={onRequestCreate}>
+                <Plus />
+                {t('sweep.shared.createLabel')}
+              </CommandItem>
+            </CommandGroup>
+          )}
+        </PickerScrollArea>
+        {selected.length > 0 && (
+          <PickerFooter>
+            <ClearPickerItem label={t('sweep.shared.clearAll')} onSelect={() => onUpdate(task.id, { labels: [] })} />
+          </PickerFooter>
+        )}
+      </CommandList>
+    </Command>
+  );
+}
+
+/**
+ * "Create label" dialog — the platform's standard create popup (title, a
+ * color button + name field, Cancel / Create), opened from the labels picker.
+ */
+function CreateLabelDialog({
+  open,
+  onOpenChange,
+  onCreate,
+}: Readonly<{
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreate: (data: { name: string; color: string }) => Promise<boolean>;
+}>) {
+  const t = useTranslations();
+  const [name, setName] = useState('');
+  const [color, setColor] = useState(LABEL_COLOR_OPTIONS[0]);
+  const [colorOpen, setColorOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const trimmedName = name.trim();
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      setName('');
+      setColor(LABEL_COLOR_OPTIONS[0]);
+    }
+    onOpenChange(next);
+  };
+
+  const submit = async () => {
+    if (!trimmedName || pending) return;
+    setPending(true);
+    const created = await onCreate({ name: trimmedName, color });
+    setPending(false);
+    if (created) handleOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[400px]" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>{t('sweep.shared.createLabel')}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="task-label-name">{t('sweep.shared.labelNamePlaceholder')}</Label>
+            <div className="flex items-center gap-2">
+              <Popover open={colorOpen} onOpenChange={setColorOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="size-9 shrink-0 rounded-md border border-transparent transition-all hover:scale-105 hover:border-border"
+                    style={{ backgroundColor: LABEL_TAILWIND_TO_HEX[color] }}
+                    aria-label={t('sweep.shared.changeColor')}
+                    title={t('sweep.shared.changeColor')}
+                  >
+                    <Tag className="size-4 text-white" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-2" align="start">
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {LABEL_COLOR_OPTIONS.map((option) => (
+                      <Button
+                        key={option}
+                        type="button"
+                        variant="ghost"
+                        aria-label={option.replace(/^bg-|-500$/g, '')}
+                        aria-pressed={color === option}
+                        onClick={() => {
+                          setColor(option);
+                          setColorOpen(false);
+                        }}
+                        className={cn(
+                          'size-7 rounded-md p-0 transition-all hover:scale-110',
+                          color === option && 'ring-2 ring-primary ring-offset-1',
+                        )}
+                        style={{ backgroundColor: LABEL_TAILWIND_TO_HEX[option] }}
+                      />
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Input
+                id="task-label-name"
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void submit();
+                  }
+                }}
+                className="flex-1"
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>
+            {t('common.actions.cancel')}
+          </Button>
+          <Button onClick={() => void submit()} disabled={!trimmedName || pending}>
+            {t('common.actions.create')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function resolveLabelHex(color: string | null | undefined): string {
   if (!color) return '#6b7280';
@@ -310,6 +514,8 @@ export interface TaskDetailContentProps {
   availablePeople?: { id: string; name: string; avatar?: string }[];
   /** Opens the linked company/person panel; shows an "open" button next to the record. */
   onOpenRecord?: (type: 'company' | 'person', id: string) => void;
+  /** Clicking an assignee calls this with their user id (e.g. to open their panel). */
+  onOpenAssignee?: (userId: string) => void;
   availableLabels?: { id: string; name: string; color: string }[];
   onCreateLabel?: (data: { name: string; color: string }) => Promise<{ id: string; name: string; color: string } | null>;
   projectId?: string;
@@ -417,6 +623,14 @@ function GithubIssueBadge({ task }: Readonly<{ task: Task }>) {
   );
 }
 
+/** Whether two repeat rules mean the same thing (custom rules compare interval + unit). */
+function isSameRepeat(a: NonNullable<Task['repeat']> | null, b: NonNullable<Task['repeat']> | null): boolean {
+  if (!a || !b) return a === b;
+  if (a.frequency !== b.frequency) return false;
+  if (a.frequency !== 'custom') return true;
+  return (a.interval ?? 1) === (b.interval ?? 1) && (a.unit ?? 'days') === (b.unit ?? 'days');
+}
+
 function formatRepeat(
   repeat: Task['repeat'],
   t: (path: string, params?: Record<string, unknown>) => string,
@@ -464,7 +678,7 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
       </div>
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
+          <Button variant="ghost" className="h-8 px-0 text-sm text-left cursor-pointer inline-flex items-center self-start group/field hover:bg-transparent dark:hover:bg-transparent">
             {task.priority ? (
               <span className={cn(
                 "inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow",
@@ -477,31 +691,23 @@ function PriorityField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (tas
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-1" align="start">
-          {Object.entries(priorityConfig).map(([key]) => (
-            <Button
-              variant="ghost"
-              key={key}
-              onClick={() => onUpdate(task.id, { priority: key as Task['priority'] })}
-              className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
-            >
-              <span>{priorityLabels[key as keyof typeof priorityLabels]}</span>
-              {task.priority === key && <Check className="h-3.5 w-3.5 text-primary" />}
-            </Button>
-          ))}
-          {task.priority && (
-            <>
-              <div className="h-px bg-border my-1" />
-              <Button
-                variant="ghost"
-                onClick={() => onUpdate(task.id, { priority: undefined })}
-                className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
-                <span>{t('sweep.shared.clear')}</span>
-              </Button>
-            </>
-          )}
+        <PopoverContent className="w-48 p-0" align="start" onOpenAutoFocus={focusPickerList}>
+          <Command className="outline-hidden">
+            <CommandList>
+              <CommandGroup>
+                {Object.keys(priorityConfig).map((key) => (
+                  <CommandItem
+                    key={key}
+                    value={key}
+                    onSelect={() => onUpdate(task.id, { priority: key as Task['priority'] })}
+                  >
+                    {priorityLabels[key as keyof typeof priorityLabels]}
+                    <PickerCheck selected={task.priority === key} />
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
         </PopoverContent>
       </Popover>
     </div>
@@ -518,12 +724,13 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
       </div>
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="ghost" className={cn(
-            "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors",
-            task.dueDate && "border border-transparent hover:border-border hover:bg-muted/40",
-          )}>
+          <Button
+            variant="ghost"
+            className="h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors hover:bg-transparent dark:hover:bg-transparent"
+          >
             {task.dueDate ? (
               <span className={cn(
+                "group-hover/field:underline",
                 task.dueDate < new Date() && task.status !== 'done' && "text-red-600 dark:text-red-400"
               )}>
                 {format(task.dueDate, 'MMM d, yyyy')}
@@ -541,16 +748,16 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
             autoFocus
           />
           {task.dueDate && (
-            <div className="p-1 border-t border-border">
-              <Button
-                variant="ghost"
-                onClick={() => onUpdate(task.id, { dueDate: undefined })}
-                className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
-                <span>{t('sweep.shared.clear')}</span>
-              </Button>
-            </div>
+            <Command className="h-auto rounded-none border-t">
+              <CommandList>
+                <CommandGroup>
+                  <CommandItem onSelect={() => onUpdate(task.id, { dueDate: undefined })}>
+                    <CalendarX />
+                    {t('sweep.shared.noDate')}
+                  </CommandItem>
+                </CommandGroup>
+              </CommandList>
+            </Command>
           )}
         </PopoverContent>
       </Popover>
@@ -610,10 +817,12 @@ function AssigneesField({
   task,
   onUpdate,
   availableAssignees,
+  onOpenAssignee,
 }: Readonly<{
   task: Task;
   onUpdate: (taskId: string, data: TaskUpdateData) => void;
   availableAssignees: TaskDetailContentProps['availableAssignees'];
+  onOpenAssignee: TaskDetailContentProps['onOpenAssignee'];
 }>) {
   const t = useTranslations();
   return (
@@ -625,16 +834,13 @@ function AssigneesField({
       <div className="flex-1 min-w-0">
         {/* Single trigger — clicking anywhere on the assignees area
             opens the picker. Matches the Status/Priority/Labels pattern.
-            Inner remove buttons stopPropagation so they don't toggle
-            the popover. Uses a <div> trigger so the inner remove
-            buttons stay valid HTML (no nested <button>s). */}
+            Assignees are removed from the picker (toggle or "Clear all"). */}
         <Popover>
           <PopoverTrigger asChild>
             <div
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
-                // Ignore keys bubbling up from the nested remove buttons.
                 if (e.target !== e.currentTarget) return;
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -645,35 +851,44 @@ function AssigneesField({
             >
               {(task.assignees && task.assignees.length > 0) || task.assignee ? (
                 <>
-                  <div className="flex flex-col gap-1 min-w-0">
-                    {(task.assignees || (task.assignee ? [task.assignee] : [])).map((a) => (
-                      <div
-                        key={a.id || a.name}
-                        className="flex items-center gap-2 pl-0.5 pr-1.5 py-0.5 -ml-0.5 rounded-[6px] group/assignee"
-                      >
-                        <AssigneeAvatar id={a.id} name={a.name} avatar={a.avatar} />
-                        <span className="text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px]">
-                          {a.name}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
+                  {/* Each assignee is a 32px line, so the first one sits on the
+                      same centre line as the "Assignees" label. */}
+                  <div className="flex flex-col min-w-0">
+                    {(task.assignees || (task.assignee ? [task.assignee] : [])).map((a) => {
+                      const content = (
+                        <>
+                          <AssigneeAvatar id={a.id} name={a.name} avatar={a.avatar} className="size-[18px]" />
+                          <span className="text-sm text-gray-600 dark:text-muted-foreground truncate max-w-[150px] group-hover/assignee:underline">
+                            {a.name}
+                          </span>
+                        </>
+                      );
+                      const assigneeId = a.id;
+                      // With an id and a handler the assignee is its own
+                      // button that opens that person; it stops the click so
+                      // the surrounding trigger doesn't also open the picker.
+                      return onOpenAssignee && assigneeId ? (
+                        <button
+                          key={assigneeId}
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            e.preventDefault();
-                            const current = task.assignees || (task.assignee ? [task.assignee] : []);
-                            const updated = current.filter((x) => (x.id || x.name) !== (a.id || a.name));
-                            onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
+                            onOpenAssignee(assigneeId);
                           }}
-                          className="inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground opacity-0 group-hover/assignee:opacity-100 transition-[opacity,color,background-color]"
+                          onKeyDown={(e) => e.stopPropagation()}
+                          className="group/assignee flex h-8 items-center gap-2 self-start cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ))}
+                          {content}
+                        </button>
+                      ) : (
+                        <div key={a.id || a.name} className="flex h-8 items-center gap-2">
+                          {content}
+                        </div>
+                      );
+                    })}
                   </div>
                   <span
-                    className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
+                    className="mt-1 inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover/field:opacity-100"
                     aria-label={t('sweep.shared.addAssignee')}
                   >
                     <Plus className="h-4 w-4" />
@@ -687,52 +902,44 @@ function AssigneesField({
           <PopoverContent className="w-64 p-0" align="start">
             <Command>
               <CommandInput placeholder={t('sweep.shared.searchAssigneesPlaceholder')} />
-              <CommandList className="max-h-[260px] p-1">
-                <CommandEmpty>{t('sweep.shared.noAssigneesFound')}</CommandEmpty>
-                {availableAssignees.map((item) => {
-                  const id = typeof item === 'string' ? item : item.id;
-                  const name = typeof item === 'string' ? item : item.name;
-                  const avatar = typeof item === 'string' ? undefined : item.avatar;
-                  const current = task.assignees || (task.assignee ? [task.assignee] : []);
-                  const isSelected = current.some((a) => a.id === id || a.name === name);
-                  return (
-                    <CommandItem
-                      key={id}
-                      value={name}
-                      onSelect={() => {
-                        if (isSelected) {
-                          const updated = current.filter((a) => (a.id || a.name) !== id && a.name !== name);
-                          onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
-                        } else {
-                          onUpdate(task.id, { assignees: [...current, { id, name, avatar }] });
-                        }
-                      }}
-                      className="flex items-center justify-between gap-2 px-1.5"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <AssigneeAvatar id={id} name={name} avatar={avatar} />
-                        <span className="truncate">{name}</span>
-                      </div>
-                      {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                    </CommandItem>
-                  );
-                })}
+              <CommandList className="max-h-none overflow-visible">
+                <PickerScrollArea>
+                  <CommandEmpty>{t('sweep.shared.noAssigneesFound')}</CommandEmpty>
+                  <CommandGroup>
+                    {availableAssignees.map((item) => {
+                      const id = typeof item === 'string' ? item : item.id;
+                      const name = typeof item === 'string' ? item : item.name;
+                      const avatar = typeof item === 'string' ? undefined : item.avatar;
+                      const current = task.assignees || (task.assignee ? [task.assignee] : []);
+                      const isSelected = current.some((a) => a.id === id || a.name === name);
+                      return (
+                        <CommandItem
+                          key={id}
+                          value={name}
+                          onSelect={() => {
+                            if (isSelected) {
+                              const updated = current.filter((a) => (a.id || a.name) !== id && a.name !== name);
+                              onUpdate(task.id, { assignees: updated.length > 0 ? updated : null });
+                            } else {
+                              onUpdate(task.id, { assignees: [...current, { id, name, avatar }] });
+                            }
+                          }}
+                        >
+                          <AssigneeAvatar id={id} name={name} avatar={avatar} />
+                          <span className="truncate">{name}</span>
+                          <PickerCheck selected={isSelected} />
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                </PickerScrollArea>
                 {((task.assignees && task.assignees.length > 0) || task.assignee) && (
-                  <>
-                    <div className="h-px bg-border my-1" />
-                    <CommandItem
-                      value="__clear__"
+                  <PickerFooter>
+                    <ClearPickerItem
+                      label={t('sweep.shared.clearAll')}
                       onSelect={() => onUpdate(task.id, { assignees: null })}
-                      className="px-1.5 text-red-600 data-[selected=true]:text-red-600 data-[selected=true]:bg-red-50 dark:data-[selected=true]:bg-red-950"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="h-5 w-5 flex items-center justify-center shrink-0">
-                          <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                        </div>
-                        <span>{t('sweep.shared.clearAll')}</span>
-                      </div>
-                    </CommandItem>
-                  </>
+                    />
+                  </PickerFooter>
                 )}
               </CommandList>
             </Command>
@@ -756,6 +963,7 @@ export function TaskDetailContent({
   availableCompanies,
   availablePeople,
   onOpenRecord,
+  onOpenAssignee,
   availableLabels = [],
   onCreateLabel,
   projectId,
@@ -804,28 +1012,81 @@ export function TaskDetailContent({
   // Repeat popover open state (controlled so we can close it after a preset
   // / Clear click, while keeping it open for Custom interval/unit tweaks).
   const [repeatPopoverOpen, setRepeatPopoverOpen] = useState(false);
-  // Company picker — search lives in the data row (combobox pattern) so we
-  // control both the popover open state and the query string from here.
+  // Task updates are not optimistic (the panel re-renders when the server
+  // answers), so the repeat picker works on a local copy of the rule: picking
+  // "Custom" shows its fields at once and typing an interval doesn't wait on
+  // the network. The copy is dropped as soon as the server value matches it,
+  // or after a few seconds if it never does (a failed save).
+  const [repeatDraft, setRepeatDraft] = useState<{ value: NonNullable<Task['repeat']> | null } | null>(null);
+  const repeat = repeatDraft ? repeatDraft.value : (task.repeat ?? null);
+  const pendingRepeatCommit = useRef<{ timer: ReturnType<typeof setTimeout>; run: () => void } | null>(null);
+  const applyRepeat = useCallback(
+    (next: NonNullable<Task['repeat']> | null, debounce = false) => {
+      setRepeatDraft({ value: next });
+      if (pendingRepeatCommit.current) clearTimeout(pendingRepeatCommit.current.timer);
+      const run = () => {
+        pendingRepeatCommit.current = null;
+        onUpdate(task.id, { repeat: next });
+      };
+      if (debounce) pendingRepeatCommit.current = { timer: setTimeout(run, 400), run };
+      else run();
+    },
+    [onUpdate, task.id],
+  );
+  useEffect(() => {
+    if (repeatDraft && isSameRepeat(repeatDraft.value, task.repeat ?? null)) setRepeatDraft(null);
+  }, [repeatDraft, task.repeat]);
+  useEffect(() => {
+    if (!repeatDraft) return;
+    const timer = setTimeout(() => setRepeatDraft(null), 8000);
+    return () => clearTimeout(timer);
+  }, [repeatDraft]);
+  // Switching task: forget the local copy. Unmounting: send a still-pending edit.
+  useEffect(() => {
+    setRepeatDraft(null);
+  }, [task.id]);
+  useEffect(
+    () => () => {
+      if (!pendingRepeatCommit.current) return;
+      clearTimeout(pendingRepeatCommit.current.timer);
+      pendingRepeatCommit.current.run();
+    },
+    [],
+  );
+  // Labels picker is controlled so "Create label" can close it and hand over
+  // to the create-label dialog.
+  const [labelsPopoverOpen, setLabelsPopoverOpen] = useState(false);
+  const labelsButtonRef = useRef<HTMLButtonElement>(null);
+  const [createLabelOpen, setCreateLabelOpen] = useState(false);
+  // Company picker — controlled so it can close after a pick or a clear.
   const [companyPopoverOpen, setCompanyPopoverOpen] = useState(false);
-  const [companyQuery, setCompanyQuery] = useState('');
+  const changeRecordButtonRef = useRef<HTMLButtonElement>(null);
   const isRecordPicker = availablePeople !== undefined;
-  const filteredCompanies = useMemo(() => {
-    const q = companyQuery.trim().toLowerCase();
-    if (!q) return availableCompanies;
-    return availableCompanies.filter((c) => c.name.toLowerCase().includes(q));
-  }, [companyQuery, availableCompanies]);
-  const filteredPeople = useMemo(() => {
-    const q = companyQuery.trim().toLowerCase();
-    const people = availablePeople ?? [];
-    if (!q) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(q));
-  }, [companyQuery, availablePeople]);
   // The record currently linked to the task: a company or a person.
   const linkedRecord = useMemo(() => {
     if (task.linkedCompany) return { ...task.linkedCompany, type: 'company' as const };
     if (task.linkedPerson) return { ...task.linkedPerson, type: 'person' as const };
     return null;
   }, [task.linkedCompany, task.linkedPerson]);
+  // The task's labels, resolved against the workspace's label list.
+  const resolvedTaskLabels = (task.labels ?? [])
+    .map((labelId) => availableLabels.find((l) => l.id === labelId))
+    .filter((l): l is NonNullable<typeof l> => !!l);
+  // Same avatar component, name style and hover underline as the Assignees
+  // row, so the two rows are identical (size, rounding, colored fallback).
+  const linkedRecordChip = linkedRecord ? (
+    <>
+      <AssigneeAvatar
+        id={linkedRecord.id}
+        name={linkedRecord.name}
+        avatar={linkedRecord.avatar}
+        className="size-[18px]"
+      />
+      <span className="text-sm font-normal text-gray-600 dark:text-muted-foreground truncate max-w-[150px] group-hover/recordlink:underline">
+        {linkedRecord.name}
+      </span>
+    </>
+  ) : null;
   const [previewAttachment, setPreviewAttachment] = useState<TaskAttachment | null>(null);
   // Escape closes the attachment preview overlay.
   useEffect(() => {
@@ -841,7 +1102,7 @@ export function TaskDetailContent({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const tabs: PageTab[] = [
-    { id: 'details', label: t('sweep.shared.details'), icon: ListCollapse },
+    { id: 'details', label: t('sweep.shared.details'), icon: ChartNoAxesGantt },
     ...(taskId ? [{ id: 'history', label: t('sweep.shared.history'), icon: History }] : []),
   ];
   const attachmentsRef = useRef(attachments);
@@ -924,6 +1185,19 @@ export function TaskDetailContent({
       {activeTab === 'details' && (
         <div>
           <div className="space-y-1">
+          {/* Task number — human-friendly identifier, click to copy */}
+          {task.number != null && isFieldVisible('number') && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 w-32 flex-shrink-0">
+              <Hash className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">{t('sweep.shared.taskNumber')}</span>
+            </div>
+            <div className="flex h-8 items-center">
+              <TaskNumberBadge number={task.number} className="h-[18px] py-0" />
+            </div>
+          </div>
+          )}
+
           {/* Status */}
           {isFieldVisible('status') && (
           <div className="flex items-center gap-3">
@@ -933,7 +1207,7 @@ export function TaskDetailContent({
             </div>
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" className="h-8 text-sm text-left cursor-pointer inline-flex items-center self-start group/field">
+                <Button variant="ghost" className="h-8 px-0 text-sm text-left cursor-pointer inline-flex items-center self-start group/field hover:bg-transparent dark:hover:bg-transparent">
                   <span className={cn(
                     "inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow",
                     statusConfig[task.status]?.color,
@@ -942,18 +1216,23 @@ export function TaskDetailContent({
                   </span>
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-1" align="start">
-                {Object.entries(statusConfig).map(([key]) => (
-                  <Button
-                    variant="ghost"
-                    key={key}
-                    onClick={() => onUpdate(task.id, { status: key as Task['status'] })}
-                    className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded"
-                  >
-                    <span>{statusLabels[key as keyof typeof statusLabels]}</span>
-                    {task.status === key && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                ))}
+              <PopoverContent className="w-48 p-0" align="start" onOpenAutoFocus={focusPickerList}>
+                <Command className="outline-hidden">
+                  <CommandList>
+                    <CommandGroup>
+                      {Object.keys(statusConfig).map((key) => (
+                        <CommandItem
+                          key={key}
+                          value={key}
+                          onSelect={() => onUpdate(task.id, { status: key as Task['status'] })}
+                        >
+                          {statusLabels[key as keyof typeof statusLabels]}
+                          <PickerCheck selected={task.status === key} />
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
               </PopoverContent>
             </Popover>
           </div>
@@ -976,244 +1255,232 @@ export function TaskDetailContent({
 
           {/* Assignees (multi-select) */}
           {isFieldVisible('assignee') && (
-          <AssigneesField task={task} onUpdate={onUpdate} availableAssignees={availableAssignees} />
+          <AssigneesField task={task} onUpdate={onUpdate} availableAssignees={availableAssignees} onOpenAssignee={onOpenAssignee} />
           )}
 
           {/* Company (or CRM record: company / person) */}
           {isFieldVisible('company') && (
-          <div className="flex items-center gap-3">
+          <div className="group/record flex items-center gap-3">
             <div className="flex items-center gap-2 w-32 flex-shrink-0">
               <Building className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{isRecordPicker ? t('sweep.shared.record') : t('sweep.shared.customer')}</span>
             </div>
-            <Popover
-              open={companyPopoverOpen}
-              onOpenChange={(open) => {
-                setCompanyPopoverOpen(open);
-                if (!open) setCompanyQuery('');
-              }}
-            >
-              {companyPopoverOpen ? (
-                <PopoverAnchor asChild>
-                  <Input
-                    autoFocus
-                    value={companyQuery}
-                    onChange={(e) => setCompanyQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') setCompanyPopoverOpen(false);
-                    }}
-                    placeholder={isRecordPicker ? t('sweep.shared.searchRecordPlaceholder') : t('sweep.shared.searchCustomerPlaceholder')}
-                    className="h-8 text-sm -mx-2 w-auto min-w-[200px] self-start border-0 shadow-none focus-visible:ring-0 px-2 bg-transparent"
-                  />
-                </PopoverAnchor>
+            <Popover open={companyPopoverOpen} onOpenChange={setCompanyPopoverOpen}>
+              {linkedRecord && onOpenRecord ? (
+                // Clicking a linked record opens it; the picker moves to a
+                // hover-only + at the row's right edge (as on Assignees) so the
+                // record can still be changed or cleared. The record is the
+                // anchor, so the picker opens under it. The + is a plain button
+                // rather than a PopoverTrigger: Radix mispositions the content
+                // (top-left of the viewport) when a Trigger and a separate
+                // Anchor are mounted together.
+                <>
+                  <PopoverAnchor asChild>
+                    <button
+                      type="button"
+                      title={t('sweep.shared.openRecord')}
+                      onClick={() => onOpenRecord(linkedRecord.type, linkedRecord.id)}
+                      className="group/recordlink flex h-8 items-center gap-2 self-start cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {linkedRecordChip}
+                    </button>
+                  </PopoverAnchor>
+                  <Button
+                    ref={changeRecordButtonRef}
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto h-6 w-6 flex-shrink-0 rounded-md text-muted-foreground opacity-0 transition-[opacity,color,background-color] hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/record:opacity-100"
+                    aria-label={t('sweep.shared.changeRecord')}
+                    title={t('sweep.shared.changeRecord')}
+                    aria-haspopup="dialog"
+                    aria-expanded={companyPopoverOpen}
+                    onClick={() => setCompanyPopoverOpen((open) => !open)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </>
               ) : (
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" className={cn(
-                    "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start gap-2 group/field transition-colors",
-                    linkedRecord && "border border-transparent hover:border-border hover:bg-muted/40",
-                  )}>
-                    {linkedRecord ? (
-                      <>
-                        <Avatar className="h-5 w-5 rounded-[7px]">
-                          <AvatarImage src={linkedRecord.avatar} className="rounded-[7px]" />
-                          <AvatarFallback className="text-[10px] rounded-[7px]">
-                            {(linkedRecord.name || '?').charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-foreground">{linkedRecord.name}</span>
-                      </>
-                    ) : (
+                  <Button
+                    variant="ghost"
+                    className="h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start gap-2 group/field group/recordlink transition-colors hover:bg-transparent dark:hover:bg-transparent"
+                  >
+                    {linkedRecordChip ?? (
                       <span className="text-muted-foreground group-hover/field:underline">{isRecordPicker ? t('sweep.shared.setRecord') : t('sweep.shared.setCustomer')}</span>
                     )}
                   </Button>
                 </PopoverTrigger>
               )}
               <PopoverContent
-                className="w-[260px] p-0 overflow-hidden"
+                className="w-64 p-0"
                 align="start"
-                sideOffset={4}
-                onOpenAutoFocus={(e) => e.preventDefault()}
+                // A press on the + is "outside" the content; let its own click
+                // toggle the picker instead of closing and reopening it.
+                onInteractOutside={(event) => {
+                  if (changeRecordButtonRef.current?.contains(event.target as Node)) event.preventDefault();
+                }}
               >
-                {/* Scrollable list — only left/vertical padding so hover
-                    backgrounds extend all the way to the scrollbar on the
-                    right side. */}
-                <div className="max-h-[240px] overflow-y-auto py-1 pl-1">
-                  {filteredCompanies.length === 0 && filteredPeople.length === 0 ? (
-                    <div className="px-2 py-6 text-sm text-center text-muted-foreground">
-                      {isRecordPicker ? t('sweep.shared.noRecordFound') : t('sweep.shared.noCustomerFound')}
-                    </div>
-                  ) : (
-                    <>
-                      {isRecordPicker && filteredCompanies.length > 0 && (
-                        <div className="px-1.5 pt-1 pb-0.5 text-xs font-medium text-muted-foreground">{t('sweep.shared.recordCompanies')}</div>
+                <Command>
+                  <CommandInput
+                    placeholder={isRecordPicker ? t('sweep.shared.searchRecordPlaceholder') : t('sweep.shared.searchCustomerPlaceholder')}
+                  />
+                  <CommandList className="max-h-none overflow-visible">
+                    <PickerScrollArea>
+                      <CommandEmpty>
+                        {isRecordPicker ? t('sweep.shared.noRecordFound') : t('sweep.shared.noCustomerFound')}
+                      </CommandEmpty>
+                      {availableCompanies.length > 0 && (
+                        <CommandGroup heading={isRecordPicker ? t('sweep.shared.recordCompanies') : undefined}>
+                          {availableCompanies.map((company) => (
+                            <CommandItem
+                              key={`company-${company.id}`}
+                              value={`${company.name} ${company.id}`}
+                              onSelect={() => {
+                                onUpdate(task.id, { linkedCompany: company });
+                                setCompanyPopoverOpen(false);
+                              }}
+                            >
+                              <AssigneeAvatar id={company.id} name={company.name} avatar={company.avatar} />
+                              <span className="truncate">{company.name}</span>
+                              <PickerCheck selected={task.linkedCompany?.id === company.id} />
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
                       )}
-                      {filteredCompanies.map((company) => {
-                        const isSelected = task.linkedCompany?.id === company.id;
-                        return (
-                          <Button
-                            variant="ghost"
-                            key={`company-${company.id}`}
-                            onClick={() => {
-                              onUpdate(task.id, { linkedCompany: company });
-                              setCompanyPopoverOpen(false);
-                            }}
-                            className="flex items-center gap-2 w-full pl-1.5 pr-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-                          >
-                            <Avatar className="h-5 w-5 rounded-[7px]">
-                              <AvatarImage src={company.avatar} className="rounded-[7px]" />
-                              <AvatarFallback className="text-[10px] rounded-[7px]">
-                                {(company.name || '?').charAt(0).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="flex-1 truncate">{company.name}</span>
-                            {isSelected && <Check className="ml-auto h-3.5 w-3.5 text-primary shrink-0" />}
-                          </Button>
-                        );
-                      })}
-                      {isRecordPicker && filteredPeople.length > 0 && (
-                        <div className="px-1.5 pt-2 pb-0.5 text-xs font-medium text-muted-foreground">{t('sweep.shared.recordPeople')}</div>
+                      {availablePeople && availablePeople.length > 0 && (
+                        <CommandGroup heading={t('sweep.shared.recordPeople')}>
+                          {availablePeople.map((person) => (
+                            <CommandItem
+                              key={`person-${person.id}`}
+                              value={`${person.name} ${person.id}`}
+                              onSelect={() => {
+                                onUpdate(task.id, { linkedPerson: person });
+                                setCompanyPopoverOpen(false);
+                              }}
+                            >
+                              <AssigneeAvatar id={person.id} name={person.name} avatar={person.avatar} />
+                              <span className="truncate">{person.name}</span>
+                              <PickerCheck selected={task.linkedPerson?.id === person.id} />
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
                       )}
-                      {filteredPeople.map((person) => {
-                        const isSelected = task.linkedPerson?.id === person.id;
-                        return (
-                          <Button
-                            variant="ghost"
-                            key={`person-${person.id}`}
-                            onClick={() => {
-                              onUpdate(task.id, { linkedPerson: person });
-                              setCompanyPopoverOpen(false);
-                            }}
-                            className="flex items-center gap-2 w-full pl-1.5 pr-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-                          >
-                            <Avatar className="h-5 w-5 rounded-full">
-                              <AvatarImage src={person.avatar} className="rounded-full" />
-                              <AvatarFallback className="text-[10px] rounded-full">
-                                {(person.name || '?').charAt(0).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="flex-1 truncate">{person.name}</span>
-                            {isSelected && <Check className="ml-auto h-3.5 w-3.5 text-primary shrink-0" />}
-                          </Button>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
-                {linkedRecord && (
-                  <div className="border-t border-border p-1">
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        onUpdate(task.id, linkedRecord.type === 'person' ? { linkedPerson: null } : { linkedCompany: null });
-                        setCompanyPopoverOpen(false);
-                      }}
-                      className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
-                      <span>{t('sweep.shared.clear')}</span>
-                    </Button>
-                  </div>
-                )}
+                    </PickerScrollArea>
+                    {linkedRecord && (
+                      <PickerFooter>
+                        <ClearPickerItem
+                          label={t('sweep.shared.clear')}
+                          onSelect={() => {
+                            onUpdate(task.id, linkedRecord.type === 'person' ? { linkedPerson: null } : { linkedCompany: null });
+                            setCompanyPopoverOpen(false);
+                          }}
+                        />
+                      </PickerFooter>
+                    )}
+                  </CommandList>
+                </Command>
               </PopoverContent>
             </Popover>
-            {linkedRecord && onOpenRecord && !companyPopoverOpen && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                aria-label={t('sweep.shared.openRecord')}
-                title={t('sweep.shared.openRecord')}
-                onClick={() => onOpenRecord(linkedRecord.type, linkedRecord.id)}
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-              </Button>
-            )}
           </div>
           )}
 
           {/* Labels */}
           {isFieldVisible('labels') && (
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 w-32 flex-shrink-0">
-              <Tags className="h-4 w-4 text-muted-foreground" />
+          <div className="flex items-start gap-3">
+            <div className="flex items-center gap-2 w-32 flex-shrink-0 h-8">
+              <Tag className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">{t('sweep.shared.labels')}</span>
             </div>
-            <Popover>
-              <PopoverTrigger asChild>
-                {(() => {
-                  const resolvedLabels = (task.labels ?? [])
-                    .map((labelId) => availableLabels.find((l) => l.id === labelId))
-                    .filter((l): l is NonNullable<typeof l> => !!l);
-                  const hasResolvedLabels = resolvedLabels.length > 0;
-                  return (
-                    <Button variant="ghost" className={cn(
-                      "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start gap-1 flex-wrap group/field transition-colors",
-                      hasResolvedLabels && "border border-transparent hover:border-border hover:bg-muted/40",
-                    )}>
-                      {hasResolvedLabels ? (
-                        resolvedLabels.map((label) => (
-                          <span
-                            key={label.id}
-                            className="px-2 py-0.5 rounded text-[12px] font-medium"
-                            style={{
-                              backgroundColor: resolveLabelHex(label.color),
-                              color: readableLabelTextColor(label.color),
-                            }}
-                          >
-                            {label.name}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setLabels')}</span>
-                      )}
-                    </Button>
-                  );
-                })()}
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-1 min-w-[200px]" align="start">
-                {availableLabels.map((label) => {
-                  const isSelected = task.labels?.includes(label.id) ?? false;
-                  return (
-                    <Button
-                      variant="ghost"
-                      key={label.id}
-                      onClick={() => {
-                        const currentLabels = task.labels || [];
-                        const newLabels = isSelected
-                          ? currentLabels.filter(id => id !== label.id)
-                          : [...currentLabels, label.id];
-                        onUpdate(task.id, { labels: newLabels });
-                      }}
-                      className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-muted rounded gap-2"
-                    >
-                      <span
-                        className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none"
-                        style={{
-                          backgroundColor: resolveLabelHex(label.color),
-                          color: readableLabelTextColor(label.color),
-                        }}
-                      >
-                        {label.name}
-                      </span>
-                      {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                    </Button>
-                  );
-                })}
-                {task.labels && task.labels.length > 0 && (
-                  <>
-                    <div className="h-px bg-border my-1" />
-                    <Button
-                      variant="ghost"
-                      onClick={() => onUpdate(task.id, { labels: [] })}
-                      className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
-                      <span>{t('sweep.shared.clearAll')}</span>
-                    </Button>
-                  </>
-                )}
+            <Popover open={labelsPopoverOpen} onOpenChange={setLabelsPopoverOpen}>
+              {resolvedTaskLabels.length === 0 ? (
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors hover:bg-transparent dark:hover:bg-transparent"
+                  >
+                    <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setLabels')}</span>
+                  </Button>
+                </PopoverTrigger>
+              ) : (
+                // The labels themselves are not clickable; only the + (shown
+                // on hover, as on Assignees) opens the picker. The labels are
+                // the anchor so the picker opens under them, and the + is a
+                // plain button rather than a PopoverTrigger: Radix mispositions
+                // the content when a Trigger and a separate Anchor are mounted
+                // together.
+                <div className="flex flex-1 min-w-0 items-start justify-between gap-2 min-h-8 group/field">
+                  <PopoverAnchor asChild>
+                    <div className="flex min-w-0 flex-wrap items-center gap-1 py-[5px]">
+                      {resolvedTaskLabels.map((label) => (
+                        <span
+                          key={label.id}
+                          className="inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none"
+                          style={{
+                            backgroundColor: resolveLabelHex(label.color),
+                            color: readableLabelTextColor(label.color),
+                          }}
+                        >
+                          {label.name}
+                        </span>
+                      ))}
+                    </div>
+                  </PopoverAnchor>
+                  <Button
+                    ref={labelsButtonRef}
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'mt-1 h-6 w-6 flex-shrink-0 rounded-md text-muted-foreground opacity-0 transition-[opacity,color,background-color] hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/field:opacity-100',
+                      labelsPopoverOpen && 'opacity-100',
+                    )}
+                    aria-label={t('sweep.shared.setLabels')}
+                    title={t('sweep.shared.setLabels')}
+                    aria-haspopup="dialog"
+                    aria-expanded={labelsPopoverOpen}
+                    onClick={() => setLabelsPopoverOpen((open) => !open)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              <PopoverContent
+                className="w-56 p-0"
+                align="start"
+                onOpenAutoFocus={focusPickerList}
+                // A press on the + is "outside" the content; let its own click
+                // toggle the picker instead of closing and reopening it.
+                onInteractOutside={(event) => {
+                  if (labelsButtonRef.current?.contains(event.target as Node)) event.preventDefault();
+                }}
+              >
+                <LabelsMenu
+                  task={task}
+                  availableLabels={availableLabels}
+                  onUpdate={onUpdate}
+                  onRequestCreate={
+                    onCreateLabel
+                      ? () => {
+                          setLabelsPopoverOpen(false);
+                          setCreateLabelOpen(true);
+                        }
+                      : undefined
+                  }
+                />
               </PopoverContent>
             </Popover>
+            {onCreateLabel && (
+              <CreateLabelDialog
+                open={createLabelOpen}
+                onOpenChange={setCreateLabelOpen}
+                onCreate={async (data) => {
+                  const created = await onCreateLabel(data);
+                  if (!created) return false;
+                  // The user came here to label this task, so apply it.
+                  onUpdate(task.id, { labels: [...(task.labels ?? []), created.id] });
+                  return true;
+                }}
+              />
+            )}
           </div>
           )}
 
@@ -1226,73 +1493,89 @@ export function TaskDetailContent({
             </div>
             <Popover open={repeatPopoverOpen} onOpenChange={setRepeatPopoverOpen}>
               <PopoverTrigger asChild>
-                <Button variant="ghost" className={cn(
-                  "h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors",
-                  task.repeat && "border border-transparent hover:border-border hover:bg-muted/40",
-                )}>
-                  {task.repeat ? (
-                    <span className="text-indigo-600 dark:text-indigo-400">
-                      {formatRepeat(task.repeat, t, repeatLabels)}
+                <Button
+                  variant="ghost"
+                  className="h-8 text-sm text-left rounded-md px-[5px] -mx-[5px] cursor-pointer inline-flex items-center self-start group/field transition-colors hover:bg-transparent dark:hover:bg-transparent"
+                >
+                  {repeat ? (
+                    <span className="text-indigo-600 dark:text-indigo-400 group-hover/field:underline">
+                      {formatRepeat(repeat, t, repeatLabels)}
                     </span>
                   ) : (
                     <span className="text-muted-foreground group-hover/field:underline">{t('sweep.shared.setRepeat')}</span>
                   )}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-1" align="start">
-                {repeatOrder.map((key) => (
-                  <Button
-                    variant="ghost"
-                    key={key}
-                    onClick={() => {
-                      onUpdate(task.id, { repeat: { frequency: key } });
-                      setRepeatPopoverOpen(false);
-                    }}
-                    className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded"
-                  >
-                    <span>{repeatLabels[key]}</span>
-                    {task.repeat?.frequency === key && <Check className="h-3.5 w-3.5 text-primary" />}
-                  </Button>
-                ))}
-                <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-                <Button
-                  variant="ghost"
-                  onClick={() => onUpdate(task.id, {
-                    repeat: {
-                      frequency: 'custom',
-                      interval: task.repeat?.frequency === 'custom' ? (task.repeat.interval ?? 1) : 1,
-                      unit: task.repeat?.frequency === 'custom' ? (task.repeat.unit ?? 'days') : 'days',
-                    },
-                  })}
-                  className="flex items-center justify-between w-full px-1.5 py-1.5 text-sm text-left hover:bg-gray-100 dark:hover:bg-secondary rounded"
-                >
-                  <span>{t('sweep.shared.custom')}</span>
-                  {task.repeat?.frequency === 'custom' && <Check className="h-3.5 w-3.5 text-primary" />}
-                </Button>
-                {task.repeat?.frequency === 'custom' && (
-                  <div className="flex items-center gap-2 px-2 py-2 mt-1">
+              <PopoverContent className="w-64 p-0" align="start" onOpenAutoFocus={focusPickerList}>
+                <Command className="h-auto outline-hidden">
+                  <CommandList className="max-h-none overflow-visible">
+                    <PickerScrollArea>
+                      <CommandGroup>
+                        {repeatOrder.map((key) => (
+                          <CommandItem
+                            key={key}
+                            value={key}
+                            onSelect={() => {
+                              applyRepeat({ frequency: key });
+                              setRepeatPopoverOpen(false);
+                            }}
+                          >
+                            {repeatLabels[key]}
+                            <PickerCheck selected={repeat?.frequency === key} />
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                      <CommandSeparator />
+                      <CommandGroup>
+                        <CommandItem
+                          value="custom"
+                          onSelect={() => applyRepeat({
+                            frequency: 'custom',
+                            interval: repeat?.frequency === 'custom' ? (repeat.interval ?? 1) : 1,
+                            unit: repeat?.frequency === 'custom' ? (repeat.unit ?? 'days') : 'days',
+                          })}
+                        >
+                          {t('sweep.shared.custom')}
+                          <PickerCheck selected={repeat?.frequency === 'custom'} />
+                        </CommandItem>
+                      </CommandGroup>
+                    </PickerScrollArea>
+                    {repeat && (
+                      <PickerFooter>
+                        <ClearPickerItem
+                          label={t('sweep.shared.clear')}
+                          onSelect={() => {
+                            applyRepeat(null);
+                            setRepeatPopoverOpen(false);
+                          }}
+                        />
+                      </PickerFooter>
+                    )}
+                  </CommandList>
+                </Command>
+                {/* Outside the Command list: its key handling would otherwise
+                    swallow typing and Enter in these inputs. */}
+                {repeat?.frequency === 'custom' && (
+                  <div className="flex items-center gap-2 border-t p-3">
                     <span className="text-sm text-muted-foreground">{t('sweep.shared.every')}</span>
                     <Input
                       type="number"
                       min={1}
-                      value={task.repeat.interval ?? 1}
+                      value={repeat.interval ?? 1}
                       onChange={(e) => {
                         const interval = Math.max(1, Number.parseInt(e.target.value, 10) || 1);
-                        onUpdate(task.id, {
-                          repeat: { frequency: 'custom', interval, unit: task.repeat?.unit ?? 'days' },
-                        });
+                        // Typing sends one update once the user pauses, not one per keystroke.
+                        applyRepeat({ frequency: 'custom', interval, unit: repeat?.unit ?? 'days' }, true);
                       }}
                       className="w-16 text-center"
                     />
                     <Select
-                      value={task.repeat.unit ?? 'days'}
+                      value={repeat.unit ?? 'days'}
                       onValueChange={(value) => {
-                        onUpdate(task.id, {
-                          repeat: {
-                            frequency: 'custom',
-                            interval: task.repeat?.interval ?? 1,
-                            unit: value as NonNullable<Task['repeat']>['unit'],
-                          },
+                        applyRepeat({
+                          frequency: 'custom',
+                          interval: repeat?.interval ?? 1,
+                          unit: value as NonNullable<Task['repeat']>['unit'],
                         });
                       }}
                     >
@@ -1307,22 +1590,6 @@ export function TaskDetailContent({
                       </SelectContent>
                     </Select>
                   </div>
-                )}
-                {task.repeat && (
-                  <>
-                    <div className="h-px bg-gray-200 dark:bg-accent my-1" />
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        onUpdate(task.id, { repeat: null });
-                        setRepeatPopoverOpen(false);
-                      }}
-                      className="flex items-center w-full px-1.5 py-1.5 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-2 text-red-600" />
-                      <span>{t('sweep.shared.clear')}</span>
-                    </Button>
-                  </>
                 )}
               </PopoverContent>
             </Popover>
@@ -1383,16 +1650,20 @@ export function TaskDetailContent({
             </div>
           )}
 
-          {/* Attachments */}
-          {isFieldVisible('attachments') && (onAttachmentAdd || onAttachmentsChange) && (
+          {/* Attachments — shown when the field is switched on, and always
+              when the task actually has attachments (so they are never hidden
+              behind a field setting). */}
+          {(isFieldVisible('attachments') || attachments.length > 0) && (onAttachmentAdd || onAttachmentsChange) && (
             <div className="mt-6 group/attachments-section">
               <div className={cn("flex items-center justify-between", !attachmentsCollapsed && "mb-2")}>
-                <Button variant="ghost" onClick={() => setAttachmentsCollapsed(!attachmentsCollapsed)} className="flex items-center gap-1.5">
+                <Button variant="ghost" onClick={() => setAttachmentsCollapsed(!attachmentsCollapsed)} className="flex h-8 items-center gap-2 px-0 has-[>svg]:px-0 hover:bg-transparent dark:hover:bg-transparent">
                   <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform duration-200", !attachmentsCollapsed && "rotate-90")} />
                   <span className="text-sm font-medium text-foreground">{t('sweep.shared.attachments')}</span>
                   {attachments.length > 0 && (
-                    <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-[5px]">
-                      {attachments.length}
+                    <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border min-w-[17px] h-[17px] px-1 flex items-center justify-center rounded-[5px]">
+                      {/* Digits have no descender, so centring the text line
+                          leaves them ~1px high in the box; nudge them down. */}
+                      <span className="relative top-px">{attachments.length}</span>
                     </span>
                   )}
                 </Button>
@@ -1400,7 +1671,7 @@ export function TaskDetailContent({
                   variant="ghost"
                   size="icon"
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-0.5 text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover/attachments-section:opacity-100"
+                  className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover/attachments-section:opacity-100"
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
@@ -1497,7 +1768,7 @@ export function TaskDetailContent({
                     return (
                       <div
                         key={attachment.id}
-                        className="relative flex items-center gap-2 pl-2 py-1.5 rounded-md hover:bg-muted/50 group cursor-pointer"
+                        className="relative flex items-center gap-2 py-1.5 rounded-md group cursor-pointer"
                       >
                         <button
                           type="button"
@@ -1509,18 +1780,18 @@ export function TaskDetailContent({
                           <Icon className="h-4 w-4 text-muted-foreground" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm truncate text-foreground">{attachment.fileName}</p>
+                          <p className="text-sm truncate text-foreground group-hover:underline">{attachment.fileName}</p>
                           <p className="text-xs text-muted-foreground">
                             {formatFileSize(attachment.fileSize)}
                           </p>
                         </div>
-                        <div className="relative z-[1] flex items-center gap-1.5 flex-shrink-0 mr-2.5">
+                        <div className="relative z-[1] flex items-center gap-1 flex-shrink-0">
                           <a
                             href={attachment.url}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="p-1.5 hover:bg-muted rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                            className="inline-flex h-6 w-6 items-center justify-center hover:bg-muted rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
                             title={t('sweep.shared.download')}
                           >
                             <Download className="h-3.5 w-3.5" />
@@ -1529,7 +1800,7 @@ export function TaskDetailContent({
                             variant="ghost"
                             size="icon"
                             onClick={(e) => { e.stopPropagation(); handleRemoveAttachment(attachment.id); }}
-                            className="p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30"
+                            className="h-6 w-6 rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30"
                             title={t('sweep.shared.remove')}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1672,7 +1943,7 @@ export function SubtasksSection({
   return (
     <div style={{ overflow: 'hidden', maxWidth: '100%' }} className="group/subtasks-section">
       <div className={cn("flex items-center justify-between", !collapsed && "mb-2")}>
-        <Button variant="ghost" onClick={() => setCollapsed(!collapsed)} className="flex items-center gap-1.5">
+        <Button variant="ghost" onClick={() => setCollapsed(!collapsed)} className="flex h-8 items-center gap-2 px-0 has-[>svg]:px-0 hover:bg-transparent dark:hover:bg-transparent">
           <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform duration-200", !collapsed && "rotate-90")} />
           <span className="text-sm font-medium text-foreground">{t('sweep.shared.subtasks')}</span>
           {totalCount > 0 && (
@@ -2029,7 +2300,7 @@ function DependenciesSection({
   return (
     <div className="group/deps-section">
       <div className={cn("flex items-center justify-between", !collapsed && "mb-2")}>
-        <Button variant="ghost" onClick={() => setCollapsed(!collapsed)} className="flex items-center gap-1.5">
+        <Button variant="ghost" onClick={() => setCollapsed(!collapsed)} className="flex h-8 items-center gap-2 px-0 has-[>svg]:px-0 hover:bg-transparent dark:hover:bg-transparent">
           <ChevronRight className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform duration-200", !collapsed && "rotate-90")} />
           <span className="text-sm font-medium text-foreground">{st('sweep.shared.dependencies')}</span>
           {totalDeps > 0 && (
@@ -2041,7 +2312,7 @@ function DependenciesSection({
         {onAddDependency && (
           <Popover open={popoverOpen} onOpenChange={(open) => { setPopoverOpen(open); if (!open) setSearch(''); }}>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="p-0.5 text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover/deps-section:opacity-100">
+              <Button variant="ghost" size="icon" className="h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover/deps-section:opacity-100">
                 <Plus className="h-3.5 w-3.5" />
               </Button>
             </PopoverTrigger>
@@ -2077,10 +2348,9 @@ function DependenciesSection({
                   placeholder={st('sweep.shared.searchTasksPlaceholder')}
                   value={search}
                   onValueChange={setSearch}
-                  className="h-9 text-sm"
                 />
-                <CommandList className="max-h-[200px] [scrollbar-width:thin] [scrollbar-color:rgba(156,163,175,0.3)_transparent] [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300/30 [&::-webkit-scrollbar-thumb]:rounded-full">
-                  <CommandEmpty className="py-6 text-center text-sm text-muted-foreground">{st('sweep.shared.noTasksFound')}</CommandEmpty>
+                <CommandList>
+                  <CommandEmpty>{st('sweep.shared.noTasksFound')}</CommandEmpty>
                   <CommandGroup>
                     {availableTasks.map((t) => (
                       <CommandItem
@@ -2091,11 +2361,10 @@ function DependenciesSection({
                           setPopoverOpen(false);
                           setSearch('');
                         }}
-                        className="flex items-center gap-2 py-2"
                       >
                         {statusSquare(t.status)}
-                        <span className="truncate flex-1 text-sm">{t.title}</span>
-                        {t.key && <span className="text-[10px] font-mono text-muted-foreground">{t.key}</span>}
+                        <span className="truncate">{t.title}</span>
+                        {t.key && <CommandShortcut>{t.key}</CommandShortcut>}
                       </CommandItem>
                     ))}
                   </CommandGroup>
@@ -2364,21 +2633,18 @@ export function CommentsList({
                             <EllipsisVertical className="h-3.5 w-3.5" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-32">
+                        <DropdownMenuContent align="end">
                           {onUpdateComment && (
                             <DropdownMenuItem onClick={() => startEditing(comment)}>
-                              <Pencil className="h-3.5 w-3.5 mr-0.5" />
+                              <Pencil />
                               {t('sweep.shared.edit')}
                             </DropdownMenuItem>
                           )}
                           {onDeleteComment && (
                             <>
                               {onUpdateComment && <DropdownMenuSeparator />}
-                              <DropdownMenuItem
-                                className="text-red-600 hover:!bg-red-50 hover:!text-red-600 focus:bg-red-50 focus:text-red-600 dark:hover:!bg-red-950 dark:hover:!text-red-400 dark:focus:bg-red-950"
-                                onClick={() => onDeleteComment(comment.id)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5 mr-0.5 text-red-500" />
+                              <DropdownMenuItem variant="destructive" onClick={() => onDeleteComment(comment.id)}>
+                                <Trash2 />
                                 {t('sweep.shared.delete')}
                               </DropdownMenuItem>
                             </>

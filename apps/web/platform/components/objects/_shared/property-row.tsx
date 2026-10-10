@@ -25,7 +25,7 @@
  */
 
 import { useEffect, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
-import { Check, Flag, X } from 'lucide-react';
+import { Flag, X } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { RowOverlayButton } from '@/components/shared/row-overlay-button';
@@ -35,11 +35,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/component
 import {
   Command,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
 import { MemberSelect } from '@/components/team/member-select';
+import { useObjectPanel } from '@/components/object-panel';
+import { PickerCheck } from '@/components/shared/picker-menu';
 import { STATUS_STYLE_MAP } from '@/hooks/queries/use-weldcrm-customer-statuses';
 
 type PropertyRowType = 'text' | 'email' | 'phone' | 'url' | 'address';
@@ -219,14 +222,14 @@ export function PropertyRow({
       </div>
       <div
         className={cn(
-          // Same box geometry in both states so the edit border sits exactly
-          // where the hover highlight does — same rounding, padding, negative
-          // margin and min height. `border-box` keeps the outer rectangle
-          // identical once the border is drawn (the border eats into the
-          // padding rather than growing the box).
-          'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-2 box-border',
-          editable && !isEditing && cn('relative cursor-text hover:bg-muted/50 transition-colors', KEEP_CONTROLS_ABOVE_OVERLAY),
-          isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
+          // One box geometry in every state: the 1px border is always there
+          // (transparent at rest), so the hover border and the edit border
+          // sit in exactly the same place and the text never shifts. 7px
+          // padding + 1px border keeps the value on the column's left edge.
+          'text-sm min-w-0 flex items-center min-h-[32px] py-1 rounded-[9px] -mx-2 px-[7px] box-border border border-transparent',
+          // Editable values show that border on hover (no fill, no underline).
+          editable && !isEditing && cn('relative cursor-text transition-colors hover:border-border', KEEP_CONTROLS_ABOVE_OVERLAY),
+          isEditing && 'border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
       >
         {editable && !isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}
@@ -252,14 +255,24 @@ export interface MemberPropertyRowProps {
 }
 
 export function MemberPropertyRow({ icon: Icon, label, value, placeholder, onChange }: Readonly<MemberPropertyRowProps>) {
+  const { open: openPanel } = useObjectPanel();
   return (
     <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-center group/row min-h-[32px]">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
       </div>
-      <div className="min-w-0 -mx-2">
-        <MemberSelect value={value} onChange={onChange} placeholder={placeholder} variant="assignee" />
+      {/* Same behaviour as the task panel's Assignees row: clicking the member
+          opens their panel (in place, with a back arrow), the + changes them. */}
+      <div className="min-w-0">
+        <MemberSelect
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          variant="assignee"
+          panelRow
+          onOpenMember={(userId) => openPanel({ type: 'team-member', id: userId, stack: true })}
+        />
       </div>
       <div />
     </div>
@@ -286,9 +299,9 @@ function StatusBadge({ value, options }: Readonly<{ value: string; options: Stat
   return (
     <span
       className={cn(
-        // `-ml-1.5` pulls the pill's left edge into the gutter so the badge TEXT
-        // lines up with the plain-text values of the rows above and below.
-        'inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-medium -ml-1.5',
+        // Same chip as the task panel's status / priority: 22px tall, its left
+        // edge on the value column, a thin outline when its row is hovered.
+        'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none ring-1 ring-transparent group-hover/field:ring-gray-300 dark:group-hover/field:ring-gray-600 transition-shadow',
         style?.bg ?? 'bg-muted',
         style?.color ?? 'text-foreground',
       )}
@@ -315,26 +328,27 @@ export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusP
       </div>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
+          {/* No hover box and no padding: just the chip (or an underlined
+              placeholder), like the task panel. */}
           <Button
             type="button"
             variant="ghost"
-            className="text-sm min-w-0 justify-start text-left cursor-pointer rounded-[9px] px-2 -mx-2 py-0.5 hover:bg-muted/50 transition-colors flex items-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-ring h-auto min-h-[32px]"
+            className="h-8 px-0 text-sm text-left cursor-pointer inline-flex items-center justify-self-start group/field hover:bg-transparent dark:hover:bg-transparent"
           >
             {value ? (
               <StatusBadge value={value} options={options} />
             ) : (
-              <span className="text-muted-foreground/70">{st('sweep.entities.setStatusPlaceholder')}</span>
+              <span className="font-normal text-muted-foreground group-hover/field:underline">{st('sweep.entities.setStatusPlaceholder')}</span>
             )}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-56 p-0" align="start">
           <Command>
             <CommandInput placeholder={st('sweep.entities.searchEllipsisPlaceholder')} />
-            <CommandList className="max-h-[260px] p-1">
+            <CommandList>
               <CommandEmpty>{st('sweep.entities.noStatusesFound')}</CommandEmpty>
-              {options.map((opt) => {
-                const isSelected = opt.value === value;
-                return (
+              <CommandGroup>
+                {options.map((opt) => (
                   <CommandItem
                     key={opt.value}
                     value={opt.label}
@@ -342,13 +356,12 @@ export function StatusPropertyRow({ value, onChange, options }: Readonly<StatusP
                       onChange(opt.value);
                       setOpen(false);
                     }}
-                    className="flex items-center justify-between gap-2 px-1.5"
                   >
                     <StatusBadge value={opt.value} options={options} />
-                    {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                    <PickerCheck selected={opt.value === value} />
                   </CommandItem>
-                );
-              })}
+                ))}
+              </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
@@ -391,16 +404,19 @@ export function TagsPropertyRow({ icon: Icon, label, value, placeholder, onChang
   const removeTag = (tag: string) => onChange(tags.filter((x) => x !== tag));
 
   return (
-    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-start group/row min-h-[32px] py-0.5">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground h-7">
+    <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] gap-2 items-start group/row min-h-[32px]">
+      {/* 32px label line, so a one-line tags row is the same height as every other row. */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground h-8">
         <Icon className="h-4 w-4" />
         <span>{label}</span>
       </div>
       <div
         className={cn(
-          'min-w-0 -mx-2 px-2 rounded-[9px] box-border flex flex-wrap items-center gap-1 min-h-[32px] py-1',
-          !isEditing && 'relative cursor-text hover:bg-muted/50 transition-colors',
-          isEditing && 'border border-border bg-background focus-within:ring-1 focus-within:ring-primary',
+          // Same box as PropertyRow: an always-present 1px border (transparent
+          // at rest) that shows on hover and while editing — no hover fill.
+          'min-w-0 -mx-2 px-[7px] rounded-[9px] box-border border border-transparent flex flex-wrap items-center gap-1 min-h-[32px] py-1',
+          !isEditing && 'relative cursor-text transition-colors hover:border-border',
+          isEditing && 'border-border bg-background focus-within:ring-1 focus-within:ring-primary',
         )}
       >
         {!isEditing && <RowOverlayButton label={label} onClick={() => setIsEditing(true)} />}

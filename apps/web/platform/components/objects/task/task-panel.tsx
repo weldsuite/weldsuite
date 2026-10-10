@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useAuth } from '@clerk/clerk-react';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
+import { useEntityChannel } from '@/components/entity-chat/entity-chat';
 import {
   useObjectPanel,
   useObjectPanelShell,
@@ -47,7 +48,6 @@ import {
 } from '@/components/task-detail';
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
-import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
@@ -153,38 +153,44 @@ function toUiComment(row: TaskCommentRow): TaskComment {
 }
 
 function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: () => void }>) {
+  // The header pins its items to the first line (the title can wrap), so the
+  // checkbox is centred in a box as tall as the 28px header buttons.
   return (
-    <Checkbox
-      checked={status === 'done'}
-      onCheckedChange={onToggle}
-      className={cn(
-        'h-5 w-5 flex-shrink-0 !rounded-[6px]',
-        status === 'done' && 'data-[state=checked]:!bg-green-600 data-[state=checked]:!border-green-600',
-      )}
-    />
+    <span className="relative -top-px flex h-7 items-center">
+      <Checkbox
+        checked={status === 'done'}
+        onCheckedChange={onToggle}
+        className={cn(
+          'h-5 w-5 flex-shrink-0 !rounded-[6px]',
+          status === 'done' && 'data-[state=checked]:!bg-green-600 data-[state=checked]:!border-green-600',
+        )}
+      />
+    </span>
   );
 }
 
 function TaskTitle({ title, isDone, onSave }: Readonly<{ title: string; isDone: boolean; onSave: (next: string) => void }>) {
+  // 24px lines + 1px offset put the first line's centre on the same 26px line
+  // as the checkbox and the header buttons.
   return (
-    <InlineTextEditor
-      value={title}
-      onSave={onSave}
-      className={cn(
-        'text-[15px] font-medium leading-normal text-foreground',
-        isDone && 'line-through text-muted-foreground',
-      )}
-    />
+    <div className="pt-px">
+      <InlineTextEditor
+        value={title}
+        onSave={onSave}
+        className={cn(
+          'text-[15px] font-medium leading-6 text-foreground',
+          isDone && 'line-through text-muted-foreground',
+        )}
+      />
+    </div>
   );
 }
 
 function TaskActions({
-  taskNumber,
   onEdit,
   onDuplicate,
   onDelete,
 }: Readonly<{
-  taskNumber?: number | null;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -192,33 +198,29 @@ function TaskActions({
   const t = useTranslations();
   return (
     <div className="flex items-center gap-0.5">
-      {/* Human-friendly task number, click to copy. */}
-      <TaskNumberBadge number={taskNumber} className="mr-1 flex-shrink-0" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none"
+            size="icon-sm"
+            className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
             aria-label={t('sweep.entities.moreActions')}
           >
-            <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
+            <EllipsisVertical className="size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={onEdit}>
-            <Pencil className="h-4 w-4 mr-0.5" />
+            <Pencil />
             {t('sweep.entities.editTask')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onDuplicate}>
-            <Copy className="h-4 w-4 mr-0.5" />
+            <Copy />
             {t('sweep.entities.duplicate')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-            onClick={onDelete}
-          >
-            <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+          <DropdownMenuItem variant="destructive" onClick={onDelete}>
+            <Trash2 />
             {t('sweep.entities.deleteTask')}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -589,6 +591,10 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     openPanel({ type, id: recordId, stack: true });
   }, [openPanel]);
 
+  const handleOpenAssignee = useCallback((userId: string) => {
+    openPanel({ type: 'team-member', id: userId, stack: true });
+  }, [openPanel]);
+
   const handleAddDependency = useCallback((targetTaskId: string, type: 'blocks' | 'blockedBy') => {
     const currentDeps = apiTask?.dependsOn ?? [];
     const currentBlocks = apiTask?.blocks ?? [];
@@ -624,10 +630,14 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   // load — otherwise the bottom sidebar pops in late, which combined with a
   // persisted-collapsed state can leave the chat invisible on first open.
   const chatSidebar = <TaskChat taskId={id} taskTitle={task?.title} />;
+  // The line above the chat only appears once the chat has had a message (its
+  // channel is created by the first one); an untouched task shows no divider.
+  const chatHasMessages = !!useEntityChannel('task', id).data;
 
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
+      sidebarDivider={chatHasMessages}
       avatar={<TaskAvatar status={task?.status} onToggle={handleToggle} />}
       title={
         task
@@ -639,7 +649,6 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       titleWrap
       actions={
         <TaskActions
-          taskNumber={task?.number}
           onEdit={handleEdit}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
@@ -687,6 +696,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             availableCompanies={availableCompanies}
             availablePeople={availablePeople}
             onOpenRecord={handleOpenRecord}
+            onOpenAssignee={handleOpenAssignee}
             alwaysShowFields={showCompanyField ? ['company'] : undefined}
             availableLabels={availableLabels}
             onCreateLabel={handleCreateLabel}

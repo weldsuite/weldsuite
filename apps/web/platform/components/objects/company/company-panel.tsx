@@ -88,6 +88,7 @@ import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fi
 import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import {
   useCompany,
+  useCompanyChannel,
   useCompanyPeople,
   useUpdateCompany,
   useArchiveCompany,
@@ -118,7 +119,7 @@ function companyInitial(name: string): string {
 }
 
 function CompanyAvatar({ company, onUpload }: Readonly<{ company?: Company; onUpload?: (url: string) => void }>) {
-  if (!company) return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
+  if (!company) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
   const initial = companyInitial(company.displayName);
   // Treat empty strings as "no avatar" so the fallback initial renders.
   const avatarSrc = company.avatarUrl && company.avatarUrl.length > 0 ? company.avatarUrl : undefined;
@@ -134,11 +135,11 @@ function CompanyAvatar({ company, onUpload }: Readonly<{ company?: Company; onUp
     );
   }
   return (
-    <Avatar className="h-7 w-7 rounded-lg border border-border">
+    <Avatar className="size-[22px] !rounded-[8px]">
       {avatarSrc && (
-        <AvatarImage src={avatarSrc} className="rounded-lg object-cover" />
+        <AvatarImage src={avatarSrc} className="!rounded-[8px] object-cover" />
       )}
-      <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
         {initial}
       </AvatarFallback>
     </Avatar>
@@ -148,7 +149,7 @@ function CompanyAvatar({ company, onUpload }: Readonly<{ company?: Company; onUp
 function CompanyTitle({ company }: Readonly<{ company?: Company }>) {
   if (!company) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
-    <span className="text-[15px] font-medium text-foreground truncate">
+    <span className="block text-[15px] font-medium leading-6 text-foreground truncate">
       {company.displayName}
     </span>
   );
@@ -191,19 +192,21 @@ function CompanyActions({
     window.location.href = `mailto:${company.email}`;
   };
 
+  // Same 28px icon buttons as the shell's Expand / Close, returned as a
+  // fragment so the shell's own spacing applies between every header button.
   return (
-    <div className="flex items-center gap-0.5">
+    <>
       {company.email && (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="p-1.5 hover:bg-muted rounded-md transition-colors"
+              size="icon-sm"
+              className="size-7"
               onClick={handleCompose}
               aria-label={st('sweep.entities.composeEmail')}
             >
-              <Mail className="h-4 w-4 text-muted-foreground" />
+              <Mail className="size-4 text-muted-foreground" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>{st('sweep.entities.composeEmail')}</TooltipContent>
@@ -214,12 +217,12 @@ function CompanyActions({
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="p-1.5 hover:bg-muted rounded-md transition-colors"
+              size="icon-sm"
+              className="size-7"
               onClick={() => { window.location.href = `tel:${company.phone}`; }}
               aria-label={st('sweep.entities.call')}
             >
-              <Phone className="h-4 w-4 text-muted-foreground" />
+              <Phone className="size-4 text-muted-foreground" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>{st('sweep.entities.call')}</TooltipContent>
@@ -229,36 +232,25 @@ function CompanyActions({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none"
+            size="icon-sm"
+            className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
             aria-label={st('sweep.entities.moreActions')}
           >
-            <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
+            <EllipsisVertical className="size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
+        {/* Stock shadcn menu: default widths, default icon sizing, the stock
+            destructive item, and the tab toggles as a stock checkbox submenu. */}
+        <DropdownMenuContent align="end">
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Settings2 className="h-4 w-4 mr-0.5" />
+            {/* The shared sub-trigger lacks the stock shadcn gap and icon
+                styling that menu items have, so it is supplied here. */}
+            <DropdownMenuSubTrigger className="gap-2 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground [&_svg]:shrink-0">
+              <Settings2 />
               {st('sweep.entities.configureTabs')}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-52">
-              <DropdownMenuLabel className="flex items-center justify-between gap-2">
-                <span>{st('sweep.entities.visibleTabs')}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onResetTabs();
-                  }}
-                  className="p-1 -mr-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
-                  title={st('sweep.entities.resetToDefaults')}
-                >
-                  <RotateCcw className="h-3 w-3" />
-                </Button>
-              </DropdownMenuLabel>
+            <DropdownMenuSubContent>
+              <DropdownMenuLabel>{st('sweep.entities.visibleTabs')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {tabFields.map((field) => {
                 const isOn = field.required || isTabVisible(field.id);
@@ -274,23 +266,30 @@ function CompanyActions({
                   </DropdownMenuCheckboxItem>
                 );
               })}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  onResetTabs();
+                }}
+              >
+                <RotateCcw />
+                {st('sweep.entities.resetToDefaults')}
+              </DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onArchiveToggle}>
-            <Archive className="h-4 w-4 mr-0.5" />
+            <Archive />
             {company.archivedAt ? st('sweep.entities.unarchive') : st('sweep.entities.archive')}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-            onClick={onDelete}
-          >
-            <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+          <DropdownMenuItem variant="destructive" onClick={onDelete}>
+            <Trash2 />
             {st('sweep.entities.delete')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </>
   );
 }
 
@@ -785,6 +784,9 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
   const chatSidebar = (
     <CompanyChat companyId={id} companyName={company?.displayName} />
   );
+  // The line above the chat only appears once the chat has had a message (its
+  // channel is created by the first one), as in the task panel.
+  const chatHasMessages = !!useCompanyChannel(id).data?.data;
 
   return (
     <EntityDetailView
@@ -811,6 +813,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
+      sidebarDivider={chatHasMessages}
       sidebarDefaultSize={mode === 'panel' ? 320 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}

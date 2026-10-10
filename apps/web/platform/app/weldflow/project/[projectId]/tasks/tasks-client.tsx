@@ -1569,7 +1569,7 @@ export function TasksClient({
         {/* Task Title */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2">
           {task.number != null && (
-            <TaskNumberBadge number={task.number} className="flex-shrink-0" />
+            <TaskNumberBadge number={task.number} className="h-[18px] flex-shrink-0 py-0" />
           )}
           <span className={cn(
             "text-sm font-medium truncate min-w-0",

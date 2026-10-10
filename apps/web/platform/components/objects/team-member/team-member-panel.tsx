@@ -22,12 +22,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import {
   EllipsisVertical,
-  LayoutDashboard,
+  ChartNoAxesGantt,
   Mail,
   MessagesSquare,
   Phone,
   SquareActivity,
-  Users,
+  HeartHandshake,
   Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -37,7 +37,6 @@ import { Button } from '@weldsuite/ui/components/button';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { StatusDot } from '@weldsuite/ui/components/status-dot';
 import {
   DropdownMenu,
@@ -70,11 +69,11 @@ type MemberTabId = 'overview' | 'common' | 'activity';
 const MEMBER_TABS: Array<{
   id: MemberTabId;
   labelKey: string;
-  icon: typeof LayoutDashboard;
+  icon: typeof ChartNoAxesGantt;
   required?: boolean;
 }> = [
-  { id: 'overview', labelKey: 'sweep.entities.overviewTab', icon: LayoutDashboard, required: true },
-  { id: 'common', labelKey: 'sweep.shared.common', icon: Users },
+  { id: 'overview', labelKey: 'sweep.entities.overviewTab', icon: ChartNoAxesGantt, required: true },
+  { id: 'common', labelKey: 'sweep.shared.common', icon: HeartHandshake },
   { id: 'activity', labelKey: 'sweep.shared.activity', icon: SquareActivity },
 ];
 
@@ -89,20 +88,22 @@ function MemberAvatar({ profile }: Readonly<{ profile?: MemberProfile }>) {
   const t = useTranslations();
   const { getStatus } = usePresence();
 
-  if (!profile) return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
+  if (!profile) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
 
   const name = displayNameOf(profile, t('sweep.entities.teamMemberFallback'));
   const presence = getStatus(profile.userId);
 
+  // `flex` (not `inline-flex`): an inline box sits in a text line and makes the
+  // wrapper taller than the avatar, which stretched the whole header row.
   return (
-    <div className="relative inline-flex">
-      {/* Same treatment as PersonAvatar: h-7 w-7 rounded-lg, bordered, muted
-          initial fallback. */}
-      <Avatar className="h-7 w-7 rounded-lg border border-border">
+    <div className="relative flex">
+      {/* 22×22 rounded square, muted initial fallback. No border, so the
+          picture itself is the full 22px. */}
+      <Avatar className="size-[22px] !rounded-[8px]">
         {profile.picture && (
-          <AvatarImage src={profile.picture} alt={name} className="rounded-lg object-cover" />
+          <AvatarImage src={profile.picture} alt={name} className="!rounded-[8px] object-cover" />
         )}
-        <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+        <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
           {(name.trim()[0] ?? '#').toUpperCase()}
         </AvatarFallback>
       </Avatar>
@@ -127,7 +128,7 @@ function MemberTitle({ profile }: Readonly<{ profile?: MemberProfile }>) {
 
   return (
     <div className="flex flex-col min-w-0">
-      <span className="text-[15px] font-medium text-foreground truncate">
+      <span className="text-[15px] font-medium leading-6 text-foreground truncate">
         {displayNameOf(profile, t('sweep.entities.teamMemberFallback'))}
       </span>
       {customStatus ? (
@@ -165,88 +166,47 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
     }
   };
 
-  const iconButton = 'p-1.5 hover:bg-muted rounded-md transition-colors disabled:opacity-50 h-auto w-auto';
-
+  // Mail, call, video and chat all live in the "⋮" menu, so the header only
+  // carries that one button next to the shell's Expand / Close.
   return (
-    <div className="flex items-center gap-0.5">
-      {profile.email && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" className={iconButton} onClick={handleCompose} aria-label={t('sweep.entities.composeEmail')}>
-              <Mail className="h-4 w-4 text-muted-foreground" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('sweep.entities.composeEmail')}</TooltipContent>
-        </Tooltip>
-      )}
-      {callCtx && (
-        <>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <Button
-                  variant="ghost"
-                  className={iconButton}
-                  onClick={() => handleCall('voice')}
-                  disabled={!dmChannelId}
-                  aria-label={t('sweep.entities.call')}
-                >
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{t('sweep.entities.call')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <Button
-                  variant="ghost"
-                  className={iconButton}
-                  onClick={() => handleCall('video')}
-                  disabled={!dmChannelId}
-                  aria-label={t('sweep.shared.videoCall')}
-                >
-                  <Video className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{t('sweep.shared.videoCall')}</TooltipContent>
-          </Tooltip>
-        </>
-      )}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            className={iconButton}
-            onClick={() => navigate({ to: '/weldchat/dm/$userId', params: { userId: profile.userId } })}
-            aria-label={t('sweep.shared.openChat')}
-          >
-            <MessagesSquare className="h-4 w-4 text-muted-foreground" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>{t('sweep.shared.openChat')}</TooltipContent>
-      </Tooltip>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none h-auto w-auto"
-            aria-label={t('sweep.entities.moreActions')}
-          >
-            <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem
-            onClick={() => navigate({ to: '/weldchat/dm/$userId', params: { userId: profile.userId } })}
-          >
-            {t('sweep.shared.openChat')}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
+          aria-label={t('sweep.entities.moreActions')}
+        >
+          <EllipsisVertical className="size-4 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {profile.email && (
+          <DropdownMenuItem onClick={handleCompose}>
+            <Mail />
+            {t('sweep.entities.composeEmail')}
           </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+        )}
+        {callCtx && (
+          <>
+            <DropdownMenuItem disabled={!dmChannelId} onClick={() => handleCall('voice')}>
+              <Phone />
+              {t('sweep.entities.call')}
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!dmChannelId} onClick={() => handleCall('video')}>
+              <Video />
+              {t('sweep.shared.videoCall')}
+            </DropdownMenuItem>
+          </>
+        )}
+        <DropdownMenuItem
+          onClick={() => navigate({ to: '/weldchat/dm/$userId', params: { userId: profile.userId } })}
+        >
+          <MessagesSquare />
+          {t('sweep.shared.openChat')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -256,22 +216,30 @@ function MemberPanelTabsBar({
   activeTab,
   setActiveTab,
   mode,
+  isSelf,
 }: Readonly<{
   activeTab: MemberTabId;
   setActiveTab: (id: MemberTabId) => void;
   mode: 'panel' | 'fullscreen';
+  /** Viewing your own profile: there is nothing "in common" with yourself, so that tab is left out. */
+  isSelf: boolean;
 }>) {
   const t = useTranslations();
 
+  const availableTabs = useMemo(
+    () => MEMBER_TABS.filter((tab) => !(isSelf && tab.id === 'common')),
+    [isSelf],
+  );
+
   const configEntries = useMemo(
     () =>
-      MEMBER_TABS.map((tab) => ({
+      availableTabs.map((tab) => ({
         id: tab.id,
         label: t(tab.labelKey),
         required: tab.required,
         defaultVisible: true,
       })),
-    [t],
+    [availableTabs, t],
   );
 
   const { visibility, isVisible, toggle, resetToDefaults } = useObjectPanelTabConfig({
@@ -281,19 +249,19 @@ function MemberPanelTabsBar({
   });
 
   useEffect(() => {
-    if (isVisible(activeTab)) return;
-    const fallback = MEMBER_TABS.find((tab) => isVisible(tab.id));
+    if (availableTabs.some((tab) => tab.id === activeTab) && isVisible(activeTab)) return;
+    const fallback = availableTabs.find((tab) => isVisible(tab.id));
     if (fallback && fallback.id !== activeTab) setActiveTab(fallback.id);
-  }, [activeTab, isVisible, setActiveTab]);
+  }, [activeTab, availableTabs, isVisible, setActiveTab]);
 
   const tabs = useMemo(
     () =>
-      MEMBER_TABS.filter((tab) => isVisible(tab.id)).map((tab) => ({
+      availableTabs.filter((tab) => isVisible(tab.id)).map((tab) => ({
         id: tab.id,
         label: t(tab.labelKey),
         icon: tab.icon,
       })),
-    [isVisible, t],
+    [availableTabs, isVisible, t],
   );
 
   return (
@@ -351,12 +319,15 @@ export function TeamMemberPanel(props: Readonly<ObjectPanelComponentProps>) {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           mode={shell.mode}
+          isSelf={isSelf}
         />
       }
     >
       {profile && activeTab === 'overview' && <OverviewTab profile={profile} />}
-      {profile && activeTab === 'common' && <CommonTab userId={id} isSelf={isSelf} />}
-      {profile && activeTab === 'activity' && <ActivityTab userId={id} canView />}
+      {profile && activeTab === 'common' && !isSelf && <CommonTab userId={id} isSelf={isSelf} />}
+      {profile && activeTab === 'activity' && (
+        <ActivityTab userId={id} canView memberName={profile.name || undefined} />
+      )}
     </EntityDetailView>
   );
 }

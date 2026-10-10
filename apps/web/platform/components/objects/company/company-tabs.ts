@@ -1,5 +1,5 @@
 import {
-  LayoutGrid,
+  ChartNoAxesGantt,
   SquareActivity,
   Users,
   Mail,
@@ -39,7 +39,7 @@ export interface CompanyTab extends ObjectPanelTabDescriptor {
 }
 
 export const COMPANY_TABS: CompanyTab[] = [
-  { id: 'overview', label: 'Details', icon: LayoutGrid, required: true, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
+  { id: 'overview', label: 'Details', icon: ChartNoAxesGantt, required: true, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'activity', label: 'Activity', icon: SquareActivity, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'people', label: 'People', icon: Users, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'emails', label: 'Emails', icon: Mail, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },

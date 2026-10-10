@@ -107,7 +107,6 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkP
               value={p.displayName + (p.email ? ` ${p.email}` : '')}
               disabled={already || linkMut.isPending}
               onSelect={() => handlePick(p)}
-              className="flex items-center gap-2"
             >
               <Avatar className="h-6 w-6 rounded-md">
                 <AvatarImage
@@ -124,7 +123,7 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkP
                   <div className="text-xs text-muted-foreground truncate">{p.email}</div>
                 )}
               </div>
-              {already && <Check className="h-3.5 w-3.5 text-muted-foreground" />}
+              {already && <Check className="ml-auto" />}
             </CommandItem>
           );
         })}
@@ -151,15 +150,14 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkP
             value={search}
             onValueChange={setSearch}
           />
-          <CommandList className="max-h-[260px]">
+          <CommandList>
             {search.trim() && (
               <CommandGroup>
                 <CommandItem
                   value={`__create__${search}`}
                   onSelect={() => openCreate(search.trim())}
-                  className="flex items-center gap-2"
                 >
-                  <UserPlus className="h-4 w-4 text-muted-foreground" />
+                  <UserPlus />
                   <span className="truncate">
                     {t('sweep.entities.createPersonFromSearch', { name: search.trim() })}
                   </span>

@@ -198,25 +198,22 @@ function DomainActions({
             <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={() => router.push(`/weldhost/domains/${domain.id}`)}>
-            <SquareArrowOutUpRight className="h-4 w-4 mr-0.5" />
+            <SquareArrowOutUpRight />
             {td.openFullPage}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => window.open(`https://${fullDomain}`, '_blank', 'noopener,noreferrer')}
           >
-            <Globe className="h-4 w-4 mr-0.5" />
+            <Globe />
             {td.visitDomain}
           </DropdownMenuItem>
           {canDelete && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-                onClick={onDelete}
-              >
-                <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                <Trash2 />
                 {td.deleteDomain}
               </DropdownMenuItem>
             </>

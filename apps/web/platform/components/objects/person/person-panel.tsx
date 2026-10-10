@@ -81,6 +81,7 @@ import { EntityList } from '@/components/entity-list';
 import { useUnlinkPersonFromCompany } from '@/hooks/queries/use-person-companies-queries';
 import {
   usePerson,
+  usePersonChannel,
   usePersonCompanies,
   useUpdatePerson,
   useDeletePerson,
@@ -113,7 +114,7 @@ function personGravatar(email: string | null | undefined): string | undefined {
 }
 
 function PersonAvatar({ person, onUpload }: Readonly<{ person?: Person; onUpload?: (url: string) => void }>) {
-  if (!person) return <div className="h-7 w-7 rounded-lg bg-muted animate-pulse" />;
+  if (!person) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
   const initial = personInitial(person);
   // Treat empty strings as "no avatar" so the fallback initial renders.
   const explicit = person.avatarUrl && person.avatarUrl.length > 0 ? person.avatarUrl : undefined;
@@ -130,9 +131,9 @@ function PersonAvatar({ person, onUpload }: Readonly<{ person?: Person; onUpload
     );
   }
   return (
-    <Avatar className="h-7 w-7 rounded-lg border border-border">
-      {src && <AvatarImage src={src} className="rounded-lg object-cover" />}
-      <AvatarFallback className="rounded-lg bg-muted text-[12px] font-medium">
+    <Avatar className="size-[22px] !rounded-[8px]">
+      {src && <AvatarImage src={src} className="!rounded-[8px] object-cover" />}
+      <AvatarFallback className="!rounded-[8px] bg-muted text-[10px] font-medium">
         {initial}
       </AvatarFallback>
     </Avatar>
@@ -142,7 +143,7 @@ function PersonAvatar({ person, onUpload }: Readonly<{ person?: Person; onUpload
 function PersonTitle({ person }: Readonly<{ person?: Person }>) {
   if (!person) return <div className="h-4 w-32 rounded bg-muted animate-pulse" />;
   return (
-    <span className="text-[15px] font-medium text-foreground truncate">
+    <span className="block text-[15px] font-medium leading-6 text-foreground truncate">
       {person.displayName}
     </span>
   );
@@ -180,13 +181,15 @@ function PersonActions({
         toast.error(err instanceof Error ? err.message : t.personPanel.addToCrmFailed),
     });
   };
+  // Same 28px icon buttons as the shell's Expand / Close, returned as a
+  // fragment so the shell's own spacing applies between every header button.
   return (
-    <div className="flex items-center gap-0.5">
+    <>
       {!person.inCrm && (
         <Button
           variant="outline"
           size="sm"
-          className="h-7 mr-1 gap-1.5 text-xs"
+          className="h-7 gap-1.5 text-xs"
           onClick={handleAddToCrm}
           disabled={addToCrm.isPending}
         >
@@ -199,12 +202,12 @@ function PersonActions({
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="p-1.5 hover:bg-muted rounded-md transition-colors"
+              size="icon-sm"
+              className="size-7"
               onClick={handleCompose}
               aria-label={st('sweep.entities.composeEmail')}
             >
-              <Mail className="h-4 w-4 text-muted-foreground" />
+              <Mail className="size-4 text-muted-foreground" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>{st('sweep.entities.composeEmail')}</TooltipContent>
@@ -215,12 +218,12 @@ function PersonActions({
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
-              className="p-1.5 hover:bg-muted rounded-md transition-colors"
+              size="icon-sm"
+              className="size-7"
               onClick={() => { window.location.href = `tel:${phone}`; }}
               aria-label={st('sweep.entities.call')}
             >
-              <Phone className="h-4 w-4 text-muted-foreground" />
+              <Phone className="size-4 text-muted-foreground" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>{st('sweep.entities.call')}</TooltipContent>
@@ -230,28 +233,26 @@ function PersonActions({
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            size="icon"
-            className="p-1.5 hover:bg-muted data-[state=open]:bg-muted rounded-md transition-colors focus:outline-none"
+            size="icon-sm"
+            className="size-7 data-[state=open]:bg-accent dark:data-[state=open]:bg-accent/50"
             aria-label={st('sweep.entities.moreActions')}
           >
-            <EllipsisVertical className="h-4 w-4 text-muted-foreground" />
+            <EllipsisVertical className="size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
+        {/* Stock shadcn menu: default width, default icon sizing, stock destructive item. */}
+        <DropdownMenuContent align="end">
           <DropdownMenuItem onClick={onArchiveToggle}>
-            <Archive className="h-4 w-4 mr-0.5" />
+            <Archive />
             {person.archivedAt ? st('sweep.entities.unarchive') : st('sweep.entities.archive')}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-red-600 focus:bg-red-50 focus:text-red-600 dark:focus:bg-red-950"
-            onClick={onDelete}
-          >
-            <Trash2 className="h-4 w-4 mr-0.5 text-red-600" />
+          <DropdownMenuItem variant="destructive" onClick={onDelete}>
+            <Trash2 />
             {st('sweep.entities.delete')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </>
   );
 }
 
@@ -660,6 +661,9 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
   const chatSidebar = (
     <PersonChat personId={id} personName={person?.displayName} />
   );
+  // The line above the chat only appears once the chat has had a message (its
+  // channel is created by the first one), as in the task panel.
+  const chatHasMessages = !!usePersonChannel(id).data?.data;
 
   return (
     <EntityDetailView
@@ -676,6 +680,7 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
+      sidebarDivider={chatHasMessages}
       sidebarDefaultSize={mode === 'panel' ? 320 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}

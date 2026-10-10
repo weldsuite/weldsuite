@@ -6,9 +6,10 @@ import type { ObjectPanelHandle, ObjectType } from './types';
 export type { ObjectPanelHandle } from './types';
 
 /**
- * Stack of currently open object panels. Top of stack = visible panel.
- * Earlier entries become `onBack` targets when a panel is pushed on top of
- * another (e.g. opening a contact from inside a customer panel).
+ * History of object panels. Only the top of the stack is ever on screen —
+ * there is never more than one panel visible at a time. Earlier entries are
+ * the `onBack` targets when a panel is opened from inside another (e.g.
+ * opening a contact from inside a customer panel).
  */
 const objectPanelStackAtom = atom<ObjectPanelHandle[]>([]);
 
@@ -23,16 +24,10 @@ export interface OpenPanelArgs {
 }
 
 /**
- * Maximum visible depth of the object-panel cascade.
- *
- * Going beyond two stacked panels squeezes the underlying page into a
- * narrow strip — see the screenshot in the design notes. Drill-downs that
- * try to push a third panel drop the *bottom* (oldest) entry instead, so
- * the cascade slides one slot to the left and the new panel becomes the
- * top. The back chevron in the new top panel still navigates back to the
- * previous level via `close()`, which only pops the top.
+ * How many levels of drill-down the back chevron remembers. Opening a panel
+ * beyond this drops the oldest entry, so back navigation stays bounded.
  */
-const MAX_STACK_DEPTH = 2;
+const MAX_STACK_DEPTH = 10;
 
 export function useObjectPanel() {
   const [stack, setStack] = useAtom(objectPanelStackAtom);
@@ -40,9 +35,13 @@ export function useObjectPanel() {
   const open = useCallback(
     ({ type, id, initialTab, mode = 'panel', stack: pushOnTop }: OpenPanelArgs) => {
       setStack((prev) => {
+        // Opening the panel that is already on top is a no-op — a double
+        // click must not push the same panel twice.
+        const top = prev.at(-1);
+        if (pushOnTop && top?.type === type && top.id === id) return prev;
         const base = pushOnTop ? prev : [];
         const next = [...base, { type, id, initialTab, mode, depth: base.length }];
-        // Cap the cascade at MAX_STACK_DEPTH by trimming from the bottom.
+        // Cap the history at MAX_STACK_DEPTH by trimming from the bottom.
         const trimmed = next.length > MAX_STACK_DEPTH
           ? next.slice(next.length - MAX_STACK_DEPTH)
           : next;
@@ -53,6 +52,7 @@ export function useObjectPanel() {
     [setStack],
   );
 
+  /** Pop the top panel — the back chevron. Reveals the panel it was opened from. */
   const close = useCallback(() => {
     setStack((prev) => prev.slice(0, -1));
   }, [setStack]);

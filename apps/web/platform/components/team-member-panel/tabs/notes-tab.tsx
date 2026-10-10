@@ -97,7 +97,10 @@ export function NotesTab({ userId, embedded = false }: Readonly<NotesTabProps>) 
             maxLength={1500}
             onChange={(e) => onChange(e.target.value)}
             placeholder={t('sweep.shared.addANotePlaceholder')}
-            className="min-h-[160px] resize-none overflow-hidden border-transparent bg-transparent shadow-none p-0 focus-visible:ring-0 focus-visible:border-transparent"
+            // No box at rest; a border appears on hover and while typing. The
+            // negative margins + matching padding push that border out around
+            // the text, so the text itself stays exactly where it was.
+            className="min-h-[160px] w-[calc(100%+16px)] -mx-2 -mt-1.5 px-2 py-1.5 resize-none overflow-hidden border-transparent bg-transparent dark:bg-transparent shadow-none transition-colors hover:border-border focus-visible:border-border focus-visible:ring-0"
           />
           <div className="text-right text-xs text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
             {draft.length} / 1500
