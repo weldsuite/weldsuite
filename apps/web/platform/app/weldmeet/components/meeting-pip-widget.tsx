@@ -458,7 +458,9 @@ function PipVideoArea({ t, focus, isMuted, isInPipWindow, videoRef, onExpand, on
           ref={videoRef}
           autoPlay
           playsInline
-          muted={focusedIsSelf}
+          // Fed a video-only stream (the focused participant's camera track);
+          // remote audio plays through RemoteAudioSink instead.
+          muted
           className={cn('absolute inset-0 w-full h-full object-cover', focusedIsSelf && '-scale-x-100')}
         />
       ) : (
