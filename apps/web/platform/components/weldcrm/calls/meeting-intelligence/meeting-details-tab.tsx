@@ -224,7 +224,7 @@ export function MeetingDetailsTab({ call, mediaType = 'video', videoDuration }: 
           </h3>
           <div className="space-y-2.5">
             {fallbackParticipants.map((participant, i) => (
-              <ParticipantRow key={`${participant.email ?? ''}-${participant.workspaceMemberId ?? ''}-${i}`} participant={participant} index={i} />
+              <ParticipantRow key={`${participant.email ?? ''}-${participant.workspaceMemberId ?? ''}-${participant.name ?? ''}`} participant={participant} index={i} />
             ))}
           </div>
         </div>

@@ -344,8 +344,8 @@ app.get('/computer/health', requirePermission('weldagent:read'), async (c) => {
   try {
     const status = await computerStatus(c.env, c.get('workspaceId'));
     return success(c, { ok: true, status });
-  } catch (err) {
-    return success(c, { ok: false, reason: err instanceof Error ? err.message : 'unavailable' });
+  } catch (error_) {
+    return success(c, { ok: false, reason: error_ instanceof Error ? error_.message : 'unavailable' });
   }
 });
 
