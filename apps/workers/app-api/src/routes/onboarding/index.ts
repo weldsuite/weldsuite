@@ -27,9 +27,9 @@
  *                             install the selected apps in the tenant DB
  *
  *   Reseller territory (docs/plans/reseller-licensing.md):
- *     create-workspace takes an optional `country` (ISO-2, else the request's
- *     country) and answers 409 PARTNER_TERRITORY, creating nothing, when a
- *     reseller serves that country.
+ *     create-workspace, /workspace and the /complete fallback take the
+ *     workspace `country` (ISO-2, else the request's country) and answer 409
+ *     PARTNER_TERRITORY, creating nothing, when a reseller serves that country.
  *     POST /partner-request — ask that reseller for a workspace (Clerk only).
  *
  * IMPORTANT — middleware: this router needs Clerk auth but NOT the workspace-DB
@@ -666,6 +666,13 @@ app.post('/workspace', zValidator('json', workspaceInput), async (c) => {
   try {
     const data = c.req.valid('json');
 
+    // Territory, as on create-workspace: nothing is created in a reseller's country.
+    const workspaceCountry = normalizeCountryCode(data.country) ?? requestCountry(c.req.raw);
+    const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), workspaceCountry);
+    if (territoryPartner && workspaceCountry) {
+      return partnerTerritoryResponse(c, workspaceCountry, territoryPartner);
+    }
+
     // Fetch user info for the initial OWNER member.
     const { email, picture, firstName, lastName } = await fetchClerkUser(c.env, userId);
     const fullName = [firstName, lastName].filter(Boolean).join(' ');
@@ -887,7 +894,15 @@ app.post('/complete', async (c) => {
     }
 
     // Fallback: no org set yet — create org + workspace via the workspace-worker
-    // RPC binding (binding-only, so no M2M token is required).
+    // RPC binding (binding-only, so no M2M token is required). Territory first,
+    // as on create-workspace: nothing is created in a reseller's country.
+    const workspaceCountry =
+      normalizeCountryCode(typeof data.country === 'string' ? data.country : undefined) ?? requestCountry(c.req.raw);
+    const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), workspaceCountry);
+    if (territoryPartner && workspaceCountry) {
+      return partnerTerritoryResponse(c, workspaceCountry, territoryPartner);
+    }
+
     const workspaceWorker = c.env.WORKSPACE_WORKER;
     if (!workspaceWorker) {
       console.error('[Onboarding] WORKSPACE_WORKER service binding not configured');

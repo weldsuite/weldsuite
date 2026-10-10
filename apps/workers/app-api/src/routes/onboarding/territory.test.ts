@@ -105,6 +105,30 @@ describe('POST /create-workspace territory', () => {
   });
 });
 
+describe('first-workspace onboarding territory', () => {
+  it('POST /workspace answers 409 and creates nothing for a served country', async () => {
+    const res = await app().request('/api/onboarding/workspace', post({ name: 'Acme', country: 'BR' }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('PARTNER_TERRITORY');
+    expect(onboard).not.toHaveBeenCalled();
+  });
+
+  it('POST /workspace creates the workspace outside every territory', async () => {
+    const res = await app().request('/api/onboarding/workspace', post({ name: 'Acme', country: 'NL' }));
+    expect(res.status).toBe(200);
+    expect(onboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /complete (no org yet) answers 409 and creates nothing for a served country', async () => {
+    const res = await app().request(
+      '/api/onboarding/complete',
+      post({ organizationName: 'Acme' }, { 'CF-IPCountry': 'BR' }),
+    );
+    expect(res.status).toBe(409);
+    expect(onboard).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /partner-request', () => {
   const body = { companyName: 'Customer BV', country: 'br', selectedApps: ['welddesk'], message: 'Call me' };
 
