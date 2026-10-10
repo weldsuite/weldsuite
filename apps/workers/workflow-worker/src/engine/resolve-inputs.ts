@@ -19,6 +19,8 @@
  * markup is left intact.
  */
 
+import { asText } from '@weldsuite/text';
+
 export interface LoopScope {
   item: unknown;
   index: number;
@@ -82,10 +84,10 @@ function stringifyForTemplate(value: unknown): string {
     try {
       return JSON.stringify(value);
     } catch {
-      return String(value);
+      return asText(value);
     }
   }
-  return String(value);
+  return asText(value);
 }
 
 /** Expand `{{...}}` expressions in one string input. */

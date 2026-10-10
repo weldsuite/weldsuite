@@ -79,7 +79,14 @@ export namespace Billing {
     slug: string;
     description?: string;
     monthlyPrice: number; // In cents
-    yearlyPrice?: number; // In cents
+    yearlyPrice?: number; // In cents, per seat per year
+    /** ISO 4217 code of the prices: the caller's country currency when priced per country. */
+    currency?: string;
+    /**
+     * True when this paid plan has no price for the caller's country (admin
+     * console → Plan pricing): the price fields are 0 and the UI shows "On request".
+     */
+    priceOnRequest?: boolean;
     maxMembers?: number; // null = unlimited
     isPerSeatPricing: boolean;
     pricePerSeat?: number; // In cents

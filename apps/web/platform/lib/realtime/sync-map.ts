@@ -554,6 +554,10 @@ export const platformSyncMap: EntitySyncMap = {
   hr_evaluation: inv(['weldhr']),
   hr_kpi_value: inv(['weldhr']),
   hr_milestone: inv(['weldhr']),
+  // Payroll queries live under ['weldhr', 'payroll'] (use-weldhr-payroll-queries.ts).
+  hr_pay_run: inv(['weldhr']),
+  hr_payslip: inv(['weldhr']),
+  hr_payroll_filing: inv(['weldhr']),
 
   // =========================================================================
   // WeldData — welddataKeys.all in use-welddata-queries.ts

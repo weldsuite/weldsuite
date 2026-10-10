@@ -5,12 +5,14 @@
  *   weldhr-people.ts       dashboard, employees
  *   weldhr-time.ts         attendance, shifts, leave
  *   weldhr-declarations.ts expense declarations
+ *   weldhr-payroll.ts      payroll: pay runs, payslips, filings, settings, tax forms
  *   weldhr-admin.ts        settings and the workforce portal
  *   weldhr-self.ts         My HR, the employee self-service page
  * Shared labels (status chips, pickers, generic actions) live here.
  */
 import { weldhrAdmin } from './weldhr-admin';
 import { weldhrDeclarations } from './weldhr-declarations';
+import { weldhrPayroll } from './weldhr-payroll';
 import { weldhrPeople } from './weldhr-people';
 import { weldhrSelf } from './weldhr-self';
 import { weldhrTime } from './weldhr-time';
@@ -160,6 +162,7 @@ export const weldhr = {
   ...weldhrPeople,
   ...weldhrTime,
   ...weldhrDeclarations,
+  ...weldhrPayroll,
   ...weldhrAdmin,
   ...weldhrSelf,
 };

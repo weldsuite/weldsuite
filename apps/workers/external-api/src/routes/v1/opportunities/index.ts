@@ -106,9 +106,9 @@ app.post('/', requireScope('opportunities:write'), zValidator('json', createOppo
   const id = generateId('opp');
   const values: Record<string, unknown> = { ...body, id, ownerId, createdAt: now, updatedAt: now };
   // Coerce numeric + date columns and apply defaults.
-  for (const f of NUMERIC_FIELDS) if (values[f] != null) values[f] = String(values[f]);
+  for (const f of NUMERIC_FIELDS) if (values[f] != null) values[f] = asText(values[f]);
   for (const f of DATE_FIELDS) if (typeof values[f] === 'string') values[f] = new Date(values[f] as string);
-  values.amount = values.amount != null ? String(values.amount) : '0';
+  values.amount = values.amount != null ? asText(values.amount) : '0';
   values.currency = values.currency ?? 'EUR';
   values.stage = values.stage ?? 'prospecting';
   values.status = values.status ?? 'open';

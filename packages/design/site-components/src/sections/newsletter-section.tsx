@@ -15,7 +15,7 @@ export default function NewsletterSection({
   description = "Subscribe to our newsletter and get exclusive offers",
   buttonText = "Subscribe",
   placeholder = "Enter your email"
-}: NewsletterSectionProps) {
+}: Readonly<NewsletterSectionProps>) {
   return (
     <section className="py-16 px-4 bg-primary/5">
       <div className="container mx-auto max-w-2xl text-center">

@@ -1214,7 +1214,8 @@ function createTouchCircle(start: Point, end: Point, style: ShapeStyle): Whitebo
 }
 
 function createTouchArrow(start: Point, end: Point, style: ShapeStyle): WhiteboardElement | null {
-  if (!(distanceBetween(start, end) > MIN_TOUCH_SHAPE_SIZE)) return null;
+  const length = distanceBetween(start, end);
+  if (Number.isNaN(length) || length <= MIN_TOUCH_SHAPE_SIZE) return null;
   return {
     id: Date.now().toString(),
     type: 'arrow',
@@ -1314,6 +1315,22 @@ export function simplifyPath(points: Point[]): Point[] {
 
   simplified.push(points.at(-1)!);
   return simplified;
+}
+
+/**
+ * Eraser strokes paired with a React key derived from their content (size,
+ * first point, point count). Strokes have no ids; a repeated signature gets a
+ * `#n` occurrence suffix so keys stay unique without the array index.
+ */
+export function keyedErasedStrokes(strokes: readonly ErasedStroke[]): { stroke: ErasedStroke; key: string }[] {
+  const seen = new Map<string, number>();
+  return strokes.map((stroke) => {
+    const first = stroke?.points?.[0];
+    const base = [stroke?.size, first?.x, first?.y, stroke?.points?.length ?? 0].join(':');
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return { stroke, key: `${base}#${count}` };
+  });
 }
 
 // Erased-stroke point count above which an element's strokes are merged.

@@ -2382,23 +2382,26 @@ app.post(
 
       // Reset & move each task. parentTaskId is preserved; the key is cleared
       // (its prefix belonged to the old project) and sprint/milestone/stage are
-      // reset to the destination's defaults.
-      for (let i = 0; i < allIds.length; i++) {
-        await db
-          .update(t)
-          .set({
-            projectId: destProjectId,
-            sprintId: null,
-            milestoneId: null,
-            stageId: resetStageId,
-            status: resetStatus,
-            key: null,
-            position: basePosition + i,
-            boardPosition: null,
-            updatedAt: now,
-          })
-          .where(eq(t.id, allIds[i]));
-      }
+      // reset to the destination's defaults. One all-or-nothing batch, so a
+      // failure can't leave the parent and its subtasks split across projects.
+      await atomically(db, (handle) =>
+        allIds.map((taskId, i) =>
+          handle
+            .update(t)
+            .set({
+              projectId: destProjectId,
+              sprintId: null,
+              milestoneId: null,
+              stageId: resetStageId,
+              status: resetStatus,
+              key: null,
+              position: basePosition + i,
+              boardPosition: null,
+              updatedAt: now,
+            })
+            .where(eq(t.id, taskId)),
+        ),
+      );
 
       publishEntityEvent({
         c,

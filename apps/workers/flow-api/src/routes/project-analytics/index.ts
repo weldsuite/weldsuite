@@ -510,18 +510,20 @@ app.patch(
     try {
       const now = new Date();
 
-      for (const update of layouts) {
-        await db
-          .update(analyticsCharts)
-          .set({ layout: update.layout, updatedAt: now })
-          .where(
-            and(
-              eq(analyticsCharts.id, update.chartId),
-              eq(analyticsCharts.reportId, reportId),
-              isNull(analyticsCharts.deletedAt),
+      await Promise.all(
+        layouts.map((update) =>
+          db
+            .update(analyticsCharts)
+            .set({ layout: update.layout, updatedAt: now })
+            .where(
+              and(
+                eq(analyticsCharts.id, update.chartId),
+                eq(analyticsCharts.reportId, reportId),
+                isNull(analyticsCharts.deletedAt),
+              ),
             ),
-          );
-      }
+        ),
+      );
 
       return success(c, { updated: layouts.length });
     } catch (err) {

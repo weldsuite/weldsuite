@@ -20,7 +20,7 @@ export default function CTASection({
   secondaryButtonText,
   secondaryButtonLink = "#",
   backgroundColor
-}: CTASectionProps) {
+}: Readonly<CTASectionProps>) {
   return (
     <section 
       className="py-16 px-4"

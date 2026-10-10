@@ -19,7 +19,7 @@ export default function NewsletterSection({
   placeholder = "Enter your email",
   store,
   settings
-}: NewsletterSectionProps) {
+}: Readonly<NewsletterSectionProps>) {
   return (
     <section className="py-16 px-4 bg-primary/5">
       <div className="container mx-auto max-w-2xl text-center">

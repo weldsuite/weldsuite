@@ -1,5 +1,6 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { useAutosizeTextarea } from '@/hooks/use-autosize-textarea';
 import { format } from 'date-fns';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -140,11 +141,12 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
   const { t } = useI18n();
   const st = useTranslations();
   const tn = t.helpdesk.news;
-  const titleRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   // Mock data - in real app, fetch from API based on newsId
   const [title, setTitle] = useState('WeldSuite Reaches 10,000 Active Users');
+  useAutosizeTextarea(titleRef, title);
   const [content, setContent] = useState('<p dir="ltr">Full article content here...</p><p dir="ltr"><br></p><p dir="ltr">This is where you can write your news article content. The editor provides a clean, distraction-free writing experience similar to Notion.</p><p dir="ltr"><br></p><p dir="ltr">You can write multiple paragraphs, and the content will automatically expand as you type.</p>');
   const [author, setAuthor] = useState('Sarah Williams');
   const [category, setCategory] = useState<string>('company');
@@ -167,16 +169,7 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
 
   // Focus title on mount
   useEffect(() => {
-    if (titleRef.current) {
-      titleRef.current.focus();
-      // Set initial title content
-      if (title && titleRef.current.textContent !== title) {
-        titleRef.current.textContent = title;
-      }
-    }
-    // Mount-only: re-running on every `title` change would clobber the user's
-    // in-progress edits inside the contentEditable title element.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    titleRef.current?.focus();
   }, []);
 
   // Initialize content on mount only
@@ -193,12 +186,11 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleTitleInput = (e: React.FormEvent<HTMLDivElement>) => {
-    const text = e.currentTarget.textContent || '';
-    setTitle(text);
+  const handleTitleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setTitle(e.target.value.replaceAll('\n', ''));
   };
 
-  const handleTitleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+  const handleTitleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (contentRef.current) {
@@ -627,27 +619,16 @@ export function NewsEditorClient({ newsId }: Readonly<NewsEditorClientProps>) {
         )}
 
         {/* Title */}
-        <div
+        <textarea
           ref={titleRef}
-          contentEditable
-          suppressContentEditableWarning
-          role="textbox"
-          tabIndex={0}
-          aria-label={st('sweep.welddesk.newsEditor.untitledPlaceholder')}
-          onInput={handleTitleInput}
+          rows={1}
+          value={title}
+          onChange={handleTitleChange}
           onKeyDown={handleTitleKeyDown}
+          placeholder={st('sweep.welddesk.newsEditor.untitledPlaceholder')}
+          aria-label={st('sweep.welddesk.newsEditor.untitledPlaceholder')}
           dir="ltr"
-          className={cn(
-            "text-4xl font-bold outline-none mb-2 leading-[1.2]",
-            !title && "text-muted-foreground/40"
-          )}
-          data-placeholder={st('sweep.welddesk.newsEditor.untitledPlaceholder')}
-          style={{
-            caretColor: 'currentColor',
-            direction: 'ltr',
-            unicodeBidi: 'normal',
-            textAlign: 'left',
-          }}
+          className="mb-2 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-4xl font-bold leading-[1.2] outline-none placeholder:text-muted-foreground/40"
         />
 
 

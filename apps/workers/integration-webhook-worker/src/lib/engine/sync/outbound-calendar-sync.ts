@@ -200,13 +200,17 @@ export async function pushCalendarEventToGoogle(
 
     if (connections.length === 0) return;
 
-    for (const connection of connections) {
-      try {
-        await pushToConnection(db, connection, eventId, action, data, env);
-      } catch (err) {
-        console.error(`[OutboundCalSync] Error for connection ${connection.id}:`, err);
-      }
-    }
+    // Each connection is a separate Google account with its own mapping rows,
+    // so the pushes are independent; one failing never stops the others.
+    await Promise.all(
+      connections.map(async (connection) => {
+        try {
+          await pushToConnection(db, connection, eventId, action, data, env);
+        } catch (err) {
+          console.error(`[OutboundCalSync] Error for connection ${connection.id}:`, err);
+        }
+      }),
+    );
   } catch (err) {
     console.error(`[OutboundCalSync] Failed to push event ${eventId}:`, err);
   }

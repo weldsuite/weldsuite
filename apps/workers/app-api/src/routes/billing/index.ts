@@ -92,6 +92,7 @@ import {
   mapSubscription,
   fetchPhoneSubscription,
 } from '../../services/billing';
+import { planDisplayPrice, resolvePlanPricesForCaller } from '../../services/plan-country-pricing';
 
 const { workspaces, plans, billingInvoices, billingPayments } = masterSchema;
 
@@ -141,6 +142,7 @@ app.get('/subscription', async (c) => {
 
 app.get('/plans', async (c) => {
   const masterDb = getMasterDb(c.env);
+  const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
 
   const allPlans = await masterDb
     .select()
@@ -158,26 +160,38 @@ app.get('/plans', async (c) => {
 
   return success(
     c,
-    allPlans.map((plan) => ({
-      id: plan.id,
-      name: plan.name,
-      slug: plan.slug,
-      description: plan.description,
-      priceMonthly: plan.priceMonthly,
-      priceYearly: plan.priceYearly,
-      currency: plan.currency,
-      pricePerUser: plan.pricePerUser,
-      includedUsers: plan.includedUsers,
-      maxUsers: plan.maxUsers,
-      features: plan.features,
-      monthlyCredits: plan.monthlyCredits,
-      isDefault: plan.isDefault,
-      hasApiAccess: plan.hasApiAccess,
-      badge: plan.badge,
-      sortOrder: plan.sortOrder,
-      stripePriceIdMonthly: plan.stripePriceIdMonthly,
-      stripePriceIdYearly: plan.stripePriceIdYearly,
-    })),
+    allPlans.map((plan) => {
+      // Paid prices are on request unless the caller's country has prices
+      // (admin console → Plan pricing). On request → no price leaves the API.
+      const display = planDisplayPrice(plan.slug, prices);
+      const priced = display.kind === 'priced' ? display : null;
+      const onRequest = display.kind === 'on_request';
+      return {
+        id: plan.id,
+        name: plan.name,
+        slug: plan.slug,
+        description: plan.description,
+        priceMonthly: priced ? priced.price.monthly.toFixed(2) : onRequest ? null : plan.priceMonthly,
+        priceYearly: priced
+          ? ((priced.price.annual ?? priced.price.monthly) * 12).toFixed(2)
+          : onRequest
+            ? null
+            : plan.priceYearly,
+        currency: priced ? priced.currency : plan.currency,
+        pricePerUser: priced && plan.pricePerUser ? priced.price.monthly.toFixed(2) : onRequest ? null : plan.pricePerUser,
+        priceOnRequest: onRequest,
+        includedUsers: plan.includedUsers,
+        maxUsers: plan.maxUsers,
+        features: plan.features,
+        monthlyCredits: plan.monthlyCredits,
+        isDefault: plan.isDefault,
+        hasApiAccess: plan.hasApiAccess,
+        badge: plan.badge,
+        sortOrder: plan.sortOrder,
+        stripePriceIdMonthly: plan.stripePriceIdMonthly,
+        stripePriceIdYearly: plan.stripePriceIdYearly,
+      };
+    }),
   );
 });
 
@@ -202,18 +216,44 @@ app.get('/plans-page', async (c) => {
 
   const features = (f: PlanFeatures | null | undefined) => f || {};
   const toCents = (v: string | null | undefined) => Math.round(Number.parseFloat(v || '0') * 100);
+  const amountToCents = (v: number) => Math.round(v * 100);
+
+  // Paid prices are on request unless the caller's country (workspace billing
+  // country, else request geo) has prices set in the admin console. An
+  // on-request plan carries no price at all (zeros + `priceOnRequest`), so the
+  // database price never reaches the browser.
+  const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
 
   const mappedPlans = allPlans.map((plan) => {
     const f = features(plan.features);
+    const display = planDisplayPrice(plan.slug, prices);
+    let monthlyPrice = toCents(plan.priceMonthly);
+    let yearlyPrice = toCents(plan.priceYearly);
+    let pricePerSeat = toCents(plan.pricePerUser);
+    let currency = plan.currency;
+    if (display.kind === 'priced') {
+      monthlyPrice = amountToCents(display.price.monthly);
+      // Per seat per year, like `price_yearly`. No annual price → twelve
+      // months at the monthly price (no annual saving shown).
+      yearlyPrice = amountToCents((display.price.annual ?? display.price.monthly) * 12);
+      pricePerSeat = plan.pricePerUser ? monthlyPrice : 0;
+      currency = display.currency;
+    } else if (display.kind === 'on_request') {
+      monthlyPrice = 0;
+      yearlyPrice = 0;
+      pricePerSeat = 0;
+    }
+    const priceOnRequest = display.kind === 'on_request';
     return {
       id: plan.id,
       name: plan.name,
       slug: plan.slug,
       description: plan.description,
-      monthlyPrice: toCents(plan.priceMonthly),
-      yearlyPrice: toCents(plan.priceYearly),
-      currency: plan.currency,
-      pricePerSeat: toCents(plan.pricePerUser),
+      monthlyPrice,
+      yearlyPrice,
+      currency,
+      pricePerSeat,
+      priceOnRequest,
       isPerSeatPricing: !!plan.pricePerUser,
       includedUsers: plan.includedUsers,
       maxMembers: plan.maxUsers,
@@ -226,7 +266,8 @@ app.get('/plans-page', async (c) => {
       badge: plan.badge,
       displayOrder: plan.sortOrder,
       highlighted: plan.slug === 'scale' || !!plan.badge,
-      requiresContact: false,
+      // On request → the plan is sold through sales, not self-serve checkout.
+      requiresContact: priceOnRequest,
       maxDomains: f.maxDomains ?? null,
       maxEmailAccounts: f.maxEmailAccounts ?? null,
       maxCustomDomains: plan.maxCustomDomains ?? f.maxCustomDomains ?? null,
@@ -259,7 +300,11 @@ app.get('/plans-page', async (c) => {
     subscription = mapSubscription(workspace, plan, activeMemberCount);
   }
 
-  return success(c, { plans: mappedPlans, subscription });
+  return success(c, {
+    plans: mappedPlans,
+    subscription,
+    pricing: { country: prices.country, currency: prices.currency },
+  });
 });
 
 // ============================================================================

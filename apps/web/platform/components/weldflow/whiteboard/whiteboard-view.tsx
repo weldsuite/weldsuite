@@ -85,6 +85,7 @@ import {
   interpolateEraserPoints,
   isElementInSelectionBox,
   isFillableShape,
+  keyedErasedStrokes,
   patchElement,
   snapshotDragStart,
   touchDistance,
@@ -1598,12 +1599,9 @@ export function WhiteboardView({ projectId, whiteboardId, initialElements = [] }
         };
       }
       case 'arrow': {
-        const length = Math.sqrt(
-          Math.pow(point.x - startPoint.x, 2) +
-          Math.pow(point.y - startPoint.y, 2)
-        );
+        const length = Math.hypot(point.x - startPoint.x, point.y - startPoint.y);
         // Only create arrow if it has some length
-        if (!(length > 5)) return null;
+        if (length <= 5) return null;
         return {
           id: Date.now().toString(),
           type: 'arrow',
@@ -3097,8 +3095,8 @@ const textWidth = Math.max(100, (el.text?.length || 0) * (el.fontSize || 16) * 0
           <defs>
             <mask id={maskId}>
               <rect x="-8000" y="-4500" width="16000" height="9000" fill="white" />
-              {element.erasedPaths!.map((stroke, strokeIndex) => (
-                <g key={strokeIndex}>
+              {keyedErasedStrokes(element.erasedPaths!).map(({ stroke, key }) => (
+                <g key={key}>
                   {/* Use path only for better performance */}
                   {stroke?.points && stroke.points.length > 0 && (
                     <path

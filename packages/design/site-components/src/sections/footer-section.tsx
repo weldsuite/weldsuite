@@ -2,6 +2,7 @@
 
 import type { StoreData } from '../types';
 import { Facebook, Twitter, Instagram, Mail } from "lucide-react";
+import { keyedBy } from "../lib/keyed";
 
 interface FooterSectionProps {
   companyName?: string;
@@ -31,7 +32,7 @@ export default function FooterSection({
   companyName,
   links = defaultLinks,
   store
-}: FooterSectionProps) {
+}: Readonly<FooterSectionProps>) {
   const displayName = companyName || store?.name || "Your Store";
   const currentYear = new Date().getFullYear();
 
@@ -60,8 +61,8 @@ export default function FooterSection({
             </div>
           </div>
           
-          {links.map((section, index) => (
-            <div key={index}>
+          {keyedBy(links, (section) => section.title).map(({ item: section, key }) => (
+            <div key={key}>
               <h4 className="font-semibold mb-4">{section.title}</h4>
               <ul className="space-y-2">
                 {section.items.map((item) => (

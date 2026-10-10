@@ -50,9 +50,9 @@ import {
   activeParticipantCount,
   upsertParticipant,
   evictRtkSessions,
-  leaveOtherActiveCalls,
   isAbandonedCall,
 } from '../../services/chat/call-participants';
+import { leaveOtherLiveCalls } from '../../services/chat/leave-other-live-calls';
 
 // ============================================================================
 // Schemas
@@ -122,15 +122,23 @@ interface IncomingCallParams {
   initiatorPicture: string | undefined;
 }
 
-/** Realtime ring plus (non-blocking) push for one DM member. */
+/**
+ * Realtime ring plus (non-blocking) push for one DM member. Never throws, so one
+ * failed ring neither cuts the other members' rings short nor skips the ring
+ * timeout that ends an unanswered call.
+ */
 async function ringDmMember(p: IncomingCallParams, memberUserId: string): Promise<void> {
-  await publishChatCallIncoming(p.env, p.orgId, memberUserId, {
-    callId: p.callId,
-    channelId: p.channelId,
-    callType: p.callType,
-    callerName: p.initiatorName,
-    callerAvatar: p.initiatorPicture,
-  });
+  try {
+    await publishChatCallIncoming(p.env, p.orgId, memberUserId, {
+      callId: p.callId,
+      channelId: p.channelId,
+      callType: p.callType,
+      callerName: p.initiatorName,
+      callerAvatar: p.initiatorPicture,
+    });
+  } catch (e) {
+    console.error('[Chat:Calls] Incoming-call ring failed:', e);
+  }
   // Push notification (non-blocking) — never block the response.
   try {
     await sendIncomingCallNotification({
@@ -184,9 +192,9 @@ async function publishCallStarted(
       .from(chatChannelMembers)
       .where(eq(chatChannelMembers.channelId, p.channelId));
 
-    for (const member of members.filter((m) => m.userId !== p.userId)) {
-      await ringDmMember(p, member.userId);
-    }
+    await Promise.all(
+      members.filter((m) => m.userId !== p.userId).map((member) => ringDmMember(p, member.userId)),
+    );
     scheduleRingTimeout(waitUntil, p.db, p.env, p.orgId, p.callId);
   } catch (e) {
     console.error('[Chat:Calls] Realtime publish failed:', e);
@@ -203,6 +211,8 @@ interface JoinExistingCallParams {
   cfAppId: string;
   joiner: { name: string | null; picture: string | null } | undefined;
   waitUntil: (promise: Promise<unknown>) => void;
+  /** When the joining request started (see leaveOtherLiveCalls). */
+  requestStartedAt: number;
 }
 
 /**
@@ -237,8 +247,8 @@ async function joinExistingCall(p: JoinExistingCallParams) {
         maxParticipants: Math.max(call.maxParticipants ?? 0, merged.filter((m) => !m.leftAt).length),
         updatedAt: new Date(),
       }).where(eq(schema.chatCalls.id, call.id)),
-      evictRtkSessions(env, cfAppId, staleSessionIds),
-      leaveOtherActiveCalls(db, env, p.orgId, userId, call.id),
+      evictRtkSessions(env, cfAppId, staleSessionIds, { orgId: p.orgId, userId, callId: call.id }),
+      leaveOtherLiveCalls(db, env, p.orgId, userId, call.id, p.requestStartedAt),
       publishChatCallParticipantJoined(env, p.channelId, {
         callId: call.id,
         userId,
@@ -426,6 +436,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
 
   const userId = c.get('userId');
   const data = c.req.valid('json');
+  const requestStartedAt = Date.now();
 
   try {
     const db = c.get('tenantDb');
@@ -491,6 +502,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
           cfAppId: existingCall.cfAppId,
           joiner: authorResult[0],
           waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+          requestStartedAt,
         });
         return success(c, joined, 200);
       }
@@ -577,7 +589,7 @@ app.post('/start-and-join', requirePermission('channels:create'), zValidator('js
             maxParticipants: Math.max(fresh?.maxParticipants ?? 0, next.filter((p) => !p.leftAt).length),
             startMessageId: msgId,
           }).where(eq(chatCalls.id, callId));
-          await leaveOtherActiveCalls(db, c.env, orgId, userId, callId);
+          await leaveOtherLiveCalls(db, c.env, orgId, userId, callId, requestStartedAt);
         })(),
         // Publish realtime events
         publishChatCallStarted(c.env, data.channelId, {
@@ -656,6 +668,7 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
 
   const userId = c.get('userId');
   const callId = c.req.param('callId');
+  const requestStartedAt = Date.now();
 
   try {
     const db = c.get('tenantDb');
@@ -725,8 +738,8 @@ app.post('/:callId/join', requirePermission('channels:read'), async (c) => {
     c.executionCtx.waitUntil(
       Promise.all([
         db.update(chatCalls).set(updates).where(eq(chatCalls.id, callId)),
-        evictRtkSessions(c.env, call.cfAppId, staleSessionIds),
-        leaveOtherActiveCalls(db, c.env, orgId, userId, callId),
+        evictRtkSessions(c.env, call.cfAppId, staleSessionIds, { orgId, userId, callId }),
+        leaveOtherLiveCalls(db, c.env, orgId, userId, callId, requestStartedAt),
         publishChatCallParticipantJoined(c.env, call.channelId, {
           callId,
           userId,

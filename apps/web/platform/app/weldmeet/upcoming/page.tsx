@@ -328,17 +328,7 @@ export default function UpcomingMeetingsPage() {
     return (
       <div
         key={meeting.id}
-        role="button"
-        tabIndex={0}
-        onClick={openMeeting}
-        onKeyDown={(e) => {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            openMeeting();
-          }
-        }}
-        className="flex items-center gap-6 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
+        className="relative flex items-center gap-6 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group"
       >
         {/* Meeting (+ live pill) */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2">
@@ -375,7 +365,7 @@ export default function UpcomingMeetingsPage() {
         </div>
 
         {/* Actions */}
-        <div className="w-[40px] flex justify-end" role="presentation" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] w-[40px] flex justify-end">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
@@ -422,6 +412,13 @@ export default function UpcomingMeetingsPage() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+
+        <button
+          type="button"
+          aria-label={meeting.title || t.upcomingPage.actions.viewDetails}
+          onClick={openMeeting}
+          className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        />
       </div>
     );
   }, [navigate, t, meetingTypeConfig, workspaceId]);

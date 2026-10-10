@@ -3,6 +3,7 @@ import * as React from 'react';
 import { useState, useEffect, useTransition } from 'react';
 import { Check, Loader2, AlertCircle, Minus, Plus, ChevronLeft, Info, X } from 'lucide-react';
 import NumberFlow from '@number-flow/react';
+import { useTranslations } from '@weldsuite/i18n/client';
 import { track } from '@/lib/analytics';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -107,13 +108,25 @@ interface PricingDialogProps {
   };
 }
 
-// Format a price in cents as EUR (checkout summary currency)
-const formatCurrency = (cents: number) => {
-  return new Intl.NumberFormat('nl-NL', {
+// Format a price in cents in the plan currency (the caller's country currency
+// when the plan is priced per country, see plans-page in app-api).
+const formatCurrency = (cents: number, currency: string) => {
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'EUR',
+    currency,
   }).format(cents / 100);
 };
+
+const planCurrency = (plan: Billing.BillingPlan) => plan.currency || 'USD';
+
+/** Per seat per year; plans without a yearly price fall back to ten months. */
+const yearlyPriceOf = (plan: Billing.BillingPlan) => plan.yearlyPrice || Math.round(plan.monthlyPrice * 10);
+
+/** Whole-percent saving of annual over monthly billing, 0 when there is none. */
+const annualSavingPercent = (plan: Billing.BillingPlan) =>
+  plan.priceOnRequest || !plan.monthlyPrice
+    ? 0
+    : Math.max(0, Math.round((1 - yearlyPriceOf(plan) / (plan.monthlyPrice * 12)) * 100));
 
 type CheckoutCycle = 'monthly' | 'annually';
 
@@ -126,6 +139,8 @@ interface CheckoutPrices {
   isAnnual: boolean;
   annualPricePerSeat: number;
   monthlyPricePerSeat: number;
+  currency: string;
+  annualSaving: number;
 }
 
 // Calculate checkout prices
@@ -137,7 +152,7 @@ const computeCheckoutPrices = (
 ): CheckoutPrices => {
   const isAnnual = billingCycle === 'annually';
   const monthlyPricePerSeat = plan.monthlyPrice;
-  const annualPricePerSeat = plan.yearlyPrice || Math.round(plan.monthlyPrice * 10);
+  const annualPricePerSeat = yearlyPriceOf(plan);
   const pricePerSeat = isAnnual ? annualPricePerSeat : monthlyPricePerSeat;
 
   // Calculate email price based on plan
@@ -157,6 +172,8 @@ const computeCheckoutPrices = (
     isAnnual,
     annualPricePerSeat,
     monthlyPricePerSeat,
+    currency: planCurrency(plan),
+    annualSaving: annualSavingPercent(plan),
   };
 };
 
@@ -264,12 +281,14 @@ function CheckoutBillingPeriod({
         <SelectContent>
           <SelectItem value="annually">
             <div className="flex items-center gap-2">
-              <span>Annually - {formatCurrency(prices.annualPricePerSeat / 12)} / user / month</span>
-              <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">Save 17%</Badge>
+              <span>Annually - {formatCurrency(prices.annualPricePerSeat / 12, prices.currency)} / user / month</span>
+              {prices.annualSaving > 0 && (
+                <Badge variant="secondary" className="bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400 text-xs rounded-sm">Save {prices.annualSaving}%</Badge>
+              )}
             </div>
           </SelectItem>
           <SelectItem value="monthly">
-            Monthly - {formatCurrency(prices.monthlyPricePerSeat)} / user / month
+            Monthly - {formatCurrency(prices.monthlyPricePerSeat, prices.currency)} / user / month
           </SelectItem>
         </SelectContent>
       </Select>
@@ -336,7 +355,7 @@ function CheckoutEmails({
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">Extra monthly emails</p>
             <span className="text-sm font-medium">
-              {prices.creditsPriceMonthly > 0 ? `${formatCurrency(prices.creditsPriceMonthly)}/ month` : 'Included'}
+              {prices.creditsPriceMonthly > 0 ? `${formatCurrency(prices.creditsPriceMonthly, prices.currency)}/ month` : 'Included'}
             </span>
           </div>
           <p className="text-sm text-muted-foreground">
@@ -405,10 +424,10 @@ function CheckoutSummary({
           <div>
             <p>{seatCount} seat{seatCount !== 1 ? 's' : ''} &times; {plan.name}</p>
             <p className="text-muted-foreground text-xs">
-              (at {formatCurrency(prices.pricePerSeat)} / {prices.isAnnual ? 'year' : 'month'})
+              (at {formatCurrency(prices.pricePerSeat, prices.currency)} / {prices.isAnnual ? 'year' : 'month'})
             </p>
           </div>
-          <span className="font-medium">{formatCurrency(prices.seatsTotal)}</span>
+          <span className="font-medium">{formatCurrency(prices.seatsTotal, prices.currency)}</span>
         </div>
 
         {/* Email credits line item */}
@@ -417,10 +436,10 @@ function CheckoutSummary({
             <div>
               <p>Extra emails {(emailCredits / 1000).toFixed(0)}k</p>
               <p className="text-muted-foreground text-xs">
-                (at {formatCurrency(prices.creditsPrice)} / {prices.isAnnual ? 'year' : 'month'})
+                (at {formatCurrency(prices.creditsPrice, prices.currency)} / {prices.isAnnual ? 'year' : 'month'})
               </p>
             </div>
-            <span className="font-medium">{formatCurrency(prices.creditsPrice)}</span>
+            <span className="font-medium">{formatCurrency(prices.creditsPrice, prices.currency)}</span>
           </div>
         )}
 
@@ -428,7 +447,7 @@ function CheckoutSummary({
 
         <div className="flex justify-between text-sm">
           <span>Subtotal</span>
-          <span className="font-medium">{formatCurrency(prices.subtotal)}</span>
+          <span className="font-medium">{formatCurrency(prices.subtotal, prices.currency)}</span>
         </div>
 
         <div className="flex justify-between text-sm">
@@ -452,7 +471,7 @@ function CheckoutSummary({
               </Tooltip>
             </TooltipProvider>
           </div>
-          <span className="font-semibold">{formatCurrency(prices.subtotal)}</span>
+          <span className="font-semibold">{formatCurrency(prices.subtotal, prices.currency)}</span>
         </div>
       </div>
 
@@ -499,25 +518,30 @@ function PlanPrice({
   isContact,
   isAnnual,
 }: Readonly<Pick<PlanCardProps, 'plan' | 'isContact' | 'isAnnual'>>) {
+  const t = useTranslations();
+  // On request in the caller's country (admin console → Plan pricing), or a
+  // sales-led plan without a price.
+  const noPublicPrice = plan.priceOnRequest === true || (isContact && plan.monthlyPrice === 0);
+  const saving = annualSavingPercent(plan);
   return (
   <div className="mb-1">
     <div className="flex items-center gap-2">
       <span className="text-3xl font-semibold">
-        {isContact
-          ? 'Custom'
+        {noPublicPrice
+          ? t('sweep.settings.billing.onRequest')
           : (
             <NumberFlow
               value={isAnnual
-                ? Math.round((plan.yearlyPrice || Math.round(plan.monthlyPrice * 10)) / 12) / 100
+                ? Math.round(yearlyPriceOf(plan) / 12) / 100
                 : plan.monthlyPrice / 100}
-              format={{ style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 0 }}
+              format={{ style: 'currency', currency: planCurrency(plan), currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 2 }}
               transformTiming={{ duration: 400, easing: 'ease-out' }}
             />
           )}
       </span>
-      {!isContact && plan.monthlyPrice > 0 && isAnnual && (
+      {!noPublicPrice && isAnnual && saving > 0 && (
         <span className="text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg dark:bg-blue-950 dark:text-blue-400 dark:border-blue-800">
-          Save 17%
+          {t('sweep.settings.billing.savePercent', { percent: saving })}
         </span>
       )}
     </div>
@@ -811,14 +835,15 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
     if (!subscription) return false;
     const currentPlan = allPlans.find(p => p.id === subscription.planId);
     if (!currentPlan) return false;
-    return plan.monthlyPrice < currentPlan.monthlyPrice;
+    // Ladder position, not price: an on-request plan carries no price.
+    return plan.displayOrder < currentPlan.displayOrder;
   };
 
   const isUpgrade = (plan: Billing.BillingPlan) => {
     if (!subscription) return true; // No subscription = everything is an upgrade
     const currentPlan = allPlans.find(p => p.id === subscription.planId);
     if (!currentPlan) return true;
-    return plan.monthlyPrice > currentPlan.monthlyPrice;
+    return plan.displayOrder > currentPlan.displayOrder;
   };
 
   const handleSelectPlan = (plan: Billing.BillingPlan) => {

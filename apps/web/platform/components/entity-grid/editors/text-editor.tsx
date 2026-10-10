@@ -10,7 +10,7 @@ export function TextEditor({
   placeholder = '',
   autoFocus = true,
   className,
-}: EditorProps<string>) {
+}: Readonly<EditorProps<string>>) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localValue, setLocalValue] = useState<string>(value || '');
 

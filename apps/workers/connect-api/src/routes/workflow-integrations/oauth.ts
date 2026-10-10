@@ -112,7 +112,7 @@ app.post(
 
     // Validate state
     const stored = (await c.env.WORKSPACE_CACHE.get(`wf_oauth_state:${state}`, 'json')) as OAuthState | null;
-    if (!stored || stored.provider !== provider || stored.orgId !== orgId) {
+    if (stored?.provider !== provider || stored?.orgId !== orgId) {
       return error.badRequest(c, 'Invalid or expired OAuth state');
     }
     await c.env.WORKSPACE_CACHE.delete(`wf_oauth_state:${state}`);

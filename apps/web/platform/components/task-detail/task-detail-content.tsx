@@ -554,7 +554,7 @@ function DueDateField({ task, onUpdate }: Readonly<{ task: Task; onUpdate: (task
             mode="single"
             selected={task.dueDate}
             onSelect={(date) => onUpdate(task.id, { dueDate: date })}
-            initialFocus
+            autoFocus
           />
           {task.dueDate && (
             <div className="p-1 border-t border-border">
@@ -1465,7 +1465,7 @@ export function TaskDetailContent({
                 type="file"
                 multiple
                 onChange={(e) => {
-                  handleFiles(e.target.files);
+                  void handleFiles(e.target.files);
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
                 className="hidden"
@@ -1523,7 +1523,7 @@ export function TaskDetailContent({
                           <video src={previewAttachment.url} controls className="max-w-[85vw] max-h-[80vh]" />
                         )}
                         {type === 'pdf' && (
-                          <iframe src={previewAttachment.url} className="w-[85vw] h-[80vh] border-0" />
+                          <iframe src={previewAttachment.url} title={previewAttachment.fileName} className="w-[85vw] h-[80vh] border-0" />
                         )}
                         {!type && (
                           <div className="py-12 px-8 text-center text-sm text-muted-foreground">
@@ -1551,12 +1551,14 @@ export function TaskDetailContent({
                     return (
                       <div
                         key={attachment.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setPreviewAttachment(attachment)}
-                        onKeyDown={activateOnKey(() => setPreviewAttachment(attachment))}
-                        className="flex items-center gap-2 pl-2 py-1.5 rounded-md hover:bg-muted/50 group cursor-pointer"
+                        className="relative flex items-center gap-2 pl-2 py-1.5 rounded-md hover:bg-muted/50 group cursor-pointer"
                       >
+                        <button
+                          type="button"
+                          aria-label={attachment.fileName}
+                          onClick={() => setPreviewAttachment(attachment)}
+                          className="absolute inset-0 rounded-md cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        />
                         <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
                           <Icon className="h-4 w-4 text-muted-foreground" />
                         </div>
@@ -1566,7 +1568,7 @@ export function TaskDetailContent({
                             {formatFileSize(attachment.fileSize)}
                           </p>
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0 mr-2.5">
+                        <div className="relative z-[1] flex items-center gap-1.5 flex-shrink-0 mr-2.5">
                           <a
                             href={attachment.url}
                             target="_blank"
@@ -1760,16 +1762,21 @@ export function SubtasksSection({
           this row is the root of the tree, nothing above it to connect to. */}
       {effectiveRoot && effectiveSubtasks.length > 0 && (
         <div
-          role={effectiveRoot.id !== currentTaskId ? 'button' : undefined}
-          tabIndex={effectiveRoot.id !== currentTaskId ? 0 : undefined}
-          onClick={effectiveRoot.id !== currentTaskId ? () => onNavigateToTask?.(effectiveRoot.id) : undefined}
-          onKeyDown={effectiveRoot.id !== currentTaskId ? activateOnKey(() => onNavigateToTask?.(effectiveRoot.id)) : undefined}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', position: 'relative' }}
           className={cn('group/root-task rounded-md', effectiveRoot.id !== currentTaskId && 'cursor-pointer')}
         >
-          <div onClick={(e) => e.stopPropagation()}>
+          {effectiveRoot.id !== currentTaskId && (
+            <button
+              type="button"
+              aria-label={effectiveRoot.title}
+              onClick={() => onNavigateToTask?.(effectiveRoot.id)}
+              className="absolute inset-0 rounded-md cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            />
+          )}
+          <div className="relative z-[1]">
             <Checkbox
               checked={effectiveRoot.status === 'done'}
+              onClick={(e) => e.stopPropagation()}
               onCheckedChange={() => onToggleSubtask?.(effectiveRoot.id, effectiveRoot.status || 'todo')}
               style={{ width: 14, height: 14, flexShrink: 0 }}
               className="group-hover/root-task:border-muted-foreground/70"
@@ -1789,7 +1796,7 @@ export function SubtasksSection({
               size="icon"
               onClick={(e) => { e.stopPropagation(); onNavigateToTask?.(effectiveRoot.id); }}
               style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}
-              className="text-muted-foreground opacity-0 group-hover/root-task:opacity-100 transition-opacity hover:text-foreground"
+              className="z-[1] text-muted-foreground opacity-0 group-hover/root-task:opacity-100 transition-opacity hover:text-foreground"
             >
               <ChevronRight style={{ width: 14, height: 14 }} />
             </Button>
@@ -1918,9 +1925,10 @@ export function SubtasksSection({
                       style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px 5px 9px', marginLeft: -5, overflow: 'hidden', flex: 1, minWidth: 0, cursor: 'pointer' }}
                       className="group/subtask rounded-md relative"
                     >
-                      <div onClick={(e) => e.stopPropagation()}>
+                      <div>
                         <Checkbox
                           checked={subtask.status === 'done'}
+                          onClick={(e) => e.stopPropagation()}
                           onCheckedChange={() => onToggleSubtask?.(subtask.id, subtask.status)}
                           style={{ width: 14, height: 14, flexShrink: 0 }}
                           className={cn(isActive ? 'border-muted-foreground/70' : isHovered && 'border-muted-foreground/70')}
@@ -2814,7 +2822,7 @@ export function DescriptionField({
         e.preventDefault();
         const dt = new DataTransfer();
         files.forEach(f => dt.items.add(f));
-        handleUploadFiles(dt.files);
+        void handleUploadFiles(dt.files);
         return;
       }
     }
@@ -2898,7 +2906,7 @@ export function DescriptionField({
       }}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setIsDraggingFile(true); } }}
       onDragLeave={(e) => { e.preventDefault(); setIsDraggingFile(false); }}
-      onDrop={(e) => { e.preventDefault(); setIsDraggingFile(false); if (e.dataTransfer?.files?.length) handleUploadFiles(e.dataTransfer.files); }}
+      onDrop={(e) => { e.preventDefault(); setIsDraggingFile(false); if (e.dataTransfer?.files?.length) void handleUploadFiles(e.dataTransfer.files); }}
     >
       {isEditing ? (
         <>

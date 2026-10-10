@@ -529,7 +529,7 @@ function GridFilterPills<TEntity>({
                 <PopoverTrigger asChild>
                   <Button variant="ghost" className="flex items-center px-2 h-full hover:bg-muted transition-colors">
                     {filter.value ? (
-                      <span className="text-foreground">{getValueLabel(filter.field, String(filter.value))}</span>
+                      <span className="text-foreground">{getValueLabel(filter.field, asText(filter.value))}</span>
                     ) : (
                       <span className="text-muted-foreground/60">{t('sweep.entities.enterValue')}</span>
                     )}

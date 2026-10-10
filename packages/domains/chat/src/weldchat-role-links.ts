@@ -203,14 +203,15 @@ export async function applyRoleChangeToChannels(
 
   const { chatChannels, chatChannelMembers } = schema;
   const now = new Date();
-  for (const channelId of touchedChannels) {
+  if (touchedChannels.size > 0) {
+    // One statement recounts every touched channel (correlated on the row being updated).
     await db
       .update(chatChannels)
       .set({
-        memberCount: sql`(SELECT count(*)::int FROM ${chatChannelMembers} WHERE ${chatChannelMembers.channelId} = ${channelId})`,
+        memberCount: sql`(SELECT count(*)::int FROM ${chatChannelMembers} WHERE ${chatChannelMembers.channelId} = ${chatChannels.id})`,
         updatedAt: now,
       })
-      .where(eq(chatChannels.id, channelId));
+      .where(inArray(chatChannels.id, [...touchedChannels]));
   }
 
   return result;
@@ -243,25 +244,28 @@ async function removeUserFromRoleChannels(
   oldRoleId: string,
 ): Promise<ChannelChange[]> {
   const { chatChannelMembers } = schema;
-  const removed: ChannelChange[] = [];
 
-  for (const ch of await listChannelsLinkedToRole(db, oldRoleId)) {
-    const deleted = await db
-      .delete(chatChannelMembers)
-      .where(
-        and(
-          eq(chatChannelMembers.channelId, ch.id),
-          eq(chatChannelMembers.userId, userId),
-          eq(chatChannelMembers.addedByRoleId, oldRoleId),
+  const channels = await listChannelsLinkedToRole(db, oldRoleId);
+  if (channels.length === 0) return [];
+
+  const deleted = await db
+    .delete(chatChannelMembers)
+    .where(
+      and(
+        inArray(
+          chatChannelMembers.channelId,
+          channels.map((ch) => ch.id),
         ),
-      )
-      .returning({ id: chatChannelMembers.id });
+        eq(chatChannelMembers.userId, userId),
+        eq(chatChannelMembers.addedByRoleId, oldRoleId),
+      ),
+    )
+    .returning({ channelId: chatChannelMembers.channelId });
+  const deletedChannelIds = new Set(deleted.map((row) => row.channelId));
 
-    if (deleted.length > 0) {
-      removed.push({ channelId: ch.id, channelName: ch.name, userIds: [userId] });
-    }
-  }
-  return removed;
+  return channels
+    .filter((ch) => deletedChannelIds.has(ch.id))
+    .map((ch) => ({ channelId: ch.id, channelName: ch.name, userIds: [userId] }));
 }
 
 /** Add the user to channels linked to `newRoleId` they are not already a member of. */

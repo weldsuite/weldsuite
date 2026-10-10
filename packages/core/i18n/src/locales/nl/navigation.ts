@@ -116,10 +116,16 @@ export const navigation = {
         leave: 'Verlof',
         declarations: 'Declaraties',
         portal: 'Medewerkersportaal',
+        payroll: 'Overzicht',
+        payRuns: 'Loonruns',
+        payrollEmployees: 'Medewerkers in loon',
+        filings: 'Aangiftes',
+        payrollSettings: 'Loon-instellingen',
         groups: {
           people: 'Mensen',
           time: 'Tijd',
           expenses: 'Onkosten',
+          payroll: 'Salarisverwerking',
         },
       },
       weldhost: {

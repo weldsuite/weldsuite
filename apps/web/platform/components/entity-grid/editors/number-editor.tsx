@@ -19,7 +19,7 @@ export function NumberEditor({
   min,
   max,
   step,
-}: NumberEditorProps) {
+}: Readonly<NumberEditorProps>) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localValue, setLocalValue] = useState<string>(value == null ? '' : String(value));
 

@@ -286,12 +286,14 @@ app.patch(
       for (const pid of projectIds) {
         if (!(await canWriteProject(c, pid))) return error.forbidden(c, PROJECT_WRITE_DENIED);
       }
-      for (let i = 0; i < stageIds.length; i++) {
-        await db
-          .update(t)
-          .set({ position: i, updatedAt: now })
-          .where(and(eq(t.id, stageIds[i]), isNull(t.deletedAt)));
-      }
+      await Promise.all(
+        stageIds.map((stageId, i) =>
+          db
+            .update(t)
+            .set({ position: i, updatedAt: now })
+            .where(and(eq(t.id, stageId), isNull(t.deletedAt))),
+        ),
+      );
       return success(c, { reordered: true });
     } catch (err) {
       console.error('[app-api/project-pipeline-stages] reorder failed:', err);

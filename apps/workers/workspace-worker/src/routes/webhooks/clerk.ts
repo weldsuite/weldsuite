@@ -666,10 +666,10 @@ async function handleMembershipUpdated(
         .update(workspaceMembers)
         .set({ role: preservedRole, name, picture, clerkMembershipId: membership.id, updatedAt: new Date() })
         .where(eq(workspaceMembers.id, existing.id));
-      // TODO: if a future Clerk metadata flow propagates a custom `roleId`,
-      // call applyRoleChangeToChannels(tenantDb, userId, oldRoleId, newRoleId)
-      // here so weldchat membership stays in sync. Today only the system
-      // tier syncs via webhook, so no action is needed.
+      // Only the system tier syncs via this webhook, so weldchat channel
+      // membership needs no update here. Should a Clerk metadata flow ever
+      // propagate a custom `roleId`, call
+      // applyRoleChangeToChannels(tenantDb, userId, oldRoleId, newRoleId) here.
     } else {
       await handleMembershipCreated(env, masterDb, membership);
     }
@@ -1010,28 +1010,33 @@ async function handleUserUpdated(
       .from(userWorkspaces)
       .where(eq(userWorkspaces.userId, userId));
 
-    for (const membership of memberships) {
-      try {
-        const [workspace] = await masterDb
-          .select({ clerkOrgId: workspaces.clerkOrgId })
-          .from(workspaces)
-          .where(eq(workspaces.id, membership.workspaceId));
+    // Each workspace is mirrored independently; a failing one must not stop the rest.
+    await Promise.all(
+      memberships.map(async (membership) => {
+        try {
+          const [workspace] = await masterDb
+            .select({ clerkOrgId: workspaces.clerkOrgId })
+            .from(workspaces)
+            .where(eq(workspaces.id, membership.workspaceId));
 
-        if (workspace?.clerkOrgId) {
-          const tenantDb = await getTenantDbForWorkspace(env, workspace.clerkOrgId);
-          // Only overwrite name/picture when Clerk has actual values. user.updated
-          // fires multiple times during signup/onboarding — early events have
-          // empty first_name/last_name and would wipe the name typed at invite time.
-          const updates: Record<string, unknown> = { updatedAt: new Date() };
-          if (fullName) updates.name = fullName;
-          if (imageUrl) updates.picture = imageUrl;
-          await tenantDb
-            .update(workspaceMembers)
-            .set(updates)
-            .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
+          if (workspace?.clerkOrgId) {
+            const tenantDb = await getTenantDbForWorkspace(env, workspace.clerkOrgId);
+            // Only overwrite name/picture when Clerk has actual values. user.updated
+            // fires multiple times during signup/onboarding — early events have
+            // empty first_name/last_name and would wipe the name typed at invite time.
+            const updates: Record<string, unknown> = { updatedAt: new Date() };
+            if (fullName) updates.name = fullName;
+            if (imageUrl) updates.picture = imageUrl;
+            await tenantDb
+              .update(workspaceMembers)
+              .set(updates)
+              .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
+          }
+        } catch {
+          // Best effort per workspace.
         }
-      } catch { continue; }
-    }
+      }),
+    );
   } catch (error) {
     console.error('[Clerk Webhook] Error syncing user update:', error);
   }
@@ -1059,22 +1064,27 @@ async function handleUserDeleted(
       .delete(userWorkspaces)
       .where(eq(userWorkspaces.userId, userId));
 
-    for (const membership of memberships) {
-      try {
-        const [workspace] = await masterDb
-          .select({ clerkOrgId: workspaces.clerkOrgId })
-          .from(workspaces)
-          .where(eq(workspaces.id, membership.workspaceId));
+    // Each workspace is soft-deleted independently; a failing one must not stop the rest.
+    await Promise.all(
+      memberships.map(async (membership) => {
+        try {
+          const [workspace] = await masterDb
+            .select({ clerkOrgId: workspaces.clerkOrgId })
+            .from(workspaces)
+            .where(eq(workspaces.id, membership.workspaceId));
 
-        if (workspace?.clerkOrgId) {
-          const tenantDb = await getTenantDbForWorkspace(env, workspace.clerkOrgId);
-          await tenantDb
-            .update(workspaceMembers)
-            .set({ deletedAt: new Date(), updatedAt: new Date() })
-            .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
+          if (workspace?.clerkOrgId) {
+            const tenantDb = await getTenantDbForWorkspace(env, workspace.clerkOrgId);
+            await tenantDb
+              .update(workspaceMembers)
+              .set({ deletedAt: new Date(), updatedAt: new Date() })
+              .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
+          }
+        } catch {
+          // Best effort per workspace.
         }
-      } catch { continue; }
-    }
+      }),
+    );
   } catch (error) {
     console.error('[Clerk Webhook] Error handling user.deleted:', error);
     throw error;

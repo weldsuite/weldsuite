@@ -67,6 +67,7 @@
     "./schemas/auth-desktop": "./src/schemas/auth-desktop.ts",
     "./schemas/commerce-portal": "./src/schemas/commerce-portal.ts",
     "./schemas/weldhr": "./src/schemas/weldhr.ts",
+    "./schemas/weldhr-payroll": "./src/schemas/weldhr-payroll.ts",
     "./schemas/weldpass-passwords": "./src/schemas/weldpass-passwords.ts",
     "./schemas/account": "./src/schemas/account.ts",
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
@@ -79,6 +80,7 @@
     "./schemas/weldconnect-templates": "./src/schemas/weldconnect-templates.ts",
     "./schemas/app-catalog": "./src/schemas/app-catalog.ts",
     "./schemas/credits": "./src/schemas/credits.ts",
+    "./schemas/plan-country-pricing": "./src/schemas/plan-country-pricing.ts",
     "./domains/ai": "./src/domains/ai.ts",
     "./domains/account": "./src/domains/account.ts",
     "./domains/workspace-settings": "./src/domains/workspace-settings.ts",
@@ -136,7 +138,8 @@
     "./domains/weldpass": "./src/domains/weldpass.ts",
     "./domains/weldpass-passwords": "./src/domains/weldpass-passwords.ts",
     "./domains/weldmeet-recordings": "./src/domains/weldmeet-recordings.ts",
-    "./domains/weldhr": "./src/domains/weldhr.ts"
+    "./domains/weldhr": "./src/domains/weldhr.ts",
+    "./domains/weldhr-payroll": "./src/domains/weldhr-payroll.ts"
   },
   "dependencies": {
     "@weldsuite/api-client": "workspace:*",

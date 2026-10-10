@@ -15,16 +15,16 @@ function resolveTheme(theme: Theme): 'light' | 'dark' {
  * Reads/writes theme from localStorage and applies the class to `<html>`.
  */
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(() => {
+  const [currentTheme, setCurrentTheme] = useState<Theme>(() => {
     if (typeof window === 'undefined') return 'system';
     return (localStorage.getItem('theme') as Theme) || 'system';
   });
 
-  const resolvedTheme = resolveTheme(theme);
+  const resolvedTheme = resolveTheme(currentTheme);
 
   const setTheme = useCallback((newTheme: string) => {
     const t = newTheme as Theme;
-    setThemeState(t);
+    setCurrentTheme(t);
     localStorage.setItem('theme', t);
 
     const root = document.documentElement;
@@ -41,15 +41,15 @@ export function useTheme() {
   }, []);
 
   useEffect(() => {
-    if (theme !== 'system') return;
+    if (currentTheme !== 'system') return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = () => setTheme('system');
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
-  }, [theme, setTheme]);
+  }, [currentTheme, setTheme]);
 
   return {
-    theme,
+    theme: currentTheme,
     setTheme,
     resolvedTheme,
     themes: ['light', 'dark', 'system'] as const,

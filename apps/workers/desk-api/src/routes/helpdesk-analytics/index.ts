@@ -385,12 +385,14 @@ app.patch('/reports/:reportId/layouts', requirePermission('settings:update'), as
   const body = await c.req.json().catch(() => ({ layouts: [] })) as { layouts: Array<{ chartId: string; layout: Record<string, unknown> }> };
   const now = new Date();
   try {
-    for (const item of body.layouts) {
-      await db
-        .update(helpdeskAnalyticsCharts)
-        .set({ layout: item.layout as unknown as ChartLayout, updatedAt: now })
-        .where(and(eq(helpdeskAnalyticsCharts.id, item.chartId), eq(helpdeskAnalyticsCharts.reportId, reportId)));
-    }
+    await Promise.all(
+      body.layouts.map((item) =>
+        db
+          .update(helpdeskAnalyticsCharts)
+          .set({ layout: item.layout as unknown as ChartLayout, updatedAt: now })
+          .where(and(eq(helpdeskAnalyticsCharts.id, item.chartId), eq(helpdeskAnalyticsCharts.reportId, reportId))),
+      ),
+    );
     return success(c, { updated: body.layouts.length });
   } catch (err) {
     console.error('[app-api/helpdesk-analytics] update layouts failed:', err);
