@@ -384,34 +384,41 @@ function OverflowTabs({
         {children}
       </div>
 
-      {/* Hidden mirror used purely for width measurement. */}
-      <div
-        ref={measureRef}
-        aria-hidden
-        className="absolute left-0 top-0 flex items-center gap-2 opacity-0 pointer-events-none -z-10"
-      >
-        {tabs.map((tab, i) => (
-          <div
-            key={tab.id}
-            ref={(node) => {
-              tabRefs.current[i] = node;
-            }}
-            className="group/tab relative pb-2 flex items-center flex-shrink-0"
-          >
-            <TabInner tab={tab} isActive={false} isFirst={i === 0} />
+      {/* Hidden mirror used purely for width measurement. It lays every tab out
+          in one unwrapped row, which is far wider than the visible row, so it
+          sits in a zero-height clip box: otherwise its width becomes scrollable
+          overflow of every ancestor, and an `overflow: hidden` ancestor can
+          still be scrolled programmatically (focus, scrollIntoView), which
+          slid a whole object panel sideways. Clipping does not change the
+          measured `offsetWidth`s. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-0 overflow-hidden">
+        <div
+          ref={measureRef}
+          className="absolute left-0 top-0 flex items-center gap-2 opacity-0 pointer-events-none -z-10"
+        >
+          {tabs.map((tab, i) => (
+            <div
+              key={tab.id}
+              ref={(node) => {
+                tabRefs.current[i] = node;
+              }}
+              className="group/tab relative pb-2 flex items-center flex-shrink-0"
+            >
+              <TabInner tab={tab} isActive={false} isFirst={i === 0} />
+            </div>
+          ))}
+          <div ref={moreRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
+            <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
+              +88 more
+            </span>
           </div>
-        ))}
-        <div ref={moreRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
-          <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
-            +88 more
-          </span>
-        </div>
-        <div ref={moreActiveRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
-          <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
-            {LongestIcon && <LongestIcon className="h-4 w-4 mr-1" />}
-            <span className="truncate max-w-[8rem]">{longestTab?.label}</span>
-            <span className="text-xs font-normal ml-0.5">+88</span>
-          </span>
+          <div ref={moreActiveRef} className="group/tab relative pb-2 flex items-center flex-shrink-0">
+            <span className="flex items-center gap-1 text-sm font-medium px-2 py-1 whitespace-nowrap">
+              {LongestIcon && <LongestIcon className="h-4 w-4 mr-1" />}
+              <span className="truncate max-w-[8rem]">{longestTab?.label}</span>
+              <span className="text-xs font-normal ml-0.5">+88</span>
+            </span>
+          </div>
         </div>
       </div>
     </div>

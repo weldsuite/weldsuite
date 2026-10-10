@@ -14,7 +14,6 @@ import {
   Phone,
   CircleCheck,
   MapPin,
-  DollarSign,
   Calendar,
   ExternalLink,
   Tag,
@@ -57,22 +56,13 @@ export const lifecycleStageSelectConfig: Record<string, StatusStyle> = Object.fr
   ]),
 );
 
-function extractDomain(url: string | null | undefined): string | undefined {
-  if (!url) return undefined;
-  try {
-    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
-    return parsed.hostname.replace(/^www\./, '');
-  } catch {
-    return url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0] || undefined;
-  }
-}
-
-/** The company's logo: its own image, else the favicon of its website / email domain. */
-export function getCompanyAvatar(company: Pick<Company, 'avatarUrl' | 'website' | 'email'>): string | undefined {
-  if (company.avatarUrl) return company.avatarUrl;
-  const domain = extractDomain(company.website) || extractDomain(company.email?.split('@')[1] ?? undefined);
-  if (domain) return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
-  return undefined;
+/**
+ * The company's logo: its own image, else the logo our API found on its website
+ * (`logoUrl`, merged into the rows by `useRowsWithCompanyLogos` in the grid).
+ * Never a third-party URL built from the company's domain.
+ */
+export function getCompanyAvatar(company: Pick<Company, 'avatarUrl'> & { logoUrl?: string | null }): string | undefined {
+  return company.avatarUrl || company.logoUrl || undefined;
 }
 
 function getCompanyLocation(company: Company): { city: string; state: string; country: string } | null {
@@ -360,21 +350,10 @@ export const companyColumns: GridColumnDef<Company>[] = [
     sortable: true,
     getValue: (c) => c.createdAt,
   },
-  {
-    id: 'currency',
-    name: 'Currency',
-    type: 'text',
-    width: 100,
-    icon: DollarSign,
-    visible: false,
-    editable: false,
-    // Placeholder column — no `currency` field exists on Company yet
-    // (`annualRevenue.currency` lives in the DB but isn't exposed on the API
-    // type). Not sortable either: every row reads the same `null`, so a
-    // server sort on it would be a confusing no-op.
-    sortable: false,
-    getValue: () => null,
-  },
+  // No Currency column: Company has no currency field. `annualRevenue.currency`
+  // exists in the DB but is not exposed on the API type, so a column for it
+  // would be empty on every row and not editable. Add it back together with the
+  // API field and its editor.
 ];
 
 export const companyGridConfig: EntityGridConfig<Company> = {

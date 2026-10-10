@@ -1,4 +1,19 @@
 /**
+ * A stage's bottom-bar calculation. Only the `type` (total, average, winRate,
+ * weighted, distribution, custom) is saved: the number is computed from the
+ * stage's deals when the board renders, in the deals' currency. (A number saved
+ * as text — "€0" — went stale and used the wrong currency.)
+ */
+export interface StageCalculationSetting {
+  type: string;
+  /**
+   * The formula text of a `custom` calculation. Ignored for every other type;
+   * older saves still carry a stale formatted number there.
+   */
+  value?: string | number;
+}
+
+/**
  * Pipeline view settings type
  */
 export interface PipelineViewSettings {
@@ -37,7 +52,7 @@ export interface PipelineViewSettings {
   // Per-stage UI state that used to live in local component state and reset
   // on every reload (TASK-921: "toggles and calculations aren't saved").
   // Keyed by stage id.
-  stageCalculations: Record<string, { type: string; value: string | number }>;
+  stageCalculations: Record<string, StageCalculationSetting>;
   confettiStageIds: string[];
   trackTimeInStageIds: string[];
   // Stages hidden from the board. `crm_pipeline_stages` has no `hidden`

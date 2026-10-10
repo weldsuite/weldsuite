@@ -1,0 +1,1 @@
+ALTER TABLE "crm_opportunities" ALTER COLUMN "close_date" DROP NOT NULL;

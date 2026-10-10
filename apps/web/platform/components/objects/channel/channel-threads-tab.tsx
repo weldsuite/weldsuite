@@ -9,7 +9,7 @@ import {
   type FilterConfig,
 } from '@/components/entity-list';
 import { useWorkspaceMembers, type ChatMessage } from '@/hooks/queries/use-weldchat-queries';
-import { RowOverlayButton } from '@/components/shared/row-overlay-button';
+import { KEEP_CONTROLS_ABOVE_OVERLAY, RowOverlayButton } from '@/components/shared/row-overlay-button';
 import { renderMessageContent } from '@/app/weldchat/lib/render-message-content';
 
 interface ChannelThreadsTabProps {
@@ -116,7 +116,7 @@ export function ChannelThreadsTab({ channelId, messages }: Readonly<ChannelThrea
     (t: ThreadItem) => (
       <div
         key={t.id}
-        className="relative flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border [&_:is(a,button)]:relative [&_:is(a,button)]:z-[1]"
+        className={`relative flex items-start gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border ${KEEP_CONTROLS_ABOVE_OVERLAY}`}
       >
         <RowOverlayButton
           label={t.authorName || st('common.actions.view')}

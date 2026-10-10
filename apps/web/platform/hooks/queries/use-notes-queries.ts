@@ -8,6 +8,7 @@ import {
 } from '@weldsuite/core-api-client/schemas/activities';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
+import { noteSubjectFromContent } from '@/lib/note-title';
 
 type CreateActivityInput = z.infer<typeof createActivitySchema>;
 type UpdateActivityInput = z.infer<typeof updateActivitySchema>;
@@ -83,7 +84,7 @@ function toWireFilters(filters: NoteFilters | undefined): URLSearchParams {
 function toCreatePayload(input: CreateNoteInput): CreateActivityInput {
   const payload: CreateActivityInput = {
     type: 'note',
-    subject: input.subject ?? 'Note',
+    subject: input.subject ?? noteSubjectFromContent(input.description),
     description: input.description,
     leadId: input.leadId,
     opportunityId: input.opportunityId,
@@ -104,7 +105,13 @@ function toCreatePayload(input: CreateNoteInput): CreateActivityInput {
 
 function toUpdatePayload(input: UpdateNoteInput): UpdateActivityInput {
   return {
-    subject: input.subject,
+    // The editor keeps the title inside the body, so saving the body is also
+    // what changes the title: keep the row's `subject` (shown by the activity
+    // feed, search and the API) in step instead of leaving the "Note" it was
+    // created with. An explicit subject wins.
+    subject:
+      input.subject ??
+      (input.description === undefined ? undefined : noteSubjectFromContent(input.description)),
     description: input.description,
   };
 }

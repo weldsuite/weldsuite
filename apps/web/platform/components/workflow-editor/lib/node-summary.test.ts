@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatDuration,
   getConfigSummary,
   summarizeStep,
   summarizeTrigger,
@@ -10,7 +11,13 @@ import {
 const labels: NodeSummaryLabels = {
   configured: 'Configured',
   to: 'To: {to}',
-  delay: 'Wait {duration} {unit}',
+  delay: 'Wait {duration}',
+  duration: {
+    day: { one: '{count} day', other: '{count} days' },
+    hour: { one: '{count} hour', other: '{count} hours' },
+    minute: { one: '{count} minute', other: '{count} minutes' },
+    second: { one: '{count} second', other: '{count} seconds' },
+  },
   entity: 'Entity: {entityType}',
   trigger: {
     manual: 'Manually triggered',
@@ -158,8 +165,54 @@ describe('summarizeStep', () => {
     expect(summarizeStep({ type: 'send_email' }, labels)).toBeUndefined();
   });
 
+  it('shows a delay as a humanised duration, not the raw number (the QA "Wait 3600 seconds")', () => {
+    expect(summarizeStep({ type: 'delay', config: { seconds: 3600 } }, labels)).toBe('Wait 1 hour');
+    expect(summarizeStep({ type: 'delay', config: { seconds: '3600' } }, labels)).toBe('Wait 1 hour');
+    expect(summarizeStep({ type: 'delay', config: { minutes: 90 } }, labels)).toBe('Wait 1 hour 30 minutes');
+    expect(summarizeStep({ type: 'delay', config: { hours: 48 } }, labels)).toBe('Wait 2 days');
+    expect(summarizeStep({ type: 'delay', config: { days: 1 } }, labels)).toBe('Wait 1 day');
+    expect(summarizeStep({ type: 'delay', config: { seconds: 45 } }, labels)).toBe('Wait 45 seconds');
+  });
+
+  it('reads the delay field the way the engine does: the first set unit wins', () => {
+    expect(summarizeStep({ type: 'delay', config: { days: 2, hours: 5, seconds: 9 } }, labels)).toBe('Wait 2 days');
+    expect(summarizeStep({ type: 'delay', config: { days: 0, minutes: 5 } }, labels)).toBe('Wait 5 minutes');
+  });
+
+  it('has no delay summary until a positive duration is set', () => {
+    expect(getConfigSummary('delay', {}, labels)).toBe('');
+    expect(getConfigSummary('delay', { seconds: 0 }, labels)).toBe('');
+    expect(getConfigSummary('delay', { seconds: '{{variables.wait}}' }, labels)).toBe('');
+  });
+
   it('truncates long messages', () => {
     const summary = getConfigSummary('post_chat_message', { message: 'x'.repeat(100) }, labels);
     expect(summary).toBe(`${'x'.repeat(60)}...`);
+  });
+});
+
+describe('formatDuration', () => {
+  it('picks the largest unit and pluralises it', () => {
+    expect(formatDuration(1, labels.duration)).toBe('1 second');
+    expect(formatDuration(60, labels.duration)).toBe('1 minute');
+    expect(formatDuration(120, labels.duration)).toBe('2 minutes');
+    expect(formatDuration(3600, labels.duration)).toBe('1 hour');
+    expect(formatDuration(7200, labels.duration)).toBe('2 hours');
+    expect(formatDuration(86_400, labels.duration)).toBe('1 day');
+    expect(formatDuration(259_200, labels.duration)).toBe('3 days');
+  });
+
+  it('keeps the two largest units of an uneven span', () => {
+    expect(formatDuration(90, labels.duration)).toBe('1 minute 30 seconds');
+    expect(formatDuration(5400, labels.duration)).toBe('1 hour 30 minutes');
+    expect(formatDuration(129_600, labels.duration)).toBe('1 day 12 hours');
+    // the third unit is dropped
+    expect(formatDuration(86_400 + 3600 + 60, labels.duration)).toBe('1 day 1 hour');
+  });
+
+  it('is empty for a span that is not positive', () => {
+    expect(formatDuration(0, labels.duration)).toBe('');
+    expect(formatDuration(-5, labels.duration)).toBe('');
+    expect(formatDuration(Number.NaN, labels.duration)).toBe('');
   });
 });

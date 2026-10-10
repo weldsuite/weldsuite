@@ -195,13 +195,16 @@ export function BreadcrumbHeader({
   }, [calendarOpen, setShowCalendar]);
 
   return (
-    <header className="hidden md:flex h-[60px] shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-[var(--shell-panel)] border-b border-border relative">
+    <header className="@container hidden md:flex h-[60px] shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-[var(--shell-panel)] border-b border-border relative">
         <div className="flex items-center gap-2 px-4 w-full relative z-10">
           <SidebarTrigger className="-ml-1 hidden md:flex" />
           <div className="ml-px mr-[8px] h-[19px] w-px bg-gray-200/70 dark:bg-secondary/70 hidden md:block shrink-0" />
-          {/* Breadcrumb trail - max-width prevents overlap with centered search bar (448px wide) */}
+          {/* Breadcrumb trail. With the search shown: capped on a wide header so it
+              doesn't run into the centered search bar (448px wide), and on a
+              narrow one it takes the room the search and buttons leave and
+              truncates inside it. */}
           {segments.length > 0 && (
-            <Breadcrumb className={cn("hidden md:flex overflow-hidden", !hideSearch ? "max-w-[calc(50%-280px)]" : "max-w-[40%]")}>
+            <Breadcrumb className={cn("hidden md:flex min-w-0 overflow-hidden", !hideSearch ? "flex-1 @min-[1000px]:flex-none @min-[1000px]:max-w-[calc(50%-280px)]" : "max-w-[40%]")}>
               <BreadcrumbList className="flex-nowrap overflow-hidden">
                 {buildCrumbEntries(segments).map(({ segment, key: crumbKey, isFirst, isLast }) => {
 
@@ -229,14 +232,16 @@ export function BreadcrumbHeader({
               </BreadcrumbList>
             </Breadcrumb>
           )}
+          {/* Centered over the header when it is wide enough, otherwise in the row
+              at a width that follows the header (140px to 448px). */}
           {!hideSearch && (
-            <div className="absolute left-1/2 -translate-x-1/2 hidden md:block w-[448px]">
+            <div className="hidden md:block w-[clamp(140px,30cqw,448px)] shrink-0 @min-[1000px]:absolute @min-[1000px]:left-1/2 @min-[1000px]:-translate-x-1/2 @min-[1000px]:w-[448px]">
               <CommandPaletteTrigger />
             </div>
           )}
 
           {/* Right Actions - hidden on mobile, WeldAgent is in MobileHeader */}
-          <div className="ml-auto hidden md:flex items-center gap-2">
+          <div className="ml-auto hidden md:flex shrink-0 items-center gap-2">
             <Button
               onClick={toggleCalendar}
               data-testid="calendar-toggle"

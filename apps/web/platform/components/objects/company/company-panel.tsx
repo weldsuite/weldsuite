@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
   Bookmark,
@@ -29,8 +30,6 @@ import {
   MapPin,
   Phone,
   Receipt,
-  RotateCcw,
-  Settings2,
   Smile,
   Tag,
   Trash2,
@@ -52,16 +51,12 @@ import {
 } from '@/components/object-panel';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
+import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
@@ -72,6 +67,7 @@ import {
   StatusPropertyRow,
   TagsPropertyRow,
 } from '@/components/objects/_shared/property-row';
+import { collectKnownTags } from '@/components/objects/_shared/known-tags';
 import { SelectPropertyRow } from '@/components/objects/_shared/select-property-row';
 import { AddressPropertyRow } from '@/components/objects/_shared/address-property-row';
 import { useLifecycleStageOptions, useLanguageOptions } from '@/components/objects/_shared/crm-field-options';
@@ -87,7 +83,9 @@ import { EmailsTab } from '@/components/objects/_shared/emails-tab';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { useCustomerStatusOptions } from '@/hooks/queries/use-weldcrm-customer-statuses';
 import {
+  companyKeys,
   useCompany,
+  useCompanyChannel,
   useCompanyPeople,
   useUpdateCompany,
   useArchiveCompany,
@@ -237,45 +235,12 @@ function CompanyActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Settings2 className="h-4 w-4 mr-0.5" />
-              {st('sweep.entities.configureTabs')}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-52">
-              <DropdownMenuLabel className="flex items-center justify-between gap-2">
-                <span>{st('sweep.entities.visibleTabs')}</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onResetTabs();
-                  }}
-                  className="p-1 -mr-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
-                  title={st('sweep.entities.resetToDefaults')}
-                >
-                  <RotateCcw className="h-3 w-3" />
-                </Button>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {tabFields.map((field) => {
-                const isOn = field.required || isTabVisible(field.id);
-                return (
-                  <DropdownMenuCheckboxItem
-                    key={field.id}
-                    checked={isOn}
-                    disabled={field.required}
-                    onCheckedChange={() => onToggleTab(field.id)}
-                    onSelect={(e) => e.preventDefault()}
-                  >
-                    {field.label}
-                  </DropdownMenuCheckboxItem>
-                );
-              })}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <ConfigureTabsSubmenu
+            tabs={tabFields}
+            isTabVisible={isTabVisible}
+            onToggleTab={onToggleTab}
+            onResetTabs={onResetTabs}
+          />
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onArchiveToggle}>
             <Archive className="h-4 w-4 mr-0.5" />
@@ -339,6 +304,7 @@ function CompanyDetailsTab({
   onUpdateFieldAsync: (patch: Record<string, unknown>) => Promise<void>;
 }>) {
   const st = useTranslations();
+  const queryClient = useQueryClient();
   const { options: statusOptions } = useCustomerStatusOptions();
   const lifecycleOptions = useLifecycleStageOptions();
   const languageOptions = useLanguageOptions();
@@ -397,6 +363,7 @@ function CompanyDetailsTab({
         label={st('sweep.entities.fieldTags')}
         value={company.tags}
         onChange={(next) => onUpdateField({ tags: next })}
+        getSuggestions={() => collectKnownTags(queryClient, companyKeys.lists())}
       />
       <PropertyRow
         icon={Building}
@@ -786,6 +753,11 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
     <CompanyChat companyId={id} companyName={company?.displayName} />
   );
 
+  // Until the first message exists the chat is only a composer: let it hug its
+  // height so the details above get the rest of the panel (see EntityDetailView).
+  const channelQuery = useCompanyChannel(id);
+  const chatIsEmpty = !channelQuery.data?.data;
+
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
@@ -811,6 +783,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
+      sidebarFitContent={chatIsEmpty}
       sidebarDefaultSize={mode === 'panel' ? 320 : 500}
       sidebarMinSize={mode === 'panel' ? 140 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}

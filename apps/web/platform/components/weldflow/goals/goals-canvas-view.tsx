@@ -2228,7 +2228,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
             onNavigateToTask={(id) => setSelectedGoal(id)}
             availableAssignees={[]}
             availableCompanies={[]}
-            hiddenFields={['labels', 'repeat', 'subtasks', 'assignee']}
+            hiddenFields={['labels', 'repeat', 'subtasks', 'assignee', 'duration']}
             hideCompletionCheckbox
           />,
           document.body

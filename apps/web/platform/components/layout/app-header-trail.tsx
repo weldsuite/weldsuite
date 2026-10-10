@@ -28,6 +28,14 @@ import {
 import { useFallbackLabelRegistry } from './app-header-fallback-registry';
 import { useCurrentBreadcrumbsMaybe } from '@/contexts/breadcrumb-context';
 
+/**
+ * Crumb sizing. The trail never wraps: when the header is narrow every crumb
+ * truncates with an ellipsis on its own line, the current page (the last
+ * crumb) giving way first so its parents stay readable.
+ */
+const CRUMB_PARENT = 'min-w-0 max-w-[200px] shrink-[0.25]';
+const CRUMB_CURRENT = 'min-w-0 max-w-[200px] shrink';
+
 interface AppHeaderTrailHandle {
   hideAll: boolean;
 }
@@ -70,30 +78,30 @@ export function AppHeaderTrail({ onResolved }: Readonly<AppHeaderTrailProps>) {
   const { visible, ellipsis } = collapseLongTrail(segments, 4);
 
   return (
-    <Breadcrumb>
-      <BreadcrumbList>
+    <Breadcrumb className="min-w-0">
+      <BreadcrumbList className="flex-nowrap">
         {ellipsis ? (
           <>
             {visible[0] && (
               <Fragment key={`first-${visible[0].href}`}>
-                <BreadcrumbItem>
+                <BreadcrumbItem className={CRUMB_PARENT}>
                   <SegmentLink seg={visible[0]} />
                 </BreadcrumbItem>
-                <BreadcrumbSeparator />
+                <BreadcrumbSeparator className="shrink-0" />
               </Fragment>
             )}
-            <BreadcrumbItem>
+            <BreadcrumbItem className="shrink-0">
               <BreadcrumbEllipsis />
             </BreadcrumbItem>
-            <BreadcrumbSeparator />
+            <BreadcrumbSeparator className="shrink-0" />
             {visible.slice(1).map((seg, i, arr) => {
               const isLast = i === arr.length - 1;
               return (
                 <Fragment key={`mid-${seg.href}`}>
-                  <BreadcrumbItem className="max-w-[180px] truncate">
+                  <BreadcrumbItem className={isLast ? CRUMB_CURRENT : CRUMB_PARENT}>
                     {isLast ? <SegmentPage seg={seg} /> : <SegmentLink seg={seg} />}
                   </BreadcrumbItem>
-                  {!isLast && <BreadcrumbSeparator />}
+                  {!isLast && <BreadcrumbSeparator className="shrink-0" />}
                 </Fragment>
               );
             })}
@@ -103,10 +111,10 @@ export function AppHeaderTrail({ onResolved }: Readonly<AppHeaderTrailProps>) {
             const isLast = i === visible.length - 1;
             return (
               <Fragment key={`seg-${seg.href}`}>
-                <BreadcrumbItem className="max-w-[200px] truncate">
+                <BreadcrumbItem className={isLast ? CRUMB_CURRENT : CRUMB_PARENT}>
                   {isLast ? <SegmentPage seg={seg} /> : <SegmentLink seg={seg} />}
                 </BreadcrumbItem>
-                {!isLast && <BreadcrumbSeparator />}
+                {!isLast && <BreadcrumbSeparator className="shrink-0" />}
               </Fragment>
             );
           })
