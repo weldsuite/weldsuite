@@ -1844,6 +1844,9 @@ export default function TimesheetPage() {
     } finally {
       setIsLoading(false);
     }
+    // The copy (`tt`) is deliberately not a dependency: a language switch must
+    // re-translate the labels, not refetch every time entry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   useEffect(() => {
@@ -1890,7 +1893,7 @@ export default function TimesheetPage() {
       taskId: v.taskId,
       hasTask: !!v.taskId,
     }));
-  }, [entries]);
+  }, [entries, tt.untitled]);
 
   // Get entries matching a row key (real taskId or description-only) for a given date
   const getEntriesForCell = (rowKey: string, date: Date): TimeEntry[] => {

@@ -368,10 +368,10 @@ export function AllProjectsClient({
     }
   };
 
-  const formatDateShort = (dateString: string) => {
+  const formatDateShort = useCallback((dateString: string) => {
     if (!dateString) return null;
     return formatShort(new Date(dateString + 'T00:00:00'));
-  };
+  }, [formatShort]);
 
   // Filter configs
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -660,7 +660,7 @@ export function AllProjectsClient({
         </div>
       </div>
     );
-  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate]);
+  }, [deleteProject, setSelectedMember, router, updateProjectInline, priorityConfig, statusConfig, t.allProjects.actionDelete, t.allProjects.actionOpen, t.allProjects.clearDate, formatDateShort]);
 
   return (
     <div className="-mx-3 md:-mx-4 -mt-3 md:-mt-4">
