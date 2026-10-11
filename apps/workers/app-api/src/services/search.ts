@@ -89,6 +89,14 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * (components/object-panel/stack-url.ts). Leads and opportunities only have an
  * entity sheet, which the app shell opens over any page from
  * `?entity=<type>:<id>` (components/entity-sheet/url-param.ts).
+ *
+ * Helpdesk tickets have no route either: the WeldDesk inbox lists desk
+ * conversations (a different table) and `/welddesk/*` falls through to it, so
+ * a ticket opens as an entity sheet over the inbox. `/welddesk` itself
+ * redirects to the inbox and drops the query, hence the explicit path.
+ *
+ * Products and orders open as object panels on their WeldCommerce list page.
+ * WeldStash lists the same products, but only WeldCommerce has an orders list.
  */
 export function buildResultUrl(type: SearchEntityType, id: string): string {
   switch (type) {
@@ -101,21 +109,21 @@ export function buildResultUrl(type: SearchEntityType, id: string): string {
     case 'opportunity':
       return `/weldcrm?entity=opportunity:${encodeURIComponent(id)}`;
     case 'ticket':
-      return `/welddesk/tickets/${id}`;
+      return `/welddesk/inbox?entity=ticket:${encodeURIComponent(id)}`;
     case 'article':
-      return `/welddesk/articles/${id}`;
+      return `/welddesk/help-center/articles/${id}`;
     case 'knowledge_page':
       return `/weldknow/page/${id}`;
     case 'product':
-      return `/weldstash/products/${id}`;
+      return `/weldcommerce/products?stack=product:${encodeURIComponent(id)}`;
     case 'order':
-      return `/weldstash/orders/${id}`;
+      return `/weldcommerce/orders?stack=order:${encodeURIComponent(id)}`;
     case 'invoice':
       return `/weldbooks/invoices/${id}`;
     case 'bill':
       return `/weldbooks/bills/${id}`;
     case 'project':
-      return `/weldflow/projects/${id}`;
+      return `/weldflow/project/${id}`;
     case 'task':
       return `/weldflow/task/${id}`;
     case 'domain':

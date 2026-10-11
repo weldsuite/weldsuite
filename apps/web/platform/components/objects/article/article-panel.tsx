@@ -9,6 +9,7 @@ import {
   ProseBlock,
   type ObjectPanelComponentProps,
 } from '@/components/objects/_shared/simple-object-panel';
+import { pageHrefForEntity } from '@/components/entity-sheet/registry-meta';
 
 interface ArticleRecord {
   id: string;
@@ -47,7 +48,7 @@ export function ArticlePanel(props: Readonly<ObjectPanelComponentProps>) {
       hasData={!!article}
       title={article ? title : undefined}
       subtitle={subtitle ?? undefined}
-      openHref={article ? `/welddesk/knowledge/${article.id}` : undefined}
+      openHref={article ? (pageHrefForEntity('article', article.id) ?? undefined) : undefined}
       statusBadges={article && (
         <>
           {article.status && <Badge variant="outline" className="capitalize">{article.status}</Badge>}

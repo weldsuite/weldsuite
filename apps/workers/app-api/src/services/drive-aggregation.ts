@@ -79,9 +79,12 @@ function buildNavigateUrl(
       const projectId = metadata?.projectId as string | undefined;
       return projectId ? `/weldflow/project/${projectId}/documents` : null;
     }
-    case 'helpdesk_ticket': return `/welddesk/tickets/${entityId}`;
-    case 'mail_message': return `/weldmail/inbox/${entityId}`;
-    case 'social_post': return `/weldcrm/social`;
+    case 'helpdesk_ticket': return buildResultUrl('ticket', entityId);
+    // The unified view resolves a message by id alone, so the link needs no
+    // account id.
+    case 'mail_message': return `/weldmail/unified/inbox/${entityId}`;
+    // WeldSocial has no per-post route; posts open from its own pages.
+    case 'social_post': return '/social';
     default: return null;
   }
 }
