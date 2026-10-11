@@ -1,18 +1,26 @@
 /**
- * The To field of the mail composer: recipient chips, the typing input, the
+ * The To field of the mail composer: the added recipients, the typing input, the
  * people suggestions menu and the handlers that tie them together. Shared by
  * the full-page compose and the floating compose panel so both behave the same.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus, User, X } from 'lucide-react';
+import { ChevronDown, Loader2, PanelRight, Plus, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Command, CommandItem, CommandList } from '@weldsuite/ui/components/command';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
+import { useObjectPanel } from '@/components/object-panel';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
 import { useI18n } from '@/lib/i18n/provider';
-import { usePersonSearch, type Person } from '@/hooks/queries/use-people-queries';
+import { usePeopleByEmails, usePersonSearch, type Person } from '@/hooks/queries/use-people-queries';
 
 interface PersonSuggestion {
   id: string;
@@ -235,8 +243,71 @@ function useRecipientInput({
   };
 }
 
+// Fades out the end of the address where the chevron sits while the pill shows.
+// Written out per variant: Tailwind only picks up class names it can read whole.
+const RECIPIENT_FADE = [
+  'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-64px),transparent_calc(100%-18px))]',
+  'group-focus:[mask-image:linear-gradient(to_right,black_calc(100%-64px),transparent_calc(100%-18px))]',
+  'group-data-[state=open]:[mask-image:linear-gradient(to_right,black_calc(100%-64px),transparent_calc(100%-18px))]',
+].join(' ');
+
+// Recipients are plain addresses; this is the person an address belongs to.
+type RecipientPeople = Record<string, { id: string; avatarUrl: string | null }>;
+
+const personKey = (email: string) => email.trim().toLowerCase();
+
+/**
+ * The people behind the recipients: those picked from the suggestions are known
+ * at once, typed or restored addresses are looked up. Kept per address so a
+ * recipient's avatar does not blink when another one is added.
+ */
+function useRecipientPeople(recipients: string[]) {
+  const [people, setPeople] = useState<RecipientPeople>({});
+
+  const rememberPerson = (email: string, person: { id: string; avatarUrl: string | null }) => {
+    setPeople((prev) => ({ ...prev, [personKey(email)]: { id: person.id, avatarUrl: person.avatarUrl } }));
+  };
+
+  const unknown = recipients.filter((email) => isCompleteEmail(email) && !people[personKey(email)]);
+  const resolved = usePeopleByEmails(unknown).data?.data;
+  useEffect(() => {
+    const found = (resolved ?? []).filter((person) => person.email);
+    if (found.length === 0) return;
+    setPeople((prev) => ({
+      ...prev,
+      ...Object.fromEntries(
+        found.map((person) => [personKey(person.email ?? ''), { id: person.id, avatarUrl: person.avatarUrl }]),
+      ),
+    }));
+  }, [resolved]);
+
+  return { people, rememberPerson };
+}
+
+function RecipientAvatar({
+  avatarUrl,
+  name,
+  compact = false,
+}: Readonly<{
+  avatarUrl?: string | null;
+  name: string;
+  /** 16px instead of 20px, for the recipients in the field itself. */
+  compact?: boolean;
+}>) {
+  const radius = compact ? '!rounded-[5px]' : '!rounded-[7px]';
+  return (
+    <Avatar className={cn('flex-shrink-0', compact ? 'h-4 w-4' : 'h-5 w-5', radius)}>
+      {avatarUrl && <AvatarImage src={avatarUrl} alt={name} className={radius} />}
+      <AvatarFallback className={cn('bg-gray-200 dark:bg-muted-foreground/25', radius)}>
+        <User className="size-2.5" />
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
 function ToRecipientsInput({
   recipients,
+  people,
   input,
   inputRef,
   onRemoveRecipient,
@@ -248,6 +319,8 @@ function ToRecipientsInput({
   testId,
 }: Readonly<{
   recipients: string[];
+  /** The person behind an address, where there is one. */
+  people: RecipientPeople;
   input: string;
   inputRef: React.RefObject<HTMLInputElement | null>;
   onRemoveRecipient: (email: string) => void;
@@ -261,30 +334,63 @@ function ToRecipientsInput({
 }>) {
   const { t } = useI18n();
 
+  const { open: openObjectPanel } = useObjectPanel();
+
   return (
     <div
       role="presentation"
-      className="flex-1 flex flex-wrap items-center gap-1 min-w-0 min-h-[26px] cursor-text"
+      className="flex-1 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 min-h-[26px] cursor-text"
       onClick={() => inputRef.current?.focus()}
     >
+      {/* Plain avatar and address at rest. Hovering (or selecting) one shows the pill with a
+          chevron over the faded end of the address; clicking opens its menu, and Backspace
+          or Delete removes the selected one. */}
       {recipients.map((email) => (
-        <span
-          key={email}
-          className="inline-flex items-center gap-1 h-[26px] pl-2 pr-1 bg-gray-50 dark:bg-accent/40 text-gray-700 dark:text-foreground rounded-sm text-sm border border-gray-200 dark:border-border/50"
-        >
-          {email}
-          <button
-            type="button"
-            aria-label={t.mail.composePage.removeRecipient}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemoveRecipient(email);
+        <DropdownMenu key={email}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+                e.preventDefault();
+                onRemoveRecipient(email);
+              }}
+              className="group relative inline-flex items-center gap-1.5 h-[26px] max-w-full -ml-[5px] pl-1 pr-1.5 rounded-md border border-transparent text-sm text-gray-700 dark:text-foreground outline-none cursor-pointer hover:bg-gray-50 hover:border-gray-200 focus:bg-gray-50 focus:border-gray-200 data-[state=open]:bg-gray-50 data-[state=open]:border-gray-200 dark:hover:bg-accent/40 dark:hover:border-border/50 dark:focus:bg-accent/40 dark:focus:border-border/50 dark:data-[state=open]:bg-accent/40 dark:data-[state=open]:border-border/50"
+            >
+              <RecipientAvatar avatarUrl={people[personKey(email)]?.avatarUrl} name={email} compact />
+              <span className={cn('truncate', RECIPIENT_FADE)}>{email}</span>
+              <ChevronDown
+                aria-hidden="true"
+                className="absolute right-1.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus:opacity-100 group-data-[state=open]:opacity-100"
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            onCloseAutoFocus={(e) => {
+              // Back to typing, not to a recipient that may just have been removed.
+              e.preventDefault();
+              inputRef.current?.focus();
             }}
-            className="flex items-center justify-center rounded-sm p-0.5 text-gray-400 hover:text-gray-700 dark:text-muted-foreground dark:hover:text-foreground hover:bg-gray-200 dark:hover:bg-accent transition-colors"
           >
-            <X className="h-3 w-3" />
-          </button>
-        </span>
+            {people[personKey(email)] && (
+              <>
+                <DropdownMenuItem
+                  onSelect={() => openObjectPanel({ type: 'person', id: people[personKey(email)].id })}
+                >
+                  <PanelRight />
+                  {t.mail.composePage.openRecipientDetails}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
+            <DropdownMenuItem onSelect={() => onRemoveRecipient(email)}>
+              <X />
+              {t.mail.composePage.removeRecipient}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       ))}
       <input
         ref={inputRef}
@@ -311,12 +417,7 @@ function ContactSuggestionItem({
 }>) {
   return (
     <CommandItem value={contact.id} onSelect={() => onSelect(contact)}>
-      <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
-        {contact.avatarUrl && <AvatarImage src={contact.avatarUrl} alt={contact.name} className="!rounded-[7px]" />}
-        <AvatarFallback className="!rounded-[7px] bg-gray-200 dark:bg-muted-foreground/25">
-          <User className="size-2.5" />
-        </AvatarFallback>
-      </Avatar>
+      <RecipientAvatar avatarUrl={contact.avatarUrl} name={contact.name} />
       <div className="flex flex-1 min-w-0 items-baseline gap-2">
         <span className="max-w-[60%] font-medium truncate">{contact.name}</span>
         <span className="min-w-0 flex-1 text-xs text-muted-foreground truncate">{contact.email}</span>
@@ -388,7 +489,7 @@ function ContactSuggestionsList({
 }
 
 /**
- * One recipients row (To, Cc or Bcc): the label, the chips with their typing
+ * One recipients row (To, Cc or Bcc): the label, the recipients with their typing
  * input, the people suggestions menu under it and the quick-add dialog.
  */
 export function RecipientsRow({
@@ -425,6 +526,12 @@ export function RecipientsRow({
     suggestions,
   });
 
+  const { people, rememberPerson } = useRecipientPeople(recipients);
+  const selectContact = (contact: PersonSuggestion) => {
+    rememberPerson(contact.email, contact);
+    recipientInput.addRecipient(contact.email);
+  };
+
   const { inputRef } = suggestions;
   useEffect(() => {
     if (focusOnMount) inputRef.current?.focus();
@@ -442,6 +549,7 @@ export function RecipientsRow({
           <div className="flex flex-1 min-w-0 py-[5px]">
             <ToRecipientsInput
               recipients={recipients}
+              people={people}
               input={input}
               inputRef={inputRef}
               onRemoveRecipient={recipientInput.removeRecipient}
@@ -463,7 +571,7 @@ export function RecipientsRow({
             isLoading={suggestions.isLoading}
             contacts={suggestions.contacts}
             toRecipients={recipients}
-            onSelect={(contact) => recipientInput.addRecipient(contact.email)}
+            onSelect={selectContact}
             onCreatePerson={recipientInput.handleCreatePerson}
           />
         )}

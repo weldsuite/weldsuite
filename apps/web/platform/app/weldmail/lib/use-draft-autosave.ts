@@ -42,7 +42,8 @@ function toPayload(fields: DraftFields) {
  * `schedule`; the draft is created on the first real content and updated after
  * that. `saveNow` is the explicit save, `discard` removes the draft (after a send
  * or an explicit delete), and `handOff` passes the draft to the other compose
- * surface when the user minimizes or expands.
+ * surface when the user minimizes or expands. `detach` gives the saver away
+ * altogether, for a mail that is minimized next to others.
  */
 export function useDraftAutosave({
   accountId,
@@ -134,5 +135,12 @@ export function useDraftAutosave({
     saverRef.current = null;
   }, [getSaver]);
 
-  return { schedule, saveNow, discard, handOff };
+  // The caller keeps the saver (and with it the draft); this session starts over.
+  const detach = useCallback((): DraftAutosaver => {
+    const saver = getSaver();
+    saverRef.current = null;
+    return saver;
+  }, [getSaver]);
+
+  return { schedule, saveNow, discard, handOff, detach };
 }
