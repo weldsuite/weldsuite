@@ -5,22 +5,23 @@ import {
   useGenerateEmailDraft,
 } from '@/hooks/queries/use-mail-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useParams, useRouter } from '@/lib/router';
-import { X, Maximize2 } from 'lucide-react';
-import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
+import { useParams, usePathname, useRouter } from '@/lib/router';
+import { Mail, User, X } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { useComposeSafe } from '@/contexts/compose-context';
+import { useComposeSafe, type MinimizedCompose } from '@/contexts/compose-context';
 import { useCallSafe } from '@/contexts/call-context';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { mailApi } from '../lib/api-client';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
+import { usePeopleByEmails } from '@/hooks/queries/use-people-queries';
 import { withPendingInput } from '@/app/weldmail/components/compose-recipients';
-import { ComposeSurface, type ComposeSurfaceHandle } from '@/app/weldmail/components/compose-surface';
+import { ComposeSurface } from '@/app/weldmail/components/compose-surface';
 import {
   MAX_EMAIL_SIZE_BYTES,
   MailAttachmentUploadError,
@@ -71,7 +72,128 @@ function buildPanelDraftFields(form: PanelDraftForm, editorHtml: string | undefi
 
 type UploadedMailAttachments = Awaited<ReturnType<typeof uploadMailAttachments>>;
 
+/** The round button of one minimized mail: mail icon, first recipient as a badge. */
+function MinimizedComposeButton({
+  compose,
+  stacked,
+  front,
+  onOpen,
+  onDismiss,
+}: Readonly<{
+  compose: MinimizedCompose;
+  /** Tucked behind the one below it until the stack is hovered. */
+  stacked: boolean;
+  /** The one in front of the stack; the others only show their badge once fanned out. */
+  front: boolean;
+  onOpen: () => void;
+  onDismiss: () => void;
+}>) {
+  const { t } = useI18n();
+  const firstRecipient = parseRecipients(compose.data.to)[0] ?? '';
+  const person = usePeopleByEmails(firstRecipient ? [firstRecipient] : []).data?.data?.[0];
+  const avatarUrl = person?.avatarUrl ?? null;
+
+  return (
+    <div
+      className={cn(
+        'group/item relative transition-[margin] duration-[225ms] ease-out',
+        stacked && '-mt-[21px] group-hover/stack:mt-2 group-focus-within/stack:mt-2',
+      )}
+    >
+      <span className="pointer-events-none absolute right-full top-1/2 mr-2 max-w-[240px] -translate-y-1/2 truncate rounded-md border border-border bg-background px-[9px] py-[5px] text-[13px] leading-[18px] font-medium text-foreground shadow-lg opacity-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100">
+        {compose.data.subject || t.mail.floatingCompose.title}
+      </span>
+      <Button
+        variant="outline"
+        size="icon"
+        onClick={onOpen}
+        className="relative h-9 w-9 rounded-full bg-background shadow-lg dark:bg-background dark:hover:bg-muted"
+        aria-label={t.mail.floatingCompose.expand}
+        data-testid="floating-compose-minimized-btn"
+      >
+        <Mail className="size-4 text-foreground" />
+        <Avatar
+          className={cn(
+            'absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 !rounded-[5px] bg-background ring-2 ring-background',
+            !front && 'opacity-0 transition-opacity duration-[225ms] group-hover/stack:opacity-100 group-focus-within/stack:opacity-100',
+          )}
+        >
+          {avatarUrl && <AvatarImage src={avatarUrl} alt={firstRecipient} className="!rounded-[5px]" />}
+          <AvatarFallback className="!rounded-[5px] bg-gray-200 dark:bg-accent">
+            <User className="size-2 text-muted-foreground" />
+          </AvatarFallback>
+        </Avatar>
+      </Button>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/item:opacity-100"
+        title={t.mail.floatingCompose.close}
+        aria-label={t.mail.floatingCompose.close}
+        data-testid="floating-compose-minimized-close-btn"
+      >
+        <X className="size-2.5" />
+      </button>
+    </div>
+  );
+}
+
+// Room the open panel leaves for the minimized mails beside it: a button plus a gap.
+const MINIMIZED_STACK_ROOM = '44px';
+
+/**
+ * The floating compose: the minimized mails, tucked into a stack that fans out
+ * on hover, and the panel of the mail that is open. Opening a minimized mail
+ * while another one is open puts that one aside in its place.
+ */
 export function FloatingComposePanel() {
+  const composeContext = useComposeSafe();
+  const mobileNav = useMobileNavOptional();
+  const pathname = usePathname();
+  const minimizeOpenRef = useRef<(() => void) | null>(null);
+  if (!composeContext) return null;
+
+  const { minimizedComposes, restoreMinimized, dismissMinimized, composeSession } = composeContext;
+  // The full-page compose has its Send button in that corner.
+  const showStack = minimizedComposes.length > 0 && !/\/compose\/?$/.test(pathname);
+
+  return (
+    <>
+      {showStack && (
+        <div
+          className="group/stack fixed bottom-3 z-50 flex flex-col items-end"
+          style={{ right: getAgentRight(mobileNav) }}
+          data-testid="floating-compose-minimized-stack"
+        >
+          {minimizedComposes.map((compose, index) => (
+            <MinimizedComposeButton
+              key={compose.id}
+              compose={compose}
+              stacked={index > 0}
+              front={index === minimizedComposes.length - 1}
+              onOpen={() => {
+                minimizeOpenRef.current?.();
+                restoreMinimized(compose.id);
+              }}
+              onDismiss={() => dismissMinimized(compose.id)}
+            />
+          ))}
+        </div>
+      )}
+      {/* Keyed by the session, so every mail the panel opens starts from a clean form. */}
+      <FloatingComposeOpen key={composeSession} minimizeRef={minimizeOpenRef} besideStack={showStack} />
+    </>
+  );
+}
+
+function FloatingComposeOpen({
+  minimizeRef,
+  besideStack,
+}: Readonly<{
+  /** Set while the panel is open: puts its mail aside as a minimized one. */
+  minimizeRef: React.RefObject<(() => void) | null>;
+  besideStack: boolean;
+}>) {
   const { t } = useI18n();
   const handleAiCreditsError = useAiCreditsToast();
   const router = useRouter();
@@ -86,6 +208,8 @@ export function FloatingComposePanel() {
   const generateAIReplyMutation = useGenerateAIReply();
   const generateEmailDraftMutation = useGenerateEmailDraft();
   const agentRight = getAgentRight(mobileNav);
+  // The minimized mails keep the corner; the open panel sits beside them.
+  const panelRight = besideStack ? `calc(${agentRight} + ${MINIMIZED_STACK_ROOM})` : agentRight;
 
   // Only one floating panel at a time: close the call dialer when compose opens
   useEffect(() => {
@@ -94,11 +218,9 @@ export function FloatingComposePanel() {
     }
   }, [composeContext?.isComposeOpen, isDialerOpen, setIsDialerOpen]);
   const textareaRef = useRef<HTMLDivElement>(null);
-  const surfaceRef = useRef<ComposeSurfaceHandle>(null);
   const bodyInitializedRef = useRef(false);
 
   const [isSending, setIsSending] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
   const [showCc, setShowCc] = useState(false);
   const [showBcc, setShowBcc] = useState(false);
   const [ccRecipients, setCcRecipients] = useState('');
@@ -248,6 +370,29 @@ export function FloatingComposePanel() {
     }
     prevIsComposeOpenRef.current = isOpen;
   }, [composeContext?.isComposeOpen]);
+
+  // Puts this mail aside as a minimized one, with everything the panel keeps to
+  // itself and the saver of its draft, and closes the panel.
+  const minimizeSelf = () => {
+    if (!composeContext) return;
+    const editorHtml = textareaRef.current?.innerHTML;
+    const form = { ...composeContext.composeData, to: toWithPending, cc: ccRecipients, bcc: bccRecipients };
+    // The draft gets the latest text before it is put aside.
+    scheduleDraftSave(buildPanelDraftFields(form, editorHtml));
+    composeContext.minimizeCompose(
+      { ...form, body: editorHtml ?? form.body, attachedFiles, scheduledTime, accountId },
+      autosave.detach(),
+    );
+    composeContext.closeCompose();
+  };
+  // The minimized stack calls this when one of its mails is opened over this one.
+  useEffect(() => {
+    if (!isComposeOpen) return undefined;
+    minimizeRef.current = minimizeSelf;
+    return () => {
+      minimizeRef.current = null;
+    };
+  });
 
   if (!composeContext?.isComposeOpen || isExpanding) {
     return null;
@@ -435,68 +580,15 @@ export function FloatingComposePanel() {
 
   return (
     <>
-      {isMinimized && (
-        <div className="fixed bottom-3 z-50" style={{ right: agentRight }}>
-          <div className="flex items-center gap-1 bg-background border border-border rounded-lg shadow-lg">
-            <Button
-              variant="ghost"
-              onClick={() => setIsMinimized(false)}
-              className="flex items-center gap-2 px-4 py-2.5 hover:bg-muted transition-colors rounded-l-lg"
-            >
-              <span className="text-sm font-medium text-foreground truncate max-w-[200px]">
-                {composeData.subject || t.mail.floatingCompose.title}
-              </span>
-            </Button>
-            <div className="w-px h-5 bg-border" />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setIsMinimized(false);
-                surfaceRef.current?.openAi();
-              }}
-              className="p-2.5 hover:bg-muted transition-colors"
-              title={t.mail.floatingCompose.aiAssistant}
-            >
-              <WeldAgentIcon className="h-4 w-4 text-muted-foreground" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsMinimized(false)}
-              className="p-2.5 hover:bg-muted transition-colors"
-              title={t.mail.floatingCompose.expand}
-            >
-              <Maximize2 className="h-4 w-4 text-muted-foreground" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setIsMinimized(false);
-                handleClose();
-              }}
-              className="p-2.5 hover:bg-muted transition-colors rounded-r-lg"
-              title={t.mail.floatingCompose.close}
-            >
-              <X className="h-4 w-4 text-muted-foreground" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* The compose design itself is shared with the full-page compose. It stays
-          mounted while minimized so the body, the open bars and the cursor survive. */}
+      {/* The compose design itself is shared with the full-page compose. */}
       <ComposeSurface
-        ref={surfaceRef}
         className={cn(
           'fixed bottom-3 z-50 w-[640px] min-h-[min(500px,80vh)] max-h-[80vh] rounded-xl border border-border shadow-[0_0_20px_rgba(0,0,0,0.06)] dark:shadow-[0_0_20px_rgba(0,0,0,0.3)]',
-          isMinimized && 'hidden',
         )}
-        style={{ right: agentRight, maxWidth: `calc(100vw - ${agentRight} - 12px)` }}
+        style={{ right: panelRight, maxWidth: `calc(100vw - ${panelRight} - 12px)` }}
         testIdPrefix="floating-compose"
         accountId={accountId}
-        onMinimize={() => setIsMinimized(true)}
+        onMinimize={minimizeSelf}
         onExpand={handleExpand}
         // Closing keeps what was written as a draft.
         onClose={() => (hasContent ? void handleSaveDraft() : handleClose())}

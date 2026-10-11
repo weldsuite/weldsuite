@@ -531,7 +531,9 @@ export default function ComposePage(props: ComposePageProps = {}) {
     router.push(returnUrl.current || `/weldmail/${accountId}/${labelSlug}`);
   };
 
-  const handleMinimize = () => {
+  // Leaves the page with the mail kept: opened in the floating panel, or put
+  // aside as a minimized button next to any others.
+  const handleMinimize = (minimized: boolean) => {
     if (!composeContext) {
       // Fallback if context not available
       handleClose();
@@ -542,11 +544,7 @@ export default function ComposePage(props: ComposePageProps = {}) {
     // Get the current body content from the editor
     const currentBody = textareaRef.current?.innerHTML || body;
 
-    // The floating panel keeps updating the draft this page already made.
-    autosave.handOff();
-
-    // Transfer data to floating panel
-    composeContext.minimizeToPanel({
+    const data = {
       to: withPendingInput(toRecipients, toInput).join(', '),
       subject,
       body: currentBody,
@@ -555,7 +553,15 @@ export default function ComposePage(props: ComposePageProps = {}) {
       attachedFiles,
       scheduledTime,
       accountId,
-    });
+    };
+    if (minimized) {
+      // The minimized mail keeps the draft this page already made.
+      composeContext.minimizeCompose(data, autosave.detach());
+    } else {
+      // The floating panel keeps updating that draft.
+      autosave.handOff();
+      composeContext.minimizeToPanel(data);
+    }
 
     // Navigate back to where the user came from
     handleClose();
@@ -611,7 +617,8 @@ export default function ComposePage(props: ComposePageProps = {}) {
       headerClassName="h-[53px]"
       toolbarClassName="h-[53px]"
       accountId={accountId}
-      onMinimize={handleMinimize}
+      onMinimize={() => handleMinimize(true)}
+      onPopOut={() => handleMinimize(false)}
       hideMinimizeOnMobile
       // Closing keeps what was written as a draft.
       onClose={() => (hasContent ? void handleSaveDraft() : handleClose())}
