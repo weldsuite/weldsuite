@@ -82,7 +82,8 @@ export function useCrmBulkActions({
         compose.openCompose({ to, bcc });
         return;
       }
-      window.location.href = `mailto:${to}${bcc ? `?bcc=${encodeURIComponent(bcc)}` : ''}`;
+      const query = bcc ? '?bcc=' + encodeURIComponent(bcc) : '';
+      window.location.href = `mailto:${to}${query}`;
     },
     [rows, compose, user, t],
   );
