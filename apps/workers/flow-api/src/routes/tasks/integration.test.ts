@@ -1070,6 +1070,7 @@ describe('status changes move the pipeline stage · pglite integration', () => {
       { id: 'stage_ss_doing', projectId: 'proj_stage_sync', name: 'Doing', position: 1, systemStatus: 'in_progress' },
       { id: 'stage_ss_done', projectId: 'proj_stage_sync', name: 'Done', position: 2, systemStatus: 'done' },
       { id: 'stage_ss_shipped', projectId: 'proj_stage_sync', name: 'Shipped', position: 3, systemStatus: 'done' },
+      { id: 'stage_ss_review', projectId: 'proj_stage_sync', name: 'In Review', position: 4, systemStatus: 'review' },
     ] as (typeof schema.projectPipelineStages.$inferInsert)[]);
   });
 
@@ -1131,5 +1132,59 @@ describe('status changes move the pipeline stage · pglite integration', () => {
     });
     expect(res.status).toBe(200);
     expect(await row('task_ss_patch')).toMatchObject({ status: 'in_progress', stageId: 'stage_ss_doing' });
+  });
+
+  it('stores the legacy in_review as review and moves the task to the review stage', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'task_ss_legacy',
+      title: 'Review me',
+      projectId: 'proj_stage_sync',
+      stageId: 'stage_ss_doing',
+      status: 'in_progress',
+    } as typeof schema.tasks.$inferInsert);
+    const { request } = app();
+
+    const res = await request('/api/tasks/task_ss_legacy', {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ status: 'in_review' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await row('task_ss_legacy')).toMatchObject({ status: 'review', stageId: 'stage_ss_review' });
+  });
+
+  it('a drag that changes the status moves the stage too', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'task_ss_drag',
+      title: 'Drag me',
+      projectId: 'proj_stage_sync',
+      stageId: 'stage_ss_todo',
+      status: 'todo',
+    } as typeof schema.tasks.$inferInsert);
+    const { request } = app();
+
+    const res = await request('/api/tasks/task_ss_drag/position', {
+      method: 'PATCH',
+      headers: json,
+      body: JSON.stringify({ position: 1, status: 'review' }),
+    });
+    expect(res.status).toBe(200);
+    expect(await row('task_ss_drag')).toMatchObject({ status: 'review', stageId: 'stage_ss_review' });
+  });
+
+  it('a status filter for review also finds rows still on in_review', async () => {
+    await db.insert(schema.tasks).values([
+      { id: 'task_ss_f_new', title: 'New spelling', projectId: 'proj_stage_sync', status: 'review' },
+      { id: 'task_ss_f_old', title: 'Old spelling', projectId: 'proj_stage_sync', status: 'in_review' },
+    ] as (typeof schema.tasks.$inferInsert)[]);
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read', 'projects:scope:all'), tenantDb: db },
+    });
+
+    const res = await request('/api/tasks?projectId=proj_stage_sync&status=review&enrich=false');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ id: string }> };
+    const ids = body.data.map((r) => r.id);
+    expect(ids).toEqual(expect.arrayContaining(['task_ss_f_new', 'task_ss_f_old']));
   });
 });

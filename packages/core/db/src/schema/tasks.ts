@@ -13,7 +13,7 @@ import {
 
 // Task types and statuses matching backend
 export type TaskType = 'task' | 'bug' | 'story' | 'epic' | 'feature' | 'improvement' | 'subtask';
-export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
+export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
 export type Priority = 'critical' | 'high' | 'medium' | 'low' | 'none';
 
 export const tasks = pgTable('tasks', {

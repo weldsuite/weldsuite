@@ -14,7 +14,7 @@ Close out task from `$ARGUMENTS` (format: `<task-id> [pr-url-or-commit]`).
 2. If verification fails, STOP — print the failure and do not update the task.
 3. `update_task` on the task id:
    - Comment with the PR URL or commit SHA when provided
-   - Status `in_review` if a PR URL was given, else `done`
+   - Status `review` if a PR URL was given, else `done`
 4. Print: `Closed: <id>. Status: <status>. Ref: <pr-or-commit-or-n/a>`.
 
 Do not mark done without verification unless the user explicitly overrides.

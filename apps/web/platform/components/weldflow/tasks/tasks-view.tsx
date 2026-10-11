@@ -34,6 +34,7 @@ import { labelsApi } from '@/app/weldflow/lib/api-client';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { activateOnKey } from '@/lib/activate-on-key';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 
 interface ProjectLabel {
   id: string;
@@ -47,7 +48,7 @@ interface Task {
   title: string;
   description?: string;
   completed: boolean;
-  status?: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
+  status?: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
   assignee?: {
     id: string;
     name: string;
@@ -98,7 +99,7 @@ function getStatusLabel(status: string | undefined, st: Translate) {
       return st('projects.tasks.statusTodo');
     case 'in_progress':
       return st('projects.tasks.statusInProgress');
-    case 'in_review':
+    case 'review':
       return st('projects.tasks.statusInReview');
     case 'testing':
       return st('projects.tasks.statusTesting');
@@ -321,7 +322,7 @@ export function TasksView({ projectId, initialTasks = [] }: Readonly<TasksViewPr
       title: task.title,
       description: task.description,
       completed: task.status === 'done' || task.status === 'completed',
-      status: task.status?.toLowerCase() as 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled' || 'todo',
+      status: normalizeTaskStatus(task.status?.toLowerCase()) as 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled' || 'todo',
       assignee: task.assignee ? {
         id: task.assignee.id || task.assigneeId || '',
         name: task.assignee.name || st('common.labels.unknown'),

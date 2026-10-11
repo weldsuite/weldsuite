@@ -7,6 +7,7 @@ import { calendarKeys } from '@/hooks/queries/use-calendar-queries';
 import { toast } from 'sonner';
 import { withQuery } from '@/lib/with-query';
 import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 
 export interface Task {
   id: string;
@@ -14,7 +15,7 @@ export interface Task {
   number?: number | null;
   title: string;
   description?: string;
-  status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
+  status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
   priority?: 'low' | 'medium' | 'high';
   assignee?: {
     id: string;
@@ -89,6 +90,7 @@ export function hydrate(task: RawTask): Task {
   const { linkedCompany, linkedPerson, duration, durationMinutes, ...rest } = task;
   return {
     ...rest,
+    status: normalizeTaskStatus(task.status) as Task['status'],
     dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
     createdAt: new Date(task.createdAt),
     completedAt: task.completedAt ? new Date(task.completedAt) : undefined,

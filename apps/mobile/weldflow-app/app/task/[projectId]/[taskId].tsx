@@ -40,7 +40,7 @@ const STATUS_OPTIONS: TaskStatus[] = [
   'backlog',
   'todo',
   'in_progress',
-  'in_review',
+  'review',
   'testing',
   'done',
   'cancelled',

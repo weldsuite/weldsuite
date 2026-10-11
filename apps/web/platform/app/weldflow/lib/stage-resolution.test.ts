@@ -27,4 +27,13 @@ describe('buildStatusToStageId', () => {
     ]);
     expect(map.get('done')).toBe('done');
   });
+
+  it('places a task on the legacy in_review status in the review stage', () => {
+    const map = buildStatusToStageId([
+      { id: 'stg_prog', systemStatus: 'in_progress' },
+      { id: 'stg_review', systemStatus: 'review' },
+    ]);
+    expect(map.get('review')).toBe('stg_review');
+    expect(map.get('in_review')).toBe('stg_review');
+  });
 });

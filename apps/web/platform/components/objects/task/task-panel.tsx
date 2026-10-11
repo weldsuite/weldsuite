@@ -52,7 +52,7 @@ import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
-import type { UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
+import { normalizeTaskStatus, type UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
 import type { TaskCommentRow } from '@weldsuite/core-api-client/domains/task-comments';
 import {
   useAddTaskComment,
@@ -108,7 +108,7 @@ function toCrmTask(
     number: api.number ?? null,
     title: api.title,
     description: api.description ?? undefined,
-    status: (api.status as CrmTask['status']) ?? 'todo',
+    status: (normalizeTaskStatus(api.status) as CrmTask['status']) ?? 'todo',
     priority: ((api.priority === 'urgent' || api.priority === 'critical')
       ? 'high'
       : api.priority) as CrmTask['priority'],

@@ -2173,7 +2173,7 @@ export function GoalsCanvasView({ projectId, initialGoalsData, initialTasks = []
           const statusMap: Record<string, CrmTask['status']> = {
             'completed': 'done',
             'on-track': 'in_progress',
-            'at-risk': 'in_review',
+            'at-risk': 'review',
             'off-track': 'in_progress',
             'not-started': 'todo',
           };

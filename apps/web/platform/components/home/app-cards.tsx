@@ -1467,14 +1467,14 @@ export function DeskReviewsCard({
 }
 
 // ---------- WeldCRM — matches /weldcrm My Tasks row ----------
-export type CrmTaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
+export type CrmTaskStatus = 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
 export type CrmTaskPriority = 'low' | 'medium' | 'high';
 
 const CRM_STATUS: Record<CrmTaskStatus, { label: string; color: string; bg: string }> = {
   backlog: { label: 'Backlog', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
   todo: { label: 'To Do', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
   in_progress: { label: 'In Progress', color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-  in_review: { label: 'In Review', color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
+  review: { label: 'In Review', color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
   testing: { label: 'Testing', color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
   done: { label: 'Done', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
   cancelled: { label: 'Cancelled', color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
@@ -1509,7 +1509,7 @@ const DEMO_CRM_TASKS: CrmTaskRow[] = [
   { title: 'Send Q2 invoicing review', company: 'Vermeulen BV', status: 'done', priority: 'medium', due: 'May 19' },
   { title: 'Schedule onboarding call', company: 'BlueTrack', status: 'todo', priority: 'low', due: 'May 24' },
   { title: 'Update pricing breakdown', company: 'Telia AB', status: 'in_progress', priority: 'medium', due: 'Today' },
-  { title: 'Renewal contract — Telia', company: 'Telia AB', status: 'in_review', priority: 'high', due: 'May 28' },
+  { title: 'Renewal contract — Telia', company: 'Telia AB', status: 'review', priority: 'high', due: 'May 28' },
   { title: 'Lead qualification call', company: 'Lumière SARL', status: 'testing', priority: 'medium', due: 'May 25' },
 ];
 

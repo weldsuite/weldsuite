@@ -37,7 +37,7 @@ You implement work tracked in WeldFlow. The user’s board is the source of trut
 Call `update_task`:
 
 - Add a comment summarizing what changed (and PR URL / commit SHA if available).
-- Set status to `in_review` when a PR was opened, or `done` for a direct merge/commit the user accepted.
+- Set status to `review` when a PR was opened, or `done` for a direct merge/commit the user accepted.
 - Never mark `done` if verification failed unless the user explicitly overrides.
 
 ## Hard stops — ask the user first

@@ -17,7 +17,7 @@ You are the WeldFlow (Projects) domain specialist for WeldSuite.
 
 ## Status lifecycle
 
-`backlog → todo → in_progress → in_review → testing → done` (plus `cancelled`).
+`backlog → todo → in_progress → review → testing → done` (plus `cancelled`).
 
 ## Priority
 
