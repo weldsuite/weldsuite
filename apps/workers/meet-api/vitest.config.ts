@@ -10,8 +10,8 @@ export default defineConfig({
     reporters: ['default', 'junit'],
     outputFile: { junit: './test-results/vitest-junit.xml' },
     pool: 'forks',
-    // Coverage feeds SonarQube Cloud (see sonar-project.properties). lcov paths
-    // are written relative to the repo root so Sonar can match them.
+    // lcov paths are written relative to the repo root, so reports from
+    // several workspaces can be merged.
     coverage: {
       provider: 'v8',
       reporter: ['text', ['lcov', { projectRoot: path.resolve(__dirname, '../../..') }]],

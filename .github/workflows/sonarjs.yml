@@ -1,0 +1,46 @@
+name: SonarJS
+
+# Sonar's JavaScript/TypeScript rules (eslint-plugin-sonarjs, configured in
+# eslint.sonar.config.mjs), checked on every pull request. Like Sonar's "new
+# code" gate it reports only the findings the PR adds: every changed file is
+# linted as it is in the PR and as it was on the base branch, and findings that
+# were already there are left out (scripts/lint-sonar-new.mjs). New findings
+# become annotations on the PR diff and a table in the job summary.
+#
+# This replaced the SonarQube Cloud scan (sonarqube.yml). That scan analysed
+# the entire monorepo with type information on every PR, and its analyser ran
+# out of its 11 GB heap on the 16 GB runner before it finished. ESLint parses
+# one file at a time without building TypeScript programs, so memory stays flat
+# however big the repo gets.
+#
+# The full backlog is not reported here; run `pnpm lint:sonar` locally for it.
+#
+# NON-BLOCKING for now, like the Sonar job was: "SonarJS" is not a required
+# status check in branch protection. To make it block, add it there.
+
+on:
+  pull_request:
+
+concurrency:
+  group: sonarjs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sonarjs:
+    name: SonarJS
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A PR checks out its merge commit; depth 2 brings its first parent,
+          # the base branch tip the PR is compared against.
+          fetch-depth: 2
+
+      - uses: ./.github/actions/setup-monorepo
+
+      - name: New findings
+        run: pnpm lint:sonar:new HEAD^1

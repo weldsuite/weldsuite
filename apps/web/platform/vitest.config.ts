@@ -29,8 +29,8 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
-      // lcov feeds SonarQube Cloud (see sonar-project.properties); html stays
-      // for local browsing.
+      // lcov is for coverage tooling (editor gutters, report viewers); html
+      // stays for local browsing.
       reporter: ['text', 'html', 'lcov'],
       reportsDirectory: './coverage',
       include: [
