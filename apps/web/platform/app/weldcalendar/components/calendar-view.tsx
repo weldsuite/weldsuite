@@ -20,7 +20,7 @@ import { defaultQuickCreateRange, defaultRangeForDay, normalizeQuickCreateRange,
 import { useDismissOnOutsideMouseDown } from './quick-create-dismiss';
 import { setQuickCreatePreviewTitle, useQuickCreatePreviewTitle } from './quick-create-preview-store';
 import { inviteEmailFromQuery } from './guest-invite';
-import { Mail, UserPlus, ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
+import { Mail, ChevronLeft, ChevronRight, Plus, CalendarDays, Clock, MapPin, Pencil, Trash2, X, EllipsisVertical, Users, AlignLeft, Flag, CircleDot, Tag, Repeat2, Search, Loader2, ListCollapse, Check, Pin, Sparkles, Copy, Settings } from 'lucide-react';
 import { placeCardNearAnchor } from '../lib/popover-position';
 import { WEEK_STARTS_ON, formatClock, useTimeFormat, type TimeFormat } from '../lib/calendar-format';
 import { PageTabs } from '@weldsuite/ui/components/page-tabs';
@@ -118,6 +118,7 @@ import { RescheduleNotifyDialog } from './reschedule-notify-dialog';
 import { EntityList, FilterPills, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
 import { usePeople, type Person } from '@/components/objects/person/use-person-data';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import { RecordPickerCreateItem, RecordPickerItem, type RecordPickerOption } from '@/components/objects/_shared/record-picker-menu';
 import { useCreateTask, type Task } from '@/hooks/use-crm-tasks';
 import { useWorkspaceMembers, useWorkingHours, type WorkingHours, type DayHours } from '@/hooks/queries/use-settings-queries';
 import { EventDialog } from './event-dialog';
@@ -4963,20 +4964,20 @@ function EventAttendeesField({
   // make clicks misfire.
   const options = useMemo(() => {
     const seen = new Set<string>();
-    const items: { id: string; name: string; email: string; avatar?: string }[] = [];
+    const items: (RecordPickerOption & { email: string })[] = [];
     for (const m of members) {
       const name = m.name || [m.firstName, m.lastName].filter(Boolean).join(' ').trim() || m.email || '';
       const email = (m.email || '').toLowerCase();
       if (!email || seen.has(email)) continue;
       seen.add(email);
-      items.push({ id: `member-${m.id}`, name: name || m.email || '', email: m.email ?? '', avatar: m.picture });
+      items.push({ id: `member-${m.id}`, name: name || m.email || '', email: m.email ?? '', detail: m.email, avatarUrl: m.picture });
     }
     for (const c of contacts) {
       const email = (c.email || '').toLowerCase();
       if (!email || seen.has(email)) continue;
       seen.add(email);
       const name = c.fullName || `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim() || c.email || '';
-      items.push({ id: `contact-${c.id}`, name, email: c.email ?? '' });
+      items.push({ id: `contact-${c.id}`, name, email: c.email ?? '', detail: c.email, avatarUrl: c.avatarUrl });
     }
     return items;
   }, [members, contacts]);
@@ -5106,37 +5107,22 @@ function EventAttendeesField({
                     <span className="truncate">{t.eventPreview.inviteGuest.replace('{email}', inviteEmail)}</span>
                   </CommandItem>
                 )}
+                {options.map((o) => (
+                  <RecordPickerItem
+                    key={o.id}
+                    option={o}
+                    value={`${o.name} ${o.email}`}
+                    onSelect={() => toggle(o.email, o.name)}
+                    checked={isSelected(o.email)}
+                  />
+                ))}
                 {query.trim() && (
-                  <CommandItem
+                  <RecordPickerCreateItem
                     value={`create person ${query}`}
+                    label={sweep.createPersonFromSearch.replace('{name}', query.trim())}
                     onSelect={() => setCreateQuery(query.trim())}
-                    className="flex items-center gap-2 px-1.5"
-                  >
-                    <div className="h-5 w-5 flex items-center justify-center shrink-0">
-                      <UserPlus className="h-3.5 w-3.5 text-primary" />
-                    </div>
-                    <span className="truncate">
-                      {sweep.createPersonFromSearch.replace('{name}', query.trim())}
-                    </span>
-                  </CommandItem>
+                  />
                 )}
-                {options.map((o) => {
-                  const selected = isSelected(o.email);
-                  return (
-                    <CommandItem
-                      key={o.id}
-                      value={`${o.name} ${o.email}`}
-                      onSelect={() => toggle(o.email, o.name)}
-                      className="flex items-center justify-between gap-2 px-1.5"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <AttendeeAvatar email={o.email} name={o.name} avatar={o.avatar} />
-                        <span className="truncate">{o.name}</span>
-                      </div>
-                      {selected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                    </CommandItem>
-                  );
-                })}
                 {hasAny && (
                   <>
                     <div className="h-px bg-border my-1" />

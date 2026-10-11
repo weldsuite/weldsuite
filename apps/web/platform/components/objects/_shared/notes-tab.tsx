@@ -3,14 +3,15 @@
  *
  * Lists notes that have been attached to the current entity (via
  * `customerId` for companies, `contactId` for persons — both written by
- * `/weldcrm/notes` and by this tab itself). Clicking a row opens
+ * `/weldcrm/notes` and by this tab itself) in the standard `EntityList` with
+ * `TabListRow` rows, like the panel's other tabs. Clicking a row opens
  * `NoteEditorDialog` for inline edit + auto-save. "New note" creates a
  * note pre-attached to this entity (no record-selection step needed).
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Plus, StickyNote, Trash2 } from 'lucide-react';
-import { format, isToday, isYesterday } from 'date-fns';
+import { Pencil, Trash2 } from 'lucide-react';
+import { format, isThisMonth, isThisWeek, isThisYear, isToday, isYesterday } from 'date-fns';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
@@ -20,8 +21,12 @@ import {
   useDeleteNote,
 } from '@/hooks/queries/use-notes-queries';
 import { NoteEditorDialog, type Note as DialogNote } from '@/components/weldcrm/notes/note-editor-dialog';
-import { Button } from '@weldsuite/ui/components/button';
-import { stripTags } from '@/lib/utils';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
+import { cn, stripTags } from '@/lib/utils';
+import { EntityList, type ActiveFilter, type FilterConfig, type HeaderColumn } from '@/components/entity-list';
+import { applySelectFilters } from '@/lib/list-filters';
+import { NotesIllustration, TAB_EMPTY_STATE_TABLE_CLASS } from './tab-empty-state';
+import { TabListRow } from './tab-list-row';
 
 type EntityKind = 'company' | 'person';
 
@@ -30,6 +35,21 @@ interface NotesTabProps {
   entityKind: EntityKind;
   entityName?: string;
 }
+
+interface NoteListItem {
+  id: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+  /** Flattened for the list's search. */
+  title: string;
+  preview: string;
+}
+
+const COLUMN = {
+  title: 'min-w-0 flex-1',
+  created: 'w-[140px]',
+};
 
 function stripHtml(html: string): string {
   return stripTags(html).trim();
@@ -49,6 +69,21 @@ function getNoteTitle(content: string, untitledLabel: string): string {
 function getNotePreview(content: string): string {
   if (!content) return '';
   return stripHtml(content.replace(/<h[1-3][^>]*>.*?<\/h[1-3]>/i, ''));
+}
+
+/** The "Created" filter's buckets; each note falls in exactly one. */
+function createdBucket(date: Date): string {
+  if (isToday(date)) return 'today';
+  if (isYesterday(date)) return 'yesterday';
+  if (isThisWeek(date, { weekStartsOn: 1 })) return 'this-week';
+  if (isThisMonth(date)) return 'this-month';
+  return isThisYear(date) ? 'this-year' : 'older';
+}
+
+function applyNoteFilters(items: NoteListItem[], filters: ActiveFilter[]): NoteListItem[] {
+  return applySelectFilters(items, filters, {
+    created: (n, value) => createdBucket(n.createdAt) === value,
+  });
 }
 
 function formatNoteDate(date: Date, todayLabel: string, yesterdayLabel: string): string {
@@ -141,96 +176,120 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
     [deleteMut, activeNoteId, t],
   );
 
-  let notesSummary: string;
-  if (isLoading) {
-    notesSummary = t('sweep.entities.loadingEllipsis');
-  } else if (notes.length === 0) {
-    notesSummary = t('sweep.entities.noNotesYet');
-  } else {
-    notesSummary = t(
-      notes.length === 1
-        ? 'sweep.entities.notesCountSingular'
-        : 'sweep.entities.notesCountPlural',
-      { count: notes.length },
-    );
-  }
+  const items = useMemo<NoteListItem[]>(
+    () =>
+      notes.map((n) => {
+        const title = getNoteTitle(n.content, t('sweep.entities.untitled'));
+        const preview = getNotePreview(n.content);
+        return { ...n, title, preview: preview === title ? '' : preview };
+      }),
+    [notes, t],
+  );
+
+  const filterConfigs = useMemo<FilterConfig[]>(
+    () => [
+      {
+        field: 'created',
+        label: t('sweep.weldcrm.notesView.created'),
+        options: [
+          { value: 'today', label: t('sweep.weldcrm.notesView.today') },
+          { value: 'yesterday', label: t('sweep.weldcrm.notesView.yesterday') },
+          { value: 'this-week', label: t('sweep.weldcrm.notesSection.thisWeek') },
+          { value: 'this-month', label: t('sweep.weldcrm.notesSection.thisMonth') },
+          { value: 'this-year', label: t('sweep.weldcrm.notesSection.thisYear') },
+          { value: 'older', label: t('sweep.weldcrm.notesView.older') },
+        ],
+      },
+    ],
+    [t],
+  );
+
+  const headerColumns = useMemo<HeaderColumn[]>(
+    () => [
+      { id: 'title', header: t('sweep.weldcrm.notesView.title'), width: COLUMN.title },
+      { id: 'created', header: t('sweep.weldcrm.notesView.created'), width: COLUMN.created },
+    ],
+    [t],
+  );
+
+  const renderRow = useCallback(
+    (n: NoteListItem) => {
+      const openNote = () => {
+        setActiveNoteId(n.id);
+        setOpen(true);
+      };
+      return (
+        <TabListRow
+          key={n.id}
+          label={n.title}
+          onOpen={openNote}
+          menuLabel={t('sweep.entities.moreActions')}
+          menu={
+            <>
+              <DropdownMenuItem onClick={openNote}>
+                <Pencil />
+                {t('sweep.weldcrm.notesView.edit')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={deleteMut.isPending}
+                onClick={() => void handleDelete(n.id)}
+              >
+                <Trash2 />
+                {t('sweep.weldcrm.notesView.delete')}
+              </DropdownMenuItem>
+            </>
+          }
+        >
+          <div className={cn(COLUMN.title, 'flex items-baseline gap-2')}>
+            <span className="truncate text-sm font-medium text-foreground">{n.title}</span>
+            {n.preview && (
+              <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{n.preview}</span>
+            )}
+          </div>
+          <div className={COLUMN.created}>
+            <span className="text-sm text-muted-foreground">
+              {formatNoteDate(n.createdAt, t('sweep.entities.today'), t('sweep.entities.yesterday'))}
+            </span>
+          </div>
+        </TabListRow>
+      );
+    },
+    [deleteMut.isPending, handleDelete, t],
+  );
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">
-          {notesSummary}
-        </span>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 gap-1.5"
-          onClick={handleCreate}
-          disabled={createMut.isPending}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {t('sweep.entities.newNote')}
-        </Button>
-      </div>
-
-      {!isLoading && notes.length === 0 ? (
-        <div className="flex flex-col items-center justify-center text-center px-6 py-12 gap-2">
-          <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
-            <StickyNote className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <div className="text-sm font-medium text-foreground">{t('sweep.entities.noNotesYet')}</div>
-          <p className="text-xs text-muted-foreground max-w-[42ch]">
-            {t('sweep.entities.noNotesYetDescription')}
-          </p>
-        </div>
-      ) : (
-        <ul className="p-2 space-y-0.5">
-          {notes.map((n) => {
-            const title = getNoteTitle(n.content, t('sweep.entities.untitled'));
-            const preview = getNotePreview(n.content);
-            return (
-              <li key={n.id} className="group/row flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setActiveNoteId(n.id);
-                    setOpen(true);
-                  }}
-                  className="flex-1 text-left text-sm flex items-start justify-between gap-2 hover:bg-muted/50 rounded-md px-2 py-2 transition-colors min-w-0"
-                >
-                  <span className="flex flex-col min-w-0 flex-1">
-                    <span className="text-sm text-foreground truncate font-medium">{title}</span>
-                    {preview && preview !== title ? (
-                      <span className="text-xs text-muted-foreground truncate">{preview}</span>
-                    ) : null}
-                  </span>
-                  <span className="text-xs font-mono text-muted-foreground flex-shrink-0 pt-0.5">
-                    {formatNoteDate(
-                      n.createdAt,
-                      t('sweep.entities.today'),
-                      t('sweep.entities.yesterday'),
-                    )}
-                  </span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDelete(n.id);
-                  }}
-                  disabled={deleteMut.isPending}
-                  className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-[opacity,color,background-color]"
-                  aria-label={t('sweep.entities.deleteNote')}
-                  title={t('sweep.entities.deleteNote')}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+    <>
+      <EntityList<NoteListItem>
+        items={items}
+        isLoading={isLoading}
+        error={null}
+        filters={filterConfigs}
+        applyFilters={applyNoteFilters}
+        headerColumns={headerColumns}
+        renderRow={renderRow}
+        searchPlaceholder={t('sweep.weldcrm.notesView.searchPlaceholder')}
+        searchFields={['title', 'preview']}
+        createButton={{
+          label: t('sweep.entities.newNote'),
+          onClick: () => void handleCreate(),
+        }}
+        emptyStateClassName={TAB_EMPTY_STATE_TABLE_CLASS}
+        emptyState={{
+          icon: <NotesIllustration />,
+          title: t('sweep.entities.noNotesYet'),
+          description: t('sweep.entities.noNotesYetDescription'),
+          action: {
+            label: t('sweep.entities.newNote'),
+            onClick: () => void handleCreate(),
+          },
+        }}
+        noResultsState={{
+          title: t('sweep.weldcrm.notesView.noNotesFound'),
+          description: t('sweep.weldcrm.notesView.noNotesFoundDescription'),
+        }}
+      />
 
       <NoteEditorDialog
         note={activeNote}
@@ -241,9 +300,9 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
         }}
         onSave={handleSave}
         onDelete={() => {
-          if (activeNoteId) handleDelete(activeNoteId);
+          if (activeNoteId) void handleDelete(activeNoteId);
         }}
       />
-    </div>
+    </>
   );
 }

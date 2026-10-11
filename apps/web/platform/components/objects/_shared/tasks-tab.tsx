@@ -18,6 +18,10 @@
  *     entity, instead of the project-scoped `POST /tasks/projects/:projectId`
  *     (no single project to create into). The dialog's assignee defaults to the
  *     current user, same as the My Tasks dialog.
+ *   - Filters are applied by the board itself (its `applyFilters`), on the tasks
+ *     already loaded: the project page sends them to the server instead, and
+ *     passing them from here as controlled props switched the board's own
+ *     filtering off without anything applying them.
  *   - Breadcrumbs are suppressed (panel is not a page).
  *   - There is no ProjectPermissionProvider here; TasksClient treats entity mode
  *     as writable instead of using the (read-only) context default.
@@ -27,18 +31,20 @@ import { useState, useMemo } from 'react';
 import { TasksClient } from '@/app/weldflow/project/[projectId]/tasks/tasks-client';
 import { useTasks } from '@/hooks/queries/use-task-queries';
 import { useDebounce } from '@/hooks/use-debounce';
-import type { ActiveFilter, SortState } from '@/components/entity-list';
+import type { SortState } from '@/components/entity-list';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { PageLoader } from '@/components/page-loader';
 
 export interface TasksTabProps {
   entityId: string;
   entityKind: 'company' | 'person';
+  /** Shown as the fixed record of the "Add task" dialog. */
+  entityName?: string;
+  entityAvatar?: string;
 }
 
-export function TasksTab({ entityId, entityKind }: Readonly<TasksTabProps>) {
+export function TasksTab({ entityId, entityKind, entityName, entityAvatar }: Readonly<TasksTabProps>) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
   const [sortState, setSortState] = useState<SortState | null>(null);
   const debouncedSearch = useDebounce(searchQuery, 250);
 
@@ -69,11 +75,9 @@ export function TasksTab({ entityId, entityKind }: Readonly<TasksTabProps>) {
       onLoadMore={() => {}}
       searchQuery={searchQuery}
       onSearchChange={setSearchQuery}
-      activeFilters={activeFilters}
-      onFiltersChange={setActiveFilters}
       sortState={sortState}
       onSortChange={setSortState}
-      entityScope={{ kind: entityKind, id: entityId }}
+      entityScope={{ kind: entityKind, id: entityId, name: entityName, avatar: entityAvatar }}
     />
   );
 }

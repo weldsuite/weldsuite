@@ -9,7 +9,10 @@
  * log endpoint (`/api/audit-logs/company|person/<id>`) actually finds rows.
  */
 
+import { useTranslations } from '@weldsuite/i18n/client';
 import { EntityAuditPanel } from '@/components/entity-audit-panel';
+import { useEntityAuditLogs } from '@/hooks/queries/use-audit-log-queries';
+import { AuditIllustration, TabEmptyState } from './tab-empty-state';
 
 interface AuditTabProps {
   entityId: string;
@@ -17,5 +20,25 @@ interface AuditTabProps {
 }
 
 export function AuditTab({ entityId, entityKind }: Readonly<AuditTabProps>) {
+  const t = useTranslations();
+  // Same query (and cache entry) `EntityAuditPanel` reads — only here to tell
+  // an empty log apart, so it gets the tabs' shared empty state.
+  const { data, isLoading } = useEntityAuditLogs(entityKind, entityId);
+
+  if (!isLoading && (data?.data ?? []).length === 0) {
+    return (
+      <TabEmptyState
+        illustration={<AuditIllustration />}
+        bare
+        title={t('sweep.entities.noAuditYetTitle')}
+        description={
+          entityKind === 'person'
+            ? t('sweep.entities.noAuditYetDescriptionPerson')
+            : t('sweep.entities.noAuditYetDescriptionCompany')
+        }
+      />
+    );
+  }
+
   return <EntityAuditPanel entityType={entityKind} entityId={entityId} />;
 }

@@ -14,6 +14,7 @@ import {
   useVoipCalls,
   useVoipConfigured,
 } from '@/hooks/queries/use-voip-calls-queries';
+import { TAB_EMPTY_STATE_TABLE_CLASS } from './tab-empty-state';
 
 interface CallsTabProps {
   entityId: string;
@@ -38,6 +39,7 @@ export function CallsTab({ entityId, entityKind }: Readonly<CallsTabProps>) {
       voipConfigured={voipConfiguredData?.configured ?? false}
       isLoading={isLoading}
       showPhoneSettings={false}
+      emptyStateClassName={TAB_EMPTY_STATE_TABLE_CLASS}
     />
   );
 }

@@ -14,7 +14,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Download,
-  File as FileIcon,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -32,6 +31,7 @@ import {
   type FileListItem,
 } from '@/components/files/file-list-view';
 import { downloadFile } from '@/app/welddrive/components/drive-file-card';
+import { FilesIllustration, TAB_EMPTY_STATE_CLASS } from './tab-empty-state';
 import {
   useCustomerDocuments,
   usePersonDocuments,
@@ -209,17 +209,18 @@ export function FilesTab({ entityId, entityKind }: Readonly<FilesTabProps>) {
             {isUploading ? t('sweep.entities.uploading') : t('sweep.entities.upload')}
           </Button>
         }
+        emptyStateClassName={TAB_EMPTY_STATE_CLASS}
         emptyState={{
-          icon: (
-            <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center mb-3">
-              <FileIcon className="h-5 w-5 text-muted-foreground" />
-            </div>
-          ),
+          icon: <FilesIllustration />,
           title: t('sweep.entities.noFilesYetTitle'),
           description:
             entityKind === 'company'
               ? t('sweep.entities.noFilesYetDescriptionCompany')
               : t('sweep.entities.noFilesYetDescriptionPerson'),
+          action: {
+            label: t('sweep.entities.upload'),
+            onClick: () => fileInputRef.current?.click(),
+          },
         }}
         noResultsState={{
           title: t('sweep.entities.noFilesFoundTitle'),

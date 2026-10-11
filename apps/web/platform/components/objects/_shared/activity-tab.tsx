@@ -18,6 +18,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useActivities } from '@/hooks/queries/use-activities-queries';
 import { ActivitySection } from '@/components/customer-detail/sections/activity-section';
 import type { Activity, Customer } from '@/components/customer-detail/types';
+import { ActivityIllustration, TabEmptyState } from './tab-empty-state';
 
 interface ActivityTabProps {
   entityId: string;
@@ -40,16 +41,26 @@ export function ActivityTab({ entityId, entityKind }: Readonly<ActivityTabProps>
   const activities = (data?.data ?? []) as Activity[];
   const totalCount = data?.pagination?.totalCount ?? activities.length;
 
+  if (activities.length === 0) {
+    return (
+      <TabEmptyState
+        illustration={<ActivityIllustration />}
+        bare
+        title={t('sweep.weldcrm.activitySection.noActivitiesYet')}
+        description={
+          entityKind === 'person'
+            ? t('sweep.weldcrm.activitySection.noActivitiesYetDescriptionPerson')
+            : t('sweep.weldcrm.activitySection.noActivitiesYetDescriptionCompany')
+        }
+      />
+    );
+  }
+
   return (
     <ActivitySection
       customer={{ id: entityId } as Customer}
       activities={activities}
       totalCount={totalCount}
-      emptyDescription={
-        entityKind === 'person'
-          ? t('sweep.weldcrm.activitySection.noActivitiesYetDescriptionPerson')
-          : t('sweep.weldcrm.activitySection.noActivitiesYetDescriptionCompany')
-      }
     />
   );
 }
