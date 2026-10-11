@@ -26,6 +26,7 @@ import {
 import {
   useAccountingEntity,
   useAccountingInvoice,
+  useApplyCreditNote,
   useFinalizeInvoice,
   useUpdateInvoiceStatus,
 } from '@/hooks/queries/use-accounting-queries';
@@ -119,6 +120,7 @@ export default function InvoiceDetailPage() {
   const statusMutation = useUpdateInvoiceStatus();
   const commitTaxMutation = useCommitInvoiceTax();
   const creditMemoMutation = useCreateCreditMemo();
+  const applyCreditMutation = useApplyCreditNote();
 
   const { entityId } = useCurrentAccountingEntity();
   const { data: entity } = useAccountingEntity(entityId);
@@ -226,8 +228,11 @@ export default function InvoiceDetailPage() {
     invoice.status === 'partial' ||
     invoice.status === 'overdue';
   const canCancel = canUpdate && !CLOSED_STATUSES.has(invoice.status);
+  // A credit note is owed to the customer: it is applied to an invoice or refunded, never written off.
   const canWriteOff =
-    canUpdate && OPEN_BALANCE_STATUSES.has(invoice.status) && Number(invoice.balanceDue ?? 0) > 0;
+    canUpdate && !isCreditMemo && OPEN_BALANCE_STATUSES.has(invoice.status) && Number(invoice.balanceDue ?? 0) > 0;
+  const canApplyCredit =
+    canUpdate && isCreditMemo && !isDraft && Boolean(invoice.creditNoteForInvoiceId) && Number(invoice.balanceDue ?? 0) > 0;
   const canCreateCreditMemo = canCreate && !isDraft && !isCreditMemo && invoice.status !== 'cancelled';
 
   const hasSalesTaxInfo = Boolean(invoice.taxEngine) || (invoice.taxWarnings?.length ?? 0) > 0;
@@ -291,6 +296,17 @@ export default function InvoiceDetailPage() {
       },
       onError: (err) => toast.error(td.detail.creditMemoFailed, { description: describeError(err) }),
     });
+  };
+
+  const handleApplyCredit = () => {
+    applyCreditMutation.mutate(
+      { id: invoice.id },
+      {
+        onSuccess: (res) =>
+          toast.success(ti.creditApplied.replace('{amount}', formatMoney(res.data.amount, invoice.currency))),
+        onError: (err) => toast.error(ti.applyCreditFailed, { description: describeError(err) }),
+      },
+    );
   };
 
   const handleStatusChange = async () => {
@@ -383,8 +399,15 @@ export default function InvoiceDetailPage() {
               {finalizeMutation.isPending ? ti.finalizing : ti.finalize}
             </Button>
           )}
+          {canApplyCredit && (
+            <Button variant="outline" onClick={handleApplyCredit} disabled={applyCreditMutation.isPending}>
+              {applyCreditMutation.isPending ? ti.applyingCredit : ti.applyCredit}
+            </Button>
+          )}
           {canRecordPayment && (
-            <Button onClick={() => setPaymentDialogOpen(true)}>{ti.recordPayment}</Button>
+            <Button onClick={() => setPaymentDialogOpen(true)}>
+              {isCreditMemo ? ti.recordRefund : ti.recordPayment}
+            </Button>
           )}
           {(canCancel || canWriteOff || canCreateCreditMemo) && (
             <DropdownMenu>
@@ -649,13 +672,13 @@ export default function InvoiceDetailPage() {
               </div>
               {invoice.amountPaid && Number(invoice.amountPaid) > 0 && (
                 <div className="flex justify-between text-sm text-green-600 dark:text-green-400">
-                  <span>{ti.amountPaid}</span>
+                  <span>{isCreditMemo ? ti.creditUsed : ti.amountPaid}</span>
                   <span>-{formatMoney(invoice.amountPaid, invoice.currency)}</span>
                 </div>
               )}
               {invoice.balanceDue && Number(invoice.balanceDue) > 0 && (
                 <div className="flex justify-between font-semibold">
-                  <span>{ti.balanceDue}</span>
+                  <span>{isCreditMemo ? ti.creditRemaining : ti.balanceDue}</span>
                   <span>{formatMoney(invoice.balanceDue, invoice.currency)}</span>
                 </div>
               )}
@@ -663,6 +686,33 @@ export default function InvoiceDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Credit notes issued against this invoice: once finalized they lower its balance */}
+      {(invoice.creditNotes?.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{ti.creditNotesTitle}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {invoice.creditNotes!.map((note) => (
+              <div key={note.id} className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Link
+                    to="/weldbooks/invoices/$id"
+                    params={{ id: note.id }}
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    {note.invoiceNumber ?? note.id}
+                  </Link>
+                  {getStatusBadge(note.status, tsl)}
+                  <span className="text-muted-foreground">{formatDate(note.issueDate)}</span>
+                </div>
+                <span>-{formatMoney(note.total ?? '0', invoice.currency)}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Dialogs */}
       <SendInvoiceDialog
@@ -678,6 +728,7 @@ export default function InvoiceDetailPage() {
         balanceDue={invoice.balanceDue ?? '0'}
         open={paymentDialogOpen}
         onOpenChange={setPaymentDialogOpen}
+        refund={isCreditMemo}
       />
       <ConfirmDialog
         open={statusDialog !== null}

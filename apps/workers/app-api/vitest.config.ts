@@ -22,14 +22,14 @@ export default defineConfig({
         singleFork: false,
       },
     },
-    // Coverage feeds SonarQube Cloud (see sonar-project.properties). lcov is the
-    // format the Sonar scanner reads; text keeps the local run readable.
+    // lcov is for coverage tooling (editor gutters, report viewers); text keeps
+    // the local run readable.
     //
     // @weldsuite/permissions has no test runner of its own: its checks are
     // exercised here (src/routes/_app-permissions.test.ts), so its source is
     // included too. lcov paths are written relative to the repo root
-    // (`apps/workers/app-api/src/…`, `packages/core/permissions/src/…`), the
-    // form Sonar resolves directly against its base directory.
+    // (`apps/workers/app-api/src/…`, `packages/core/permissions/src/…`), so
+    // one report covers both trees.
     coverage: {
       provider: 'v8',
       reporter: ['text', ['lcov', { projectRoot: path.resolve(__dirname, '../../..') }]],

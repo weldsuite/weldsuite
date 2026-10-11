@@ -1,7 +1,10 @@
 import type { Context } from 'hono';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+
+/** One resolution per request: routes and the services they call ask more than once. */
+const resolvedEntityIds = new WeakMap<Context, Promise<string | null>>();
 
 /**
  * Resolve the entity this request targets.
@@ -9,16 +12,52 @@ import { generateId } from '@weldsuite/worker-kit/id';
  *   1. `X-Accounting-Entity-Id` header (UI sends when user has switched entity)
  *   2. `?entityId=...` query param
  *   3. `settings.defaultEntityId` (workspace default)
+ *
+ * The id must name an entity of this workspace that isn't deleted. One that
+ * doesn't (a selection kept from another workspace, a deleted entity) resolves
+ * to null, so the route refuses or lists nothing instead of writing documents
+ * under an entity that doesn't exist here.
  */
-export async function resolveEntityId(c: Context, db: any): Promise<string | null> {
-  const header = c.req.header('x-accounting-entity-id');
-  if (header) return header;
+export function resolveEntityId(c: Context, db: any): Promise<string | null> {
+  let resolved = resolvedEntityIds.get(c);
+  if (!resolved) {
+    resolved = resolveEntityIdUncached(c, db);
+    resolvedEntityIds.set(c, resolved);
+  }
+  return resolved;
+}
 
-  const queryParam = c.req.query('entityId');
-  if (queryParam) return queryParam;
+async function resolveEntityIdUncached(c: Context, db: any): Promise<string | null> {
+  const requested = c.req.header('x-accounting-entity-id') || c.req.query('entityId');
+  if (requested) return (await entityExists(db, requested)) ? requested : null;
 
   const [settings] = await db.select().from(schema.settings).limit(1);
-  return settings?.defaultEntityId ?? null;
+  const fallback: string | null = settings?.defaultEntityId ?? null;
+  return fallback && (await entityExists(db, fallback)) ? fallback : null;
+}
+
+/**
+ * The entity a write targets when the body may name one: that id only when it
+ * is an entity of this workspace that isn't deleted, else what
+ * `resolveEntityId` resolves.
+ */
+export async function resolveRequestedEntityId(
+  c: Context,
+  db: any,
+  requested: string | null | undefined,
+): Promise<string | null> {
+  if (requested) return (await entityExists(db, requested)) ? requested : null;
+  return resolveEntityId(c, db);
+}
+
+/** Whether an id names an accounting entity of this workspace that isn't deleted. */
+export async function entityExists(db: any, entityId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.entities.id })
+    .from(schema.entities)
+    .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
+    .limit(1);
+  return Boolean(row);
 }
 
 /**

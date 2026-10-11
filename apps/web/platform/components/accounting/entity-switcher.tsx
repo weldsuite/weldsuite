@@ -62,7 +62,8 @@ export function EntitySwitcher() {
     },
   });
 
-  // Auto-select the default entity on first load.
+  // Auto-select the default entity on first load. A selection that isn't one of
+  // this workspace's entities is replaced by AccountingLayoutClient.
   useEffect(() => {
     if (!entityId && entities.length > 0) {
       const fallback = entities.find((e) => e.isDefault) ?? entities[0];

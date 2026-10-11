@@ -408,6 +408,7 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 | `ci.yml` | PR + push to `main`/`develop` | yes — job names are required status checks. Don't rename without updating branch protection. |
 | `secret-scan.yml` | PR + push | yes |
 | `i18n-check.yml` | PR touching locales | yes |
+| `sonarjs.yml` | PR | no — reports the Sonar-rule findings a PR adds (`pnpm lint:sonar:new`; full backlog: `pnpm lint:sonar`) |
 | `deploy.yml` | push to `develop` → test; push to `main` → production | n/a |
 | `release-desktop.yml` | manual | n/a |
 

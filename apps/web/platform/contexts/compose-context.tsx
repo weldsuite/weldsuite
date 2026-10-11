@@ -1,5 +1,6 @@
 
 import { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
+import { offerDraftHandoff, type DraftAutosaver } from '@/app/weldmail/lib/draft-autosave';
 
 interface ComposeData {
   to: string;
@@ -13,9 +14,26 @@ interface ComposeData {
   accountId?: string;
 }
 
+/** A mail put aside as a small button; several can wait next to each other. */
+export interface MinimizedCompose {
+  id: string;
+  data: ComposeData;
+  /** Keeps the mail's draft, so reopening it continues that draft. */
+  saver: DraftAutosaver | null;
+}
+
 interface ComposeContextType {
   isComposeOpen: boolean;
   composeData: ComposeData;
+  /** Changes with every mail the floating panel opens, so it starts each one clean. */
+  composeSession: number;
+  minimizedComposes: MinimizedCompose[];
+  /** Puts a mail aside; the surface it was in closes itself. */
+  minimizeCompose: (data: ComposeData, saver: DraftAutosaver | null) => void;
+  /** Opens a minimized mail in the floating panel again. */
+  restoreMinimized: (id: string) => void;
+  /** Drops a minimized mail; what was written stays behind as its draft. */
+  dismissMinimized: (id: string) => void;
   previousUrl: string | null;
   openCompose: (data?: Partial<ComposeData>, fromUrl?: string) => void;
   closeCompose: () => void;
@@ -40,6 +58,8 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeData, setComposeData] = useState<ComposeData>(defaultComposeData);
   const [previousUrlState, setPreviousUrlState] = useState<string | null>(null);
+  const [composeSession, setComposeSession] = useState(0);
+  const [minimizedComposes, setMinimizedComposes] = useState<MinimizedCompose[]>([]);
 
   const openCompose = useCallback((data?: Partial<ComposeData>, fromUrl?: string) => {
     if (fromUrl) {
@@ -47,6 +67,7 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
     }
     setComposeData({ ...defaultComposeData, ...data });
     setIsComposeOpen(true);
+    setComposeSession((session) => session + 1);
   }, []);
 
   const closeCompose = useCallback(() => {
@@ -61,7 +82,36 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
   const minimizeToPanel = useCallback((data: ComposeData) => {
     setComposeData(data);
     setIsComposeOpen(true);
+    setComposeSession((session) => session + 1);
   }, []);
+
+  const minimizeCompose = useCallback((data: ComposeData, saver: DraftAutosaver | null) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setMinimizedComposes((prev) => [...prev, { id, data, saver }]);
+  }, []);
+
+  const restoreMinimized = useCallback(
+    (id: string) => {
+      const entry = minimizedComposes.find((compose) => compose.id === id);
+      if (!entry) return;
+      setMinimizedComposes((prev) => prev.filter((compose) => compose.id !== id));
+      // The panel picks the saver up when it opens, and goes on with the same draft.
+      if (entry.saver && !entry.saver.isClosed) offerDraftHandoff(entry.saver, entry.data.accountId);
+      setComposeData({ ...defaultComposeData, ...entry.data });
+      setIsComposeOpen(true);
+      setComposeSession((session) => session + 1);
+    },
+    [minimizedComposes],
+  );
+
+  const dismissMinimized = useCallback(
+    (id: string) => {
+      const entry = minimizedComposes.find((compose) => compose.id === id);
+      setMinimizedComposes((prev) => prev.filter((compose) => compose.id !== id));
+      void entry?.saver?.finish();
+    },
+    [minimizedComposes],
+  );
 
   const setPreviousUrl = useCallback((url: string) => {
     setPreviousUrlState(url);
@@ -71,6 +121,11 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
     () => ({
       isComposeOpen,
       composeData,
+      composeSession,
+      minimizedComposes,
+      minimizeCompose,
+      restoreMinimized,
+      dismissMinimized,
       previousUrl: previousUrlState,
       openCompose,
       closeCompose,
@@ -79,7 +134,8 @@ export function ComposeProvider({ children }: Readonly<{ children: ReactNode }>)
       setPreviousUrl
     }),
     [
-      isComposeOpen, composeData, previousUrlState, openCompose, closeCompose, updateComposeData,
+      isComposeOpen, composeData, composeSession, minimizedComposes, minimizeCompose, restoreMinimized,
+      dismissMinimized, previousUrlState, openCompose, closeCompose, updateComposeData,
       minimizeToPanel, setPreviousUrl,
     ]
   );
