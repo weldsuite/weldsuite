@@ -121,7 +121,7 @@ partner_keeps = resale − weldsuite_due
 - The peak is used, not the last day, so a workspace cannot remove members on the 30th and add them back on the 1st.
 
 **Partial months**
-- Licence changes and workspaces created or ended mid-month are prorated by day.
+- Licence changes and workspaces created or ended mid-month are prorated by day. Any part of a day counts as a day: the day a workspace is created and the day its licence ends are both billed.
 - Each day is charged under the licence that was in force that day; the history table below makes this possible.
 
 **Worked examples** (contract: 75%, $50 base minimum, 2,000 included credits,
@@ -319,7 +319,7 @@ The gate goes into every module worker at once, because they all use `apiAuth()`
 
 **The same gate enforces read-only for a suspended partner.**
 - The cached context also carries `partnerStatus`.
-- When it is `suspended`, mutations return `403 WORKSPACE_READ_ONLY`. Mutations are every method except GET and HEAD, apart from a short allowlist of POST routes that only read (search, export, report queries).
+- When it is `suspended`, mutations return `403 WORKSPACE_READ_ONLY`. Mutations are every method except GET and HEAD, apart from an explicit allowlist of exact paths that only read (search, user-level settings). There is no "export" rule: every export endpoint is a GET, and a path-substring match let writes through.
 - Sign-in, Clerk and data export keep working.
 - The platform shows a read-only banner naming the partner.
 - Background writers also skip a suspended partner's workspaces: workflow runs, sequences, scheduled social posts and inbound mail rules. Inbound mail is still stored, so nothing is lost.
@@ -343,8 +343,11 @@ The gate goes into every module worker at once, because they all use `apiAuth()`
 - The period is the calendar month in UTC, matching the statement.
 
 **Licence changes mid-month**
-- An increase grants the difference now. This mirrors the existing upgrade path in `billing-worker/src/services/credits.ts:87`.
-- A decrease takes effect at the next reset.
+- An increase grants the difference prorated over the rest of the month, today included (`floor(delta × remaining days / days in month)`).
+- A decrease takes back the unused share of the difference for the days after today (`ceil(delta × days after today / days in month)`), capped at the current balance.
+- The statement bills each UTC day's credits at the highest `monthly_credits` in force at any moment of that day, so raising, spending and lowering within one day is still billed.
+- A workspace's first licence mid-month marks the wallet as reset for that month, so the daily sweep does not grant it a second time.
+- Grants and takebacks are idempotent per licence change (`partner_licence:<changeId>`).
 
 **Extra credits.** When a workspace runs out, the end customer cannot buy credits from WeldSuite; the top-up checkout is hidden and the route refuses partner workspaces. The reseller grants an **extra credit pack** from the portal:
 - It lands immediately.

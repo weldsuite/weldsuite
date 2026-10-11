@@ -52,6 +52,8 @@ export interface Env {
   DATABASE_ENCRYPTION_KEY_V2?: string;
   // KV namespace for workspace caching
   WORKSPACE_CACHE: KVNamespace;
+  /** Shared with external-api and mcp-server; partner changes drop their cached workspace state. */
+  API_CACHE?: KVNamespace;
   /** call-api `CallInternal` entrypoint (weldsuite-call-api[-test]) — orders Telnyx
    *  numbers after phone checkout is paid (POST /api/internal/telephony/fulfill-number),
    *  trusted by topology (no secret). */

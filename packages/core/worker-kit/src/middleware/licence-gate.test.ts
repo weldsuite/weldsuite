@@ -85,6 +85,12 @@ describe('licenceGate · read-only workspaces', () => {
     expect(await res.json()).toMatchObject({ error: { details: { reason: 'licence_inactive' } } });
   });
 
+  it('refuses a POST on a path containing "export"', async () => {
+    const res = await readOnlyApp().request('/api/tickets/export', { method: 'POST' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ error: { code: 'WORKSPACE_READ_ONLY' } });
+  });
+
   it('still serves reads', async () => {
     const app = readOnlyApp();
     for (const method of ['GET', 'HEAD']) {
@@ -96,7 +102,6 @@ describe('licenceGate · read-only workspaces', () => {
     const app = buildApp(null, { reason: 'partner_suspended' });
     for (const [method, path] of [
       ['POST', '/api/search'],
-      ['POST', '/api/tickets/export'],
       ['PATCH', '/api/me'],
       ['PUT', '/api/user-preferences'],
       ['PUT', '/api/notification-preferences'],

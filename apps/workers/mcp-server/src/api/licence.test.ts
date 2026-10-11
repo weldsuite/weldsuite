@@ -64,10 +64,11 @@ describe('mcp-server internal API · read-only gate', () => {
     expect(await res.json()).toMatchObject({ error: { details: { reason: 'licence_inactive' } } });
   });
 
-  it('lets reads and exports past the gate', async () => {
+  it('lets reads past the gate and refuses writes on export-looking paths', async () => {
     // An unknown object 404s in the router, after the gate.
     expect((await callWith(readOnlySession(), '/v1/no-such-object', 'GET')).status).toBe(404);
-    expect((await callWith(readOnlySession(), '/v1/no-such-object/export', 'POST')).status).toBe(404);
+    expect((await callWith(readOnlySession(), '/v1/no-such-object/export', 'GET')).status).toBe(404);
+    expect((await callWith(readOnlySession(), '/v1/no-such-object/export', 'POST')).status).toBe(403);
   });
 
   it('does not touch writable sessions', async () => {

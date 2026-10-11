@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   findTerritoryConflicts: vi.fn(),
   setTerritories: vi.fn(),
   inviteMember: vi.fn(),
-  partnerWorkspaceOrgIds: vi.fn(),
+  partnerWorkspaceCacheKeys: vi.fn(),
   getTenantDbForWorkspace: vi.fn(),
   trySyncClerkSeatLimit: vi.fn(),
   createStripeCustomer: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('@weldsuite/core-domain/partners', async (importOriginal) => ({
   findTerritoryConflicts: mocks.findTerritoryConflicts,
   setTerritories: mocks.setTerritories,
   inviteMember: mocks.inviteMember,
-  partnerWorkspaceOrgIds: mocks.partnerWorkspaceOrgIds,
+  partnerWorkspaceCacheKeys: mocks.partnerWorkspaceCacheKeys,
 }));
 vi.mock('../lib/tenant-db', () => ({ getTenantDbForWorkspace: mocks.getTenantDbForWorkspace }));
 vi.mock('../lib/clerk', async (importOriginal) => ({
@@ -136,7 +136,7 @@ beforeEach(() => {
   mocks.findTerritoryConflicts.mockResolvedValue([]);
   mocks.inviteMember.mockResolvedValue({ id: 'ptm_1', email: 'owner@andes.test', role: 'owner', userId: null, acceptedAt: null, createdAt: new Date() });
   mocks.recomputePartnerStatus.mockResolvedValue({ changed: false });
-  mocks.partnerWorkspaceOrgIds.mockResolvedValue(['org_1', 'org_2']);
+  mocks.partnerWorkspaceCacheKeys.mockResolvedValue([{ workspaceId: 'ws_1', clerkOrgId: 'org_1' }, { workspaceId: 'ws_2', clerkOrgId: 'org_2' }]);
 });
 
 const attachInput = (overrides: Record<string, unknown> = {}) => ({
@@ -192,12 +192,103 @@ describe('attachWorkspace', () => {
     expect(written('update').at(-1)).toMatchObject({ subscriptionStatus: null, subscriptionCancelAtPeriodEnd: false });
   });
 
-  it('re-links the subscription and stops when the immediate cancel fails', async () => {
+  it('keeps the workspace attached and reports a warning when the immediate cancel fails, re-linking the subscription', async () => {
     mocks.cancelSubscriptionNow.mockRejectedValue(new Error('Stripe API DELETE /v1/subscriptions/sub_1 failed (500): oops'));
     const { db, written } = createFakeDb({ selects: [[directWorkspace]] });
-    await expect(admin.attachWorkspace(ctx(db), 'ptr_a', attachInput({ cancelDirectSubscription: 'now' }))).rejects.toThrow('failed (500)');
-    expect(written('update').at(-1)).toMatchObject({ stripeSubscriptionId: 'sub_1' });
+    const result = await admin.attachWorkspace(ctx(db), 'ptr_a', attachInput({ cancelDirectSubscription: 'now' }));
+    // The licence was written first and stays; the subscription link is restored for a retry.
+    expect(mocks.upsertWorkspaceLicence).toHaveBeenCalledTimes(1);
+    expect(written('update')).toContainEqual(expect.objectContaining({ stripeSubscriptionId: 'sub_1' }));
+    expect(result.subscriptionCanceled).toBe(false);
+    expect(result.warnings?.some((w) => w.includes('sub_1') && w.includes('could not be cancelled'))).toBe(true);
+    // No subscription fields are cleared for a subscription that is still live.
+    expect(written('update').at(-1)).not.toHaveProperty('subscriptionStatus');
+    expect(kvDelete).toHaveBeenCalledWith('ws:org_1');
+  });
+
+  it('keeps the workspace attached and reports a warning when cancelling at period end fails', async () => {
+    mocks.setCancelAtPeriodEnd.mockRejectedValue(new Error('Stripe API POST /v1/subscriptions/sub_1 failed (500): oops'));
+    const result = await admin.attachWorkspace(ctx(createFakeDb({ selects: [[directWorkspace]] }).db), 'ptr_a', attachInput());
+    expect(mocks.upsertWorkspaceLicence).toHaveBeenCalledTimes(1);
+    expect(result.subscriptionCanceled).toBe(false);
+    expect(result.warnings?.[0]).toContain('could not be cancelled');
+  });
+
+  it('writes the licence before it cancels the direct subscription', async () => {
+    for (const mode of ['now', 'period_end'] as const) {
+      vi.clearAllMocks();
+      mocks.upsertWorkspaceLicence.mockResolvedValue({ licence: licenceRow, previous: null, changeId: 'wlc_1' });
+      mocks.retrieveSubscriptionForAdmin.mockResolvedValue({ id: 'sub_1', status: 'active' });
+      await admin.attachWorkspace(ctx(createFakeDb({ selects: [[directWorkspace]] }).db), 'ptr_a', attachInput({ cancelDirectSubscription: mode }));
+      const cancel = mode === 'now' ? mocks.cancelSubscriptionNow : mocks.setCancelAtPeriodEnd;
+      expect(mocks.upsertWorkspaceLicence.mock.invocationCallOrder[0]!).toBeLessThan(cancel.mock.invocationCallOrder[0]!);
+    }
+  });
+
+  it('fails before attaching or cancelling anything when Stripe cannot be reached for the subscription lookup', async () => {
+    mocks.retrieveSubscriptionForAdmin.mockRejectedValue(new Error('Stripe API GET /v1/subscriptions/sub_1 failed (500): oops'));
+    await expect(admin.attachWorkspace(ctx(createFakeDb({ selects: [[directWorkspace]] }).db), 'ptr_a', attachInput())).rejects.toThrow('failed (500)');
     expect(mocks.upsertWorkspaceLicence).not.toHaveBeenCalled();
+    expect(mocks.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+  });
+
+  describe('a workspace that was detached from a partner before', () => {
+    const endedLicence = (partnerId: string) => ({ id: 'wsl_old', workspaceId: 'ws_1', partnerId, status: 'ended', monthlyCredits: 3000, creditRolloverCap: 500 });
+    const detachedWorkspace = { ...directWorkspace, stripeSubscriptionId: null };
+
+    it('releases the ended licence of the previous partner and attaches to the new one, in one transaction, before cancelling anything', async () => {
+      const { db, calls } = createFakeDb({ selects: [[directWorkspace], [endedLicence('ptr_old')]] });
+      const transaction = vi.spyOn(db, 'transaction');
+
+      const result = await admin.attachWorkspace(ctx(db), 'ptr_b', attachInput());
+
+      expect(result.subscriptionCanceled).toBe(true);
+      expect(transaction).toHaveBeenCalledTimes(1);
+      const release = calls.find((c) => c.op === 'update' && c.steps.some(([, a]) => (a[0] as Record<string, unknown>)?.partnerId === 'ptr_b'));
+      expect(release?.steps.find(([name]) => name === 'set')?.[1][0]).toMatchObject({
+        partnerId: 'ptr_b',
+        status: 'active',
+        endsAt: null,
+        monthlyCredits: 0,
+        creditRolloverCap: 0,
+        updatedBy: 'user_admin',
+      });
+      // The upsert (which records the licence change entry) runs on the transaction handle, after the release.
+      expect(mocks.upsertWorkspaceLicence).toHaveBeenCalledWith(expect.objectContaining({ db, partnerId: 'ptr_b', workspaceId: 'ws_1' }));
+      expect(calls.indexOf(release!)).toBeLessThan(
+        calls.findIndex((c) => c.op === 'update' && c.steps.some(([, a]) => (a[0] as Record<string, unknown>)?.compGrantedAt === null)),
+      );
+      expect(mocks.upsertWorkspaceLicence.mock.invocationCallOrder[0]!).toBeLessThan(mocks.setCancelAtPeriodEnd.mock.invocationCallOrder[0]!);
+    });
+
+    it('also reopens an ended licence when the same partner takes the workspace back', async () => {
+      const { db, written } = createFakeDb({ selects: [[detachedWorkspace], [endedLicence('ptr_a')]] });
+      await admin.attachWorkspace(ctx(db), 'ptr_a', attachInput());
+      expect(written('update')[0]).toMatchObject({ partnerId: 'ptr_a', status: 'active', endsAt: null });
+    });
+
+    it('does not touch a workspace without a leftover licence row', async () => {
+      const { db, calls } = createFakeDb({ selects: [[detachedWorkspace], []] });
+      await admin.attachWorkspace(ctx(db), 'ptr_a', attachInput());
+      expect(calls.some((c) => c.op === 'update' && c.steps.some(([, a]) => (a[0] as Record<string, unknown>)?.monthlyCredits === 0))).toBe(false);
+    });
+
+    it('refuses a leftover licence that is still live, before cancelling the subscription', async () => {
+      const live = { ...endedLicence('ptr_old'), status: 'active' };
+      const { db } = createFakeDb({ selects: [[directWorkspace], [live]] });
+      await expect(admin.attachWorkspace(ctx(db), 'ptr_b', attachInput())).rejects.toMatchObject({ code: 'CONFLICT' });
+      expect(mocks.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+      expect(mocks.cancelSubscriptionNow).not.toHaveBeenCalled();
+      expect(mocks.upsertWorkspaceLicence).not.toHaveBeenCalled();
+    });
+
+    it('leaves the subscription alone when the licence write itself fails', async () => {
+      mocks.upsertWorkspaceLicence.mockRejectedValue(new LicenceError('NO_CONTRACT', 'This partner has no contract in force'));
+      const { db } = createFakeDb({ selects: [[directWorkspace], [endedLicence('ptr_old')]] });
+      await expect(admin.attachWorkspace(ctx(db), 'ptr_b', attachInput())).rejects.toBeInstanceOf(LicenceError);
+      expect(mocks.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+      expect(mocks.cancelSubscriptionNow).not.toHaveBeenCalled();
+    });
   });
 
   it('validates the licence before touching Stripe: a bad licence cancels nothing', async () => {

@@ -10,7 +10,7 @@ import * as masterSchema from '@weldsuite/db/schema/master';
 import { workspaceInstalledApps } from '@weldsuite/db/schema/workspace-installed-apps';
 import { getOrCreateWorkspaceCredits, grantCredits } from '@weldsuite/credits';
 import { generateId } from '@weldsuite/worker-kit/id';
-import type { LicenceSnapshot, LicenceTerms, WorkspaceLicenceStatus } from '@weldsuite/app-api-client/schemas/partners';
+import { monthPeriod, type LicenceSnapshot, type LicenceTerms, type WorkspaceLicenceStatus } from '@weldsuite/app-api-client/schemas/partners';
 import type { PartnerDb } from './types';
 
 const { workspaces, workspaceLicences, workspaceLicenceChanges, workspaceCredits, partnerContracts, appCatalog, plans } =
@@ -113,6 +113,7 @@ export async function upsertWorkspaceLicence(input: {
   workspaceId: string;
   partnerId: string;
   terms: LicenceTerms;
+  /** undefined keeps the current package; null clears it. */
   packageId?: string | null;
   status?: WorkspaceLicenceStatus;
   actor: LicenceActor;
@@ -139,7 +140,8 @@ export async function upsertWorkspaceLicence(input: {
     featurePlanId: terms.featurePlanId,
     storageGb: terms.storageGb,
     resalePricing: terms.resalePricing,
-    packageId: input.packageId ?? existing?.packageId ?? null,
+    // undefined keeps the current package, an explicit null clears the link.
+    packageId: input.packageId === undefined ? (existing?.packageId ?? null) : input.packageId,
     status: input.status ?? existing?.status ?? 'active',
     updatedBy: actor.id,
     updatedAt: now,
@@ -286,10 +288,56 @@ export async function syncInstalledAppsToLicence(input: {
   return { installed, deactivated };
 }
 
+const DAY_MS = 86_400_000;
+
+/** Whole days left in the UTC month of `now` (today included) and the month's length. */
+export function monthRemainder(now: Date): { remainingDays: number; daysInMonth: number } {
+  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+  const end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+  const daysInMonth = Math.round((end - start) / DAY_MS);
+  return { remainingDays: daysInMonth - now.getUTCDate() + 1, daysInMonth };
+}
+
 /**
- * Apply a licence's credit allowance to the wallet after a licence change: the
- * allocation columns follow the licence, and an increase is granted at once
- * (a decrease waits for the next reset). Idempotent per licence change.
+ * Credits to grant for a monthly-credits increase of `delta` made at `now`:
+ * the rest of the month, today included, rounded down. The statement bills a
+ * day at the highest allowance in force that day, so today is billed at the new
+ * level, and rounding down keeps what is granted at or under what is billed.
+ */
+export function proratedIncreaseGrant(delta: number, now: Date): number {
+  if (delta <= 0) return 0;
+  const { remainingDays, daysInMonth } = monthRemainder(now);
+  return Math.floor((delta * remainingDays) / daysInMonth);
+}
+
+/**
+ * Credits to take back for a decrease of `delta` made at `now`: the unused
+ * part, i.e. the days AFTER today (today is still billed at the old, higher
+ * level), rounded up so a raise-and-lower within one day never leaves more
+ * credits granted than billed. The caller caps it at the available balance.
+ */
+export function proratedDecreaseTakeBack(delta: number, now: Date): number {
+  if (delta <= 0) return 0;
+  const { remainingDays, daysInMonth } = monthRemainder(now);
+  return Math.ceil((delta * (remainingDays - 1)) / daysInMonth);
+}
+
+/**
+ * Apply a licence's credit allowance to the wallet after a licence change. The
+ * allocation columns follow the licence; the balance follows the statement,
+ * which bills credits per UTC day (at the highest allowance of that day), so
+ * the wallet moves by the prorated part of the change only:
+ *
+ * - increase: the delta for the rest of this month, today included (rounded down);
+ * - decrease: the unused part of the delta (the days after today) is taken
+ *   back, never more than the available balance, so the wallet never goes
+ *   negative because of a licence change;
+ * - a first licence is the same as an increase from nothing, and marks the
+ *   wallet as reset this month so the daily sweep does not grant it again.
+ *
+ * When the monthly reset has not run yet this month (the 1st, before the
+ * sweep), the reset itself grants the full new allowance, so nothing moves
+ * here. Idempotent per licence change (`partner_licence:<changeId>`).
  */
 export async function applyLicenceCredits(input: {
   db: PartnerDb;
@@ -298,9 +346,16 @@ export async function applyLicenceCredits(input: {
   monthlyCredits: number;
   creditRolloverCap: number;
   changeId: string;
-}): Promise<{ granted: number }> {
+  now?: Date;
+}): Promise<{ granted: number; takenBack: number }> {
   const { db, workspaceId } = input;
-  await getOrCreateWorkspaceCredits(db, workspaceId);
+  const now = input.now ?? new Date();
+  const wallet = await getOrCreateWorkspaceCredits(db, workspaceId);
+  const first = input.previousMonthlyCredits === null;
+  const period = monthPeriod(now);
+  const resetPending =
+    !first && !(wallet.lastResetAt && wallet.periodStart && wallet.periodStart.getTime() >= period.start.getTime());
+
   await db
     .update(workspaceCredits)
     .set({
@@ -308,24 +363,46 @@ export async function applyLicenceCredits(input: {
       subscribedCredits: 0,
       monthlyAllocation: input.monthlyCredits,
       rolloverCap: input.creditRolloverCap,
-      updatedAt: new Date(),
+      ...(first ? { periodStart: period.start, periodEnd: period.end, lastResetAt: now } : {}),
+      updatedAt: now,
     })
     .where(eq(workspaceCredits.workspaceId, workspaceId));
+  if (resetPending) return { granted: 0, takenBack: 0 };
 
-  const increase = input.monthlyCredits - (input.previousMonthlyCredits ?? 0);
-  if (increase <= 0) return { granted: 0 };
-  const grant = await grantCredits(db, {
-    workspaceId,
-    amount: increase,
-    type: input.previousMonthlyCredits === null ? 'monthly_allocation' : 'adjustment',
-    idempotencyKey: `partner_licence:${input.changeId}`,
-    description:
-      input.previousMonthlyCredits === null
-        ? `Licensed monthly credits: +${increase}`
-        : `Licence credits increased by ${increase}`,
-    metadata: { reason: 'partner_licence', changeId: input.changeId },
-  });
-  return { granted: grant.duplicate ? 0 : increase };
+  const delta = input.monthlyCredits - (input.previousMonthlyCredits ?? 0);
+  const key = `partner_licence:${input.changeId}`;
+
+  if (delta > 0) {
+    const amount = proratedIncreaseGrant(delta, now);
+    if (amount <= 0) return { granted: 0, takenBack: 0 };
+    const grant = await grantCredits(db, {
+      workspaceId,
+      amount,
+      type: first ? 'monthly_allocation' : 'adjustment',
+      idempotencyKey: key,
+      description: first
+        ? `Licensed monthly credits, rest of the month: +${amount}`
+        : `Licence credits increased by ${delta}, rest of the month: +${amount}`,
+      metadata: { reason: 'partner_licence', changeId: input.changeId, delta, prorated: amount },
+    });
+    return { granted: grant.duplicate ? 0 : amount, takenBack: 0 };
+  }
+
+  if (delta < 0) {
+    const unused = proratedDecreaseTakeBack(-delta, now);
+    const amount = Math.min(unused, Math.max(wallet.currentBalance, 0));
+    if (amount <= 0) return { granted: 0, takenBack: 0 };
+    const res = await grantCredits(db, {
+      workspaceId,
+      amount: -amount,
+      type: 'adjustment',
+      idempotencyKey: key,
+      description: `Licence credits decreased by ${-delta}, unused part taken back: -${amount}`,
+      metadata: { reason: 'partner_licence', changeId: input.changeId, delta, prorated: unused, takenBack: amount },
+    });
+    return { granted: 0, takenBack: res.duplicate ? 0 : amount };
+  }
+  return { granted: 0, takenBack: 0 };
 }
 
 /**

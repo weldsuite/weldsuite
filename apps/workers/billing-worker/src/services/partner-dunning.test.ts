@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   getPartner: vi.fn(),
   partnerBillingRecipients: vi.fn(),
   partnerIdsWithOpenStatements: vi.fn(),
-  partnerWorkspaceOrgIds: vi.fn(),
+  partnerWorkspaceCacheKeys: vi.fn(),
   sendPartnerDunningEmail: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ vi.mock('@weldsuite/core-domain/partners', async (importOriginal) => ({
   getPartner: mocks.getPartner,
   partnerBillingRecipients: mocks.partnerBillingRecipients,
   partnerIdsWithOpenStatements: mocks.partnerIdsWithOpenStatements,
-  partnerWorkspaceOrgIds: mocks.partnerWorkspaceOrgIds,
+  partnerWorkspaceCacheKeys: mocks.partnerWorkspaceCacheKeys,
 }));
 vi.mock('./partner-mail', () => ({ sendPartnerDunningEmail: mocks.sendPartnerDunningEmail }));
 
@@ -60,7 +60,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
   mocks.getPartner.mockResolvedValue({ id: 'ptr_a', name: 'Andes', country: 'BR' });
   mocks.partnerBillingRecipients.mockResolvedValue(['bill@andes.test', 'owner@andes.test']);
-  mocks.partnerWorkspaceOrgIds.mockResolvedValue(['org_1']);
+  mocks.partnerWorkspaceCacheKeys.mockResolvedValue([{ workspaceId: 'ws_1', clerkOrgId: 'org_1' }]);
   mocks.sendPartnerDunningEmail.mockResolvedValue(true);
 });
 

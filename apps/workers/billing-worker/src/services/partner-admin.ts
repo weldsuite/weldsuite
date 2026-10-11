@@ -78,6 +78,7 @@ const {
 type MasterDb = ReturnType<typeof getMasterDb>;
 type PartnerRow = typeof partners.$inferSelect;
 type WorkspaceRow = typeof workspaces.$inferSelect;
+type LicenceRow = typeof workspaceLicences.$inferSelect;
 
 function idem(ctx: AdminContext, action: string): string {
   return `admin:${action}:${ctx.requestId}`;
@@ -514,22 +515,32 @@ async function writeLicence(
     workspace: WorkspaceRow;
     partnerId: string;
     terms: LicenceTerms;
-    packageId: string | null;
+    /** undefined keeps the licence's current package; null clears it. */
+    packageId: string | null | undefined;
     reason: string | null;
+    /** The ended licence a previous attachment left behind; released in the same transaction as the write. */
+    endedLicence?: LicenceRow;
   },
 ): Promise<LicenceChangeOutcome> {
   const { masterDb, env } = ctx;
   const { workspace, partnerId, terms } = input;
   await validateLicenceTerms(masterDb, partnerId, terms);
-  const { licence, previous, changeId } = await upsertWorkspaceLicence({
-    db: masterDb,
-    workspaceId: workspace.id,
-    partnerId,
-    terms,
-    packageId: input.packageId,
-    actor: { id: actorId(ctx), type: 'admin' },
-    reason: input.reason,
-  });
+  const write = (db: MasterDb) =>
+    upsertWorkspaceLicence({
+      db,
+      workspaceId: workspace.id,
+      partnerId,
+      terms,
+      packageId: input.packageId,
+      actor: { id: actorId(ctx), type: 'admin' },
+      reason: input.reason,
+    });
+  const { licence, previous, changeId } = input.endedLicence
+    ? await masterDb.transaction(async (tx) => {
+        await releaseEndedLicence(tx as unknown as MasterDb, input.endedLicence!, partnerId, actorId(ctx));
+        return write(tx as unknown as MasterDb);
+      })
+    : await write(masterDb);
 
   const warnings: string[] = [];
   try {
@@ -553,8 +564,37 @@ async function writeLicence(
     warnings.push('The licence was saved, but its credits could not be applied. The daily credit reset will pick them up.');
   }
   await trySyncClerkSeatLimit(env, masterDb, workspace.clerkOrgId, workspace.id, null, 0, 'partner licence change');
-  await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, [workspace.clerkOrgId]);
+  await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, [workspace.clerkOrgId], { apiCache: env.API_CACHE, workspaceIds: [workspace.id] });
   return { licence: licenceRowView(licence), changeId, warnings };
+}
+
+/**
+ * Make the ended licence a detach left behind usable by the next attachment.
+ * `upsertWorkspaceLicence` refuses a row owned by another partner
+ * (WRONG_PARTNER) and keeps an existing row's status (`ended`), so without
+ * this a detached workspace could never be attached again. The row is
+ * re-pointed at the new partner, reopened (`active`, fresh start, no end) and
+ * its allowance zeroed (detach already cleared the wallet, so the next credit
+ * grant is the full new allowance). Runs in the same transaction as the
+ * upsert that follows, which records the licence change entry (snapshot,
+ * actor, reason) for the new partner; the old partner's history keeps its own
+ * `ended` entry.
+ */
+async function releaseEndedLicence(db: MasterDb, ended: LicenceRow, partnerId: string, actor: string): Promise<void> {
+  const now = new Date();
+  await db
+    .update(workspaceLicences)
+    .set({
+      partnerId,
+      status: 'active',
+      startsAt: now,
+      endsAt: null,
+      monthlyCredits: 0,
+      creditRolloverCap: 0,
+      updatedBy: actor,
+      updatedAt: now,
+    })
+    .where(and(eq(workspaceLicences.id, ended.id), eq(workspaceLicences.status, 'ended')));
 }
 
 /** Admin override of a managed workspace's licence. */
@@ -570,8 +610,37 @@ export async function setWorkspaceLicence(ctx: AdminContext, partnerId: string, 
 /** Subscription states Stripe still bills (or may bill). */
 const LIVE_SUBSCRIPTION = new Set(['active', 'trialing', 'past_due', 'unpaid']);
 
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function isStripeNotFound(err: unknown): boolean {
   return err instanceof Error && /^Stripe API \S+ \S+ failed \(404\)/.test(err.message);
+}
+
+/**
+ * What stopping the workspace's own plan subscription would do, looked up
+ * without changing anything: `null` when there is nothing live to stop. Run
+ * before the licence is written, so a missing Stripe key or an unreachable
+ * Stripe fails the attach while the workspace is still untouched.
+ */
+async function planDirectSubscriptionCancel(
+  ctx: AdminContext,
+  workspace: WorkspaceRow,
+): Promise<{ subscriptionId: string } | null> {
+  const subscriptionId = workspace.stripeSubscriptionId;
+  if (!subscriptionId) return null;
+  const key = ctx.env.STRIPE_SECRET_KEY;
+  if (!key) throw new AdminBillingError('NOT_CONFIGURED', 'Stripe is not configured');
+
+  let status: string | null = null;
+  try {
+    status = (await retrieveSubscriptionForAdmin(key, subscriptionId)).status;
+  } catch (err) {
+    if (!isStripeNotFound(err)) throw err;
+  }
+  if (!status || !LIVE_SUBSCRIPTION.has(status)) return null;
+  return { subscriptionId };
 }
 
 /**
@@ -583,20 +652,11 @@ function isStripeNotFound(err: unknown): boolean {
 async function cancelDirectSubscription(
   ctx: AdminContext,
   workspace: WorkspaceRow,
+  subscriptionId: string,
   mode: 'now' | 'period_end',
-): Promise<{ canceled: boolean }> {
-  const subscriptionId = workspace.stripeSubscriptionId;
-  if (!subscriptionId) return { canceled: false };
+): Promise<void> {
   const key = ctx.env.STRIPE_SECRET_KEY;
   if (!key) throw new AdminBillingError('NOT_CONFIGURED', 'Stripe is not configured');
-
-  let status: string | null = null;
-  try {
-    status = (await retrieveSubscriptionForAdmin(key, subscriptionId)).status;
-  } catch (err) {
-    if (!isStripeNotFound(err)) throw err;
-  }
-  if (!status || !LIVE_SUBSCRIPTION.has(status)) return { canceled: false };
 
   if (mode === 'period_end') {
     await setCancelAtPeriodEnd(key, subscriptionId, true);
@@ -604,7 +664,7 @@ async function cancelDirectSubscription(
       .update(workspaces)
       .set({ subscriptionCancelAtPeriodEnd: true, updatedAt: new Date() })
       .where(eq(workspaces.id, workspace.id));
-    return { canceled: true };
+    return;
   }
 
   await ctx.masterDb
@@ -622,14 +682,18 @@ async function cancelDirectSubscription(
       throw err;
     }
   }
-  return { canceled: true };
 }
 
 /**
- * Move an existing direct workspace under a partner. The direct subscription
- * is cancelled first (so the customer is never billed twice), then the
- * licence is written like any admin licence change. Comp and the paywall /
- * scheduled-deletion state of the direct plan are cleared.
+ * Move an existing direct workspace under a partner. Everything that can be
+ * refused is checked first (the contract terms, a leftover licence of an
+ * earlier partner, Stripe being configured and reachable), then the licence is
+ * written like any admin licence change, and only then is the direct
+ * subscription cancelled (so the customer is never billed twice). A workspace
+ * is therefore never left cancelled but unattached; if the cancellation itself
+ * fails after the attach, the workspace stays attached and the result carries
+ * a warning for the admin to cancel the subscription by hand. Comp and the
+ * paywall / scheduled-deletion state of the direct plan are cleared.
  */
 export async function attachWorkspace(
   ctx: AdminContext,
@@ -653,20 +717,57 @@ export async function attachWorkspace(
     );
   }
   const { packageId, ...terms } = input.licence;
-  // Validate before touching Stripe: a bad licence must not cancel a subscription.
-  await validateLicenceTerms(masterDb, partnerId, terms);
 
+  // 1. Validate everything before touching Stripe or the licence.
+  await validateLicenceTerms(masterDb, partnerId, terms);
+  // A detach leaves the workspace's licence row behind as `ended` (owned by the
+  // old partner). That one is released for the new attachment; a licence that is
+  // still live on a direct workspace is inconsistent and is refused here, not
+  // after the subscription is gone.
+  const [leftover] = await masterDb.select().from(workspaceLicences).where(eq(workspaceLicences.workspaceId, workspace.id)).limit(1);
+  if (leftover && leftover.status !== 'ended') {
+    throw new AdminBillingError(
+      'CONFLICT',
+      `This workspace still has a ${leftover.status} licence. Detach it from its partner first.`,
+    );
+  }
+  const subscription = await planDirectSubscriptionCancel(ctx, workspace);
+
+  // 2. Attach: the licence row, its history entry and the workspace's billing mode, atomically.
   const warnings: string[] = [];
-  const cancel = await cancelDirectSubscription(ctx, workspace, input.cancelDirectSubscription);
+  const outcome = await writeLicence(ctx, {
+    workspace,
+    partnerId,
+    terms,
+    packageId,
+    reason: input.reason,
+    endedLicence: leftover,
+  });
+  warnings.push(...outcome.warnings);
+
+  // 3. Only now stop the direct subscription. The workspace is already attached,
+  // so a failure here must not undo or hide that: report it for the admin to retry.
+  let canceled = false;
+  if (subscription) {
+    try {
+      await cancelDirectSubscription(ctx, workspace, subscription.subscriptionId, input.cancelDirectSubscription);
+      canceled = true;
+    } catch (err) {
+      console.error(
+        `[Admin Partners] Workspace ${workspace.id} was attached to partner ${partnerId}, but its direct subscription ${subscription.subscriptionId} could not be cancelled:`,
+        err,
+      );
+      warnings.push(
+        `The workspace is attached, but its own subscription (${subscription.subscriptionId}) could not be cancelled: ${errorText(err)}. It is still billed to the workspace's Stripe customer; cancel it from the workspace's subscription tools.`,
+      );
+    }
+  }
   if (workspace.stripePhoneSubscriptionId) {
     warnings.push('The workspace still has its own phone-number subscription, which is billed to its Stripe customer, not the partner.');
   }
   if (workspace.stripeAgentsSubscriptionId) {
     warnings.push('The workspace still has its own agents subscription, which is billed to its Stripe customer, not the partner.');
   }
-
-  const outcome = await writeLicence(ctx, { workspace, partnerId, terms, packageId, reason: input.reason });
-  warnings.push(...outcome.warnings);
 
   await masterDb
     .update(workspaces)
@@ -677,15 +778,15 @@ export async function attachWorkspace(
       compReason: null,
       // The direct plan's paywall and pay-or-delete schedule end here, except an admin-requested deletion.
       ...(workspace.deletionRequestedBy ? {} : { trialExpiredAt: null, scheduledDeletionAt: null }),
-      ...(cancel.canceled && input.cancelDirectSubscription === 'now'
+      ...(canceled && input.cancelDirectSubscription === 'now'
         ? { subscriptionStatus: null, subscriptionCycle: null, subscriptionCurrentPeriodStart: null, subscriptionCurrentPeriodEnd: null, subscriptionCancelAtPeriodEnd: false }
         : {}),
       updatedAt: new Date(),
     })
     .where(eq(workspaces.id, workspace.id));
-  await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, [workspace.clerkOrgId]);
+  await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, [workspace.clerkOrgId], { apiCache: env.API_CACHE, workspaceIds: [workspace.id] });
 
-  return { workspaceId: workspace.id, subscriptionCanceled: cancel.canceled, ...(warnings.length ? { warnings } : {}) };
+  return { workspaceId: workspace.id, subscriptionCanceled: canceled, ...(warnings.length ? { warnings } : {}) };
 }
 
 /**
@@ -737,7 +838,7 @@ export async function detachWorkspace(ctx: AdminContext, partnerId: string, work
     ? await masterDb.select().from(plans).where(eq(plans.id, workspace.planId)).limit(1)
     : [];
   await trySyncClerkSeatLimit(env, masterDb, workspace.clerkOrgId, workspace.id, plan ?? null, 0, 'partner detach');
-  await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, [workspace.clerkOrgId]);
+  await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, [workspace.clerkOrgId], { apiCache: env.API_CACHE, workspaceIds: [workspace.id] });
   return { workspaceId: workspace.id, outcome };
 }
 

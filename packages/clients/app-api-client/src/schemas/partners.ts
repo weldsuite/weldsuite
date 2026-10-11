@@ -193,7 +193,8 @@ export const licencePackageSchema = licenceTermsSchema.omit({ resalePricing: tru
 export type LicencePackageInput = z.infer<typeof licencePackageSchema>;
 
 export const workspaceLicenceInputSchema = licenceTermsSchema.extend({
-  packageId: z.string().max(30).nullable().default(null),
+  /** Omitted keeps the workspace's current package; `null` clears the link. */
+  packageId: z.string().max(30).nullable().optional(),
   reason: z.string().trim().max(1000).optional(),
 });
 export type WorkspaceLicenceInput = z.infer<typeof workspaceLicenceInputSchema>;
@@ -497,11 +498,18 @@ export interface LicenceSegment {
 }
 
 /**
- * Split a period into billable day-segments. A day is billed under the licence
- * in force at the END of that UTC day, so a workspace created on the 10th pays
- * from the 10th, and a licence ended on the 20th stops paying from the 20th.
+ * Split a period into billable day-segments. A UTC day is billed when the
+ * licence was `active` or `suspended` at any moment of it, under the last such
+ * snapshot of the day: a workspace created on the 10th pays from the 10th, and
+ * a licence ended on the 20th pays for the 20th and stops from the 21st.
  * `active` and `suspended` days are billed (the workspace and its data are
- * kept); `ended` days, and days before the first change, are not.
+ * kept); days spent wholly `ended`, and days before the first change, are not.
+ *
+ * Credits are billed at the HIGHEST `monthlyCredits` in force at any moment of
+ * the day (the licence carried in from the day before, and every change made
+ * during it, `ended` snapshots excluded). Credits raised and used within a day
+ * and lowered, or the licence ended, before midnight are therefore still
+ * billed for that day. Resale price and seats use the last live snapshot.
  */
 export function licenceSegments(
   changes: readonly LicenceChangePoint[],
@@ -510,20 +518,39 @@ export function licenceSegments(
 ): LicenceSegment[] {
   const sorted = [...changes].sort((a, b) => a.changedAt.getTime() - b.changedAt.getTime());
   const segments: LicenceSegment[] = [];
+  /** The end-of-day snapshot and credits the last segment was built from. */
+  let lastBase: LicenceChangePoint['snapshot'] | null = null;
+  let lastCredits = 0;
   let idx = -1;
   for (let day = periodStart.getTime(); day < periodEnd.getTime(); day += DAY_MS) {
     const endOfDay = day + DAY_MS;
-    while (idx + 1 < sorted.length && sorted[idx + 1]!.changedAt.getTime() < endOfDay) idx += 1;
-    const inForce = idx >= 0 ? sorted[idx]!.snapshot : null;
-    if (!inForce || inForce.status === 'ended') continue;
+    // Changes stamped exactly at midnight replace the licence before the day starts.
+    while (idx + 1 < sorted.length && sorted[idx + 1]!.changedAt.getTime() <= day) idx += 1;
+    // The licence carried in from before the day (if any), then the day's changes.
+    const carriedIn = idx >= 0 ? sorted[idx]!.snapshot : null;
+    // The last live (not `ended`) snapshot of the day, and the day's credit high-water mark.
+    let inForce = carriedIn && carriedIn.status !== 'ended' ? carriedIn : null;
+    let dayCredits = inForce ? inForce.monthlyCredits : 0;
+    while (idx + 1 < sorted.length && sorted[idx + 1]!.changedAt.getTime() < endOfDay) {
+      idx += 1;
+      const snap = sorted[idx]!.snapshot;
+      if (snap.status !== 'ended') {
+        inForce = snap;
+        dayCredits = Math.max(dayCredits, snap.monthlyCredits);
+      }
+    }
+    if (!inForce) continue;
     const key = utcDateKey(new Date(day));
     const last = segments[segments.length - 1];
     const yesterday = utcDateKey(new Date(day - DAY_MS));
-    if (last && last.snapshot === inForce && last.lastDay === yesterday) {
+    if (last && lastBase === inForce && lastCredits === dayCredits && last.lastDay === yesterday) {
       last.days += 1;
       last.lastDay = key;
     } else {
-      segments.push({ snapshot: inForce, days: 1, firstDay: key, lastDay: key });
+      const snapshot = dayCredits === inForce.monthlyCredits ? inForce : { ...inForce, monthlyCredits: dayCredits };
+      segments.push({ snapshot, days: 1, firstDay: key, lastDay: key });
+      lastBase = inForce;
+      lastCredits = dayCredits;
     }
   }
   return segments;

@@ -222,10 +222,26 @@ export async function snapshotSeats(db: PartnerDb, now: Date = new Date()): Prom
 // Extra credits
 // ---------------------------------------------------------------------------
 
+/** `pcg_` + 24 hex of SHA-256(partner, workspace, key): one billing row per idempotency key. */
+async function extraGrantId(partnerId: string, workspaceId: string, idempotencyKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${partnerId}\n${workspaceId}\n${idempotencyKey}`));
+  const hex = Array.from(new Uint8Array(digest).slice(0, 12), (b) => b.toString(16).padStart(2, '0')).join('');
+  return `pcg_${hex}`;
+}
+
 /**
  * Grant extra credits to a partner workspace now; billed on this month's
- * statement at the contract's `extraCreditPrice`. `idempotencyKey` makes a
- * retried request a no-op.
+ * statement at the contract's `extraCreditPrice`.
+ *
+ * The billing row (`partner_credit_grants`, what the statement sums) is written
+ * FIRST under an id derived from the idempotency key, then the wallet is
+ * credited, then the row is linked to the ledger transaction. A crash between
+ * the steps can therefore only leave a row without credits (a retry with the
+ * same key grants them and links the row) and never credits without a row. A
+ * retried request repairs whichever half is missing and bills exactly once,
+ * because the derived id makes a second row for the same key impossible. A
+ * wallet failure removes the row again, best effort, so a request that is
+ * never retried is not billed.
  */
 export async function grantPartnerExtraCredits(input: {
   db: PartnerDb;
@@ -240,35 +256,56 @@ export async function grantPartnerExtraCredits(input: {
   const contract = await getActiveContract(db, partnerId);
   if (!contract) throw new LicenceError('NO_CONTRACT', 'This partner has no contract in force');
   const amountCents = creditsToCents(credits, contract.extraCreditPrice);
-  const result = await grantCredits(db, {
-    workspaceId,
-    amount: credits,
-    type: 'purchase',
-    idempotencyKey: `partner_extra:${input.idempotencyKey}`,
-    description: `Extra credits from partner: +${credits}`,
-    metadata: { reason: 'partner_extra_credits', partnerId, note: input.note },
-    userId: input.grantedBy ?? undefined,
-  });
-  if (result.duplicate) {
-    const [existing] = (await db
-      .select({ id: partnerCreditGrants.id, amount: partnerCreditGrants.amount })
-      .from(partnerCreditGrants)
-      .where(eq(partnerCreditGrants.creditTransactionId, result.transactionId))
-      .limit(1)) as Array<{ id: string; amount: string }>;
-    return { grantId: existing?.id ?? '', newBalance: result.newBalance, amount: existing?.amount ?? fromCents(amountCents), duplicate: true };
+  const grantId = await extraGrantId(partnerId, workspaceId, input.idempotencyKey);
+
+  const inserted = (await db
+    .insert(partnerCreditGrants)
+    .values({
+      id: grantId,
+      partnerId,
+      workspaceId,
+      credits,
+      unitPrice: contract.extraCreditPrice,
+      amount: fromCents(amountCents),
+      creditTransactionId: null,
+      grantedBy: input.grantedBy,
+    })
+    .onConflictDoNothing({ target: partnerCreditGrants.id })
+    .returning({ id: partnerCreditGrants.id })) as Array<{ id: string }>;
+
+  let result: Awaited<ReturnType<typeof grantCredits>>;
+  try {
+    result = await grantCredits(db, {
+      workspaceId,
+      amount: credits,
+      type: 'purchase',
+      idempotencyKey: `partner_extra:${input.idempotencyKey}`,
+      description: `Extra credits from partner: +${credits}`,
+      metadata: { reason: 'partner_extra_credits', partnerId, note: input.note },
+      userId: input.grantedBy ?? undefined,
+    });
+  } catch (err) {
+    if (inserted.length > 0) {
+      await db
+        .delete(partnerCreditGrants)
+        .where(and(eq(partnerCreditGrants.id, grantId), isNull(partnerCreditGrants.creditTransactionId)))
+        .catch(() => undefined);
+    }
+    throw err;
   }
-  const grantId = generateId('pcg');
-  await db.insert(partnerCreditGrants).values({
-    id: grantId,
-    partnerId,
-    workspaceId,
-    credits,
-    unitPrice: contract.extraCreditPrice,
-    amount: fromCents(amountCents),
-    creditTransactionId: result.transactionId,
-    grantedBy: input.grantedBy,
-  });
-  return { grantId, newBalance: result.newBalance, amount: fromCents(amountCents), duplicate: false };
+
+  // Link (or re-link, after a retry) the billing row to the ledger transaction.
+  await db
+    .update(partnerCreditGrants)
+    .set({ creditTransactionId: result.transactionId })
+    .where(and(eq(partnerCreditGrants.id, grantId), isNull(partnerCreditGrants.creditTransactionId)));
+
+  const [row] = (await db
+    .select({ amount: partnerCreditGrants.amount })
+    .from(partnerCreditGrants)
+    .where(eq(partnerCreditGrants.id, grantId))
+    .limit(1)) as Array<{ amount: string }>;
+  return { grantId, newBalance: result.newBalance, amount: row?.amount ?? fromCents(amountCents), duplicate: result.duplicate };
 }
 
 /** Extra-credit charges per workspace in [from, to), in cents. */
@@ -317,17 +354,48 @@ export async function partnerWorkspaceOrgIds(db: PartnerDb, partnerId: string): 
   return rows.map((r) => r.clerkOrgId).filter((v): v is string => Boolean(v));
 }
 
+/** The workspaces of a partner as cache keys: master id (external-api) and Clerk org id (the rest). */
+export async function partnerWorkspaceCacheKeys(
+  db: PartnerDb,
+  partnerId: string,
+): Promise<Array<{ workspaceId: string; clerkOrgId: string | null }>> {
+  return (await db
+    .select({ workspaceId: workspaces.id, clerkOrgId: workspaces.clerkOrgId })
+    .from(workspaces)
+    .where(eq(workspaces.partnerId, partnerId))) as Array<{ workspaceId: string; clerkOrgId: string | null }>;
+}
+
+type KvDeleter = { delete(key: string): Promise<void> };
+
 /**
- * Drop the cached workspace contexts so a licence or partner-status change is
- * enforced now instead of after the KV TTL (300 s). worker-kit caches by Clerk
- * org id under `ws:<org>` in WORKSPACE_CACHE; other caches expire on their own.
+ * Drop every cached copy of a workspace's licence and partner-status state, so
+ * a licence or partner-status change is enforced now instead of after the KV
+ * TTL (300 s). Three caches hold it:
+ *
+ * - worker-kit (every module worker, app-api): `ws:<clerkOrgId>` in
+ *   `WORKSPACE_CACHE` (`kv`, the first argument);
+ * - external-api: `ws:<master workspaceId>` in `API_CACHE` (middleware/auth.ts
+ *   `getWorkspaceDetails`);
+ * - mcp-server: `mcp:org:<clerkOrgId>` in `API_CACHE` (middleware/auth.ts
+ *   `getWorkspaceForOrg`). external-api and mcp-server share the `API_CACHE`
+ *   namespace, so one `apiCache` handle covers both.
+ *
+ * A missing handle skips that cache (it then expires on its own TTL), so a
+ * caller without the `API_CACHE` binding degrades to the old behaviour.
  */
 export async function invalidateWorkspaceContexts(
-  kv: { delete(key: string): Promise<void> } | undefined,
+  kv: KvDeleter | undefined,
   clerkOrgIds: readonly (string | null | undefined)[],
+  extra: { apiCache?: KvDeleter; workspaceIds?: readonly (string | null | undefined)[] } = {},
 ): Promise<void> {
-  if (!kv) return;
-  await Promise.all(
-    clerkOrgIds.filter((id): id is string => Boolean(id)).map((id) => kv.delete(`ws:${id}`).catch(() => undefined)),
-  );
+  const orgIds = clerkOrgIds.filter((id): id is string => Boolean(id));
+  const workspaceIds = (extra.workspaceIds ?? []).filter((id): id is string => Boolean(id));
+  const quiet = (p: Promise<void>) => p.catch(() => undefined);
+  const deletes: Array<Promise<void>> = [];
+  if (kv) for (const id of orgIds) deletes.push(quiet(kv.delete(`ws:${id}`)));
+  if (extra.apiCache) {
+    for (const id of workspaceIds) deletes.push(quiet(extra.apiCache.delete(`ws:${id}`)));
+    for (const id of orgIds) deletes.push(quiet(extra.apiCache.delete(`mcp:org:${id}`)));
+  }
+  await Promise.all(deletes);
 }

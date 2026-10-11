@@ -100,12 +100,27 @@ describe('isReadOnlyRequestAllowed', () => {
     }
   });
 
-  it('allows the read-style POSTs: search and export', () => {
+  it('allows the read-style POSTs: search', () => {
     expect(isReadOnlyRequestAllowed('POST', '/api/search')).toBe(true);
     expect(isReadOnlyRequestAllowed('POST', '/api/search/global')).toBe(true);
-    expect(isReadOnlyRequestAllowed('POST', '/api/tickets/export')).toBe(true);
-    expect(isReadOnlyRequestAllowed('POST', '/api/crm/companies/export/csv')).toBe(true);
-    expect(isReadOnlyRequestAllowed('POST', '/v1/customers/export')).toBe(true);
+  });
+
+  it('does not open writes on paths that merely contain "export"', () => {
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      for (const path of [
+        '/api/weldagent/templates/export',
+        '/api/tickets/export',
+        '/api/crm/companies/export/csv',
+        '/v1/customers/export',
+        '/api/exports',
+        '/api/imports/export-mapping',
+      ]) {
+        expect(isReadOnlyRequestAllowed(method, path), `${method} ${path}`).toBe(false);
+      }
+    }
+    // Export endpoints are GETs, which stay open.
+    expect(isReadOnlyRequestAllowed('GET', '/api/accounting-exports/xaf')).toBe(true);
+    expect(isReadOnlyRequestAllowed('GET', '/api/tax-returns/t_1/export')).toBe(true);
   });
 
   it('allows the user-level core paths', () => {

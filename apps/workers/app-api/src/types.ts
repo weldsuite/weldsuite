@@ -30,6 +30,13 @@ export interface Env {
   API_FORWARD_MODULES?: string;
   DATABASE_URL_MASTER: string;
   WORKSPACE_CACHE: KVNamespace;
+  /**
+   * external-api's and mcp-server's KV cache (same namespace ids as theirs). app-api
+   * only deletes from it, to drop cached licence / partner-status state at once
+   * (`invalidateWorkspaceContexts`). Absent in local dev: those entries then
+   * expire on their 300 s TTL.
+   */
+  API_CACHE?: KVNamespace;
   ENVIRONMENT: string;
   /**
    * "true" enforces per-app permission checks: a key refused in the request's

@@ -233,7 +233,7 @@ app.post('/workspaces', canManageWorkspaces, zValidator('json', createManagedWor
         country: body.country,
         region: body.region,
         ownerEmail: body.ownerEmail.toLowerCase(),
-        licence: { ...terms, packageId: body.licence.packageId },
+        licence: { ...terms, packageId: body.licence.packageId ?? null },
       });
     } catch (err) {
       // Only the message crosses the RPC boundary; workspace-worker prefixes it with a code.
@@ -285,6 +285,17 @@ app.put('/workspaces/:id/licence', canManageLicences, zValidator('json', workspa
     const id = c.req.param('id');
     const body = c.req.valid('json');
     const masterDb = getMasterDb(c.env);
+
+    // Same rule as new workspaces and extra credits: a partner that has not
+    // paid cannot raise credits, seats or apps. The whole PUT is refused (a
+    // partial "decreases only" rule would need the stored licence first, and
+    // suspending or ending a licence still works through /status).
+    if (partner.status === 'suspended') {
+      return c.json(
+        { error: { code: 'PARTNER_SUSPENDED', message: 'Licence changes are paused until the overdue invoice is paid.' } },
+        403,
+      );
+    }
 
     const workspace = await ownWorkspace(c, id);
     if (!workspace) return error.notFound(c, 'Workspace', id);

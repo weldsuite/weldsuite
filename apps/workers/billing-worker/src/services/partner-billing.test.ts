@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   getPartner: vi.fn(),
   markStatementPaidByInvoice: vi.fn(),
   recomputePartnerStatus: vi.fn(),
-  partnerWorkspaceOrgIds: vi.fn(),
+  partnerWorkspaceCacheKeys: vi.fn(),
   buildStatement: vi.fn(),
   saveStatement: vi.fn(),
   createPartnerDraftInvoice: vi.fn(),
@@ -23,7 +23,7 @@ vi.mock('@weldsuite/core-domain/partners', async (importOriginal) => ({
   getPartner: mocks.getPartner,
   markStatementPaidByInvoice: mocks.markStatementPaidByInvoice,
   recomputePartnerStatus: mocks.recomputePartnerStatus,
-  partnerWorkspaceOrgIds: mocks.partnerWorkspaceOrgIds,
+  partnerWorkspaceCacheKeys: mocks.partnerWorkspaceCacheKeys,
   buildStatement: mocks.buildStatement,
   saveStatement: mocks.saveStatement,
 }));
@@ -85,7 +85,7 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
   mocks.getPartner.mockResolvedValue(partner);
-  mocks.partnerWorkspaceOrgIds.mockResolvedValue(['org_1', 'org_2']);
+  mocks.partnerWorkspaceCacheKeys.mockResolvedValue([{ workspaceId: 'ws_1', clerkOrgId: 'org_1' }, { workspaceId: 'ws_2', clerkOrgId: 'org_2' }]);
   mocks.createPartnerDraftInvoice.mockResolvedValue({ id: 'in_draft', status: 'draft', amount_due: 0, currency: 'usd' });
   mocks.createPartnerInvoiceItem.mockResolvedValue({ id: 'ii_1' });
   mocks.finalizePartnerInvoice.mockResolvedValue({
@@ -147,7 +147,7 @@ describe('invoiceStatement', () => {
         daysUntilDue: 30,
         metadata: { kind: 'partner_statement', statementId: 'pst_1', partnerId: 'ptr_a', period: '2026-10' },
       }),
-      'cron:ptr_a:2026-10:invoice',
+      'cron:ptr_a:2026-10:after:first:invoice',
     );
     const items = mocks.createPartnerInvoiceItem.mock.calls.map((c) => c[1]);
     expect(items.map((i) => i.amountCents)).toEqual([30000, 6000, 1200]);
@@ -263,8 +263,64 @@ describe('invoiceStatement', () => {
         returns: [[], [statementRow({ status: 'invoiced' })]],
       });
       await invoiceStatement(env, db, 'pst_1', 'k');
-      expect(mocks.voidPartnerInvoice).toHaveBeenCalledWith('sk_test_x', 'in_stale', 'k:void-stale');
+      expect(mocks.voidPartnerInvoice).toHaveBeenCalledWith('sk_test_x', 'in_stale', 'k:after:in_stale:void-stale');
       expect(mocks.createPartnerDraftInvoice).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses fresh idempotency keys for every Stripe call of an attempt that replaces an invoice, so Stripe does not replay the deleted one', async () => {
+      const keysOf = () => ({
+        draft: mocks.createPartnerDraftInvoice.mock.calls.map((c) => c[2]),
+        items: mocks.createPartnerInvoiceItem.mock.calls.map((c) => c[2]).sort(),
+        finalize: mocks.finalizePartnerInvoice.mock.calls.map((c) => c[2]),
+        send: mocks.sendPartnerInvoice.mock.calls.map((c) => c[2]),
+      });
+      // First attempt: no previous invoice.
+      await invoiceStatement(
+        env,
+        createFakeDb({ selects: [[statementRow()], lines], returns: [[], [statementRow({ status: 'invoiced' })]] }).db,
+        'pst_1',
+        'cron:ptr_a:2026-10',
+      );
+      const first = keysOf();
+      vi.clearAllMocks();
+      mocks.createPartnerDraftInvoice.mockResolvedValue({ id: 'in_draft2', status: 'draft', amount_due: 0, currency: 'usd' });
+      mocks.createPartnerInvoiceItem.mockResolvedValue({ id: 'ii_1' });
+      mocks.finalizePartnerInvoice.mockResolvedValue({ id: 'in_draft2', status: 'open', amount_due: 37200, total: 37200, currency: 'usd' });
+      mocks.sendPartnerInvoice.mockResolvedValue({});
+      mocks.getPartner.mockResolvedValue(partner);
+
+      // Retry: the first attempt left draft in_draft behind; it is deleted and replaced.
+      mocks.retrievePartnerInvoice.mockResolvedValue({ id: 'in_draft', status: 'draft', amount_due: 0, currency: 'usd' });
+      await invoiceStatement(
+        env,
+        createFakeDb({ selects: [[statementRow({ stripeInvoiceId: 'in_draft' })], lines], returns: [[], [statementRow({ status: 'invoiced' })]] }).db,
+        'pst_1',
+        'cron:ptr_a:2026-10',
+      );
+      const retry = keysOf();
+
+      expect(mocks.deletePartnerDraftInvoice).toHaveBeenCalledWith('sk_test_x', 'in_draft');
+      expect(retry.draft).toEqual(['cron:ptr_a:2026-10:after:in_draft:invoice']);
+      expect(retry.items).toHaveLength(3);
+      // Nothing is shared with the first attempt.
+      const all = (k: ReturnType<typeof keysOf>) => [...k.draft, ...k.items, ...k.finalize, ...k.send];
+      expect(all(retry).filter((key) => all(first).includes(key))).toEqual([]);
+      expect(retry.items.every((k) => k.startsWith('cron:ptr_a:2026-10:after:in_draft:item:'))).toBe(true);
+    });
+
+    it('derives the keys from the replaced invoice, so a re-run of the same attempt still dedupes', async () => {
+      mocks.retrievePartnerInvoice.mockRejectedValue(new Error('Stripe API GET /v1/invoices/in_gone failed (404): missing'));
+      for (let i = 0; i < 2; i++) {
+        await invoiceStatement(
+          env,
+          createFakeDb({ selects: [[statementRow({ stripeInvoiceId: 'in_gone' })], lines], returns: [[], [statementRow({ status: 'invoiced' })]] }).db,
+          'pst_1',
+          'k',
+        );
+      }
+      const [a, b] = mocks.createPartnerDraftInvoice.mock.calls.map((c) => c[2]);
+      expect(a).toBe('k:after:in_gone:invoice');
+      expect(b).toBe(a);
     });
 
     it('marks the statement paid when its invoice was already paid in Stripe', async () => {
@@ -328,7 +384,7 @@ describe('runPartnerStatement', () => {
     });
     const run = await runPartnerStatement(env, db, { partnerId: 'ptr_a', period, keyBase: 'admin:run:req', reopenVoided: true, now });
     expect(run.action).toBe('invoiced');
-    expect(mocks.createPartnerDraftInvoice.mock.calls[0]![2]).toBe('admin:run:req:invoice');
+    expect(mocks.createPartnerDraftInvoice.mock.calls[0]![2]).toBe('admin:run:req:after:first:invoice');
   });
 
   it('reports an unknown partner', async () => {

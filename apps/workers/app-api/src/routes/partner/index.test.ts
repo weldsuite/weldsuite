@@ -320,6 +320,30 @@ describe('PUT /workspaces/:id/licence', () => {
     expect(written).toBeLessThan(applied);
   });
 
+  it('keeps the package when packageId is omitted and clears it on an explicit null', async () => {
+    memberships([PARTNER, 'admin']);
+    m(domain.upsertWorkspaceLicence).mockResolvedValue({ licence: LICENCE_ROW, previous: { monthlyCredits: 1000 }, changeId: 'wlc_9' });
+    const { packageId: _omit, ...withoutPackage } = LICENCE_BODY;
+
+    let res = await app().request('/api/partner/workspaces/ws_1/licence', { method: 'PUT', ...json(withoutPackage) });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(domain.upsertWorkspaceLicence).mock.calls.at(-1)![0].packageId).toBeUndefined();
+
+    res = await app().request('/api/partner/workspaces/ws_1/licence', { method: 'PUT', ...json({ ...withoutPackage, packageId: null }) });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(domain.upsertWorkspaceLicence).mock.calls.at(-1)![0].packageId).toBeNull();
+  });
+
+  it('refuses a licence change for a suspended partner and writes nothing', async () => {
+    memberships([{ ...PARTNER, status: 'suspended' } as domain.PartnerRow, 'owner']);
+    const res = await app().request('/api/partner/workspaces/ws_1/licence', { method: 'PUT', ...json(LICENCE_BODY) });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('PARTNER_SUSPENDED');
+    expect(domain.validateLicenceTerms).not.toHaveBeenCalled();
+    expect(domain.upsertWorkspaceLicence).not.toHaveBeenCalled();
+    expect(applyLicenceEffects).not.toHaveBeenCalled();
+  });
+
   it('404s for a workspace of another partner and writes nothing', async () => {
     memberships([PARTNER, 'owner']);
     m(domain.getPartnerWorkspace).mockResolvedValue(null);

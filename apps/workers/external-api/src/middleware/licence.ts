@@ -42,12 +42,12 @@ export function workspaceRestrictions(input: {
 
 /**
  * Copy of worker-kit's `isReadOnlyRequestAllowed`
- * (`packages/core/worker-kit/src/read-only.ts`): reads always; writes only on
- * read-style POSTs (anything under `/export`, `/v1/search`).
+ * (`packages/core/worker-kit/src/read-only.ts`): reads always (GET, HEAD,
+ * OPTIONS); a write method only on `/v1/search`. No "export" rule: a substring
+ * match let any write through, and no public export endpoint is a POST.
  */
 export function isReadOnlyRequestAllowed(method: string, path: string): boolean {
   if (['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return true;
-  if (path.includes('/export')) return true;
   return path === '/v1/search' || path.startsWith('/v1/search/');
 }
 

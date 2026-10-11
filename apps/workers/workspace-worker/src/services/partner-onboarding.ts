@@ -14,17 +14,18 @@
  *    licence's credits and skips Stripe.
  *
  * Re-running is safe: a retry within minutes resumes the workspace it created
- * (same partner and name), every master write is an upsert, and the owner
- * invitation is created only when no pending one exists for that email.
+ * (same partner, same name AND same owner email), every master write is an
+ * upsert, and the owner invitation is created only when no pending one exists
+ * for that email. A second customer with the same name but another owner gets a
+ * workspace of their own.
  */
 
 import { z } from 'zod';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, desc, gte } from 'drizzle-orm';
 import { plans, workspaces } from '@weldsuite/db/schema/master';
 import {
   LicenceError,
   assertPartnerOnboardAllowed,
-  findRecentPartnerWorkspace,
   getPartner,
   registerPartnerWorkspace,
   type PartnerOnboardInput,
@@ -43,6 +44,11 @@ const CLERK_API = 'https://api.clerk.com/v1';
 
 /** Plan a partner workspace gets when its licence names no feature plan. */
 const DEFAULT_PLAN_SLUG = 'free';
+
+/** How long after creation a repeated call counts as a retry of the same request. */
+const RETRY_WINDOW_MS = 10 * 60_000;
+/** Same-name workspaces of one partner examined for a retry match. */
+const RETRY_CANDIDATES = 10;
 
 export const partnerOnboardInputSchema = z.object({
   partnerId: z.string().min(1).max(30),
@@ -184,6 +190,51 @@ export async function ensurePartnerOwnerInvited(env: Env, clerkOrgId: string): P
   return sent;
 }
 
+interface ResumableWorkspace {
+  id: string;
+  clerkOrgId: string;
+  slug: string | null;
+}
+
+/**
+ * The workspace an earlier attempt of THIS request created, or null. A retry is
+ * recognised by partner + name + owner email together (the RPC input has no
+ * request id): a recent workspace of the partner under the same name only
+ * counts when its Clerk org was created for the same owner (case-insensitive;
+ * `partnerOwnerEmail` private metadata, or the still-pending invite marker).
+ * Two different customers who share a name therefore never collapse into one
+ * workspace. A candidate whose org cannot be read is skipped, never resumed.
+ */
+async function findResumableWorkspace(
+  env: Env,
+  masterDb: ReturnType<typeof getMasterDb>,
+  input: PartnerOnboardInput,
+): Promise<ResumableWorkspace | null> {
+  const since = new Date(Date.now() - RETRY_WINDOW_MS);
+  const candidates = await masterDb
+    .select({ id: workspaces.id, clerkOrgId: workspaces.clerkOrgId, slug: workspaces.slug })
+    .from(workspaces)
+    .where(and(eq(workspaces.partnerId, input.partnerId), eq(workspaces.name, input.name), gte(workspaces.createdAt, since)))
+    .orderBy(desc(workspaces.createdAt))
+    .limit(RETRY_CANDIDATES);
+
+  const wanted = input.ownerEmail.toLowerCase();
+  for (const row of candidates) {
+    if (!row.clerkOrgId) continue;
+    const res = await fetch(`${CLERK_API}/organizations/${row.clerkOrgId}`, { headers: clerkHeaders(env) });
+    if (!res.ok) {
+      console.warn(`[PartnerOnboard] Could not read org ${row.clerkOrgId} to match a retry (${res.status})`);
+      continue;
+    }
+    const org = (await res.json()) as {
+      private_metadata?: { partnerOwnerEmail?: string; partnerOwnerInvite?: PendingOwnerInvite | null };
+    };
+    const owner = org.private_metadata?.partnerOwnerEmail ?? org.private_metadata?.partnerOwnerInvite?.email;
+    if (owner?.toLowerCase() === wanted) return { id: row.id, clerkOrgId: row.clerkOrgId, slug: row.slug };
+  }
+  return null;
+}
+
 /** Map a thrown `LicenceError` onto the RPC error. */
 function asOnboardError(err: unknown): never {
   if (err instanceof LicenceError) throw new PartnerOnboardError(err.code, err.message);
@@ -213,8 +264,8 @@ export async function onboardPartnerWorkspace(env: Env, rawInput: unknown): Prom
   }
   const partner = (await getPartner(masterDb, input.partnerId))!;
 
-  // A retry resumes the workspace an earlier call created.
-  const resumed = await findRecentPartnerWorkspace(masterDb, { partnerId: input.partnerId, name: input.name });
+  // A retry (same partner, name and owner) resumes the workspace an earlier call created.
+  const resumed = await findResumableWorkspace(env, masterDb, input);
 
   let clerkOrgId: string;
   let slug: string;
@@ -239,6 +290,9 @@ export async function onboardPartnerWorkspace(env: Env, rawInput: unknown): Prom
       // `ensurePartnerOwnerInvited` consumes.
       privateMetadata: {
         partnerId: input.partnerId,
+        // Permanent (the invite marker below is cleared once sent): lets a
+        // retry tell this customer's workspace from a same-name one.
+        partnerOwnerEmail: input.ownerEmail,
         partnerOwnerInvite: { email: input.ownerEmail, invitedByName: partner.name },
       },
     });

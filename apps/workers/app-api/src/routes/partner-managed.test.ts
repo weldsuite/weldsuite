@@ -51,6 +51,7 @@ import { billingRoutes } from './billing';
 import { creditsRoutes } from './credits';
 import * as managed from '../services/partner/managed';
 import * as billingService from '../services/billing';
+import * as plans from '../services/plan-country-pricing';
 
 const mManaged = vi.mocked(managed.getManagedContext);
 const mTerritory = vi.mocked(managed.territoryPartnerInfo);
@@ -75,9 +76,9 @@ const MANAGED = {
   licence: { status: 'active' as const, allowedApps: ['welddesk'], monthlyCredits: 3000, maxSeats: 10 },
 };
 
-const post = (body: unknown = {}): RequestInit => ({
+const post = (body: unknown = {}, headers: Record<string, string> = {}): RequestInit => ({
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', ...headers },
   body: JSON.stringify(body),
 });
 
@@ -87,6 +88,7 @@ beforeEach(() => {
   state.orderByRows = [];
   mManaged.mockResolvedValue(null);
   mTerritory.mockResolvedValue(null);
+  vi.mocked(plans.resolvePlanPricesForCaller).mockResolvedValue({ country: 'BR', currency: null, plans: {} } as never);
 });
 
 describe('PARTNER_MANAGED guard', () => {
@@ -142,7 +144,7 @@ describe('POST /api/billing/checkout territory', () => {
 
   it('answers 409 PARTNER_TERRITORY with the partner for a workspace with no subscription', async () => {
     mTerritory.mockResolvedValue(PARTNER);
-    const res = await billing().request('/api/billing/checkout', post(body));
+    const res = await billing().request('/api/billing/checkout', post(body, { 'CF-IPCountry': 'BR' }));
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
       error: {
@@ -156,7 +158,7 @@ describe('POST /api/billing/checkout territory', () => {
   it('also closes checkout when the old subscription was canceled', async () => {
     mTerritory.mockResolvedValue(PARTNER);
     mWorkspace.mockResolvedValue({ ...workspace, stripeSubscriptionId: 'sub_1', subscriptionStatus: 'canceled' } as never);
-    const res = await billing().request('/api/billing/checkout', post(body));
+    const res = await billing().request('/api/billing/checkout', post(body, { 'CF-IPCountry': 'BR' }));
     expect(res.status).toBe(409);
   });
 
@@ -168,6 +170,23 @@ describe('POST /api/billing/checkout territory', () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { message: string } }).error.message).toContain('on request');
     expect(mTerritory).not.toHaveBeenCalled();
+  });
+
+  it('decides by the network country only: a BR request is blocked whatever billing country is on file', async () => {
+    // The billing country (what resolvePlanPricesForCaller prefers) says NL.
+    vi.mocked(plans.resolvePlanPricesForCaller).mockResolvedValue({ country: 'NL', currency: null, plans: {} } as never);
+    mTerritory.mockImplementation(async (_db, country) => (country === 'BR' ? PARTNER : null));
+    const res = await billing().request('/api/billing/checkout', post(body, { 'CF-IPCountry': 'BR' }));
+    expect(res.status).toBe(409);
+    expect(mTerritory).toHaveBeenCalledWith(expect.anything(), 'BR');
+    expect(mTerritory).not.toHaveBeenCalledWith(expect.anything(), 'NL');
+  });
+
+  it('is not blocked by a served billing country when the request comes from an open one', async () => {
+    vi.mocked(plans.resolvePlanPricesForCaller).mockResolvedValue({ country: 'BR', currency: null, plans: {} } as never);
+    mTerritory.mockImplementation(async (_db, country) => (country === 'BR' ? PARTNER : null));
+    const res = await billing().request('/api/billing/checkout', post(body, { 'CF-IPCountry': 'NL' }));
+    expect(res.status).toBe(400); // past the territory check
   });
 
   it('lets a country without a partner check out as before', async () => {
@@ -219,9 +238,11 @@ describe('GET /api/billing/managed', () => {
 });
 
 describe('plans endpoints', () => {
-  it('/plans-page carries the territory partner of the caller’s country', async () => {
+  it('/plans-page carries the territory partner of the request’s network country', async () => {
     mTerritory.mockResolvedValue(PARTNER);
-    const res = await billing([]).request('/api/billing/plans-page');
+    // The price list follows the billing country (mocked: NL); territory does not.
+    vi.mocked(plans.resolvePlanPricesForCaller).mockResolvedValue({ country: 'NL', currency: null, plans: {} } as never);
+    const res = await billing([]).request('/api/billing/plans-page', { headers: { 'CF-IPCountry': 'BR' } });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: { partnerManaged: unknown } };
     expect(body.data.partnerManaged).toEqual(PARTNER);

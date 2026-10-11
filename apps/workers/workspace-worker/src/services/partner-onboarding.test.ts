@@ -9,10 +9,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const update = vi.fn();
 const planRows: { current: unknown[] } = { current: [{ id: 'plan_free' }] };
+/** Recent same-name workspaces of the partner (the retry candidates). */
+const recentRows: { current: Array<{ id: string; clerkOrgId: string | null; slug: string | null }> } = { current: [] };
 
 vi.mock('../db', () => ({
   getMasterDb: () => ({
-    select: () => ({ from: () => ({ where: () => ({ limit: async () => planRows.current }) }) }),
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => planRows.current,
+          orderBy: () => ({ limit: async () => recentRows.current }),
+        }),
+      }),
+    }),
     update: () => ({ set: (v: unknown) => ({ where: async () => update(v) }) }),
   }),
 }));
@@ -27,7 +36,6 @@ vi.mock('@weldsuite/core-domain/partners', () => ({
     }
   },
   assertPartnerOnboardAllowed: vi.fn(async () => undefined),
-  findRecentPartnerWorkspace: vi.fn(async () => null),
   getPartner: vi.fn(async () => ({ id: 'ptr_1', name: 'Acme Partner' })),
   registerPartnerWorkspace: vi.fn(async () => ({ workspaceId: 'ws_1', created: true })),
 }));
@@ -101,11 +109,11 @@ const clerkCall = (method: string, suffix: string) =>
 beforeEach(() => {
   vi.clearAllMocks();
   planRows.current = [{ id: 'plan_free' }];
+  recentRows.current = [];
   invitations = [];
   orgPrivateMetadata = { partnerOwnerInvite: { email: 'owner@acme.example', invitedByName: 'Acme Partner' } };
   stubClerk();
   vi.mocked(provisionWorkspaceDatabase).mockResolvedValue({ ok: true, ready: false });
-  vi.mocked(core.findRecentPartnerWorkspace).mockResolvedValue(null);
 });
 
 describe('onboardPartnerWorkspace', () => {
@@ -123,6 +131,7 @@ describe('onboardPartnerWorkspace', () => {
       public_metadata: { selectedApps: ['weldcrm', 'welddesk'], country: 'BR', partnerManaged: true },
       private_metadata: {
         partnerId: 'ptr_1',
+        partnerOwnerEmail: 'owner@acme.example',
         partnerOwnerInvite: { email: 'owner@acme.example', invitedByName: 'Acme Partner' },
       },
     });
@@ -214,12 +223,79 @@ describe('onboardPartnerWorkspace', () => {
     expect(core.registerPartnerWorkspace).not.toHaveBeenCalled();
   });
 
-  it('resumes the workspace of an earlier attempt instead of creating a second org', async () => {
-    vi.mocked(core.findRecentPartnerWorkspace).mockResolvedValue({ id: 'ws_1', clerkOrgId: 'org_old', slug: 'acme-bv' });
+  it('resumes the workspace of an earlier attempt of the same owner instead of creating a second org', async () => {
+    recentRows.current = [{ id: 'ws_1', clerkOrgId: 'org_old', slug: 'acme-bv' }];
+    orgPrivateMetadata = { partnerOwnerEmail: 'owner@acme.example' };
+    // The retry spells the email differently: the match is case-insensitive.
     const out = await onboardPartnerWorkspace(env, validInput);
     expect(out).toEqual({ workspaceId: 'ws_1', clerkOrgId: 'org_old' });
     expect(clerkCall('POST', '/organizations')).toBeUndefined();
     expect(provisionWorkspaceDatabase).toHaveBeenCalled();
+  });
+
+  it('resumes while the owner invitation is still pending (marker only)', async () => {
+    recentRows.current = [{ id: 'ws_1', clerkOrgId: 'org_old', slug: 'acme-bv' }];
+    orgPrivateMetadata = { partnerOwnerInvite: { email: 'OWNER@acme.example' } };
+    const out = await onboardPartnerWorkspace(env, validInput);
+    expect(out.clerkOrgId).toBe('org_old');
+    expect(clerkCall('POST', '/organizations')).toBeUndefined();
+  });
+
+  it('creates a new workspace for a different owner with the same name', async () => {
+    recentRows.current = [{ id: 'ws_1', clerkOrgId: 'org_old', slug: 'acme-bv' }];
+    orgPrivateMetadata = { partnerOwnerEmail: 'someone.else@other.example' };
+    const out = await onboardPartnerWorkspace(env, validInput);
+    expect(out.clerkOrgId).toBe('org_new');
+    // A fresh org carrying this customer's owner marker, so their invite is not dropped.
+    expect(clerkCall('POST', '/organizations')!.body).toMatchObject({
+      private_metadata: { partnerOwnerEmail: 'owner@acme.example', partnerOwnerInvite: { email: 'owner@acme.example' } },
+    });
+  });
+
+  it('finds the retried workspace behind a same-name one of another owner', async () => {
+    recentRows.current = [
+      { id: 'ws_other', clerkOrgId: 'org_other', slug: 'acme-bv-2' },
+      { id: 'ws_1', clerkOrgId: 'org_old', slug: 'acme-bv' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ method: init?.method ?? 'GET', url, body: null });
+        if (url.endsWith('/organizations/org_other')) {
+          return new Response(JSON.stringify({ private_metadata: { partnerOwnerEmail: 'x@other.example' } }), { status: 200 });
+        }
+        if (url.endsWith('/organizations/org_old')) {
+          return new Response(JSON.stringify({ private_metadata: { partnerOwnerEmail: 'owner@acme.example' } }), { status: 200 });
+        }
+        return new Response('{}', { status: 200 });
+      }),
+    );
+    const out = await onboardPartnerWorkspace(env, validInput);
+    expect(out.clerkOrgId).toBe('org_old');
+    expect(clerkCall('POST', '/organizations')).toBeUndefined();
+  });
+
+  it('never resumes an org whose owner cannot be determined', async () => {
+    recentRows.current = [{ id: 'ws_1', clerkOrgId: 'org_old', slug: 'acme-bv' }];
+    orgPrivateMetadata = {};
+    const out = await onboardPartnerWorkspace(env, validInput);
+    expect(out.clerkOrgId).toBe('org_new');
+  });
+
+  it('skips a candidate whose Clerk org cannot be read', async () => {
+    recentRows.current = [{ id: 'ws_1', clerkOrgId: 'org_old', slug: 'acme-bv' }];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET';
+        calls.push({ method, url, body: null });
+        if (method === 'GET') return new Response('{}', { status: 500 });
+        if (url.endsWith('/organizations')) return new Response(JSON.stringify({ id: 'org_new', slug: 'acme-bv' }), { status: 200 });
+        return new Response('{}', { status: 200 });
+      }),
+    );
+    const out = await onboardPartnerWorkspace(env, validInput);
+    expect(out.clerkOrgId).toBe('org_new');
   });
 
   it('marks the workspace failed and reports PROVISIONING_FAILED when provisioning cannot start', async () => {

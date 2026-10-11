@@ -55,7 +55,10 @@
  *  - Billing mutations (checkout, seats, cancel, reactivate, payment methods)
  *    answer 403 PARTNER_MANAGED on a partner workspace: its partner is billed.
  *  - POST /checkout answers 409 PARTNER_TERRITORY for a direct workspace with no
- *    running subscription whose billing country is served by a reseller.
+ *    running subscription when the request's network country (Cloudflare
+ *    geolocation) is served by a reseller. The billing country (Settings →
+ *    Business) is user-editable and never decides territory; it only picks the
+ *    price list.
  *  - /plans and /plans-page carry `partnerManaged` (the reseller of the
  *    caller's country, else null).
  *
@@ -107,6 +110,7 @@ import {
   minorUnitsToCents,
   planCheckoutPrice,
   planDisplayPrice,
+  requestCountry,
   resolvePlanPricesForCaller,
 } from '../../services/plan-country-pricing';
 import { blockPartnerManaged } from '../../middleware/partner-managed';
@@ -168,9 +172,10 @@ app.get('/subscription', async (c) => {
 app.get('/plans', async (c) => {
   const masterDb = getMasterDb(c.env);
   const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
-  // The reseller that serves the caller's country, if any (same on every row:
-  // this endpoint returns a bare array, so there is no envelope field for it).
-  const partnerManaged = await territoryPartnerInfo(masterDb, prices.country);
+  // The reseller that serves the request's network country, if any (same on
+  // every row: this endpoint returns a bare array, so there is no envelope
+  // field for it). Same rule as checkout, so the page and the block agree.
+  const partnerManaged = await territoryPartnerInfo(masterDb, requestCountry(c.req.raw));
 
   const allPlans = await masterDb
     .select()
@@ -333,9 +338,9 @@ app.get('/plans-page', async (c) => {
     plans: mappedPlans,
     subscription,
     pricing: { country: prices.country, currency: prices.currency },
-    // The reseller of the caller's country: the page shows who to contact
-    // instead of prices.
-    partnerManaged: await territoryPartnerInfo(masterDb, prices.country),
+    // The reseller of the request's network country: the page shows who to
+    // contact instead of prices.
+    partnerManaged: await territoryPartnerInfo(masterDb, requestCountry(c.req.raw)),
   });
 });
 
@@ -735,13 +740,14 @@ app.post('/checkout', canManageBilling, blockPartnerManaged(), zValidator('json'
 
   // Territory: a NEW subscription is closed in a country a reseller serves.
   // A workspace that already has a running subscription keeps renewing and
-  // upgrading; only starting one is refused. The billing country (Settings →
-  // Business) counts, else where the request comes from.
+  // upgrading; only starting one is refused. Only the network-detected country
+  // of this request decides: the billing country is user-editable, so it must
+  // not influence territory.
   if (!hasRunningSubscription(workspace)) {
-    const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
-    const territoryPartner = await territoryPartnerInfo(masterDb, prices.country);
-    if (territoryPartner && prices.country) {
-      return partnerTerritoryResponse(c, prices.country, territoryPartner);
+    const country = requestCountry(c.req.raw);
+    const territoryPartner = await territoryPartnerInfo(masterDb, country);
+    if (territoryPartner && country) {
+      return partnerTerritoryResponse(c, country, territoryPartner);
     }
   }
 

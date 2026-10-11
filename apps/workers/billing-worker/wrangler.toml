@@ -89,6 +89,11 @@ EMAIL_TRANSPORT = "cloudflare"
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
+# Shared with external-api and mcp-server: partner changes drop their cached workspace state.
+[[env.test.kv_namespaces]]
+binding = "API_CACHE"
+id = "6ffe3c8ea4e041398d84f9f670e93f88"
+
 [[env.test.services]]
 binding = "CALL_INTERNAL"
 service = "weldsuite-call-api-test"
@@ -127,6 +132,10 @@ id = "2cdec4bef19746d1a2c2e9726ddaacc3"
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.kv_namespaces]]
+binding = "API_CACHE"
+id = "f27cfb0a77a24936911ebd762adf3410"
 
 # call-api's [env.production] name is "weldsuite-call-api" (no "-production" suffix).
 [[env.production.services]]

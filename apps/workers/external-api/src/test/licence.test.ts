@@ -73,11 +73,14 @@ describe('external-api · read-only workspaces', () => {
     expect(await res.json()).toMatchObject({ error: { details: { reason: 'licence_inactive' } } });
   });
 
-  it('lets reads and export POSTs past the gate', async () => {
+  it('lets reads past the gate and refuses export-looking writes', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { request } = createExternalTestApp({ session: readOnly() });
     expect((await request('/v1/tickets')).status).not.toBe(403);
-    expect((await request('/v1/tickets/export', { method: 'POST' })).status).not.toBe(403);
+    expect((await request('/v1/tickets/export')).status).not.toBe(403);
+    const blocked = await request('/v1/tickets/export', { method: 'POST' });
+    expect(blocked.status).toBe(403);
+    expect(await blocked.json()).toMatchObject({ error: { code: 'WORKSPACE_READ_ONLY' } });
     consoleError.mockRestore();
   });
 
@@ -135,10 +138,13 @@ describe('external-api · workspaceRestrictions', () => {
 });
 
 describe('external-api · isReadOnlyRequestAllowed', () => {
-  it('allows reads, exports and search; refuses other writes', () => {
+  it('allows reads and search; refuses other writes, including paths containing "export"', () => {
     expect(isReadOnlyRequestAllowed('GET', '/v1/tickets')).toBe(true);
     expect(isReadOnlyRequestAllowed('HEAD', '/v1/tickets')).toBe(true);
-    expect(isReadOnlyRequestAllowed('POST', '/v1/tickets/export')).toBe(true);
+    expect(isReadOnlyRequestAllowed('GET', '/v1/tickets/export')).toBe(true);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      expect(isReadOnlyRequestAllowed(method, '/v1/tickets/export'), method).toBe(false);
+    }
     expect(isReadOnlyRequestAllowed('POST', '/v1/search')).toBe(true);
     expect(isReadOnlyRequestAllowed('POST', '/v1/search-things')).toBe(false);
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {

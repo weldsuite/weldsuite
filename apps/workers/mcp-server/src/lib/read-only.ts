@@ -28,10 +28,13 @@ export function workspaceRestrictions(input: {
   return { licensedApps: [...(input.licenceApps ?? [])], readOnly: readOnlyReason !== null, readOnlyReason };
 }
 
-/** Reads always; writes only on read-style POSTs (anything under `/export`, `/v1/search`). */
+/**
+ * Reads always (GET, HEAD, OPTIONS); a write method only on `/v1/search`. No
+ * "export" rule: a substring match let any write through, and no export
+ * endpoint is a POST.
+ */
 export function isReadOnlyRequestAllowed(method: string, path: string): boolean {
   if (['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return true;
-  if (path.includes('/export')) return true;
   return path === '/v1/search' || path.startsWith('/v1/search/');
 }
 

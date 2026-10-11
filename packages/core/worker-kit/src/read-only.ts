@@ -71,14 +71,20 @@ const READ_ONLY_ALLOWED_PREFIXES = [
 ] as const;
 
 /**
- * May this request run in a read-only workspace? Reads always; writes only on
- * read-style POSTs (search, anything under `/export`) and the user-level core
- * paths. Prefixes match on a path-segment boundary, so `/api/me` does not
- * open `/api/members`.
+ * May this request run in a read-only workspace? Reads always (GET, HEAD,
+ * OPTIONS); a write method only on the explicit side-effect-free paths below
+ * (search, the user-level core paths). Prefixes match on a path-segment
+ * boundary, so `/api/me` does not open `/api/members`.
+ *
+ * There is deliberately no rule for "export": every export endpoint in the
+ * repo is a GET (books `accounting-exports`, tax-return export, WeldPass
+ * secrets export), so it passes as a read. A substring rule such as
+ * `path.includes('/export')` let any write through (`POST
+ * /api/weldagent/templates/export` creates a template row). If a POST export
+ * that writes nothing is ever added, list its exact path here.
  */
 export function isReadOnlyRequestAllowed(method: string, path: string): boolean {
   if (READ_METHODS.has(method.toUpperCase())) return true;
-  if (path.includes('/export')) return true;
   return READ_ONLY_ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
 }
 

@@ -27,10 +27,13 @@
  *                             install the selected apps in the tenant DB
  *
  *   Reseller territory (docs/plans/reseller-licensing.md):
- *     create-workspace, /workspace and the /complete fallback take the
- *     workspace `country` (ISO-2, else the request's country) and answer 409
- *     PARTNER_TERRITORY, creating nothing, when a reseller serves that country.
- *     POST /partner-request — ask that reseller for a workspace (Clerk only).
+ *     create-workspace, /workspace and the /complete fallback answer 409
+ *     PARTNER_TERRITORY, creating nothing, when a reseller serves the request's
+ *     network country (`requestCountry`: cf.country / CF-IPCountry). The
+ *     `country` in the body is stored on the workspace but never decides
+ *     territory (it is user-editable).
+ *     POST /partner-request — ask that reseller for a workspace (Clerk only;
+ *     the reseller is likewise picked by the network country).
  *
  * IMPORTANT — middleware: this router needs Clerk auth but NOT the workspace-DB
  * middleware. The user is creating a NEW workspace, so requiring an active org
@@ -174,9 +177,10 @@ const createWorkspaceInput = z.object({
   name: z.string().min(1).max(255),
   region: z.string().optional(),
   /**
-   * ISO-2 country the workspace is for. Falls back to the request's country
-   * (CF-IPCountry). A country served by a reseller refuses direct creation
-   * (409 PARTNER_TERRITORY).
+   * ISO-2 country the workspace is for. Stored on the workspace, but it never
+   * decides territory: only the request's network country (CF-IPCountry) does.
+   * A country served by a reseller refuses direct creation (409
+   * PARTNER_TERRITORY).
    */
   country: z.string().max(64).optional(),
   /** App codes the user selected in the dialog. Falls back to the default set when omitted/empty. */
@@ -263,13 +267,13 @@ app.post('/create-workspace', zValidator('json', createWorkspaceInput), async (c
   }
 
   // Territory: in a country a reseller serves, WeldSuite is provided by that
-  // reseller. Nothing is created; the dialog shows who to contact. The country
-  // the user chose wins, the request's country is only the fallback (a user can
-  // pick another country; checkout checks the billing country again).
-  const workspaceCountry = normalizeCountryCode(country) ?? requestCountry(c.req.raw);
-  const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), workspaceCountry);
-  if (territoryPartner && workspaceCountry) {
-    return partnerTerritoryResponse(c, workspaceCountry, territoryPartner);
+  // reseller. Nothing is created; the dialog shows who to contact. Only the
+  // network-detected country of the request decides: the country in the body is
+  // user-editable and is never consulted.
+  const territoryCountry = requestCountry(c.req.raw);
+  const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), territoryCountry);
+  if (territoryPartner && territoryCountry) {
+    return partnerTerritoryResponse(c, territoryCountry, territoryPartner);
   }
 
   // Use the user's picks when provided; otherwise ship the default set.
@@ -337,8 +341,11 @@ app.post('/partner-request', zValidator('json', partnerWorkspaceRequestSchema), 
   const body = c.req.valid('json');
   const masterDb = getMasterDb(c.env);
 
-  const partner = await territoryPartnerInfo(masterDb, body.country);
-  if (!partner) return error.notFound(c, 'Partner for this country');
+  // The reseller is the one serving the request's network country, as on
+  // create-workspace; the country in the body never picks it.
+  const territoryCountry = requestCountry(c.req.raw);
+  const partner = await territoryPartnerInfo(masterDb, territoryCountry);
+  if (!partner || !territoryCountry) return error.notFound(c, 'Partner for this country');
 
   try {
     const { email, firstName, lastName } = await fetchClerkUser(c.env, userId);
@@ -351,7 +358,7 @@ app.post('/partner-request', zValidator('json', partnerWorkspaceRequestSchema), 
       requesterEmail: email,
       requesterName,
       companyName: body.companyName,
-      countryCode: body.country,
+      countryCode: territoryCountry,
       selectedApps: body.selectedApps,
       message: body.message,
     });
@@ -363,7 +370,7 @@ app.post('/partner-request', zValidator('json', partnerWorkspaceRequestSchema), 
             to,
             partnerName: partner.name,
             companyName: body.companyName,
-            countryCode: body.country,
+            countryCode: territoryCountry,
             requesterEmail: email,
             requesterName,
             selectedApps: body.selectedApps,
@@ -667,11 +674,12 @@ app.post('/workspace', zValidator('json', workspaceInput), async (c) => {
   try {
     const data = c.req.valid('json');
 
-    // Territory, as on create-workspace: nothing is created in a reseller's country.
-    const workspaceCountry = normalizeCountryCode(data.country) ?? requestCountry(c.req.raw);
-    const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), workspaceCountry);
-    if (territoryPartner && workspaceCountry) {
-      return partnerTerritoryResponse(c, workspaceCountry, territoryPartner);
+    // Territory, as on create-workspace: nothing is created in a reseller's
+    // country, decided by the request's network country only.
+    const territoryCountry = requestCountry(c.req.raw);
+    const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), territoryCountry);
+    if (territoryPartner && territoryCountry) {
+      return partnerTerritoryResponse(c, territoryCountry, territoryPartner);
     }
 
     // Fetch user info for the initial OWNER member.
@@ -898,11 +906,10 @@ app.post('/complete', async (c) => {
     // Fallback: no org set yet — create org + workspace via the workspace-worker
     // RPC binding (binding-only, so no M2M token is required). Territory first,
     // as on create-workspace: nothing is created in a reseller's country.
-    const workspaceCountry =
-      normalizeCountryCode(typeof data.country === 'string' ? data.country : undefined) ?? requestCountry(c.req.raw);
-    const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), workspaceCountry);
-    if (territoryPartner && workspaceCountry) {
-      return partnerTerritoryResponse(c, workspaceCountry, territoryPartner);
+    const territoryCountry = requestCountry(c.req.raw);
+    const territoryPartner = await territoryPartnerInfo(getMasterDb(c.env), territoryCountry);
+    if (territoryPartner && territoryCountry) {
+      return partnerTerritoryResponse(c, territoryCountry, territoryPartner);
     }
 
     const workspaceWorker = c.env.WORKSPACE_WORKER;

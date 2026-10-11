@@ -72,7 +72,7 @@ afterEach(() => {
 
 describe('POST /create-workspace territory', () => {
   it('answers 409 PARTNER_TERRITORY and creates nothing for a served country', async () => {
-    const res = await app().request('/api/onboarding/create-workspace', post({ name: 'Acme', country: 'br' }));
+    const res = await app().request('/api/onboarding/create-workspace', post({ name: 'Acme', country: 'br' }, { 'CF-IPCountry': 'BR' }));
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({
       error: {
@@ -84,16 +84,33 @@ describe('POST /create-workspace territory', () => {
     expect(onboard).not.toHaveBeenCalled();
   });
 
-  it('falls back to the request country when none is sent', async () => {
+  it('decides by the request country when no body country is sent', async () => {
     const res = await app().request('/api/onboarding/create-workspace', post({ name: 'Acme' }, { 'CF-IPCountry': 'BR' }));
     expect(res.status).toBe(409);
     expect(onboard).not.toHaveBeenCalled();
   });
 
-  it('trusts the country the user chose over the request country', async () => {
+  it('is still blocked when the body says NL but the request comes from BR', async () => {
     const res = await app().request('/api/onboarding/create-workspace', post({ name: 'Acme', country: 'NL' }, { 'CF-IPCountry': 'BR' }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: { code: 'PARTNER_TERRITORY', details: { country: 'BR' } } });
+    // The lookup only ever sees the network country.
+    expect(territoryPartnerInfo).toHaveBeenCalledWith(expect.anything(), 'BR');
+    expect(territoryPartnerInfo).not.toHaveBeenCalledWith(expect.anything(), 'NL');
+    expect(onboard).not.toHaveBeenCalled();
+  });
+
+  it('does not let a served body country block a request from an open country', async () => {
+    const res = await app().request('/api/onboarding/create-workspace', post({ name: 'Acme', country: 'BR' }, { 'CF-IPCountry': 'NL' }));
     expect(res.status).toBe(200);
-    expect(onboard).toHaveBeenCalledWith(expect.objectContaining({ workspaceName: 'Acme', country: 'NL' }));
+    // The chosen country is still stored on the workspace.
+    expect(onboard).toHaveBeenCalledWith(expect.objectContaining({ workspaceName: 'Acme', country: 'BR' }));
+  });
+
+  it('is not blocked when the request country is unknown', async () => {
+    const res = await app().request('/api/onboarding/create-workspace', post({ name: 'Acme', country: 'BR' }));
+    expect(res.status).toBe(200);
+    expect(territoryPartnerInfo).toHaveBeenCalledWith(expect.anything(), null);
   });
 
   it('creates the workspace as before outside every territory', async () => {
@@ -107,14 +124,20 @@ describe('POST /create-workspace territory', () => {
 
 describe('first-workspace onboarding territory', () => {
   it('POST /workspace answers 409 and creates nothing for a served country', async () => {
-    const res = await app().request('/api/onboarding/workspace', post({ name: 'Acme', country: 'BR' }));
+    const res = await app().request('/api/onboarding/workspace', post({ name: 'Acme', country: 'BR' }, { 'CF-IPCountry': 'BR' }));
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('PARTNER_TERRITORY');
     expect(onboard).not.toHaveBeenCalled();
   });
 
+  it('POST /workspace is still blocked when the body says NL but the request comes from BR', async () => {
+    const res = await app().request('/api/onboarding/workspace', post({ name: 'Acme', country: 'NL' }, { 'CF-IPCountry': 'BR' }));
+    expect(res.status).toBe(409);
+    expect(onboard).not.toHaveBeenCalled();
+  });
+
   it('POST /workspace creates the workspace outside every territory', async () => {
-    const res = await app().request('/api/onboarding/workspace', post({ name: 'Acme', country: 'NL' }));
+    const res = await app().request('/api/onboarding/workspace', post({ name: 'Acme', country: 'NL' }, { 'CF-IPCountry': 'NL' }));
     expect(res.status).toBe(200);
     expect(onboard).toHaveBeenCalledTimes(1);
   });
@@ -123,6 +146,15 @@ describe('first-workspace onboarding territory', () => {
     const res = await app().request(
       '/api/onboarding/complete',
       post({ organizationName: 'Acme' }, { 'CF-IPCountry': 'BR' }),
+    );
+    expect(res.status).toBe(409);
+    expect(onboard).not.toHaveBeenCalled();
+  });
+
+  it('POST /complete fallback ignores a body country of NL on a BR request', async () => {
+    const res = await app().request(
+      '/api/onboarding/complete',
+      post({ organizationName: 'Acme', country: 'NL' }, { 'CF-IPCountry': 'BR' }),
     );
     expect(res.status).toBe(409);
     expect(onboard).not.toHaveBeenCalled();
@@ -136,7 +168,7 @@ describe('POST /partner-request', () => {
     vi.mocked(domain.createWorkspaceRequest).mockResolvedValue({ id: 'pwr_1' });
     vi.mocked(domain.partnerAdminEmails).mockResolvedValue(['owner@acme.test']);
 
-    const res = await app().request('/api/onboarding/partner-request', post(body));
+    const res = await app().request('/api/onboarding/partner-request', post(body, { 'CF-IPCountry': 'BR' }));
 
     expect(res.status).toBe(201);
     expect(((await res.json()) as { data: unknown }).data).toEqual({ id: 'pwr_1' });
@@ -161,14 +193,20 @@ describe('POST /partner-request', () => {
   });
 
   it('404s when the country has no reseller', async () => {
-    const res = await app().request('/api/onboarding/partner-request', post({ ...body, country: 'DE' }));
+    const res = await app().request('/api/onboarding/partner-request', post({ ...body, country: 'DE' }, { 'CF-IPCountry': 'DE' }));
+    expect(res.status).toBe(404);
+    expect(domain.createWorkspaceRequest).not.toHaveBeenCalled();
+  });
+
+  it('picks the reseller by the request country, not the body country', async () => {
+    const res = await app().request('/api/onboarding/partner-request', post(body, { 'CF-IPCountry': 'NL' }));
     expect(res.status).toBe(404);
     expect(domain.createWorkspaceRequest).not.toHaveBeenCalled();
   });
 
   it('answers 429 past the daily request cap', async () => {
     vi.mocked(domain.createWorkspaceRequest).mockRejectedValue(new domain.PartnerPortalError('RATE_LIMITED', 'Too many'));
-    const res = await app().request('/api/onboarding/partner-request', post(body));
+    const res = await app().request('/api/onboarding/partner-request', post(body, { 'CF-IPCountry': 'BR' }));
     expect(res.status).toBe(429);
     expect(sendWorkspaceRequestEmail).not.toHaveBeenCalled();
   });

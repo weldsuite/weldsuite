@@ -17,7 +17,7 @@ import {
   getPartner,
   loadStatementView,
   markStatementPaidByInvoice,
-  partnerWorkspaceOrgIds,
+  partnerWorkspaceCacheKeys,
   recomputePartnerStatus,
   saveStatement,
 } from '@weldsuite/core-domain/partners';
@@ -80,9 +80,13 @@ export function periodKey(start: Date): string {
 
 /** Drop the cached workspace contexts of every workspace of a partner (status changes). */
 export async function invalidatePartnerWorkspaceCaches(env: Env, masterDb: MasterDb, partnerId: string): Promise<number> {
-  const orgIds = await partnerWorkspaceOrgIds(masterDb, partnerId);
-  await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, orgIds);
-  return orgIds.length;
+  const keys = await partnerWorkspaceCacheKeys(masterDb, partnerId);
+  await invalidateWorkspaceContexts(
+    env.WORKSPACE_CACHE,
+    keys.map((k) => k.clerkOrgId),
+    { apiCache: env.API_CACHE, workspaceIds: keys.map((k) => k.workspaceId) },
+  );
+  return keys.length;
 }
 
 // ============================================================================
@@ -188,7 +192,9 @@ async function recordInvoiced(masterDb: MasterDb, statement: StatementRow, invoi
  * invoice items per line (plus extra credits), `send_invoice` on the
  * contract's net terms, finalised and sent. A statement with nothing to charge
  * stays `final` without an invoice. `keyBase` scopes the Stripe idempotency
- * keys (the admin request id, or a cron-derived key).
+ * keys (the admin request id, or a cron-derived key); the invoice calls add the
+ * id of the invoice being replaced, so a retry after a delete/void is a new
+ * Stripe request, not a replay of the old one.
  */
 export async function invoiceStatement(
   env: Env,
@@ -212,6 +218,13 @@ export async function invoiceStatement(
   const period = periodKey(statement.periodStart);
   const termsDays = snapshotNumber(statement, 'paymentTermsDays') ?? 30;
   const customerId = await ensurePartnerStripeCustomer(env, masterDb, partner, `${keyBase}:customer`);
+  // Stripe replays a request that repeats an idempotency key for 24 hours, even
+  // when the object it created was deleted or voided since. So every attempt
+  // that replaces a previous invoice gets its own keys, derived from the id of
+  // the invoice it replaces ('first' when there is none): re-running the same
+  // attempt (a crash after the delete, a retried request) still dedupes, while
+  // a new attempt after a delete/void never hits the old attempt's responses.
+  const attemptBase = `${keyBase}:after:${statement.stripeInvoiceId ?? 'first'}`;
 
   // A retry: look at what the previous attempt left in Stripe.
   if (statement.stripeInvoiceId) {
@@ -232,7 +245,7 @@ export async function invoiceStatement(
       if ((existing.total ?? existing.amount_due) === totalCents) {
         return { outcome: 'invoiced', statement: await recordInvoiced(masterDb, statement, existing, termsDays) };
       }
-      await voidPartnerInvoice(key, existing.id, `${keyBase}:void-stale`);
+      await voidPartnerInvoice(key, existing.id, `${attemptBase}:void-stale`);
     } else if (existing?.status === 'draft') {
       await deletePartnerDraftInvoice(key, existing.id);
     }
@@ -263,7 +276,7 @@ export async function invoiceStatement(
       description: `WeldSuite partner statement ${period}`,
       metadata: { kind: 'partner_statement', statementId: statement.id, partnerId: partner.id, period },
     },
-    `${keyBase}:invoice`,
+    `${attemptBase}:invoice`,
   );
   // Remember the draft before anything else, so a failure below is retried against it.
   await masterDb
@@ -283,15 +296,15 @@ export async function invoiceStatement(
             currency: statement.currency,
             description: item.description,
           },
-          `${keyBase}:item:${i + j}`,
+          `${attemptBase}:item:${i + j}`,
         ),
       ),
     );
   }
 
-  const finalized = await finalizePartnerInvoice(key, draft.id, `${keyBase}:finalize`);
+  const finalized = await finalizePartnerInvoice(key, draft.id, `${attemptBase}:finalize`);
   try {
-    await sendPartnerInvoice(key, draft.id, `${keyBase}:send`);
+    await sendPartnerInvoice(key, draft.id, `${attemptBase}:send`);
   } catch (err) {
     // The invoice is open and payable from its hosted page; the partner sees it in the portal too.
     console.error(`[Partner Billing] Invoice ${draft.id} finalised but not emailed:`, err);

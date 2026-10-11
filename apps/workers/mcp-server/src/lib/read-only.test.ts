@@ -42,10 +42,14 @@ describe('workspaceRestrictions', () => {
 });
 
 describe('isReadOnlyRequestAllowed', () => {
-  it('allows reads, exports and search; refuses other writes', () => {
+  it('allows reads and search; refuses other writes, including paths containing "export"', () => {
     expect(isReadOnlyRequestAllowed('GET', '/v1/tickets')).toBe(true);
-    expect(isReadOnlyRequestAllowed('POST', '/v1/tickets/export')).toBe(true);
+    expect(isReadOnlyRequestAllowed('GET', '/v1/tickets/export')).toBe(true);
     expect(isReadOnlyRequestAllowed('POST', '/v1/search')).toBe(true);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      expect(isReadOnlyRequestAllowed(method, '/v1/tickets/export'), method).toBe(false);
+      expect(isReadOnlyRequestAllowed(method, '/v1/weldagent/templates/export'), method).toBe(false);
+    }
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
       expect(isReadOnlyRequestAllowed(method, '/v1/tickets/t_1'), method).toBe(false);
     }

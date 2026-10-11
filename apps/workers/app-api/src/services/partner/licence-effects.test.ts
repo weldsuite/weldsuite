@@ -13,7 +13,7 @@ vi.mock('@weldsuite/worker-kit/db', async (orig) => {
   return { ...actual, getTenantDbForWorkspace: vi.fn(async () => tenantDb) };
 });
 vi.mock('@weldsuite/core-domain/partners', () => ({
-  applyLicenceCredits: vi.fn(async () => ({ granted: 0 })),
+  applyLicenceCredits: vi.fn(async () => ({ granted: 0, takenBack: 0 })),
   countActiveMembers: vi.fn(async () => new Map([['ws_1', 4]])),
   invalidateWorkspaceContexts: vi.fn(async () => undefined),
   syncInstalledAppsToLicence: vi.fn(async () => ({ installed: [], deactivated: [] })),
@@ -28,7 +28,8 @@ import { applyLicenceEffects, clerkSeatCap } from './licence-effects';
 import type { Env } from '../../types';
 
 const kv = { delete: vi.fn() };
-const env = { CLERK_SECRET_KEY: 'sk_test', WORKSPACE_CACHE: kv } as unknown as Env;
+const apiCache = { delete: vi.fn() };
+const env = { CLERK_SECRET_KEY: 'sk_test', WORKSPACE_CACHE: kv, API_CACHE: apiCache } as unknown as Env;
 const masterDb = { master: true } as unknown as MasterDatabase;
 
 const licence: LicenceSnapshot = {
@@ -88,7 +89,8 @@ describe('applyLicenceEffects', () => {
       changeId: 'wlc_1',
     });
     expect(syncClerkSeatLimit).toHaveBeenCalledWith('sk_test', 'org_1', 10);
-    expect(domain.invalidateWorkspaceContexts).toHaveBeenCalledWith(kv, ['org_1']);
+    // worker-kit (ws:<org>), external-api (ws:<id>) and mcp-server (mcp:org:<org>) caches.
+    expect(domain.invalidateWorkspaceContexts).toHaveBeenCalledWith(kv, ['org_1'], { apiCache, workspaceIds: ['ws_1'] });
   });
 
   it('treats a first licence as having no previous credits', async () => {

@@ -95,7 +95,11 @@ export async function applyLicenceEffects(input: LicenceEffectsInput): Promise<{
   }
 
   try {
-    await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, [workspace.clerkOrgId]);
+    await invalidateWorkspaceContexts(env.WORKSPACE_CACHE, [workspace.clerkOrgId], {
+      // external-api (`ws:<id>`) and mcp-server (`mcp:org:<org>`) cache the licence state in API_CACHE.
+      apiCache: env.API_CACHE,
+      workspaceIds: [workspace.id],
+    });
   } catch (err) {
     console.error('[partner] Workspace cache invalidation failed:', err);
     warnings.push('cache');
