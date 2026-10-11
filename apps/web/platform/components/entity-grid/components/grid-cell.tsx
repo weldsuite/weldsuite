@@ -80,7 +80,6 @@ const CellWrapper: React.FC<{
     padding: cellPadding(isFirstColumn, compact),
     cursor: onClick ? 'pointer' : 'default',
     fontSize: compact ? '12px' : undefined,
-    boxShadow: isEditing ? '0 0 0 1px color-mix(in srgb, var(--border) 70%, var(--foreground) 30%)' : undefined,
     position: isEditing || (onClick && hasControls) ? 'relative' : undefined,
     zIndex: isEditing ? 1 : undefined,
   };
@@ -186,7 +185,6 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
   const name = config.getEntityName(entity);
   const initials = config.getEntityInitials?.(entity) || name.charAt(0).toUpperCase();
   const avatar = config.getEntityAvatar?.(entity);
-  const subtitle = config.getEntitySubtitle?.(entity);
   const contextMenuItems = config.renderRowContextMenu?.(entity);
 
   const toggleRowSelected = (checked: boolean | 'indeterminate') => {
@@ -217,16 +215,9 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
               {initials}
             </AvatarFallback>
           </Avatar>
-          <div className="min-w-0 flex-1">
-            <span className="font-medium text-[14px] text-foreground group-hover/cell:text-primary truncate block">
-              {name}
-            </span>
-            {subtitle && (
-              <span className="text-[12px] text-muted-foreground truncate block">
-                {subtitle}
-              </span>
-            )}
-          </div>
+          <span className="min-w-0 flex-1 font-medium text-[14px] text-foreground group-hover/cell:text-primary truncate block">
+            {name}
+          </span>
         </div>
       </div>
       {column.favoriteField && (
@@ -313,7 +304,14 @@ function renderTextCell(type: TextCellType, ctx: CellRenderCtx) {
         <Editor value={text} onCommit={ctx.handleCommit} onCancel={ctx.handleCancel} />
       )}
     >
-      <span className="text-[14px] text-foreground/80 truncate">{text || null}</span>
+      <span
+        className={cn(
+          'text-[14px] truncate',
+          type === 'url' ? 'text-blue-600 dark:text-blue-400 underline' : 'text-foreground/80',
+        )}
+      >
+        {text || null}
+      </span>
     </EditableCell>
   );
 }

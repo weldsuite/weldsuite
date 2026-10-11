@@ -103,7 +103,7 @@ export function GridFooter() {
                         <Button
                           variant="ghost"
                           className={cn(
-                            "w-full h-full pr-3 flex items-center gap-1 transition-colors",
+                            "w-full h-full pr-3 flex items-center gap-1 transition-colors rounded-none",
                             isFirstColumn ? "pl-5" : "pl-3",
                             openCalculationField === column.id
                               ? "bg-muted/50 text-foreground/80"

@@ -40,7 +40,7 @@ export function UrlEditor({
       onChange={(e) => setLocalValue(e.target.value)}
       onBlur={commit}
       onKeyDown={handleKeyDown}
-      className={className || 'h-7 text-[14px] border-0 shadow-none focus-visible:ring-0 p-0 bg-transparent'}
+      className={className || 'h-7 text-[14px] border-0 rounded-none shadow-none focus-visible:ring-0 p-0 bg-transparent dark:bg-transparent'}
     />
   );
 }

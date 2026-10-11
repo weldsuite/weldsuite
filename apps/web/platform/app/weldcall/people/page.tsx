@@ -164,7 +164,6 @@ function CallPeopleContent() {
     getEntityName: (p) => p.displayName,
     getEntityInitials: getPersonInitials,
     getEntityAvatar: (p) => p.avatarUrl ?? undefined,
-    getEntitySubtitle: (p) => p.title ?? undefined,
     allowCustomColumns: false,
     enableCalculations: false,
     enableInlineEditing: false,

@@ -138,9 +138,9 @@ interface SelectableCellProps {
  *     blue border on every side, so it pops as the "active" cell within
  *     the rectangle
  *
- * Borders are drawn with `inset` `box-shadow`s rather than CSS `border`s
- * so they don't fight the table's `border-collapse: collapse` neighbour
- * borders and never thicken at the corners.
+ * Borders are drawn by an overlay laid over the cell's grid lines rather
+ * than CSS `border`s on the `<td>`, so the outline surrounds the whole cell
+ * without fighting the table's `border-collapse: collapse` neighbour borders.
  */
 const SELECTION_BORDER = '#3b82f6'; // tailwind blue-500
 const SELECTION_BORDER_PX = 1;
@@ -152,26 +152,31 @@ const SEL_BOTTOM = 8;
 const SEL_LEFT = 16;
 const SEL_RIGHT = 32;
 
-/** Inset box-shadow per edge, in the order top, bottom, left, right. */
-const EDGE_SHADOWS: ReadonlyArray<{ flag: number; shadow: string }> = [
-  { flag: SEL_TOP, shadow: `inset 0 ${SELECTION_BORDER_PX}px 0 0 ${SELECTION_BORDER}` },
-  { flag: SEL_BOTTOM, shadow: `inset 0 -${SELECTION_BORDER_PX}px 0 0 ${SELECTION_BORDER}` },
-  { flag: SEL_LEFT, shadow: `inset ${SELECTION_BORDER_PX}px 0 0 0 ${SELECTION_BORDER}` },
-  { flag: SEL_RIGHT, shadow: `inset -${SELECTION_BORDER_PX}px 0 0 0 ${SELECTION_BORDER}` },
-];
-
-function selectionShadows(state: number): string[] {
-  const has = (flag: number) => (state & flag) !== 0;
-  // Outer-edge borders for cells on the perimeter of the range.
-  const shadows = EDGE_SHADOWS.filter(({ flag }) => has(flag)).map(({ shadow }) => shadow);
-  // Anchor cell — full ring on all four sides, even the ones that aren't
-  // on the perimeter (so the active cell stands out within the range).
-  if (has(SEL_ANCHOR)) {
-    for (const { flag, shadow } of EDGE_SHADOWS) {
-      if (!has(flag)) shadows.push(shadow);
-    }
-  }
-  return shadows;
+/**
+ * Position and per-edge border widths of the selection outline, or null when
+ * the cell has none. The overlay extends one pixel past the cell so it sits on
+ * the surrounding grid lines; the first row and column stay inside the cell,
+ * where the line would fall under the sticky header or outside the table.
+ */
+function selectionOutlineStyle(state: number, row: number, col: number): React.CSSProperties | null {
+  // Anchor cell — full ring on all four sides, even the ones that aren't on
+  // the perimeter (so the active cell stands out within the range).
+  const isAnchor = (state & SEL_ANCHOR) !== 0;
+  const width = (flag: number) => (isAnchor || (state & flag) !== 0 ? SELECTION_BORDER_PX : 0);
+  const top = width(SEL_TOP);
+  const right = width(SEL_RIGHT);
+  const bottom = width(SEL_BOTTOM);
+  const left = width(SEL_LEFT);
+  if (!top && !right && !bottom && !left) return null;
+  return {
+    top: row === 0 ? 0 : -SELECTION_BORDER_PX,
+    right: -SELECTION_BORDER_PX,
+    bottom: -SELECTION_BORDER_PX,
+    left: col === 0 ? 0 : -SELECTION_BORDER_PX,
+    borderStyle: 'solid',
+    borderColor: SELECTION_BORDER,
+    borderWidth: `${top}px ${right}px ${bottom}px ${left}px`,
+  };
 }
 
 interface CellBackgroundState {
@@ -207,7 +212,7 @@ const SelectableCell = React.memo(function SelectableCell({
   const state = useCellSelectionState(row, col);
   const isSelected = (state & SEL_SELECTED) !== 0;
   const isAnchor = (state & SEL_ANCHOR) !== 0;
-  const shadows = selectionShadows(state);
+  const outlineStyle = selectionOutlineStyle(state, row, col);
 
   return (
     <td
@@ -224,13 +229,12 @@ const SelectableCell = React.memo(function SelectableCell({
         //  - otherwise fall back to the regular per-row hover/popover bg
         cellBackgroundClass({ isAnchor, isSelected, isCellPopoverOpen, isRowSelected }),
       )}
-      style={{
-        height: `${rowH}px`,
-        padding: 0,
-        boxShadow: shadows.length ? shadows.join(', ') : undefined,
-      }}
+      style={{ height: `${rowH}px`, padding: 0 }}
     >
       {children}
+      {outlineStyle && (
+        <span aria-hidden="true" className="pointer-events-none absolute z-[2]" style={outlineStyle} />
+      )}
     </td>
   );
 });

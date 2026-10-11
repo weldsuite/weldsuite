@@ -88,7 +88,6 @@ export interface EntityGridConfig<TEntity> {
   getEntityName: (entity: TEntity) => string;
   getEntityInitials?: (entity: TEntity) => string;
   getEntityAvatar?: (entity: TEntity) => string | undefined;
-  getEntitySubtitle?: (entity: TEntity) => string | undefined;
   statusField?: string; // Field ID for status display
   statusConfig?: Record<string, StatusStyle>;
   allowCustomColumns?: boolean;
