@@ -40,7 +40,7 @@ interface Task {
   number?: number | null;
   title: string;
   description?: string;
-  status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
+  status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   assignee?: string;
   assigneeId?: string;
@@ -94,7 +94,7 @@ const columnColors: Record<string, string> = {
   backlog: '#94a3b8',
   todo: '#c4b5fd',
   in_progress: '#93c5fd',
-  in_review: '#fcd34d',
+  review: '#fcd34d',
   testing: '#a78bfa',
   done: '#5eead4',
   cancelled: '#f87171',
@@ -387,7 +387,7 @@ export function MyTasksPipeline({
     { id: 'backlog', name: t.projects.myTasks.pipeline.backlog, color: columnColors.backlog },
     { id: 'todo', name: t.projects.myTasks.pipeline.todo, color: columnColors.todo },
     { id: 'in_progress', name: t.projects.myTasks.pipeline.inProgress, color: columnColors.in_progress },
-    { id: 'in_review', name: t.projects.myTasks.pipeline.inReview, color: columnColors.in_review },
+    { id: 'review', name: t.projects.myTasks.pipeline.inReview, color: columnColors.review },
     { id: 'testing', name: t.projects.myTasks.pipeline.testing, color: columnColors.testing },
     { id: 'done', name: t.projects.myTasks.pipeline.done, color: columnColors.done },
     { id: 'cancelled', name: t.projects.myTasks.pipeline.cancelled, color: columnColors.cancelled },

@@ -54,7 +54,7 @@ The dispatcher loads the task, the fixer claims it, implements against **your op
 | `fix-task` | `/fix-task <id>` | Full pipeline: load → dispatch → implement → update task |
 | `list-tasks` | `/list-tasks` | Prioritized open backlog from WeldFlow |
 | `claim-task` | `/claim-task <id>` | Assign + `in_progress` only |
-| `done-task` | `/done-task <id> [pr-or-sha]` | Verify, comment, set `in_review` / `done` |
+| `done-task` | `/done-task <id> [pr-or-sha]` | Verify, comment, set `review` / `done` |
 | `enrich-task` | `/enrich-task <id>` | Interview + append `## Enriched analysis` |
 
 ## Auth notes

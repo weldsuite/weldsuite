@@ -65,7 +65,7 @@ import { useDebounce } from '@/hooks/use-debounce';
 
 type CompanyOption = { id: string; name: string; avatar?: string };
 
-const TASK_STATUS_ORDER = ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'];
+const TASK_STATUS_ORDER = ['backlog', 'todo', 'in_progress', 'review', 'testing', 'done', 'cancelled'];
 const TASK_PRIORITY_ORDER = ['low', 'medium', 'high'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -382,7 +382,7 @@ export default function CrmTasksClient() {
     'backlog': { label: t('crm.tasks.status.backlog'), icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     'todo': { label: t('crm.tasks.status.todo'), icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     'in_progress': { label: t('crm.tasks.status.inProgress'), icon: Clock, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-    'in_review': { label: t('crm.tasks.status.inReview'), icon: Clock, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
+    'review': { label: t('crm.tasks.status.inReview'), icon: Clock, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
     'testing': { label: t('crm.tasks.status.testing'), icon: Clock, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
     'done': { label: t('crm.tasks.status.done'), icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
     'cancelled': { label: t('crm.tasks.status.cancelled'), icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
@@ -498,7 +498,7 @@ export default function CrmTasksClient() {
         { id: 'backlog', label: statusConfig.backlog.label, sortOrder: 1, filter: (t) => t.status === 'backlog' },
         { id: 'todo', label: statusConfig.todo.label, sortOrder: 2, filter: (t) => t.status === 'todo' },
         { id: 'in_progress', label: statusConfig.in_progress.label, sortOrder: 3, filter: (t) => t.status === 'in_progress' },
-        { id: 'in_review', label: statusConfig.in_review.label, sortOrder: 4, filter: (t) => t.status === 'in_review' },
+        { id: 'review', label: statusConfig.review.label, sortOrder: 4, filter: (t) => t.status === 'review' },
         { id: 'testing', label: statusConfig.testing.label, sortOrder: 5, filter: (t) => t.status === 'testing' },
         { id: 'done', label: statusConfig.done.label, sortOrder: 6, filter: (t) => t.status === 'done' },
         { id: 'cancelled', label: statusConfig.cancelled.label, sortOrder: 7, filter: (t) => t.status === 'cancelled' },
@@ -714,7 +714,7 @@ export default function CrmTasksClient() {
     'backlog': statusConfig['backlog'].label,
     'todo': statusConfig['todo'].label,
     'in_progress': statusConfig['in_progress'].label,
-    'in_review': statusConfig['in_review'].label,
+    'review': statusConfig['review'].label,
     'testing': statusConfig['testing'].label,
     'done': statusConfig['done'].label,
     'cancelled': statusConfig['cancelled'].label,

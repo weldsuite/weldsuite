@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useStageLabel } from '../../../lib/stage-labels';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { flushSync } from 'react-dom';
 import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useCompanies } from '@/components/objects/company/use-company-data';
@@ -79,7 +80,7 @@ interface Task {
   title: string;
   description?: string;
   stageId?: string | null;
-  status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
+  status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   assignee?: string;
   assigneeId?: string | null;
@@ -190,7 +191,7 @@ function transformApiTask(apiTask: RawApiTask): Task {
     title: apiTask.title,
     description: apiTask.description || undefined,
     stageId: apiTask.stageId ?? null,
-    status: (apiTask.status as Task['status']) || 'todo',
+    status: (normalizeTaskStatus(apiTask.status) as Task['status']) || 'todo',
     priority: (apiTask.priority as Task['priority']) || 'medium',
     assignee: apiTask.assignee?.name || undefined,
     assigneeId: apiTask.assigneeId || undefined,
@@ -250,7 +251,7 @@ const statusToCrm: Record<string, CrmTask['status']> = {
   'backlog': 'backlog',
   'todo': 'todo',
   'in_progress': 'in_progress',
-  'in_review': 'in_review',
+  'review': 'review',
   'testing': 'testing',
   'done': 'done',
   'cancelled': 'cancelled',
@@ -260,7 +261,7 @@ const statusFromCrm: Record<string, Task['status']> = {
   'backlog': 'backlog',
   'todo': 'todo',
   'in_progress': 'in_progress',
-  'in_review': 'in_review',
+  'review': 'review',
   'testing': 'testing',
   'done': 'done',
   'cancelled': 'cancelled',
@@ -333,7 +334,9 @@ function toCrmTask(
     id: task.id,
     title: task.title,
     description: task.description,
-    status: statusToCrm[task.status] || 'todo',
+    // Unknown (custom stage) statuses pass through instead of collapsing to
+    // 'todo', which a save would then write back.
+    status: statusToCrm[task.status] ?? (task.status as CrmTask['status']),
     priority: task.priority === 'urgent' ? 'high' : (task.priority as CrmTask['priority']),
     assignee: primaryAssignee,
     assignees: assigneesList,
@@ -643,8 +646,7 @@ export function TasksClient({
     backlog: { label: t.projects.tasks.statusBacklog, icon: Circle, color: 'text-slate-600 dark:text-slate-400', bg: 'bg-slate-100 dark:bg-slate-900/50' },
     todo: { label: t.projects.tasks.statusTodo, icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     in_progress: { label: t.projects.tasks.statusInProgress, icon: Clock, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-    review: { label: t.projects.tasks.statusReview, icon: Clock, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
-    in_review: { label: t.projects.tasks.statusInReview, icon: Clock, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
+    review: { label: t.projects.tasks.statusInReview, icon: Clock, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
     testing: { label: t.projects.tasks.statusTesting, icon: Clock, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
     done: { label: t.projects.tasks.statusDone, icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
     cancelled: { label: t.projects.tasks.statusCancelled, icon: Circle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
@@ -881,7 +883,7 @@ export function TasksClient({
           id: s.id,
           name: s.name,
           color: s.color || '#94a3b8',
-          systemStatus: s.systemStatus || s.id,
+          systemStatus: normalizeTaskStatus(s.systemStatus || s.id),
         })));
       }
     }
@@ -945,7 +947,7 @@ export function TasksClient({
       'backlog': 'backlog',
       'todo': 'todo',
       'in_progress': 'in_progress',
-      'in_review': 'in_review',
+      'review': 'review',
       'testing': 'testing',
       'done': 'done',
       'cancelled': 'cancelled',
@@ -1846,7 +1848,11 @@ export function TasksClient({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => {
-                  setEditingCrmTask(toCrmTask(task, projectMembers, availableCompanies));
+                  // The dialog's status options are this project's stages, so
+                  // preselect the task's stage; a plain status matches none of them.
+                  const editing = toCrmTask(task, projectMembers, availableCompanies);
+                  const stageId = getTaskStage(task)?.id;
+                  setEditingCrmTask(stageId ? { ...editing, status: stageId as CrmTask['status'] } : editing);
                   setShowAddDialog(true);
                 }}>
                   <Pencil className="h-3.5 w-3.5 mr-0.5" />

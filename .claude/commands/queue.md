@@ -23,7 +23,7 @@ Call `search_tasks` **five times in parallel** to cover every open status (the M
 
 - `{ assigneeId, status: "todo", limit: 50 }`
 - `{ assigneeId, status: "in_progress", limit: 50 }`
-- `{ assigneeId, status: "in_review", limit: 50 }`
+- `{ assigneeId, status: "review", limit: 50 }`
 - `{ assigneeId, status: "testing", limit: 50 }`
 - `{ assigneeId, status: "backlog", limit: 50 }`
 

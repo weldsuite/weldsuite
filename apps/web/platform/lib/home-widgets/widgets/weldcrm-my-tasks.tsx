@@ -31,7 +31,7 @@ interface ApiActivity {
 function mapStatus(s: string | undefined): CrmTaskStatus {
   if (s === 'todo' || s === 'pending') return 'todo';
   if (s === 'in_progress' || s === 'in-progress' || s === 'doing') return 'in_progress';
-  if (s === 'in_review' || s === 'review') return 'in_review';
+  if (s === 'review' || s === 'in_review') return 'review';
   if (s === 'testing') return 'testing';
   if (s === 'done' || s === 'completed') return 'done';
   if (s === 'cancelled' || s === 'canceled') return 'cancelled';

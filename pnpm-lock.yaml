@@ -7712,6 +7712,9 @@ importers:
 
   packages/domains/flow:
     dependencies:
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../clients/app-api-client
       '@weldsuite/core-domain':
         specifier: workspace:*
         version: link:../core

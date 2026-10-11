@@ -16,7 +16,7 @@ const TASK_VARIANTS: Record<string, Variant> = {
   backlog: 'secondary',
   todo: 'default',
   in_progress: 'warning',
-  in_review: 'default',
+  review: 'default',
   testing: 'default',
   done: 'success',
   cancelled: 'outline',

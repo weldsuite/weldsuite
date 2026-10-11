@@ -41,7 +41,13 @@ import {
   nextAutoScheduledReplanAt,
 } from '@weldsuite/db/lib/calendar-sync';
 import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
-import { createTaskSchema, updateTaskSchema, moveTaskSchema } from '@weldsuite/app-api-client/schemas/tasks';
+import {
+  createTaskSchema,
+  updateTaskSchema,
+  moveTaskSchema,
+  taskStatusAliases,
+  taskStatusSchema,
+} from '@weldsuite/app-api-client/schemas/tasks';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -65,6 +71,7 @@ import {
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
 import { createTask } from '@weldsuite/flow-domain/tasks';
 import { MAX_SUBTASK_DEPTH, softDeleteTaskTree } from '@weldsuite/flow-domain/task-tree';
+import { applyStatusChange, stageForStatus } from '@weldsuite/flow-domain/task-stage';
 
 // ============================================================================
 // Filter helpers (ported from api-worker tasks.ts)
@@ -1036,42 +1043,6 @@ async function isDescendantOf(db: TaskDb, candidateId: string, ancestorId: strin
   return false;
 }
 
-async function statusFromStage(db: TaskDb, stageId: unknown): Promise<string | undefined> {
-  if (!stageId) return undefined;
-  const [stage] = await db
-    .select({ systemStatus: schema.projectPipelineStages.systemStatus })
-    .from(schema.projectPipelineStages)
-    .where(eq(schema.projectPipelineStages.id, stageId as string))
-    .limit(1);
-  return stage?.systemStatus || undefined;
-}
-
-/**
- * The stage a task moves to on a status-only change. Project lists group by
- * stageId first, so a task checked off while its stage is still "To Do" would
- * stay in that group. Keeps the current stage when it already maps to the
- * status, else the project's first stage for it; undefined = leave as is.
- */
-async function stageForStatus(
-  db: TaskDb,
-  task: { projectId: string | null; stageId: string | null },
-  status: string,
-): Promise<string | undefined> {
-  if (!task.projectId) return undefined;
-  const stages = await db
-    .select({ id: schema.projectPipelineStages.id, systemStatus: schema.projectPipelineStages.systemStatus })
-    .from(schema.projectPipelineStages)
-    .where(
-      and(
-        eq(schema.projectPipelineStages.projectId, task.projectId),
-        isNull(schema.projectPipelineStages.deletedAt),
-      ),
-    )
-    .orderBy(asc(schema.projectPipelineStages.position));
-  if (stages.find((s) => s.id === task.stageId)?.systemStatus === status) return undefined;
-  return stages.find((s) => s.systemStatus === status)?.id;
-}
-
 function resolveUpdatedDate(incoming: unknown, current: Date | null): Date | null {
   if (incoming === undefined) return current;
   return incoming ? new Date(incoming as string) : null;
@@ -1298,11 +1269,13 @@ function taskScopeFilters(q: ListQuery, projectScope: SQL | undefined): SQL[] {
 
 function taskValueFilters(q: ListQuery, userId: string | undefined): SQL[] {
   const filters: SQL[] = [];
-  if (q.status) filters.push(eq(t.status, q.status));
+  // Status filters match every stored spelling, so `review` also finds rows
+  // still carrying the legacy `in_review`.
+  if (q.status) filters.push(inArray(t.status, taskStatusAliases(q.status)));
   if (q.priority) filters.push(eq(t.priority, q.priority));
   if (q.type) filters.push(eq(t.type, q.type));
   // "is not" filters (status/priority are NOT NULL columns, so plain NOT IN is safe).
-  if (q.excludeStatus) filters.push(notInArray(t.status, q.excludeStatus));
+  if (q.excludeStatus) filters.push(notInArray(t.status, q.excludeStatus.flatMap(taskStatusAliases)));
   if (q.excludePriority) filters.push(notInArray(t.priority, q.excludePriority));
   if (q.excludeAssigneeId) {
     filters.push(
@@ -2030,7 +2003,7 @@ app.patch(
     'json',
     z.object({
       currentStatus: z.string().optional(),
-      status: z.string().optional(),
+      status: taskStatusSchema.optional(),
     }),
   ),
   async (c) => {
@@ -2108,7 +2081,7 @@ app.patch(
 app.patch(
   '/:id/status',
   requirePermission('tasks:update'),
-  zValidator('json', z.object({ status: z.string() })),
+  zValidator('json', z.object({ status: taskStatusSchema })),
   async (c) => {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
@@ -2180,7 +2153,7 @@ app.patch(
     z.object({
       position: z.number().optional(),
       boardPosition: z.number().optional(),
-      status: z.string().optional(),
+      status: taskStatusSchema.optional(),
     }),
   ),
   async (c) => {
@@ -2199,9 +2172,14 @@ app.patch(
       if (!task) return error.notFound(c, 'Task', id);
       const currentTask: any = task;
 
+      const positionUpdate = buildPositionUpdate(data);
+      if (data.status) {
+        const stageId = await stageForStatus(db, task, data.status);
+        if (stageId) positionUpdate.stageId = stageId;
+      }
       await db
         .update(t)
-        .set(buildPositionUpdate(data))
+        .set(positionUpdate)
         .where(and(eq(t.id, id), isNull(t.deletedAt)));
 
       // Calendar sync on status change
@@ -2463,31 +2441,6 @@ function notifyAddedAssigneesOnUpdate(
     taskDescription:
       data.description !== undefined ? (data.description as string | null) : existing.description,
   });
-}
-
-/**
- * Derive the status from a stage change, or the stage from a status-only
- * change, and stamp `completedDate` when the task moves to done. Mutates
- * `update`; returns the status the task ends up with.
- */
-async function applyStatusChange(
-  db: TaskDb,
-  existing: { projectId: string | null; stageId: string | null; status: string | null },
-  data: Record<string, any>,
-  update: Record<string, any>,
-): Promise<string | null> {
-  const stageStatus = await statusFromStage(db, data.stageId);
-  if (stageStatus) update.status = stageStatus;
-  if (data.stageId === undefined && typeof update.status === 'string') {
-    const stageId = await stageForStatus(db, existing, update.status);
-    if (stageId) update.stageId = stageId;
-  }
-
-  const resolvedStatus: string | null = update.status ?? existing.status;
-  if (resolvedStatus === 'done' && existing.status !== 'done') {
-    update.completedDate = new Date();
-  }
-  return resolvedStatus;
 }
 
 // ============================================================================

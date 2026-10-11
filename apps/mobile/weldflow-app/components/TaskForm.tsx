@@ -66,7 +66,7 @@ const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: 'backlog', label: 'Backlog' },
   { value: 'todo', label: 'To Do' },
   { value: 'in_progress', label: 'In Progress' },
-  { value: 'in_review', label: 'In Review' },
+  { value: 'review', label: 'In Review' },
   { value: 'testing', label: 'Testing' },
   { value: 'done', label: 'Done' },
   { value: 'cancelled', label: 'Cancelled' },

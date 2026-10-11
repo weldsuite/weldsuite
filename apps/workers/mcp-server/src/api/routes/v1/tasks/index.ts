@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, gte, isNull, like, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, like, lte, or, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { softDeleteTaskTree } from '@weldsuite/flow-domain/task-tree';
+import { applyStatusChange } from '@weldsuite/flow-domain/task-stage';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
@@ -13,6 +14,7 @@ import { error, list, noContent, success, cursorPagination } from '../../../lib/
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
   createTaskSchema,
+  taskStatusAliases,
   updateTaskSchema,
 } from '@weldsuite/app-api-client/schemas/tasks';
 
@@ -76,7 +78,8 @@ app.get('/', requireScope('tasks:read'), zValidator('query', listTasksQuery), as
     where.push(or(...clauses));
   }
   if (q.projectId) where.push(eq(table.projectId, q.projectId));
-  if (q.status) where.push(eq(table.status, q.status));
+  // Every stored spelling: `review` also finds rows still on the legacy `in_review`.
+  if (q.status) where.push(inArray(table.status, taskStatusAliases(q.status)));
   if (q.priority) where.push(eq(table.priority, q.priority));
   if (q.type) where.push(eq(table.type, q.type));
   if (q.sprintId) where.push(eq(table.sprintId, q.sprintId));
@@ -129,9 +132,22 @@ app.patch('/:id', requireScope('tasks:write'), zValidator('json', updateTaskSche
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const body = c.req.valid('json');
+  const [existing] = await db
+    .select({ projectId: table.projectId, stageId: table.stageId, status: table.status })
+    .from(table)
+    .where(and(eq(table.id, id), isNull(table.deletedAt)))
+    .limit(1);
+  if (!existing) return error.notFound(c, 'Task', id);
+  const update: Record<string, unknown> = {
+    ...stripServerOwned(coerceDates(body as Record<string, unknown>)),
+    updatedAt: new Date(),
+  };
+  // Keep status and board column in step, as flow-api does: boards place a task
+  // by stageId first, so a status change alone would leave it in its old column.
+  await applyStatusChange(db, existing, body, update);
   const [row] = await db
     .update(table)
-    .set({ ...stripServerOwned(coerceDates(body as Record<string, unknown>)), updatedAt: new Date() })
+    .set(update)
     .where(and(eq(table.id, id), isNull(table.deletedAt)))
     .returning();
   if (!row) return error.notFound(c, 'Task', id);

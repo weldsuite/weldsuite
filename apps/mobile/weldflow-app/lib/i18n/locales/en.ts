@@ -29,7 +29,7 @@ export const en = {
     backlog: 'Backlog',
     todo: 'To do',
     in_progress: 'In progress',
-    in_review: 'In review',
+    review: 'In review',
     testing: 'Testing',
     done: 'Done',
     cancelled: 'Cancelled',

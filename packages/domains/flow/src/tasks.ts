@@ -13,7 +13,9 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { syncValuesForEntity, type CustomFieldMap } from '@weldsuite/core-domain/custom-field-values';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { allocateTaskNumber } from './task-numbering';
+import { statusFromStage } from './task-stage';
 
 type TaskRow = typeof schema.tasks.$inferSelect;
 
@@ -43,15 +45,9 @@ export async function createTask(
   const number = await allocateTaskNumber(db);
   const stageId = data.stageId as string | undefined;
 
-  let resolvedStatus: string = (data.status as string | undefined) ?? 'todo';
-  if (stageId) {
-    const [stage] = await db
-      .select({ systemStatus: schema.projectPipelineStages.systemStatus })
-      .from(schema.projectPipelineStages)
-      .where(eq(schema.projectPipelineStages.id, stageId))
-      .limit(1);
-    if (stage?.systemStatus) resolvedStatus = stage.systemStatus;
-  }
+  let resolvedStatus: string = normalizeTaskStatus((data.status as string | undefined) ?? 'todo');
+  const stageStatus = await statusFromStage(db, stageId);
+  if (stageStatus) resolvedStatus = stageStatus;
 
   const positionWhere = projectId
     ? and(eq(t.projectId, projectId), isNull(t.deletedAt))
