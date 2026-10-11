@@ -880,7 +880,7 @@ async function init() {
     throw new Error(`rnnoise expects ${RNNOISE_FRAME}-sample frames, worklet emits ${FRAME_SIZE}`);
   }
   const m = rnnoise_sync_default();
-  if (m.ready !== void 0) await m.ready;
+  if (m.ready) await m.ready;
   mod = m;
   state = m._rnnoise_create(0);
   pcmPtr = m._malloc(RNNOISE_FRAME * 4);
