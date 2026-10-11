@@ -123,6 +123,8 @@ export interface InvoiceLabels {
   paymentInstructions: string;
   vatNumberLabel: string;
   registrationLabel: string;
+  /** Banner on a draft's preview, so it can't pass for the finalized document. */
+  draftNotice: string;
 }
 
 /** Entity identifiers an invoice can print. `einOrSsn` is the US tax ID (print it only when it is an EIN). */

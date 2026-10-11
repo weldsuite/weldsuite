@@ -74,6 +74,8 @@ export interface InvoiceRenderData {
   taxBreakdown?: TaxBreakdownItem[];
   /** US: certificate number by certificate id, for the exempt-sale notice. */
   certificateNumbers?: Record<string, string | null | undefined>;
+  /** A draft prints a "not a valid invoice" banner and a watermark: it isn't booked and can still change. */
+  draft?: boolean;
 }
 
 function makeCurrencyFmt(locale: string, currency: string) {
@@ -398,6 +400,13 @@ function buildFooterTextBlock(footerText: string | null | undefined): string {
   </div>`;
 }
 
+/** Banner plus a diagonal watermark, both printed, so a draft can't pass for the finalized document. */
+function buildDraftMarking(labels: InvoiceLabels): string {
+  const notice = escapeHtml(labels.draftNotice);
+  return `<div data-draft-notice style="border:2px solid #c0392b;color:#c0392b;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;text-align:center;padding:10px;margin-bottom:24px;border-radius:6px;">${notice}</div>
+  <div aria-hidden="true" style="position:absolute;top:40%;left:0;right:0;text-align:center;font-size:96px;font-weight:800;color:rgba(192,57,43,0.08);transform:rotate(-30deg);pointer-events:none;user-select:none;">${escapeHtml(labels.draftNotice.split(':')[0])}</div>`;
+}
+
 export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity): string {
   const locale = entity.locale || 'en-US';
   const currency = invoice.currency || entity.baseCurrency || 'EUR';
@@ -448,19 +457,20 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${typeLabel} ${escapeHtml(invoice.invoiceNumber)}</title>
+<title>${invoice.draft ? `${escapeHtml(labels.draftNotice)} · ` : ''}${typeLabel} ${escapeHtml(invoice.invoiceNumber)}</title>
 <style>
   @media print {
     body { margin: 0; }
     .no-print { display: none !important; }
   }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #333; line-height: 1.5; margin: 0; padding: 0; }
-  .container { max-width: 800px; margin: 0 auto; padding: 40px; }
+  .container { max-width: 800px; margin: 0 auto; padding: 40px; position: relative; }
   table { border-collapse: collapse; width: 100%; }
 </style>
 </head>
 <body>
 <div class="container">
+  ${invoice.draft ? buildDraftMarking(labels) : ''}
   <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px;">
     <div>${logoHtml}</div>
     <div style="text-align:right;">

@@ -15,6 +15,37 @@ import { useI18n } from '@/lib/i18n/provider';
 
 interface EntityRow {
   id: string;
+  isDefault?: boolean | null;
+  isActive?: boolean | null;
+}
+
+/** The entity to fall back to: the workspace default, else the first active one, else the first. */
+function fallbackEntity(entities: EntityRow[]): EntityRow {
+  return (
+    entities.find((e) => e.isDefault && e.isActive !== false) ??
+    entities.find((e) => e.isActive !== false) ??
+    entities[0]
+  );
+}
+
+/**
+ * The selected entity is kept in localStorage, one key for every workspace.
+ * After a workspace switch (or once the entity is deleted) it names an entity
+ * this workspace doesn't have, and every request would carry it. Replace it
+ * with this workspace's default; returns false until the selection is valid.
+ */
+function useValidAccountingEntity(entities: EntityRow[] | undefined): boolean {
+  const { entityId, setEntityId } = useCurrentAccountingEntity();
+  const known = !entityId || !entities || entities.length === 0 || entities.some((e) => e.id === entityId);
+
+  useEffect(() => {
+    if (known || !entities || entities.length === 0) return;
+    const fallback = fallbackEntity(entities);
+    setWeldbooksEntityId(fallback.id);
+    setEntityId(fallback.id);
+  }, [known, entities, setEntityId]);
+
+  return known;
 }
 
 /**
@@ -67,9 +98,11 @@ export function AccountingLayoutClient({ children }: Readonly<{ children: React.
   });
 
   const hasEntity = (entities?.length ?? 0) > 0;
+  const entityValid = useValidAccountingEntity(entities);
 
   let content: React.ReactNode;
-  if (isLoading) {
+  // Pages wait while a stale selection is replaced, so no request goes out for an entity of another workspace.
+  if (isLoading || (hasEntity && !entityValid)) {
     content = <PageLoader fullScreen={false} />;
   } else if (isLoadingError) {
     content = (

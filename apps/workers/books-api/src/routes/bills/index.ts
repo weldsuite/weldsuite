@@ -24,7 +24,7 @@
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, gte, isNull, like, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, like, lte, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -33,6 +33,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
+import { documentContactFields, withContactNames } from '../../lib/contact-snapshot';
 import {
   ClosedPeriodError,
   LockedPeriodError,
@@ -226,7 +227,16 @@ app.get('/', requirePermission('bills:read'), async (c) => {
     if (q.search) {
       const term = `%${q.search}%`;
       conditions.push(
-        or(like(bills.billNumber, term), like(bills.contactName, term), like(bills.externalReference, term))!,
+        or(
+          like(bills.billNumber, term),
+          like(bills.contactName, term),
+          like(bills.externalReference, term),
+          // Bills stored without a contact name are found by the contact's own.
+          inArray(
+            bills.contactId,
+            db.select({ id: schema.parties.id }).from(schema.parties).where(like(schema.parties.displayName, term)),
+          ),
+        )!,
       );
     }
 
@@ -237,7 +247,7 @@ app.get('/', requirePermission('bills:read'), async (c) => {
       db.select({ count: sql<number>`count(*)::int` }).from(bills).where(where),
     ]);
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, rows, cursorPagination(totalCount, page * pageSize < totalCount, null));
+    return list(c, await withContactNames(db, rows), cursorPagination(totalCount, page * pageSize < totalCount, null));
   } catch (err) {
     console.error('[app-api/bills] list failed:', err);
     return error.internal(c, 'Failed to fetch bills');
@@ -261,7 +271,9 @@ app.get('/:id', requirePermission('bills:read'), async (c) => {
       .where(and(eq(paymentsTable.billId, billId), isNull(paymentsTable.deletedAt)))
       .orderBy(desc(paymentsTable.date));
 
-    return success(c, { ...bill, items, payments: billPayments });
+    const [named] = await withContactNames(db, [bill]);
+
+    return success(c, { ...named, items, payments: billPayments });
   } catch (err) {
     console.error('[app-api/bills] get failed:', err);
     return error.internal(c, 'Failed to fetch bill');
@@ -344,6 +356,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       },
     });
     const { processedItems, taxBreakdown, salesTax: _salesTax, ...billTotals } = totals;
+    const { contactName } = await documentContactFields(db, data.contactId, data);
 
     const newBill = {
       id: billId,
@@ -352,7 +365,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       type: 'standard' as const,
       status: 'draft' as const,
       contactId: data.contactId,
-      contactName: data.contactName || null,
+      contactName,
       issueDate: new Date(data.issueDate),
       dueDate: new Date(data.dueDate),
       currency,
@@ -630,6 +643,14 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
     const updateData: Record<string, unknown> = { updatedAt: new Date() };
     if (data.contactId) updateData.contactId = data.contactId;
     if (data.contactName !== undefined) updateData.contactName = data.contactName;
+    // Another supplier, or a draft stored without a contact name, takes the contact's name.
+    const contactChanged = !!data.contactId && data.contactId !== bill.contactId;
+    if (contactChanged || !bill.contactName) {
+      const { contactName } = await documentContactFields(db, data.contactId ?? bill.contactId, {
+        contactName: data.contactName ?? (contactChanged ? null : bill.contactName),
+      });
+      updateData.contactName = contactName;
+    }
     if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
     if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
     if (data.currency) updateData.currency = data.currency;

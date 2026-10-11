@@ -9,6 +9,7 @@ const env = vi.hoisted(() => ({
   finalize: vi.fn(),
   commit: vi.fn(),
   createCreditMemo: vi.fn(),
+  applyCredit: vi.fn(),
   generatePdf: vi.fn(),
   push: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
@@ -29,6 +30,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingEntity: () => ({ data: { name: 'Acme LLC', jurisdictionCode: 'US' } }),
   useAccountingInvoice: () => ({ data: { data: env.invoice }, isLoading: false }),
   useFinalizeInvoice: () => ({ mutate: env.finalize, isPending: false }),
+  useApplyCreditNote: () => ({ mutate: env.applyCredit, isPending: false }),
   useUpdateInvoiceStatus: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSendInvoice: () => ({ mutate: vi.fn(), isPending: false }),
 }));
@@ -365,6 +367,38 @@ describe('InvoiceDetailPage: sales tax', () => {
 
       expect(screen.getByRole('link', { name: 'View the original invoice' })).toHaveAttribute('href', '/weldbooks/invoices/inv_0');
       expect(screen.queryByRole('menuitem', { name: 'Create credit memo' })).not.toBeInTheDocument();
+    });
+
+    it('an open credit memo is refunded or applied, never paid in or written off', async () => {
+      const user = userEvent.setup();
+      env.invoice = invoice({ type: 'credit_note', creditNoteForInvoiceId: 'inv_0', amountPaid: '8.25', balanceDue: '100.00' });
+      env.applyCredit.mockImplementation((_vars, options) => options.onSuccess({ data: { amount: '100.00' } }));
+      renderWithProviders(<InvoiceDetailPage />);
+
+      expect(screen.getByRole('button', { name: 'Record refund' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Record Payment' })).not.toBeInTheDocument();
+      expect(screen.getByText('Credit remaining')).toBeInTheDocument();
+      expect(screen.getByText('Applied or refunded')).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Apply to the invoice' }));
+      expect(env.applyCredit).toHaveBeenCalledWith({ id: 'inv_1' }, expect.any(Object));
+      expect(env.toast.success).toHaveBeenCalledWith('$100.00 applied to the invoice');
+
+      const more = screen.queryByRole('button', { name: 'More actions' });
+      if (more) {
+        await user.click(more);
+        expect(screen.queryByRole('menuitem', { name: 'Mark as uncollectible' })).not.toBeInTheDocument();
+      }
+    });
+
+    it('lists the credit memos issued against an invoice', () => {
+      env.invoice = invoice({
+        creditNotes: [{ id: 'inv_cm1', invoiceNumber: 'CM-0001', status: 'paid', issueDate: '2026-03-05', total: '20.00' }],
+      });
+      renderWithProviders(<InvoiceDetailPage />);
+
+      expect(screen.getByRole('link', { name: 'CM-0001' })).toHaveAttribute('href', '/weldbooks/invoices/inv_cm1');
+      expect(screen.getByText('-$20.00')).toBeInTheDocument();
     });
   });
 

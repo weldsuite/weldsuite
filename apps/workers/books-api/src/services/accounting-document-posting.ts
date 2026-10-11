@@ -896,12 +896,21 @@ export async function buildPaymentPosting(
   const meta = { currency: payment.currency ?? entity.baseCurrency, exchangeRate: payment.exchangeRate ?? '1' };
   const received = payment.type === 'received';
 
-  const counterAccount = requireAccount(
-    received
-      ? accountForRole(accounts, 'accounts_receivable', FALLBACK_CODES.accounts_receivable)
-      : accountForRole(accounts, 'accounts_payable', FALLBACK_CODES.accounts_payable),
-    received ? 'No accounts receivable account found for this entity.' : 'No accounts payable account found for this entity.',
-  );
+  const receivable = () =>
+    requireAccount(
+      accountForRole(accounts, 'accounts_receivable', FALLBACK_CODES.accounts_receivable),
+      'No accounts receivable account found for this entity.',
+    );
+  const payable = () =>
+    requireAccount(
+      accountForRole(accounts, 'accounts_payable', FALLBACK_CODES.accounts_payable),
+      'No accounts payable account found for this entity.',
+    );
+  const counterAccount = received ? receivable() : payable();
+  // An invoice settles against receivables and a bill against payables, whichever way the money moves:
+  // a refund of a customer credit note is a sent payment that debits receivables.
+  const counterFor = (allocation: PaymentAllocationInput) =>
+    allocation.invoiceId ? receivable() : allocation.billId ? payable() : counterAccount;
   const moneyAccount = payment.moneyAccountId
     ? requireAccount(accounts.byId(payment.moneyAccountId), 'The money account does not belong to this accounting entity')
     : await resolveMoneyAccount(db, accounts, entity, payment);
@@ -917,7 +926,7 @@ export async function buildPaymentPosting(
     const amount = toBase(allocation.amount);
     allocated = roundMoney(allocated + amount);
     counterLines.push({
-      accountId: counterAccount,
+      accountId: counterFor(allocation),
       [received ? 'credit' : 'debit']: amount,
       description: `Payment ${payment.reference ?? ''}`.trim(),
       contactId: allocation.contactId,

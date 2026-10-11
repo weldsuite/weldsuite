@@ -526,6 +526,17 @@ export function useFinalizeInvoice() {
   });
 }
 
+export function useApplyCreditNote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, invoiceId }: { id: string; invoiceId?: string }) =>
+      accountingApi.applyCreditNote(id, invoiceId ? { invoiceId } : {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: accountingKeys.invoices.all });
+    },
+  });
+}
+
 export function useRecordInvoicePayment() {
   const qc = useQueryClient();
   return useMutation({
