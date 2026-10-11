@@ -11,8 +11,8 @@ export default defineConfig({
     reporters: ['default', 'junit'],
     outputFile: { junit: './test-results/vitest-junit.xml' },
     pool: 'forks',
-    // Coverage feeds SonarQube Cloud (see sonar-project.properties). lcov is the
-    // format the Sonar scanner reads; text keeps the local run readable.
+    // lcov is for coverage tooling (editor gutters, report viewers); text keeps
+    // the local run readable.
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
