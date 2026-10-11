@@ -15,9 +15,12 @@ import { MoreVertical, Star } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   EntityList,
+  type ActiveFilter,
+  type FilterConfig,
   type HeaderColumn,
   type SortState,
 } from '@/components/entity-list';
+import { applySelectFilters } from '@/lib/list-filters';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -97,6 +100,8 @@ interface FileListViewProps {
     description: string;
     action?: { label: string; onClick: () => void };
   };
+  /** Overrides the empty state's default viewport-sized, centred box. */
+  emptyStateClassName?: string;
   noResultsState?: { title: string; description: string };
 }
 
@@ -111,6 +116,7 @@ export function FileListView({
   searchPlaceholder,
   actionButtons,
   emptyState,
+  emptyStateClassName,
   noResultsState,
 }: Readonly<FileListViewProps>) {
   const { t } = useI18n();
@@ -118,6 +124,23 @@ export function FileListView({
   const [sortState, setSortState] = useState<SortState | null>(null);
   const [containerRef, containerWidth] = useElementWidth<HTMLDivElement>();
   const isCompact = containerWidth !== null && containerWidth < COMPACT_BELOW_PX;
+
+  const filterConfigs: FilterConfig[] = useMemo(() => [
+    {
+      field: 'fileType',
+      label: st('sweep.weldcrm.filesSection.type'),
+      options: [
+        { value: 'image', label: st('sweep.weldcrm.filesSection.images') },
+        { value: 'video', label: st('sweep.weldcrm.filesSection.videos') },
+        { value: 'audio', label: st('sweep.weldcrm.filesSection.audio') },
+        { value: 'pdf', label: st('sweep.weldcrm.filesSection.pdfs') },
+        { value: 'document', label: st('sweep.weldcrm.filesSection.documents') },
+        { value: 'spreadsheet', label: st('sweep.weldcrm.filesSection.spreadsheets') },
+        { value: 'archive', label: st('sweep.weldcrm.filesSection.archives') },
+        { value: 'other', label: st('sweep.weldcrm.filesSection.other') },
+      ],
+    },
+  ], [st]);
 
   const headerColumns: HeaderColumn[] = useMemo(() => {
     const cols: HeaderColumn[] = [
@@ -303,7 +326,8 @@ export function FileListView({
         items={sortedItems}
         isLoading={isLoading ?? false}
         error={error ?? null}
-        filters={[]}
+        filters={filterConfigs}
+        applyFilters={applyFileFilters}
         // The column header only makes sense for the table layout; the compact
         // rows carry their size/date inline.
         headerColumns={isCompact ? undefined : headerColumns}
@@ -314,10 +338,20 @@ export function FileListView({
         onSort={handleSort}
         actionButtons={actionButtons}
         emptyState={emptyState}
+        emptyStateClassName={emptyStateClassName}
         noResultsState={noResultsState}
       />
     </div>
   );
+}
+
+const FILTERABLE_FILE_TYPES = new Set(['image', 'video', 'audio', 'pdf', 'document', 'spreadsheet', 'archive']);
+
+/** The "Type" filter: a category without an option of its own counts as "other". */
+function applyFileFilters(items: FileListItem[], filters: ActiveFilter[]): FileListItem[] {
+  return applySelectFilters(items, filters, {
+    fileType: (item, value) => (FILTERABLE_FILE_TYPES.has(item.fileType) ? item.fileType : 'other') === value,
+  });
 }
 
 /** Maps a MIME content-type to a `fileTypeIcons` category key. */

@@ -52,9 +52,9 @@ import { VideoCameraIcon } from '../components/video-camera-icon';
 import { format, isToday, isYesterday } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { TabEmptyIllustration } from '@/components/objects/_shared/tab-empty-state';
 import {
   EntityList,
-  EmptyStateIllustration,
   type HeaderColumn,
   type FilterConfig,
   type GroupConfig,
@@ -232,9 +232,11 @@ export interface MeetingHistoryListProps {
   filter: MeetingListParams;
   /** Outer wrapper className. Defaults to the full-page shell. */
   className?: string;
+  /** Overrides the empty state's default viewport-sized, centred box. */
+  emptyStateClassName?: string;
 }
 
-export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistoryListProps>) {
+export function MeetingHistoryList({ filter, className, emptyStateClassName }: Readonly<MeetingHistoryListProps>) {
   const t = getTranslations('weldmeet');
   const navigate = useNavigate();
   const [sortState, setSortState] = useState<SortState | null>(null);
@@ -601,23 +603,27 @@ export function MeetingHistoryList({ filter, className }: Readonly<MeetingHistor
           columnGap="gap-6"
           topBarClassName="pt-2 pb-2"
           stickyOffset={0}
+          emptyStateClassName={emptyStateClassName}
           emptyState={{
             icon: (
-              <EmptyStateIllustration>
-                <svg width="120" height="140" viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ transform: 'perspective(600px) rotateY(-6deg) rotateX(4deg)' }}>
-                  <rect x="18" y="24" width="76" height="56" rx="6" className="fill-white dark:fill-white/[0.03]" />
-                  <rect x="18" y="24" width="76" height="56" rx="6" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
-                  <rect x="24" y="30" width="64" height="40" rx="3" className="fill-gray-50/60 dark:fill-white/[0.06]" />
-                  <path d="M48 44L48 56L60 50L48 44Z" className="fill-gray-200 dark:fill-white/20" />
-                  <circle cx="68" cy="50" r="6" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" fill="none" />
-                  <circle cx="68" cy="48" r="2" className="fill-gray-200 dark:fill-white/15" />
-                  <path d="M64 53C64 51 66 50 68 50C70 50 72 51 72 53" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="0.8" fill="none" />
-                  <rect x="48" y="80" width="16" height="4" rx="1" className="fill-gray-200 dark:fill-white/15" />
-                  <rect x="42" y="84" width="28" height="3" rx="1.5" className="fill-gray-200 dark:fill-white/15" />
-                  <path d="M80 28C84 28 87 31 87 35" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" strokeLinecap="round" fill="none" />
-                  <path d="M80 33C82 33 84 34.5 84 36.5" className="stroke-gray-200 dark:stroke-white/15" strokeWidth="1" strokeLinecap="round" fill="none" />
+              <TabEmptyIllustration>
+                <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ transform: 'perspective(600px) rotateY(-6deg) rotateX(4deg)' }}>
+                  {/* Call window */}
+                  <rect x="14" y="22" width="92" height="72" rx="7" className="fill-white dark:fill-white/[0.03] stroke-gray-200 dark:stroke-white/15" strokeWidth="1" />
+                  {/* Participant tile 1 */}
+                  <rect x="20" y="28" width="38" height="44" rx="4" className="fill-gray-50 dark:fill-white/[0.06] stroke-gray-200 dark:stroke-white/15" strokeWidth="0.8" />
+                  <circle cx="39" cy="45" r="6" className="fill-gray-200 dark:fill-white/20" />
+                  <path d="M28 72C28 62.5 32.5 57 39 57C45.5 57 50 62.5 50 72Z" className="fill-gray-200 dark:fill-white/20" />
+                  {/* Participant tile 2 */}
+                  <rect x="62" y="28" width="38" height="44" rx="4" className="fill-gray-50 dark:fill-white/[0.06] stroke-gray-200 dark:stroke-white/15" strokeWidth="0.8" />
+                  <circle cx="81" cy="45" r="6" className="fill-gray-200 dark:fill-white/15" />
+                  <path d="M70 72C70 62.5 74.5 57 81 57C87.5 57 92 62.5 92 72Z" className="fill-gray-200 dark:fill-white/15" />
+                  {/* Call controls: mic, camera, leave */}
+                  <circle cx="45" cy="83" r="4.5" className="fill-gray-100 dark:fill-white/[0.08] stroke-gray-200 dark:stroke-white/15" strokeWidth="0.8" />
+                  <circle cx="58" cy="83" r="4.5" className="fill-gray-100 dark:fill-white/[0.08] stroke-gray-200 dark:stroke-white/15" strokeWidth="0.8" />
+                  <rect x="66.5" y="78.5" width="14" height="9" rx="4.5" className="fill-gray-300 dark:fill-white/25" />
                 </svg>
-              </EmptyStateIllustration>
+              </TabEmptyIllustration>
             ),
             title: t.historyPage.noMeetings,
             description: t.historyPage.noMeetingsHint,

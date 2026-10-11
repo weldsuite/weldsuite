@@ -69,7 +69,8 @@ import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { ProjectPermissionContext } from '@/app/weldflow/contexts/project-permission-context';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
+import { EntityList, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
+import { TabEmptyIllustration, TAB_EMPTY_STATE_TABLE_CLASS } from '@/components/objects/_shared/tab-empty-state';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 
 interface Task {
@@ -156,7 +157,7 @@ interface TasksClientProps {
    * group-by, project stages, breadcrumbs) are suppressed. Assignees come from
    * the workspace member directory instead of a per-project member list.
    */
-  entityScope?: { kind: 'company' | 'person'; id: string };
+  entityScope?: { kind: 'company' | 'person'; id: string; name?: string; avatar?: string };
 }
 
 // priorityConfig and statusConfig are built inside TasksClient (need t for labels)
@@ -453,11 +454,11 @@ type TaskAssigneeEntry = NonNullable<Task['assignees']>[number];
 function AssigneeStackAvatar({ assignee, src, multiple }: Readonly<{ assignee: TaskAssigneeEntry; src: string | undefined; multiple: boolean }>) {
   const avatar = (
     <Avatar
-      className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+      className="h-[18px] w-[18px] !rounded-[6px] ring-1 ring-background"
       title={multiple ? undefined : assignee.name}
     >
-      {src && <AvatarImage src={src} alt={assignee.name} className="!rounded-[7px]" />}
-      <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+      {src && <AvatarImage src={src} alt={assignee.name} className="!rounded-[6px]" />}
+      <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
         {assignee.name.charAt(0).toUpperCase()}
       </AvatarFallback>
     </Avatar>
@@ -2017,10 +2018,11 @@ export function TasksClient({
             isLoadingMore={isFetchingNextPage}
             onLoadMore={onLoadMore}
             topBarClassName="pt-2 pb-2"
-            // A panel's task list sits in a short, scrolling box: a viewport-sized,
-            // vertically centred empty state pushed its text below the fold and
-            // left only the illustration on screen.
-            emptyStateClassName={isEntityMode ? 'min-h-0 py-10' : 'min-h-[calc(100dvh-350px)]'}
+            // A side panel's task list sits in a short, scrolling box: a
+            // viewport-sized, vertically centred empty state pushed its text
+            // below the fold. TAB_EMPTY_STATE_TABLE_CLASS only centres it when the
+            // panel is fullscreen.
+            emptyStateClassName={isEntityMode ? TAB_EMPTY_STATE_TABLE_CLASS : 'min-h-[calc(100dvh-350px)]'}
         createButton={canWrite ? {
           label: t.projects.tasks.addTaskBtn,
           // Both modes open the task dialog. In entity mode the dialog shows a
@@ -2029,14 +2031,11 @@ export function TasksClient({
           onClick: () => setShowAddDialog(true),
         } : undefined}
         emptyState={{
-          // The 240x170 illustration is for the full-page board; in a panel it
-          // takes the whole visible height and the text never shows.
-          icon: isEntityMode ? (
-            <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center mb-3">
-              <ListTodo className="h-5 w-5 text-muted-foreground" />
-            </div>
-          ) : (
-            <EmptyStateIllustration>
+          // Same drawing on the board and in a company / person panel;
+          // TabEmptyIllustration shrinks it inside a side panel (and is a
+          // plain EmptyStateIllustration everywhere else).
+          icon: (
+            <TabEmptyIllustration>
               <svg width="120" height="140" viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ transform: 'perspective(600px) rotateY(-6deg) rotateX(4deg)' }}>
                 {/* Clipboard body */}
                 <rect x="16" y="22" width="80" height="100" rx="6" className="fill-white dark:fill-white/[0.03]" />
@@ -2061,7 +2060,7 @@ export function TasksClient({
                 <rect x="48" y="94" width="28" height="3" rx="1.5" className="fill-gray-200 dark:fill-white/15" opacity="0.4" />
                 <rect x="48" y="100" width="18" height="2" rx="1" className="fill-gray-200 dark:fill-white/10" opacity="0.3" />
               </svg>
-            </EmptyStateIllustration>
+            </TabEmptyIllustration>
           ),
           title: t.projects.tasks.noTasksTitle,
           description: t.projects.tasks.noTasksDesc,
@@ -2096,6 +2095,13 @@ export function TasksClient({
         availableStatuses={projectStages.map(s => ({ id: s.id, label: stageLabel(s.name, s.systemStatus), color: s.color }))}
         onCreateLabel={handleCreateLabel}
         hideRecord
+        // Opened from a company / person panel: the task is created for that
+        // record (see handleTaskDialogSave), so the dialog shows it, fixed.
+        lockedRecord={
+          entityScope?.name
+            ? { id: entityScope.id, name: entityScope.name, avatar: entityScope.avatar }
+            : undefined
+        }
         defaultAssignee={isEntityMode ? currentUserId ?? undefined : undefined}
         onSave={handleTaskDialogSave}
         projectId={projectId}

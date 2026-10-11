@@ -24,7 +24,6 @@ import {
   CommandEmpty,
   CommandGroup,
   CommandInput,
-  CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
 import {
@@ -61,6 +60,7 @@ import { useLocale } from '@/hooks/use-preferences';
 import { useWorkspaceMembers, type WorkspaceMember } from '@/hooks/queries/use-settings-queries';
 import { useCompanies } from '@/components/objects/company/use-company-data';
 import { usePeople } from '@/components/objects/person/use-person-data';
+import { RecordPickerItem } from '@/components/objects/_shared/record-picker-menu';
 import { useDebounce } from '@/hooks/use-debounce';
 
 type CompanyOption = { id: string; name: string; avatar?: string };
@@ -236,62 +236,35 @@ const RecordPicker = React.memo(function RecordPicker({
               {availableCompanyObjects.length > 0 && (
               <CommandGroup className="px-1 py-1" heading={companiesLabel}>
                 {availableCompanyObjects.map((record) => (
-                  <CommandItem
+                  <RecordPickerItem
                     key={record.id}
+                    kind="company"
+                    option={{ id: record.id, name: record.name, avatarUrl: record.avatar }}
                     value={`${record.name} ${record.id}`}
                     onSelect={() => {
                       onSelect(taskId, { id: record.id, name: record.name });
                       setOpen(false);
                     }}
-                    className={cn(
-                      'flex items-center justify-between gap-2 px-1.5',
-                      linkedCompany?.id === record.id && 'bg-accent text-accent-foreground',
-                    )}
-                  >
-                    <span className="flex items-center gap-2 min-w-0 flex-1">
-                      <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
-                        {record.avatar && (
-                          <AvatarImage src={record.avatar} alt={record.name} className="!rounded-[7px]" />
-                        )}
-                        <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                          {record.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="truncate">{record.name}</span>
-                    </span>
-                    {linkedCompany?.id === record.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
-                  </CommandItem>
+                    checked={linkedCompany?.id === record.id}
+                    className={cn(linkedCompany?.id === record.id && 'bg-accent text-accent-foreground')}
+                  />
                 ))}
               </CommandGroup>
               )}
               {availablePersonObjects.length > 0 && (
               <CommandGroup className="px-1 py-1" heading={peopleLabel}>
                 {availablePersonObjects.map((record) => (
-                  <CommandItem
+                  <RecordPickerItem
                     key={record.id}
+                    option={{ id: record.id, name: record.name, avatarUrl: record.avatar }}
                     value={`${record.name} ${record.id}`}
                     onSelect={() => {
                       onSelectPerson(taskId, { id: record.id, name: record.name });
                       setOpen(false);
                     }}
-                    className={cn(
-                      'flex items-center justify-between gap-2 px-1.5',
-                      linkedPerson?.id === record.id && 'bg-accent text-accent-foreground',
-                    )}
-                  >
-                    <span className="flex items-center gap-2 min-w-0 flex-1">
-                      <Avatar className="h-5 w-5 !rounded-[full] flex-shrink-0">
-                        {record.avatar && (
-                          <AvatarImage src={record.avatar} alt={record.name} className="!rounded-[full]" />
-                        )}
-                        <AvatarFallback className="!rounded-[full] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
-                          {record.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="truncate">{record.name}</span>
-                    </span>
-                    {linkedPerson?.id === record.id && <Check className="h-3.5 w-3.5 text-primary flex-shrink-0" />}
-                  </CommandItem>
+                    checked={linkedPerson?.id === record.id}
+                    className={cn(linkedPerson?.id === record.id && 'bg-accent text-accent-foreground')}
+                  />
                 ))}
               </CommandGroup>
               )}

@@ -11,6 +11,7 @@
 import { useMemo } from 'react';
 import { MeetingHistoryList } from '@/app/weldmeet/history/meeting-history-list';
 import type { ListMeetingsParams } from '@/lib/api/domains/weldmeet';
+import { TAB_EMPTY_STATE_TABLE_CLASS } from './tab-empty-state';
 
 interface MeetingsTabProps {
   entityId: string;
@@ -26,5 +27,5 @@ export function MeetingsTab({ entityId, entityKind }: Readonly<MeetingsTabProps>
     [entityId, entityKind],
   );
 
-  return <MeetingHistoryList filter={filter} />;
+  return <MeetingHistoryList filter={filter} emptyStateClassName={TAB_EMPTY_STATE_TABLE_CLASS} />;
 }

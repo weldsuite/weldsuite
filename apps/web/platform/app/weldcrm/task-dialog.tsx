@@ -137,6 +137,13 @@ interface TaskDialogProps {
   recordSearchPlaceholder?: string;
   recordEmptyLabel?: string;
   hideRecord?: boolean;
+  /**
+   * The record the task belongs to when the dialog is opened from that record
+   * (a company or person panel): shown as the selected record and not
+   * changeable. The caller links the task to it on save; the dialog's own
+   * record field is not used.
+   */
+  lockedRecord?: { id: string; name: string; avatar?: string };
   projectId?: string;
   // When provided, the status dropdown renders these options (project-specific
   // pipeline stages) instead of the built-in `statusConfig`. Values are stage IDs.
@@ -872,6 +879,28 @@ function RecordPopover({
   );
 }
 
+/** The record chip of `RecordPopover` in its selected state, without the picker. */
+function LockedRecordChip({ record }: Readonly<{ record: { id: string; name: string; avatar?: string } }>) {
+  return (
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className="h-7 text-xs font-normal gap-1.5 pl-1 cursor-default bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-100 hover:text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 dark:hover:bg-purple-900/30 dark:hover:text-purple-400"
+    >
+      <span>
+        <Avatar className="h-5 w-5 !rounded-[6px]">
+          {record.avatar && <AvatarImage src={record.avatar} alt={record.name} className="!rounded-[6px]" />}
+          <AvatarFallback className="!rounded-[6px] text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
+            {(record.name || '?').charAt(0).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate max-w-[180px]">{record.name}</span>
+      </span>
+    </Button>
+  );
+}
+
 function RepeatPopover({
   repeat,
   repeatInterval,
@@ -982,6 +1011,7 @@ export function TaskDialog({
   recordSearchPlaceholder,
   recordEmptyLabel,
   hideRecord,
+  lockedRecord,
   projectId,
   availableStatuses,
   onSave,
@@ -1503,7 +1533,8 @@ export function TaskDialog({
             />
 
             {/* Select Record */}
-            {!hideRecord && (
+            {lockedRecord && <LockedRecordChip record={lockedRecord} />}
+            {!lockedRecord && !hideRecord && (
               <RecordPopover
                 record={record}
                 companies={recordOptions}

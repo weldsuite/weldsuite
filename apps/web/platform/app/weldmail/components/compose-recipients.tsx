@@ -4,20 +4,21 @@
  * the full-page compose and the floating compose panel so both behave the same.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Plus, User, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
-import { Command, CommandItem, CommandList } from '@weldsuite/ui/components/command';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
+import { RecordPickerMenu } from '@/components/objects/_shared/record-picker-menu';
 import { useI18n } from '@/lib/i18n/provider';
 import { usePersonSearch, type Person } from '@/hooks/queries/use-people-queries';
 
+// A `RecordPickerOption` whose detail line is the person's email address.
 interface PersonSuggestion {
   id: string;
   email: string;
   name: string;
+  detail: string;
   avatarUrl: string | null;
 }
 
@@ -56,6 +57,7 @@ const toPersonSuggestion = (p: PersonLike): PersonSuggestion => ({
   id: p.id,
   name: p.displayName || [p.firstName, p.lastName].filter(Boolean).join(' ') || p.email || '',
   email: p.email ?? '',
+  detail: p.email ?? '',
   avatarUrl: p.avatarUrl ?? null,
 });
 
@@ -302,29 +304,6 @@ function ToRecipientsInput({
   );
 }
 
-function ContactSuggestionItem({
-  contact,
-  onSelect,
-}: Readonly<{
-  contact: PersonSuggestion;
-  onSelect: (contact: PersonSuggestion) => void;
-}>) {
-  return (
-    <CommandItem value={contact.id} onSelect={() => onSelect(contact)}>
-      <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
-        {contact.avatarUrl && <AvatarImage src={contact.avatarUrl} alt={contact.name} className="!rounded-[7px]" />}
-        <AvatarFallback className="!rounded-[7px] bg-gray-200 dark:bg-muted-foreground/25">
-          <User className="size-2.5" />
-        </AvatarFallback>
-      </Avatar>
-      <div className="flex flex-1 min-w-0 items-baseline gap-2">
-        <span className="max-w-[60%] font-medium truncate">{contact.name}</span>
-        <span className="min-w-0 flex-1 text-xs text-muted-foreground truncate">{contact.email}</span>
-      </div>
-    </CommandItem>
-  );
-}
-
 function ContactSuggestionsList({
   containerRef,
   isLoading,
@@ -346,30 +325,8 @@ function ContactSuggestionsList({
   const { t } = useI18n();
   const available = contacts.filter((c) => !toRecipients.includes(c.email));
 
-  const renderBody = () => {
-    if (isLoading && contacts.length === 0) {
-      return (
-        <div className="flex items-center justify-center gap-2 py-8">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">{t.mail.composePage.loadingContacts}</span>
-        </div>
-      );
-    }
-    return (
-      <>
-        {available.map((contact) => (
-          <ContactSuggestionItem key={contact.id} contact={contact} onSelect={onSelect} />
-        ))}
-        <CommandItem value="__add-recipient" onSelect={onCreatePerson}>
-          <Plus />
-          <span className="font-medium truncate">{t.mail.composePage.createNewPerson}</span>
-        </CommandItem>
-      </>
-    );
-  };
-
-  // The search runs server-side and the text input lives outside the Command,
-  // so cmdk's own filtering is off; mousedown is swallowed to keep the input focused.
+  // The search runs server-side and the text input lives outside the menu;
+  // mousedown is swallowed to keep the input focused.
   return (
     <div
       ref={containerRef}
@@ -380,9 +337,14 @@ function ContactSuggestionsList({
         className,
       )}
     >
-      <Command shouldFilter={false} className="h-auto">
-        <CommandList className="max-h-[250px] p-1">{renderBody()}</CommandList>
-      </Command>
+      <RecordPickerMenu
+        options={available}
+        isLoading={isLoading}
+        loadingLabel={t.mail.composePage.loadingContacts}
+        onSelect={onSelect}
+        createLabel={t.mail.composePage.createNewPerson}
+        onCreate={onCreatePerson}
+      />
     </div>
   );
 }
