@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from '@/lib/router';
+import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { getTranslations } from '@/lib/i18n';
 import type { TranslationNamespaces } from '@/lib/i18n';
 import { PageLoader } from '@/components/page-loader';
@@ -29,7 +30,7 @@ function getPersonInitials(person: Person): string {
 }
 
 // Column ids double as the server-side sort keys of GET /people.
-function buildCallContactColumns(tc: TranslationNamespaces['weldmeet']['weldcall']['contacts']): GridColumnDef<Person>[] {
+function buildCallPeopleColumns(tc: TranslationNamespaces['weldmeet']['weldcall']['people']): GridColumnDef<Person>[] {
   return [
     {
       id: 'name',
@@ -111,10 +112,11 @@ function buildCallContactColumns(tc: TranslationNamespaces['weldmeet']['weldcall
   ];
 }
 
-function CallContactsContent() {
+function CallPeopleContent() {
   const { setIsDialerOpen, setInitialDialerNumber } = useCall();
   const t = getTranslations('weldmeet');
-  const tc = t.weldcall.contacts;
+  const tc = t.weldcall.people;
+  useBreadcrumbs([{ label: getTranslations('navigation').moduleSidebar.weldcall.people }]);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
 
   const searchParams = useSearchParams();
@@ -142,7 +144,7 @@ function CallContactsContent() {
     isFetchingNextPage,
   } = useInfinitePeople(filters);
 
-  const contacts = useMemo(
+  const people = useMemo(
     () => infiniteData?.pages.flatMap((page) => page.data ?? []) ?? [],
     [infiniteData],
   );
@@ -152,11 +154,12 @@ function CallContactsContent() {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const callContactGridConfig: EntityGridConfig<Person> = useMemo(() => ({
+  const callPeopleGridConfig: EntityGridConfig<Person> = useMemo(() => ({
     entityName: tc.entityName,
+    // Key from when this page was Contacts; kept so saved column layouts survive.
     gridViewName: 'weldcall-contact',
     entityNamePlural: tc.entityNamePlural,
-    columns: buildCallContactColumns(tc),
+    columns: buildCallPeopleColumns(tc),
     getEntityId: (p) => p.id,
     getEntityName: (p) => p.displayName,
     getEntityInitials: getPersonInitials,
@@ -198,9 +201,9 @@ function CallContactsContent() {
   return (
     <div className="h-[calc(100vh-4rem)]">
       <EntityGrid
-        config={callContactGridConfig}
+        config={callPeopleGridConfig}
         actions={actions}
-        entities={contacts}
+        entities={people}
         pagination={pagination}
         searchParams={{ search, sort, sortDir }}
         onLoadMore={handleLoadMore}
@@ -212,10 +215,10 @@ function CallContactsContent() {
   );
 }
 
-export default function CallContactsPage() {
+export default function CallPeoplePage() {
   return (
     <WeldCallGate>
-      <CallContactsContent />
+      <CallPeopleContent />
     </WeldCallGate>
   );
 }

@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from '@/lib/router';
 import { useSignIn, useSignUp, useOrganizationList, useAuth, useClerk } from '@clerk/clerk-react';
 import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
@@ -7,6 +7,8 @@ import { Loader2, CheckCircle, XCircle, Lock, Mail, User, Clock, UserCheck } fro
 import { Button } from '@weldsuite/ui/components/button';
 import { PageLoader } from '@/components/page-loader';
 import { getTranslations } from '@/lib/i18n';
+import { setPendingOrganization } from '@/lib/pending-organization';
+import { pickInvitation } from './pick-invitation';
 
 interface InviteClientProps {
   orgId?: string;
@@ -77,7 +79,18 @@ function getInviteeDetails(
   };
 }
 
-function redirectHomeSoon() {
+/**
+ * Open the app in the workspace just joined. Clerk's active org can still be
+ * the previous one after the reload, so the app shell is told which org to
+ * activate, and the persisted query cache (the old org's data) is dropped.
+ */
+function enterWorkspaceSoon(orgId: string | undefined) {
+  if (orgId) setPendingOrganization(orgId);
+  try {
+    window.localStorage.removeItem('weldsuite:query-cache');
+  } catch {
+    // storage unavailable — the reload below still happens
+  }
   setTimeout(() => {
     window.location.href = '/';
   }, 1500);
@@ -267,8 +280,7 @@ interface PendingInvitation {
 }
 
 interface SignedInConflictViewProps {
-  orgListLoaded: boolean;
-  invitations: PendingInvitation[] | undefined;
+  invitation: PendingInvitation | undefined;
   userEmail?: string;
   isLoading: boolean;
   error: string | null;
@@ -277,10 +289,10 @@ interface SignedInConflictViewProps {
   onCancel: () => void;
 }
 
-// The visitor is already signed in: either the right account (accept) or the wrong one (sign out).
+// Joining while signed in didn't go through on its own: either retry the
+// invitation (accepting failed) or the link was for another account (sign out).
 function SignedInConflictView({
-  orgListLoaded,
-  invitations,
+  invitation,
   userEmail,
   isLoading,
   error,
@@ -291,18 +303,8 @@ function SignedInConflictView({
   const t = getTranslations('common');
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
 
-  // Check if user has a pending invitation (means they're the right account)
-  const hasPendingInvitation = invitations && invitations.length > 0;
-  const isRightAccount = hasPendingInvitation;
-
-  // Show loading while fetching invitations
-  if (!orgListLoaded) {
-    return <PageLoader label={t.invite.checkingInvitation} />;
-  }
-
-  // Right account - show Accept + Cancel
-  if (isRightAccount) {
-    const invitation = invitations?.[0];
+  // A pending invitation for this account - show Accept + Cancel
+  if (invitation) {
     return (
       <div className="min-h-screen bg-white flex relative">
         <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
@@ -594,10 +596,17 @@ export function InviteClient({
   const { isSignedIn } = useAuth();
   const { signOut, user } = useClerk();
 
-  // Handle Clerk ticket flow
+  // Already signed in (say the link was opened from WeldMail): there is no
+  // ticket sign-in to do; accept with this account and switch workspace.
+  const joinsWhileSignedIn = Boolean(isSignedIn && (clerkTicket || orgId));
+  const invitation = pickInvitation(userInvitations?.data, orgId);
+  const joinStartedRef = useRef(false);
+
+  // Handle Clerk ticket flow (signed out)
   useEffect(() => {
     if (!clerkTicket || ticketStatus !== 'idle') return;
     if (!signInLoaded || !signUpLoaded) return;
+    if (isSignedIn) return;
 
     const showPasswordRequired = () => {
       // Extract email and name from the signUp object if available
@@ -624,7 +633,7 @@ export function InviteClient({
         // No password required (unlikely but possible)
         await setSignUpActive({ session: result.createdSessionId });
         setTicketStatus('success');
-        redirectHomeSoon();
+        enterWorkspaceSoon(orgId);
       } else if (result.status === 'missing_requirements') {
         // Need additional info (password)
         showPasswordRequired();
@@ -644,7 +653,7 @@ export function InviteClient({
       if (result.status === 'complete') {
         await setSignInActive({ session: result.createdSessionId });
         setTicketStatus('success');
-        redirectHomeSoon();
+        enterWorkspaceSoon(orgId);
       } else if (result.status === 'needs_second_factor') {
         // User has 2FA enabled, redirect to login with ticket
         failAndRedirectToLogin(t.invite.errors.twoFactorRequired);
@@ -674,15 +683,6 @@ export function InviteClient({
       setTicketStatus('processing');
       setError(null);
 
-      // If user is already signed in, they need to sign out first to accept with a different account
-      // or we redirect them to accept the invitation through the org membership flow
-      if (isSignedIn) {
-        // Redirect to accept invitation through the normal flow
-        // The __clerk_ticket approach is for unauthenticated users
-        setTicketStatus('signed_in_conflict');
-        return;
-      }
-
       try {
         if (clerkStatus === 'sign_up' && signUp) {
           await processSignUpTicket(signUp);
@@ -698,6 +698,7 @@ export function InviteClient({
   }, [
     clerkTicket,
     clerkStatus,
+    orgId,
     signIn,
     signUp,
     signInLoaded,
@@ -741,7 +742,7 @@ export function InviteClient({
       if (result.status === 'complete') {
         await setSignUpActive({ session: result.createdSessionId });
         setTicketStatus('success');
-        redirectHomeSoon();
+        enterWorkspaceSoon(orgId);
       } else {
         // May need email verification
         if (result.status === 'missing_requirements' &&
@@ -785,36 +786,64 @@ export function InviteClient({
     await signOut({ redirectUrl });
   };
 
-  const handleAcceptPendingInvitation = async () => {
-    setIsLoading(true);
+  // Signed in: accept the invitation (if it is still pending) and switch to
+  // its workspace. Without a pending invitation the link can still be for a
+  // workspace this account already belongs to; switching then just works.
+  const joinWorkspace = useCallback(async () => {
+    const targetOrgId = invitation?.publicOrganizationData.id ?? orgId;
+    if (!targetOrgId || !setOrgActive) {
+      setTicketStatus('signed_in_conflict');
+      return;
+    }
+
+    setTicketStatus('processing');
     setError(null);
 
-    try {
-      if (userInvitations?.data && userInvitations.data.length > 0) {
-        const pendingInvitation = userInvitations.data[0];
-        await pendingInvitation.accept();
-
-        // Set the organization as active
-        if (setOrgActive) {
-          await setOrgActive({ organization: pendingInvitation.publicOrganizationData.id });
-        }
-
-        setTicketStatus('success');
-        redirectHomeSoon();
+    if (invitation) {
+      try {
+        await invitation.accept();
+      } catch (err: unknown) {
+        console.error('Accept invitation error:', err);
+        setError(
+          isClerkAPIResponseError(err)
+            ? err.errors[0]?.message || t.invite.errors.failedToAcceptInvitation
+            : t.invite.errors.failedToAcceptInvitation,
+        );
+        setTicketStatus('signed_in_conflict');
+        return;
       }
-    } catch (err: unknown) {
-      console.error('Accept invitation error:', err);
-      setError(isClerkAPIResponseError(err) ? err.errors[0]?.message || t.invite.errors.failedToAcceptInvitation : t.invite.errors.failedToAcceptInvitation);
-      setIsLoading(false);
     }
-  };
 
-  // Ticket-driven states only apply when the invite link carries a Clerk ticket.
-  const activeTicketStatus = clerkTicket ? ticketStatus : undefined;
+    try {
+      await setOrgActive({ organization: targetOrgId });
+    } catch {
+      // Not invited and not a member: the link is for another account. After
+      // an accept, the app shell activates the pending org on reload instead.
+      if (!invitation) {
+        setTicketStatus('signed_in_conflict');
+        return;
+      }
+    }
+
+    setTicketStatus('success');
+    enterWorkspaceSoon(targetOrgId);
+  }, [invitation, orgId, setOrgActive, t.invite.errors.failedToAcceptInvitation]);
+
+  useEffect(() => {
+    if (!joinsWhileSignedIn || !orgListLoaded) return;
+    if (userInvitations?.isLoading || joinStartedRef.current) return;
+    joinStartedRef.current = true;
+    void joinWorkspace();
+  }, [joinsWhileSignedIn, orgListLoaded, userInvitations?.isLoading, joinWorkspace]);
+
+  // Ticket-driven states only apply when the link carries an invitation to process.
+  const activeTicketStatus = clerkTicket || joinsWhileSignedIn ? ticketStatus : undefined;
 
   // Show processing state for Clerk ticket
   if (activeTicketStatus === 'idle') {
-    return <PageLoader label={t.invite.loadingInvitation} />;
+    return (
+      <PageLoader label={joinsWhileSignedIn ? t.invite.checkingInvitation : t.invite.loadingInvitation} />
+    );
   }
 
   if (activeTicketStatus === 'processing') {
@@ -843,16 +872,15 @@ export function InviteClient({
     return <SuccessView />;
   }
 
-  // Show signed-in conflict state - user is already logged in
+  // Signed in, but joining didn't go through on its own (accept failed or wrong account)
   if (activeTicketStatus === 'signed_in_conflict') {
     return (
       <SignedInConflictView
-        orgListLoaded={orgListLoaded}
-        invitations={userInvitations?.data}
+        invitation={invitation}
         userEmail={user?.primaryEmailAddress?.emailAddress}
         isLoading={isLoading}
         error={error}
-        onAccept={handleAcceptPendingInvitation}
+        onAccept={() => void joinWorkspace()}
         onSignOut={handleSignOutAndRetry}
         onCancel={() => router.push('/')}
       />

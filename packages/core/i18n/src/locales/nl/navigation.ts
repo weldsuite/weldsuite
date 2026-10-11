@@ -173,7 +173,7 @@ export const navigation = {
       weldcall: {
         newCall: 'Nieuw gesprek',
         history: 'Geschiedenis',
-        contacts: 'Contacten',
+        people: 'Personen',
       },
       welddrive: {
         myDrive: 'Mijn schijf',

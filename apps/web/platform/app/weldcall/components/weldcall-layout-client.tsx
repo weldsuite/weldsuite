@@ -14,7 +14,8 @@ export function WeldCallLayoutClient({ children }: Readonly<WeldCallLayoutClient
   const pathname = usePathname();
   const mobileNav = useMobileNavOptional();
 
-  const callRouteSegments = ['new', 'history', 'contacts'];
+  // 'contacts' only redirects to 'people' now, but must not count as a call id.
+  const callRouteSegments = ['new', 'history', 'people', 'contacts'];
   const subPath = pathname?.replace(/^\/weldcall\/?/, '').split('/')[0];
   const isCallDetailPage = !!subPath && !callRouteSegments.includes(subPath);
 

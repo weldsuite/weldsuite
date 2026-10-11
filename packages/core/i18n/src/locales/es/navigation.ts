@@ -122,7 +122,7 @@ export const navigation = {
       weldcall: {
         newCall: 'Nueva llamada',
         history: 'Historial',
-        contacts: 'Contactos',
+        people: 'Personas',
       },
       welddrive: {
         myDrive: 'Mi unidad',

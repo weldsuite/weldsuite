@@ -163,6 +163,7 @@ import { Route as WeldchatSearchIndexRouteImport } from './routes/weldchat/searc
 import { Route as WeldchatDmIndexRouteImport } from './routes/weldchat/dm/index'
 import { Route as WeldchatBookmarksIndexRouteImport } from './routes/weldchat/bookmarks/index'
 import { Route as WeldchatChannelIdIndexRouteImport } from './routes/weldchat/$channelId/index'
+import { Route as WeldcallPeopleIndexRouteImport } from './routes/weldcall/people/index'
 import { Route as WeldcallNewIndexRouteImport } from './routes/weldcall/new/index'
 import { Route as WeldcallHistoryIndexRouteImport } from './routes/weldcall/history/index'
 import { Route as WeldcallContactsIndexRouteImport } from './routes/weldcall/contacts/index'
@@ -1267,6 +1268,11 @@ const WeldchatChannelIdIndexRoute = WeldchatChannelIdIndexRouteImport.update({
   id: '/$channelId/',
   path: '/$channelId/',
   getParentRoute: () => WeldchatRouteRoute,
+} as any)
+const WeldcallPeopleIndexRoute = WeldcallPeopleIndexRouteImport.update({
+  id: '/people/',
+  path: '/people/',
+  getParentRoute: () => WeldcallRouteRoute,
 } as any)
 const WeldcallNewIndexRoute = WeldcallNewIndexRouteImport.update({
   id: '/new/',
@@ -3252,6 +3258,7 @@ export interface FileRoutesByFullPath {
   '/weldcall/contacts/': typeof WeldcallContactsIndexRoute
   '/weldcall/history/': typeof WeldcallHistoryIndexRoute
   '/weldcall/new/': typeof WeldcallNewIndexRoute
+  '/weldcall/people/': typeof WeldcallPeopleIndexRoute
   '/weldchat/$channelId/': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks/': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm/': typeof WeldchatDmIndexRoute
@@ -3688,6 +3695,7 @@ export interface FileRoutesByTo {
   '/weldcall/contacts': typeof WeldcallContactsIndexRoute
   '/weldcall/history': typeof WeldcallHistoryIndexRoute
   '/weldcall/new': typeof WeldcallNewIndexRoute
+  '/weldcall/people': typeof WeldcallPeopleIndexRoute
   '/weldchat/$channelId': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm': typeof WeldchatDmIndexRoute
@@ -4161,6 +4169,7 @@ export interface FileRoutesById {
   '/weldcall/contacts/': typeof WeldcallContactsIndexRoute
   '/weldcall/history/': typeof WeldcallHistoryIndexRoute
   '/weldcall/new/': typeof WeldcallNewIndexRoute
+  '/weldcall/people/': typeof WeldcallPeopleIndexRoute
   '/weldchat/$channelId/': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks/': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm/': typeof WeldchatDmIndexRoute
@@ -4637,6 +4646,7 @@ export interface FileRouteTypes {
     | '/weldcall/contacts/'
     | '/weldcall/history/'
     | '/weldcall/new/'
+    | '/weldcall/people/'
     | '/weldchat/$channelId/'
     | '/weldchat/bookmarks/'
     | '/weldchat/dm/'
@@ -5073,6 +5083,7 @@ export interface FileRouteTypes {
     | '/weldcall/contacts'
     | '/weldcall/history'
     | '/weldcall/new'
+    | '/weldcall/people'
     | '/weldchat/$channelId'
     | '/weldchat/bookmarks'
     | '/weldchat/dm'
@@ -5545,6 +5556,7 @@ export interface FileRouteTypes {
     | '/weldcall/contacts/'
     | '/weldcall/history/'
     | '/weldcall/new/'
+    | '/weldcall/people/'
     | '/weldchat/$channelId/'
     | '/weldchat/bookmarks/'
     | '/weldchat/dm/'
@@ -6970,6 +6982,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldchat/$channelId/'
       preLoaderRoute: typeof WeldchatChannelIdIndexRouteImport
       parentRoute: typeof WeldchatRouteRoute
+    }
+    '/weldcall/people/': {
+      id: '/weldcall/people/'
+      path: '/people'
+      fullPath: '/weldcall/people/'
+      preLoaderRoute: typeof WeldcallPeopleIndexRouteImport
+      parentRoute: typeof WeldcallRouteRoute
     }
     '/weldcall/new/': {
       id: '/weldcall/new/'
@@ -9711,6 +9730,7 @@ interface WeldcallRouteRouteChildren {
   WeldcallContactsIndexRoute: typeof WeldcallContactsIndexRoute
   WeldcallHistoryIndexRoute: typeof WeldcallHistoryIndexRoute
   WeldcallNewIndexRoute: typeof WeldcallNewIndexRoute
+  WeldcallPeopleIndexRoute: typeof WeldcallPeopleIndexRoute
 }
 
 const WeldcallRouteRouteChildren: WeldcallRouteRouteChildren = {
@@ -9719,6 +9739,7 @@ const WeldcallRouteRouteChildren: WeldcallRouteRouteChildren = {
   WeldcallContactsIndexRoute: WeldcallContactsIndexRoute,
   WeldcallHistoryIndexRoute: WeldcallHistoryIndexRoute,
   WeldcallNewIndexRoute: WeldcallNewIndexRoute,
+  WeldcallPeopleIndexRoute: WeldcallPeopleIndexRoute,
 }
 
 const WeldcallRouteRouteWithChildren = WeldcallRouteRoute._addFileChildren(

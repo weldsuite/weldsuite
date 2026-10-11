@@ -61,6 +61,7 @@ import { partnerWorkspaceRequestSchema } from '@weldsuite/app-api-client/schemas
 import { requestCountry } from '../../services/plan-country-pricing';
 import { partnerTerritoryResponse, territoryPartnerInfo } from '../../services/partner/managed';
 import { sendWorkspaceRequestEmail } from '../../services/partner/notify';
+import { invitationRedirectUrl } from '../../services/invitation-redirect';
 
 /**
  * Default apps installed when a workspace is created from the platform's
@@ -777,6 +778,7 @@ app.post('/invitations', zValidator('json', invitationsInput), async (c) => {
               email_address: invite.email,
               role: invite.role === 'admin' ? 'org:admin' : 'org:member',
               inviter_user_id: userId,
+              redirect_url: invitationRedirectUrl(c.env, organizationId),
             }),
           },
         );

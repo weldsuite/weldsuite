@@ -653,9 +653,9 @@ export const weldmeet = {
     callDetailPage: {
       callNotFound: 'Llamada no encontrada.',
     },
-    contacts: {
-      entityName: 'Contacto',
-      entityNamePlural: 'Contactos',
+    people: {
+      entityName: 'Persona',
+      entityNamePlural: 'Personas',
       columns: {
         name: 'Nombre',
         directPhone: 'Teléfono directo',
