@@ -46,6 +46,12 @@ export interface RunSearchParams {
    * original behaviour exactly.
    */
   lexicalTerm?: string;
+  /**
+   * The apps the caller can open, for picking where a product links (see
+   * `buildResultUrl`). Only called when products match, so other searches
+   * skip the lookup.
+   */
+  memberApps?: () => Promise<ReadonlySet<string>>;
 }
 
 interface EntityRegistration {
@@ -95,10 +101,16 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * a ticket opens as an entity sheet over the inbox. `/welddesk` itself
  * redirects to the inbox and drops the query, hence the explicit path.
  *
- * Products and orders open as object panels on their WeldCommerce list page.
- * WeldStash lists the same products, but only WeldCommerce has an orders list.
+ * Products and orders open as object panels on their list page. WeldCommerce
+ * and WeldStash list the same products, which link to WeldCommerce unless
+ * `memberApps` shows the member can only open WeldStash (WeldCommerce would
+ * show them its "not installed" screen). Only WeldCommerce has an orders list.
  */
-export function buildResultUrl(type: SearchEntityType, id: string): string {
+export function buildResultUrl(
+  type: SearchEntityType,
+  id: string,
+  memberApps?: ReadonlySet<string>,
+): string {
   switch (type) {
     case 'contact':
       return `/weldcrm/people?stack=person:${encodeURIComponent(id)}`;
@@ -114,8 +126,13 @@ export function buildResultUrl(type: SearchEntityType, id: string): string {
       return `/welddesk/help-center/articles/${id}`;
     case 'knowledge_page':
       return `/weldknow/page/${id}`;
-    case 'product':
-      return `/weldcommerce/products?stack=product:${encodeURIComponent(id)}`;
+    case 'product': {
+      const app =
+        memberApps && !memberApps.has('weldcommerce') && memberApps.has('weldstash')
+          ? 'weldstash'
+          : 'weldcommerce';
+      return `/${app}/products?stack=product:${encodeURIComponent(id)}`;
+    }
     case 'order':
       return `/weldcommerce/orders?stack=order:${encodeURIComponent(id)}`;
     case 'invoice':
@@ -990,7 +1007,32 @@ export async function runSearch(
   );
 
   return {
-    groups,
+    groups: await linkProductsToMemberApps(groups, params.memberApps),
     permittedTypes: permitted.map((r) => r.type),
   };
+}
+
+/**
+ * Product hits are built with the WeldCommerce URL; once the member's apps are
+ * known, relink them. A failed lookup keeps the WeldCommerce links.
+ */
+async function linkProductsToMemberApps(
+  groups: SearchResultGroup[],
+  memberApps: RunSearchParams['memberApps'],
+): Promise<SearchResultGroup[]> {
+  if (!memberApps || !groups.some((g) => g.type === 'product' && g.items.length > 0)) {
+    return groups;
+  }
+  let apps: ReadonlySet<string>;
+  try {
+    apps = await memberApps();
+  } catch (err) {
+    console.error('[app-api/search] Failed to resolve member apps:', err);
+    return groups;
+  }
+  return groups.map((g) =>
+    g.type === 'product'
+      ? { ...g, items: g.items.map((item) => ({ ...item, url: buildResultUrl('product', item.id, apps) })) }
+      : g,
+  );
 }
