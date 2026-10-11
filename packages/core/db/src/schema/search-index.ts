@@ -71,6 +71,12 @@ export const searchIndex = pgTable(
     /** Denormalised for rendering a result without a join back to the source. */
     title: varchar('title', { length: 500 }),
     subtitle: varchar('subtitle', { length: 500 }),
+    /**
+     * Not read anywhere yet, and it goes stale: a reindex only rewrites rows
+     * whose chunk text changed, so a URL stored before a route change stays.
+     * A read path should rebuild it from `entity_type` + `entity_id` with
+     * app-api's `buildResultUrl` instead of trusting this column.
+     */
     url: varchar('url', { length: 500 }),
   },
   (table) => [

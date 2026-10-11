@@ -83,17 +83,23 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * Adding a new entity type to search means: implement the search function,
  * add a case here, and add the type to SEARCH_ENTITY_TYPES in
  * packages/clients/app-api-client/src/schemas/search.ts.
+ *
+ * CRM records have no detail routes. Companies and people open as object
+ * panels, deep-linked from their list page with `?stack=<type>:<id>`
+ * (components/object-panel/stack-url.ts). Leads and opportunities only have an
+ * entity sheet, which the app shell opens over any page from
+ * `?entity=<type>:<id>` (components/entity-sheet/url-param.ts).
  */
 export function buildResultUrl(type: SearchEntityType, id: string): string {
   switch (type) {
     case 'contact':
-      return `/weldcrm/contacts/${id}`;
+      return `/weldcrm/people?stack=person:${encodeURIComponent(id)}`;
     case 'customer':
-      return `/weldcrm/customers/${id}`;
+      return `/weldcrm/companies?stack=company:${encodeURIComponent(id)}`;
     case 'lead':
-      return `/weldcrm/leads/${id}`;
+      return `/weldcrm?entity=lead:${encodeURIComponent(id)}`;
     case 'opportunity':
-      return `/weldcrm/opportunities/${id}`;
+      return `/weldcrm?entity=opportunity:${encodeURIComponent(id)}`;
     case 'ticket':
       return `/welddesk/tickets/${id}`;
     case 'article':
@@ -203,7 +209,7 @@ export async function searchContacts(
       (r.fullName?.trim()) ||
       [r.firstName, r.lastName].filter(Boolean).join(' ').trim() ||
       r.email ||
-      'Contact';
+      'Person';
     return {
       id: r.id,
       type: 'contact',
@@ -261,7 +267,7 @@ export async function searchCustomers(
 
   const hasMore = rows.length > limit;
   const items: SearchResultItem[] = rows.slice(0, limit).map((r) => {
-    const display = (r.name?.trim()) || (r.tradingName?.trim()) || r.email || 'Customer';
+    const display = (r.name?.trim()) || (r.tradingName?.trim()) || r.email || 'Company';
     return {
       id: r.id,
       type: 'customer',

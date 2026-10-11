@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 
-import { aggregateAllFiles, aggregateStats } from './drive-aggregation';
+import { aggregateAllFiles, aggregateStats, normalizeGenericFiles } from './drive-aggregation';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -124,5 +124,31 @@ describe('aggregateStats · mail counter', () => {
     const member = await aggregateStats(db, MEMBER);
     const assignee = await aggregateStats(db, ASSIGNEE);
     expect(assignee.totalFiles - member.totalFiles).toBe(1);
+  });
+});
+
+describe('normalizeGenericFiles · navigateTo', () => {
+  function navigateTo(entityType: string, entityId: string): string | null {
+    const [file] = normalizeGenericFiles([
+      {
+        id: 'file_1',
+        fileName: 'contract.pdf',
+        entityType,
+        entityId,
+        metadata: null,
+        createdAt: new Date(),
+        updatedAt: null,
+      } as unknown as typeof schema.files.$inferSelect,
+    ]);
+    return file!.navigateTo;
+  }
+
+  // CRM records have no detail routes; they open as object panels.
+  it('opens a CRM company file in the company panel', () => {
+    expect(navigateTo('crm_customer', 'cmp_acme')).toBe('/weldcrm/companies?stack=company:cmp_acme');
+  });
+
+  it('opens a CRM person file in the person panel', () => {
+    expect(navigateTo('crm_contact', 'per_jane')).toBe('/weldcrm/people?stack=person:per_jane');
   });
 });
