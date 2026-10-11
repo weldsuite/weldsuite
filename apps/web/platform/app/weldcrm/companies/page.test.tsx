@@ -15,6 +15,7 @@ vi.mock('@weldsuite/i18n/client', () => ({
 vi.mock('@/lib/router', () => ({
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => '/weldcrm/companies',
 }));
 vi.mock('@/hooks/queries/use-companies-queries', () => ({
   useInfiniteCompanies: () => query.current,
