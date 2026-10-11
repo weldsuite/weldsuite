@@ -152,6 +152,9 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Without this the invitation links fall back to the production portal, which
+# cannot resolve test workspaces and shows "This meeting link is invalid".
+MEETING_PORTAL_URL = "https://meet-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
