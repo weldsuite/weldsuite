@@ -94,15 +94,39 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 // ============================================================================
 
 /** `LicenceError` → 400 (bad terms), 409 (no contract), 404 (unknown workspace). */
+function licenceFailureStatus(code: LicenceError['code']): 400 | 404 | 409 {
+  if (code === 'INVALID_APPS' || code === 'PLAN_NOT_ALLOWED') return 400;
+  if (code === 'NO_CONTRACT') return 409;
+  return 404;
+}
+
 function licenceFailure(c: PartnerContext, err: LicenceError) {
-  const status = err.code === 'INVALID_APPS' || err.code === 'PLAN_NOT_ALLOWED' ? 400 : err.code === 'NO_CONTRACT' ? 409 : 404;
-  return c.json({ error: { code: err.code, message: err.message } }, status);
+  return c.json({ error: { code: err.code, message: err.message } }, licenceFailureStatus(err.code));
+}
+
+function portalFailureStatus(code: PartnerPortalError['code']): 404 | 409 | 429 {
+  if (code === 'NOT_FOUND') return 404;
+  if (code === 'RATE_LIMITED') return 429;
+  return 409; // LAST_OWNER, ALREADY_MEMBER, REQUEST_PROVISIONED
 }
 
 function portalFailure(c: PartnerContext, err: PartnerPortalError) {
-  const status =
-    err.code === 'NOT_FOUND' ? 404 : err.code === 'RATE_LIMITED' ? 429 : 409; // LAST_OWNER, ALREADY_MEMBER, REQUEST_PROVISIONED
-  return c.json({ error: { code: err.code, message: err.message } }, status);
+  return c.json({ error: { code: err.code, message: err.message } }, portalFailureStatus(err.code));
+}
+
+/**
+ * Map a failed `onboardPartnerWorkspace` RPC to its HTTP answer. Only the
+ * message crosses the RPC boundary; workspace-worker prefixes it with a code.
+ */
+function onboardFailure(c: PartnerContext, err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  const code = /^\[([A-Z_]+)\]/.exec(message)?.[1];
+  const detail = message.replace(/^\[[A-Z_]+\]\s*/, '');
+  if (code === 'VALIDATION' || code === 'INVALID_APPS' || code === 'PLAN_NOT_ALLOWED') return error.badRequest(c, detail);
+  if (code === 'NO_CONTRACT') return error.conflict(c, detail);
+  if (code === 'NOT_FOUND' || code === 'WRONG_PARTNER') return error.notFound(c, 'Licence package');
+  console.error('[partner] onboardPartnerWorkspace failed:', err);
+  return error.badGateway(c, 'Could not create the workspace');
 }
 
 /** Run a handler body, turning the domain's expected failures into their HTTP answers. */
@@ -236,15 +260,7 @@ app.post('/workspaces', canManageWorkspaces, zValidator('json', createManagedWor
         licence: { ...terms, packageId: body.licence.packageId ?? null },
       });
     } catch (err) {
-      // Only the message crosses the RPC boundary; workspace-worker prefixes it with a code.
-      const message = err instanceof Error ? err.message : String(err);
-      const code = /^\[([A-Z_]+)\]/.exec(message)?.[1];
-      const detail = message.replace(/^\[[A-Z_]+\]\s*/, '');
-      if (code === 'VALIDATION' || code === 'INVALID_APPS' || code === 'PLAN_NOT_ALLOWED') return error.badRequest(c, detail);
-      if (code === 'NO_CONTRACT') return error.conflict(c, detail);
-      if (code === 'NOT_FOUND' || code === 'WRONG_PARTNER') return error.notFound(c, 'Licence package');
-      console.error('[partner] onboardPartnerWorkspace failed:', err);
-      return error.badGateway(c, 'Could not create the workspace');
+      return onboardFailure(c, err);
     }
     if (!created?.workspaceId) return error.badGateway(c, 'Could not create the workspace');
 

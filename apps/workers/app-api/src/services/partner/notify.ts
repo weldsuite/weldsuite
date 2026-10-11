@@ -12,7 +12,14 @@ import type { Env } from '../../types';
 
 const FROM = 'WeldSuite <notifications@mail.weldsuite.org>';
 
-const appUrl = (env: Env) => (env.PUBLIC_APP_URL ?? 'https://app.weldsuite.org').replace(/\/+$/, '');
+/** Drop trailing slashes (a linear scan, not a backtracking regex). */
+function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+  return s.slice(0, end);
+}
+
+const appUrl = (env: Env) => trimTrailingSlashes(env.PUBLIC_APP_URL ?? 'https://app.weldsuite.org');
 
 /** Strip line breaks from user text that lands in a subject line. */
 const oneLine = (s: string) => s.replace(/[\r\n]+/g, ' ').trim();
@@ -53,10 +60,11 @@ export function sendWorkspaceRequestEmail(
     message?: string;
   },
 ): Promise<void> {
+  const contact = input.requesterName ? `${input.requesterName} <${input.requesterEmail}>` : input.requesterEmail;
   const lines = [
     `${input.companyName} asked for a WeldSuite workspace in ${input.countryCode}.`,
     '',
-    `Contact: ${input.requesterName ? `${input.requesterName} <${input.requesterEmail}>` : input.requesterEmail}`,
+    `Contact: ${contact}`,
   ];
   if (input.selectedApps.length > 0) lines.push(`Apps: ${input.selectedApps.join(', ')}`);
   if (input.message) lines.push('', input.message);

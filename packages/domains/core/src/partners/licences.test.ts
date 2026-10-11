@@ -21,6 +21,7 @@ import {
   proratedIncreaseGrant,
   upsertWorkspaceLicence,
 } from './licences';
+import type { PartnerDb } from './types';
 
 interface Op {
   op: 'insert' | 'update';
@@ -59,7 +60,7 @@ function fakeDb(selects: unknown[][] = [], returnings: unknown[][] = []) {
       return chain(returnings.shift() ?? [], op);
     },
   };
-  return { db, ops };
+  return { db: db as unknown as PartnerDb, ops };
 }
 
 describe('month proration helpers', () => {

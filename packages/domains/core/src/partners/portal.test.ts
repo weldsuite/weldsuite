@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { PartnerStatementView } from '@weldsuite/app-api-client/schemas/partners';
 import { PartnerPortalError, removeTeamMember, statementToCsv, updateTeamMemberRole } from './portal';
+import type { PartnerDb } from './types';
 
 const line = (over: Partial<PartnerStatementView['lines'][number]> = {}) => ({
   workspaceId: 'ws_1',
@@ -76,7 +77,7 @@ function fakeDb(...results: unknown[][]) {
     update: () => ({ set: () => ({ where: () => ({ returning: () => (writes.push('update'), Promise.resolve([{ id: 'ptm_1', role: 'admin', email: 'a@b.c', userId: 'u', acceptedAt: null }])) }) }) }),
     delete: () => ({ where: () => (writes.push('delete'), Promise.resolve()) }),
   };
-  return { db, writes };
+  return { db: db as unknown as PartnerDb, writes };
 }
 
 const owner = { id: 'ptm_1', partnerId: 'ptr_1', role: 'owner', email: 'o@p.test', userId: 'u1', acceptedAt: null };

@@ -60,6 +60,14 @@ function Row({
   );
 }
 
+function basisNote(
+  price: { margin: number; basis: string },
+  copy: { negativeMargin: string; basisShare: string; basisFloor: string },
+): string {
+  if (price.margin < 0) return copy.negativeMargin;
+  return price.basis === 'share' ? copy.basisShare : copy.basisFloor;
+}
+
 export function LicencePreview({ contract, draft, seats, onSeatsChange }: Readonly<LicencePreviewProps>) {
   const { t, format } = useI18n();
   const f = useFormatters();
@@ -118,7 +126,7 @@ export function LicencePreview({ contract, draft, seats, onSeatsChange }: Readon
             />
           </div>
           <p className="mt-3 text-xs text-muted-foreground" data-testid="preview-basis">
-            {price.margin < 0 ? tp.negativeMargin : price.basis === 'share' ? tp.basisShare : tp.basisFloor}
+            {basisNote(price, tp)}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{tp.footnote}</p>
         </>

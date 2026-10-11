@@ -21,6 +21,13 @@ import { partnersCopy } from '@/lib/partners-copy';
 
 export const dynamic = 'force-dynamic';
 
+/** Up to four country codes inline, otherwise just the count. */
+function territoriesLabel(territories: readonly string[], t: ReturnType<typeof partnersCopy>['list']): string {
+  if (territories.length === 0) return t.noTerritories;
+  if (territories.length <= 4) return territories.join(', ');
+  return fill(t.territoriesCount, { count: territories.length });
+}
+
 export default async function PartnersPage() {
   const identity = await requireAdmin();
   const result = await listPartners(identity);
@@ -82,11 +89,7 @@ export default async function PartnersPage() {
                     <TableCell className="text-sm">{partner.billingEmail}</TableCell>
                     <TableCell className="text-right tabular-nums">{partner.workspaceCount}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {partner.territories.length === 0
-                        ? t.noTerritories
-                        : partner.territories.length <= 4
-                          ? partner.territories.join(', ')
-                          : fill(t.territoriesCount, { count: partner.territories.length })}
+                      {territoriesLabel(partner.territories, t)}
                     </TableCell>
                     <TableCell>
                       {partner.overdueStatementCount > 0 ? (

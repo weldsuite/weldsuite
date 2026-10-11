@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PARTNER_STATUSES, type PartnerStatus } from '@weldsuite/app-api-client/schemas/partners';
+import { PARTNER_STATUSES, type DunningStage, type PartnerStatus } from '@weldsuite/app-api-client/schemas/partners';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
@@ -17,6 +17,18 @@ import { partnersCopy } from '@/lib/partners-copy';
 import type { PartnerTabProps } from './partner-detail';
 
 const PAUSE_DAYS = [7, 14, 30, 60] as const;
+
+/** Badge variant per dunning stage; "current" is healthy, anything else (past due) warns. */
+const STAGE_VARIANT: Partial<Record<DunningStage, 'success' | 'destructive' | 'warning'>> = {
+  current: 'success',
+  suspended: 'destructive',
+};
+
+/** Same stages inside the overdue list, where "current" reads as muted rather than green. */
+const OVERDUE_STAGE_VARIANT: Partial<Record<DunningStage, 'secondary' | 'destructive' | 'warning'>> = {
+  current: 'secondary',
+  suspended: 'destructive',
+};
 
 type Dialog = 'pause' | 'resume' | 'status';
 
@@ -61,7 +73,7 @@ export function PaymentTab({ detail, canWrite, nowIso }: Readonly<PartnerTabProp
             <div className="rounded-md border p-3">
               <dt className="text-xs text-muted-foreground">{t.sweepStage}</dt>
               <dd className="mt-1">
-                <Badge variant={overview.stage === 'current' ? 'success' : overview.stage === 'suspended' ? 'destructive' : 'warning'}>
+                <Badge variant={STAGE_VARIANT[overview.stage] ?? 'warning'}>
                   {partnersCopy().stage[overview.stage]}
                 </Badge>
               </dd>
@@ -90,7 +102,7 @@ export function PaymentTab({ detail, canWrite, nowIso }: Readonly<PartnerTabProp
                   <li key={o.statementId ?? o.periodStart} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                     <span className="font-medium tabular-nums">{o.periodStart.slice(0, 7)}</span>
                     <span className="text-xs text-muted-foreground">{fill(t.due, { date: formatDay(o.dueAt) })}</span>
-                    <Badge variant={o.stage === 'suspended' ? 'destructive' : o.stage === 'current' ? 'secondary' : 'warning'}>
+                    <Badge variant={OVERDUE_STAGE_VARIANT[o.stage] ?? 'warning'}>
                       {fill(t.daysOverdue, { count: o.daysOverdue })}
                     </Badge>
                   </li>

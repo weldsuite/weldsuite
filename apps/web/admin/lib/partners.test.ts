@@ -11,6 +11,7 @@ import {
   defaultContractForm,
   defaultLicenceForm,
   diffTerritories,
+  isEmailLike,
   licenceFormFromSnapshot,
   normalizeCountries,
   parseContractForm,
@@ -61,6 +62,37 @@ describe('percentToBps / bpsToPercent', () => {
     expect(bpsToPercent(7500)).toBe('75');
     expect(bpsToPercent(7250)).toBe('72.5');
     expect(bpsToPercent(7205)).toBe('72.05');
+  });
+});
+
+describe('isEmailLike', () => {
+  it('accepts ordinary addresses', () => {
+    for (const ok of ['a@b.co', 'owner@partner.example.com', 'first.last+tag@sub.example.org', 'a@@b.c']) {
+      expect(isEmailLike(ok)).toBe(true);
+    }
+  });
+
+  it('rejects whitespace, missing parts and misplaced dots', () => {
+    for (const bad of ['', 'plain', '@b.co', 'a@b', 'a@.co', 'a@b.', 'a b@c.de', 'a@b .c', 'a.b@c', ' a@b.c\n']) {
+      expect(isEmailLike(bad)).toBe(false);
+    }
+  });
+
+  it('agrees with the previous regex on a sample of inputs', () => {
+    const legacy = /^\S+@\S+\.\S+$/;
+    const parts = ['a', '@', '.', 'b', ' ', '@.', 'ab'];
+    const samples: string[] = [''];
+    for (let round = 0; round < 5; round++) {
+      for (const s of [...samples]) for (const p of parts) samples.push(s + p);
+      if (samples.length > 20_000) break;
+    }
+    for (const sample of samples) expect(isEmailLike(sample)).toBe(legacy.test(sample));
+  });
+
+  it('stays fast on pathological input', () => {
+    const start = Date.now();
+    isEmailLike(`${'a@'.repeat(50_000)}!`);
+    expect(Date.now() - start).toBeLessThan(500);
   });
 });
 

@@ -187,6 +187,105 @@ async function recordInvoiced(masterDb: MasterDb, statement: StatementRow, invoi
   return updated!;
 }
 
+/** The Stripe invoice with this id, or null when Stripe no longer has it. */
+async function retrieveInvoiceIfExists(key: string, invoiceId: string): Promise<PartnerStripeInvoice | null> {
+  try {
+    return await retrievePartnerInvoice(key, invoiceId);
+  } catch (err) {
+    if (!isStripeNotFound(err)) throw err;
+    return null;
+  }
+}
+
+/**
+ * Look at what a previous attempt left in Stripe for a statement that already
+ * has an invoice id. Returns the final answer when that invoice settles the
+ * statement (paid, or open with the same amount), otherwise clears the stale
+ * open/draft invoice and returns null so a new one is created.
+ */
+async function reconcilePreviousInvoice(args: {
+  env: Env;
+  masterDb: MasterDb;
+  statement: StatementRow;
+  key: string;
+  totalCents: number;
+  termsDays: number;
+  attemptBase: string;
+}): Promise<{ outcome: InvoiceOutcome; statement: StatementRow } | null> {
+  const { env, masterDb, statement, key, totalCents, termsDays, attemptBase } = args;
+  if (!statement.stripeInvoiceId) return null;
+  const existing = await retrieveInvoiceIfExists(key, statement.stripeInvoiceId);
+  if (existing?.status === 'paid') {
+    const paid = await markStatementPaidByInvoice(masterDb, existing.id, new Date());
+    if (paid) await afterPaymentOrVoid(env, masterDb, paid.partnerId);
+    const [row] = await masterDb.select().from(partnerStatements).where(eq(partnerStatements.id, statement.id));
+    return { outcome: 'paid', statement: row! };
+  }
+  if (existing?.status === 'open') {
+    // Finalised before the statement row was updated: adopt it when it is the same amount.
+    if ((existing.total ?? existing.amount_due) === totalCents) {
+      return { outcome: 'invoiced', statement: await recordInvoiced(masterDb, statement, existing, termsDays) };
+    }
+    await voidPartnerInvoice(key, existing.id, `${attemptBase}:void-stale`);
+  } else if (existing?.status === 'draft') {
+    await deletePartnerDraftInvoice(key, existing.id);
+  }
+  return null;
+}
+
+/** The invoice items of a statement; refuses a total that differs from the statement's. */
+async function loadInvoiceItems(
+  masterDb: MasterDb,
+  statement: StatementRow,
+  period: string,
+  totalCents: number,
+): Promise<StatementLineItem[]> {
+  const lines = await masterDb
+    .select()
+    .from(partnerStatementLines)
+    .where(eq(partnerStatementLines.statementId, statement.id))
+    .orderBy(partnerStatementLines.workspaceName);
+  const items = statementInvoiceItems(lines, period);
+  const itemsTotal = items.reduce((sum, i) => sum + i.amountCents, 0);
+  if (itemsTotal !== totalCents) {
+    // Never invoice a total that differs from the statement the partner can see.
+    throw new AdminBillingError(
+      'CONFLICT',
+      `Statement ${statement.id} lines add up to ${fromCents(itemsTotal)}, not ${statement.totalDue}. Re-run the statement.`,
+    );
+  }
+  return items;
+}
+
+/** Create the invoice items on a draft invoice, `ITEM_BATCH` at a time. */
+async function createInvoiceItems(args: {
+  key: string;
+  customerId: string;
+  invoiceId: string;
+  currency: string;
+  items: readonly StatementLineItem[];
+  attemptBase: string;
+}): Promise<void> {
+  const { key, customerId, invoiceId, currency, items, attemptBase } = args;
+  for (let i = 0; i < items.length; i += ITEM_BATCH) {
+    await Promise.all(
+      items.slice(i, i + ITEM_BATCH).map((item, j) =>
+        createPartnerInvoiceItem(
+          key,
+          {
+            customerId,
+            invoiceId,
+            amountCents: item.amountCents,
+            currency,
+            description: item.description,
+          },
+          `${attemptBase}:item:${i + j}`,
+        ),
+      ),
+    );
+  }
+}
+
 /**
  * Turn a `final` statement into a Stripe invoice on the partner's customer:
  * invoice items per line (plus extra credits), `send_invoice` on the
@@ -227,44 +326,10 @@ export async function invoiceStatement(
   const attemptBase = `${keyBase}:after:${statement.stripeInvoiceId ?? 'first'}`;
 
   // A retry: look at what the previous attempt left in Stripe.
-  if (statement.stripeInvoiceId) {
-    let existing: PartnerStripeInvoice | null = null;
-    try {
-      existing = await retrievePartnerInvoice(key, statement.stripeInvoiceId);
-    } catch (err) {
-      if (!isStripeNotFound(err)) throw err;
-    }
-    if (existing?.status === 'paid') {
-      const paid = await markStatementPaidByInvoice(masterDb, existing.id, new Date());
-      if (paid) await afterPaymentOrVoid(env, masterDb, paid.partnerId);
-      const [row] = await masterDb.select().from(partnerStatements).where(eq(partnerStatements.id, statement.id));
-      return { outcome: 'paid', statement: row! };
-    }
-    if (existing?.status === 'open') {
-      // Finalised before the statement row was updated: adopt it when it is the same amount.
-      if ((existing.total ?? existing.amount_due) === totalCents) {
-        return { outcome: 'invoiced', statement: await recordInvoiced(masterDb, statement, existing, termsDays) };
-      }
-      await voidPartnerInvoice(key, existing.id, `${attemptBase}:void-stale`);
-    } else if (existing?.status === 'draft') {
-      await deletePartnerDraftInvoice(key, existing.id);
-    }
-  }
+  const settled = await reconcilePreviousInvoice({ env, masterDb, statement, key, totalCents, termsDays, attemptBase });
+  if (settled) return settled;
 
-  const lines = await masterDb
-    .select()
-    .from(partnerStatementLines)
-    .where(eq(partnerStatementLines.statementId, statement.id))
-    .orderBy(partnerStatementLines.workspaceName);
-  const items = statementInvoiceItems(lines, period);
-  const itemsTotal = items.reduce((sum, i) => sum + i.amountCents, 0);
-  if (itemsTotal !== totalCents) {
-    // Never invoice a total that differs from the statement the partner can see.
-    throw new AdminBillingError(
-      'CONFLICT',
-      `Statement ${statement.id} lines add up to ${fromCents(itemsTotal)}, not ${statement.totalDue}. Re-run the statement.`,
-    );
-  }
+  const items = await loadInvoiceItems(masterDb, statement, period, totalCents);
 
   const draft = await createPartnerDraftInvoice(
     key,
@@ -284,23 +349,7 @@ export async function invoiceStatement(
     .set({ stripeInvoiceId: draft.id, updatedAt: new Date() })
     .where(eq(partnerStatements.id, statement.id));
 
-  for (let i = 0; i < items.length; i += ITEM_BATCH) {
-    await Promise.all(
-      items.slice(i, i + ITEM_BATCH).map((item, j) =>
-        createPartnerInvoiceItem(
-          key,
-          {
-            customerId,
-            invoiceId: draft.id,
-            amountCents: item.amountCents,
-            currency: statement.currency,
-            description: item.description,
-          },
-          `${attemptBase}:item:${i + j}`,
-        ),
-      ),
-    );
-  }
+  await createInvoiceItems({ key, customerId, invoiceId: draft.id, currency: statement.currency, items, attemptBase });
 
   const finalized = await finalizePartnerInvoice(key, draft.id, `${attemptBase}:finalize`);
   try {
@@ -317,6 +366,13 @@ export async function invoiceStatement(
 // ============================================================================
 
 export type RunStatementAction = 'invoiced' | 'finalized_no_charge' | 'paid' | 'unchanged' | 'skipped_void';
+
+const RUN_ACTION_BY_OUTCOME: Record<InvoiceOutcome, RunStatementAction> = {
+  invoiced: 'invoiced',
+  no_charge: 'finalized_no_charge',
+  paid: 'paid',
+  already_invoiced: 'unchanged',
+};
 
 export interface RunStatementResult {
   action: RunStatementAction;
@@ -370,14 +426,29 @@ export async function runPartnerStatement(
   const built = await buildStatement(masterDb, partnerId, period);
   const saved = await saveStatement(masterDb, built, 'final');
   const { outcome, statement } = await invoiceStatement(env, masterDb, saved.id, input.keyBase);
-  const action: RunStatementAction =
-    outcome === 'invoiced' ? 'invoiced' : outcome === 'no_charge' ? 'finalized_no_charge' : outcome === 'paid' ? 'paid' : 'unchanged';
-  return { action, statement };
+  return { action: RUN_ACTION_BY_OUTCOME[outcome], statement };
 }
 
 // ============================================================================
 // Void
 // ============================================================================
+
+/**
+ * Void (or delete, when still a draft) the Stripe invoice of a statement being
+ * voided. An invoice that turns out to be paid marks the statement paid and
+ * refuses the void.
+ */
+async function voidStripeInvoiceOf(env: Env, masterDb: MasterDb, stripeInvoiceId: string, keyBase: string): Promise<void> {
+  const key = stripeKey(env);
+  const invoice = await retrieveInvoiceIfExists(key, stripeInvoiceId);
+  if (invoice?.status === 'paid') {
+    const paid = await markStatementPaidByInvoice(masterDb, invoice.id, new Date());
+    if (paid) await afterPaymentOrVoid(env, masterDb, paid.partnerId);
+    throw new AdminBillingError('CONFLICT', 'The Stripe invoice has already been paid. The statement is now marked paid.');
+  }
+  if (invoice?.status === 'open') await voidPartnerInvoice(key, invoice.id, `${keyBase}:void`);
+  else if (invoice?.status === 'draft') await deletePartnerDraftInvoice(key, invoice.id);
+}
 
 /**
  * Void a statement and its Stripe invoice (a draft invoice is deleted instead).
@@ -399,20 +470,7 @@ export async function voidPartnerStatement(
   if (statement.status === 'void') throw new AdminBillingError('CONFLICT', 'This statement is already void');
 
   if (statement.stripeInvoiceId) {
-    const key = stripeKey(env);
-    let invoice: PartnerStripeInvoice | null = null;
-    try {
-      invoice = await retrievePartnerInvoice(key, statement.stripeInvoiceId);
-    } catch (err) {
-      if (!isStripeNotFound(err)) throw err;
-    }
-    if (invoice?.status === 'paid') {
-      const paid = await markStatementPaidByInvoice(masterDb, invoice.id, new Date());
-      if (paid) await afterPaymentOrVoid(env, masterDb, paid.partnerId);
-      throw new AdminBillingError('CONFLICT', 'The Stripe invoice has already been paid. The statement is now marked paid.');
-    }
-    if (invoice?.status === 'open') await voidPartnerInvoice(key, invoice.id, `${input.keyBase}:void`);
-    else if (invoice?.status === 'draft') await deletePartnerDraftInvoice(key, invoice.id);
+    await voidStripeInvoiceOf(env, masterDb, statement.stripeInvoiceId, input.keyBase);
   }
 
   const [voided] = await masterDb

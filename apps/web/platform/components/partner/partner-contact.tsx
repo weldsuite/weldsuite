@@ -30,7 +30,8 @@ export function supportMailto(email: string, subject?: string, body?: string): s
   if (subject) params.set('subject', subject);
   if (body) params.set('body', body);
   const query = params.toString().replaceAll('+', '%20');
-  return `mailto:${email}${query ? `?${query}` : ''}`;
+  const suffix = query ? `?${query}` : '';
+  return `mailto:${email}${suffix}`;
 }
 
 export function PartnerContactLinks({ partner }: Readonly<{ partner: PartnerPublicInfo }>) {

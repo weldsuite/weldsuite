@@ -94,6 +94,13 @@ export interface StatementRunResult {
   failed: number;
 }
 
+/** Nothing left to run: already invoiced, paid or void, or finalised with nothing to charge. */
+function isStatementSettled(existing: typeof partnerStatements.$inferSelect | undefined): boolean {
+  if (!existing) return false;
+  if (['invoiced', 'paid', 'void'].includes(existing.status)) return true;
+  return existing.status === 'final' && Number(existing.totalDue) === 0;
+}
+
 /**
  * Previous month's statement for every partner that has licences, then its
  * Stripe invoice. Partners already invoiced/paid/void for the period, or with
@@ -113,11 +120,7 @@ export async function runMonthlyStatements(env: Env, masterDb: MasterDb, now: Da
         .from(partnerStatements)
         .where(and(eq(partnerStatements.partnerId, partnerId), eq(partnerStatements.periodStart, period.start)))
         .limit(1);
-      if (existing && ['invoiced', 'paid', 'void'].includes(existing.status)) {
-        result.skipped += 1;
-        continue;
-      }
-      if (existing?.status === 'final' && Number(existing.totalDue) === 0) {
+      if (isStatementSettled(existing)) {
         result.skipped += 1;
         continue;
       }

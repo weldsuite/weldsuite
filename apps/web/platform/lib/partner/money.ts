@@ -32,7 +32,15 @@ export function formatUnitPrice(price: string, currency = 'USD', locale?: string
 /** Cents → the plain "199.50" string used in request bodies. */
 export const centsToAmount = fromCents;
 
+/** Drops trailing zeros and a dangling decimal point ("12.50" → "12.5", "12.00" → "12"). */
+function trimTrailingZeros(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '0') end--;
+  if (end > 0 && value[end - 1] === '.') end--;
+  return value.slice(0, end);
+}
+
 export function formatPercentBps(bps: number): string {
   const percent = bps / 100;
-  return Number.isInteger(percent) ? String(percent) : percent.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return Number.isInteger(percent) ? String(percent) : trimTrailingZeros(percent.toFixed(2));
 }

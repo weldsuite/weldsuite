@@ -27,6 +27,7 @@ import {
   errorText,
   useFormatters,
 } from '../components/kit';
+import { statementPaymentNote } from './payment-note';
 
 export default function PartnerStatementsPage() {
   const { t, format } = useI18n();
@@ -119,11 +120,7 @@ export default function PartnerStatementsPage() {
                         {f.money(s.totalMargin, s.currency)}
                       </TableCell>
                       <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
-                        {s.paidAt
-                          ? format(ts.paidOn, { date: f.date(s.paidAt) })
-                          : s.dueAt
-                            ? format(ts.dueDate, { date: f.date(s.dueAt) })
-                            : ''}
+                        {statementPaymentNote(s, ts, format, f.date)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button asChild variant="ghost" size="sm">

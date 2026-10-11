@@ -59,10 +59,14 @@ const ACTION_STATUS: Record<StatusAction, WorkspaceLicenceStatus> = {
   end: 'ended',
 };
 
+const STATUS_HINT_KEY = {
+  active: 'statusActiveHint',
+  suspended: 'statusSuspendedHint',
+  ended: 'statusEndedHint',
+} as const satisfies Record<WorkspaceLicenceStatus, string>;
+
 function newIdempotencyKey(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `grant-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return crypto.randomUUID();
 }
 
 export default function PartnerWorkspaceDetailPage() {
@@ -181,7 +185,7 @@ function WorkspaceDetail({ workspace }: Readonly<{ workspace: ManagedWorkspaceDe
       </div>
 
       <p className="text-sm text-muted-foreground">
-        {status === 'active' ? tw.statusActiveHint : status === 'suspended' ? tw.statusSuspendedHint : tw.statusEndedHint}
+        {tw[STATUS_HINT_KEY[status]]}
       </p>
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -388,6 +392,7 @@ function HistoryCard({ history }: Readonly<{ history: LicenceChangeView[] }>) {
           <ol className="space-y-4">
             {entries.map((entry) => {
               const pricing = entry.snapshot.resalePricing;
+              const perSeat = pricing.model === 'per_seat';
               return (
                 <li key={entry.id} className="border-l-2 pl-4">
                   <p className="text-sm">
@@ -400,7 +405,9 @@ function HistoryCard({ history }: Readonly<{ history: LicenceChangeView[] }>) {
                     {format(tw.historySummary, {
                       apps: entry.snapshot.allowedApps.length,
                       credits: f.number(entry.snapshot.monthlyCredits),
-                      price: `${f.money(pricing.amount)}${pricing.model === 'per_seat' ? ` ${t.partner.licence.pricingPerSeat.toLowerCase()}` : ''}`,
+                      price: perSeat
+                        ? `${f.money(pricing.amount)} ${t.partner.licence.pricingPerSeat.toLowerCase()}`
+                        : f.money(pricing.amount),
                     })}
                     {' · '}
                     {t.partner.licenceStatus[entry.snapshot.status]}

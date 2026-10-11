@@ -15,7 +15,7 @@ import { invitePartnerMember, removePartnerMember } from '@/actions/partners';
 import { Field } from '@/components/billing/action-dialog';
 import { useSubmit } from '@/components/partners/use-submit';
 import { formatDay, newRequestId } from '@/lib/billing-format';
-import type { AdminPartnerMember } from '@/lib/partners';
+import { isEmailLike, type AdminPartnerMember } from '@/lib/partners';
 import { fill } from '@/lib/i18n';
 import { partnersCopy } from '@/lib/partners-copy';
 import type { PartnerTabProps } from './partner-detail';
@@ -29,7 +29,7 @@ export function MembersTab({ detail, canWrite }: Readonly<PartnerTabProps>) {
   const [removeTarget, setRemoveTarget] = useState<AdminPartnerMember | null>(null);
 
   const onInvite = () => {
-    if (!/^\S+@\S+\.\S+$/.test(email.trim())) return void toast.error(`${t.members.email}: invalid email`);
+    if (!isEmailLike(email.trim())) return void toast.error(`${t.members.email}: invalid email`);
     submit((requestId) => invitePartnerMember(detail.partner.id, { email: email.trim(), role }, requestId), {
       success: t.members.invitedToast,
       onSuccess: () => {

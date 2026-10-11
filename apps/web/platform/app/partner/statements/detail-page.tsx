@@ -29,6 +29,7 @@ import {
   errorText,
   useFormatters,
 } from '../components/kit';
+import { statementPaymentNote } from './payment-note';
 
 export default function PartnerStatementDetailPage() {
   const { t, format } = useI18n();
@@ -101,13 +102,7 @@ export default function PartnerStatementDetailPage() {
             <StatementStatusBadge status={data.status} />
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {data.status === 'preview'
-              ? ts.previewNote
-              : data.paidAt
-                ? format(ts.paidOn, { date: f.date(data.paidAt) })
-                : data.dueAt
-                  ? format(ts.dueDate, { date: f.date(data.dueAt) })
-                  : ''}
+            {data.status === 'preview' ? ts.previewNote : statementPaymentNote(data, ts, format, f.date)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

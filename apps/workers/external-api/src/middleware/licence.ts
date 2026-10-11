@@ -31,12 +31,9 @@ export function workspaceRestrictions(input: {
   partnerStatus: string | null | undefined;
 }): { licensedApps: string[] | null; readOnly: boolean; readOnlyReason: ReadOnlyReason | null } {
   if (input.billingMode !== 'partner') return { licensedApps: null, readOnly: false, readOnlyReason: null };
-  const readOnlyReason: ReadOnlyReason | null =
-    input.partnerStatus === 'suspended'
-      ? 'partner_suspended'
-      : input.licenceStatus !== 'active'
-        ? 'licence_inactive'
-        : null;
+  let readOnlyReason: ReadOnlyReason | null = null;
+  if (input.partnerStatus === 'suspended') readOnlyReason = 'partner_suspended';
+  else if (input.licenceStatus !== 'active') readOnlyReason = 'licence_inactive';
   return { licensedApps: [...(input.licenceApps ?? [])], readOnly: readOnlyReason !== null, readOnlyReason };
 }
 

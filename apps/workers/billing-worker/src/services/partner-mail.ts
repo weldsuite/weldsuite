@@ -9,8 +9,15 @@ import { workerTransport } from '@weldsuite/emails/transports/binding';
 import type { PartnerMemberRole } from '@weldsuite/app-api-client/schemas/partners';
 import type { Env } from '../index';
 
+/** Drop trailing slashes (a linear scan, not a backtracking regex). */
+function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+  return s.slice(0, end);
+}
+
 export function partnerPortalUrl(env: Env): string {
-  return `${(env.APP_URL || 'https://app.weldsuite.org').replace(/\/+$/, '')}/partner`;
+  return `${trimTrailingSlashes(env.APP_URL || 'https://app.weldsuite.org')}/partner`;
 }
 
 export interface DunningEmailInput {

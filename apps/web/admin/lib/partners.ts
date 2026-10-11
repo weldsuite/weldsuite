@@ -97,6 +97,18 @@ export function zodMessage(error: ZodError): string {
   return path ? `${path}: ${issue.message}` : issue.message;
 }
 
+/**
+ * Loose "looks like an email" check: no whitespace, something before an `@`,
+ * and a dot with text on both sides after it. Same rule as `/^\S+@\S+\.\S+$/`
+ * without the backtracking.
+ */
+export function isEmailLike(value: string): boolean {
+  if (/\s/.test(value)) return false;
+  const at = value.indexOf('@', 1);
+  if (at === -1) return false;
+  return value.lastIndexOf('.', value.length - 2) >= at + 2;
+}
+
 const blank = (v: string): boolean => v.trim() === '';
 const nullable = (v: string): string | null => (blank(v) ? null : v.trim());
 const WHOLE = /^\d+$/;
@@ -379,12 +391,16 @@ export function territoryConflictCountries(details: unknown): string[] {
   if (!details || typeof details !== 'object') return [];
   const countries = (details as { countries?: unknown }).countries;
   if (!Array.isArray(countries)) return [];
-  const codes = countries.map((c) =>
-    typeof c === 'string' ? c : c && typeof c === 'object' && typeof (c as { country?: unknown }).country === 'string'
-      ? (c as { country: string }).country
-      : '',
-  );
-  return normalizeCountries(codes);
+  return normalizeCountries(countries.map(countryCodeOf));
+}
+
+function countryCodeOf(entry: unknown): string {
+  if (typeof entry === 'string') return entry;
+  if (entry && typeof entry === 'object') {
+    const country = (entry as { country?: unknown }).country;
+    if (typeof country === 'string') return country;
+  }
+  return '';
 }
 
 /** ISO 3166-1 alpha-2 codes. Names come from `Intl.DisplayNames` where the label is rendered. */

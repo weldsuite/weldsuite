@@ -518,42 +518,70 @@ export function licenceSegments(
 ): LicenceSegment[] {
   const sorted = [...changes].sort((a, b) => a.changedAt.getTime() - b.changedAt.getTime());
   const segments: LicenceSegment[] = [];
-  /** The end-of-day snapshot and credits the last segment was built from. */
-  let lastBase: LicenceChangePoint['snapshot'] | null = null;
-  let lastCredits = 0;
-  let idx = -1;
+  const tail: SegmentTail = { base: null, credits: 0 };
+  const cursor = { idx: -1 };
   for (let day = periodStart.getTime(); day < periodEnd.getTime(); day += DAY_MS) {
-    const endOfDay = day + DAY_MS;
-    // Changes stamped exactly at midnight replace the licence before the day starts.
-    while (idx + 1 < sorted.length && sorted[idx + 1]!.changedAt.getTime() <= day) idx += 1;
-    // The licence carried in from before the day (if any), then the day's changes.
-    const carriedIn = idx >= 0 ? sorted[idx]!.snapshot : null;
-    // The last live (not `ended`) snapshot of the day, and the day's credit high-water mark.
-    let inForce = carriedIn && carriedIn.status !== 'ended' ? carriedIn : null;
-    let dayCredits = inForce ? inForce.monthlyCredits : 0;
-    while (idx + 1 < sorted.length && sorted[idx + 1]!.changedAt.getTime() < endOfDay) {
-      idx += 1;
-      const snap = sorted[idx]!.snapshot;
-      if (snap.status !== 'ended') {
-        inForce = snap;
-        dayCredits = Math.max(dayCredits, snap.monthlyCredits);
-      }
-    }
-    if (!inForce) continue;
-    const key = utcDateKey(new Date(day));
-    const last = segments[segments.length - 1];
-    const yesterday = utcDateKey(new Date(day - DAY_MS));
-    if (last && lastBase === inForce && lastCredits === dayCredits && last.lastDay === yesterday) {
-      last.days += 1;
-      last.lastDay = key;
-    } else {
-      const snapshot = dayCredits === inForce.monthlyCredits ? inForce : { ...inForce, monthlyCredits: dayCredits };
-      segments.push({ snapshot, days: 1, firstDay: key, lastDay: key });
-      lastBase = inForce;
-      lastCredits = dayCredits;
-    }
+    const live = liveLicenceForDay(sorted, cursor, day);
+    if (!live.inForce) continue;
+    appendBilledDay(segments, tail, day, live.inForce, live.credits);
   }
   return segments;
+}
+
+/** The end-of-day snapshot and credits the last segment was built from. */
+interface SegmentTail {
+  base: LicenceChangePoint['snapshot'] | null;
+  credits: number;
+}
+
+/**
+ * The licence billed for the UTC day starting at `day`: the last live (not
+ * `ended`) snapshot of the day and the day's credit high-water mark. Moves the
+ * shared `cursor` over every change up to the end of the day.
+ */
+function liveLicenceForDay(
+  sorted: readonly LicenceChangePoint[],
+  cursor: { idx: number },
+  day: number,
+): { inForce: LicenceChangePoint['snapshot'] | null; credits: number } {
+  const endOfDay = day + DAY_MS;
+  // Changes stamped exactly at midnight replace the licence before the day starts.
+  while (cursor.idx + 1 < sorted.length && sorted[cursor.idx + 1]!.changedAt.getTime() <= day) cursor.idx += 1;
+  // The licence carried in from before the day (if any), then the day's changes.
+  const carriedIn = cursor.idx >= 0 ? sorted[cursor.idx]!.snapshot : null;
+  let inForce = carriedIn && carriedIn.status !== 'ended' ? carriedIn : null;
+  let credits = inForce ? inForce.monthlyCredits : 0;
+  while (cursor.idx + 1 < sorted.length && sorted[cursor.idx + 1]!.changedAt.getTime() < endOfDay) {
+    cursor.idx += 1;
+    const snap = sorted[cursor.idx]!.snapshot;
+    if (snap.status !== 'ended') {
+      inForce = snap;
+      credits = Math.max(credits, snap.monthlyCredits);
+    }
+  }
+  return { inForce, credits };
+}
+
+/** Add one billed day to the last segment when it continues it, else start a new segment. */
+function appendBilledDay(
+  segments: LicenceSegment[],
+  tail: SegmentTail,
+  day: number,
+  inForce: LicenceChangePoint['snapshot'],
+  dayCredits: number,
+): void {
+  const key = utcDateKey(new Date(day));
+  const last = segments[segments.length - 1];
+  const yesterday = utcDateKey(new Date(day - DAY_MS));
+  if (last && tail.base === inForce && tail.credits === dayCredits && last.lastDay === yesterday) {
+    last.days += 1;
+    last.lastDay = key;
+    return;
+  }
+  const snapshot = dayCredits === inForce.monthlyCredits ? inForce : { ...inForce, monthlyCredits: dayCredits };
+  segments.push({ snapshot, days: 1, firstDay: key, lastDay: key });
+  tail.base = inForce;
+  tail.credits = dayCredits;
 }
 
 export function daysInPeriod(periodStart: Date, periodEnd: Date): number {

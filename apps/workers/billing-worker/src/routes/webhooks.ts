@@ -593,9 +593,7 @@ async function handleSubscriptionUpdated(
   // being cancelled at period end) subscription changes nothing about it.
   if (workspace.billingMode === 'partner') {
     console.log(`[Stripe Webhook] Workspace ${workspace.id} is partner-managed, ignoring subscription update`);
-    if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
-      await handleSubscriptionDeleted(env, masterDb, subscription);
-    }
+    await deleteIfSubscriptionEnded(env, masterDb, subscription);
     return;
   }
 
@@ -625,9 +623,7 @@ async function handleSubscriptionUpdated(
       })
       .where(eq(workspaces.id, workspace.id));
     console.log(`[Stripe Webhook] Workspace ${workspace.id} is comped, kept its plan and seats`);
-    if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
-      await handleSubscriptionDeleted(env, masterDb, subscription);
-    }
+    await deleteIfSubscriptionEnded(env, masterDb, subscription);
     return;
   }
 
@@ -683,6 +679,15 @@ async function handleSubscriptionUpdated(
   );
 
   // Handle subscription status changes
+  await deleteIfSubscriptionEnded(env, masterDb, subscription);
+}
+
+/** A `canceled` or `unpaid` subscription is terminal: run the deletion handling for it. */
+async function deleteIfSubscriptionEnded(
+  env: Env,
+  masterDb: ReturnType<typeof getMasterDb>,
+  subscription: StripeSubscription,
+): Promise<void> {
   if (subscription.status === 'canceled' || subscription.status === 'unpaid') {
     await handleSubscriptionDeleted(env, masterDb, subscription);
   }

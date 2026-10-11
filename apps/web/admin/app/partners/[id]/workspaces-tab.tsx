@@ -197,7 +197,8 @@ function AttachDialog({
   }, [query]);
 
   const parsed = parseLicenceForm(licence);
-  const invalid = workspaceId.trim() === '' ? `${t.workspaceId}: required` : parsed.ok ? null : parsed.error;
+  const parsedError = parsed.ok ? null : parsed.error;
+  const invalid = workspaceId.trim() === '' ? `${t.workspaceId}: required` : parsedError;
 
   return (
     <ActionDialog

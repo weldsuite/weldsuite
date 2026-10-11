@@ -46,7 +46,6 @@ import {
   type PartnerStatementView,
   type WorkspaceLicenceInput,
 } from '@weldsuite/app-api-client/schemas/partners';
-import type { Env } from '../index';
 import { getMasterDb, masterSchema } from '../lib/db';
 import { getTenantDbForWorkspace } from '../lib/tenant-db';
 import { generateId } from '../lib/id';

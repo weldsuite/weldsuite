@@ -319,7 +319,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className={territory ? 'max-h-[92vh] overflow-y-auto sm:max-w-lg' : 'sm:max-w-[425px]'} onInteractOutside={(e) => { if (isProvisioning) e.preventDefault(); }}>
-        {territory ? (
+        {territory && (
           <>
             <DialogHeader className="sr-only">
               <DialogTitle>{t('sweep.shared.createNewWorkspace')}</DialogTitle>
@@ -333,7 +333,8 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
               onClose={handleClose}
             />
           </>
-        ) : isProvisioning ? (
+        )}
+        {!territory && isProvisioning && (
           <>
             <DialogHeader>
               <DialogTitle>{t('sweep.shared.settingUpYourWorkspace')}</DialogTitle>
@@ -362,7 +363,8 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: Readonly<CreateWor
               )}
             </div>
           </>
-        ) : (
+        )}
+        {!territory && !isProvisioning && (
           <>
             <DialogHeader>
               <DialogTitle>{t('sweep.shared.createNewWorkspace')}</DialogTitle>

@@ -353,8 +353,7 @@ export async function applyLicenceCredits(input: {
   const wallet = await getOrCreateWorkspaceCredits(db, workspaceId);
   const first = input.previousMonthlyCredits === null;
   const period = monthPeriod(now);
-  const resetPending =
-    !first && !(wallet.lastResetAt && wallet.periodStart && wallet.periodStart.getTime() >= period.start.getTime());
+  const resetPending = !first && !hasResetSince(wallet, period.start);
 
   await db
     .update(workspaceCredits)
@@ -372,37 +371,75 @@ export async function applyLicenceCredits(input: {
   const delta = input.monthlyCredits - (input.previousMonthlyCredits ?? 0);
   const key = `partner_licence:${input.changeId}`;
 
-  if (delta > 0) {
-    const amount = proratedIncreaseGrant(delta, now);
-    if (amount <= 0) return { granted: 0, takenBack: 0 };
-    const grant = await grantCredits(db, {
-      workspaceId,
-      amount,
-      type: first ? 'monthly_allocation' : 'adjustment',
-      idempotencyKey: key,
-      description: first
-        ? `Licensed monthly credits, rest of the month: +${amount}`
-        : `Licence credits increased by ${delta}, rest of the month: +${amount}`,
-      metadata: { reason: 'partner_licence', changeId: input.changeId, delta, prorated: amount },
-    });
-    return { granted: grant.duplicate ? 0 : amount, takenBack: 0 };
-  }
-
+  if (delta > 0) return grantLicenceIncrease({ db, workspaceId, delta, now, first, key, changeId: input.changeId });
   if (delta < 0) {
-    const unused = proratedDecreaseTakeBack(-delta, now);
-    const amount = Math.min(unused, Math.max(wallet.currentBalance, 0));
-    if (amount <= 0) return { granted: 0, takenBack: 0 };
-    const res = await grantCredits(db, {
+    return takeBackLicenceDecrease({
+      db,
       workspaceId,
-      amount: -amount,
-      type: 'adjustment',
-      idempotencyKey: key,
-      description: `Licence credits decreased by ${-delta}, unused part taken back: -${amount}`,
-      metadata: { reason: 'partner_licence', changeId: input.changeId, delta, prorated: unused, takenBack: amount },
+      delta,
+      now,
+      key,
+      changeId: input.changeId,
+      availableBalance: wallet.currentBalance,
     });
-    return { granted: 0, takenBack: res.duplicate ? 0 : amount };
   }
   return { granted: 0, takenBack: 0 };
+}
+
+/** Whether the wallet's monthly reset already ran for the period starting at `periodStart`. */
+function hasResetSince(wallet: { lastResetAt: Date | null; periodStart: Date | null }, periodStart: Date): boolean {
+  return Boolean(wallet.lastResetAt && wallet.periodStart && wallet.periodStart.getTime() >= periodStart.getTime());
+}
+
+/** Grant the prorated part of a monthly-credits increase (`delta` > 0), once per `key`. */
+async function grantLicenceIncrease(args: {
+  db: PartnerDb;
+  workspaceId: string;
+  delta: number;
+  now: Date;
+  first: boolean;
+  key: string;
+  changeId: string;
+}): Promise<{ granted: number; takenBack: number }> {
+  const { db, workspaceId, delta, first } = args;
+  const amount = proratedIncreaseGrant(delta, args.now);
+  if (amount <= 0) return { granted: 0, takenBack: 0 };
+  const grant = await grantCredits(db, {
+    workspaceId,
+    amount,
+    type: first ? 'monthly_allocation' : 'adjustment',
+    idempotencyKey: args.key,
+    description: first
+      ? `Licensed monthly credits, rest of the month: +${amount}`
+      : `Licence credits increased by ${delta}, rest of the month: +${amount}`,
+    metadata: { reason: 'partner_licence', changeId: args.changeId, delta, prorated: amount },
+  });
+  return { granted: grant.duplicate ? 0 : amount, takenBack: 0 };
+}
+
+/** Take back the unused part of a monthly-credits decrease (`delta` < 0), capped at the balance, once per `key`. */
+async function takeBackLicenceDecrease(args: {
+  db: PartnerDb;
+  workspaceId: string;
+  delta: number;
+  now: Date;
+  key: string;
+  changeId: string;
+  availableBalance: number;
+}): Promise<{ granted: number; takenBack: number }> {
+  const { db, workspaceId, delta } = args;
+  const unused = proratedDecreaseTakeBack(-delta, args.now);
+  const amount = Math.min(unused, Math.max(args.availableBalance, 0));
+  if (amount <= 0) return { granted: 0, takenBack: 0 };
+  const res = await grantCredits(db, {
+    workspaceId,
+    amount: -amount,
+    type: 'adjustment',
+    idempotencyKey: args.key,
+    description: `Licence credits decreased by ${-delta}, unused part taken back: -${amount}`,
+    metadata: { reason: 'partner_licence', changeId: args.changeId, delta, prorated: unused, takenBack: amount },
+  });
+  return { granted: 0, takenBack: res.duplicate ? 0 : amount };
 }
 
 /**

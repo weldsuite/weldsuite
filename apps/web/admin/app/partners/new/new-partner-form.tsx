@@ -24,6 +24,7 @@ import {
   parseProfileForm,
   profilePayload,
   territoryConflictCountries,
+  isEmailLike,
 } from '@/lib/partners';
 import { partnersCopy } from '@/lib/partners-copy';
 
@@ -42,7 +43,7 @@ export function NewPartnerForm({ planOptions }: Readonly<{ planOptions: PlanOpti
     if (!profileResult.ok) return void toast.error(profileResult.error);
     const contractResult = parseContractForm({ ...contract, effectiveFrom: '' });
     if (!contractResult.ok) return void toast.error(contractResult.error);
-    if (!/^\S+@\S+\.\S+$/.test(ownerEmail.trim())) return void toast.error(`${t.new.ownerEmail}: invalid email`);
+    if (!isEmailLike(ownerEmail.trim())) return void toast.error(`${t.new.ownerEmail}: invalid email`);
 
     setConflicts([]);
     submit(

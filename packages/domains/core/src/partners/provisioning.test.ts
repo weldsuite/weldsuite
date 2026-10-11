@@ -26,6 +26,7 @@ import {
   registerPartnerWorkspace,
   type PartnerOnboardInput,
 } from './provisioning';
+import type { PartnerDb } from './types';
 
 interface Op {
   op: 'insert' | 'update';
@@ -66,7 +67,7 @@ function fakeDb(selects: unknown[][] = [], returnings: unknown[][] = []) {
       return chain([], op);
     },
   };
-  return { db, ops };
+  return { db: db as unknown as PartnerDb, ops };
 }
 
 const licence: PartnerOnboardInput['licence'] = {

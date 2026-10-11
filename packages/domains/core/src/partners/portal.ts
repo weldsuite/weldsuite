@@ -223,55 +223,92 @@ async function buildManagedRows(db: PartnerDb, partnerId: string, rows: readonly
     >,
   ]);
 
-  const packageIds = [...new Set(licences.map((l) => l.packageId).filter((v): v is string => Boolean(v)))];
-  const packageNames = new Map<string, string>();
-  if (packageIds.length > 0) {
-    const pkgs = (await db
-      .select({ id: partnerLicencePackages.id, name: partnerLicencePackages.name })
-      .from(partnerLicencePackages)
-      .where(inArray(partnerLicencePackages.id, packageIds))) as Array<{ id: string; name: string }>;
-    for (const p of pkgs) packageNames.set(p.id, p.name);
-  }
-
-  const licenceBy = new Map(licences.map((l) => [l.workspaceId, l]));
-  const balanceBy = new Map(balances.map((b) => [b.workspaceId, b.balance]));
-  const ownerBy = new Map<string, string>();
-  for (const o of owners) if (!ownerBy.has(o.workspaceId)) ownerBy.set(o.workspaceId, o.email);
-  for (const r of requests) if (r.workspaceId && !ownerBy.has(r.workspaceId)) ownerBy.set(r.workspaceId, r.email);
+  const packageNames = await loadPackageNames(db, licences);
+  const ctx: ManagedRowContext = {
+    contract,
+    licenceBy: new Map(licences.map((l) => [l.workspaceId, l])),
+    packageNames,
+    balanceBy: new Map(balances.map((b) => [b.workspaceId, b.balance])),
+    ownerBy: firstOwnerByWorkspace(owners, requests),
+    members,
+    peaks,
+    used,
+  };
 
   const out: ManagedWorkspaceRow[] = [];
   for (const ws of rows) {
-    const licence = licenceBy.get(ws.id);
-    if (!licence) continue;
-    const activeMembers = members.get(ws.id) ?? 0;
-    const seats = Math.max(activeMembers, peaks.get(ws.id) ?? 0);
-    const snapshot: LicenceSnapshot = {
-      status: licence.status,
-      allowedApps: licence.allowedApps,
-      monthlyCredits: licence.monthlyCredits,
-      creditRolloverCap: licence.creditRolloverCap,
-      maxSeats: licence.maxSeats,
-      featurePlanId: licence.featurePlanId,
-      storageGb: licence.storageGb,
-      resalePricing: licence.resalePricing,
-      packageId: licence.packageId,
-    };
-    out.push({
-      workspaceId: ws.id,
-      name: ws.name,
-      slug: ws.slug,
-      provisioningStatus: ws.provisioningStatus ?? null,
-      ownerEmail: ownerBy.get(ws.id) ?? null,
-      licence: { ...snapshot, startsAt: licence.startsAt.toISOString(), endsAt: iso(licence.endsAt) },
-      packageName: licence.packageId ? (packageNames.get(licence.packageId) ?? null) : null,
-      activeMembers,
-      creditsUsedThisPeriod: used.get(ws.id) ?? 0,
-      creditBalance: balanceBy.get(ws.id) ?? 0,
-      estimate: contract ? priceWorkspaceMonth(contract, licence, seats) : ZERO_PRICE,
-      createdAt: ws.createdAt.toISOString(),
-    });
+    const row = toManagedRow(ws, ctx);
+    if (row) out.push(row);
   }
   return out;
+}
+
+/** Names of the licence packages the given licences were created from. */
+async function loadPackageNames(db: PartnerDb, licences: readonly LicenceRow[]): Promise<Map<string, string>> {
+  const packageIds = [...new Set(licences.map((l) => l.packageId).filter((v): v is string => Boolean(v)))];
+  const packageNames = new Map<string, string>();
+  if (packageIds.length === 0) return packageNames;
+  const pkgs = (await db
+    .select({ id: partnerLicencePackages.id, name: partnerLicencePackages.name })
+    .from(partnerLicencePackages)
+    .where(inArray(partnerLicencePackages.id, packageIds))) as Array<{ id: string; name: string }>;
+  for (const p of pkgs) packageNames.set(p.id, p.name);
+  return packageNames;
+}
+
+/** The earliest active org admin wins; a territory request names the owner until they accept the invite. */
+function firstOwnerByWorkspace(
+  owners: ReadonlyArray<{ workspaceId: string; email: string }>,
+  requests: ReadonlyArray<{ workspaceId: string | null; email: string }>,
+): Map<string, string> {
+  const ownerBy = new Map<string, string>();
+  for (const o of owners) if (!ownerBy.has(o.workspaceId)) ownerBy.set(o.workspaceId, o.email);
+  for (const r of requests) if (r.workspaceId && !ownerBy.has(r.workspaceId)) ownerBy.set(r.workspaceId, r.email);
+  return ownerBy;
+}
+
+interface ManagedRowContext {
+  contract: Awaited<ReturnType<typeof getActiveContract>>;
+  licenceBy: ReadonlyMap<string, LicenceRow>;
+  packageNames: ReadonlyMap<string, string>;
+  balanceBy: ReadonlyMap<string, number>;
+  ownerBy: ReadonlyMap<string, string>;
+  members: ReadonlyMap<string, number>;
+  peaks: ReadonlyMap<string, number>;
+  used: ReadonlyMap<string, number>;
+}
+
+/** One portal row, or null for a workspace without a licence. */
+function toManagedRow(ws: WorkspaceRow, ctx: ManagedRowContext): ManagedWorkspaceRow | null {
+  const licence = ctx.licenceBy.get(ws.id);
+  if (!licence) return null;
+  const activeMembers = ctx.members.get(ws.id) ?? 0;
+  const seats = Math.max(activeMembers, ctx.peaks.get(ws.id) ?? 0);
+  const snapshot: LicenceSnapshot = {
+    status: licence.status,
+    allowedApps: licence.allowedApps,
+    monthlyCredits: licence.monthlyCredits,
+    creditRolloverCap: licence.creditRolloverCap,
+    maxSeats: licence.maxSeats,
+    featurePlanId: licence.featurePlanId,
+    storageGb: licence.storageGb,
+    resalePricing: licence.resalePricing,
+    packageId: licence.packageId,
+  };
+  return {
+    workspaceId: ws.id,
+    name: ws.name,
+    slug: ws.slug,
+    provisioningStatus: ws.provisioningStatus ?? null,
+    ownerEmail: ctx.ownerBy.get(ws.id) ?? null,
+    licence: { ...snapshot, startsAt: licence.startsAt.toISOString(), endsAt: iso(licence.endsAt) },
+    packageName: licence.packageId ? (ctx.packageNames.get(licence.packageId) ?? null) : null,
+    activeMembers,
+    creditsUsedThisPeriod: ctx.used.get(ws.id) ?? 0,
+    creditBalance: ctx.balanceBy.get(ws.id) ?? 0,
+    estimate: ctx.contract ? priceWorkspaceMonth(ctx.contract, licence, seats) : ZERO_PRICE,
+    createdAt: ws.createdAt.toISOString(),
+  };
 }
 
 export interface ListManagedWorkspacesOptions {
