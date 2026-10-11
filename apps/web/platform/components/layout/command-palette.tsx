@@ -3,7 +3,7 @@
  *
  * Cmd/Ctrl+K (and the header search button) opens a dialog in the middle of
  * the screen. The empty state is commands — go to an app, open settings,
- * switch theme — not a dump of customers and contacts. Typing filters those
+ * switch theme — not a dump of companies and people. Typing filters those
  * commands, and a query of two or more characters also searches records.
  * Create company and Create person open the CRM quick-add dialogs when this
  * workspace has an app for that record and the member is allowed to create it.
@@ -121,6 +121,21 @@ export function CommandPaletteTrigger({ className }: { className?: string }) {
 }
 
 const GROUP_ORDER: PaletteGroup[] = ['actions', 'navigation', 'settings'];
+
+/**
+ * Search returns CRM companies and people under their legacy types, with URLs
+ * to the removed `/weldcrm/customers` and `/weldcrm/contacts` detail routes.
+ * They open as object panels instead.
+ */
+const CRM_PANEL: Partial<Record<string, { type: 'company' | 'person'; page: string }>> = {
+  customer: { type: 'company', page: '/weldcrm/companies' },
+  contact: { type: 'person', page: '/weldcrm/people' },
+};
+
+function recordHref(item: SearchResultItem): string {
+  const panel = CRM_PANEL[item.type];
+  return panel ? `${panel.page}?stack=${panel.type}:${encodeURIComponent(item.id)}` : item.url;
+}
 
 export function CommandPalette() {
   const { t } = useI18n();
@@ -248,27 +263,31 @@ export function CommandPalette() {
 
   const goToRecord = useCallback(
     (item: SearchResultItem) => {
+      const href = recordHref(item);
       pushRecent(workspaceId, {
         id: item.id,
         type: item.type,
         title: item.title,
         subtitle: item.subtitle ?? null,
-        url: item.url,
+        url: href,
       });
       const newTab = newTabRef.current;
       newTabRef.current = false;
       close();
       if (newTab) {
-        window.open(item.url, '_blank', 'noopener');
+        window.open(href, '_blank', 'noopener');
         return;
       }
-      if (hasEntitySheetRenderer(item.type)) {
+      const panel = CRM_PANEL[item.type];
+      if (panel) {
+        openObjectPanel({ type: panel.type, id: item.id });
+      } else if (hasEntitySheetRenderer(item.type)) {
         openEntitySheet(item.type, item.id);
       } else {
         router.push(item.url);
       }
     },
-    [workspaceId, close, openEntitySheet, router],
+    [workspaceId, close, openEntitySheet, openObjectPanel, router],
   );
 
   const groupLabel: Record<PaletteGroup, string> = {

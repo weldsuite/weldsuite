@@ -25,7 +25,7 @@ import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { resolveEntityId } from '../../lib/entity-context';
+import { entityExists, resolveEntityId } from '../../lib/entity-context';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -114,6 +114,9 @@ app.post('/', requirePermission('settings:create'), zValidator('json', createTax
   const data = c.req.valid('json');
 
   try {
+    if (!(await entityExists(db, data.entityId))) {
+      return error.badRequest(c, `Accounting entity ${data.entityId} does not exist in this workspace.`);
+    }
     const { jurisdiction, ...rest } = data;
     const newRate = {
       id: generateId('txr'),

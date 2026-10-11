@@ -2084,6 +2084,14 @@ export const accounting = {
       statusUpdateFailed: 'Could not update the invoice',
       finalized: 'Invoice finalized',
       finalizeFailed: 'Could not finalize the invoice',
+      recordRefund: 'Record refund',
+      creditUsed: 'Applied or refunded',
+      creditRemaining: 'Credit remaining',
+      applyCredit: 'Apply to the invoice',
+      applyingCredit: 'Applying...',
+      creditApplied: '{amount} applied to the invoice',
+      applyCreditFailed: 'Could not apply the credit',
+      creditNotesTitle: 'Credit notes',
     },
 
     // Billing / shipping address section shared by the invoice form and dialog
@@ -2148,6 +2156,9 @@ export const accounting = {
       checkNumberPlaceholder: 'e.g. 1042',
       recorded: 'Payment recorded',
       failed: 'Failed to record payment',
+      refundTitle: 'Record refund',
+      refundRecorded: 'Refund recorded',
+      refundFailed: 'Failed to record the refund',
     },
 
     // Payment methods (values stored on payments.payment_method)

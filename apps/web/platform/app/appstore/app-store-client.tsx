@@ -11,6 +11,9 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { getAppLogo, getAppLucideIcon } from '@/lib/apps/app-registry';
 import { BetaBadge } from '@/components/layout/beta-badge';
 import { getTranslations } from '@/lib/i18n';
+import { useI18n } from '@/lib/i18n/provider';
+import { useAppLicence } from '@/components/partner/use-app-licence';
+import { isNotLicensedError } from '@/lib/partner/api-errors';
 import { CustomAppsSection, OfficialHostedAppsSection } from './custom-apps-section';
 
 interface AppStoreClientProps {
@@ -63,6 +66,9 @@ function getConsolidatedCategory(originalCategory: string, appCode?: string): st
 export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppStoreClientProps>) {
   const { data: betaAppCodes } = useBetaAppCodes();
   const t = getTranslations('navigation');
+  const { t: allT, format } = useI18n();
+  // In a partner-managed workspace the licence decides which apps can be added.
+  const licence = useAppLicence();
   const [apps, setApps] = useState<AvailableApp[]>(initialApps);
   const [hoveredApp, setHoveredApp] = useState<string | null>(null);
   const [loadingApp, setLoadingApp] = useState<string | null>(null);
@@ -88,7 +94,10 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
       toast.success(t.appstore.installSuccess.replace('{name}', app.name));
     } catch (error) {
       console.error('Failed to install app:', error);
-      toast.error(error instanceof Error ? error.message : t.appstore.installError);
+      // A licence refusal is explained by the global toast (with the partner's name).
+      if (!isNotLicensedError(error)) {
+        toast.error(error instanceof Error ? error.message : t.appstore.installError);
+      }
 
       // Revert optimistic update on error
       setApps((prevApps) =>
@@ -223,7 +232,26 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                           {t.appstore.installed}
                         </Badge>
                       )}
-                      {hoveredApp === app.code && canManage && (
+                      {!app.isInstalled && licence.isUnlicensed(app.code) && hoveredApp !== app.code && (
+                        <Badge variant="secondary" className="absolute top-3 right-3 rounded">
+                          {allT.partner.appStore.notLicensed}
+                        </Badge>
+                      )}
+                      {hoveredApp === app.code && canManage && !app.isInstalled && licence.isUnlicensed(app.code) && licence.managed && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="absolute top-3 right-3 z-10 h-7 max-w-[60%] truncate px-2.5 text-xs"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            licence.askPartner(app);
+                          }}
+                        >
+                          {format(allT.partner.appStore.askPartnerShort, { partner: licence.managed.partner.name })}
+                        </Button>
+                      )}
+                      {hoveredApp === app.code && canManage && !(!app.isInstalled && licence.isUnlicensed(app.code)) && (
                         <Button
                           variant={app.isInstalled ? 'outline' : 'default'}
                           size="sm"

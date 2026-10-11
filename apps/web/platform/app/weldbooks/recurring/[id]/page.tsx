@@ -9,6 +9,7 @@ import { ArrowLeft, Pencil, Play, Pause, RefreshCw } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCan } from '@weldsuite/permissions/react';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
+import { useAccountingCustomer } from '@/hooks/queries/use-accounting-queries';
 import type {
   GeneratedRecurringInvoice,
   RecurringTemplateTaxItem,
@@ -57,6 +58,7 @@ export default function RecurringInvoiceDetailPage() {
     queryFn: () => accountingApi.getRecurringInvoice(id!),
     enabled: !!id,
   });
+  const { data: customerData } = useAccountingCustomer(data?.data?.contactId ?? '');
 
   const generateMutation = useMutation({
     mutationFn: async () =>
@@ -121,7 +123,10 @@ export default function RecurringInvoiceDetailPage() {
           </Button>
           <div>
             <h1 className="text-2xl font-semibold">{rec.name || trp.defaultName}</h1>
-            <p className="text-sm text-muted-foreground capitalize">{rec.frequency} — {rec.contactId}</p>
+            <p className="text-sm text-muted-foreground">
+              <span className="capitalize">{rec.frequency}</span>
+              {customerData?.data?.name ? ` — ${customerData.data.name}` : null}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">

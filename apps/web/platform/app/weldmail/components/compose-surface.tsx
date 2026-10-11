@@ -8,12 +8,13 @@
  * schedule picker); the caller owns the message itself (recipients, subject,
  * body, attachments), the draft, and sending.
  */
-import { useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   X,
   Paperclip,
   Loader2,
   Minus,
+  Maximize,
   PictureInPicture2,
   Clock,
   ALargeSmall,
@@ -53,6 +54,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@weldsuite/ui/components/command';
 import { Calendar } from '@weldsuite/ui/components/calendar';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
 import { cn } from '@/lib/utils';
@@ -122,8 +131,8 @@ function ComposeFromRow({ accountId, label }: Readonly<{ accountId?: string; lab
       <span className={FIELD_LABEL}>{label}</span>
       {account && (
         <div className="flex items-center gap-1.5 min-w-0" title={account.email}>
-          <Avatar className="h-5 w-5 !rounded-[7px] flex-shrink-0">
-            <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+          <Avatar className="h-4 w-4 !rounded-[5px] flex-shrink-0">
+            <AvatarFallback className="!rounded-[5px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
               {name.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
@@ -181,13 +190,7 @@ function availableMinutes(scheduledTime: Date | null): number[] {
   return Array.from({ length: 60 }, (_, i) => i).filter((i) => i >= minMinute);
 }
 
-/** What a caller can ask the surface to do from outside (the minimized pill opens the AI bar). */
-export interface ComposeSurfaceHandle {
-  openAi: () => void;
-}
-
 export interface ComposeSurfaceProps {
-  ref?: React.Ref<ComposeSurfaceHandle>;
   /** Frame of the surface: the floating panel's box, or the full page's pane. */
   className?: string;
   style?: React.CSSProperties;
@@ -201,6 +204,8 @@ export interface ComposeSurfaceProps {
 
   // Header actions. A button is left out when its handler is.
   onMinimize?: () => void;
+  /** The full page hands over to the floating panel: this button opens it, minimize collapses it to its bar. */
+  onPopOut?: () => void;
   /** The full page minimizes into the floating panel, which small screens do not have. */
   hideMinimizeOnMobile?: boolean;
   onExpand?: () => void;
@@ -244,7 +249,6 @@ export interface ComposeSurfaceProps {
 }
 
 export function ComposeSurface({
-  ref,
   className,
   style,
   headerClassName,
@@ -252,6 +256,7 @@ export function ComposeSurface({
   testIdPrefix = 'compose',
   accountId,
   onMinimize,
+  onPopOut,
   hideMinimizeOnMobile = false,
   onExpand,
   onClose,
@@ -299,6 +304,8 @@ export function ComposeSurface({
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const aiInputRef = useRef<HTMLInputElement>(null);
 
+
+  const [variableMenuOpen, setVariableMenuOpen] = useState(false);
 
   // Store selection for restoring after toolbar clicks
   const savedSelectionRef = useRef<Range | null>(null);
@@ -378,7 +385,11 @@ export function ComposeSurface({
   const handleIndent = () => { executeCommand('indent'); checkFormatting(); };
   const handleOutdent = () => { executeCommand('outdent'); checkFormatting(); };
   const handleRemoveFormatting = () => { executeCommand('removeFormat'); checkFormatting(); };
-  const handleInsertVariable = (token: string) => { executeCommand('insertText', `{{${token}}}`); checkFormatting(); };
+  const handleInsertVariable = (token: string) => {
+    setVariableMenuOpen(false);
+    executeCommand('insertText', `{{${token}}}`);
+    checkFormatting();
+  };
 
   // The icon row has one selected button at a time: opening the AI bar closes
   // the formatting bar, and the other way round.
@@ -410,7 +421,6 @@ export function ComposeSurface({
     }
   };
 
-  useImperativeHandle(ref, () => ({ openAi: handleOpenAiInput }));
 
   // Ctrl/Cmd+Enter sends from anywhere in the surface.
   const handleSendShortcut = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -443,6 +453,19 @@ export function ComposeSurface({
               <Minus className="h-4 w-4" />
             </Button>
           )}
+          {onPopOut && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(TOOL_BUTTON, hideMinimizeOnMobile && 'hidden md:inline-flex')}
+              data-testid={`${testIdPrefix}-pop-out-btn`}
+              onClick={onPopOut}
+              title={t.mail.floatingCompose.popOut}
+              aria-label={t.mail.floatingCompose.popOut}
+            >
+              <PictureInPicture2 className="h-4 w-4" />
+            </Button>
+          )}
           {onExpand && (
             <Button
               variant="ghost"
@@ -453,7 +476,7 @@ export function ComposeSurface({
               title={t.mail.floatingCompose.expand}
               aria-label={t.mail.floatingCompose.expand}
             >
-              <PictureInPicture2 className="h-4 w-4" />
+              <Maximize className="size-[15px]" />
             </Button>
           )}
           <Button
@@ -863,8 +886,8 @@ export function ComposeSurface({
               onFilesSelected={(files) => onAttachedFilesChange((prev) => [...prev, ...files])}
             />
             {/* Variables: inserts a {{placeholder}} at the cursor */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <Popover open={variableMenuOpen} onOpenChange={setVariableMenuOpen}>
+              <PopoverTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -875,15 +898,28 @@ export function ComposeSurface({
                 >
                   <Variable className="h-4 w-4" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top" onCloseAutoFocus={(e) => e.preventDefault()}>
-                {COMPOSE_VARIABLES.map((variable) => (
-                  <DropdownMenuItem key={variable.token} onSelect={() => handleInsertVariable(variable.token)}>
-                    {t.mail.toolbar.variables[variable.label]}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </PopoverTrigger>
+              <PopoverContent className="w-56 p-0" align="start" side="top" onCloseAutoFocus={(e) => e.preventDefault()}>
+                <Command>
+                  <CommandInput placeholder={t.mail.toolbar.searchVariables} />
+                  <CommandList>
+                    <CommandEmpty>{t.mail.toolbar.noVariablesFound}</CommandEmpty>
+                    <CommandGroup>
+                      {COMPOSE_VARIABLES.map((variable) => (
+                        <CommandItem
+                          key={variable.token}
+                          value={t.mail.toolbar.variables[variable.label]}
+                          keywords={[variable.token]}
+                          onSelect={() => handleInsertVariable(variable.token)}
+                        >
+                          {t.mail.toolbar.variables[variable.label]}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
 
             {/* Schedule send */}
             <Popover>

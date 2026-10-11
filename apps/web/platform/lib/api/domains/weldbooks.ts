@@ -421,6 +421,8 @@ export interface Invoice {
 export interface InvoiceDetail extends Invoice {
   items: InvoiceItem[];
   payments: Payment[];
+  /** Credit notes issued against this invoice (empty on a credit note). */
+  creditNotes?: Array<{ id: string; invoiceNumber: string | null; status: string; issueDate: string; total: string | null }>;
 }
 
 interface InvoiceItem {
@@ -838,6 +840,9 @@ export const accountingApi = {
   finalizeInvoice: (id: string) => weldbooksApi.post<ApiResponse<{ invoiceId: string; journalEntryId: string }>>(`/invoices/${id}/finalize`),
   duplicateInvoice: (id: string) => weldbooksApi.post<ApiResponse<{ id: string }>>(`/invoices/${id}/duplicate`),
   createCreditNote: (id: string) => weldbooksApi.post<ApiResponse<{ id: string; invoiceNumber: string }>>(`/invoices/${id}/credit-note`),
+  /** Apply a finalized credit note to an open invoice of the same customer (the one it credits by default). */
+  applyCreditNote: (id: string, data: { invoiceId?: string; amount?: string } = {}) =>
+    weldbooksApi.post<ApiResponse<{ creditNoteId: string; invoiceId: string; amount: string }>>(`/invoices/${id}/apply-credit`, data),
   recordInvoicePayment: (id: string, data: RecordInvoicePaymentInput) =>
     weldbooksApi.post<ApiResponse<unknown>>(`/invoices/${id}/record-payment`, data),
   createInvoiceFromOrder: (orderId: string) =>

@@ -24,7 +24,7 @@ Run the standard agent pipeline:
    - Tenant scoping on every Drizzle query touched
    - Permission check on any route touched
    - i18n keys added to both `en.json` and `nl.json` if UI strings changed
-5. Call `update_task` with a comment linking the commit/PR and flip status to done (or `in_review` if a PR was opened).
+5. Call `update_task` with a comment linking the commit/PR and flip status to done (or `review` if a PR was opened).
 
 Stop and ask before:
 - Creating any database migration file

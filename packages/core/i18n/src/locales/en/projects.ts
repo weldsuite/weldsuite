@@ -1417,7 +1417,7 @@ export const projects = {
         key: 'External code for updating existing tasks',
         title: 'Task title (required)',
         description: 'Task description',
-        status: 'todo, in_progress, in_review, done, cancelled',
+        status: 'todo, in_progress, review, done, cancelled',
         stageName: 'Pipeline stage name (matched case-insensitively)',
         priority: 'critical, high, medium, low, none',
         type: 'task, bug, story, epic, feature, improvement, subtask',

@@ -26,6 +26,7 @@ import type { KitEnv, KitVariables } from './env';
 import { moduleForwarder } from './forward';
 import { clerkMiddleware } from './middleware/clerk';
 import { featureFlagsMiddleware } from './middleware/feature-flags';
+import { licenceGate } from './middleware/licence-gate';
 import { requestId } from './middleware/request-id';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
 
@@ -128,12 +129,13 @@ export function createModuleApi<
 
 /**
  * The authenticated-API guard: Clerk JWT → tenant DB for the active org →
- * feature flags. Mount on `/api/*` after the public routes.
+ * app licence → feature flags. Mount on `/api/*` after the public routes.
  */
 export function apiAuth(): MiddlewareHandler[] {
   return [
     clerkMiddleware() as unknown as MiddlewareHandler,
     workspaceDbMiddleware() as unknown as MiddlewareHandler,
+    licenceGate() as unknown as MiddlewareHandler,
     featureFlagsMiddleware() as unknown as MiddlewareHandler,
   ];
 }

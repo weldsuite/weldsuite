@@ -23,9 +23,9 @@ interface RawSectionRow {
   name?: string;
 }
 
-export function useChatSections() {
-  const { data: sectionsData } = useSections();
-  const { data: channelsData } = useChannels();
+export function useChatSections(enabled = true) {
+  const { data: sectionsData } = useSections(enabled);
+  const { data: channelsData } = useChannels(enabled);
   const createSectionMutation = useCreateSection();
   const updateSectionMutation = useUpdateSection();
   const deleteSectionMutation = useDeleteSection();

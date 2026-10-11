@@ -19,6 +19,7 @@
     "./log-safe": "./src/log-safe.ts",
     "./middleware/clerk": "./src/middleware/clerk.ts",
     "./middleware/feature-flags": "./src/middleware/feature-flags.ts",
+    "./middleware/licence-gate": "./src/middleware/licence-gate.ts",
     "./middleware/request-id": "./src/middleware/request-id.ts",
     "./middleware/workspace-db": "./src/middleware/workspace-db.ts",
     "./pg-errors": "./src/pg-errors.ts",

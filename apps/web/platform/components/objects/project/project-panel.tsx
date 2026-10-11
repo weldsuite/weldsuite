@@ -9,6 +9,7 @@ import {
   ProseBlock,
   type ObjectPanelComponentProps,
 } from '@/components/objects/_shared/simple-object-panel';
+import { pageHrefForEntity } from '@/components/entity-sheet/registry-meta';
 
 interface ProjectRecord {
   id: string;
@@ -50,7 +51,7 @@ export function ProjectPanel(props: Readonly<ObjectPanelComponentProps>) {
       hasData={!!project}
       title={project ? title : undefined}
       subtitle={subtitle ?? undefined}
-      openHref={project ? `/weldflow/projects/${project.id}` : undefined}
+      openHref={project ? (pageHrefForEntity('project', project.id) ?? undefined) : undefined}
       statusBadges={project && (
         <>
           {project.status && <Badge variant="outline" className="capitalize">{project.status}</Badge>}

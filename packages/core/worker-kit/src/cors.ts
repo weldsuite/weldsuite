@@ -52,8 +52,11 @@ export const apiCors = () =>
       'X-Test-Flags',
       'X-Accounting-Entity-Id',
       'X-Weld-App',
+      // Partner portal: which partner the caller acts for, and retry-safe credit grants.
+      'X-Partner-Id',
+      'Idempotency-Key',
     ],
-    exposeHeaders: ['X-Request-Id'],
+    exposeHeaders: ['X-Request-Id', 'X-Partner-Warnings'],
     credentials: true,
     maxAge: CORS_MAX_AGE_SECONDS,
   });

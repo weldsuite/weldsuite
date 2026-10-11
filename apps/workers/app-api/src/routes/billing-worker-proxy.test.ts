@@ -15,6 +15,14 @@ import {
   isAllowedPlatformCheckoutUrl,
 } from '@weldsuite/app-api-client/schemas/credits';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+
+// These tests cover the proxy, not the partner-managed guard (see
+// partner-managed.test.ts); the guard reads the master DB, which would also
+// consume the mocked global fetch.
+vi.mock('../middleware/partner-managed', () => ({
+  blockPartnerManaged: () => async (_c: unknown, next: () => Promise<void>) => next(),
+}));
+
 import { billingRoutes } from './billing';
 import { creditsRoutes } from './credits';
 

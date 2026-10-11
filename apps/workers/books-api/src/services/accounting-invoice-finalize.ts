@@ -22,6 +22,7 @@ import {
   validateInvoiceForFinalize,
 } from '@weldsuite/books-domain/accounting-compliance';
 import { loadEntity, postInvoice, PostingError } from './accounting-document-posting';
+import { applyCreditNoteOnFinalize, type CreditApplication } from './accounting-credit-notes';
 import { SalesTaxDocumentError, addressRequired, engineUnavailable } from './sales-tax/errors';
 import { loadSalesTaxEntity, usesSalesTax } from './sales-tax/document-tax';
 import { recalculateStoredInvoice } from './sales-tax/persist';
@@ -43,6 +44,8 @@ export interface FinalizeResult {
   warnings: string[];
   /** US provider engines: the outcome of recording the document with the provider. */
   taxSync?: ProviderSyncResult;
+  /** A credit note: what was applied to the invoice it credits. */
+  creditApplied?: CreditApplication | null;
 }
 
 export async function finalizeInvoice(
@@ -100,12 +103,18 @@ export async function finalizeInvoice(
 
   const posted = await postInvoice(db, invoice, items, { userId: opts.userId, markSent: opts.markSent });
 
+  // A credit note lowers what is still open on the invoice it credits.
+  let creditApplied: CreditApplication | null = null;
+  if (invoice.type === 'credit_note' && posted.journalEntryId && !posted.alreadyPosted) {
+    creditApplied = await applyCreditNoteOnFinalize(db, invoiceId);
+  }
+
   let taxSync: ProviderSyncResult | undefined;
   if (salesTax && posted.journalEntryId && !posted.alreadyPosted && opts.tax) {
     taxSync = await syncInvoiceWithProvider(db, invoiceId, opts.tax);
     if (taxSync.warning) warnings.push(taxSync.warning);
   }
-  return { invoice, ...posted, warnings, ...(taxSync ? { taxSync } : {}) };
+  return { invoice, ...posted, warnings, creditApplied, ...(taxSync ? { taxSync } : {}) };
 }
 
 export { SalesTaxDocumentError, addressRequired };

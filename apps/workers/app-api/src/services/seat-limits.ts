@@ -10,6 +10,10 @@
  * step: Clerk is the hard gate, this is the friendly one in front of it.
  *
  * `limit === null` means unlimited.
+ *
+ * A partner-managed workspace ignores its plan: its limit is the licence's
+ * `maxSeats` (null = unlimited), the same number billing-worker writes to Clerk
+ * (docs/plans/reseller-licensing.md).
  */
 
 import { eq } from 'drizzle-orm';
@@ -29,6 +33,8 @@ export interface SeatLimit {
   current: number;
   atLimit: boolean;
   planName: string;
+  /** Set for a partner-managed workspace: the partner whose licence sets the limit. */
+  managedBy?: string;
 }
 
 /**
@@ -51,13 +57,15 @@ export async function getWorkspaceSeatLimit(
   orgId: string,
 ): Promise<SeatLimit | null> {
   const masterDb = getMasterDb(env);
-  const { workspaces, plans } = masterSchema;
+  const { workspaces, plans, workspaceLicences, partners } = masterSchema;
 
   const [workspace] = await masterDb
     .select({
       id: workspaces.id,
       planId: workspaces.planId,
       purchasedSeats: workspaces.purchasedSeats,
+      billingMode: workspaces.billingMode,
+      partnerId: workspaces.partnerId,
     })
     .from(workspaces)
     .where(eq(workspaces.clerkOrgId, orgId));
@@ -66,8 +74,23 @@ export async function getWorkspaceSeatLimit(
 
   let limit: number | null = null;
   let planName = 'Free';
+  let managedBy: string | undefined;
 
-  if (workspace.planId) {
+  if (workspace.billingMode === 'partner') {
+    const [licence] = await masterDb
+      .select({ maxSeats: workspaceLicences.maxSeats })
+      .from(workspaceLicences)
+      .where(eq(workspaceLicences.workspaceId, workspace.id));
+    limit = licence?.maxSeats ?? null;
+    planName = 'Licence';
+    if (workspace.partnerId) {
+      const [partner] = await masterDb
+        .select({ name: partners.name })
+        .from(partners)
+        .where(eq(partners.id, workspace.partnerId));
+      managedBy = partner?.name;
+    }
+  } else if (workspace.planId) {
     const [plan] = await masterDb
       .select({
         name: plans.name,
@@ -95,5 +118,6 @@ export async function getWorkspaceSeatLimit(
     current,
     atLimit: limit !== null && current >= limit,
     planName,
+    ...(managedBy ? { managedBy } : {}),
   };
 }

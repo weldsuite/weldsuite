@@ -30,6 +30,10 @@ import {
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { formatPlanFeatures, resolvePlanKey } from './plan-features';
 import type { BillingInvoiceResponse } from '@/lib/api/domains/billing';
+import type { PartnerPublicInfo, PartnerTerritoryErrorDetails } from '@weldsuite/app-api-client/schemas/partners';
+import { PartnerContactLinks, PartnerLogo } from '@/components/partner/partner-contact';
+import { TerritoryDialog } from '@/components/partner/territory-screen';
+import { territoryErrorDetails } from '@/lib/partner/api-errors';
 
 type InvoiceInfo = BillingInvoiceResponse;
 
@@ -1795,6 +1799,20 @@ function BillingOverview({
   );
 }
 
+/** "In your region, WeldSuite is available through {partner}": shown above the plans. */
+function PartnerAvailabilityNotice({ partner }: Readonly<{ partner: PartnerPublicInfo }>) {
+  const t = useTranslations();
+  return (
+    <div className="mb-6 flex items-start gap-3 rounded-xl border bg-muted/30 p-4">
+      <PartnerLogo partner={partner} />
+      <div className="min-w-0 space-y-2">
+        <p className="text-sm font-medium">{t('partner.territory.plansNotice', { partner: partner.name })}</p>
+        <PartnerContactLinks partner={partner} />
+      </div>
+    </div>
+  );
+}
+
 export function BillingSettingsSection() {
   const t = useTranslations();
   const { getClient } = useAppApiClient();
@@ -1811,6 +1829,9 @@ export function BillingSettingsSection() {
   const [manageSeatsOpen, setManageSeatsOpen] = useState(false);
   const [manageSeatCount, setManageSeatCount] = useState(1);
   const [invoiceLimit, setInvoiceLimit] = useState(10);
+  // A partner serves the caller's country: it sells WeldSuite there, not us.
+  const [partnerManaged, setPartnerManaged] = useState<PartnerPublicInfo | null>(null);
+  const [territory, setTerritory] = useState<PartnerTerritoryErrorDetails | null>(null);
 
   // React Query hooks
   const { data: limitsData } = usePlanLimits();
@@ -1836,11 +1857,16 @@ export function BillingSettingsSection() {
       const client = await getClient();
       // app-api GET /api/billing/plans-page — `{ data }` envelope; failures throw.
       const plansResult = await client.get<{
-        data?: { plans: Billing.BillingPlan[]; subscription: Billing.Subscription | null };
+        data?: {
+          plans: Billing.BillingPlan[];
+          subscription: Billing.Subscription | null;
+          partnerManaged?: PartnerPublicInfo | null;
+        };
       }>('/billing/plans-page');
       if (plansResult.data) {
         setPlans(withScaleHighlight(plansResult.data.plans));
         setSubscription(plansResult.data.subscription);
+        setPartnerManaged(plansResult.data.partnerManaged ?? null);
         setError(null);
 
         // Plan limits and invoices are now loaded via React Query hooks
@@ -1969,7 +1995,13 @@ export function BillingSettingsSection() {
         setError(t('sweep.settings.billing.errors.changePlanFailed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
+      // 409 PARTNER_TERRITORY: no checkout was created, a partner sells WeldSuite here.
+      const territoryDetails = territoryErrorDetails(err);
+      if (territoryDetails) {
+        setTerritory(territoryDetails);
+      } else {
+        setError(err instanceof Error ? err.message : t('sweep.settings.billing.errors.changePlanFailed'));
+      }
     }
     setProcessing(false);
     setSelectedPlan(null);
@@ -2039,20 +2071,28 @@ export function BillingSettingsSection() {
 
   if (viewMode === 'plans') {
     return (
-      <PlansView
-        plans={plans}
-        subscription={subscription}
-        planLimits={planLimits}
-        selectedPlan={selectedPlan}
-        onCloseCheckout={() => setSelectedPlan(null)}
-        onConfirmCheckout={handleConfirmCheckout}
-        processing={processing}
-        error={error}
-        downgradeBlockers={downgradeBlockers}
-        isAnnual={isAnnual}
-        onToggleAnnual={() => setIsAnnual(!isAnnual)}
-        onSelectPlan={handleSelectPlan}
-      />
+      <>
+        {partnerManaged && <PartnerAvailabilityNotice partner={partnerManaged} />}
+        <PlansView
+          plans={plans}
+          subscription={subscription}
+          planLimits={planLimits}
+          selectedPlan={selectedPlan}
+          onCloseCheckout={() => setSelectedPlan(null)}
+          onConfirmCheckout={handleConfirmCheckout}
+          processing={processing}
+          error={error}
+          downgradeBlockers={downgradeBlockers}
+          isAnnual={isAnnual}
+          onToggleAnnual={() => setIsAnnual(!isAnnual)}
+          onSelectPlan={handleSelectPlan}
+        />
+        <TerritoryDialog
+          open={territory !== null}
+          onOpenChange={(open) => !open && setTerritory(null)}
+          details={territory}
+        />
+      </>
     );
   }
 

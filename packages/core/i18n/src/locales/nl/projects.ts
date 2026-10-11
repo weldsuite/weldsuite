@@ -1417,7 +1417,7 @@ export const projects = {
         key: 'Externe code om bestaande taken bij te werken',
         title: 'Taaktitel (verplicht)',
         description: 'Taakbeschrijving',
-        status: 'todo, in_progress, in_review, done, cancelled',
+        status: 'todo, in_progress, review, done, cancelled',
         stageName: 'Naam van de pijplijnfase (hoofdletterongevoelig)',
         priority: 'critical, high, medium, low, none',
         type: 'task, bug, story, epic, feature, improvement, subtask',

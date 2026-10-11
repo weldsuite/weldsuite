@@ -12,6 +12,7 @@
 
 import { grantCredits, getOrCreateWorkspaceCredits, type CreditsDb } from '@weldsuite/credits';
 import { eq } from 'drizzle-orm';
+import { isPartnerManagedWorkspace } from '@weldsuite/core-domain/partners';
 import { masterSchema } from '../lib/db';
 
 const { workspaceCredits } = masterSchema;
@@ -28,6 +29,9 @@ export { getOrCreateWorkspaceCredits };
  *   so webhook replays can't double-grant.
  * - The wallet balance is never reduced here — prepaid credits survive
  *   renewals, downgrades, and cancellations.
+ * - Partner-managed workspaces are skipped: their allowance is the licence's,
+ *   granted by the partner credit reset (services/partner-sweep.ts), never by
+ *   a plan or a Stripe invoice.
  */
 export async function updateSubscriptionCredits(
   db: CreditsDb,
@@ -49,6 +53,19 @@ export async function updateSubscriptionCredits(
   } = params;
 
   const newMonthlyAllocation = planCredits + subscribedCredits;
+
+  if (await isPartnerManagedWorkspace(db, workspaceId)) {
+    console.log(`[Credits] Workspace ${workspaceId} is partner-managed, skipping plan credit allocation`);
+    return {
+      planCredits: 0,
+      subscribedCredits: 0,
+      monthlyAllocation: 0,
+      currentBalance: 0,
+      allocationChange: 0,
+      periodReset: false,
+      skipped: 'partner_managed' as const,
+    };
+  }
 
   const credits = await getOrCreateWorkspaceCredits(db, workspaceId);
   const previousAllocation = credits.monthlyAllocation;
@@ -109,5 +126,6 @@ export async function updateSubscriptionCredits(
     currentBalance: newBalance,
     allocationChange: granted,
     periodReset: resetPeriod || false,
+    skipped: null,
   };
 }

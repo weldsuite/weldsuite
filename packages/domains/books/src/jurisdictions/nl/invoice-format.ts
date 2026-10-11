@@ -23,6 +23,7 @@ const nlLabels: InvoiceLabels = {
   paymentInstructions: 'Betalingsgegevens',
   vatNumberLabel: 'BTW-nummer',
   registrationLabel: 'KVK',
+  draftNotice: 'Concept: geen geldige factuur',
 };
 
 const enLabels: InvoiceLabels = {
@@ -48,6 +49,7 @@ const enLabels: InvoiceLabels = {
   paymentInstructions: 'Payment instructions',
   vatNumberLabel: 'VAT number',
   registrationLabel: 'CoC',
+  draftNotice: 'Draft: not a valid invoice',
 };
 
 /**

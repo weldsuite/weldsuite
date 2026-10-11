@@ -171,6 +171,7 @@ function formatStatusLabel(status: string): string {
     backlog: s.backlog,
     todo: s.todo,
     in_progress: s.inProgress,
+    review: s.inReview,
     in_review: s.inReview,
     testing: s.testing,
     done: s.done,

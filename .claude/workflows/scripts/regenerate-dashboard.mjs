@@ -43,7 +43,7 @@ Task: call the WeldSuite MCP search_tasks tool repeatedly (it may be registered 
 You MUST call the tool with each of these status filters and combine the results (limit=50 each):
   - status: "todo"
   - status: "in_progress"
-  - status: "in_review"
+  - status: "review"
   - status: "backlog"
   - status: "testing"
 
@@ -64,7 +64,7 @@ After fetching, output ONLY the following block, nothing else. No prose, no mark
 Rules:
 - "type" is one of: task | bug | feature | story | epic. If absent in MCP response, use "task".
 - "priority" is one of: critical | high | medium | low | none.
-- "status" is one of: todo | in_progress | in_review | testing | backlog | done | cancelled.
+- "status" is one of: todo | in_progress | review | testing | backlog | done | cancelled.
 - Skip tasks with status "done" or "cancelled".
 - Strip newlines from titles.
 - Output VALID JSON. No trailing commas.`;

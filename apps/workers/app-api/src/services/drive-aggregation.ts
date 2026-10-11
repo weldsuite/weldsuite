@@ -15,6 +15,7 @@ import { and, eq, getTableColumns, isNotNull, isNull, ne, sql, type SQL } from '
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
 import { asText } from '@weldsuite/text';
+import { buildResultUrl } from './search';
 
 const {
   files,
@@ -63,8 +64,9 @@ function buildNavigateUrl(
 ): string | null {
   if (!entityType || !entityId) return null;
   switch (entityType) {
-    case 'crm_contact': return `/weldcrm/contacts/${entityId}`;
-    case 'crm_customer': return `/weldcrm/customers/${entityId}`;
+    // People and companies open as object panels on their list page.
+    case 'crm_contact': return buildResultUrl('contact', entityId);
+    case 'crm_customer': return buildResultUrl('customer', entityId);
     case 'project':
       // WeldFlow project sheets are stored as xlsx files. Clicking one in
       // WeldDrive should land back in the spreadsheet editor, not the
@@ -77,9 +79,12 @@ function buildNavigateUrl(
       const projectId = metadata?.projectId as string | undefined;
       return projectId ? `/weldflow/project/${projectId}/documents` : null;
     }
-    case 'helpdesk_ticket': return `/welddesk/tickets/${entityId}`;
-    case 'mail_message': return `/weldmail/inbox/${entityId}`;
-    case 'social_post': return `/weldcrm/social`;
+    case 'helpdesk_ticket': return buildResultUrl('ticket', entityId);
+    // The unified view resolves a message by id alone, so the link needs no
+    // account id.
+    case 'mail_message': return `/weldmail/unified/inbox/${entityId}`;
+    // WeldSocial has no per-post route; posts open from its own pages.
+    case 'social_post': return '/social';
     default: return null;
   }
 }

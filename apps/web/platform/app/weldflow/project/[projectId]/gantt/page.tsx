@@ -60,6 +60,7 @@ import { useObjectPanel } from '@/components/object-panel';
 import { useProjectLabels } from '@/app/weldflow/hooks/use-project-labels';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import { useI18n } from '@/lib/i18n/provider';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { copyText } from '@/lib/clipboard';
 import type { TranslationsType } from '@/lib/i18n/types';
@@ -71,7 +72,7 @@ const statusConfig: Record<string, { name: string; color: string }> = {
   backlog: { name: 'Backlog', color: '#94a3b8' },      // slate-400
   todo: { name: 'To Do', color: '#c4b5fd' },           // purple-300
   in_progress: { name: 'In Progress', color: '#93c5fd' }, // blue-300
-  in_review: { name: 'In Review', color: '#fcd34d' },  // amber-300
+  review: { name: 'In Review', color: '#fcd34d' },  // amber-300
   testing: { name: 'Testing', color: '#fdba74' },      // orange-300
   done: { name: 'Done', color: '#5eead4' },            // teal-300
   cancelled: { name: 'Cancelled', color: '#fca5a5' },  // red-300
@@ -112,7 +113,7 @@ function localizedStatusName(id: string, tasks: TranslationsType['projects']['ta
       return tasks.statusTodo;
     case 'in_progress':
       return tasks.statusInProgress;
-    case 'in_review':
+    case 'review':
       return tasks.statusInReview;
     case 'testing':
       return tasks.statusTesting;
@@ -239,7 +240,7 @@ function mapTaskToFeature(task: RawGanttTask, isSubtask: boolean = false): Gantt
       : startOfDay(new Date());
   const endDate = dueDate ?? addDays(startDate, 7); // Default 7 days
 
-  const statusKey = task.status || 'todo';
+  const statusKey = normalizeTaskStatus(task.status) || 'todo';
   const statusInfo = statusConfig[statusKey] || statusConfig.todo;
 
   // Group by status (could also group by sprint, milestone, or assignee)
@@ -981,7 +982,7 @@ const GanttPage = () => {
       'backlog': 'backlog',
       'todo': 'todo',
       'in_progress': 'in_progress',
-      'in_review': 'in_review',
+      'review': 'review',
       'testing': 'testing',
       'done': 'done',
       'cancelled': 'cancelled',
@@ -1603,7 +1604,7 @@ const GanttPage = () => {
           if (data.title) updateData.title = data.title;
           if (data.description !== undefined) updateData.description = data.description;
           if (data.status) {
-            const statusMap: Record<string, string> = { 'backlog': 'backlog', 'todo': 'todo', 'in_progress': 'in_progress', 'in_review': 'in_review', 'testing': 'testing', 'done': 'done', 'cancelled': 'cancelled' };
+            const statusMap: Record<string, string> = { 'backlog': 'backlog', 'todo': 'todo', 'in_progress': 'in_progress', 'review': 'review', 'testing': 'testing', 'done': 'done', 'cancelled': 'cancelled' };
             updateData.status = statusMap[data.status] || data.status;
           }
           if (data.priority) updateData.priority = data.priority;

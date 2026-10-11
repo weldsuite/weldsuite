@@ -61,6 +61,7 @@ import { cn } from '@/lib/utils';
 import { coloredSquareColors, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
 import { toast } from 'sonner';
 import { tasksApi, membersApi, labelsApi } from '../lib/api-client';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { LabelOverflowList } from '../lib/label-overflow-list';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
@@ -72,7 +73,7 @@ interface Task {
   number?: number | null;
   title: string;
   description?: string;
-  status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
+  status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   assignee?: string;
   assigneeId?: string;
@@ -136,7 +137,7 @@ const statusConfigBase = {
   backlog: { icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
   todo: { icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
   in_progress: { icon: Clock, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-  in_review: { icon: Clock, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
+  review: { icon: Clock, color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-950' },
   testing: { icon: Clock, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
   done: { icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
   cancelled: { icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
@@ -163,7 +164,7 @@ function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
     number: apiTask.number ?? null,
     title: apiTask.title,
     description: apiTask.description || undefined,
-    status: (apiTask.status as Task['status']) || 'todo',
+    status: (normalizeTaskStatus(apiTask.status) as Task['status']) || 'todo',
     priority: (apiTask.priority as Task['priority']) || 'medium',
     assignee: apiTask.assignee?.name || undefined,
     assigneeId: apiTask.assigneeId || undefined,
@@ -190,7 +191,7 @@ const statusToCrm: Record<string, CrmTask['status']> = {
   'backlog': 'backlog',
   'todo': 'todo',
   'in_progress': 'in_progress',
-  'in_review': 'in_review',
+  'review': 'review',
   'testing': 'testing',
   'done': 'done',
   'cancelled': 'cancelled',
@@ -200,7 +201,7 @@ const statusFromCrm: Record<string, Task['status']> = {
   'backlog': 'backlog',
   'todo': 'todo',
   'in_progress': 'in_progress',
-  'in_review': 'in_review',
+  'review': 'review',
   'testing': 'testing',
   'done': 'done',
   'cancelled': 'cancelled',
@@ -225,7 +226,9 @@ function toCrmTask(task: Task): CrmTask {
     number: task.number,
     title: task.title,
     description: task.description,
-    status: statusToCrm[task.status] || 'todo',
+    // Unknown (custom stage) statuses pass through instead of collapsing to
+    // 'todo', which a save would then write back.
+    status: statusToCrm[task.status] ?? (task.status as CrmTask['status']),
     priority: task.priority === 'urgent' ? 'high' : (task.priority as CrmTask['priority']),
     assignee: primary,
     assignees: assigneesList,
@@ -481,7 +484,7 @@ export function MyTasksClient({
     backlog: { label: t.projects.myTasks.statusLabels.backlog, ...statusConfigBase.backlog },
     todo: { label: t.projects.myTasks.statusLabels.todo, ...statusConfigBase.todo },
     in_progress: { label: t.projects.myTasks.statusLabels.inProgress, ...statusConfigBase.in_progress },
-    in_review: { label: t.projects.myTasks.statusLabels.inReview, ...statusConfigBase.in_review },
+    review: { label: t.projects.myTasks.statusLabels.inReview, ...statusConfigBase.review },
     testing: { label: t.projects.myTasks.statusLabels.testing, ...statusConfigBase.testing },
     done: { label: t.projects.myTasks.statusLabels.done, ...statusConfigBase.done },
     cancelled: { label: t.projects.myTasks.statusLabels.cancelled, ...statusConfigBase.cancelled },
@@ -820,7 +823,7 @@ export function MyTasksClient({
     }
   }, [tasks, t]);
 
-  const statusOrder = useMemo(() => ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'], []);
+  const statusOrder = useMemo(() => ['backlog', 'todo', 'in_progress', 'review', 'testing', 'done', 'cancelled'], []);
   const priorityOrder = useMemo(() => ['low', 'medium', 'high', 'urgent'], []);
 
   const sortedTasks = useMemo(() => {
@@ -941,7 +944,7 @@ export function MyTasksClient({
         { value: 'backlog', label: t.projects.myTasks.statusLabels.backlog },
         { value: 'todo', label: t.projects.myTasks.statusLabels.todo },
         { value: 'in_progress', label: t.projects.myTasks.statusLabels.inProgress },
-        { value: 'in_review', label: t.projects.myTasks.statusLabels.inReview },
+        { value: 'review', label: t.projects.myTasks.statusLabels.inReview },
         { value: 'testing', label: t.projects.myTasks.statusLabels.testing },
         { value: 'done', label: t.projects.myTasks.statusLabels.done },
         { value: 'cancelled', label: t.projects.myTasks.statusLabels.cancelled },
@@ -1018,7 +1021,7 @@ export function MyTasksClient({
       { id: 'backlog', label: t.projects.myTasks.statusLabels.backlog, sortOrder: 1, filter: (task) => task.status === 'backlog' },
       { id: 'todo', label: t.projects.myTasks.statusLabels.todo, sortOrder: 2, filter: (task) => task.status === 'todo' },
       { id: 'in_progress', label: t.projects.myTasks.statusLabels.inProgress, sortOrder: 3, filter: (task) => task.status === 'in_progress' },
-      { id: 'in_review', label: t.projects.myTasks.statusLabels.inReview, sortOrder: 4, filter: (task) => task.status === 'in_review' },
+      { id: 'review', label: t.projects.myTasks.statusLabels.inReview, sortOrder: 4, filter: (task) => task.status === 'review' },
       { id: 'testing', label: t.projects.myTasks.statusLabels.testing, sortOrder: 5, filter: (task) => task.status === 'testing' },
       { id: 'done', label: t.projects.myTasks.statusLabels.done, sortOrder: 6, filter: (task) => task.status === 'done' },
       { id: 'cancelled', label: t.projects.myTasks.statusLabels.cancelled, sortOrder: 7, filter: (task) => task.status === 'cancelled' },

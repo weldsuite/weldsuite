@@ -6,8 +6,8 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     pool: 'forks',
-    // Coverage feeds SonarQube Cloud (see sonar-project.properties). lcov paths
-    // are written relative to the repo root so Sonar can match them.
+    // lcov paths are written relative to the repo root, so reports from
+    // several workspaces can be merged.
     coverage: {
       provider: 'v8',
       reporter: ['text', ['lcov', { projectRoot: path.resolve(__dirname, '../../..') }]],

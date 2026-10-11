@@ -15,6 +15,8 @@ import hrPortalInvite from './hr/portal-invite';
 import enterpriseInquiry from './internal/enterprise-inquiry';
 import meetInvitation from './meet/invitation';
 import notification from './notifications/notification';
+import partnerDunning from './partner/dunning';
+import partnerInvitation from './partner/invitation';
 import portalSignIn from './portal/sign-in';
 import taskAssigned from './task/assigned';
 import workspaceInvitation from './workspace/invitation';
@@ -32,6 +34,8 @@ export const templates = {
   'hr.payslip-ready': hrPayslipReady,
   'hr.bank-changed': hrBankChanged,
   'admin.workspace-deletion': workspaceDeletion,
+  'partner.dunning': partnerDunning,
+  'partner.invitation': partnerInvitation,
   'internal.enterprise-inquiry': enterpriseInquiry,
 };
 
@@ -51,6 +55,8 @@ export type { HrPortalInviteEmailProps } from './hr/portal-invite';
 export type { EnterpriseInquiryEmailProps } from './internal/enterprise-inquiry';
 export type { MeetInvitationEmailProps } from './meet/invitation';
 export type { NotificationEmailProps } from './notifications/notification';
+export type { PartnerDunningEmailProps, PartnerDunningStage } from './partner/dunning';
+export type { PartnerInvitationEmailProps } from './partner/invitation';
 export type { PortalSignInEmailProps } from './portal/sign-in';
 export type { TaskAssignedEmailProps } from './task/assigned';
 export type { WorkspaceInvitationEmailProps } from './workspace/invitation';

@@ -143,7 +143,11 @@ export async function resetCreditsToFreeTier(
   }
 }
 
-export type SubscriptionEndedOutcome = 'skipped_inactive' | 'grace_period' | 'downgraded_to_free';
+export type SubscriptionEndedOutcome =
+  | 'skipped_inactive'
+  | 'skipped_partner'
+  | 'grace_period'
+  | 'downgraded_to_free';
 
 /**
  * The workspace no longer has a paid plan subscription (it was cancelled, or a
@@ -156,12 +160,19 @@ export type SubscriptionEndedOutcome = 'skipped_inactive' | 'grace_period' | 'do
  *  - Grandfathered workspaces: downgrade to the free plan, reset credits and
  *    the Clerk seat cap, and start a $0 free subscription so `invoice.paid`
  *    keeps renewing their monthly credits.
+ *  - Partner-managed workspaces are never touched: their partner pays for
+ *    them (partner status, not a subscription, drives read-only).
  */
 export async function applySubscriptionEnded(
   env: Env,
   masterDb: MasterDb,
   workspace: WorkspaceRow,
 ): Promise<SubscriptionEndedOutcome> {
+  if (workspace.billingMode === 'partner') {
+    console.log(`[Billing] Workspace ${workspace.id} is partner-managed, ignoring ended subscription`);
+    return 'skipped_partner';
+  }
+
   if (workspace.paidPlanRequired) {
     if (!workspace.isActive) {
       console.log(`[Billing] Workspace ${workspace.id} is already inactive, skipping deletion scheduling`);

@@ -9,6 +9,7 @@ import {
   ProseBlock,
   type ObjectPanelComponentProps,
 } from '@/components/objects/_shared/simple-object-panel';
+import { encodeEntitySheetTarget } from '@/components/entity-sheet/url-param';
 
 export function TicketPanel(props: Readonly<ObjectPanelComponentProps>) {
   const t = useTranslations();
@@ -35,7 +36,8 @@ export function TicketPanel(props: Readonly<ObjectPanelComponentProps>) {
       hasData={!!ticket}
       title={ticket ? title : undefined}
       subtitle={subtitle ?? undefined}
-      openHref={ticket ? `/welddesk/tickets/${ticket.id}` : undefined}
+      // Tickets have no page of their own: the link reopens this sheet over the inbox.
+      openHref={ticket ? `/welddesk/inbox?entity=${encodeEntitySheetTarget('ticket', ticket.id)}` : undefined}
       statusBadges={ticket && (
         <>
           <Badge variant="outline" className="capitalize">{ticket.status}</Badge>

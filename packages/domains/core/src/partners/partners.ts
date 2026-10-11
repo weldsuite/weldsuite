@@ -1,0 +1,401 @@
+/**
+ * Partners: lookups, territory, membership, extra credits and seat counts.
+ */
+
+import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import * as masterSchema from '@weldsuite/db/schema/master';
+import { grantCredits } from '@weldsuite/credits';
+import { generateId } from '@weldsuite/worker-kit/id';
+import {
+  creditsToCents,
+  fromCents,
+  partnerRoleCan,
+  type PartnerMemberRole,
+  type PartnerPermission,
+  type PartnerPublicInfo,
+  type PartnerStatus,
+} from '@weldsuite/app-api-client/schemas/partners';
+import { getActiveContract, LicenceError } from './licences';
+import type { PartnerDb } from './types';
+
+const { partners, partnerMembers, partnerTerritories, partnerCreditGrants, workspaces, workspaceLicences, userWorkspaces, workspaceSeatSnapshots } =
+  masterSchema;
+
+export type PartnerRow = typeof partners.$inferSelect;
+
+export function partnerPublicInfo(p: PartnerRow): PartnerPublicInfo {
+  return {
+    id: p.id,
+    name: p.name,
+    logoUrl: p.logoUrl,
+    websiteUrl: p.websiteUrl,
+    supportEmail: p.supportEmail,
+    supportUrl: p.supportUrl,
+  };
+}
+
+export async function getPartner(db: PartnerDb, partnerId: string): Promise<PartnerRow | null> {
+  const [row] = (await db.select().from(partners).where(eq(partners.id, partnerId)).limit(1)) as PartnerRow[];
+  return row ?? null;
+}
+
+/** The partner that owns a country, or null when the country is open for direct signup. */
+export async function getTerritoryPartner(db: PartnerDb, country: string | null | undefined): Promise<PartnerRow | null> {
+  if (!country || !/^[A-Za-z]{2}$/.test(country)) return null;
+  const [row] = (await db
+    .select({ partner: partners })
+    .from(partnerTerritories)
+    .innerJoin(partners, eq(partners.id, partnerTerritories.partnerId))
+    .where(eq(partnerTerritories.countryCode, country.toUpperCase()))
+    .limit(1)) as Array<{ partner: PartnerRow }>;
+  return row?.partner ?? null;
+}
+
+/** Every territory country with its partner's public info (marketing site). */
+export async function listTerritories(db: PartnerDb): Promise<Array<{ country: string; partner: PartnerPublicInfo }>> {
+  const rows = (await db
+    .select({ country: partnerTerritories.countryCode, partner: partners })
+    .from(partnerTerritories)
+    .innerJoin(partners, eq(partners.id, partnerTerritories.partnerId))) as Array<{ country: string; partner: PartnerRow }>;
+  return rows
+    .map((r) => ({ country: r.country, partner: partnerPublicInfo(r.partner) }))
+    .sort((a, b) => a.country.localeCompare(b.country));
+}
+
+/** Replace a partner's territory list. Countries owned by another partner are refused. */
+export async function setTerritories(db: PartnerDb, partnerId: string, countries: readonly string[]): Promise<void> {
+  const wanted = [...new Set(countries.map((c) => c.toUpperCase()))];
+  if (wanted.length > 0) {
+    const taken = (await db
+      .select({ country: partnerTerritories.countryCode, partnerId: partnerTerritories.partnerId })
+      .from(partnerTerritories)
+      .where(inArray(partnerTerritories.countryCode, wanted))) as Array<{ country: string; partnerId: string }>;
+    const conflicts = taken.filter((t) => t.partnerId !== partnerId).map((t) => t.country);
+    if (conflicts.length > 0) {
+      throw new TerritoryConflictError(conflicts);
+    }
+  }
+  await db.delete(partnerTerritories).where(eq(partnerTerritories.partnerId, partnerId));
+  if (wanted.length > 0) {
+    await db.insert(partnerTerritories).values(wanted.map((countryCode) => ({ countryCode, partnerId })));
+  }
+}
+
+export class TerritoryConflictError extends Error {
+  constructor(public readonly countries: string[]) {
+    super(`Already assigned to another partner: ${countries.join(', ')}`);
+    this.name = 'TerritoryConflictError';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Membership
+// ---------------------------------------------------------------------------
+
+export interface ResolvedPartnerMember {
+  partner: PartnerRow;
+  memberId: string;
+  role: PartnerMemberRole;
+}
+
+/**
+ * The partners a user belongs to. Invitations are by email: a pending row for
+ * one of the user's verified emails is claimed (userId set) on first use.
+ */
+export async function listPartnerMemberships(
+  db: PartnerDb,
+  user: { id: string; emails: readonly string[] },
+): Promise<ResolvedPartnerMember[]> {
+  const emails = [...new Set(user.emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  if (emails.length > 0) {
+    await db
+      .update(partnerMembers)
+      .set({ userId: user.id, acceptedAt: new Date(), updatedAt: new Date() })
+      .where(and(isNull(partnerMembers.userId), inArray(partnerMembers.email, emails)));
+  }
+  const rows = (await db
+    .select({ member: partnerMembers, partner: partners })
+    .from(partnerMembers)
+    .innerJoin(partners, eq(partners.id, partnerMembers.partnerId))
+    .where(eq(partnerMembers.userId, user.id))) as Array<{
+    member: typeof partnerMembers.$inferSelect;
+    partner: PartnerRow;
+  }>;
+  return rows.map((r) => ({ partner: r.partner, memberId: r.member.id, role: r.member.role }));
+}
+
+export function memberCan(member: Pick<ResolvedPartnerMember, 'role'>, permission: PartnerPermission): boolean {
+  return partnerRoleCan(member.role, permission);
+}
+
+export async function inviteMember(
+  db: PartnerDb,
+  input: { partnerId: string; email: string; role: PartnerMemberRole; invitedBy: string | null },
+) {
+  const email = input.email.trim().toLowerCase();
+  const [row] = await db
+    .insert(partnerMembers)
+    .values({ id: generateId('ptm'), partnerId: input.partnerId, email, role: input.role, invitedBy: input.invitedBy })
+    .onConflictDoUpdate({
+      target: [partnerMembers.partnerId, partnerMembers.email],
+      set: { role: input.role, updatedAt: new Date() },
+    })
+    .returning();
+  return row as typeof partnerMembers.$inferSelect;
+}
+
+// ---------------------------------------------------------------------------
+// Managed workspaces
+// ---------------------------------------------------------------------------
+
+/** A workspace of this partner, or null (also when it belongs to another partner). */
+export async function getPartnerWorkspace(db: PartnerDb, partnerId: string, workspaceId: string) {
+  const [row] = (await db
+    .select()
+    .from(workspaces)
+    .where(and(eq(workspaces.id, workspaceId), eq(workspaces.partnerId, partnerId)))
+    .limit(1)) as Array<typeof workspaces.$inferSelect>;
+  return row ?? null;
+}
+
+/** Active members per workspace, from master memberships (no tenant connections). */
+export async function countActiveMembers(db: PartnerDb, workspaceIds: readonly string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (workspaceIds.length === 0) return out;
+  const rows = (await db
+    .select({ workspaceId: userWorkspaces.workspaceId, count: sql<number>`count(*)::int` })
+    .from(userWorkspaces)
+    .where(and(inArray(userWorkspaces.workspaceId, [...workspaceIds]), eq(userWorkspaces.status, 'ACTIVE')))
+    .groupBy(userWorkspaces.workspaceId)) as Array<{ workspaceId: string; count: number }>;
+  for (const r of rows) out.set(r.workspaceId, Number(r.count));
+  return out;
+}
+
+/** Highest daily snapshot per workspace in [from, to). */
+export async function peakSeats(
+  db: PartnerDb,
+  workspaceIds: readonly string[],
+  from: Date,
+  to: Date,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (workspaceIds.length === 0) return out;
+  const rows = (await db
+    .select({ workspaceId: workspaceSeatSnapshots.workspaceId, peak: sql<number>`max(${workspaceSeatSnapshots.activeMembers})::int` })
+    .from(workspaceSeatSnapshots)
+    .where(
+      and(
+        inArray(workspaceSeatSnapshots.workspaceId, [...workspaceIds]),
+        gte(workspaceSeatSnapshots.date, from.toISOString().slice(0, 10)),
+        lt(workspaceSeatSnapshots.date, to.toISOString().slice(0, 10)),
+      ),
+    )
+    .groupBy(workspaceSeatSnapshots.workspaceId)) as Array<{ workspaceId: string; peak: number }>;
+  for (const r of rows) out.set(r.workspaceId, Number(r.peak));
+  return out;
+}
+
+/** Record today's member count for every licensed workspace (idempotent per day). */
+export async function snapshotSeats(db: PartnerDb, now: Date = new Date()): Promise<{ workspaces: number }> {
+  const licensed = (await db
+    .select({ workspaceId: workspaceLicences.workspaceId })
+    .from(workspaceLicences)
+    .where(inArray(workspaceLicences.status, ['active', 'suspended']))) as Array<{ workspaceId: string }>;
+  const ids = licensed.map((l) => l.workspaceId);
+  const counts = await countActiveMembers(db, ids);
+  const date = now.toISOString().slice(0, 10);
+  for (const workspaceId of ids) {
+    const activeMembers = counts.get(workspaceId) ?? 0;
+    await db
+      .insert(workspaceSeatSnapshots)
+      .values({ id: generateId('wss'), workspaceId, date, activeMembers })
+      .onConflictDoUpdate({
+        target: [workspaceSeatSnapshots.workspaceId, workspaceSeatSnapshots.date],
+        // Keep the day's peak: a sweep re-run later the same day never lowers it.
+        set: { activeMembers: sql`greatest(${workspaceSeatSnapshots.activeMembers}, ${activeMembers})` },
+      });
+  }
+  return { workspaces: ids.length };
+}
+
+// ---------------------------------------------------------------------------
+// Extra credits
+// ---------------------------------------------------------------------------
+
+/** `pcg_` + 24 hex of SHA-256(partner, workspace, key): one billing row per idempotency key. */
+async function extraGrantId(partnerId: string, workspaceId: string, idempotencyKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${partnerId}\n${workspaceId}\n${idempotencyKey}`));
+  const hex = Array.from(new Uint8Array(digest).slice(0, 12), (b) => b.toString(16).padStart(2, '0')).join('');
+  return `pcg_${hex}`;
+}
+
+/**
+ * Grant extra credits to a partner workspace now; billed on this month's
+ * statement at the contract's `extraCreditPrice`.
+ *
+ * The billing row (`partner_credit_grants`, what the statement sums) is written
+ * FIRST under an id derived from the idempotency key, then the wallet is
+ * credited, then the row is linked to the ledger transaction. A crash between
+ * the steps can therefore only leave a row without credits (a retry with the
+ * same key grants them and links the row) and never credits without a row. A
+ * retried request repairs whichever half is missing and bills exactly once,
+ * because the derived id makes a second row for the same key impossible. A
+ * wallet failure removes the row again, best effort, so a request that is
+ * never retried is not billed.
+ */
+export async function grantPartnerExtraCredits(input: {
+  db: PartnerDb;
+  partnerId: string;
+  workspaceId: string;
+  credits: number;
+  grantedBy: string | null;
+  note?: string;
+  idempotencyKey: string;
+}): Promise<{ grantId: string; newBalance: number; amount: string; duplicate: boolean }> {
+  const { db, partnerId, workspaceId, credits } = input;
+  const contract = await getActiveContract(db, partnerId);
+  if (!contract) throw new LicenceError('NO_CONTRACT', 'This partner has no contract in force');
+  const amountCents = creditsToCents(credits, contract.extraCreditPrice);
+  const grantId = await extraGrantId(partnerId, workspaceId, input.idempotencyKey);
+
+  const inserted = (await db
+    .insert(partnerCreditGrants)
+    .values({
+      id: grantId,
+      partnerId,
+      workspaceId,
+      credits,
+      unitPrice: contract.extraCreditPrice,
+      amount: fromCents(amountCents),
+      creditTransactionId: null,
+      grantedBy: input.grantedBy,
+    })
+    .onConflictDoNothing({ target: partnerCreditGrants.id })
+    .returning({ id: partnerCreditGrants.id })) as Array<{ id: string }>;
+
+  let result: Awaited<ReturnType<typeof grantCredits>>;
+  try {
+    result = await grantCredits(db, {
+      workspaceId,
+      amount: credits,
+      type: 'purchase',
+      idempotencyKey: `partner_extra:${input.idempotencyKey}`,
+      description: `Extra credits from partner: +${credits}`,
+      metadata: { reason: 'partner_extra_credits', partnerId, note: input.note },
+      userId: input.grantedBy ?? undefined,
+    });
+  } catch (err) {
+    if (inserted.length > 0) {
+      await db
+        .delete(partnerCreditGrants)
+        .where(and(eq(partnerCreditGrants.id, grantId), isNull(partnerCreditGrants.creditTransactionId)))
+        .catch(() => undefined);
+    }
+    throw err;
+  }
+
+  // Link (or re-link, after a retry) the billing row to the ledger transaction.
+  await db
+    .update(partnerCreditGrants)
+    .set({ creditTransactionId: result.transactionId })
+    .where(and(eq(partnerCreditGrants.id, grantId), isNull(partnerCreditGrants.creditTransactionId)));
+
+  const [row] = (await db
+    .select({ amount: partnerCreditGrants.amount })
+    .from(partnerCreditGrants)
+    .where(eq(partnerCreditGrants.id, grantId))
+    .limit(1)) as Array<{ amount: string }>;
+  return { grantId, newBalance: result.newBalance, amount: row?.amount ?? fromCents(amountCents), duplicate: result.duplicate };
+}
+
+/** Extra-credit charges per workspace in [from, to), in cents. */
+export async function extraCreditCents(
+  db: PartnerDb,
+  partnerId: string,
+  from: Date,
+  to: Date,
+): Promise<Map<string, number>> {
+  const rows = (await db
+    .select({ workspaceId: partnerCreditGrants.workspaceId, amount: partnerCreditGrants.amount })
+    .from(partnerCreditGrants)
+    .where(
+      and(
+        eq(partnerCreditGrants.partnerId, partnerId),
+        gte(partnerCreditGrants.createdAt, from),
+        lt(partnerCreditGrants.createdAt, to),
+      ),
+    )
+    .orderBy(desc(partnerCreditGrants.createdAt))) as Array<{ workspaceId: string; amount: string }>;
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const [whole, frac = ''] = String(r.amount).split('.');
+    const cents = Number(whole) * 100 + Number(frac.padEnd(2, '0').slice(0, 2));
+    out.set(r.workspaceId, (out.get(r.workspaceId) ?? 0) + cents);
+  }
+  return out;
+}
+
+/** Set a partner's payment status (dunning sweep, staff override, payment). */
+export async function setPartnerStatus(db: PartnerDb, partnerId: string, status: PartnerStatus): Promise<boolean> {
+  const updated = (await db
+    .update(partners)
+    .set({ status, statusChangedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(partners.id, partnerId), sql`${partners.status} <> ${status}`))
+    .returning({ id: partners.id })) as Array<{ id: string }>;
+  return updated.length > 0;
+}
+
+/** Clerk org ids of every workspace of a partner (for cache invalidation). */
+export async function partnerWorkspaceOrgIds(db: PartnerDb, partnerId: string): Promise<string[]> {
+  const rows = (await db
+    .select({ clerkOrgId: workspaces.clerkOrgId })
+    .from(workspaces)
+    .where(eq(workspaces.partnerId, partnerId))) as Array<{ clerkOrgId: string | null }>;
+  return rows.map((r) => r.clerkOrgId).filter((v): v is string => Boolean(v));
+}
+
+/** The workspaces of a partner as cache keys: master id (external-api) and Clerk org id (the rest). */
+export async function partnerWorkspaceCacheKeys(
+  db: PartnerDb,
+  partnerId: string,
+): Promise<Array<{ workspaceId: string; clerkOrgId: string | null }>> {
+  return (await db
+    .select({ workspaceId: workspaces.id, clerkOrgId: workspaces.clerkOrgId })
+    .from(workspaces)
+    .where(eq(workspaces.partnerId, partnerId))) as Array<{ workspaceId: string; clerkOrgId: string | null }>;
+}
+
+type KvDeleter = { delete(key: string): Promise<void> };
+
+/**
+ * Drop every cached copy of a workspace's licence and partner-status state, so
+ * a licence or partner-status change is enforced now instead of after the KV
+ * TTL (300 s). Three caches hold it:
+ *
+ * - worker-kit (every module worker, app-api): `ws:<clerkOrgId>` in
+ *   `WORKSPACE_CACHE` (`kv`, the first argument);
+ * - external-api: `ws:<master workspaceId>` in `API_CACHE` (middleware/auth.ts
+ *   `getWorkspaceDetails`);
+ * - mcp-server: `mcp:org:<clerkOrgId>` in `API_CACHE` (middleware/auth.ts
+ *   `getWorkspaceForOrg`). external-api and mcp-server share the `API_CACHE`
+ *   namespace, so one `apiCache` handle covers both.
+ *
+ * A missing handle skips that cache (it then expires on its own TTL), so a
+ * caller without the `API_CACHE` binding degrades to the old behaviour.
+ */
+export async function invalidateWorkspaceContexts(
+  kv: KvDeleter | undefined,
+  clerkOrgIds: readonly (string | null | undefined)[],
+  extra: { apiCache?: KvDeleter; workspaceIds?: readonly (string | null | undefined)[] } = {},
+): Promise<void> {
+  const orgIds = clerkOrgIds.filter((id): id is string => Boolean(id));
+  const workspaceIds = (extra.workspaceIds ?? []).filter((id): id is string => Boolean(id));
+  const quiet = (p: Promise<void>) => p.catch(() => undefined);
+  const deletes: Array<Promise<void>> = [];
+  if (kv) for (const id of orgIds) deletes.push(quiet(kv.delete(`ws:${id}`)));
+  if (extra.apiCache) {
+    for (const id of workspaceIds) deletes.push(quiet(extra.apiCache.delete(`ws:${id}`)));
+    for (const id of orgIds) deletes.push(quiet(extra.apiCache.delete(`mcp:org:${id}`)));
+  }
+  await Promise.all(deletes);
+}

@@ -101,7 +101,10 @@ export const projectsTools: ToolDefinition[] = [
       search: z.string().optional().describe('Search text (matches title, description)'),
       projectId: z.string().optional().describe('Filter by project ID'),
       assigneeId: z.string().optional().describe('Filter by assignee user ID'),
-      status: z.string().optional().describe('Filter by status'),
+      status: z
+        .string()
+        .optional()
+        .describe('Filter by status: backlog, todo, in_progress, review, testing, done or cancelled'),
       priority: z.string().optional().describe('Filter by priority'),
       type: z.string().optional().describe('Filter by task type'),
       sprintId: z.string().optional().describe('Filter by sprint ID'),
