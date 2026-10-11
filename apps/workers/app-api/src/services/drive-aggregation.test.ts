@@ -9,7 +9,8 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 
-import { aggregateAllFiles, aggregateStats } from './drive-aggregation';
+import { aggregateAllFiles, aggregateStats, normalizeGenericFiles } from './drive-aggregation';
+import { isPlatformRoute } from '../test/platform-routes';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -124,5 +125,78 @@ describe('aggregateStats · mail counter', () => {
     const member = await aggregateStats(db, MEMBER);
     const assignee = await aggregateStats(db, ASSIGNEE);
     expect(assignee.totalFiles - member.totalFiles).toBe(1);
+  });
+});
+
+describe('normalizeGenericFiles · navigateTo', () => {
+  function navigateTo(
+    entityType: string,
+    entityId: string,
+    extra: { fileType?: string; metadata?: Record<string, unknown> } = {},
+  ): string | null {
+    const [file] = normalizeGenericFiles([
+      {
+        id: 'file_1',
+        fileName: 'contract.pdf',
+        fileType: extra.fileType ?? 'pdf',
+        entityType,
+        entityId,
+        metadata: extra.metadata ?? null,
+        createdAt: new Date(),
+        updatedAt: null,
+      } as unknown as typeof schema.files.$inferSelect,
+    ]);
+    return file!.navigateTo;
+  }
+
+  // CRM records have no detail routes; they open as object panels.
+  it('opens a CRM company file in the company panel', () => {
+    expect(navigateTo('crm_customer', 'cmp_acme')).toBe('/weldcrm/companies?stack=company:cmp_acme');
+  });
+
+  it('opens a CRM person file in the person panel', () => {
+    expect(navigateTo('crm_contact', 'per_jane')).toBe('/weldcrm/people?stack=person:per_jane');
+  });
+
+  // Tickets have no route; `/welddesk/tickets/*` fell through to the inbox.
+  it('opens a ticket file in the ticket sheet over the inbox', () => {
+    expect(navigateTo('helpdesk_ticket', 'tkt_1')).toBe('/welddesk/inbox?entity=ticket:tkt_1');
+  });
+
+  // `/weldmail/inbox/:id` matched `/weldmail/$accountId/$labelSlug` instead.
+  it('opens a mail attachment in the unified mailbox', () => {
+    expect(navigateTo('mail_message', 'msg_1')).toBe('/weldmail/unified/inbox/msg_1');
+  });
+
+  it('opens a social post file in WeldSocial', () => {
+    expect(navigateTo('social_post', 'post_1')).toBe('/social');
+  });
+
+  it('opens a project sheet in the sheet editor, other project files in Files', () => {
+    expect(navigateTo('project', 'prj_1', { fileType: 'spreadsheet' })).toBe(
+      '/weldflow/project/prj_1/table/file_1',
+    );
+    expect(navigateTo('project', 'prj_1')).toBe('/weldflow/project/prj_1/files');
+  });
+
+  it('opens a project document file in its project documents', () => {
+    expect(navigateTo('project_document', 'doc_1', { metadata: { projectId: 'prj_1' } })).toBe(
+      '/weldflow/project/prj_1/documents',
+    );
+  });
+
+  it.each([
+    ['crm_customer', {}],
+    ['crm_contact', {}],
+    ['helpdesk_ticket', {}],
+    ['mail_message', {}],
+    ['social_post', {}],
+    ['project', { fileType: 'spreadsheet' }],
+    ['project', {}],
+    ['project_document', { metadata: { projectId: 'prj_1' } }],
+  ] as const)('links a %s file to a route the platform has', (entityType, extra) => {
+    const url = navigateTo(entityType, 'x_1', extra);
+    expect(url).not.toBeNull();
+    expect(isPlatformRoute(url!)).toBe(true);
   });
 });

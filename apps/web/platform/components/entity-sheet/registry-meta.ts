@@ -42,23 +42,22 @@ export function hasEntitySheetRenderer(
 /**
  * Full-page URL for an entity, or `null` when the entity has no standalone
  * page and is viewed exclusively through its entity-sheet panel. `lead` and
- * `opportunity` lost their `/weldcrm/*` detail routes — callers must treat a
- * `null` result as "no full page; stay in the sheet."
+ * `opportunity` lost their `/weldcrm/*` detail routes, and helpdesk tickets
+ * never had a live one — callers must treat a `null` result as "no full page;
+ * stay in the sheet."
  */
 export function pageHrefForEntity(type: EntitySheetType, id: string): string | null {
   switch (type) {
-    case 'ticket':
-      return `/welddesk/tickets/${id}`;
     case 'article':
-      return `/welddesk/articles/${id}`;
+      return `/welddesk/help-center/articles/${id}`;
     case 'invoice':
       return `/weldbooks/invoices/${id}`;
     case 'bill':
       return `/weldbooks/bills/${id}`;
     case 'project':
-      return `/weldflow/projects/${id}`;
+      return `/weldflow/project/${id}`;
     case 'task':
-      return `/weldflow/tasks/${id}`;
+      return `/weldflow/task/${id}`;
     case 'domain':
       return `/weldhost/domains/${id}`;
     default:

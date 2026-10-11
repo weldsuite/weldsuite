@@ -18,11 +18,9 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { listAccessibleAccountIds } from '@weldsuite/mail-domain/access';
+import { listMemberAppCodes } from '../../services/member-apps';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-/** The apps an EMPLOYEE member can open, whatever their assignments say. */
-const EMPLOYEE_MEMBER_APPS = ['weldhr', 'weldchat'];
 
 // ============================================================================
 // GET /chart — orders + tickets + revenue over the last 30 days
@@ -83,72 +81,7 @@ app.get('/chart', async (c) => {
 
 app.get('/installed-apps', async (c) => {
   try {
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const { workspaceInstalledApps, workspaceMembers, userAppAssignments } = schema;
-
-    const apps = await db
-      .select({ appCode: workspaceInstalledApps.appCode })
-      .from(workspaceInstalledApps)
-      .where(and(eq(workspaceInstalledApps.isActive, true), isNull(workspaceInstalledApps.deletedAt)));
-
-    const allAppCodes = apps.map((a) => a.appCode);
-
-    const memberResult = await db
-      .select({ role: workspaceMembers.role, roleId: workspaceMembers.roleId, memberType: workspaceMembers.memberType })
-      .from(workspaceMembers)
-      .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)))
-      .limit(1);
-
-    const role = memberResult[0]?.role?.toUpperCase();
-
-    if (role === 'OWNER' || role === 'ADMIN') {
-      return success(c, allAppCodes);
-    }
-
-    // EMPLOYEE members have a fixed set of apps, like their fixed permissions
-    // (EMPLOYEE_MEMBER_PERMISSIONS): My HR in WeldHR, and WeldChat.
-    if (memberResult[0]?.memberType === 'EMPLOYEE') {
-      return success(c, allAppCodes.filter((code) => EMPLOYEE_MEMBER_APPS.includes(code)));
-    }
-
-    if (allAppCodes.length === 0) {
-      return success(c, []);
-    }
-
-    // A member's effective apps = the workspace's installed apps intersected
-    // with (apps granted by their role) ∪ (per-user app assignments). Role
-    // apps are derived live — editing a role's apps instantly changes what its
-    // members can open, with no per-user writes.
-    const effective = new Set<string>();
-
-    const roleId = memberResult[0]?.roleId ?? null;
-    if (roleId) {
-      const { roles } = schema;
-      const [roleRow] = await db
-        .select({ apps: roles.apps })
-        .from(roles)
-        .where(and(eq(roles.id, roleId), isNull(roles.deletedAt)))
-        .limit(1);
-      const installed = new Set(allAppCodes);
-      for (const code of ((roleRow?.apps as string[]) || [])) {
-        if (installed.has(code)) effective.add(code);
-      }
-    }
-
-    const assignments = await db
-      .select({ appCode: userAppAssignments.appCode })
-      .from(userAppAssignments)
-      .where(
-        and(
-          eq(userAppAssignments.userId, userId),
-          eq(userAppAssignments.isActive, true),
-          inArray(userAppAssignments.appCode, allAppCodes),
-        ),
-      );
-    for (const a of assignments) effective.add(a.appCode);
-
-    return success(c, Array.from(effective));
+    return success(c, await listMemberAppCodes(c.get('tenantDb'), c.get('userId')));
   } catch (err) {
     console.error('[app-api/dashboard] installed-apps failed:', err);
     return success(c, ['welddesk', 'weldcrm', 'weldstash', 'weldmail', 'parcel', 'weldflow']);
