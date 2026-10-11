@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from '@/lib/router';
+import { usePathname, useRouter, useSearchParams } from '@/lib/router';
 import type { GridSortConfig } from './types';
 
 /**
@@ -63,6 +63,7 @@ export function writeStoredGridSort(gridName: string, sort: GridSortConfig): voi
 export function usePersistedGridSort(gridName: string): PersistedGridSort {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
   const urlSort = searchParams.get('sort') || undefined;
   const urlDirection = parseDirection(searchParams.get('sortDir'));
 
@@ -81,7 +82,9 @@ export function usePersistedGridSort(gridName: string): PersistedGridSort {
     const params = new URLSearchParams(searchParams.toString());
     params.set('sort', restored.sort);
     if (restored.sortDir) params.set('sortDir', restored.sortDir);
-    router.replace(`?${params.toString()}`);
+    // With the path: a bare `?sort=...` is resolved as a path segment when this
+    // runs on first load, which lands on a broken URL.
+    router.replace(`${pathname}?${params.toString()}`);
     // `searchParams` is read for its current content only; the restore runs once
     // per `restored` value.
     // eslint-disable-next-line react-hooks/exhaustive-deps

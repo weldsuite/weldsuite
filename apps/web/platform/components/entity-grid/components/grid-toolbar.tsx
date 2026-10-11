@@ -23,6 +23,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import {
@@ -141,85 +144,58 @@ export function GridToolbar({
             : "max-w-full opacity-100 flex-shrink-0 md:flex-shrink",
         )}>
           {/* Sort */}
-          <Popover>
-            <PopoverTrigger asChild>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-8 text-sm px-3 shadow-none text-muted-foreground">
                 {t('sweep.entities.sort')}
                 {sortConfig.field && (
                   <span className="text-[11px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border w-[18px] h-[18px] flex items-center justify-center rounded-[5px]">1</span>
                 )}
               </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-64 p-0 ">
-              <Command>
-                <CommandInput placeholder={t('sweep.entities.searchColumnsPlaceholder')} />
-                <CommandList className="max-h-[400px] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-gray-700 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
-                  <CommandGroup heading={t('sweep.entities.sortByHeading')}>
-                    {sortableColumns.map((column) => (
-                      <div
-                        key={column.id}
-                        className="group relative flex items-center justify-between px-2 py-1.5 text-sm rounded-sm hover:bg-accent  cursor-default"
-                      >
-                        <div className="flex items-center gap-2">
-                          {column.icon && React.createElement(column.icon, { className: 'h-4 w-4 text-muted-foreground' })}
-                          <span>{column.name}</span>
-                        </div>
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSort(column.id, 'asc');
-                            }}
-                            className={cn(
-                              'p-1 rounded-md transition-colors',
-                              sortConfig.field === column.id && sortConfig.direction === 'asc'
-                                ? 'bg-muted'
-                                : 'opacity-0 group-hover:opacity-100 hover:bg-muted'
-                            )}
-                          >
-                            <ArrowUp className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSort(column.id, 'desc');
-                            }}
-                            className={cn(
-                              'p-1 rounded-md transition-colors',
-                              sortConfig.field === column.id && sortConfig.direction === 'desc'
-                                ? 'bg-muted'
-                                : 'opacity-0 group-hover:opacity-100 hover:bg-muted'
-                            )}
-                          >
-                            <ArrowDown className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </CommandGroup>
-                  {sortConfig.field && (
-                    <>
-                      <div className="h-px bg-border mx-1" />
-                      <div className="p-1">
-                        <CommandItem
-                          onSelect={() => {
-                            clearSort();
-                            toast.success(t('sweep.entities.sortCleared'));
-                          }}
-                          className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 data-[selected=true]:bg-red-50 dark:data-[selected=true]:bg-red-950 data-[selected=true]:text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4 text-red-600" />
-                          {t('sweep.entities.clearSort')}
-                        </CommandItem>
-                      </div>
-                    </>
-                  )}
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/10 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
+              {sortableColumns.map((column) => {
+                const activeDirection = sortConfig.field === column.id ? sortConfig.direction : null;
+                return (
+                  <DropdownMenuSub key={column.id}>
+                    <DropdownMenuSubTrigger className="gap-2">
+                      {column.icon && React.createElement(column.icon, { className: 'h-4 w-4' })}
+                      <span>{column.name}</span>
+                      {activeDirection === 'asc' && <ArrowUp className="h-4 w-4 text-muted-foreground" />}
+                      {activeDirection === 'desc' && <ArrowDown className="h-4 w-4 text-muted-foreground" />}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => handleSort(column.id, 'asc')}>
+                        <ArrowUp className="h-4 w-4" />
+                        <span>{t('sweep.entities.sortAscending')}</span>
+                        {activeDirection === 'asc' && <Check className="ml-auto h-4 w-4" />}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleSort(column.id, 'desc')}>
+                        <ArrowDown className="h-4 w-4" />
+                        <span>{t('sweep.entities.sortDescending')}</span>
+                        {activeDirection === 'desc' && <Check className="ml-auto h-4 w-4" />}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                );
+              })}
+              {sortConfig.field && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      clearSort();
+                      toast.success(t('sweep.entities.sortCleared'));
+                    }}
+                    className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
+                  >
+                    <Trash2 className="h-4 w-4 text-red-600" />
+                    {t('sweep.entities.clearSort')}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* Filter pills */}
           {!hideFilter && (
@@ -308,23 +284,23 @@ export function GridToolbar({
                   <FileSpreadsheet className="h-4 w-4 @min-[761px]:hidden" aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 ">
+              <DropdownMenuContent align="end" className="w-56">
                 {onExportCSV && (
-                  <DropdownMenuItem onClick={handleExportCSV} disabled={isExporting} className="">
-                    <Download className="h-4 w-4 mr-2" />
+                  <DropdownMenuItem onClick={handleExportCSV} disabled={isExporting}>
+                    <Download className="h-4 w-4" />
                     {isExporting ? t('sweep.entities.exportingEllipsis') : t('sweep.entities.exportViewAsCsv')}
                   </DropdownMenuItem>
                 )}
                 {onExportExcel && (
-                  <DropdownMenuItem onClick={handleExportExcel} disabled={isExporting} className="">
-                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                  <DropdownMenuItem onClick={handleExportExcel} disabled={isExporting}>
+                    <FileSpreadsheet className="h-4 w-4" />
                     {isExporting ? t('sweep.entities.exportingEllipsis') : t('sweep.entities.exportViewAsExcel')}
                   </DropdownMenuItem>
                 )}
                 {(onExportCSV || onExportExcel) && onImport && <DropdownMenuSeparator />}
                 {onImport && (
-                  <DropdownMenuItem onClick={onImport} className="">
-                    <Upload className="h-4 w-4 mr-2" />
+                  <DropdownMenuItem onClick={onImport}>
+                    <Upload className="h-4 w-4" />
                     {t('sweep.entities.importCsvExcel')}
                   </DropdownMenuItem>
                 )}
@@ -656,25 +632,26 @@ function GridFilterPills<TEntity>({
       })}
 
       {/* Add filter button */}
-      <Popover open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
-        <PopoverTrigger asChild>
+      <DropdownMenu open={filterMenuOpen} onOpenChange={setFilterMenuOpen}>
+        <DropdownMenuTrigger asChild>
           {filterTrigger}
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-36 p-1 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/10 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent">
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          // Focus moves into the new filter's own popover, not back to the trigger.
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          className="w-56 max-h-[300px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/10 dark:[&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent"
+        >
           {columns
             .filter((col) => !col.isEnrichField)
             .map((col) => (
-              <Button
-                key={col.id}
-                variant="ghost"
-                onClick={() => addFilter(col.id)}
-                className="w-full px-2 py-1.5 text-sm text-left hover:bg-muted rounded"
-              >
-                {col.name}
-              </Button>
+              <DropdownMenuItem key={col.id} onClick={() => addFilter(col.id)}>
+                {col.icon && React.createElement(col.icon, { className: 'h-4 w-4' })}
+                <span>{col.name}</span>
+              </DropdownMenuItem>
             ))}
-        </PopoverContent>
-      </Popover>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
