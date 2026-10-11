@@ -99,7 +99,8 @@ afterEach(() => {
 
 const save = () => screen.getByRole('button', { name: /save changes/i });
 
-describe('ContactForm: tax reporting on a US vendor', () => {
+// These tests type whole TINs and account numbers; under the coverage run in CI that takes longer than 5s.
+describe('ContactForm: tax reporting on a US vendor', { timeout: 20_000 }, () => {
   it('shows the stored TIN masked, never in full, with no input to edit it', () => {
     renderForm();
     expect(screen.getByTestId('tin-value').textContent).toBe('**-***6789');

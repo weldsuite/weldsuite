@@ -63,6 +63,8 @@ interface RecordPaymentDialogProps {
   balanceDue: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** A credit note: the money goes back to the customer (the API books a refund). */
+  refund?: boolean;
 }
 
 export function RecordPaymentDialog({
@@ -70,6 +72,7 @@ export function RecordPaymentDialog({
   balanceDue,
   open,
   onOpenChange,
+  refund = false,
 }: Readonly<RecordPaymentDialogProps>) {
   const recordPayment = useRecordInvoicePaymentWithTarget();
   const { t } = useI18n();
@@ -117,7 +120,7 @@ export function RecordPaymentDialog({
   const methods = paymentMethodsFor(jurisdictionCode, paymentMethod);
   const isCheck = paymentMethod === 'check';
   // A check or cash payment received on a US entity waits in Undeposited Funds, unless it goes straight to a bank account.
-  const showDepositTo = isUs && (paymentMethod === 'check' || paymentMethod === 'cash');
+  const showDepositTo = !refund && isUs && (paymentMethod === 'check' || paymentMethod === 'cash');
 
   const onSubmit = (data: PaymentFormValues) => {
     if (!isPaymentMethod(data.paymentMethod)) return;
@@ -135,11 +138,11 @@ export function RecordPaymentDialog({
       },
       {
         onSuccess: () => {
-          toast.success(tr.recorded);
+          toast.success(refund ? tr.refundRecorded : tr.recorded);
           onOpenChange(false);
         },
         onError: (err) => {
-          toast.error(tr.failed, { description: err instanceof Error ? err.message : undefined });
+          toast.error(refund ? tr.refundFailed : tr.failed, { description: err instanceof Error ? err.message : undefined });
         },
       },
     );
@@ -149,7 +152,7 @@ export function RecordPaymentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{tr.title}</DialogTitle>
+          <DialogTitle>{refund ? tr.refundTitle : tr.title}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
@@ -256,7 +259,7 @@ export function RecordPaymentDialog({
               {tr.cancel}
             </Button>
             <Button type="submit" disabled={recordPayment.isPending}>
-              {recordPayment.isPending ? tr.recording : tr.recordPayment}
+              {recordPayment.isPending ? tr.recording : refund ? tr.refundTitle : tr.recordPayment}
             </Button>
           </DialogFooter>
         </form>

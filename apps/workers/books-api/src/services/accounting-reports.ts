@@ -22,6 +22,7 @@ import {
 } from './accounting-reports-basis';
 import type { DateRange, ReportColumn } from './accounting-report-periods';
 import { roundMoney } from './accounting-posting';
+import { withContactNames } from '../lib/contact-snapshot';
 
 // ---------------------------------------------------------------------------
 // Shared pieces
@@ -86,9 +87,18 @@ async function totalsByColumn(
   return new Map(entries);
 }
 
-function naturalBalance(account: LedgerAccount, totals: { debit: number; credit: number } | undefined): number {
+/**
+ * An account's balance as its balance-sheet section adds it up: assets
+ * debit-positive, liabilities and equity credit-positive. Signed by the
+ * account's type, not its own normal side, so a contra account (input VAT on a
+ * liability, accumulated depreciation on an asset) comes out negative and
+ * reduces its section instead of adding to it.
+ */
+function sectionBalance(account: LedgerAccount, totals: { debit: number; credit: number } | undefined): number {
   if (!totals) return 0;
-  return account.normalSide === 'debit' ? totals.debit - totals.credit : totals.credit - totals.debit;
+  return account.type === 'asset' || account.type === 'expense'
+    ? totals.debit - totals.credit
+    : totals.credit - totals.debit;
 }
 
 function valueSet(columns: ReportColumn[], amounts: Record<string, number>): ValueSet {
@@ -307,7 +317,7 @@ export async function buildBalanceSheet(
     .map((id) => ledger.accounts.get(id))
     .filter((a): a is LedgerAccount => Boolean(a))
     .sort(byCode);
-  const balanceOf = (account: LedgerAccount) => (t: { debit: number; credit: number } | undefined) => naturalBalance(account, t);
+  const balanceOf = (account: LedgerAccount) => (t: { debit: number; credit: number } | undefined) => sectionBalance(account, t);
   const rows = accounts.map((account) => accountRow(account, columns, totals, balanceOf(account)));
 
   const calculated = (
@@ -632,7 +642,7 @@ export async function buildAgedReport(
         ),
       )
       .orderBy(invoices.dueDate);
-    for (const r of rows) {
+    for (const r of await withContactNames(db, rows)) {
       const sign = r.type === 'credit_note' ? -1 : 1;
       const days = diffDays(toDay(r.dueDate), asOf);
       documents.push({
@@ -661,7 +671,7 @@ export async function buildAgedReport(
         ),
       )
       .orderBy(bills.dueDate);
-    for (const r of rows) {
+    for (const r of await withContactNames(db, rows)) {
       const sign = r.type === 'credit_note' ? -1 : 1;
       const days = diffDays(toDay(r.dueDate), asOf);
       documents.push({

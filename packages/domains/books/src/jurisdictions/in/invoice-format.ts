@@ -23,6 +23,7 @@ const enLabels: InvoiceLabels = {
   paymentInstructions: 'Payment instructions',
   vatNumberLabel: 'GSTIN',
   registrationLabel: 'PAN',
+  draftNotice: 'Draft: not a valid tax invoice',
 };
 
 export const IN_NOTICE_REVERSE_CHARGE = 'Tax payable under reverse charge';

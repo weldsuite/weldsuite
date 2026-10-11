@@ -18,6 +18,8 @@ let db: Database;
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
+  // A body-supplied entityId must name an entity of the workspace.
+  await db.insert(schema.entities).values({ id: 'ent_e2e', name: 'E2E Bill Co', jurisdictionCode: 'NL', baseCurrency: 'EUR' });
 }, 60_000);
 
 describe('/api/bills · pglite integration', () => {

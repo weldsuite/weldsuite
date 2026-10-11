@@ -64,6 +64,8 @@ function renderWithClient(ui: React.ReactElement) {
 describe('AccountingLayoutClient', () => {
   beforeEach(() => {
     getMock.mockReset();
+    setEntityIdMirror.mockReset();
+    localStorage.removeItem('weldsuite.currentAccountingEntityId');
   });
 
   it('shows EntityEmptyState when there are no accounting entities', async () => {
@@ -119,6 +121,51 @@ describe('AccountingLayoutClient', () => {
     await waitFor(() => {
       expect(screen.getByTestId('page-content')).toBeInTheDocument();
     });
+  });
+
+  it('replaces a selected entity this workspace does not have with its default entity', async () => {
+    // Left behind by another workspace (one localStorage key for all of them).
+    localStorage.setItem('weldsuite.currentAccountingEntityId', JSON.stringify('ent_other_workspace'));
+    getMock.mockResolvedValue({
+      data: [
+        { id: 'ent_a', isDefault: false },
+        { id: 'ent_b', isDefault: true },
+      ],
+    });
+
+    renderWithClient(
+      <AccountingLayoutClient>
+        <div data-testid="page-content">Dashboard</div>
+      </AccountingLayoutClient>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('page-content')).toBeInTheDocument();
+    });
+    expect(localStorage.getItem('weldsuite.currentAccountingEntityId')).toBe(JSON.stringify('ent_b'));
+    expect(setEntityIdMirror).toHaveBeenCalledWith('ent_b');
+    expect(setEntityIdMirror).not.toHaveBeenLastCalledWith('ent_other_workspace');
+  });
+
+  it('keeps a selected entity that belongs to this workspace', async () => {
+    localStorage.setItem('weldsuite.currentAccountingEntityId', JSON.stringify('ent_a'));
+    getMock.mockResolvedValue({
+      data: [
+        { id: 'ent_a', isDefault: false },
+        { id: 'ent_b', isDefault: true },
+      ],
+    });
+
+    renderWithClient(
+      <AccountingLayoutClient>
+        <div data-testid="page-content">Dashboard</div>
+      </AccountingLayoutClient>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('page-content')).toBeInTheDocument();
+    });
+    expect(localStorage.getItem('weldsuite.currentAccountingEntityId')).toBe(JSON.stringify('ent_a'));
   });
 
   it('keeps cached content when a background refetch fails', async () => {

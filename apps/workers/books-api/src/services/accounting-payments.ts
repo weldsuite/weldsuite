@@ -137,6 +137,8 @@ export interface RecordPaymentResult {
 type DocumentRow = {
   id: string;
   entityId: string;
+  /** Invoices: standard | credit_note | ...; bills: standard. */
+  type: string | null;
   contactId: string;
   currency: string | null;
   exchangeRate: string | null;
@@ -201,17 +203,17 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
   const already = await existingPayment(db, input);
   if (already) return already;
   if (!(input.amount > 0)) throw new PostingError('Payment amount must be greater than zero');
-  const kind: 'invoice' | 'bill' = input.type === 'received' ? 'invoice' : 'bill';
   const withheld = roundMoney(input.backupWithholdingAmount ?? 0);
   if (withheld !== 0 && (input.type !== 'sent' || withheld < 0 || withheld > roundMoney(input.amount))) {
     throw new PostingError('Backup withholding applies to payments to vendors and can not be more than the payment');
   }
 
+  // A received payment settles invoices. A sent one settles bills, or refunds
+  // a customer credit note (an invoice of type credit_note).
   for (const a of input.allocations) {
     if (!(a.amount > 0)) throw new PostingError('Allocation amounts must be greater than zero');
-    const target = kind === 'invoice' ? a.invoiceId : a.billId;
-    const other = kind === 'invoice' ? a.billId : a.invoiceId;
-    if (!target || other) {
+    const valid = input.type === 'received' ? Boolean(a.invoiceId) && !a.billId : Boolean(a.invoiceId) !== Boolean(a.billId);
+    if (!valid) {
       throw new PostingError(
         input.type === 'received'
           ? 'A received payment can only be allocated to invoices'
@@ -220,18 +222,31 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
     }
   }
 
-  const docIds = input.allocations.map((a) => (kind === 'invoice' ? a.invoiceId! : a.billId!));
+  const docIds = input.allocations.map((a) => (a.invoiceId ?? a.billId)!);
   if (new Set(docIds).size !== docIds.length) throw new PostingError('Each document can only be allocated once per payment');
-  const docs = await loadDocuments(db, kind, docIds);
+  const docs = new Map([
+    ...(await loadDocuments(db, 'invoice', input.allocations.filter((a) => a.invoiceId).map((a) => a.invoiceId!))),
+    ...(await loadDocuments(db, 'bill', input.allocations.filter((a) => a.billId).map((a) => a.billId!))),
+  ]);
 
   const allocations: PaymentAllocationInput[] = [];
   let allocatedTotal = 0;
   for (const allocation of input.allocations) {
-    const id = kind === 'invoice' ? allocation.invoiceId! : allocation.billId!;
+    const kind: 'invoice' | 'bill' = allocation.invoiceId ? 'invoice' : 'bill';
+    const id = (allocation.invoiceId ?? allocation.billId)!;
     const doc = docs.get(id);
     if (!doc) throw new PostingError(`${kind === 'invoice' ? 'Invoice' : 'Bill'} ${id} not found`);
     if (doc.entityId !== input.entityId) {
       throw new PostingError(`Linked ${kind} belongs to a different accounting entity`);
+    }
+    const creditNote = kind === 'invoice' && doc.type === 'credit_note';
+    if (input.type === 'received' && creditNote) {
+      throw new PostingError(
+        `${doc.number ?? doc.id} is a credit note: the money goes back to the customer. Record a refund (a payment sent) instead.`,
+      );
+    }
+    if (input.type === 'sent' && kind === 'invoice' && !creditNote) {
+      throw new PostingError('A sent payment can only be allocated to bills or refund a credit note');
     }
     assertPayable(kind, doc);
     const open = Number.parseFloat(doc.balanceDue ?? '0');
@@ -378,7 +393,8 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
 
   for (const a of allocations) {
     const doc = docs.get(a.invoiceId ?? a.billId ?? '');
-    if (doc) {
+    // A refund of a foreign-currency credit note books no FX difference yet.
+    if (doc && !(input.type === 'sent' && a.invoiceId)) {
       await postFxDifference(db, {
         entityId: input.entityId,
         paymentId,

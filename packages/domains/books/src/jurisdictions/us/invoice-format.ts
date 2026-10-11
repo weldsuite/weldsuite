@@ -34,6 +34,7 @@ const enLabels: InvoiceLabels = {
   paymentInstructions: 'Payment instructions',
   vatNumberLabel: 'EIN',
   registrationLabel: 'State tax ID',
+  draftNotice: 'Draft: not a valid invoice',
 };
 
 /** US Letter, 8.5 x 11 inches. PDFs for US entities use it instead of A4. */
