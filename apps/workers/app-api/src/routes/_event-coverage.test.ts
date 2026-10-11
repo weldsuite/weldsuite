@@ -61,6 +61,11 @@ const EXEMPT_ROUTES = new Set<string>([
   'dashboard',
   // credits: master-DB billing ledger; not fanned out over the entity-event bus.
   'credits',
+  // partner: reseller portal (partners, licences, packages, statements, requests,
+  // team) is master-DB commercial data, like credits: not a tenant entity and not
+  // something workflows, analytics or agents should see. Licence changes keep
+  // their own append-only history (workspace_licence_changes, with actor + reason).
+  'partner',
   // (ai-models moved to agent-api with its exemption.)
   // access-requests — personal-topic notify()/publish() path, not a generic entity event.
   'access-requests',

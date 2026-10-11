@@ -37,6 +37,8 @@ import { Billing } from '@/lib/api/types/apps/billing.types';
 import { useChangePlan } from '@/hooks/queries/use-billing-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { EnterpriseContactForm } from '@/components/billing/enterprise-contact-form';
+import { ManagedPricingDialog } from '@/components/partner/managed-pricing-dialog';
+import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
 
 // Monthly email options (values in emails)
 const EMAIL_CREDIT_OPTIONS = [
@@ -792,7 +794,7 @@ function FeatureHighlightBanner({
 }
 
 
-export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans = [], highlightPlan, featureHighlight }: Readonly<PricingDialogProps>) {
+function PricingDialogInner({ open, onOpenChange, onPlanChanged, excludePlans = [], highlightPlan, featureHighlight }: Readonly<PricingDialogProps>) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [allPlans, setAllPlans] = useState<Billing.BillingPlan[]>([]);
   const [subscription, setSubscription] = useState<Billing.Subscription | null>(null);
@@ -1133,4 +1135,17 @@ export function PricingDialog({ open, onOpenChange, onPlanChanged, excludePlans 
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * The plan picker for workspaces billed directly. A partner-managed workspace
+ * has nothing to buy here (its partner bills it), so it gets the partner's
+ * contact details instead and never loads or checks out WeldSuite plans.
+ */
+export function PricingDialog(props: Readonly<PricingDialogProps>) {
+  const { data: managed } = useManagedBilling();
+  if (managed) {
+    return <ManagedPricingDialog open={props.open} onOpenChange={props.onOpenChange} partner={managed.partner} />;
+  }
+  return <PricingDialogInner {...props} />;
 }

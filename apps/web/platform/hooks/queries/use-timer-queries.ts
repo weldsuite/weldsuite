@@ -29,7 +29,7 @@ export class TimerAlreadyRunningError extends Error {
  * The caller's running timer, or `null`. Refetches on window focus so a timer
  * stopped in another tab or on another device doesn't linger here.
  */
-export function useRunningTimer() {
+export function useRunningTimer(enabled = true) {
   return useQuery({
     queryKey: timerKeys.current(),
     queryFn: async () => {
@@ -39,6 +39,7 @@ export function useRunningTimer() {
     },
     refetchOnWindowFocus: true,
     staleTime: 10_000,
+    enabled,
   });
 }
 

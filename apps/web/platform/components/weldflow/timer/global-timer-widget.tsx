@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 import { useDraggablePosition } from '@/hooks/use-draggable-position';
+import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
 import {
   formatElapsed,
   useDiscardTimer,
@@ -30,7 +31,11 @@ const TIMER_CHIP_POSITION_KEY = 'weldflow.timerChip.position';
 
 export function GlobalTimerWidget() {
   const t = useI18n().t.projects;
-  const { data: timer } = useRunningTimer();
+  // Mounted in the shell for every workspace: only ask for a running timer when
+  // WeldFlow is there to have one. A partner licence without WeldFlow would
+  // answer every one of these calls with 403.
+  const flowInstalled = useIsAppInstalled('weldflow');
+  const { data: timer } = useRunningTimer(flowInstalled);
   const stopTimer = useStopTimer();
   const discardTimer = useDiscardTimer();
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);

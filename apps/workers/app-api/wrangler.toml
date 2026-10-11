@@ -374,6 +374,12 @@ app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
+# external-api / mcp-server cache (same namespace as theirs): app-api deletes
+# `ws:<workspaceId>` and `mcp:org:<clerkOrgId>` here on a licence change.
+[[env.test.kv_namespaces]]
+binding = "API_CACHE"
+id = "6ffe3c8ea4e041398d84f9f670e93f88"
+
 [[env.test.d1_databases]]
 binding = "SCHEDULE_INDEX"
 database_name = "weldsuite-schedule-index-test"
@@ -546,6 +552,12 @@ app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
+
+# external-api / mcp-server cache (same namespace as theirs): app-api deletes
+# `ws:<workspaceId>` and `mcp:org:<clerkOrgId>` here on a licence change.
+[[env.production.kv_namespaces]]
+binding = "API_CACHE"
+id = "f27cfb0a77a24936911ebd762adf3410"
 
 [[env.production.d1_databases]]
 binding = "SCHEDULE_INDEX"
