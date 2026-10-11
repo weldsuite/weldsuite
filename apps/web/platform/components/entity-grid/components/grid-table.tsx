@@ -69,6 +69,29 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
   const visibleColumns = getVisibleColumns();
   const showRowNumbers = config.showRowNumbers;
   const isEmpty = filteredEntities.length === 0 && !isFetchingMore && !config.fillViewport;
+
+  // A horizontal scrollbar takes its height out of this container, which lifts
+  // the sticky footer by that much. Publish the height on the grid root so the
+  // selection bar floating above the footer keeps the same gap to it on
+  // systems where scrollbars take up space as on those where they overlay.
+  useEffect(() => {
+    const scroller = tableScrollRef.current;
+    const root = scroller?.parentElement;
+    if (!scroller || !root) return;
+    const publish = () => {
+      root.style.setProperty(
+        '--grid-hscrollbar-height',
+        `${scroller.offsetHeight - scroller.clientHeight}px`,
+      );
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(scroller);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--grid-hscrollbar-height');
+    };
+  }, [isEmpty]);
   const entityNameLower = config.entityName.toLowerCase();
   const entityNamePluralLower = (config.entityNamePlural || `${config.entityName}s`).toLowerCase();
 
@@ -137,7 +160,12 @@ export function GridTable({ onLoadMore, hasMore, isFetchingMore, listName }: Rea
       ref={tableScrollRef}
       className="flex-1 bg-background min-h-0 scroll-smooth md:scroll-auto flex flex-col [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar:horizontal]:h-0 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/30 [&::-webkit-scrollbar-track]:bg-transparent"
       style={{
-        overflowX: 'auto',
+        // `scroll`, not `auto`: where scrollbars take up space, a horizontal
+        // one that only appears once the table overflows (a side panel opens,
+        // a column is added) lifts the sticky footer and everything placed
+        // against it. Always reserving its strip keeps them still, the same
+        // way `scrollbarGutter` does for the vertical scrollbar.
+        overflowX: 'scroll',
         overflowY: 'auto',
         scrollbarGutter: 'stable',
       }}

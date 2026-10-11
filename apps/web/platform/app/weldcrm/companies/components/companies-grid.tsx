@@ -43,6 +43,7 @@ import {
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { logoDomainForCompany, useRowsWithCompanyLogos } from '@/lib/crm/company-logo';
 import { EntityGridSkeleton } from '@/components/entity-grid/components/grid-skeleton';
+import { useCrmBulkActions } from '@/app/weldcrm/components/use-crm-bulk-actions';
 
 interface CompaniesGridProps {
   companies: Company[];
@@ -226,7 +227,11 @@ export function CompaniesGrid({
     [exportMut, exportFilter, customColumns, memberNameById, t],
   );
 
+  const bulk = useCrmBulkActions({ kind: 'company', rows: companies, currentListId: listContext?.listId });
+
   const actions: EntityGridActions<Company> = useMemo(() => ({
+    onAddToList: bulk.onAddToList,
+    onSendEmail: bulk.onSendEmail,
     onUpdateEntity: async (id, updates) => {
       try {
         await updateMut.mutateAsync({ id, data: updates as Parameters<typeof updateMut.mutateAsync>[0]['data'] });
@@ -278,7 +283,7 @@ export function CompaniesGrid({
     onImport: () => setIsImportOpen(true),
     onExportCSV: () => handleExport('csv'),
     onExportExcel: () => handleExport('xlsx'),
-  }), [updateMut, deleteMut, confirmCompanyDelete, openObjectPanel, t, listContext, handleExport]);
+  }), [updateMut, deleteMut, confirmCompanyDelete, openObjectPanel, t, listContext, handleExport, bulk.onAddToList, bulk.onSendEmail]);
 
   const pagination: GridPaginationState = {
     page: 1,
@@ -303,6 +308,7 @@ export function CompaniesGrid({
           hasMore={hasMore}
           isFetchingMore={isFetchingMore}
           toolbarActions={toolbarActions}
+          availableLists={bulk.availableLists}
           listName={listContext?.listName}
           persistSort={!listContext}
         />

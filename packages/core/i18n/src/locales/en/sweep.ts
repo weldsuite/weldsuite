@@ -1869,6 +1869,7 @@ export const sweep = {
     "selectCondition": "Select condition",
     "selectPeople": "Select people",
     "selectedLabel": "selected",
+    "clearSelection": "Clear selection",
     "sendEmail": "Send email",
     "setAddressPlaceholder": "Set address…",
     "setFieldPlaceholder": "Set {label}…",
