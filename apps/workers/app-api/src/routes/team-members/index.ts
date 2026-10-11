@@ -66,6 +66,7 @@ import * as memberAccessService from '../../services/team/member-access';
 import { getWorkspaceSeatLimit, type SeatLimit } from '../../services/seat-limits';
 import { alignClerkCapWithPlan } from '../../services/clerk-seat-cap';
 import { syncClerkSeatLimit } from '../../services/billing';
+import { invitationRedirectUrl } from '../../services/invitation-redirect';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -639,6 +640,7 @@ async function createClerkInvitation(
     body: JSON.stringify({
       email_address: email,
       role: clerkRole,
+      redirect_url: invitationRedirectUrl(env, orgId),
       ...(isGuest ? { public_metadata: { member_type: 'EXTERNAL_GUEST' } } : {}),
     }),
   });
@@ -1020,7 +1022,11 @@ app.post('/:id/resend-invite', requirePermission('team:update'), async (c) => {
     {
       method: 'POST',
       headers,
-      body: JSON.stringify({ email_address: member.email, role: clerkRole }),
+      body: JSON.stringify({
+        email_address: member.email,
+        role: clerkRole,
+        redirect_url: invitationRedirectUrl(c.env, orgId),
+      }),
     },
   );
 
