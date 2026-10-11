@@ -50,6 +50,18 @@
       "port": 3000
     },
     {
+      "name": "platform-3202",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "platform",
+        "dev",
+        "--port",
+        "3202"
+      ],
+      "port": 3202
+    },
+    {
       "name": "docs",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

@@ -1930,6 +1930,13 @@ export const crm = {
       nameTooLong: 'Naam mag maximaal {max} tekens bevatten',
     },
 
+    bulkActions: {
+      addedToList: '{count} toegevoegd aan {listName}',
+      alreadyInList: 'Staat al in {listName}',
+      noEmailAddresses: 'Geen van de geselecteerde records heeft een e-mailadres',
+      skippedWithoutEmail: '{count} zonder e-mailadres overgeslagen',
+    },
+
     companiesGrid: {
       updateFailed: 'Bijwerken mislukt',
       deleteFailed: 'Verwijderen mislukt',

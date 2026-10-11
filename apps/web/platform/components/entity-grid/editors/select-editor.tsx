@@ -71,11 +71,16 @@ export function SelectEditor({
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <Button variant="ghost" className="text-left w-full flex items-center justify-start px-0 hover:opacity-80 transition-opacity">
+        {/* Spans the whole cell: the cell is rendered flush and hands its
+            padding down as `--grid-cell-padding`. */}
+        <Button
+          variant="ghost"
+          className="text-left w-full h-full flex items-center justify-start rounded-none p-[var(--grid-cell-padding,0)] hover:opacity-80 transition-opacity focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        >
           {renderValue()}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-48 p-0" align="start" sideOffset={9} alignOffset={-12} collisionPadding={12}>
+      <PopoverContent className="w-48 p-0" align="start" sideOffset={7} collisionPadding={12}>
         <Command>
           <CommandInput placeholder={t('sweep.entities.searchEllipsisPlaceholder')} />
           <CommandList>

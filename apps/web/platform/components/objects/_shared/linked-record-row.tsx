@@ -38,6 +38,33 @@ export function linkedRecordHeaderColumns(labels: {
   ];
 }
 
+const STATUS_TONE = {
+  blue: 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-400',
+  green: 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400',
+  amber: 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400',
+  gray: 'bg-gray-100 dark:bg-secondary text-gray-600 dark:text-muted-foreground',
+};
+
+/**
+ * A label for the status column: the same 22px tinted chip as a status in the
+ * grids and the task rows.
+ */
+export function LinkedRecordStatus({
+  tone,
+  children,
+}: Readonly<{ tone: keyof typeof STATUS_TONE; children: ReactNode }>) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center h-[22px] px-2 rounded text-[12px] font-medium leading-none flex-shrink-0',
+        STATUS_TONE[tone],
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
 function Cell({ className, children }: Readonly<{ className: string; children?: ReactNode }>) {
   return (
     <div className={cn(className, 'min-w-0')}>
@@ -60,7 +87,7 @@ export function LinkedRecordRow({
   avatarUrl?: string | null;
   secondary?: string | null;
   role?: string | null;
-  /** Badges for the status column. */
+  /** `LinkedRecordStatus` labels for the status column. */
   status?: ReactNode;
   onOpen: () => void;
   /** Accessible name of the row menu button. */

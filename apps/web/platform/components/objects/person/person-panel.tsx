@@ -21,6 +21,7 @@ import {
   Briefcase,
   Bookmark,
   ExternalLink,
+  SquareArrowOutUpRight,
   EllipsisVertical,
   Languages,
   Mail,
@@ -54,7 +55,6 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
 import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
@@ -87,7 +87,11 @@ import {
   TAB_EMPTY_STATE_TABLE_CLASS,
   tabBodyClassName,
 } from '@/components/objects/_shared/tab-empty-state';
-import { LinkedRecordRow, linkedRecordHeaderColumns } from '@/components/objects/_shared/linked-record-row';
+import {
+  LinkedRecordRow,
+  LinkedRecordStatus,
+  linkedRecordHeaderColumns,
+} from '@/components/objects/_shared/linked-record-row';
 import { TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { useUnlinkPersonFromCompany } from '@/hooks/queries/use-person-companies-queries';
 import {
@@ -572,15 +576,15 @@ function PersonCompaniesTab({
           status={
             pc.endedAt || pc.isPrimary ? (
               <>
-                {pc.endedAt && <Badge variant="outline" className="text-[10px]">{st('sweep.entities.past')}</Badge>}
-                {pc.isPrimary && <Badge variant="default" className="text-[10px]">{st('sweep.entities.primary')}</Badge>}
+                {pc.endedAt && <LinkedRecordStatus tone="gray">{st('sweep.entities.past')}</LinkedRecordStatus>}
+                {pc.isPrimary && <LinkedRecordStatus tone="blue">{st('sweep.entities.primary')}</LinkedRecordStatus>}
               </>
             ) : null
           }
           menu={
             <>
               <DropdownMenuItem onClick={() => onOpenCompany(pc.companyId)}>
-                <ExternalLink />
+                <SquareArrowOutUpRight />
                 {st('sweep.weldcrm.contactsSection.viewProfile')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />

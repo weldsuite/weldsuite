@@ -29,13 +29,15 @@ export function GridRow<TEntity>({ entity, rowIndex }: Readonly<GridRowProps<TEn
   // filteredEntities so it lines up with `entities[row]` in the provider.
   const selectionRow = (rowIndex ?? 1) - 1;
 
+  const selectedLines = isSelected ? selectedLineClass(selectionRow) : undefined;
+
   return (
     <tr
       data-testid="entity-grid-row"
       data-entity-id={entityId}
       className={cn(
         'group border-b border-border',
-        isSelected && 'bg-blue-50 dark:bg-blue-500/10'
+        isSelected && cn('bg-blue-50 dark:bg-blue-500/10', SELECTED_LINE_COLOR)
       )}
       style={{ height: `${rowH}px` }}
     >
@@ -99,14 +101,14 @@ export function GridRow<TEntity>({ entity, rowIndex }: Readonly<GridRowProps<TEn
       {/* (SelectableCell defined below the row component) */}
       {config.fillViewport ? (
         SPREADSHEET_EXTRA_COLUMNS.map((slot) => (
-          <td key={`empty-${slot}`} className="border-r border-border" style={{ width: 100, height: `${rowH}px`, padding: 0 }} />
+          <td key={`empty-${slot}`} className={cn('border-r border-border', selectedLines)} style={{ width: 100, height: `${rowH}px`, padding: 0 }} />
         ))
       ) : (
         <>
           {config.allowCustomColumns !== false && (
-            <td style={{ height: `${rowH}px`, padding: 0 }} />
+            <td className={selectedLines} style={{ height: `${rowH}px`, padding: 0 }} />
           )}
-          <td style={{ height: `${rowH}px`, padding: 0 }} />
+          <td className={selectedLines} style={{ height: `${rowH}px`, padding: 0 }} />
         </>
       )}
     </tr>
@@ -142,7 +144,7 @@ interface SelectableCellProps {
  * than CSS `border`s on the `<td>`, so the outline surrounds the whole cell
  * without fighting the table's `border-collapse: collapse` neighbour borders.
  */
-const SELECTION_BORDER = '#3b82f6'; // tailwind blue-500
+const SELECTION_BORDER = 'rgb(59 130 246 / 0.7)'; // tailwind blue-500, softened
 const SELECTION_BORDER_PX = 1;
 
 const SEL_SELECTED = 1;
@@ -177,6 +179,27 @@ function selectionOutlineStyle(state: number, row: number, col: number): React.C
     borderColor: SELECTION_BORDER,
     borderWidth: `${top}px ${right}px ${bottom}px ${left}px`,
   };
+}
+
+// Grid lines of a selected row or cell range: light blue, to go with the blue
+// fill.
+// Solid colours on purpose. A semi-transparent collapsed border renders at
+// about half strength in the data cells and at full strength in the empty
+// trailing cells, so the same line looked different across one row. The dark
+// value is blue-300 at 12% over the selected row's fill, flattened.
+const SELECTED_LINE_COLOR = 'border-blue-100 dark:border-[#2c3c55]';
+
+/**
+ * Line classes for a cell that is selected, through its row or as part of a
+ * cell range. The horizontal lines are set on the cells, not only the row:
+ * with collapsed borders the line above a row belongs to the row before it,
+ * and only a cell's border outranks that, so this is what turns the top edge
+ * of a selected block blue as well. The first row gets no top border, which
+ * would add a line under the header. Around a cell range the outline overlay
+ * covers the outermost lines, so only the lines inside the range show.
+ */
+function selectedLineClass(row: number): string {
+  return cn(SELECTED_LINE_COLOR, 'border-b', row > 0 && 'border-t');
 }
 
 interface CellBackgroundState {
@@ -221,6 +244,7 @@ const SelectableCell = React.memo(function SelectableCell({
       onMouseEnter={onMouseEnter}
       className={cn(
         'border-r border-border relative',
+        (isRowSelected || isSelected) && selectedLineClass(row),
         // Background fill (no transition — selection feedback should be instant):
         //  - anchor → white (matches Attio's "active cell" treatment)
         //  - cell-range selected (non-anchor) → light blue tint

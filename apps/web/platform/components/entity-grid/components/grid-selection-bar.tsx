@@ -1,8 +1,14 @@
 
 import React, { useState } from 'react';
-import { X, Trash2, ListPlus, Mail, SquarePen, type LucideIcon } from 'lucide-react';
+import { X, Trash2, ListPlus, Mail, SquarePen, ChevronDown, type LucideIcon } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import {
   Popover,
   PopoverContent,
@@ -24,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@weldsuite/ui/components/dialog';
+import { cn } from '@/lib/utils';
 import { useGridContext } from '../context';
 
 interface GridSelectionBarProps {
@@ -40,6 +47,9 @@ interface GridSelectionBarProps {
 }
 
 type TranslateFn = ReturnType<typeof useTranslations>;
+
+// An action in the bar: a 32px outlined button on the bar's own background.
+const ACTION_BUTTON_CLASS = 'h-8 gap-1.5 rounded-lg border border-border px-2.5 text-sm font-medium';
 
 function bulkDeleteLabel(
   t: TranslateFn,
@@ -75,7 +85,7 @@ function AddToListPopover({
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 px-3 text-sm gap-1.5"
+          className={ACTION_BUTTON_CLASS}
           onClick={onTriggerClick}
         >
           <ListPlus className="h-4 w-4" />
@@ -224,14 +234,31 @@ export function GridSelectionBar({
   };
 
   return (
-    <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
-      <div className="flex items-center gap-1 bg-background border border-border rounded-xl shadow-lg px-2 py-1.5">
-        <div className="flex items-center gap-1.5 px-2">
-          <span className="text-sm font-medium">{selectedRows.size}</span>
-          <span className="text-sm text-muted-foreground">{t('sweep.entities.selectedLabel')}</span>
+    // `--grid-hscrollbar-height` (set by GridTable) keeps the gap to the footer
+    // the same whether or not the table shows a horizontal scrollbar.
+    <div className="absolute bottom-[calc(4rem+var(--grid-hscrollbar-height,0px))] left-1/2 -translate-x-1/2 z-20 animate-in fade-in slide-in-from-bottom-2 duration-200">
+      {/* Shadow: a hairline dark ring plus a soft drop that reaches every
+          side (about 4px above, 7px beside, 12px below). */}
+      <div className="flex items-center gap-2 bg-background border border-border rounded-xl p-[7px] shadow-[0_0_0_1px_rgb(0_0_0/0.04),0_4px_12px_rgb(0_0_0/0.12)] dark:shadow-[0_0_0_1px_rgb(0_0_0/0.2),0_4px_12px_rgb(0_0_0/0.35)]">
+        {/* Selection chip: count, label and the control that clears it */}
+        <div className="flex h-8 items-center rounded-lg border border-dashed border-border bg-muted pl-[9px] pr-[5px]">
+          <span className="inline-flex h-[18px] min-w-4 items-center justify-center rounded-[5px] bg-primary px-[5px] font-mono text-xs font-medium tabular-nums text-primary-foreground">
+            {selectedRows.size}
+          </span>
+          <span className="ml-2 inline-block text-sm font-medium text-muted-foreground first-letter:uppercase">
+            {t('sweep.entities.selectedLabel')}
+          </span>
+          <button
+            type="button"
+            aria-label={t('sweep.entities.clearSelection')}
+            onClick={() => setSelectedRows(new Set())}
+            className="ml-0.5 flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <X className="size-3.5" />
+          </button>
         </div>
 
-        <div className="w-px h-5 bg-border" />
+        <div className="h-3.5 w-px bg-border" />
 
         {/* Add to list */}
         {onAddToList && (
@@ -250,7 +277,7 @@ export function GridSelectionBar({
             key={action.id}
             variant="ghost"
             size="sm"
-            className="h-8 px-3 text-sm gap-1.5"
+            className={ACTION_BUTTON_CLASS}
             onClick={action.onClick}
           >
             {action.icon && React.createElement(action.icon, { className: 'h-4 w-4' })}
@@ -263,7 +290,7 @@ export function GridSelectionBar({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-3 text-sm gap-1.5"
+            className={ACTION_BUTTON_CLASS}
             onClick={onSendEmail}
           >
             <Mail className="h-4 w-4" />
@@ -276,7 +303,7 @@ export function GridSelectionBar({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-3 text-sm gap-1.5"
+            className={ACTION_BUTTON_CLASS}
             onClick={onBulkEdit}
           >
             <SquarePen className="h-4 w-4" />
@@ -284,35 +311,30 @@ export function GridSelectionBar({
           </Button>
         )}
 
-        {/* Delete / Remove from list */}
+        {/* More: Delete / Remove from list */}
         {onBulkDelete && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className={
-              listName
-                ? "h-8 px-3 text-sm gap-1.5"
-                : "h-8 px-3 text-sm gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 dark:hover:bg-destructive/20"
-            }
-            onClick={() => setShowDeleteConfirm(true)}
-            disabled={isDeleting}
-          >
-            <Trash2 className="h-4 w-4" />
-            {bulkDeleteLabel(t, isDeleting, listName, 'sweep.entities.removeFromList')}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              {/* The chevron's glyph is inset 4px in its box, so the tighter
+                  right padding leaves it as far from the edge as the label
+                  is on the left. */}
+              <Button variant="ghost" size="sm" className={cn(ACTION_BUTTON_CLASS, 'has-[>svg]:pr-1.5')}>
+                {t('sweep.shared.more')}
+                <ChevronDown className="size-4 translate-y-[0.5px] text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="end">
+              <DropdownMenuItem
+                variant={listName ? 'default' : 'destructive'}
+                disabled={isDeleting}
+                onSelect={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 />
+                {bulkDeleteLabel(t, isDeleting, listName, 'sweep.entities.removeFromList')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
-
-        <div className="w-px h-5 bg-border" />
-
-        {/* Clear selection */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          onClick={() => setSelectedRows(new Set())}
-        >
-          <X className="h-4 w-4" />
-        </Button>
       </div>
 
       <BulkDeleteDialog

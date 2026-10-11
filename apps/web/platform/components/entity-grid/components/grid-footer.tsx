@@ -126,7 +126,7 @@ export function GridFooter() {
                       <PopoverContent className="w-[220px] p-0" align="start">
                         <Command>
                           <CommandList>
-                            <CommandGroup heading={t('sweep.entities.calculate')} className="px-1 py-1">
+                            <CommandGroup className="px-1 py-1">
                               {options.map((option) => (
                                 <CommandItem
                                   key={option.value}

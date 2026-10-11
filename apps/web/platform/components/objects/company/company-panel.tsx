@@ -25,7 +25,7 @@ import {
   Building,
   Diamond,
   EllipsisVertical,
-  ExternalLink,
+  SquareArrowOutUpRight,
   Globe,
   Languages,
   Mail,
@@ -62,7 +62,6 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
 import {
@@ -110,7 +109,11 @@ import {
   TAB_EMPTY_STATE_TABLE_CLASS,
   tabBodyClassName,
 } from '@/components/objects/_shared/tab-empty-state';
-import { LinkedRecordRow, linkedRecordHeaderColumns } from '@/components/objects/_shared/linked-record-row';
+import {
+  LinkedRecordRow,
+  LinkedRecordStatus,
+  linkedRecordHeaderColumns,
+} from '@/components/objects/_shared/linked-record-row';
 import { TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { LinkPersonPopover } from './link-person-popover';
 import { CompanyChat } from './company-chat';
@@ -582,13 +585,13 @@ function CompanyPeopleTab({
           status={
             pc.endedAt || pc.isPrimary || access?.status === 'active' || access?.status === 'invited' ? (
               <>
-                {pc.endedAt && <Badge variant="outline" className="text-[10px]">{st('sweep.entities.past')}</Badge>}
-                {pc.isPrimary && <Badge variant="default" className="text-[10px]">{st('sweep.entities.primary')}</Badge>}
+                {pc.endedAt && <LinkedRecordStatus tone="gray">{st('sweep.entities.past')}</LinkedRecordStatus>}
+                {pc.isPrimary && <LinkedRecordStatus tone="blue">{st('sweep.entities.primary')}</LinkedRecordStatus>}
                 {access?.status === 'active' && (
-                  <Badge variant="secondary" className="text-[10px]">{portalT.statusActive}</Badge>
+                  <LinkedRecordStatus tone="green">{portalT.statusActive}</LinkedRecordStatus>
                 )}
                 {access?.status === 'invited' && (
-                  <Badge variant="outline" className="text-[10px]">{portalT.statusInvited}</Badge>
+                  <LinkedRecordStatus tone="amber">{portalT.statusInvited}</LinkedRecordStatus>
                 )}
               </>
             ) : null
@@ -596,7 +599,7 @@ function CompanyPeopleTab({
           menu={
             <>
               <DropdownMenuItem onClick={() => onOpenPerson(pc.personId)}>
-                <ExternalLink />
+                <SquareArrowOutUpRight />
                 {st('sweep.weldcrm.contactsSection.viewProfile')}
               </DropdownMenuItem>
               {canHavePortalAccess && !hasPortalAccess && (
