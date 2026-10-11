@@ -12,8 +12,8 @@
  * POST /api/invoices/:id/apply-credit applies one by hand.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
-import { atomically } from '@weldsuite/worker-kit/atomically';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { PostingError, roundMoney, settlementSet } from './accounting-document-posting';
 
@@ -71,10 +71,39 @@ export async function applyCreditNote(
   const amount = roundMoney(opts.amount ?? available);
   if (!(amount > 0)) return null;
 
-  await atomically(db, (h) => [
-    h.update(schema.invoices).set(settlementSet(schema.invoices, amount, 'sent')).where(eq(schema.invoices.id, invoice.id)),
-    h.update(schema.invoices).set(settlementSet(schema.invoices, amount, 'sent')).where(eq(schema.invoices.id, note.id)),
-  ]);
+  // One statement settles both or neither. The guard locks both rows and only
+  // matches while each still has the amount open, so an application that ran
+  // meanwhile (the guard re-reads the rows once their lock is released) makes
+  // this one settle nothing instead of over-settling either document.
+  const noteRow = alias(schema.invoices, 'credit_note_row');
+  const invoiceRow = alias(schema.invoices, 'credited_invoice_row');
+  const covers = (balanceDue: AnyPgColumn) => sql`${balanceDue}::numeric >= ${(amount - 0.005).toFixed(3)}::numeric`;
+  const guard = db
+    .select({ noteId: noteRow.id })
+    .from(noteRow)
+    .innerJoin(invoiceRow, eq(invoiceRow.id, invoice.id))
+    .where(
+      and(
+        eq(noteRow.id, note.id),
+        isNull(noteRow.deletedAt),
+        isNull(invoiceRow.deletedAt),
+        covers(noteRow.balanceDue),
+        covers(invoiceRow.balanceDue),
+      ),
+    )
+    .for('update')
+    .as('credit_guard');
+  const settled = await db
+    .update(schema.invoices)
+    .set(settlementSet(schema.invoices, amount, 'sent'))
+    .from(guard)
+    .where(inArray(schema.invoices.id, [note.id, invoice.id]))
+    .returning({ id: schema.invoices.id });
+  if (settled.length !== 2) {
+    throw new PostingError(
+      'The credit note or the invoice changed while the credit was being applied; nothing was applied. Reload and try again.',
+    );
+  }
   return { creditNoteId: note.id, invoiceId: invoice.id, amount };
 }
 

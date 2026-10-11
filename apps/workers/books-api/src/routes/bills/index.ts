@@ -32,7 +32,12 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
-import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
+import {
+  nextEntityNumber,
+  resolveEntityBaseCurrency,
+  resolveEntityId,
+  resolveRequestedEntityId,
+} from '../../lib/entity-context';
 import { documentContactFields, withContactNames } from '../../lib/contact-snapshot';
 import {
   ClosedPeriodError,
@@ -327,9 +332,15 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
   const { bills, billItems } = schema;
 
   try {
-    const entityId = data.entityId ?? (await resolveEntityId(c, db));
+    // A body-supplied entityId is checked like the header: an entity of this workspace that isn't deleted.
+    const entityId = await resolveRequestedEntityId(c, db, data.entityId);
     if (!entityId) {
-      return error.badRequest(c, 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.');
+      return error.badRequest(
+        c,
+        data.entityId
+          ? `Accounting entity ${data.entityId} does not exist in this workspace.`
+          : 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.',
+      );
     }
     const billNumber = data.billNumber ?? (await nextEntityNumber(db, entityId, 'bill')).formatted;
     const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));

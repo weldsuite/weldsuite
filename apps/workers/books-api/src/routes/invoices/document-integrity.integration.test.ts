@@ -161,6 +161,24 @@ describe('TASK-1101 · an entity id from another workspace', () => {
     });
     expect(bill.status).toBe(400);
   });
+
+  it('an entityId in the bill body gets the same check as the header', async () => {
+    const goneId = await createNlEntity('Gone Too BV');
+    await db.update(schema.entities).set({ deletedAt: new Date() }).where(eq(schema.entities.id, goneId));
+    const bill = await call('/api/bills', billsRoutes, '/api/bills', {
+      method: 'POST',
+      entityId: nl.id,
+      body: {
+        entityId: goneId,
+        contactId: 'pty_supplier',
+        issueDate: '2026-07-10',
+        dueDate: '2026-07-24',
+        items: [{ description: 'Paper', quantity: '1', unitPrice: '10' }],
+      },
+    });
+    expect(bill.status).toBe(400);
+    expect(await db.select().from(schema.bills).where(eq(schema.bills.entityId, goneId))).toEqual([]);
+  });
 });
 
 describe('TASK-1102 · documents keep the contact name', () => {
@@ -332,6 +350,23 @@ describe('TASK-1116 · credit notes', () => {
 
     const tooMuch = await invoices(`/${creditNoteId}/apply-credit`, { method: 'POST', body: { invoiceId: openInvoice, amount: '80' } });
     expect(tooMuch.status).toBe(400);
+  });
+
+  it('two applications at once never settle more than is open on either document', async () => {
+    const paidInvoice = await finalizedInvoice();
+    await invoices(`/${paidInvoice}/record-payment`, { method: 'POST', body: { amount: '121', date: '2026-07-15', paymentMethod: 'bank_transfer' } });
+    const creditNoteId = await creditNoteFor(paidInvoice);
+    await invoices(`/${creditNoteId}/finalize`, { method: 'POST' });
+    const openInvoice = await finalizedInvoice('2026-07-12');
+
+    // Each fits on its own (80 of 121), together they don't: both read the old balances, one must lose.
+    const results = await Promise.all([
+      invoices(`/${creditNoteId}/apply-credit`, { method: 'POST', body: { invoiceId: openInvoice, amount: '80' } }),
+      invoices(`/${creditNoteId}/apply-credit`, { method: 'POST', body: { invoiceId: openInvoice, amount: '80' } }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
+    expect(await invoiceRow(creditNoteId)).toMatchObject({ amountPaid: '80.00', balanceDue: '41.00' });
+    expect(await invoiceRow(openInvoice)).toMatchObject({ amountPaid: '80.00', balanceDue: '41.00' });
   });
 
   it("a draft's PDF carries a draft banner, a finalized one doesn't", async () => {

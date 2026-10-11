@@ -36,7 +36,22 @@ async function resolveEntityIdUncached(c: Context, db: any): Promise<string | nu
   return fallback && (await entityExists(db, fallback)) ? fallback : null;
 }
 
-async function entityExists(db: any, entityId: string): Promise<boolean> {
+/**
+ * The entity a write targets when the body may name one: that id only when it
+ * is an entity of this workspace that isn't deleted, else what
+ * `resolveEntityId` resolves.
+ */
+export async function resolveRequestedEntityId(
+  c: Context,
+  db: any,
+  requested: string | null | undefined,
+): Promise<string | null> {
+  if (requested) return (await entityExists(db, requested)) ? requested : null;
+  return resolveEntityId(c, db);
+}
+
+/** Whether an id names an accounting entity of this workspace that isn't deleted. */
+export async function entityExists(db: any, entityId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: schema.entities.id })
     .from(schema.entities)

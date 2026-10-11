@@ -18,6 +18,7 @@ let db: Database;
 beforeAll(async () => {
   const handle = await createPgliteDb();
   db = handle.db;
+  await db.insert(schema.entities).values({ id: 'ent_test', name: 'Tax Rate Co', jurisdictionCode: 'NL', baseCurrency: 'EUR' });
 }, 60_000);
 
 describe('/api/tax-rates · pglite integration', () => {
@@ -62,6 +63,20 @@ describe('/api/tax-rates · pglite integration', () => {
       body: JSON.stringify({ name: 'No entity', rate: 10 }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it('POST / returns 400 for an entity that is not in this workspace and writes nothing', async () => {
+    const { request } = createTestApp('/api/tax-rates', taxRatesRoutes, {
+      context: { permissions: permissions('settings:create'), tenantDb: db },
+    });
+    const res = await request('/api/tax-rates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Elsewhere', entityId: 'ent_other_workspace', jurisdiction: 'NL', rate: 21 }),
+    });
+    expect(res.status).toBe(400);
+    const rows = await db.select().from(schema.taxRates).where(eq(schema.taxRates.entityId, 'ent_other_workspace'));
+    expect(rows).toEqual([]);
   });
 
   it('POST / rejects empty name', async () => {
