@@ -5,6 +5,7 @@ import {
   canRunStatement,
   canVoidStatement,
   changedProfileFields,
+  contractDefaultsValue,
   contractFormFromView,
   currentContract,
   dateToIso,
@@ -12,8 +13,10 @@ import {
   defaultLicenceForm,
   diffTerritories,
   isEmailLike,
+  licenceMinimumMessage,
   licenceFormFromSnapshot,
   normalizeCountries,
+  parseContractDefaults,
   parseContractForm,
   parseLicenceForm,
   parseProfileForm,
@@ -34,6 +37,8 @@ const contractView = (overrides: Partial<PartnerContractView> = {}): PartnerCont
   currency: 'USD',
   revenueShareBps: 7500,
   baseMinimum: '50.00',
+  includedSeats: 0,
+  seatFloorPrice: '0.00',
   includedCredits: 2000,
   creditFloorPrice: '0.004',
   extraCreditPrice: '0.01',
@@ -160,6 +165,66 @@ describe('parseContractForm', () => {
     expect(form.effectiveFrom).toBe('');
     expect(form.allowedFeaturePlanIds).toEqual(['business']);
     expect(parseContractForm(form).ok).toBe(true);
+  });
+
+  it('carries the currency and the seat part of the minimum', () => {
+    const form = contractFormFromView(contractView({ currency: 'EUR', includedSeats: 5, seatFloorPrice: '10.00' }));
+    expect(form).toMatchObject({ currency: 'EUR', includedSeats: '5', seatFloorPrice: '10.00' });
+    expect(parseContractForm(form)).toEqual({
+      ok: true,
+      value: expect.objectContaining({ currency: 'EUR', includedSeats: 5, seatFloorPrice: '10.00' }),
+    });
+  });
+
+  it('refuses a currency outside the supported list', () => {
+    const result = parseContractForm({ ...valid(), currency: 'JPY' });
+    expect(!result.ok && result.error).toContain('currency');
+  });
+});
+
+describe('default contract terms', () => {
+  it('prefill a new contract and drop the date and notes when saved', () => {
+    const parsed = parseContractForm({ ...defaultContractForm(), baseMinimum: '80', includedSeats: '3', seatFloorPrice: '12', notes: 'x' });
+    if (!parsed.ok) throw new Error(parsed.error);
+    const saved = contractDefaultsValue(parsed.value);
+    expect(saved).not.toHaveProperty('notes');
+    expect(saved).not.toHaveProperty('effectiveFrom');
+    expect(defaultContractForm(parseContractDefaults(saved))).toMatchObject({
+      baseMinimum: '80',
+      includedSeats: '3',
+      seatFloorPrice: '12',
+      notes: '',
+    });
+  });
+
+  it('fall back to the built-in terms when nothing usable is stored', () => {
+    expect(parseContractDefaults(null)).toBeNull();
+    expect(parseContractDefaults({ baseMinimum: 'lots' })).toBeNull();
+    expect(defaultContractForm(null)).toMatchObject({ currency: 'USD', revenueSharePercent: '75', baseMinimum: '' });
+  });
+});
+
+describe('licenceMinimumMessage', () => {
+  const seated = contractView({ baseMinimum: '100.00', includedSeats: 5, seatFloorPrice: '10.00' });
+  const licence = (amount: string, maxSeats: number | null) => ({
+    allowedApps: [],
+    monthlyCredits: 0,
+    creditRolloverCap: 0,
+    maxSeats,
+    featurePlanId: null,
+    storageGb: null,
+    resalePricing: { model: 'flat' as const, amount },
+  });
+
+  it('explains a price below the minimum at the seat limit', () => {
+    expect(licenceMinimumMessage(seated, licence('120', 10))).toBe(
+      'At 10 seats the price is 120.00 USD, below the minimum of 150.00 USD',
+    );
+  });
+
+  it('is quiet for a price at the minimum, or without a contract', () => {
+    expect(licenceMinimumMessage(seated, licence('150', 10))).toBeNull();
+    expect(licenceMinimumMessage(null, licence('1', 10))).toBeNull();
   });
 });
 

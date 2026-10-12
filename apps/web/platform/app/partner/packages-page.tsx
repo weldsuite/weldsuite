@@ -29,6 +29,7 @@ import {
   useArchivePackage,
   useCreatePackage,
   usePartnerCatalog,
+  usePartnerOverview,
   usePartnerPackages,
   useUpdatePackage,
 } from '@/hooks/queries/use-partner-queries';
@@ -45,6 +46,7 @@ import {
   useFormatters,
 } from './components/kit';
 import { LicenceEditor } from './components/licence-editor';
+import { LicencePreview } from './components/licence-preview';
 import {
   draftFromPackage,
   emptyDraft,
@@ -165,11 +167,14 @@ function PackageDialog({ pkg, onClose }: Readonly<{ pkg: PartnerLicencePackage |
   const { t } = useI18n();
   const tp = t.partner.packages;
   const catalog = usePartnerCatalog();
+  const overview = usePartnerOverview();
+  const contract = overview.data?.contract;
   const create = useCreatePackage();
   const update = useUpdatePackage();
   const [draft, setDraft] = useState<LicenceDraft>(() => (pkg ? draftFromPackage(pkg) : emptyDraft()));
   const [errors, setErrors] = useState<LicenceDraftErrors>({});
   const [failure, setFailure] = useState<string | null>(null);
+  const [seats, setSeats] = useState(1);
   const pending = create.isPending || update.isPending;
 
   const form = useForm<DetailsValues>({
@@ -185,7 +190,7 @@ function PackageDialog({ pkg, onClose }: Readonly<{ pkg: PartnerLicencePackage |
 
   const onSubmit = form.handleSubmit(async (values) => {
     setFailure(null);
-    const licence = parseDraft(draft);
+    const licence = parseDraft(draft, contract);
     if (!licence.ok) {
       setErrors(licence.errors);
       return;
@@ -251,7 +256,10 @@ function PackageDialog({ pkg, onClose }: Readonly<{ pkg: PartnerLicencePackage |
             catalog={catalog.data}
             disabled={pending}
             idPrefix="pkg"
+            currency={contract?.currency ?? 'USD'}
           />
+
+          <LicencePreview contract={contract} draft={draft} seats={seats} onSeatsChange={setSeats} />
 
           {failure && (
             <p role="alert" className="text-sm text-destructive">

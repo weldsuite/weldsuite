@@ -1,17 +1,19 @@
 /**
  * The licence editor's form state, kept as plain strings (what the inputs
- * hold) and converted to the request body only on submit. The conversion and
- * the live "WeldSuite bills / you keep" figures are pure, so the maths shown
- * on screen is exactly `priceWorkspaceMonth`, the function the statement run
- * uses.
+ * hold) and converted to the request body only on submit. The conversion, the
+ * minimum-price check and the live "WeldSuite bills / you keep" figures are
+ * pure, so what the screen shows is exactly `resaleMinimumShortfall` and
+ * `priceWorkspaceMonth`, the functions the server and the statement run use.
  */
 
 import {
   priceWorkspaceMonth,
+  resaleMinimumShortfall,
   toCents,
   workspaceLicenceInputSchema,
   type LicenceSnapshot,
   type PricingContract,
+  type ResaleMinimumShortfall,
   type ResalePricing,
   type WorkspaceMonthPrice,
 } from '@weldsuite/app-api-client/schemas/partners';
@@ -47,7 +49,13 @@ export type LicenceDraftField =
   | 'minSeats';
 
 /** Keys of `partner.licence` that hold the message for a field. */
-export type LicenceErrorKey = 'invalid' | 'invalidAmount' | 'invalidCredits' | 'invalidSeats';
+export type LicenceErrorKey =
+  | 'invalid'
+  | 'invalidAmount'
+  | 'invalidCredits'
+  | 'invalidSeats'
+  | 'belowMinimum'
+  | 'needsSeatLimit';
 export type LicenceDraftErrors = Partial<Record<LicenceDraftField, LicenceErrorKey>>;
 
 export function emptyDraft(): LicenceDraft {
@@ -149,8 +157,33 @@ export type ParsedDraft =
   | { ok: true; value: WorkspaceLicenceBody }
   | { ok: false; errors: LicenceDraftErrors };
 
-/** Validate the draft with the same schema the server uses. */
-export function parseDraft(draft: LicenceDraft): ParsedDraft {
+/**
+ * Validate the draft with the same schema the server uses and, given the
+ * contract, the same minimum-price check: a price below the minimum marks the
+ * amount, or the seat limit when a flat price needs one.
+ */
+export function parseDraft(draft: LicenceDraft, contract?: PricingContract | null): ParsedDraft {
+  const parsed = parseDraftShape(draft);
+  if (!parsed.ok || !contract) return parsed;
+  const shortfall = resaleMinimumShortfall(contract, parsed.value);
+  if (!shortfall) return parsed;
+  return {
+    ok: false,
+    errors: shortfall.reason === 'needs_seat_limit' ? { maxSeats: 'needsSeatLimit' } : { amount: 'belowMinimum' },
+  };
+}
+
+/** Where a draft's price falls below the minimum; null when it does not, or while the draft is not valid yet. */
+export function draftShortfall(
+  contract: PricingContract | null | undefined,
+  draft: LicenceDraft,
+): ResaleMinimumShortfall | null {
+  if (!contract) return null;
+  const parsed = parseDraftShape(draft);
+  return parsed.ok ? resaleMinimumShortfall(contract, parsed.value) : null;
+}
+
+function parseDraftShape(draft: LicenceDraft): ParsedDraft {
   const candidate = {
     packageId: draft.packageId,
     allowedApps: draft.allowedApps,

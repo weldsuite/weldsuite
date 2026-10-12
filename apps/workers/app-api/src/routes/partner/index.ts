@@ -21,7 +21,8 @@
  * commercial data. Licence changes keep their own append-only history
  * (`workspace_licence_changes`, with the actor and reason).
  *
- * Money: amounts are decimal strings in USD, computed by the shared maths in
+ * Money: amounts are decimal strings in the partner's contract currency,
+ * computed by the shared maths in
  * `@weldsuite/app-api-client/schemas/partners`.
  */
 
@@ -95,13 +96,16 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /** `LicenceError` → 400 (bad terms), 409 (no contract), 404 (unknown workspace). */
 function licenceFailureStatus(code: LicenceError['code']): 400 | 404 | 409 {
-  if (code === 'INVALID_APPS' || code === 'PLAN_NOT_ALLOWED') return 400;
+  if (code === 'INVALID_APPS' || code === 'PLAN_NOT_ALLOWED' || code === 'BELOW_MINIMUM') return 400;
   if (code === 'NO_CONTRACT') return 409;
   return 404;
 }
 
 function licenceFailure(c: PartnerContext, err: LicenceError) {
-  return c.json({ error: { code: err.code, message: err.message } }, licenceFailureStatus(err.code));
+  return c.json(
+    { error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } },
+    licenceFailureStatus(err.code),
+  );
 }
 
 function portalFailureStatus(code: PartnerPortalError['code']): 404 | 409 | 429 {
@@ -122,7 +126,9 @@ function onboardFailure(c: PartnerContext, err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
   const code = /^\[([A-Z_]+)\]/.exec(message)?.[1];
   const detail = message.replace(/^\[[A-Z_]+\]\s*/, '');
-  if (code === 'VALIDATION' || code === 'INVALID_APPS' || code === 'PLAN_NOT_ALLOWED') return error.badRequest(c, detail);
+  if (code === 'VALIDATION' || code === 'INVALID_APPS' || code === 'PLAN_NOT_ALLOWED' || code === 'BELOW_MINIMUM') {
+    return error.badRequest(c, detail);
+  }
   if (code === 'NO_CONTRACT') return error.conflict(c, detail);
   if (code === 'NOT_FOUND' || code === 'WRONG_PARTNER') return error.notFound(c, 'Licence package');
   console.error('[partner] onboardPartnerWorkspace failed:', err);

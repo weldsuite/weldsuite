@@ -18,6 +18,8 @@ const contract: PartnerContractView = {
   currency: 'USD',
   revenueShareBps: 7500,
   baseMinimum: '50.00',
+  includedSeats: 0,
+  seatFloorPrice: '0.00',
   includedCredits: 2000,
   creditFloorPrice: '0.004',
   extraCreditPrice: '0.01',
@@ -50,7 +52,7 @@ const workspace: ManagedWorkspaceDetail = {
   activeMembers: 3,
   creditsUsedThisPeriod: 500,
   creditBalance: 1500,
-  estimate: { resale: 40000, share: 30000, baseFloor: 5000, creditFloor: 0, floor: 5000, due: 30000, margin: 10000, basis: 'share' },
+  estimate: { resale: 40000, share: 30000, baseFloor: 5000, seatFloor: 0, creditFloor: 0, floor: 5000, due: 30000, margin: 10000, basis: 'share' },
   createdAt: '2026-03-01T00:00:00.000Z',
   history: [
     {
@@ -155,9 +157,9 @@ describe('PartnerWorkspaceDetailPage', () => {
     await userEvent.clear(amount);
     await userEvent.type(amount, '60');
 
-    // $60 flat: 75% = $45 < $50 minimum, so WeldSuite bills the minimum.
-    expect(screen.getByTestId('preview-due').textContent).toBe('$50.00');
-    expect(screen.getByTestId('preview-margin').textContent).toBe('$10.00');
+    // $60 flat clears the $50 minimum: WeldSuite bills 75% of it.
+    expect(screen.getByTestId('preview-due').textContent).toBe('$45.00');
+    expect(screen.getByTestId('preview-margin').textContent).toBe('$15.00');
 
     await userEvent.click(save);
     await waitFor(() => expect(mocks.setLicence).toHaveBeenCalledTimes(1));
@@ -166,6 +168,19 @@ describe('PartnerWorkspaceDetailPage', () => {
       monthlyCredits: 2000,
       resalePricing: { model: 'flat', amount: '60' },
     });
+  });
+
+  it('refuses a price below the minimum without calling the server', async () => {
+    renderPage();
+    const amount = screen.getByLabelText('Amount (USD)');
+    await userEvent.clear(amount);
+    await userEvent.type(amount, '40');
+    expect(screen.getByTestId('preview-shortfall').textContent).toBe(
+      'Your price is below the minimum. Seats: 1 · minimum $50.00 · your price $40.00.',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Save licence' }));
+    expect(await screen.findByText(/below your minimum price/i)).toBeInTheDocument();
+    expect(mocks.setLicence).not.toHaveBeenCalled();
   });
 
   it('refuses an invalid price without calling the server', async () => {

@@ -36,6 +36,8 @@ interface LicenceEditorProps {
   packages?: PartnerLicencePackage[];
   disabled?: boolean;
   showReason?: boolean;
+  /** The contract currency the price is in. */
+  currency: string;
   /** Prefix for input ids, so two editors on a page do not clash. */
   idPrefix?: string;
 }
@@ -57,9 +59,10 @@ export function LicenceEditor({
   packages,
   disabled,
   showReason,
+  currency,
   idPrefix = 'licence',
 }: Readonly<LicenceEditorProps>) {
-  const { t } = useI18n();
+  const { t, format } = useI18n();
   const tl = t.partner.licence;
   const set = (patch: Partial<LicenceDraft>) => onChange({ ...draft, ...patch });
   const msg = (field: LicenceDraftField) => (errors[field] ? tl[errors[field]!] : undefined);
@@ -244,7 +247,7 @@ export function LicenceEditor({
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor={id('amount')}>{tl.amount}</Label>
+            <Label htmlFor={id('amount')}>{format(tl.amount, { currency })}</Label>
             <Input
               id={id('amount')}
               inputMode="decimal"

@@ -25,16 +25,20 @@ import {
   profilePayload,
   territoryConflictCountries,
   isEmailLike,
+  type ContractTerms,
 } from '@/lib/partners';
 import { partnersCopy } from '@/lib/partners-copy';
 
-export function NewPartnerForm({ planOptions }: Readonly<{ planOptions: PlanOption[] }>) {
+export function NewPartnerForm({
+  planOptions,
+  contractDefaults,
+}: Readonly<{ planOptions: PlanOption[]; contractDefaults: ContractTerms | null }>) {
   const t = partnersCopy();
   const router = useRouter();
   const { submit, isPending } = useSubmit();
   const [profile, setProfile] = useState(emptyProfileForm);
   const [ownerEmail, setOwnerEmail] = useState('');
-  const [contract, setContract] = useState(defaultContractForm);
+  const [contract, setContract] = useState(() => defaultContractForm(contractDefaults));
   const [territories, setTerritories] = useState<string[]>([]);
   const [conflicts, setConflicts] = useState<string[]>([]);
 

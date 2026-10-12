@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Building2, Plus, Search } from 'lucide-react';
+import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import {
@@ -16,7 +17,7 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import type { ManagedWorkspaceRow } from '@weldsuite/app-api-client/schemas/partners';
-import { usePartnerRequests, usePartnerWorkspaces } from '@/hooks/queries/use-partner-queries';
+import { usePartnerOverview, usePartnerRequests, usePartnerWorkspaces } from '@/hooks/queries/use-partner-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import { usePartnerContext } from '@/lib/partner/partner-context';
 import { Link, useRouter, useSearchParams } from '@/lib/router';
@@ -44,9 +45,9 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 function usePricingLabel() {
   const { t, format } = useI18n();
   const f = useFormatters();
-  return (pricing: ManagedWorkspaceRow['licence']['resalePricing']) =>
+  return (pricing: ManagedWorkspaceRow['licence']['resalePricing'], currency: string | undefined) =>
     format(pricing.model === 'flat' ? t.partner.workspaces.pricingFlat : t.partner.workspaces.pricingPerSeat, {
-      amount: f.money(pricing.amount),
+      amount: f.money(pricing.amount, currency),
     });
 }
 
@@ -65,6 +66,7 @@ export default function PartnerWorkspacesPage() {
   });
   const requests = usePartnerRequests(Boolean(params.get('provision')));
   const pricingLabel = usePricingLabel();
+  const currency = usePartnerOverview().data?.contract?.currency;
   const [creating, setCreating] = useState(false);
 
   // `?provision=<requestId>` arrives from the Requests page.
@@ -144,7 +146,14 @@ export default function PartnerWorkspacesPage() {
                 <TableCell className="hidden text-muted-foreground lg:table-cell">
                   {w.packageName ?? tw.customLicence}
                 </TableCell>
-                <TableCell className="whitespace-nowrap">{pricingLabel(w.licence.resalePricing)}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {pricingLabel(w.licence.resalePricing, currency)}
+                  {w.licence.status !== 'ended' && w.estimate.resale < w.estimate.floor && (
+                    <Badge variant="warning" className="ml-2" title={tw.belowMinimumHint}>
+                      {tw.belowMinimum}
+                    </Badge>
+                  )}
+                </TableCell>
                 <TableCell className="hidden tabular-nums sm:table-cell">
                   {w.licence.maxSeats === null
                     ? w.activeMembers
@@ -156,11 +165,11 @@ export default function PartnerWorkspacesPage() {
                     allowance: f.number(w.licence.monthlyCredits),
                   })}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{f.cents(w.estimate.due)}</TableCell>
+                <TableCell className="text-right tabular-nums">{f.cents(w.estimate.due, currency)}</TableCell>
                 <TableCell
                   className={`text-right tabular-nums ${w.estimate.margin < 0 ? 'text-destructive' : ''}`}
                 >
-                  {f.cents(w.estimate.margin)}
+                  {f.cents(w.estimate.margin, currency)}
                 </TableCell>
                 <TableCell>
                   <LicenceStatusBadge status={w.licence.status} />

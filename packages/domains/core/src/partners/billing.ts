@@ -41,6 +41,8 @@ export function partnerContractToView(c: PartnerContractRow): PartnerContractVie
     currency: c.currency,
     revenueShareBps: c.revenueShareBps,
     baseMinimum: c.baseMinimum,
+    includedSeats: c.includedSeats,
+    seatFloorPrice: c.seatFloorPrice,
     includedCredits: c.includedCredits,
     creditFloorPrice: c.creditFloorPrice,
     extraCreditPrice: c.extraCreditPrice,

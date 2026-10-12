@@ -22,7 +22,9 @@ import { formatCredits, formatDecimal } from '@/lib/billing-format';
 import type { PlanOption } from '@/lib/billing-types';
 import { fill } from '@/lib/i18n';
 import {
+  currentContract,
   defaultLicenceForm,
+  licenceMinimumMessage,
   licenceFormFromSnapshot,
   licencePayload,
   parseLicenceForm,
@@ -30,6 +32,7 @@ import {
   type AdminPartnerWorkspace,
 } from '@/lib/partners';
 import { partnersCopy } from '@/lib/partners-copy';
+import type { PartnerContractView } from '@weldsuite/app-api-client/schemas/partners';
 import type { PartnerTabProps } from './partner-detail';
 
 type Dialog =
@@ -43,6 +46,8 @@ export function WorkspacesTab({ detail, canWrite, planOptions, appOptions }: Rea
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const close = () => setDialog(null);
   const done = () => router.refresh();
+  const contract = currentContract(detail.contracts);
+  const currency = contract?.currency ?? 'USD';
 
   return (
     <div className="space-y-4">
@@ -98,7 +103,7 @@ export function WorkspacesTab({ detail, canWrite, planOptions, appOptions }: Rea
                     <TableCell className="text-right tabular-nums">
                       {w.licence ? (w.licence.maxSeats ?? partnersCopy().common.unlimited) : '—'}
                     </TableCell>
-                    <TableCell className="text-sm">{w.licence ? <PriceSummary licence={w.licence} /> : '—'}</TableCell>
+                    <TableCell className="text-sm">{w.licence ? <PriceSummary licence={w.licence} currency={currency} /> : '—'}</TableCell>
                     {canWrite && (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
@@ -120,12 +125,13 @@ export function WorkspacesTab({ detail, canWrite, planOptions, appOptions }: Rea
       </Card>
 
       {dialog?.kind === 'attach' && (
-        <AttachDialog partnerId={detail.partner.id} appOptions={appOptions} planOptions={planOptions} onClose={close} onDone={done} />
+        <AttachDialog partnerId={detail.partner.id} contract={contract} appOptions={appOptions} planOptions={planOptions} onClose={close} onDone={done} />
       )}
       {dialog?.kind === 'edit' && (
         <EditLicenceDialog
           partnerId={detail.partner.id}
           workspace={dialog.workspace}
+          contract={contract}
           appOptions={appOptions}
           planOptions={planOptions}
           onClose={close}
@@ -158,21 +164,29 @@ function AppsSummary({ apps, appOptions }: Readonly<{ apps: string[]; appOptions
   return <span title={names.join(', ')}>{names.length <= 3 ? names.join(', ') : `${names.slice(0, 3).join(', ')} +${names.length - 3}`}</span>;
 }
 
-function PriceSummary({ licence }: Readonly<{ licence: AdminLicence }>) {
+function PriceSummary({ licence, currency }: Readonly<{ licence: AdminLicence; currency: string }>) {
   const t = partnersCopy().workspaces;
   const p = licence.resalePricing;
-  const amount = formatDecimal(p.amount, 'USD');
+  const amount = formatDecimal(p.amount, currency);
   if (p.model === 'flat') return <>{fill(t.flat, { amount })}</>;
   return <>{p.minSeats ? fill(t.perSeatMin, { amount, min: p.minSeats }) : fill(t.perSeat, { amount })}</>;
 }
 
 function AttachDialog({
   partnerId,
+  contract,
   appOptions,
   planOptions,
   onClose,
   onDone,
-}: Readonly<{ partnerId: string; appOptions: AppOption[]; planOptions: PlanOption[]; onClose: () => void; onDone: () => void }>) {
+}: Readonly<{
+  partnerId: string;
+  contract: PartnerContractView | null;
+  appOptions: AppOption[];
+  planOptions: PlanOption[];
+  onClose: () => void;
+  onDone: () => void;
+}>) {
   const t = partnersCopy().workspaces;
   const [workspaceId, setWorkspaceId] = useState('');
   const [query, setQuery] = useState('');
@@ -197,7 +211,7 @@ function AttachDialog({
   }, [query]);
 
   const parsed = parseLicenceForm(licence);
-  const parsedError = parsed.ok ? null : parsed.error;
+  const parsedError = parsed.ok ? licenceMinimumMessage(contract, parsed.value) : parsed.error;
   const invalid = workspaceId.trim() === '' ? `${t.workspaceId}: required` : parsedError;
 
   return (
@@ -257,7 +271,7 @@ function AttachDialog({
           </SelectContent>
         </Select>
       </Field>
-      <LicenceFields value={licence} onChange={setLicence} disabled={false} appOptions={appOptions} planOptions={planOptions} idPrefix="attach" />
+      <LicenceFields value={licence} onChange={setLicence} disabled={false} appOptions={appOptions} planOptions={planOptions} idPrefix="attach" currency={contract?.currency ?? 'USD'} />
     </ActionDialog>
   );
 }
@@ -265,6 +279,7 @@ function AttachDialog({
 function EditLicenceDialog({
   partnerId,
   workspace,
+  contract,
   appOptions,
   planOptions,
   onClose,
@@ -272,6 +287,7 @@ function EditLicenceDialog({
 }: Readonly<{
   partnerId: string;
   workspace: AdminPartnerWorkspace;
+  contract: PartnerContractView | null;
   appOptions: AppOption[];
   planOptions: PlanOption[];
   onClose: () => void;
@@ -287,7 +303,7 @@ function EditLicenceDialog({
       title={fill(t.editTitle, { name: workspace.name })}
       description={t.editHint}
       submitLabel={t.editSubmit}
-      invalidMessage={parsed.ok ? null : parsed.error}
+      invalidMessage={parsed.ok ? licenceMinimumMessage(contract, parsed.value) : parsed.error}
       onSubmit={(reason, requestId) =>
         updatePartnerWorkspaceLicence(
           partnerId,
@@ -302,7 +318,7 @@ function EditLicenceDialog({
         onDone();
       }}
     >
-      <LicenceFields value={licence} onChange={setLicence} disabled={false} appOptions={appOptions} planOptions={planOptions} idPrefix="edit-licence" />
+      <LicenceFields value={licence} onChange={setLicence} disabled={false} appOptions={appOptions} planOptions={planOptions} idPrefix="edit-licence" currency={contract?.currency ?? 'USD'} />
     </ActionDialog>
   );
 }

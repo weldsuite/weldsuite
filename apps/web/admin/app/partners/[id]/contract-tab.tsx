@@ -43,6 +43,8 @@ export function ContractTab({ detail, canWrite, planOptions }: Readonly<PartnerT
                   <TableHead>{t.columns.to}</TableHead>
                   <TableHead className="text-right">{t.columns.share}</TableHead>
                   <TableHead className="text-right">{t.columns.minimum}</TableHead>
+                  <TableHead className="text-right">{t.columns.seats}</TableHead>
+                  <TableHead className="text-right">{t.columns.seatFloor}</TableHead>
                   <TableHead className="text-right">{t.columns.credits}</TableHead>
                   <TableHead className="text-right">{t.columns.creditFloor}</TableHead>
                   <TableHead>{t.columns.terms}</TableHead>
@@ -51,7 +53,7 @@ export function ContractTab({ detail, canWrite, planOptions }: Readonly<PartnerT
               <TableBody>
                 {contracts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={9} className="py-8 text-center text-sm text-muted-foreground">
                       {t.empty}
                     </TableCell>
                   </TableRow>
@@ -69,6 +71,8 @@ export function ContractTab({ detail, canWrite, planOptions }: Readonly<PartnerT
                     <TableCell className="whitespace-nowrap">{c.effectiveTo ? formatDay(c.effectiveTo) : t.open}</TableCell>
                     <TableCell className="text-right tabular-nums">{bpsToPercent(c.revenueShareBps)}%</TableCell>
                     <TableCell className="text-right tabular-nums">{formatDecimal(c.baseMinimum, c.currency)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{c.includedSeats.toLocaleString('en-GB')}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatDecimal(c.seatFloorPrice, c.currency)}</TableCell>
                     <TableCell className="text-right tabular-nums">{c.includedCredits.toLocaleString('en-GB')}</TableCell>
                     <TableCell className="text-right tabular-nums">{c.creditFloorPrice}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">

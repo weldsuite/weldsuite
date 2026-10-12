@@ -1,26 +1,28 @@
 /**
- * The live "WeldSuite bills / you keep" figures for a licence being edited.
+ * The live "WeldSuite bills / you keep" figures for a licence being edited,
+ * and why its price is refused when it is below the minimum.
  *
- * The numbers come from `priceWorkspaceMonth`, the same function the monthly
- * statement uses, fed with the contract from the overview endpoint, so what the
- * partner sees while typing is what the statement will say for a full month.
+ * The numbers come from `priceWorkspaceMonth` and `resaleMinimumShortfall`,
+ * the functions the monthly statement and the server use, fed with the
+ * contract from the overview endpoint, so what the partner sees while typing
+ * is what the statement will say for a full month.
  */
 
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import type { PricingContract } from '@weldsuite/app-api-client/schemas/partners';
+import type { PricingContract, ResaleMinimumShortfall } from '@weldsuite/app-api-client/schemas/partners';
 import { useI18n } from '@/lib/i18n/provider';
 import { formatPercentBps } from '@/lib/partner/money';
 import { cn } from '@/lib/utils';
-import { previewDraft, type LicenceDraft } from '../lib/licence-draft';
+import { draftShortfall, previewDraft, type LicenceDraft } from '../lib/licence-draft';
 import { useFormatters } from './kit';
 
 interface LicencePreviewProps {
-  contract: PricingContract | null | undefined;
+  contract: (PricingContract & { currency: string }) | null | undefined;
   draft: LicenceDraft;
-  /** Billable seats the estimate assumes (matters for per-seat pricing). */
+  /** Billable seats the estimate assumes (the minimum, and per-seat pricing, depend on it). */
   seats: number;
-  /** When given, per-seat pricing shows an input to try other seat counts. */
+  /** When given, an input to try other seat counts. */
   onSeatsChange?: (seats: number) => void;
 }
 
@@ -78,13 +80,24 @@ export function LicencePreview({ contract, draft, seats, onSeatsChange }: Readon
   }
 
   const price = previewDraft(contract, draft, seats);
-  const perSeat = draft.pricingModel === 'per_seat';
+  const shortfall = draftShortfall(contract, draft);
+  const money = (cents: number) => f.cents(cents, contract.currency);
+
+  const shortfallText = (s: ResaleMinimumShortfall): string => {
+    if (s.reason === 'below_minimum') {
+      return format(tp.shortfallBelow, { seats: s.seats, minimum: money(s.minimum), price: money(s.price) });
+    }
+    if (s.reason === 'needs_seat_limit') {
+      return format(tp.shortfallSeatLimit, { price: money(s.seatFloorPrice), included: contract.includedSeats });
+    }
+    return format(tp.shortfallSeatPrice, { price: money(s.seatFloorPrice) });
+  };
 
   return (
     <section aria-label={tp.title} className="rounded-xl border bg-muted/30 p-4">
       <div className="mb-2 flex items-start justify-between gap-3">
         <h3 className="text-sm font-semibold">{tp.title}</h3>
-        {perSeat && onSeatsChange && (
+        {onSeatsChange && (
           <div className="flex items-center gap-2">
             <Label htmlFor="preview-seats" className="text-xs text-muted-foreground">
               {format(tp.seatsAssumed, { count: seats })}
@@ -104,30 +117,40 @@ export function LicencePreview({ contract, draft, seats, onSeatsChange }: Readon
       {price ? (
         <>
           <div className="divide-y">
-            <Row testId="preview-resale" label={tp.customerPays} value={f.cents(price.resale)} />
-            <Row
-              testId="preview-share"
-              label={format(tp.weldsuiteShare, { percent: formatPercentBps(contract.revenueShareBps) })}
-              value={f.cents(price.share)}
-            />
+            <Row testId="preview-resale" label={tp.customerPays} value={money(price.resale)} />
             <Row
               testId="preview-floor"
               label={tp.minimum}
-              hint={format(tp.minimumBreakdown, { base: f.cents(price.baseFloor), credits: f.cents(price.creditFloor) })}
-              value={f.cents(price.floor)}
+              hint={format(tp.minimumBreakdown, {
+                base: money(price.baseFloor),
+                seats: money(price.seatFloor),
+                credits: money(price.creditFloor),
+              })}
+              value={money(price.floor)}
             />
-            <Row testId="preview-due" label={tp.weldsuiteBills} value={f.cents(price.due)} strong />
+            <Row
+              testId="preview-share"
+              label={format(tp.weldsuiteShare, { percent: formatPercentBps(contract.revenueShareBps) })}
+              value={money(price.share)}
+            />
+            <Row testId="preview-due" label={tp.weldsuiteBills} value={money(price.due)} strong />
             <Row
               testId="preview-margin"
               label={tp.youKeep}
-              value={f.cents(price.margin)}
+              value={money(price.margin)}
               strong
               tone={price.margin < 0 ? 'negative' : 'positive'}
             />
           </div>
-          <p className="mt-3 text-xs text-muted-foreground" data-testid="preview-basis">
-            {basisNote(price, tp)}
-          </p>
+          {shortfall ? (
+            <p className="mt-3 text-xs text-destructive" role="alert" data-testid="preview-shortfall">
+              {shortfallText(shortfall)}
+            </p>
+          ) : (
+            <p className="mt-3 text-xs text-muted-foreground" data-testid="preview-basis">
+              {basisNote(price, tp)}
+            </p>
+          )}
           <p className="mt-1 text-xs text-muted-foreground">{tp.footnote}</p>
         </>
       ) : (

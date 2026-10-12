@@ -367,6 +367,25 @@ describe('PUT /workspaces/:id/licence', () => {
     expect(domain.upsertWorkspaceLicence).not.toHaveBeenCalled();
   });
 
+  it('refuses a price below the minimum with where it falls short', async () => {
+    memberships([PARTNER, 'owner']);
+    const details = {
+      reason: 'below_minimum' as const,
+      currency: 'USD',
+      includedSeats: 5,
+      seats: 10,
+      minimum: '150.00',
+      price: '120.00',
+      seatFloorPrice: null,
+      message: 'At 10 seats the price is 120.00 USD, below the minimum of 150.00 USD',
+    };
+    m(domain.validateLicenceTerms).mockRejectedValue(new domain.LicenceError('BELOW_MINIMUM', details.message, details));
+    const res = await app().request('/api/partner/workspaces/ws_1/licence', { method: 'PUT', ...json(LICENCE_BODY) });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: unknown }).error).toEqual({ code: 'BELOW_MINIMUM', message: details.message, details });
+    expect(domain.upsertWorkspaceLicence).not.toHaveBeenCalled();
+  });
+
   it('refuses a package that is not the partner’s', async () => {
     memberships([PARTNER, 'owner']);
     m(domain.getPackage).mockResolvedValue(null);
