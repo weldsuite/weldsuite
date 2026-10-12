@@ -88,6 +88,9 @@ import {
   useToggleMailStar,
 } from '@/hooks/queries/use-mail-queries';
 import { isSystemLabel } from '../lib/label-config';
+import { buildComposeBodies } from '../lib/compose-body';
+import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '../lib/signature';
+import { SignaturePicker, useComposeSignature } from './compose-signature';
 import { saveMailAttachment } from '../lib/download-attachment';
 import type { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { CustomerDetailPanel } from './customer-detail-panel';
@@ -1041,11 +1044,12 @@ function FormatButton({ active, title, command, Icon, onCommand }: Readonly<{
   );
 }
 
-function ComposeToolbar({ activeFormats, onCommand, onFilesSelected, onOpenAi }: Readonly<{
+function ComposeToolbar({ activeFormats, onCommand, onFilesSelected, onOpenAi, signaturePicker }: Readonly<{
   activeFormats: Record<string, boolean>;
   onCommand: (command: string, value?: string) => void;
   onFilesSelected: (files: File[]) => void;
   onOpenAi: () => void;
+  signaturePicker: React.ReactNode;
 }>) {
   const { t } = useI18n();
   return (
@@ -1071,6 +1075,7 @@ function ComposeToolbar({ activeFormats, onCommand, onFilesSelected, onOpenAi }:
       }}>
         <Link className="h-4 w-4 text-muted-foreground" />
       </Button>
+      {signaturePicker}
       <div className="w-px h-5 bg-border mx-0.5" />
       <Button
         variant="ghost"
@@ -1314,6 +1319,14 @@ interface MessageDetailProps {
   onClose?: () => void;
 }
 
+/** The reply box's signature mode, and the session that re-arms it for each mail it opens for. */
+function inlineSignature(isReplying: boolean, isForwarding: boolean, round: number, messageId: string | null) {
+  let mode: SignatureMode | null = null;
+  if (isForwarding) mode = 'forward';
+  else if (isReplying) mode = 'reply';
+  return { mode, session: mode ? `${round}:${mode}:${messageId}` : null };
+}
+
 export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [], onClose }: Readonly<MessageDetailProps>) {
   const { t } = useI18n();
   const router = useRouter();
@@ -1339,6 +1352,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const [composeData, setComposeData] = useState({ to: '', subject: '', body: '' });
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
+  // Counts reply boxes opened, so reopening one on the same message gets its signature again.
+  const [composeRound, setComposeRound] = useState(0);
+  const inline = inlineSignature(isReplying, isForwarding, composeRound, replyToMessageId);
+  const signature = useComposeSignature({ editorRef, accountId, autoInsert: inline.mode, session: inline.session });
   const [activeFormats, setActiveFormats] = useState<Record<string, boolean>>({});
   const [messageLabels, setMessageLabels] = useState<string[]>(message.labels || []);
   const [isUpdatingLabels, setIsUpdatingLabels] = useState(false);
@@ -1596,6 +1613,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setReplyToMessageId(null);
     setComposeData({ to: '', subject: '', body: '' });
     setAttachedFiles([]);
+    setComposeRound((round) => round + 1);
     if (editorRef.current) editorRef.current.innerHTML = '';
   };
 
@@ -1618,8 +1636,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const handleSendReply = async () => {
     if (isSending) return;
     const htmlContent = editorRef.current?.innerHTML || '';
-    const textContent = editorRef.current?.textContent || '';
-    if (!textContent.trim()) {
+    // The text part keeps line breaks (between the reply and its signature too).
+    const textContent = buildComposeBodies(htmlContent).body;
+    if (!userWrittenText(htmlContent)) {
       toast.error(t.mail.composePage.enterMessage);
       return;
     }
@@ -1655,7 +1674,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       return;
     }
     const htmlContent = editorRef.current?.innerHTML || '';
-    const textContent = editorRef.current?.textContent || '';
+    const textContent = buildComposeBodies(htmlContent).body;
     setIsSending(true);
     try {
       const attachments = await uploadAttachedFiles(textContent, htmlContent);
@@ -1907,6 +1926,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setAttachedFiles([]);
     setIsAutoDraft(false);
     setInlineAiPrompt('');
+    setComposeRound((round) => round + 1);
     if (editorRef.current) editorRef.current.innerHTML = '';
   };
 
@@ -1939,7 +1959,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       .then((result) => {
         const editor = editorRef.current;
         if (result.success && result.body && editor) {
-          editor.innerHTML = formatAiBody(result.body);
+          replaceBodyKeepingSignature(editor, formatAiBody(result.body));
           setIsAgentInline(false);
           toast.success(getSuccessMessage(editor));
         } else {
@@ -2072,7 +2092,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
             isAgentInline={isAgentInline}
             inputRef={inlineAiInputRef}
             prompt={inlineAiPrompt}
-            placeholder={editorRef.current?.textContent?.trim() ? t.mail.messageDetail.aiEditPlaceholder : t.mail.messageDetail.aiReplyPlaceholder}
+            placeholder={userWrittenText(editorRef.current?.innerHTML ?? '') ? t.mail.messageDetail.aiEditPlaceholder : t.mail.messageDetail.aiReplyPlaceholder}
             isGenerating={isInlineAiGenerating}
             onPromptChange={setInlineAiPrompt}
             onEnter={handleEnterInlineAi}
@@ -2088,6 +2108,16 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
               onCommand={execCommand}
               onFilesSelected={(files) => setAttachedFiles((prev) => [...prev, ...files])}
               onOpenAi={openInlineAi}
+              signaturePicker={
+                <SignaturePicker
+                  className="p-2 hover:bg-muted rounded-md transition-colors"
+                  iconClassName="text-muted-foreground"
+                  signatures={signature.signatures}
+                  getSelectedId={signature.getSelectedId}
+                  onSelect={signature.select}
+                  testId="reply-signature-btn"
+                />
+              }
             />
             <div className="flex items-center gap-1.5 ml-auto">
               <Button variant="outline" size="sm" onClick={cancelCompose}>
@@ -2146,13 +2176,13 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
     setInlineAiPrompt('');
     // If compose box was already open, update editor immediately
     if (wasAlreadyReplying && editorRef.current) {
-      editorRef.current.innerHTML = formatAiBody(draft.body || '');
+      replaceBodyKeepingSignature(editorRef.current, formatAiBody(draft.body || ''));
       inlineAiInputRef.current?.focus();
     } else {
       // Wait for compose box to mount
       setTimeout(() => {
         if (editorRef.current) {
-          editorRef.current.innerHTML = formatAiBody(draft.body || '');
+          replaceBodyKeepingSignature(editorRef.current, formatAiBody(draft.body || ''));
         }
         inlineAiInputRef.current?.focus();
       }, 150);

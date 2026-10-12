@@ -8,6 +8,7 @@ import { mailApi } from '../../../lib/api-client';
 import { useAppApi, useAppApiClient } from '@/lib/api/use-app-api';
 import type { MailDraftRow } from '@weldsuite/app-api-client/domains/mail-drafts';
 import { buildComposeBodies, plainTextToHtml, type ComposeBodies } from '@/app/weldmail/lib/compose-body';
+import { replaceBodyKeepingSignature, userWrittenText, type SignatureMode } from '@/app/weldmail/lib/signature';
 import type { DraftFields } from '@/app/weldmail/lib/draft-autosave';
 import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
 import { useComposeSafe } from '@/contexts/compose-context';
@@ -119,6 +120,12 @@ function applyDraftFields(fields: LoadedDraftFields, setters: DraftFieldSetters)
   if (fields.inReplyTo) setters.setInReplyTo(fields.inReplyTo);
 }
 
+// An opened draft keeps the signature it was saved with (or none).
+function composeSignatureMode(draftId: string | null, inReplyTo: string | undefined): SignatureMode | null {
+  if (draftId) return null;
+  return inReplyTo ? 'reply' : 'new';
+}
+
 type DraftFormSnapshot = Pick<
   ComposeFormSnapshot,
   'toRecipients' | 'toInput' | 'subject' | 'body' | 'ccRecipients' | 'bccRecipients'
@@ -131,7 +138,8 @@ function buildDraftFields(
   editorHtml: string | undefined,
   inReplyTo: string | undefined,
 ): DraftFields {
-  const { body, htmlBody } = buildComposeBodies(editorHtml ?? form.body);
+  const html = editorHtml ?? form.body;
+  const { body, htmlBody } = buildComposeBodies(html);
   return {
     subject: form.subject,
     to: withPendingInput(form.toRecipients, form.toInput),
@@ -140,6 +148,7 @@ function buildDraftFields(
     body,
     htmlBody,
     inReplyTo,
+    contentText: userWrittenText(html),
   };
 }
 
@@ -403,14 +412,15 @@ function useComposeSend({
   const handleSend = async () => {
     if (isSending) return;
     // Read the editor directly so Ctrl+Enter sends text that has not blurred yet.
-    const bodies = buildComposeBodies(editorRef.current ? editorRef.current.innerHTML : form.body);
+    const editorHtml = editorRef.current ? editorRef.current.innerHTML : form.body;
+    const bodies = buildComposeBodies(editorHtml);
     // Commit any pending input
     const toAddresses = withPendingInput(form.toRecipients, form.toInput);
     if (toAddresses.length === 0) {
       toast.error(cp.atLeastOneRecipient);
       return;
     }
-    if (!bodies.body) {
+    if (!userWrittenText(editorHtml)) {
       toast.error(cp.enterMessage);
       return;
     }
@@ -500,11 +510,14 @@ export default function ComposePage(props: ComposePageProps = {}) {
   });
   useInitEditorFromContext(composeContext, draftId, textareaRef, isMinimizingRef);
 
+  // A loaded draft or an AI draft; a signature already in the editor stays below it.
   const setEditorContent = (html: string) => {
-    setBody(html);
-    if (textareaRef.current) {
-      textareaRef.current.innerHTML = html;
+    if (!textareaRef.current) {
+      setBody(html);
+      return;
     }
+    replaceBodyKeepingSignature(textareaRef.current, html);
+    setBody(textareaRef.current.innerHTML);
   };
 
   const applyLoadedDraft = (draft: MailDraftRow) => {
@@ -607,7 +620,8 @@ export default function ComposePage(props: ComposePageProps = {}) {
     );
   }, [scheduleDraftSave, draftLoaded, toRecipients, toInput, subject, body, ccRecipients, bccRecipients, inReplyTo]);
 
-  const hasContent = Boolean(toRecipients.length > 0 || toInput || subject || body || bodyHasText);
+  // A body holding only the signature compose put in is not content.
+  const hasContent = Boolean(toRecipients.length > 0 || toInput || subject || userWrittenText(body) || bodyHasText);
 
   // The compose design is shared with the floating panel (ComposeSurface); this
   // page only supplies the message, the draft and the sending.
@@ -638,11 +652,12 @@ export default function ComposePage(props: ComposePageProps = {}) {
       subject={subject}
       onSubjectChange={setSubject}
       editorRef={textareaRef}
-      onBodyInput={(html, text) => {
-        setBodyHasText(Boolean(text.trim()));
+      onBodyInput={(html) => {
+        setBodyHasText(Boolean(userWrittenText(html)));
         reportDraftChange(html);
       }}
       onBodyBlur={setBody}
+      signatureMode={composeSignatureMode(draftId, inReplyTo)}
       attachedFiles={attachedFiles}
       onAttachedFilesChange={setAttachedFiles}
       scheduledTime={scheduledTime}

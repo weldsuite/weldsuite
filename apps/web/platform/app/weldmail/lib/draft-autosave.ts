@@ -24,6 +24,11 @@ export interface DraftFields {
   /** Markup part. */
   htmlBody: string;
   inReplyTo?: string;
+  /**
+   * The text the user wrote, without the signature compose put in. Only decides
+   * blankness: a form that holds nothing but a signature makes no draft. Not saved.
+   */
+  contentText?: string;
 }
 
 export interface DraftPersistence {
@@ -58,7 +63,7 @@ export function isDraftBlank(fields: DraftFields): boolean {
     fields.to.length === 0 &&
     fields.cc.length === 0 &&
     fields.bcc.length === 0 &&
-    !fields.body.trim()
+    !(fields.contentText ?? fields.body).trim()
   );
 }
 
