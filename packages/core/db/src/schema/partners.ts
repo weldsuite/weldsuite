@@ -16,16 +16,19 @@ import {
 //
 // A partner (reseller) creates workspaces for its own customers, licenses each
 // one (apps, monthly credits, seats) and bills its customers itself at a price
-// it records here. WeldSuite bills the partner monthly:
+// it records here. That price may not be below the contract's minimum selling
+// price, and WeldSuite bills the partner its share of it monthly:
 //
-//   due = max(resale × revenue_share, floor) + extra credits granted
-//   floor = base_minimum + max(0, licensed_credits − included_credits) × credit_floor_price
+//   minimum = base_minimum
+//           + max(0, billable_seats − included_seats) × seat_floor_price
+//           + max(0, licensed_credits − included_credits) × credit_floor_price
+//   due     = max(resale, minimum) × revenue_share + extra credits granted
 //
 // Plan: docs/plans/reseller-licensing.md. Master DB because the partner portal
 // reads across many workspaces and the licence joins the cached workspace
 // context every API worker already loads.
 //
-// Money columns are `numeric` in the contract currency (USD), never floats.
+// Money columns are `numeric` in the contract currency, never floats.
 // ============================================================================
 
 export const PARTNER_STATUSES = ['active', 'past_due', 'suspended'] as const;
@@ -116,11 +119,15 @@ export const partnerContracts = pgTable('partner_contracts', {
   currency: varchar('currency', { length: 3 }).notNull().default('USD'),
   /** WeldSuite's share of the resale price, in basis points (7500 = 75%). */
   revenueShareBps: integer('revenue_share_bps').notNull().default(7500),
-  /** Per workspace per month. */
+  /** Minimum selling price per workspace per month, before extra seats and credits. */
   baseMinimum: numeric('base_minimum', { precision: 12, scale: 2 }).notNull().default('0'),
+  /** Billable seats covered by the base minimum. */
+  includedSeats: integer('included_seats').notNull().default(0),
+  /** Minimum price per billable seat above `includedSeats`, per month. */
+  seatFloorPrice: numeric('seat_floor_price', { precision: 12, scale: 2 }).notNull().default('0'),
   /** Monthly credits covered by the base minimum. */
   includedCredits: integer('included_credits').notNull().default(0),
-  /** Floor price per licensed credit above `includedCredits`. */
+  /** Minimum price per licensed credit above `includedCredits`. */
   creditFloorPrice: numeric('credit_floor_price', { precision: 12, scale: 6 }).notNull().default('0'),
   /** Price per credit for extra credits a partner grants mid-month. */
   extraCreditPrice: numeric('extra_credit_price', { precision: 12, scale: 6 }).notNull().default('0'),
@@ -335,7 +342,9 @@ export const partnerStatementLines = pgTable('partner_statement_lines', {
   seatsBilled: integer('seats_billed').notNull().default(0),
   resale: numeric('resale', { precision: 12, scale: 2 }).notNull(),
   shareAmount: numeric('share_amount', { precision: 12, scale: 2 }).notNull(),
+  /** The minimum selling price's base and seat part, prorated. */
   floorAmount: numeric('floor_amount', { precision: 12, scale: 2 }).notNull(),
+  /** The minimum selling price's credit part, prorated. */
   creditFloorAmount: numeric('credit_floor_amount', { precision: 12, scale: 2 }).notNull(),
   extraCreditsAmount: numeric('extra_credits_amount', { precision: 12, scale: 2 }).notNull().default('0'),
   due: numeric('due', { precision: 12, scale: 2 }).notNull(),

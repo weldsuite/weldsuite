@@ -27,6 +27,8 @@ const contract = {
   currency: 'USD',
   revenueShareBps: 7500,
   baseMinimum: '50.00',
+  includedSeats: 0,
+  seatFloorPrice: '0.00',
   includedCredits: 2000,
   creditFloorPrice: '0.004',
   extraCreditPrice: '0.01',
@@ -59,7 +61,7 @@ const workspaceRow = {
   activeMembers: 3,
   creditsUsedThisPeriod: 500,
   creditBalance: 1500,
-  estimate: { resale: 40000, share: 30000, baseFloor: 5000, creditFloor: 0, floor: 5000, due: 30000, margin: 10000, basis: 'share' },
+  estimate: { resale: 40000, share: 30000, baseFloor: 5000, seatFloor: 0, creditFloor: 0, floor: 5000, due: 30000, margin: 10000, basis: 'share' },
   createdAt: '2026-03-01T00:00:00.000Z',
 };
 
@@ -164,9 +166,16 @@ test.describe('Partner portal', () => {
     await expect(dialog.getByTestId('preview-margin')).toHaveText('$100.00');
 
     await dialog.getByLabel('Amount (USD)').fill('60');
-    // 75% of $60 = $45 is below the minimum: WeldSuite bills $50, the partner keeps $10.
-    await expect(dialog.getByTestId('preview-due')).toHaveText('$50.00');
-    await expect(dialog.getByTestId('preview-margin')).toHaveText('$10.00');
+    // $60 clears the $50 minimum: WeldSuite bills 75%, the partner keeps $15.
+    await expect(dialog.getByTestId('preview-due')).toHaveText('$45.00');
+    await expect(dialog.getByTestId('preview-margin')).toHaveText('$15.00');
+    await expect(dialog.getByTestId('preview-shortfall')).toHaveCount(0);
+
+    await dialog.getByLabel('Amount (USD)').fill('40');
+    // Below the $50 minimum: the price is refused.
+    await expect(dialog.getByTestId('preview-shortfall')).toHaveText(
+      'Your price is below the minimum. Seats: 1 · minimum $50.00 · your price $40.00.',
+    );
   });
 
   test('does not offer a viewer any way to create or change a workspace', async ({ page }) => {

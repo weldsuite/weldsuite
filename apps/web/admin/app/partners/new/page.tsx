@@ -5,6 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import { requireAdmin } from '@/lib/auth';
 import { listPlanOptions } from '@/lib/billing-data';
+import { getPartnerContractDefaults } from '@/lib/partner-contract-defaults-data';
 import { partnersCopy } from '@/lib/partners-copy';
 import { NewPartnerForm } from './new-partner-form';
 
@@ -13,7 +14,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewPartnerPage() {
   const identity = await requireAdmin();
   if (identity.role === 'viewer') redirect('/partners');
-  const plans = await listPlanOptions();
+  const [plans, defaults] = await Promise.all([listPlanOptions(), getPartnerContractDefaults()]);
   const t = partnersCopy();
 
   return (
@@ -28,7 +29,7 @@ export default async function NewPartnerPage() {
           </Button>
           <PageHeading title={t.new.title} description={t.new.description} />
         </div>
-        <NewPartnerForm planOptions={plans} />
+        <NewPartnerForm planOptions={plans} contractDefaults={defaults.terms} />
       </PageBody>
     </PageContent>
   );

@@ -2,7 +2,8 @@
  * Reseller licensing — shared Zod v3 contract and the pure billing maths.
  *
  * A partner (reseller) licenses its customers' workspaces (apps, monthly
- * credits, seats), records what it charges each customer, and pays WeldSuite
+ * credits, seats), records what it charges each customer (never below the
+ * contract's minimum selling price), and pays WeldSuite its share of that
  * monthly. Plan: docs/plans/reseller-licensing.md. Tables: master DB,
  * `packages/core/db/src/schema/partners.ts`.
  *
@@ -35,6 +36,15 @@ export type PartnerStatementStatus = (typeof PARTNER_STATEMENT_STATUSES)[number]
 
 export const PARTNER_REQUEST_STATUSES = ['new', 'contacted', 'provisioned', 'declined'] as const;
 export type PartnerRequestStatus = (typeof PARTNER_REQUEST_STATUSES)[number];
+
+/**
+ * Contract currencies. A partner is billed in one, and its resale prices,
+ * minimums and statements are all in it. Two-decimal currencies only: the
+ * maths works in cents, and Stripe's zero-decimal currencies (JPY, CLP, …)
+ * would be off by a factor of 100.
+ */
+export const PARTNER_CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'NZD', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'BRL', 'MXN'] as const;
+export type PartnerCurrency = (typeof PARTNER_CURRENCIES)[number];
 
 // ============================================================================
 // Partner permissions (portal). Not `weld*` workspace permissions: a partner
@@ -134,9 +144,11 @@ export type PartnerProfileInput = z.infer<typeof partnerProfileSchema>;
 
 export const partnerContractSchema = z.object({
   effectiveFrom: z.string().datetime().optional(),
-  currency: z.literal('USD').default('USD'),
+  currency: z.enum(PARTNER_CURRENCIES).default('USD'),
   revenueShareBps: z.number().int().min(0).max(10_000).default(7500),
   baseMinimum: moneySchema,
+  includedSeats: z.number().int().min(0).max(100_000).default(0),
+  seatFloorPrice: moneySchema.default('0'),
   includedCredits: z.number().int().min(0).max(100_000_000).default(0),
   creditFloorPrice: unitPriceSchema.default('0'),
   extraCreditPrice: unitPriceSchema.default('0'),
@@ -281,6 +293,8 @@ export interface PartnerContractView {
   currency: string;
   revenueShareBps: number;
   baseMinimum: string;
+  includedSeats: number;
+  seatFloorPrice: string;
   includedCredits: number;
   creditFloorPrice: string;
   extraCreditPrice: string;
@@ -403,6 +417,8 @@ export function creditsToCents(credits: number, unitPrice: string): number {
 export interface PricingContract {
   revenueShareBps: number;
   baseMinimum: string;
+  includedSeats: number;
+  seatFloorPrice: string;
   includedCredits: number;
   creditFloorPrice: string;
 }
@@ -415,19 +431,23 @@ export interface PricingLicence {
 
 /** One workspace for one full month. All amounts in cents. */
 export interface WorkspaceMonthPrice {
+  /** What the partner charges its customer. */
   resale: number;
+  /** resale × revenue share. */
   share: number;
   /** The base minimum alone. */
   baseFloor: number;
-  /** The credit part of the floor. */
+  /** The minimum's part for billable seats above the included ones. */
+  seatFloor: number;
+  /** The minimum's part for licensed credits above the included ones. */
   creditFloor: number;
-  /** baseFloor + creditFloor. */
+  /** The minimum selling price: baseFloor + seatFloor + creditFloor. */
   floor: number;
-  /** max(share, floor) */
+  /** What WeldSuite bills: max(resale, floor) × revenue share. */
   due: number;
-  /** resale − due (negative when the floor exceeds what the partner charges). */
+  /** resale − due (below the partner's 25% when the minimum was billed instead). */
   margin: number;
-  /** Which side won: the revenue share or the floor. */
+  /** `floor` when the price is below the minimum, so the minimum is billed instead. */
   basis: 'share' | 'floor';
 }
 
@@ -438,10 +458,37 @@ export function resaleCents(pricing: ResalePricing, seats: number): number {
   return unit * Math.max(seats, pricing.minSeats ?? 0);
 }
 
+/** The minimum selling price for one month, in cents, and its parts. */
+export interface MonthMinimum {
+  base: number;
+  seats: number;
+  credits: number;
+  total: number;
+}
+
+/**
+ * The minimum a partner may charge for a workspace for one month:
+ *   base_minimum
+ *   + max(0, seats − included_seats) × seat_floor_price
+ *   + max(0, licensed_credits − included_credits) × credit_floor_price
+ */
+export function minimumCents(contract: PricingContract, monthlyCredits: number, seats: number): MonthMinimum {
+  const base = toCents(contract.baseMinimum);
+  const seatPart = toCents(contract.seatFloorPrice) * Math.max(0, seats - contract.includedSeats);
+  const credits = creditsToCents(Math.max(0, monthlyCredits - contract.includedCredits), contract.creditFloorPrice);
+  return { base, seats: seatPart, credits, total: base + seatPart + credits };
+}
+
+function shareOf(cents: number, revenueShareBps: number): number {
+  return Math.round((cents * revenueShareBps) / 10_000);
+}
+
 /**
  * Price one workspace for a full month:
- *   due   = max(resale × share, floor)
- *   floor = base_minimum + max(0, licensed_credits − included_credits) × credit_floor_price
+ *   due = max(resale, minimum) × revenue_share
+ * A licence is refused below the minimum when it is written
+ * (`resaleMinimumShortfall`); the max() covers what can still change later,
+ * such as a new contract with a higher minimum.
  */
 export function priceWorkspaceMonth(
   contract: PricingContract,
@@ -449,15 +496,111 @@ export function priceWorkspaceMonth(
   seats: number,
 ): WorkspaceMonthPrice {
   const resale = resaleCents(licence.resalePricing, seats);
-  const share = Math.round((resale * contract.revenueShareBps) / 10_000);
-  const baseFloor = toCents(contract.baseMinimum);
-  const creditFloor = creditsToCents(
-    Math.max(0, licence.monthlyCredits - contract.includedCredits),
-    contract.creditFloorPrice,
-  );
-  const floor = baseFloor + creditFloor;
-  const due = Math.max(share, floor);
-  return { resale, share, baseFloor, creditFloor, floor, due, margin: resale - due, basis: share >= floor ? 'share' : 'floor' };
+  const minimum = minimumCents(contract, licence.monthlyCredits, seats);
+  const due = shareOf(Math.max(resale, minimum.total), contract.revenueShareBps);
+  return {
+    resale,
+    share: shareOf(resale, contract.revenueShareBps),
+    baseFloor: minimum.base,
+    seatFloor: minimum.seats,
+    creditFloor: minimum.credits,
+    floor: minimum.total,
+    due,
+    margin: resale - due,
+    basis: resale >= minimum.total ? 'share' : 'floor',
+  };
+}
+
+/** Why a licence's price is refused (`resaleMinimumShortfall`). Amounts in cents. */
+export type ResaleMinimumShortfall =
+  /** At `seats` billable seats the price is below the minimum. */
+  | { reason: 'below_minimum'; seats: number; minimum: number; price: number }
+  /** A flat price with unlimited seats cannot keep up with a per-seat minimum. */
+  | { reason: 'needs_seat_limit'; seatFloorPrice: number }
+  /** With unlimited seats, the per-seat price must be at least the minimum per extra seat. */
+  | { reason: 'seat_price_too_low'; seatFloorPrice: number };
+
+/**
+ * Whether a licence's price covers the minimum selling price at every seat
+ * count the licence allows (1 up to `maxSeats`, or without limit). Null when it
+ * does, else the largest shortfall.
+ *
+ * Price and minimum are both piecewise linear in the seat count and bend only
+ * at `minSeats` (per-seat price) and `includedSeats` (minimum), so checking
+ * those points and the ends of the range is exhaustive. Without a seat limit
+ * (`maxSeats` null or absent) the price must also grow at least as fast as the
+ * minimum.
+ */
+export function resaleMinimumShortfall(
+  contract: PricingContract,
+  licence: PricingLicence & { maxSeats?: number | null },
+): ResaleMinimumShortfall | null {
+  const pricing = licence.resalePricing;
+  const maxSeats = licence.maxSeats ?? null;
+  const minSeats = pricing.model === 'per_seat' ? (pricing.minSeats ?? 1) : 1;
+  const seatFloorPrice = toCents(contract.seatFloorPrice);
+  if (maxSeats === null && seatFloorPrice > 0) {
+    if (pricing.model === 'flat') return { reason: 'needs_seat_limit', seatFloorPrice };
+    if (toCents(pricing.amount) < seatFloorPrice) return { reason: 'seat_price_too_low', seatFloorPrice };
+  }
+  const top = maxSeats ?? Math.max(1, contract.includedSeats, minSeats);
+  let worst: { seats: number; minimum: number; price: number } | null = null;
+  for (const point of [1, minSeats, contract.includedSeats, top]) {
+    const seats = Math.min(Math.max(point, 1), top);
+    const minimum = minimumCents(contract, licence.monthlyCredits, seats).total;
+    const price = resaleCents(pricing, seats);
+    const gap = minimum - price;
+    if (gap <= 0) continue;
+    if (!worst || gap > worst.minimum - worst.price || (gap === worst.minimum - worst.price && seats < worst.seats)) {
+      worst = { seats, minimum, price };
+    }
+  }
+  return worst ? { reason: 'below_minimum', ...worst } : null;
+}
+
+/** `400 BELOW_MINIMUM` details from a licence or package write. Money in the contract currency. */
+export interface BelowMinimumDetails {
+  reason: ResaleMinimumShortfall['reason'];
+  currency: string;
+  includedSeats: number;
+  /** `below_minimum`: the seat count where the price falls short most. */
+  seats: number | null;
+  /** `below_minimum`: the minimum and the price at `seats`. */
+  minimum: string | null;
+  price: string | null;
+  /** `needs_seat_limit` / `seat_price_too_low`: the minimum per extra seat. */
+  seatFloorPrice: string | null;
+  /** English, for logs and the admin console. */
+  message: string;
+}
+
+export function belowMinimumDetails(
+  shortfall: ResaleMinimumShortfall,
+  contract: Pick<PricingContract, 'includedSeats'> & { currency: string },
+): BelowMinimumDetails {
+  const { currency, includedSeats } = contract;
+  const base = { reason: shortfall.reason, currency, includedSeats, seats: null, minimum: null, price: null, seatFloorPrice: null };
+  if (shortfall.reason === 'below_minimum') {
+    const minimum = fromCents(shortfall.minimum);
+    const price = fromCents(shortfall.price);
+    const seats = `${shortfall.seats} ${shortfall.seats === 1 ? 'seat' : 'seats'}`;
+    return {
+      ...base,
+      seats: shortfall.seats,
+      minimum,
+      price,
+      message: `At ${seats} the price is ${price} ${currency}, below the minimum of ${minimum} ${currency}`,
+    };
+  }
+  const seatFloorPrice = fromCents(shortfall.seatFloorPrice);
+  return {
+    ...base,
+    seatFloorPrice,
+    message:
+      shortfall.reason === 'needs_seat_limit'
+        ? `A flat price needs a seat limit: the minimum rises by ${seatFloorPrice} ${currency} for every seat above ${includedSeats}`
+        : `Without a seat limit the price per seat must be at least ${seatFloorPrice} ${currency}`,
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -595,7 +738,9 @@ export interface StatementLineAmounts {
   seatsBilled: number;
   resale: number;
   share: number;
+  /** The minimum selling price's base and seat part. */
   floor: number;
+  /** The minimum selling price's credit part. */
   creditFloor: number;
   extraCredits: number;
   due: number;
@@ -615,9 +760,10 @@ export interface StatementLineAmounts {
 
 /**
  * Price one workspace for a period: each licence segment is priced as a full
- * month (`priceWorkspaceMonth`, with `max(share, floor)` applied per segment)
- * and prorated by its share of the period's days. Seats are the period's peak.
- * Extra credits granted in the period are added on top, unprorated.
+ * month (`priceWorkspaceMonth`, with `max(resale, minimum)` applied per
+ * segment) and prorated by its share of the period's days. Seats are the
+ * period's peak. Extra credits granted in the period are added on top,
+ * unprorated.
  */
 export function priceWorkspacePeriod(input: {
   contract: PricingContract;
@@ -650,7 +796,7 @@ export function priceWorkspacePeriod(input: {
       days: seg.days,
       resale: prorate(month.resale, seg.days),
       share: prorate(month.share, seg.days),
-      floor: prorate(month.baseFloor, seg.days),
+      floor: prorate(month.baseFloor + month.seatFloor, seg.days),
       creditFloor: prorate(month.creditFloor, seg.days),
       due: prorate(month.due, seg.days),
       basis: month.basis,
@@ -662,9 +808,11 @@ export function priceWorkspacePeriod(input: {
     line.floor += part.floor;
     line.creditFloor += part.creditFloor;
     line.due += part.due;
-    if (seg.snapshot.resalePricing.model === 'per_seat') {
-      line.seatsBilled = Math.max(line.seatsBilled, Math.max(peakSeats, seg.snapshot.resalePricing.minSeats ?? 0));
-    }
+    // Per-seat prices bill at least `minSeats`; the minimum (and a flat price)
+    // follows the real peak.
+    const pricing = seg.snapshot.resalePricing;
+    const billed = pricing.model === 'per_seat' ? Math.max(peakSeats, pricing.minSeats ?? 0) : peakSeats;
+    line.seatsBilled = Math.max(line.seatsBilled, billed);
   }
   // The partner resells extra credits however it likes and records no price
   // for them, so its margin is on the licence alone.
@@ -787,7 +935,8 @@ export interface PartnerTeamMember {
 
 /**
  * `POST /api/partner/workspaces/:id/credits`. `amount` is the number of credits
- * granted; `charge` is what the grant adds to this month's statement (USD).
+ * granted; `charge` is what the grant adds to this month's statement, in the
+ * contract currency.
  */
 export interface PartnerCreditGrantResult {
   newBalance: number;

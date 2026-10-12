@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { LicenceSnapshot } from '@weldsuite/app-api-client/schemas/partners';
-import { draftFromLicence, emptyDraft, parseDraft, previewDraft } from './licence-draft';
+import { draftFromLicence, draftShortfall, emptyDraft, parseDraft, previewDraft } from './licence-draft';
 
 const contract = {
   revenueShareBps: 7500,
   baseMinimum: '50.00',
+  includedSeats: 0,
+  seatFloorPrice: '0',
   includedCredits: 2000,
   creditFloorPrice: '0.004',
 };
+
+/** $100 a month including 5 seats, $10 for each seat above that. */
+const seated = { ...contract, baseMinimum: '100.00', includedSeats: 5, seatFloorPrice: '10.00' };
 
 describe('parseDraft', () => {
   it('turns the form strings into the request body the server validates', () => {
@@ -64,6 +69,31 @@ describe('parseDraft', () => {
     const parsed = parseDraft({ ...emptyDraft(), amount: '' });
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.errors.amount).toBe('invalidAmount');
+  });
+
+  it('refuses a price below the minimum when given the contract', () => {
+    const below = parseDraft({ ...emptyDraft(), amount: '120', maxSeats: '10' }, seated);
+    expect(below).toEqual({ ok: false, errors: { amount: 'belowMinimum' } });
+    expect(parseDraft({ ...emptyDraft(), amount: '150', maxSeats: '10' }, seated).ok).toBe(true);
+    // Without the contract only the shape is checked.
+    expect(parseDraft({ ...emptyDraft(), amount: '120', maxSeats: '10' }).ok).toBe(true);
+  });
+
+  it('points a flat price that needs a seat limit at the seat limit', () => {
+    expect(parseDraft({ ...emptyDraft(), amount: '500' }, seated)).toEqual({ ok: false, errors: { maxSeats: 'needsSeatLimit' } });
+  });
+});
+
+describe('draftShortfall', () => {
+  it('says where the price falls short, and nothing while the draft is half typed', () => {
+    expect(draftShortfall(seated, { ...emptyDraft(), amount: '120', maxSeats: '10' })).toEqual({
+      reason: 'below_minimum',
+      seats: 10,
+      minimum: 15000,
+      price: 12000,
+    });
+    expect(draftShortfall(seated, { ...emptyDraft(), amount: '12.' })).toBeNull();
+    expect(draftShortfall(null, { ...emptyDraft(), amount: '1' })).toBeNull();
   });
 });
 

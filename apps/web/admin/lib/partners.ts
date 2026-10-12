@@ -6,7 +6,9 @@
 
 import {
   PARTNER_STATUSES,
+  belowMinimumDetails,
   dunningStage,
+  resaleMinimumShortfall,
   licenceTermsSchema,
   partnerContractSchema,
   partnerProfileSchema,
@@ -140,8 +142,11 @@ export function bpsToPercent(bps: number): string {
 export interface ContractFormState {
   /** `YYYY-MM-DD`, blank = now. */
   effectiveFrom: string;
+  currency: string;
   revenueSharePercent: string;
   baseMinimum: string;
+  includedSeats: string;
+  seatFloorPrice: string;
   includedCredits: string;
   creditFloorPrice: string;
   extraCreditPrice: string;
@@ -152,12 +157,36 @@ export interface ContractFormState {
   notes: string;
 }
 
-/** Contract defaults from the plan: 75% share, net 30, past due at 14, read-only at 30. */
-export function defaultContractForm(): ContractFormState {
+/** The terms a contract form can start from: the contract in force, or the saved defaults. */
+export type ContractTerms = Pick<
+  PartnerContractView,
+  | 'currency'
+  | 'revenueShareBps'
+  | 'baseMinimum'
+  | 'includedSeats'
+  | 'seatFloorPrice'
+  | 'includedCredits'
+  | 'creditFloorPrice'
+  | 'extraCreditPrice'
+  | 'allowedFeaturePlanIds'
+  | 'paymentTermsDays'
+  | 'pastDueAfterDays'
+  | 'readOnlyAfterDays'
+>;
+
+/**
+ * A new partner's first contract: the saved default terms when there are any,
+ * else the plan's (75% share, net 30, past due at 14, read-only at 30).
+ */
+export function defaultContractForm(saved?: ContractTerms | null): ContractFormState {
+  if (saved) return contractFormFromView(saved);
   return {
     effectiveFrom: '',
+    currency: 'USD',
     revenueSharePercent: '75',
     baseMinimum: '',
+    includedSeats: '0',
+    seatFloorPrice: '0',
     includedCredits: '0',
     creditFloorPrice: '0',
     extraCreditPrice: '0',
@@ -170,11 +199,14 @@ export function defaultContractForm(): ContractFormState {
 }
 
 /** Start a new contract from the one in force, so only the changed terms are edited. */
-export function contractFormFromView(view: PartnerContractView): ContractFormState {
+export function contractFormFromView(view: ContractTerms): ContractFormState {
   return {
     effectiveFrom: '',
+    currency: view.currency,
     revenueSharePercent: bpsToPercent(view.revenueShareBps),
     baseMinimum: view.baseMinimum,
+    includedSeats: String(view.includedSeats),
+    seatFloorPrice: view.seatFloorPrice,
     includedCredits: String(view.includedCredits),
     creditFloorPrice: view.creditFloorPrice,
     extraCreditPrice: view.extraCreditPrice,
@@ -200,9 +232,11 @@ export function dateToIso(date: string): string | null {
 /** The object the contract schema parses (also what the server action re-parses). */
 export function contractPayload(form: ContractFormState): Record<string, unknown> {
   const payload: Record<string, unknown> = {
-    currency: 'USD',
+    currency: form.currency,
     revenueShareBps: percentToBps(form.revenueSharePercent) ?? Number.NaN,
     baseMinimum: form.baseMinimum.trim(),
+    includedSeats: WHOLE.test(form.includedSeats.trim()) ? Number(form.includedSeats.trim()) : Number.NaN,
+    seatFloorPrice: form.seatFloorPrice.trim() || '0',
     includedCredits: WHOLE.test(form.includedCredits.trim()) ? Number(form.includedCredits.trim()) : Number.NaN,
     creditFloorPrice: form.creditFloorPrice.trim() || '0',
     extraCreditPrice: form.extraCreditPrice.trim() || '0',
@@ -225,6 +259,37 @@ export function parseContractForm(form: ContractFormState): Parsed<PartnerContra
   }
   const result = partnerContractSchema.safeParse(contractPayload(form));
   return result.success ? { ok: true, value: result.data } : { ok: false, error: zodMessage(result.error) };
+}
+
+// ============================================================================
+// Default contract terms (`system_settings`)
+// ============================================================================
+
+/** `system_settings` key of the terms a new partner's first contract starts from. */
+export const PARTNER_CONTRACT_DEFAULTS_KEY = 'billing.partner_contract_defaults';
+
+/** What is kept as the defaults: a contract's terms, without its date and notes. */
+export function contractDefaultsValue(c: PartnerContractInput): ContractTerms {
+  return {
+    currency: c.currency,
+    revenueShareBps: c.revenueShareBps,
+    baseMinimum: c.baseMinimum,
+    includedSeats: c.includedSeats,
+    seatFloorPrice: c.seatFloorPrice,
+    includedCredits: c.includedCredits,
+    creditFloorPrice: c.creditFloorPrice,
+    extraCreditPrice: c.extraCreditPrice,
+    allowedFeaturePlanIds: c.allowedFeaturePlanIds,
+    paymentTermsDays: c.paymentTermsDays,
+    pastDueAfterDays: c.pastDueAfterDays,
+    readOnlyAfterDays: c.readOnlyAfterDays,
+  };
+}
+
+/** The saved defaults, or null when there are none or they no longer parse. */
+export function parseContractDefaults(value: unknown): ContractTerms | null {
+  const result = partnerContractSchema.safeParse(value);
+  return result.success ? contractDefaultsValue(result.data) : null;
 }
 
 // ============================================================================
@@ -449,6 +514,17 @@ export function countryName(code: string, locale = 'en'): string {
 // ============================================================================
 
 /** The contract in force: the open-ended one, else the most recent. */
+/**
+ * Why a licence's price is below the contract's minimum selling price, or null
+ * when it is not (or there is no contract to check against). The same check
+ * the billing worker runs on save.
+ */
+export function licenceMinimumMessage(contract: PartnerContractView | null, terms: LicenceTerms): string | null {
+  if (!contract) return null;
+  const shortfall = resaleMinimumShortfall(contract, terms);
+  return shortfall ? belowMinimumDetails(shortfall, contract).message : null;
+}
+
 export function currentContract(contracts: readonly PartnerContractView[]): PartnerContractView | null {
   if (contracts.length === 0) return null;
   const open = contracts.filter((c) => c.effectiveTo === null);

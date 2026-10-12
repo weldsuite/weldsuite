@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { Plus, SlidersHorizontal } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -40,14 +40,22 @@ export default async function PartnersPage() {
           title={t.title}
           description={t.description}
           actions={
-            identity.role !== 'viewer' && (
-              <Button asChild size="sm">
-                <Link href="/partners/new">
-                  <Plus className="h-4 w-4" />
-                  {t.newPartner}
+            <div className="flex gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link href="/partners/defaults">
+                  <SlidersHorizontal className="h-4 w-4" />
+                  {t.defaults}
                 </Link>
               </Button>
-            )
+              {identity.role !== 'viewer' && (
+                <Button asChild size="sm">
+                  <Link href="/partners/new">
+                    <Plus className="h-4 w-4" />
+                    {t.newPartner}
+                  </Link>
+                </Button>
+              )}
+            </div>
           }
         />
 

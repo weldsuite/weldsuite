@@ -10,7 +10,15 @@ import * as masterSchema from '@weldsuite/db/schema/master';
 import { workspaceInstalledApps } from '@weldsuite/db/schema/workspace-installed-apps';
 import { getOrCreateWorkspaceCredits, grantCredits } from '@weldsuite/credits';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { monthPeriod, type LicenceSnapshot, type LicenceTerms, type WorkspaceLicenceStatus } from '@weldsuite/app-api-client/schemas/partners';
+import {
+  belowMinimumDetails,
+  monthPeriod,
+  resaleMinimumShortfall,
+  type BelowMinimumDetails,
+  type LicenceSnapshot,
+  type LicenceTerms,
+  type WorkspaceLicenceStatus,
+} from '@weldsuite/app-api-client/schemas/partners';
 import type { PartnerDb } from './types';
 
 const { workspaces, workspaceLicences, workspaceLicenceChanges, workspaceCredits, partnerContracts, appCatalog, plans } =
@@ -20,8 +28,16 @@ export type LicenceActor = { id: string | null; type: 'partner' | 'admin' | 'sys
 
 export class LicenceError extends Error {
   constructor(
-    public readonly code: 'INVALID_APPS' | 'PLAN_NOT_ALLOWED' | 'NO_CONTRACT' | 'NOT_FOUND' | 'WRONG_PARTNER',
+    public readonly code:
+      | 'INVALID_APPS'
+      | 'PLAN_NOT_ALLOWED'
+      | 'NO_CONTRACT'
+      | 'NOT_FOUND'
+      | 'WRONG_PARTNER'
+      | 'BELOW_MINIMUM',
     message: string,
+    /** Set for `BELOW_MINIMUM`: where the price falls short, for the error response. */
+    public readonly details?: BelowMinimumDetails,
   ) {
     super(message);
     this.name = 'LicenceError';
@@ -68,12 +84,20 @@ export async function getActiveContract(db: PartnerDb, partnerId: string, at: Da
 }
 
 /**
- * Reject a licence the contract does not allow: apps must be published catalog
- * apps, and the feature plan must be one the contract lists (when it lists any).
+ * Reject a licence the contract does not allow: the price must cover the
+ * minimum selling price at every seat count the licence allows, apps must be
+ * published catalog apps, and the feature plan must be one the contract lists
+ * (when it lists any).
  */
 export async function validateLicenceTerms(db: PartnerDb, partnerId: string, terms: LicenceTerms): Promise<void> {
   const contract = await getActiveContract(db, partnerId);
   if (!contract) throw new LicenceError('NO_CONTRACT', 'This partner has no contract in force');
+
+  const shortfall = resaleMinimumShortfall(contract, terms);
+  if (shortfall) {
+    const details = belowMinimumDetails(shortfall, contract);
+    throw new LicenceError('BELOW_MINIMUM', details.message, details);
+  }
 
   if (terms.allowedApps.length > 0) {
     const published = (await db

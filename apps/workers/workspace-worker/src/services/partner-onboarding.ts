@@ -73,6 +73,7 @@ export class PartnerOnboardError extends Error {
       | 'NO_CONTRACT'
       | 'NOT_FOUND'
       | 'WRONG_PARTNER'
+      | 'BELOW_MINIMUM'
       | 'CLERK_ORG_FAILED'
       | 'INVITE_FAILED'
       | 'PROVISIONING_FAILED',
