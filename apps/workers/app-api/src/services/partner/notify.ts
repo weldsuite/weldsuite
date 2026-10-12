@@ -19,7 +19,8 @@ function trimTrailingSlashes(s: string): string {
   return s.slice(0, end);
 }
 
-const appUrl = (env: Env) => trimTrailingSlashes(env.PUBLIC_APP_URL ?? 'https://app.weldsuite.org');
+/** The partner portal, its own app (apps/web/partner). */
+const portalUrl = (env: Env) => trimTrailingSlashes(env.PARTNER_PORTAL_URL ?? 'https://partner.weldsuite.org');
 
 /** Strip line breaks from user text that lands in a subject line. */
 const oneLine = (s: string) => s.replace(/[\r\n]+/g, ' ').trim();
@@ -42,7 +43,7 @@ export function sendPartnerInviteEmail(env: Env, input: { to: string; partnerNam
       `You have been added to ${input.partnerName} on WeldSuite as ${input.role}.`,
       '',
       `Sign in with this email address (${input.to}) to open the partner portal:`,
-      `${appUrl(env)}/partner`,
+      portalUrl(env),
     ].join('\n'),
   );
 }
@@ -68,6 +69,6 @@ export function sendWorkspaceRequestEmail(
   ];
   if (input.selectedApps.length > 0) lines.push(`Apps: ${input.selectedApps.join(', ')}`);
   if (input.message) lines.push('', input.message);
-  lines.push('', `Review it in the partner portal: ${appUrl(env)}/partner/requests`);
+  lines.push('', `Review it in the partner portal: ${portalUrl(env)}/requests`);
   return send(env, input.to, `New workspace request for ${input.partnerName}: ${input.companyName}`, lines.join('\n'));
 }

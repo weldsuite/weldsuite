@@ -131,7 +131,7 @@ export default defineTemplate<PartnerDunningEmailProps>({
         dueAt: '2026-10-31T00:00:00.000Z',
         daysOverdue: 30,
         readOnlyAt: '2026-11-30T00:00:00.000Z',
-        portalUrl: 'https://app.weldsuite.org/partner/statements',
+        portalUrl: 'https://partner.weldsuite.org/statements',
       },
     },
   },

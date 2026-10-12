@@ -34,7 +34,7 @@ The rest of this plan builds those pieces on what already exists.
 | Base minimum | ~~A floor on what WeldSuite charges~~ Changed 2026-10-12: **a minimum selling price** per workspace per month. The portal refuses a lower price; WeldSuite bills 75% of the price. |
 | Minimum shape (2026-10-12) | **Base price including N seats, plus a price per extra seat**, plus the credit term below. Set per partner contract; new contracts start from **default terms** saved in the admin console. |
 | Credits | **A monthly allowance per workspace**, set by the reseller and reset every month. |
-| Reseller UI | **A partner portal inside the WeldSuite platform app.** |
+| Reseller UI | ~~A partner portal inside the WeldSuite platform app~~ Changed 2026-10-12: **a dedicated app**, `apps/web/partner` on Vercel (`partner.weldsuite.org` / `partner-test.weldsuite.org`). `/partner` in the platform is gone. |
 | Pricing shape | **Flat fee per workspace or per user.** The reseller chooses per workspace; per-seat is never forced. |
 | Credits in the floor | **Yes.** Credits above an included amount carry a minimum price per credit, which raises the floor. |
 | Currency | ~~USD only~~ Changed 2026-10-12: **per partner**, on its contract (two-decimal currencies: USD, EUR, GBP, …). Fixed once the partner has been invoiced. |
@@ -458,9 +458,13 @@ The request form and portal inbox come with the portal in Phase 3.
 - Stored as data, not code. Staff edit the list per partner in admin.
 - Whether "North and South America" includes Central America and the Caribbean is a contract question. The list makes either answer one edit.
 
-## Partner portal (platform SPA)
+## Partner portal (`apps/web/partner`)
 
-A new top-level area at `/partner`, shown only to users in `partner_members`. Components live in `apps/web/platform/app/partner/`, route wrappers in `src/routes/partner/`. It runs in the platform shell but is **not scoped to a workspace**: a partner user may also belong to zero or many workspaces.
+A dedicated Vite SPA (react-router), released to the Vercel project `weldsuite-partner` by `deploy.yml`: `partner.weldsuite.org` in production, `partner-test.weldsuite.org` on test (changed 2026-10-12; it used to be `/partner` inside the platform, which is gone).
+- It signs in with the same Clerk instance as the platform. Only users in `partner_members` can use it; everyone else sees a "not a partner" screen.
+- It is **not scoped to a workspace**: a partner user may also belong to zero or many workspaces.
+- The platform keeps a sidebar link to it for partner members, and the managed-workspace screens (billing, banners, territory).
+- Partner emails link to it through `PARTNER_PORTAL_URL` (app-api, billing-worker).
 
 | Page | Contents |
 |---|---|
@@ -594,4 +598,6 @@ These turned up in the survey and stand on their own:
 - **Large partners:** invoice items are created one per workspace line, so a partner with several hundred workspaces may approach the Workers subrequest limit.
 - **Portal emails:** the partner invite and territory-request emails from app-api are plain-text English. The billing-worker dunning and invitation emails have en/nl templates.
 - **Admin console:** does not manage licence packages; the partners manage those in the portal.
+- **Partner portal hosting:** the Vercel project `weldsuite-partner` (Root Directory `apps/web/partner`), its `VITE_CLERK_PUBLISHABLE_KEY` per environment, the domains (`partner.weldsuite.org` on production, `partner-test.weldsuite.org` bound to `develop`) and their DNS are set up by hand, outside the repo.
+- **Partner portal E2E:** the Playwright spec was removed with `/partner` from the platform; the portal has unit tests only.
 

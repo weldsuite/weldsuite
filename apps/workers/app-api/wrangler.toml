@@ -105,6 +105,8 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# Partner portal (apps/web/partner): links in partner emails.
+PARTNER_PORTAL_URL = "http://localhost:3203"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
 API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect"
@@ -352,6 +354,8 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+# Partner portal (apps/web/partner): links in partner emails.
+PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
 API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect"
@@ -530,6 +534,8 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+# Partner portal (apps/web/partner): links in partner emails.
+PARTNER_PORTAL_URL = "https://partner.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
 API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect"
