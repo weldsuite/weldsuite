@@ -34,6 +34,15 @@ const TOOL_BUTTON = 'h-7 w-7 text-muted-foreground hover:text-foreground';
 const isBlankSignature = (html: string) => !userWrittenText(html) && !/<img\s/i.test(html);
 
 /**
+ * The type to save. The dialog shows every shared type as "everyone", so a
+ * shared signature keeps the type it has (a `department` one stays one).
+ */
+function typeToSave(visibility: Visibility, signature: MailSignatureRow | null): MailSignatureRow['type'] {
+  if (visibility === 'company' && signature && signature.type !== 'personal') return signature.type;
+  return visibility;
+}
+
+/**
  * Creates or edits one signature. The body is a small rich-text editor: the
  * formatting a signature needs, plus links and images by URL (a logo hosted
  * on the company site); pasted HTML from a signature generator works too.
@@ -58,6 +67,7 @@ export function SignatureEditorDialog({
   const createSignature = useCreateMailSignature();
   const updateSignature = useUpdateMailSignature();
   const isSaving = createSignature.isPending || updateSignature.isPending;
+  const isShared = signature !== null && signature.type !== 'personal';
 
   const editorRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState('');
@@ -115,7 +125,7 @@ export function SignatureEditorDialog({
     const data: CreateMailSignatureInput = {
       name: name.trim(),
       content,
-      type: visibility,
+      type: typeToSave(visibility, signature),
       // Only accounts the list still offers; an account removed since stays out.
       accountIds: accountIds.filter((id) => accounts.some((account) => account.id === id)),
       isDefault,
@@ -196,7 +206,8 @@ export function SignatureEditorDialog({
               <Label>{ts.visibility}</Label>
               <RadioGroup value={visibility} onValueChange={(value) => setVisibility(value as Visibility)} className="flex flex-col gap-2 sm:flex-row sm:gap-6">
                 <div className="flex items-center gap-2">
-                  <RadioGroupItem value="personal" id="signature-visibility-personal" />
+                  {/* A shared signature can't be taken back to one person; others may rely on it. */}
+                  <RadioGroupItem value="personal" id="signature-visibility-personal" disabled={isShared} />
                   <Label htmlFor="signature-visibility-personal" className="font-normal">{ts.visibilityPersonal}</Label>
                 </div>
                 <div className="flex items-center gap-2">

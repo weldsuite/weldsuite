@@ -125,6 +125,14 @@ describe('replaceBodyKeepingSignature', () => {
     expect(editor.firstElementChild?.outerHTML).toBe('<p>new</p>');
     expect(currentSignatureId(editor)).toBe('one');
   });
+
+  it('keeps the signature the new HTML brings instead of adding a second one', () => {
+    const editor = editorWith('<div>old</div>');
+    applySignature(editor, sig({ id: 'one' }));
+    replaceBodyKeepingSignature(editor, '<p>draft</p><div data-weld-signature="two">Two</div>');
+    expect(editor.querySelectorAll('[data-weld-signature]')).toHaveLength(1);
+    expect(currentSignatureId(editor)).toBe('two');
+  });
 });
 
 describe('userWrittenText', () => {

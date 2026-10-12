@@ -4,8 +4,9 @@
  * Anyone who writes mail manages their own `personal` signatures; nobody else
  * sees them (another member's is a 404). Shared (`company` / `department`)
  * signatures are visible to everyone and changed with `accounts:update` /
- * `accounts:delete`, like the mailboxes themselves. See the service for how
- * defaults and account assignment work.
+ * `accounts:delete`, like the mailboxes themselves, and can't be made personal
+ * (that would take them away from everyone). See the service for how defaults
+ * and account assignment work.
  *
  * Entity events: `mail_signature:created | updated | deleted`.
  */
@@ -111,6 +112,10 @@ const updateRoute = async (c: import('hono').Context<{ Bindings: Env; Variables:
       signatures.isSharedSignatureType(existing.type) ||
       signatures.isSharedSignatureType(data.type ?? existing.type);
     if (touchesShared && !(await canChangeShared(c, 'update'))) return forbidden(c);
+    // Making it personal would hand a signature everyone uses to one member.
+    if (signatures.isSharedSignatureType(existing.type) && data.type === 'personal') {
+      return error.badRequest(c, 'A shared signature cannot be made personal');
+    }
 
     const result = await signatures.updateSignature(db, userId, existing, data);
     publishEntityEvent({

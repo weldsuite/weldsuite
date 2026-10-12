@@ -175,7 +175,8 @@ export async function updateSignature(
   if (isSharedSignatureType(type)) {
     if (!isSharedSignatureType(existing.type) && data.userIds === undefined) patch.userIds = null;
   } else {
-    // Made personal (or kept personal): it belongs to the caller, the only one who can see it now.
+    // A personal signature stays the caller's, whatever the body says. (The
+    // route refuses to make a shared one personal.)
     patch.userIds = [userId];
   }
   await db

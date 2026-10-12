@@ -164,11 +164,14 @@ function placeCaretAtStart(editor: HTMLElement) {
   selection.addRange(range);
 }
 
-/** Replaces what the user wrote (e.g. with an AI draft) and keeps the signature below it. */
+/**
+ * Replaces what the user wrote (e.g. with an AI draft) and keeps the signature
+ * below it. HTML that brings its own signature (a saved draft) keeps that one.
+ */
 export function replaceBodyKeepingSignature(editor: HTMLElement, html: string): void {
   const block = editor.querySelector(SIGNATURE_SELECTOR);
   editor.innerHTML = html;
-  if (block) editor.appendChild(block);
+  if (block && !editor.querySelector(SIGNATURE_SELECTOR)) editor.appendChild(block);
 }
 
 /** The editor HTML without the signature block. */

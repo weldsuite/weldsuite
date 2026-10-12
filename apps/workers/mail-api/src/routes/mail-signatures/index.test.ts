@@ -114,6 +114,19 @@ describe('shared signatures', () => {
     expect((await admin.remove(id)).status).toBe(204);
   });
 
+  it('cannot be made personal, which would take them from everyone', async () => {
+    const admin = as('user_admin3', ADMIN);
+    const member = as('user_member3', MEMBER);
+
+    const id = await idOf(await admin.create({ name: 'Dept', content: 'Dept', type: 'department' }));
+    expect((await admin.update(id, { type: 'personal' })).status).toBe(400);
+    expect((await member.list()).map((s) => s.id)).toContain(id);
+
+    // Other edits keep the type it has.
+    const res = await admin.update(id, { name: 'Dept 2' });
+    expect(((await res.json()) as { data: { type: string } }).data.type).toBe('department');
+  });
+
   it('a shared default does not unset anyone\'s personal default', async () => {
     const admin = as('user_admin2', ADMIN);
     const erin = as('user_erin', MEMBER);
