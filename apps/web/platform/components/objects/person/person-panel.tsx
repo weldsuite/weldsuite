@@ -838,7 +838,11 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
         <FilesTab entityId={person.id} entityKind="person" />
       )}
       {person && activeTab === 'emails' && (
-        <EmailsTab entityEmail={person.email ?? undefined} entityKind="person" />
+        <EmailsTab
+          entityEmail={person.email ?? undefined}
+          entityKind="person"
+          entityAvatar={person.avatarUrl || undefined}
+        />
       )}
       {person && activeTab === 'audit' && (
         <AuditTab entityId={person.id} entityKind="person" />

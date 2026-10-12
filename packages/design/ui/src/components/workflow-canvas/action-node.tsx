@@ -36,24 +36,15 @@ import {
   ClipboardList,
   Bot,
   UserCheck,
-  AlertCircle,
   Tags,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { ActionNodeData } from './flow-utils';
-import { asText } from '@weldsuite/text';
+import { SetupRequiredBadge, StepCard, StepCardPlaceholder, STEP_HANDLE_CLASS, type StepCardState } from './parts/step-card';
 
-// Amber "Setup required" badge shown on nodes missing required configuration.
-export function SetupRequiredBadge({ label }: Readonly<{ label?: string }>) {
-  return (
-    <div className="absolute -top-2.5 left-3 z-20 flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 shadow-sm dark:border-amber-800 dark:bg-amber-950">
-      <AlertCircle className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-      <span className="whitespace-nowrap text-[10px] font-medium text-amber-700 dark:text-amber-300">
-        {label || 'Setup required'}
-      </span>
-    </div>
-  );
-}
+// Imported by the condition node from here.
+export { SetupRequiredBadge };
+import { asText } from '@weldsuite/text';
 
 // Static fallback category labels (EN)
 const ACTION_CATEGORY_LABELS_DEFAULT: Record<string, string> = {
@@ -198,12 +189,9 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
   const categoryLabel = actionCategoryLabels[nodeData.actionType] || labels.defaultCategory || 'Action';
   const description = getActionDescription(nodeData, labels);
 
-  let borderClass = 'border-border hover:border-foreground/20';
-  if (selected) {
-    borderClass = 'border-blue-400';
-  } else if (needsConfig) {
-    borderClass = 'border-amber-300 dark:border-amber-700';
-  }
+  let cardState: StepCardState = 'default';
+  if (selected) cardState = 'selected';
+  else if (needsConfig) cardState = 'attention';
 
   return (
     <div
@@ -212,35 +200,15 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
       <div className="relative">
         {needsConfig && <SetupRequiredBadge label={nodeData.setupRequiredLabel} />}
         <Handle type="target" position={Position.Top} className="!bg-transparent !border-0" style={{ top: 0, width: 0, height: 0, minWidth: 0, minHeight: 0 }} />
-        <button
-          type="button"
-          className={cn(
-            'block bg-white dark:bg-background rounded-xl w-[340px] border text-left transition-all',
-            borderClass
-          )}
+        <StepCard
+          as="button"
+          icon={Icon}
+          title={nodeData.label}
+          typeLabel={categoryLabel}
+          summary={description}
+          state={cardState}
           onClick={() => nodeData.onSelect?.()}
-        >
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-between min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-5 h-5 rounded-[6px] bg-muted flex items-center justify-center flex-shrink-0">
-                  <Icon className="w-3 h-3 text-muted-foreground" />
-                </div>
-                <span className="text-sm font-medium text-foreground truncate">{nodeData.label}</span>
-              </div>
-              <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full ml-3 flex-shrink-0">
-                {categoryLabel}
-              </span>
-            </div>
-          </div>
-          {description && (
-            <div className="px-4 pb-3 pt-0">
-              <div className="border-t border-border pt-3">
-                <p className="text-xs text-muted-foreground truncate">{description}</p>
-              </div>
-            </div>
-          )}
-        </button>
+        />
 
         {nodeData.actionType === 'ai_agent' && (
           <div className="absolute top-1/2 -translate-y-1/2 left-full hidden lg:flex items-center">
@@ -255,7 +223,7 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
           </div>
         )}
 
-        <Handle type="source" position={Position.Bottom} className="!w-3 !h-3 !bg-white dark:!bg-background !border-[1.5px] !border-blue-400 !z-10 !invisible lg:!visible" style={{ bottom: '1px' }} />
+        <Handle type="source" position={Position.Bottom} className={cn(STEP_HANDLE_CLASS, '!z-10 !invisible lg:!visible')} style={{ bottom: '1px' }} />
 
         {nodeData.actionType === 'ai_agent' && (
           <Handle type="source" position={Position.Right} id="subagents" className="!w-2.5 !h-2.5 !bg-white dark:!bg-background !border-[1.5px] !border-border !right-0" />
@@ -269,7 +237,7 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
             type="button"
             onClick={(e) => { e.stopPropagation(); nodeData.onAddStep?.(nodeData.nodeId); }}
             className={cn(
-              'absolute left-1/2 -translate-x-1/2 bottom-2.5 h-6 pl-1.5 pr-2.5 rounded-full hidden lg:flex items-center gap-1 whitespace-nowrap transition-colors',
+              'absolute left-1/2 -translate-x-1/2 bottom-1.5 h-7 pl-1.5 pr-2.5 rounded-md hidden lg:flex items-center gap-1 whitespace-nowrap transition-colors',
               'text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               'bg-background text-muted-foreground border border-border',
               'group-hover/node:bg-foreground group-hover/node:text-background group-hover/node:border-transparent',
@@ -303,9 +271,7 @@ function PlaceholderNodeComponent(_props: NodeProps) {
   return (
     <div className="relative">
       <Handle type="target" position={Position.Top} className="!bg-transparent !border-0" style={{ top: 0, width: 0, height: 0, minWidth: 0, minHeight: 0 }} />
-      <div className="bg-white dark:bg-background rounded-xl w-[340px] border border-dashed border-border flex items-center justify-center py-8">
-        <Plus className="w-5 h-5 text-muted-foreground/50" />
-      </div>
+      <StepCardPlaceholder />
     </div>
   );
 }

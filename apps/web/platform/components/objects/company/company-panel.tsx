@@ -903,7 +903,11 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
         <FilesTab entityId={company.id} entityKind="company" />
       )}
       {company && activeTab === 'emails' && (
-        <EmailsTab entityEmail={company.email ?? undefined} entityKind="company" />
+        <EmailsTab
+          entityEmail={company.email ?? undefined}
+          entityKind="company"
+          entityAvatar={company.avatarUrl || companyLogo}
+        />
       )}
       {company && activeTab === 'audit' && (
         <AuditTab entityId={company.id} entityKind="company" />

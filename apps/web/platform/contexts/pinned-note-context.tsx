@@ -28,7 +28,8 @@ interface PinnedNoteContextType {
   startMinimized: boolean;
   setStartMinimized: (minimized: boolean) => void;
   closePinnedNote: () => void;
-  unpinToDialog: () => void;
+  /** Reopens the note in its dialog; `content` is what the panel holds right now. */
+  unpinToDialog: (content?: string) => void;
   // Note that was unpinned but has no page handler — shown in a fallback dialog
   unpinnedNote: Note | null;
   unpinnedNoteSave: ((content: string) => Promise<void>) | null;
@@ -67,9 +68,9 @@ export function PinnedNoteProvider({ children }: Readonly<{ children: ReactNode 
     setOnDelete(null);
   }, []);
 
-  const unpinToDialog = useCallback(() => {
+  const unpinToDialog = useCallback((content?: string) => {
     if (!pinnedNote) return;
-    const note = pinnedNote;
+    const note = content === undefined ? pinnedNote : { ...pinnedNote, content };
     const saveFn = onSave;
     const deleteFn = onDelete;
     setPinnedNote(null);
@@ -125,6 +126,9 @@ export function PinnedNoteProvider({ children }: Readonly<{ children: ReactNode 
     </PinnedNoteContext.Provider>
   );
 }
+
+/** A note as the pinned panel and the note popup pass it around. */
+export type PinnedNote = Note;
 
 export function usePinnedNote() {
   const context = useContext(PinnedNoteContext);

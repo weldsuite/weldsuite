@@ -6,6 +6,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Zap, Calendar, Webhook, MousePointerClick, GitMerge, Plus, Plug, Code } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { TriggerNodeData } from './flow-utils';
+import { StepCard, STEP_HANDLE_CLASS } from './parts/step-card';
 import type { TriggerConfig } from './types';
 
 const triggerIcons: Record<string, React.ElementType> = {
@@ -120,45 +121,19 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
     >
       {/* Main card */}
       <div className="relative">
-        <div
-          className={cn(
-            'bg-white dark:bg-background rounded-xl w-[340px] border transition-all',
-            selected && !nodeData.locked
-              ? 'border-blue-400 '
-              : 'border-border hover:border-foreground/20 hover:'
-          )}
-        >
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-between min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-5 h-5 rounded-[6px] bg-muted flex items-center justify-center flex-shrink-0">
-                  <Icon className="w-3 h-3 text-muted-foreground" />
-                </div>
-                <span className="text-sm font-medium text-foreground truncate">
-                  {nodeData.label}
-                </span>
-              </div>
-              <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full ml-3 flex-shrink-0">
-                {triggerBadge}
-              </span>
-            </div>
-          </div>
-          {description && (
-            <div className="px-4 pb-3 pt-0">
-              <div className="border-t border-border pt-3">
-                <p className="text-xs text-muted-foreground truncate">
-                  {description}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
+        <StepCard
+          icon={Icon}
+          title={nodeData.label}
+          typeLabel={triggerBadge}
+          summary={description}
+          state={selected && !nodeData.locked ? 'selected' : 'default'}
+        />
 
         {/* Output handle */}
         <Handle
           type="source"
           position={Position.Bottom}
-          className="!w-3 !h-3 !bg-white dark:!bg-background !border-[1.5px] !border-blue-400 !z-10 !invisible lg:!visible"
+          className={cn(STEP_HANDLE_CLASS, '!z-10 !invisible lg:!visible')}
           style={{ bottom: '1px' }}
         />
       </div>
@@ -171,7 +146,7 @@ function TriggerNodeComponent({ data, selected }: NodeProps) {
             type="button"
             onClick={(e) => { e.stopPropagation(); nodeData.onAddStep?.(nodeData.nodeId); }}
             className={cn(
-              'absolute left-1/2 -translate-x-1/2 bottom-2.5 h-6 pl-1.5 pr-2.5 rounded-full hidden lg:flex items-center gap-1 whitespace-nowrap transition-colors',
+              'absolute left-1/2 -translate-x-1/2 bottom-1.5 h-7 pl-1.5 pr-2.5 rounded-md hidden lg:flex items-center gap-1 whitespace-nowrap transition-colors',
               'text-[11px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isHovered
                 ? 'bg-foreground text-background'

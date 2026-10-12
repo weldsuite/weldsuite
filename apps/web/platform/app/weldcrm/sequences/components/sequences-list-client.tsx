@@ -5,13 +5,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useRouter } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
+import { DropdownMenuItem, DropdownMenuSeparator } from '@weldsuite/ui/components/dropdown-menu';
 import {
   Popover,
   PopoverContent,
@@ -27,7 +21,6 @@ import {
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import {
-  EllipsisVertical,
   Play,
   Pause,
   Edit,
@@ -38,6 +31,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { TabListRow } from '@/components/objects/_shared/tab-list-row';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import {
   EntityList,
@@ -293,25 +287,51 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
 
   const renderRow = useCallback(
     (sequence: SequenceSummary) => (
-      <div
+      // The standard list row (`TabListRow`): one line, 52px, the whole row
+      // opens the sequence and the menu shows on hover.
+      <TabListRow
         key={sequence.id}
-        className="relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group"
+        label={sequence.name}
+        onOpen={() => router.push(`/weldcrm/sequences/${sequence.id}`)}
+        menuLabel={t('sweep.entities.moreActions')}
+        menu={
+          <>
+            <DropdownMenuItem onClick={() => router.push(`/weldcrm/sequences/${sequence.id}/people`)}>
+              <Users className="h-4 w-4 mr-2" />
+              {t('crm.sequences.menuViewPeople')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push(`/weldcrm/sequences/${sequence.id}`)}>
+              <Edit className="h-4 w-4 mr-2" />
+              {t('crm.sequences.menuEditSteps')}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {sequence.status !== 'active' && (
+              <DropdownMenuItem onClick={() => handleActivate(sequence.id)}>
+                <Play className="h-4 w-4 mr-2" />
+                {t('crm.sequences.menuActivate')}
+              </DropdownMenuItem>
+            )}
+            {sequence.status === 'active' && (
+              <DropdownMenuItem onClick={() => handlePause(sequence.id)}>
+                <Pause className="h-4 w-4 mr-2" />
+                {t('crm.sequences.menuPause')}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(sequence.id)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              {t('crm.sequences.menuDelete')}
+            </DropdownMenuItem>
+          </>
+        }
       >
-        {/* Stretched row button: the row content sits above it and the actions menu stays clickable. */}
-        <button
-          type="button"
-          aria-label={sequence.name}
-          onClick={() => router.push(`/weldcrm/sequences/${sequence.id}`)}
-          className="absolute inset-0 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        />
-
-        {/* Name */}
-        <div className="flex-1 min-w-[250px] min-w-0">
-          <span className="text-sm font-medium text-gray-900 dark:text-foreground block truncate">
+        {/* Name, with the description after it on the same line */}
+        <div className="flex-1 min-w-[250px] flex items-baseline gap-2">
+          <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate">
             {sequence.name}
           </span>
           {sequence.description && (
-            <p className="text-xs text-gray-500 truncate">{sequence.description}</p>
+            <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">{sequence.description}</span>
           )}
         </div>
 
@@ -342,55 +362,10 @@ export function SequencesListClient({ initialSequences }: Readonly<SequencesList
 
         {/* Last Run */}
         <div className="w-[100px]">
-          <span className="text-sm font-mono text-gray-500">{formatDate(sequence.lastExecutedAt)}</span>
+          <span className="text-sm font-mono text-muted-foreground">{formatDate(sequence.lastExecutedAt)}</span>
         </div>
 
-        {/* Actions */}
-        <div className="relative z-[1] w-[40px] flex justify-end">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <EllipsisVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => router.push(`/weldcrm/sequences/${sequence.id}/people`)}>
-                <Users className="h-4 w-4 mr-2" />
-                {t('crm.sequences.menuViewPeople')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => router.push(`/weldcrm/sequences/${sequence.id}`)}>
-                <Edit className="h-4 w-4 mr-2" />
-                {t('crm.sequences.menuEditSteps')}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {sequence.status !== 'active' && (
-                <DropdownMenuItem onClick={() => handleActivate(sequence.id)}>
-                  <Play className="h-4 w-4 mr-2" />
-                  {t('crm.sequences.menuActivate')}
-                </DropdownMenuItem>
-              )}
-              {sequence.status === 'active' && (
-                <DropdownMenuItem onClick={() => handlePause(sequence.id)}>
-                  <Pause className="h-4 w-4 mr-2" />
-                  {t('crm.sequences.menuPause')}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-600"
-                onClick={() => handleDelete(sequence.id)}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                {t('crm.sequences.menuDelete')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
+      </TabListRow>
     ),
     [router, handleActivate, handleDelete, handlePause, getStatusLabel, t]
   );

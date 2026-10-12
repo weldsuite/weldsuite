@@ -1,7 +1,7 @@
 
 import { EditorWizardNav } from '@/components/editor-wizard-nav';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { GitPullRequest, Users, Settings } from 'lucide-react';
+import { GitPullRequest, User, Settings } from 'lucide-react';
 
 interface SequenceWizardNavProps {
   sequenceId: string;
@@ -26,13 +26,13 @@ export function SequenceWizardNav({
 
   const wizardSteps = [
     { label: t('crm.sequenceWizardNav.stepSteps'), href: basePath, icon: GitPullRequest },
-    { label: t('crm.sequenceWizardNav.stepPeople'), href: `${basePath}/people`, icon: Users },
+    { label: t('crm.sequenceWizardNav.stepPeople'), href: `${basePath}/people`, icon: User },
     { label: t('crm.sequenceWizardNav.stepSettings'), href: `${basePath}/settings`, icon: Settings },
   ];
 
   const managementTabs = [
     { label: t('crm.sequenceWizardNav.tabEditor'), href: basePath, icon: GitPullRequest },
-    { label: t('crm.sequenceWizardNav.stepPeople'), href: `${basePath}/people`, icon: Users },
+    { label: t('crm.sequenceWizardNav.stepPeople'), href: `${basePath}/people`, icon: User },
     { label: t('crm.sequenceWizardNav.stepSettings'), href: `${basePath}/settings`, icon: Settings },
   ];
 
