@@ -11,7 +11,7 @@ import { classifyInbound } from './kind';
 import { isUnsubscribeRequest } from './intent';
 import { makeSnippet, normalizeSubject, replySubject, stripQuotedHistory, htmlToText } from './text';
 import { normalizeMessageId, parseMessageIdList, syntheticMessageId } from './message-id';
-import { parseInboundToken } from './token';
+import { inboundAddress, parseInboundToken } from './token';
 import { findEmails } from './strings';
 
 async function parse(name: string) {
@@ -303,19 +303,27 @@ describe('opt-out rule', () => {
 });
 
 describe('inbound token', () => {
-  const domain = 'reply.weldsuite.org';
-  it('takes the local part of an address on the inbound domain', () => {
-    expect(parseInboundToken('a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6@reply.weldsuite.org', domain)).toBe('a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6');
-    expect(parseInboundToken('Reach <ABCDEF123456@Reply.Weldsuite.org>', domain)).toBe('abcdef123456');
-    expect(parseInboundToken('abcdef123456+x@reply.weldsuite.org', domain)).toBe('abcdef123456');
+  const domain = 'reply.weldreach.com';
+  it('takes the token from reply+<token> (the forward address mailboxes use)', () => {
+    expect(inboundAddress('abcdef123456', 'Reply.Weldreach.com')).toBe('reply+abcdef123456@reply.weldreach.com');
+    expect(parseInboundToken('reply+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6@reply.weldreach.com', domain)).toBe('a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6');
+    expect(parseInboundToken('Reach <REPLY+ABCDEF123456@Reply.Weldreach.com>', domain)).toBe('abcdef123456');
+    expect(parseInboundToken('reply+short@reply.weldreach.com', domain)).toBeNull();
+    expect(parseInboundToken('reply@reply.weldreach.com', domain)).toBeNull();
+  });
+
+  it('still reads a bare token on the inbound domain', () => {
+    expect(parseInboundToken('a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6@reply.weldreach.com', domain)).toBe('a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6');
+    expect(parseInboundToken('Reach <ABCDEF123456@Reply.Weldreach.com>', domain)).toBe('abcdef123456');
+    expect(parseInboundToken('abcdef123456+x@reply.weldreach.com', domain)).toBe('abcdef123456');
   });
 
   it('refuses other domains and malformed tokens', () => {
     expect(parseInboundToken('abcdef123456@example.com', domain)).toBeNull();
-    expect(parseInboundToken('short@reply.weldsuite.org', domain)).toBeNull();
-    expect(parseInboundToken('has space@reply.weldsuite.org', domain)).toBeNull();
+    expect(parseInboundToken('short@reply.weldreach.com', domain)).toBeNull();
+    expect(parseInboundToken('has space@reply.weldreach.com', domain)).toBeNull();
     expect(parseInboundToken('not-an-address', domain)).toBeNull();
-    expect(parseInboundToken('x'.repeat(80) + '@reply.weldsuite.org', domain)).toBeNull();
+    expect(parseInboundToken('x'.repeat(80) + '@reply.weldreach.com', domain)).toBeNull();
   });
 
   it('accepts any domain when none is configured', () => {

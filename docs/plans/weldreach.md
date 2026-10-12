@@ -19,7 +19,7 @@ the module be installed.
 |---|---|
 | Sending infrastructure | Mailpool (`https://app.mailpool.io/v1/api`), under **WeldSuite's own Mailpool account**. WeldSuite resells inboxes to approved workspaces. |
 | Runtime | **Cloudflare Workers only.** SMTP over TCP sockets (`cloudflare:sockets`, ports 465/587) from the module worker. No VPS, no containers. |
-| Reply detection | Mailpool mailboxes **forward incoming mail** (`forwardTo`) to a per-mailbox address on `reply.weldsuite.org`, received by Cloudflare Email Routing → the module worker's `email()` handler. No IMAP in v1; IMAP credentials are stored for a later fallback. |
+| Reply detection | Mailpool mailboxes **forward incoming mail** (`forwardTo`) to a per-mailbox subaddress `reply+<token>@reply.weldreach.com` (test: `reply-test.weldreach.com`), received by Cloudflare Email Routing → the module worker's `email()` handler. Changed from `reply.weldsuite.org` (2026-10-12): every WeldSuite zone's catch-all already goes to WeldMail's inbound worker, catch-all rules are apex-only, so one literal rule per subdomain for `reply@…` plus subaddressing carries all tokens. No IMAP in v1; IMAP credentials are stored for a later fallback. |
 | Where it lives | New module **WeldReach**: app code `weldreach`, worker `apps/workers/reach-api`, host `reach-api(-test).weldsuite.org`, paths `/api/reach/*`, dev port 8821. |
 | Prospects | Separate prospect store in WeldReach (CSV import, CRM lists, WeldData leads). A CRM person (+ company) is created or linked **only when a prospect replies**, or when a user marks them interested. |
 | Billing | **Stripe add-on per inbox: $5 per inbox per month**, all inbox types. A separate WeldReach subscription per workspace with one price, quantity = active inboxes (same pattern as `billing-worker/src/routes/phone-billing.ts`). Mailpool's cost is $3 (shared) / $4 (Google) per month. Domains are not billed by WeldReach (see below). |
@@ -75,7 +75,7 @@ platform SPA ──/api/reach/*──▶ reach-api (Hono, worker-kit apiAuth + r
                                  │  ├─ billing-worker (Stripe WeldReach subscription)
                                  │  └─ tenant DB (reach_* tables), master DB (access, routes)
 cron * * * * * ─▶ due-index sweep (D1) ─▶ queue reach-send ─▶ consumer: SMTP send (sockets)
-Mailpool mailbox ──forwardTo──▶ <token>@reply.weldsuite.org ─Email Routing─▶ reach-api email()
+Mailpool mailbox ──forwardTo──▶ reply+<token>@reply.weldreach.com ─Email Routing─▶ reach-api email()
 Mailpool webhooks ─▶ reach-api /webhooks/mailpool (HMAC) ─▶ master route lookup ─▶ tenant DB
 admin console ─▶ master DB (workspace_app_access) + tenant install + KV cache bust
 ```
@@ -197,7 +197,7 @@ Onboarding wizard (first visit after approval):
    - **Existing mail and websites.** If the domain has MX records or a website (A/AAAA on the apex or `www`), the connect is blocked with an explanation. Mailpool writes its own MX, SPF, DKIM and DMARC, which would break the customer's existing email. Staff can force it from the admin console.
    - **Limits**: `maxDomains` from the approval.
 4. Mailboxes: persona names, signature, type (`google` or `shared`).
-   - Before each create: Stripe quantity +1, then the Mailpool slot increase for that type if needed, then Mailpool create with `forwardTo = <inboundToken>@reply.weldsuite.org`.
+   - Before each create: Stripe quantity +1, then the Mailpool slot increase for that type if needed, then Mailpool create with `forwardTo = reply+<inboundToken>@reply.weldreach.com`.
    - Store the credentials encrypted, write `reach_routes` rows, add the mailbox to Mailpool warmup.
 
 Lifecycle:
@@ -256,7 +256,7 @@ A paid verification provider is a follow-up.
 ## Replies, unified inbox and AI
 
 **Inbound route.**
-- Cloudflare Email Routing on `reply.weldsuite.org` (test: `reply-test.weldsuite.org`) with a catch-all to reach-api's `email()` handler.
+- Cloudflare Email Routing on the subdomain `reply.weldreach.com` (test: `reply-test.weldreach.com`) with subaddressing on and a literal rule `reply@<subdomain>` → reach-api's `email()` handler (catch-all is apex-only; weldreach.com's own catch-all stays with WeldMail).
 - The local part is the mailbox's random `inboundToken`, resolved through master `reach_routes` to the workspace and mailbox. Unknown tokens are dropped.
 
 **Processing** (in the handler, heavy parts via `waitUntil` or the queue):
@@ -358,7 +358,7 @@ i18n: new `reach` namespace in `packages/core/i18n/src/locales/en/reach.ts` and 
   - SMTP to a Mailpool `google` mailbox (465, app password) **without Google blocking sign-ins from Cloudflare egress IPs**;
   - SMTP to a `shared` mailbox (587 STARTTLS).
 - Prove that `forwardTo` delivers replies, auto-replies and bounces with `Message-ID`, `In-Reply-To` and `References` intact, for both google and shared mailboxes.
-- Prove Email Routing on the `reply.weldsuite.org` subdomain to a worker.
+- Prove Email Routing on the `reply-test.weldreach.com` subdomain to a worker, and that Mailpool accepts a `reply+<token>@…` forward address.
 - Check the real shapes the code had to assume: Mailpool webhook payloads (the OpenAPI export had no webhook bodies; the parser accepts `event|type|eventType|name` with `data|payload|body|object`), the public Cloudflare connect endpoint, and whether `forwardTo` forwards inline or as an attachment.
 - Update this plan's "To verify" list with the results. **If forwarding or Google sign-ins fail, stop and re-plan** (fallback: IMAP via Cloudflare Containers).
 
@@ -458,7 +458,7 @@ Code can't do these; run them before the first approval.
 1. **Migrations**: master `0055` (workspace_app_access, reach_routes, app_catalog.requires_approval) and tenant `0209` (reach_* tables) go out with the normal deploy.
 2. **Secrets** (`scripts/secrets/manifest.ts` → `reach-api`): `MAILPOOL_API_KEY`, `MAILPOOL_WEBHOOK_SECRET`, `AI_GATEWAY_API_TOKEN`, `CLOUDFLARE_API_TOKEN` plus the base API-worker secrets; then `pnpm secrets:sync <env> reach-api`.
 3. **Queues**: `wrangler queues create reach-send-<env>` and `reach-send-dlq-<env>` (dev, test, production).
-4. **Inbound replies**: Cloudflare Email Routing on `reply-test.weldsuite.org` / `reply.weldsuite.org` (subdomain of the weldsuite.org zone): enable it, then a catch-all rule → Worker `weldsuite-reach-api[-test]`.
+4. **Inbound replies** (weldreach.com zone): add the subdomain `reply-test.weldreach.com` / `reply.weldreach.com` under Email Routing → Settings → Subdomains, turn on Subaddressing, then a literal rule `reply@<subdomain>` → Worker `weldsuite-reach-api[-test]` (`wrangler email routing rules create weldreach.com --match-type literal --match-field to --match-value reply@<subdomain> --action-type worker --action-value weldsuite-reach-api[-test]`).
 5. **Mailpool**: webhook URL `https://reach-api[-test].weldsuite.org/public/reach/webhooks/mailpool` with the same secret as `MAILPOOL_WEBHOOK_SECRET`; confirm the public Cloudflare connect endpoint is live and matches `src/lib/mailpool` (Phase 0 list).
 6. **Cloudflare token for Mailpool**: limit it to Zone Read + DNS Edit; set up an alert on DNS changes by that token to zones not connected to WeldReach (accepted risk, see Risks).
 7. **Flagship**: create the boolean flag `weldreach-sending` (default on) in test and production.

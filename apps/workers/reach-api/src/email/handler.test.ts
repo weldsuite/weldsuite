@@ -45,7 +45,7 @@ import { recordHardBounce } from '../services/guardrails';
 const hardBounce = vi.mocked(recordHardBounce);
 
 const TOKEN = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
-const ADDRESS = `${TOKEN}@reply-test.weldsuite.org`;
+const ADDRESS = `reply+${TOKEN}@reply-test.weldreach.com`;
 const ORG = 'org_reach_test';
 const NOW = new Date('2026-10-12T14:41:00Z');
 
@@ -60,7 +60,7 @@ let campaign: ReachCampaign;
 function env(): Env {
   return {
     ENVIRONMENT: 'test',
-    REACH_INBOUND_DOMAIN: 'reply-test.weldsuite.org',
+    REACH_INBOUND_DOMAIN: 'reply-test.weldreach.com',
     STORAGE: bucket.asBucket(),
   } as unknown as Env;
 }
@@ -153,7 +153,7 @@ beforeEach(async () => {
 describe('routing', () => {
   it('drops mail for an unknown token without touching a database', async () => {
     const openDb = vi.fn(async () => db);
-    const result = await receive('gmail-reply.eml', 'ffffffffffffffffffffffffffffffff@reply-test.weldsuite.org', deps({ openDb }));
+    const result = await receive('gmail-reply.eml', 'reply+ffffffffffffffffffffffffffffffff@reply-test.weldreach.com', deps({ openDb }));
     expect(result).toBeNull();
     expect(openDb).not.toHaveBeenCalled();
     expect(await inboundRows()).toHaveLength(0);

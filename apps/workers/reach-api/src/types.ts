@@ -32,7 +32,7 @@ export interface Env extends KitEnv {
   MAILPOOL_WEBHOOK_SECRET?: string;
   /** Defaults to https://app.mailpool.io/v1/api. */
   MAILPOOL_API_URL?: string;
-  /** Domain forwarded replies arrive on: reply.weldsuite.org (prod) / reply-test.weldsuite.org (test). */
+  /** Subdomain forwarded replies arrive on (`reply+<token>@…`): reply.weldreach.com (prod) / reply-test.weldreach.com (test). */
   REACH_INBOUND_DOMAIN?: string;
 
   /** @weldsuite/ai (reply classification). */

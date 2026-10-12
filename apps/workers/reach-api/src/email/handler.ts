@@ -2,7 +2,7 @@
  * `email()` handler: replies, auto-replies and bounces of WeldReach mailboxes.
  *
  * Each Mailpool mailbox forwards its incoming mail to
- * `<inboundToken>@<REACH_INBOUND_DOMAIN>` (reply.weldsuite.org); Cloudflare
+ * `reply+<inboundToken>@<REACH_INBOUND_DOMAIN>` (reply.weldreach.com); Cloudflare
  * Email Routing's catch-all rule delivers it here. The token in the recipient
  * address resolves through master `reach_routes` to the workspace and the
  * mailbox row; `services/inbound.ts` does the rest.

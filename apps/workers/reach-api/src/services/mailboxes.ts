@@ -8,7 +8,7 @@
  *   1. checks     limit, domain active, address free (nothing to undo)
  *   2. billing    Stripe quantity +1 via billing-worker (402 without a payment method)
  *   3. slots      Mailpool subscription slot for the type
- *   4. Mailpool   create with forwardTo = <inboundToken>@REACH_INBOUND_DOMAIN
+ *   4. Mailpool   create with forwardTo = reply+<inboundToken>@REACH_INBOUND_DOMAIN
  *   5. DB         tenant row (credentials sealed), master routes, warmup start
  *
  * A failure after step 2 rolls back: tenant row, routes, the Mailpool mailbox
@@ -33,6 +33,7 @@ import {
 } from '@weldsuite/app-api-client/schemas/reach';
 import type { ReachBilling } from '../lib/billing';
 import { sealMailServerCredentials } from '../lib/credentials';
+import { inboundAddress } from '../lib/inbound/token';
 import { imapCredentialsOf, smtpCredentialsOf } from '../lib/mailpool';
 import type { MailpoolClient } from '../lib/mailpool/client';
 import { isMailpoolNotFound, MailpoolError } from '../lib/mailpool/errors';
@@ -188,7 +189,8 @@ export async function createMailbox(
   const { db } = deps;
   const now = nowOf(deps);
 
-  if (!deps.env.REACH_INBOUND_DOMAIN) {
+  const inboundDomain = deps.env.REACH_INBOUND_DOMAIN;
+  if (!inboundDomain) {
     throw new ReachServiceError(503, 'INBOUND_NOT_CONFIGURED', 'Reply routing is not configured for this environment.');
   }
 
@@ -246,6 +248,7 @@ export async function createMailbox(
       type: input.type,
       signature: input.signature,
       inboundToken,
+      inboundDomain,
     });
     undo.mailpoolMailboxId = String(created.id);
 
@@ -337,6 +340,7 @@ async function createAtMailpool(
     type: CreateReachMailboxInput['type'];
     signature?: string;
     inboundToken: string;
+    inboundDomain: string;
   },
 ): Promise<MailpoolMailbox> {
   try {
@@ -346,7 +350,7 @@ async function createAtMailpool(
       lastName: input.lastName,
       type: input.type,
       signature: input.signature,
-      forwardTo: `${input.inboundToken}@${deps.env.REACH_INBOUND_DOMAIN}`,
+      forwardTo: inboundAddress(input.inboundToken, input.inboundDomain),
     });
   } catch (err) {
     // No (or an unclear) answer may still have created it: look for it so the rollback can delete it.

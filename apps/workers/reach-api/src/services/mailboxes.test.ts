@@ -47,7 +47,7 @@ function setup(overrides: { mailpool?: Parameters<typeof createFakeMailpool>[0];
   const deps: MailboxDeps = {
     env: {
       DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY,
-      REACH_INBOUND_DOMAIN: 'reply-test.weldsuite.org',
+      REACH_INBOUND_DOMAIN: 'reply-test.weldreach.com',
       SCHEDULE_INDEX: d1,
     },
     db,
@@ -105,7 +105,7 @@ describe('createMailbox', () => {
     const sent = mailpool.createMailbox.mock.calls[0]![0] as { email: string; forwardTo: string; type: string };
     expect(sent.email).toBe('jane@getacme.com');
     expect(sent.type).toBe('google');
-    expect(sent.forwardTo).toBe(`${row.inboundToken}@reply-test.weldsuite.org`);
+    expect(sent.forwardTo).toBe(`reply+${row.inboundToken}@reply-test.weldreach.com`);
     expect(row.inboundToken).toMatch(/^[a-z]{24}$/);
   });
 

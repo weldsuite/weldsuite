@@ -50,7 +50,7 @@ const ALL = ['reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:
 function api(keys: string[] = ALL, access = approvedAccess()) {
   return createTestApp('/api/reach/mailboxes', withAppAccess(mailboxRoutes, access), {
     context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'org_acme' },
-    env: { REACH_INBOUND_DOMAIN: 'reply-test.weldsuite.org', DATABASE_ENCRYPTION_KEY: 'ab'.repeat(32) } as never,
+    env: { REACH_INBOUND_DOMAIN: 'reply-test.weldreach.com', DATABASE_ENCRYPTION_KEY: 'ab'.repeat(32) } as never,
   }).request;
 }
 const json = (method: string, body?: unknown): RequestInit => ({

@@ -2,7 +2,7 @@
  * Processing one inbound message of a WeldReach mailbox.
  *
  * Each Mailpool mailbox forwards its incoming mail to
- * `<token>@reply.weldsuite.org`; `email/handler.ts` resolves the token to a
+ * `reply+<token>@reply.weldreach.com`; `email/handler.ts` resolves the token to a
  * workspace and mailbox and hands the raw message here. In order:
  *
  *   1. parse, de-duplicate on Message-ID, ignore mail from our own mailboxes;

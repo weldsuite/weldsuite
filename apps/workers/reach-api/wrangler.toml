@@ -12,8 +12,10 @@
 #     consumer sends over SMTP (cloudflare:sockets, ports 465/587);
 #   - an hourly cron: warmup progress (kind reach_warmup), plus the Mailpool slot
 #     reconciliation (master DB only) once a day at 03:15 UTC;
-#   - an `email()` handler: Cloudflare Email Routing catch-all on
-#     REACH_INBOUND_DOMAIN delivers the replies Mailpool mailboxes forward.
+#   - an `email()` handler: Mailpool mailboxes forward replies to
+#     reply+<token>@REACH_INBOUND_DOMAIN (a weldreach.com subdomain); one
+#     Email Routing rule for reply@REACH_INBOUND_DOMAIN delivers them here
+#     (subaddressing; catch-all is apex-only and weldreach.com keeps its own).
 #
 # Secrets (scripts/secrets/manifest.ts → "reach-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
@@ -21,8 +23,9 @@
 #   AI_GATEWAY_API_TOKEN, CLOUDFLARE_API_TOKEN
 #
 # Ops before first deploy (per env): create the queues reach-send-<env> and
-# reach-send-dlq-<env>; enable Email Routing on REACH_INBOUND_DOMAIN with a
-# catch-all rule → this worker; set the Mailpool webhook URL to
+# reach-send-dlq-<env>; add REACH_INBOUND_DOMAIN as an Email Routing subdomain
+# of weldreach.com with subaddressing on, and a literal rule
+# reply@REACH_INBOUND_DOMAIN → this worker; set the Mailpool webhook URL to
 # https://reach-api[-test].weldsuite.org/public/reach/webhooks/mailpool.
 
 name = "weldsuite-reach-api"
@@ -45,7 +48,7 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
-REACH_INBOUND_DOMAIN = "reply-test.weldsuite.org"
+REACH_INBOUND_DOMAIN = "reply-test.weldreach.com"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [[kv_namespaces]]
@@ -97,7 +100,7 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
-REACH_INBOUND_DOMAIN = "reply-test.weldsuite.org"
+REACH_INBOUND_DOMAIN = "reply-test.weldreach.com"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [env.test.triggers]
@@ -153,7 +156,7 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
-REACH_INBOUND_DOMAIN = "reply.weldsuite.org"
+REACH_INBOUND_DOMAIN = "reply.weldreach.com"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [env.production.triggers]
