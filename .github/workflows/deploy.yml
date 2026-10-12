@@ -6,8 +6,8 @@ name: Deploy
 #   workflow_dispatch → full deploy (all workers, migrations, mobile, frontends)
 #
 # Frontends: the platform, WeldMail, WeldCalendar and the developer portal go
-# to Cloudflare Pages; the Next.js apps and the helpdesk widget go to Vercel
-# (`vercel` job). Vercel's Git integration does not build develop/main.
+# to Cloudflare Pages; the Next.js apps, the helpdesk widget and the partner
+# portal go to Vercel (`vercel` job). Vercel's Git integration does not build develop/main.
 #
 # Secrets live on the GitHub Environments `test` and `production`.
 # See .github/SECRETS.md.
@@ -29,6 +29,7 @@ on:
       - 'apps/web/helpdesk-widget/**'
       - 'apps/web/hr-portal/**'
       - 'apps/web/meeting-portal/**'
+      - 'apps/web/partner/**'
       - 'apps/workers/**'
       - 'apps/mobile/**'
       - 'apps/tools/migrate-databases/**'
@@ -1064,7 +1065,7 @@ jobs:
             --branch "$BRANCH" \
             --commit-dirty=true
 
-  # Next.js apps + the helpdesk widget on Vercel (one Vercel project per app,
+  # Next.js apps, the helpdesk widget and the partner portal on Vercel (one Vercel project per app,
   # team weldsuite). Vercel's Git integration is off for develop/main
   # (git.deploymentEnabled in each app's vercel.json), so this job is the only
   # releaser there: it builds on the runner with the Vercel CLI and uploads the

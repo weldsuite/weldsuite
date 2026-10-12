@@ -9,7 +9,7 @@ import { partnerStrings } from './copy';
 export interface PartnerInvitationEmailProps {
   partnerName: string;
   role: 'owner' | 'admin' | 'billing' | 'viewer';
-  /** Where the invitee signs in, e.g. https://app.weldsuite.org/partner. */
+  /** Where the invitee signs in, e.g. https://partner.weldsuite.org. */
   portalUrl: string;
   recipientEmail: string;
 }
@@ -48,7 +48,7 @@ export default defineTemplate<PartnerInvitationEmailProps>({
       props: {
         partnerName: 'Andes Cloud SAS',
         role: 'owner',
-        portalUrl: 'https://app.weldsuite.org/partner',
+        portalUrl: 'https://partner.weldsuite.org',
         recipientEmail: 'ana@andes.example',
       },
     },

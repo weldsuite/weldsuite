@@ -1,15 +1,15 @@
 /**
- * Entry point to the partner portal, shown in the workspace sidebar to people
- * who belong to a partner and to nobody else (`GET /api/partner/me` answers an
- * empty list for everyone else).
+ * Link to the partner portal (its own app, partner.weldsuite.org), shown in the
+ * workspace sidebar to people who belong to a partner and to nobody else
+ * (`GET /api/partner/me` answers an empty list for everyone else).
  */
 
 import { Handshake } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
+import { usePartnerMemberships } from '@/hooks/queries/use-partner-queries';
+import { getPartnerPortalUrl } from '@/lib/api/public-env';
 import { useI18n } from '@/lib/i18n/provider';
-import { usePartnerMemberships } from '@/lib/partner/partner-context';
-import { Link } from '@/lib/router';
 
 export function PartnerPortalLink({ collapsed = false }: Readonly<{ collapsed?: boolean }>) {
   const { t } = useI18n();
@@ -17,6 +17,7 @@ export function PartnerPortalLink({ collapsed = false }: Readonly<{ collapsed?: 
 
   if (memberships.length === 0) return null;
   const label = t.partner.menuEntry;
+  const href = getPartnerPortalUrl();
 
   if (collapsed) {
     return (
@@ -29,9 +30,9 @@ export function PartnerPortalLink({ collapsed = false }: Readonly<{ collapsed?: 
               size="icon"
               className="h-8 w-8 rounded-md text-muted-foreground transition-colors hover:text-foreground"
             >
-              <Link href="/partner" aria-label={label}>
+              <a href={href} target="_blank" rel="noreferrer" aria-label={label}>
                 <Handshake className="h-4 w-4" />
-              </Link>
+              </a>
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">{label}</TooltipContent>
@@ -46,10 +47,10 @@ export function PartnerPortalLink({ collapsed = false }: Readonly<{ collapsed?: 
       variant="ghost"
       className="mb-2 flex w-full items-center justify-start gap-2 rounded-md px-3 py-[7px] text-sm text-muted-foreground transition-colors hover:text-foreground"
     >
-      <Link href="/partner">
+      <a href={href} target="_blank" rel="noreferrer">
         <Handshake className="h-4 w-4" />
         <span>{label}</span>
-      </Link>
+      </a>
     </Button>
   );
 }
@@ -67,10 +68,10 @@ export function PartnerPortalMobileEntry({ onNavigate }: Readonly<{ onNavigate: 
       variant="ghost"
       className="flex w-full items-center justify-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
     >
-      <Link href="/partner" onClick={onNavigate}>
+      <a href={getPartnerPortalUrl()} target="_blank" rel="noreferrer" onClick={onNavigate}>
         <Handshake className="h-4 w-4" />
         <span>{t.partner.menuEntry}</span>
-      </Link>
+      </a>
     </Button>
   );
 }

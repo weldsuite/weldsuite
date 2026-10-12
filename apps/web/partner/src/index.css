@@ -1,0 +1,9 @@
+@import "@weldsuite/ui/globals.css";
+@source "./**/*.{ts,tsx}";
+
+/* PageLoader stays invisible for its first beat so near-instant loads never flash a spinner. */
+@keyframes loader-appear {
+  to {
+    opacity: 1;
+  }
+}

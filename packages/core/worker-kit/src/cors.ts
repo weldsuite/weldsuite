@@ -16,10 +16,13 @@ const FIRST_PARTY_ORIGINS = [
   'https://app-preview.weldsuite.org',
   'https://developer.weldsuite.org',
   'https://developer-test.weldsuite.org',
+  'https://partner.weldsuite.org',
+  'https://partner-test.weldsuite.org',
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:5173',
   'http://localhost:3202',
+  'http://localhost:3203',
 ] as const;
 
 /** Resolve the Access-Control-Allow-Origin value for a request Origin header. */

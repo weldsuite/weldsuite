@@ -31,7 +31,7 @@ workflow reads `PERSONAL_DATABASE_URL`.
 
 Vercel-hosted apps (`vercel` job; app → project map in
 `.github/scripts/vercel-apps.mjs`): `admin`, `api-docs`, `booking-portal`,
-`docs`, `helpcenter`, `helpdesk-widget`, `hr-portal`, `meeting-portal`. Their
+`docs`, `helpcenter`, `helpdesk-widget`, `hr-portal`, `meeting-portal`, `partner`. Their
 env vars and domains stay on the Vercel projects: production builds pull the
 Production env, test builds pull the Preview env for branch `develop`, and the
 project's domains bound to `develop` (e.g. `team-test.weldsuite.org`) are
