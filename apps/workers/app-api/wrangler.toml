@@ -107,7 +107,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -119,6 +119,9 @@ EMAIL_TRANSPORT = "cloudflare"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
+# WeldSuite staff are emailed here when a workspace asks for access to an app
+# that is on request only (WeldReach). Template: internal.app-access-requested.
+ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
 # (WeldBooks' DIGIPOORT_MODE and the commented-out DIGIPOORT_CERT mTLS binding
 # moved to books-api.)
 
@@ -314,6 +317,11 @@ service = "weldsuite-host-api"
 binding = "KNOW_API"
 service = "weldsuite-know-api"
 
+# reach-api (WeldReach). Local: the reach-api worker in the same `pnpm dev:api` session.
+[[services]]
+binding = "REACH_API"
+service = "weldsuite-reach-api"
+
 # Cloudflare Email Sending binding for WeldMail outbound delivery. The
 # `destination_address` is the envelope MAIL FROM the binding will accept;
 # Cloudflare requires this address to be verified in the dashboard once per
@@ -354,7 +362,7 @@ routes = [
 ENVIRONMENT = "test"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -362,6 +370,9 @@ WORKSPACE_WORKER_URL = "https://workspace-worker-test.weldsuite.org"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
+# WeldSuite staff are emailed here when a workspace asks for access to an app
+# that is on request only (WeldReach). Template: internal.app-access-requested.
+ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
 # fall back without a code change (docs/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
@@ -496,6 +507,10 @@ service = "weldsuite-host-api-test"
 binding = "KNOW_API"
 service = "weldsuite-know-api-test"
 
+[[env.test.services]]
+binding = "REACH_API"
+service = "weldsuite-reach-api-test"
+
 [[env.test.send_email]]
 name = "SEND_EMAIL"
 
@@ -532,7 +547,7 @@ routes = [
 ENVIRONMENT = "production"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
@@ -540,6 +555,9 @@ WORKSPACE_WORKER_URL = "https://workspace-worker.weldsuite.org"
 # Comma-separated workspace ids that publish first-party hosted WeldApps
 # (Official store badge, skip public review). Leave empty until ops fills it.
 WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS = ""
+# WeldSuite staff are emailed here when a workspace asks for access to an app
+# that is on request only (WeldReach). Template: internal.app-access-requested.
+ACCESS_REQUEST_NOTIFY_EMAIL = "gert@weldsuite.org"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
 # fall back without a code change (docs/plans/system-email-cloudflare.md).
 EMAIL_TRANSPORT = "cloudflare"
@@ -680,6 +698,10 @@ service = "weldsuite-host-api"
 [[env.production.services]]
 binding = "KNOW_API"
 service = "weldsuite-know-api"
+
+[[env.production.services]]
+binding = "REACH_API"
+service = "weldsuite-reach-api"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"

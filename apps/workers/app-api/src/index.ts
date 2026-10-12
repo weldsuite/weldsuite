@@ -38,6 +38,7 @@ import {
   customObjectReverseRoutes,
 } from './routes/custom-object-links';
 import { dashboardRoutes } from './routes/dashboard';
+import { appAccessRoutes } from './routes/app-access';
 import { appCatalogRoutes } from './routes/app-catalog';
 import { creditsRoutes } from './routes/credits';
 import { accessRequestsRoutes } from './routes/access-requests';
@@ -251,6 +252,9 @@ app.route('/api/objects', customObjectLinkTraversalRoutes);
 app.route('/api/related', customObjectReverseRoutes);
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/app-catalog', appCatalogRoutes);
+// Access requests for apps that are on request only (WeldReach): /:code/access-request
+// on the same prefix; the paths do not overlap with the catalog routes above.
+app.route('/api/app-catalog', appAccessRoutes);
 // WeldCommerce (products, orders, parcels, …, /public/commerce-portal and
 // /webhooks/woocommerce) moved to commerce-api; the kit's forwarder hands those
 // paths to it over the COMMERCE_API binding (API_FORWARD_MODULES in wrangler.toml).
@@ -273,6 +277,9 @@ app.route('/api/workspaces', workspacesRoutes);
 // binding (API_FORWARD_MODULES in wrangler.toml).
 // WeldPass (/api/weldpass) moved to pass-api; the kit's forwarder hands those
 // paths to it over the PASS_API binding (API_FORWARD_MODULES in wrangler.toml).
+// WeldReach (/api/reach, /public/reach) lives in reach-api; the kit's forwarder
+// hands those paths to it over the REACH_API binding (API_FORWARD_MODULES in
+// wrangler.toml).
 
 // Cloudflare Workflow classes hosted by this worker (bound in wrangler.toml).
 // The module workflows that drained here after the split (welddata-enrich,

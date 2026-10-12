@@ -19,6 +19,8 @@ export interface AppCatalogEntry {
   isActive: boolean;
   isPublished: boolean;
   isBeta: boolean;
+  /** On request only: workspaces need staff approval (Access requests) before they can install it. */
+  requiresApproval: boolean;
   sortOrder: number;
   version: string | null;
   provider: string | null;

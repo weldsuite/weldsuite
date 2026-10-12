@@ -812,6 +812,152 @@ Log in met lisa@example.com. We sturen je een eenmalige code per e-mail.
 Verzonden via WeldSuite https://weldsuite.org"
 `;
 
+exports[`'internal.app-access-requested' / 'consentCountriesBoughtList' / 'en' > matches the text snapshot 1`] = `
+"Access request: WeldReach for Globex
+
+New access request for WeldReach
+
+Globex Corporation
+
+Workspace: Globex
+
+Website: https://globex.example
+
+Contact: Hank Scorpio
+
+Email: hank@globex.example
+
+Countries: NL, DE, US
+
+Consent rules: NL, DE: prior consent also applies to business addresses
+
+Sends per day: 12,000
+
+List source: Bought list
+
+List details: Purchased from a data vendor in March, opt-in status unknown.
+
+Use case
+
+Cold outreach to facility managers about our maintenance contracts.
+
+Review request https://admin.weldsuite.org/access-requests
+
+Or open this link: https://admin.weldsuite.org/access-requests
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.app-access-requested' / 'consentCountriesBoughtList' / 'nl' > matches the text snapshot 1`] = `
+"Toegangsaanvraag: WeldReach voor Globex
+
+Nieuwe toegangsaanvraag voor WeldReach
+
+Globex Corporation
+
+Werkruimte: Globex
+
+Website: https://globex.example
+
+Contactpersoon: Hank Scorpio
+
+E-mail: hank@globex.example
+
+Landen: NL, DE, US
+
+Toestemmingsregels: NL, DE: ook voor zakelijke adressen is voorafgaande toestemming nodig
+
+Verzendingen per dag: 12.000
+
+Herkomst lijst: Gekochte lijst
+
+Toelichting lijst: Purchased from a data vendor in March, opt-in status unknown.
+
+Toepassing
+
+Cold outreach to facility managers about our maintenance contracts.
+
+Aanvraag beoordelen https://admin.weldsuite.org/access-requests
+
+Of open deze link: https://admin.weldsuite.org/access-requests
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.app-access-requested' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Access request: WeldReach for Acme Studio
+
+New access request for WeldReach
+
+Acme Studio B.V.
+
+Workspace: Acme Studio
+
+Workspace id: ws_123
+
+Website: https://acme.example
+
+Contact: Lisa de Vries
+
+Email: lisa@acme.example
+
+Countries: BE, FR
+
+Sends per day: 200
+
+List source: Own customers
+
+Terms version: weldreach-2026-10
+
+Use case
+
+We email past customers about our new service tier.
+Only people who bought from us in the last two years.
+
+Review request https://admin.weldsuite.org/access-requests
+
+Or open this link: https://admin.weldsuite.org/access-requests
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'internal.app-access-requested' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Toegangsaanvraag: WeldReach voor Acme Studio
+
+Nieuwe toegangsaanvraag voor WeldReach
+
+Acme Studio B.V.
+
+Werkruimte: Acme Studio
+
+Werkruimte-id: ws_123
+
+Website: https://acme.example
+
+Contactpersoon: Lisa de Vries
+
+E-mail: lisa@acme.example
+
+Landen: BE, FR
+
+Verzendingen per dag: 200
+
+Herkomst lijst: Eigen klanten
+
+Versie voorwaarden: weldreach-2026-10
+
+Toepassing
+
+We email past customers about our new service tier.
+Only people who bought from us in the last two years.
+
+Aanvraag beoordelen https://admin.weldsuite.org/access-requests
+
+Of open deze link: https://admin.weldsuite.org/access-requests
+
+WeldSuite https://weldsuite.org"
+`;
+
 exports[`'internal.enterprise-inquiry' / 'default' / 'en' > matches the text snapshot 1`] = `
 "Enterprise inquiry: Globex Corporation (200-500)
 
@@ -1296,6 +1442,176 @@ De link en code verlopen over 15 minuten.
 Heb je niet geprobeerd in te loggen? Dan kun je deze e-mail negeren.
 
 Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'reach.access-approved' / 'default' / 'en' > matches the text snapshot 1`] = `
+"WeldReach is ready for Acme Studio
+
+Access approved
+
+WeldReach is ready
+
+Hi Lisa,
+
+We approved Acme Studio for WeldReach. Open it to add your sender details, a payment method for inboxes and your first domain.
+
+To start, you can connect up to 3 domains and 10 inboxes, and send up to 300 emails per day. Ask us if you need more.
+
+Open WeldReach https://app.weldsuite.org/weldreach
+
+Or open this link: https://app.weldsuite.org/weldreach
+
+Sending stays subject to the terms you accepted: business addresses only, your identity and an opt-out in every email, and opt-outs honoured for good. WeldSuite can pause sending if complaints or bounces get high.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'reach.access-approved' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"WeldReach is klaar voor Acme Studio
+
+Toegang goedgekeurd
+
+WeldReach is klaar
+
+Hoi Lisa,
+
+We hebben Acme Studio goedgekeurd voor WeldReach. Open WeldReach om je afzendergegevens in te vullen, een betaalmethode voor inboxen toe te voegen en je eerste domein te koppelen.
+
+Om te beginnen kun je maximaal 3 domeinen en 10 inboxen koppelen en maximaal 300 e-mails per dag versturen. Vraag het ons als je meer nodig hebt.
+
+WeldReach openen https://app.weldsuite.org/weldreach
+
+Of open deze link: https://app.weldsuite.org/weldreach
+
+Verzenden blijft onderhevig aan de voorwaarden die je hebt geaccepteerd: alleen zakelijke adressen, je identiteit en een afmeldlink in elke e-mail, en afmeldingen blijvend respecteren. WeldSuite kan het verzenden pauzeren bij veel klachten of bounces.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'reach.access-approved' / 'noNameNoLimits' / 'en' > matches the text snapshot 1`] = `
+"WeldReach is ready for Acme Studio
+
+Access approved
+
+WeldReach is ready
+
+Hi,
+
+We approved Acme Studio for WeldReach. Open it to add your sender details, a payment method for inboxes and your first domain.
+
+Open WeldReach https://app.weldsuite.org/weldreach
+
+Or open this link: https://app.weldsuite.org/weldreach
+
+Sending stays subject to the terms you accepted: business addresses only, your identity and an opt-out in every email, and opt-outs honoured for good. WeldSuite can pause sending if complaints or bounces get high.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'reach.access-approved' / 'noNameNoLimits' / 'nl' > matches the text snapshot 1`] = `
+"WeldReach is klaar voor Acme Studio
+
+Toegang goedgekeurd
+
+WeldReach is klaar
+
+Hoi,
+
+We hebben Acme Studio goedgekeurd voor WeldReach. Open WeldReach om je afzendergegevens in te vullen, een betaalmethode voor inboxen toe te voegen en je eerste domein te koppelen.
+
+WeldReach openen https://app.weldsuite.org/weldreach
+
+Of open deze link: https://app.weldsuite.org/weldreach
+
+Verzenden blijft onderhevig aan de voorwaarden die je hebt geaccepteerd: alleen zakelijke adressen, je identiteit en een afmeldlink in elke e-mail, en afmeldingen blijvend respecteren. WeldSuite kan het verzenden pauzeren bij veel klachten of bounces.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'reach.access-rejected' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your WeldReach access request for Acme Studio
+
+Access request
+
+We could not approve your request
+
+Hi Lisa,
+
+We reviewed the WeldReach access request for Acme Studio and could not approve it right now.
+
+Reason
+
+We could not verify that the contact lists come from your own customers.
+Please describe where they come from and ask again.
+
+If your situation changes, you can request access again from the app store. For questions, contact WeldSuite support.
+
+Open the app store https://app.weldsuite.org/appstore/weldreach
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'reach.access-rejected' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je toegangsaanvraag voor WeldReach van Acme Studio
+
+Toegangsaanvraag
+
+We konden je aanvraag niet goedkeuren
+
+Hoi Lisa,
+
+We hebben de toegangsaanvraag voor WeldReach van Acme Studio beoordeeld en kunnen die op dit moment niet goedkeuren.
+
+Reden
+
+We could not verify that the contact lists come from your own customers.
+Please describe where they come from and ask again.
+
+Verandert je situatie, dan kun je in de appstore opnieuw toegang aanvragen. Vragen? Neem contact op met WeldSuite-support.
+
+De appstore openen https://app.weldsuite.org/appstore/weldreach
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'reach.access-rejected' / 'noNameNoLink' / 'en' > matches the text snapshot 1`] = `
+"Your WeldReach access request for Acme Studio
+
+Access request
+
+We could not approve your request
+
+Hi,
+
+We reviewed the WeldReach access request for Acme Studio and could not approve it right now.
+
+Reason
+
+Outreach to consumers is not supported.
+
+If your situation changes, you can request access again from the app store. For questions, contact WeldSuite support.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'reach.access-rejected' / 'noNameNoLink' / 'nl' > matches the text snapshot 1`] = `
+"Je toegangsaanvraag voor WeldReach van Acme Studio
+
+Toegangsaanvraag
+
+We konden je aanvraag niet goedkeuren
+
+Hoi,
+
+We hebben de toegangsaanvraag voor WeldReach van Acme Studio beoordeeld en kunnen die op dit moment niet goedkeuren.
+
+Reden
+
+Outreach to consumers is not supported.
+
+Verandert je situatie, dan kun je in de appstore opnieuw toegang aanvragen. Vragen? Neem contact op met WeldSuite-support.
+
+WeldSuite https://weldsuite.org"
 `;
 
 exports[`'task.assigned' / 'full' / 'en' > matches the text snapshot 1`] = `

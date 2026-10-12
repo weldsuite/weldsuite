@@ -26,6 +26,9 @@ import type {
 } from '@/lib/billing-types';
 import { adminCopy } from '@/lib/i18n';
 import { ActivityTable } from '@/components/billing/activity-table';
+import { AppAccessCard } from '@/components/app-access/app-access-card';
+import type { ReachUsage } from '@/lib/app-access';
+import type { WorkspaceAppAccessEntry } from '@/lib/app-access-data';
 import { StatusBadge, formatDate } from '../workspace-presentation';
 import { SubscriptionCard } from './billing/subscription-card';
 import { CreditsCard } from './billing/credits-card';
@@ -61,6 +64,8 @@ export function WorkspaceDetail({
   payments,
   activity,
   snapshotState,
+  appAccess,
+  appUsage,
   canWrite,
 }: Readonly<{
   workspace: WorkspaceRow;
@@ -72,6 +77,10 @@ export function WorkspaceDetail({
   payments: PaymentRow[];
   activity: AuditEventRow[];
   snapshotState: SnapshotState;
+  /** The apps that are on request only, with this workspace's access to each. */
+  appAccess: WorkspaceAppAccessEntry[];
+  /** WeldReach usage by app code, for the apps that have any. */
+  appUsage: Partial<Record<string, ReachUsage>>;
   canWrite: boolean;
 }>) {
   const t = adminCopy();
@@ -80,6 +89,7 @@ export function WorkspaceDetail({
   const active = members.filter((m) => m.status === 'ACTIVE');
   const pending = members.filter((m) => m.status === 'PENDING');
   const admins = active.filter((m) => m.role === 'org:admin');
+  const awaitingReview = appAccess.filter((entry) => entry.access?.status === 'requested').length;
 
   return (
     <PageContent>
@@ -115,6 +125,16 @@ export function WorkspaceDetail({
               <span className="ml-1 text-muted-foreground tabular-nums">{members.length}</span>
             </TabsTrigger>
             <TabsTrigger value="activity">{t.tabs.activity}</TabsTrigger>
+            {appAccess.length > 0 && (
+              <TabsTrigger value="app-access">
+                App access
+                {awaitingReview > 0 && (
+                  <span className="ml-1 rounded-full bg-amber-500/15 px-1.5 text-[11px] tabular-nums text-amber-600 dark:text-amber-400">
+                    {awaitingReview}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="billing" className="space-y-4">
@@ -122,6 +142,25 @@ export function WorkspaceDetail({
             <CreditsCard workspaceId={workspace.id} credits={credits} canWrite={canWriteBilling} />
             <HistoryCard workspaceId={workspace.id} invoices={invoices} payments={payments} canWrite={canWriteBilling} />
           </TabsContent>
+
+          {appAccess.length > 0 && (
+            <TabsContent value="app-access" className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Apps that are on request only. A workspace needs approval here before it can install them.
+              </p>
+              {appAccess.map((entry) => (
+                <AppAccessCard
+                  key={entry.appCode}
+                  workspaceId={workspace.id}
+                  appCode={entry.appCode}
+                  appName={entry.appName}
+                  access={entry.access}
+                  usage={appUsage[entry.appCode]}
+                  canWrite={canWrite}
+                />
+              ))}
+            </TabsContent>
+          )}
 
           <TabsContent value="activity" className="space-y-3">
             <p className="text-sm text-muted-foreground">{t.activity.workspaceDescription}</p>

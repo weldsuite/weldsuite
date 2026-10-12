@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { AppAccessStatus } from './reach';
 
 // ============================================================================
 // App catalog — first-party module store (master DB `app_catalog` table).
@@ -52,6 +53,18 @@ export interface CatalogAppItem {
   websiteUrl: string | null;
   documentationUrl: string | null;
   contactUrl: string | null;
+  /**
+   * On request only (WeldReach first): the store shows "Request access" instead
+   * of Install, and install answers 403 APP_ACCESS_REQUIRED until staff approve
+   * the workspace. Always sent by app-api; optional here for older fixtures.
+   */
+  requiresApproval?: boolean;
+  /**
+   * This workspace's access to the app, sent only when `requiresApproval`:
+   * `'none'` before it ever asked, otherwise the status of its request.
+   * File or read the request via `createAppAccessApi` (`/:code/access-request`).
+   */
+  accessStatus?: AppAccessStatus | 'none';
 }
 
 /** Installation metadata attached to GET /:code when installed. */

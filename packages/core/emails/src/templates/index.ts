@@ -12,12 +12,15 @@ import flowDigest from './flow/digest';
 import hrBankChanged from './hr/bank-changed';
 import hrPayslipReady from './hr/payslip-ready';
 import hrPortalInvite from './hr/portal-invite';
+import appAccessRequested from './internal/app-access-requested';
 import enterpriseInquiry from './internal/enterprise-inquiry';
 import meetInvitation from './meet/invitation';
 import notification from './notifications/notification';
 import partnerDunning from './partner/dunning';
 import partnerInvitation from './partner/invitation';
 import portalSignIn from './portal/sign-in';
+import reachAccessApproved from './reach/access-approved';
+import reachAccessRejected from './reach/access-rejected';
 import taskAssigned from './task/assigned';
 import workspaceInvitation from './workspace/invitation';
 
@@ -37,6 +40,9 @@ export const templates = {
   'partner.dunning': partnerDunning,
   'partner.invitation': partnerInvitation,
   'internal.enterprise-inquiry': enterpriseInquiry,
+  'internal.app-access-requested': appAccessRequested,
+  'reach.access-approved': reachAccessApproved,
+  'reach.access-rejected': reachAccessRejected,
 };
 
 export type TemplateId = keyof typeof templates;
@@ -52,11 +58,14 @@ export type { DigestTask, FlowDigestEmailProps } from './flow/digest';
 export type { HrBankChangedEmailProps } from './hr/bank-changed';
 export type { HrPayslipReadyEmailProps } from './hr/payslip-ready';
 export type { HrPortalInviteEmailProps } from './hr/portal-invite';
+export type { AppAccessRequestedEmailProps } from './internal/app-access-requested';
 export type { EnterpriseInquiryEmailProps } from './internal/enterprise-inquiry';
 export type { MeetInvitationEmailProps } from './meet/invitation';
 export type { NotificationEmailProps } from './notifications/notification';
 export type { PartnerDunningEmailProps, PartnerDunningStage } from './partner/dunning';
 export type { PartnerInvitationEmailProps } from './partner/invitation';
 export type { PortalSignInEmailProps } from './portal/sign-in';
+export type { ReachAccessApprovedEmailProps } from './reach/access-approved';
+export type { ReachAccessRejectedEmailProps } from './reach/access-rejected';
 export type { TaskAssignedEmailProps } from './task/assigned';
 export type { WorkspaceInvitationEmailProps } from './workspace/invitation';

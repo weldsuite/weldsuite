@@ -14,6 +14,7 @@ import {
   PackagePlus,
   Phone,
   Receipt,
+  ShieldCheck,
   Tags,
   Users,
   Video,
@@ -76,6 +77,7 @@ export function getNavAreas(): NavArea[] {
         items: [
           { title: 'Support Inbox', href: '/support', icon: Headphones },
           { title: 'App Catalog', href: '/apps', icon: Package },
+          { title: 'Access requests', href: '/access-requests', icon: ShieldCheck },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: billing.plans, href: '/plans', icon: CreditCard },
           { title: partners.jumpTo, href: '/partners', icon: Handshake },
@@ -113,6 +115,18 @@ export function getNavAreas(): NavArea[] {
           { title: 'All Apps', href: '/apps', icon: ListTree },
           { title: 'New App', href: '/apps/new', icon: PackagePlus },
         ],
+      },
+    ],
+  },
+  {
+    key: 'access-requests',
+    name: 'Access requests',
+    icon: ShieldCheck,
+    href: '/access-requests',
+    groups: [
+      {
+        group: 'Review',
+        items: [{ title: 'Access requests', href: '/access-requests', icon: ShieldCheck }],
       },
     ],
   },
