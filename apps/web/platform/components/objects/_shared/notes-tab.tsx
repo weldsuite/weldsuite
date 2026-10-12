@@ -249,7 +249,7 @@ export function NotesTab({ entityId, entityKind, entityName }: Readonly<NotesTab
             )}
           </div>
           <div className={COLUMN.created}>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm font-mono text-muted-foreground">
               {formatNoteDate(n.createdAt, t('sweep.entities.today'), t('sweep.entities.yesterday'))}
             </span>
           </div>

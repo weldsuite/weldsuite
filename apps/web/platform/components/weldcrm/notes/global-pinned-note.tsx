@@ -1,307 +1,78 @@
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Button } from '@weldsuite/ui/components/button';
-import {
-  Bold,
-  Italic,
-  Underline,
-  List as ListIcon,
-  ListOrdered,
-  Link as LinkIcon,
-  Minus,
-  Pin as PinIcon,
-  Maximize,
-  X,
-  Bot,
-  Building,
-} from 'lucide-react';
-import { cn, stripTags } from '@/lib/utils';
+import { Building2, StickyNote, User } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { usePinnedNote } from '@/contexts/pinned-note-context';
-import { NoteEditorDialog } from './note-editor-dialog';
+import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
+import { MINIMIZED_DOCK_ROOM, MinimizedDockButton, minimizedDockRight } from '@/components/shared/minimized-dock-button';
+import { MinimizedDockGroup, useMinimizedDockAllowed, useMinimizedDockOccupied } from '@/components/shared/minimized-dock';
+import { getNoteTitle } from './note-title';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
+import { NOTE_POPUP_FRAME } from './note-popup-frame';
+import type { NoteEditorSurfaceHandle } from './note-editor-surface';
 
-// Helper to strip HTML tags
-function stripHtml(html: string): string {
-  return stripTags(html).trim();
-}
+// The editor is the same surface the Notes page popup renders. It is loaded
+// only once a note is pinned: this component sits in the app shell on every
+// page, and the block editor is far too heavy to ship with it.
+const NoteEditorSurface = lazy(() =>
+  import('./note-editor-surface').then((m) => ({ default: m.NoteEditorSurface })),
+);
+// The centred popup, for a note maximized on a page other than Notes.
+const NotePopupDialog = lazy(() =>
+  import('./note-popup-dialog').then((m) => ({ default: m.NotePopupDialog })),
+);
 
-// Helper to get note title from content
-function getNoteTitle(content: string): string {
-  if (!content) return 'Untitled';
-  const headingMatch = /<h[1-3][^>]*>(.*?)<\/h[1-3]>/i.exec(content);
-  if (headingMatch?.[1]) {
-    const title = stripHtml(headingMatch[1]).trim();
-    if (title) return title;
-  }
-  const text = stripHtml(content);
-  const firstLine = text.split('\n')[0]?.trim() || 'Untitled';
-  return firstLine || 'Untitled';
-}
+// A pinned note always arrives with its save handler; this only keeps the
+// surface's `onSave` stable if it ever does not.
+const NO_SAVE = async () => {};
 
-// Helper to get company icon based on name
-function getCompanyIcon(name?: string) {
-  if (!name) return <Building className="h-3 w-3 text-muted-foreground" />;
-  if (name.toLowerCase().includes('weld')) {
-    return <Bot className="h-3 w-3 text-muted-foreground" />;
-  }
-  return <Building className="h-3 w-3 text-muted-foreground" />;
-}
-
-interface ActiveFormats {
-  bold: boolean;
-  italic: boolean;
-  underline: boolean;
-  unorderedList: boolean;
-  orderedList: boolean;
-}
-
-interface FormattingToolbarProps {
-  activeFormats: ActiveFormats;
-  onBold: (e: React.MouseEvent) => void;
-  onItalic: (e: React.MouseEvent) => void;
-  onUnderline: (e: React.MouseEvent) => void;
-  onUnorderedList: (e: React.MouseEvent) => void;
-  onOrderedList: (e: React.MouseEvent) => void;
-  onLink: (e: React.MouseEvent) => void;
-}
-
-function FormattingToolbar({
-  activeFormats,
-  onBold,
-  onItalic,
-  onUnderline,
-  onUnorderedList,
-  onOrderedList,
-  onLink,
-}: Readonly<FormattingToolbarProps>) {
-  const t = useTranslations();
-
-  return (
-    <div className="px-4 py-2 border-t flex items-center gap-1">
-      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.bold && "bg-muted")} onMouseDown={onBold} title={t('sweep.weldcrm.globalPinnedNote.boldTooltip')}>
-        <Bold className="h-3.5 w-3.5" />
-      </Button>
-      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.italic && "bg-muted")} onMouseDown={onItalic} title={t('sweep.weldcrm.globalPinnedNote.italicTooltip')}>
-        <Italic className="h-3.5 w-3.5" />
-      </Button>
-      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.underline && "bg-muted")} onMouseDown={onUnderline} title={t('sweep.weldcrm.globalPinnedNote.underlineTooltip')}>
-        <Underline className="h-3.5 w-3.5" />
-      </Button>
-      <div className="w-px h-4 bg-border mx-1" />
-      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.unorderedList && "bg-muted")} onMouseDown={onUnorderedList} title={t('sweep.weldcrm.globalPinnedNote.bulletListTooltip')}>
-        <ListIcon className="h-3.5 w-3.5" />
-      </Button>
-      <Button variant="ghost" size="sm" className={cn("h-7 w-7 p-0", activeFormats.orderedList && "bg-muted")} onMouseDown={onOrderedList} title={t('sweep.weldcrm.globalPinnedNote.numberedListTooltip')}>
-        <ListOrdered className="h-3.5 w-3.5" />
-      </Button>
-      <div className="w-px h-4 bg-border mx-1" />
-      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onMouseDown={onLink} title={t('sweep.weldcrm.globalPinnedNote.insertLinkTooltip')}>
-        <LinkIcon className="h-3.5 w-3.5" />
-      </Button>
-    </div>
-  );
-}
-
-interface WindowControlsProps {
-  isMinimized: boolean;
-  onMinimize: () => void;
-  onRestore: () => void;
-  onUnpin: () => void;
-  onClose: () => void;
-}
-
-function WindowControls({ isMinimized, onMinimize, onRestore, onUnpin, onClose }: Readonly<WindowControlsProps>) {
-  const t = useTranslations();
-
-  return (
-    <div className={cn("absolute right-3 flex items-center gap-1", isMinimized ? "top-1/2 -translate-y-1/2" : "top-[9px]")}>
-      <Button
-        variant="ghost"
-        onClick={isMinimized ? onUnpin : onMinimize}
-        className="rounded-md p-1.5 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
-        title={isMinimized ? t('sweep.weldcrm.globalPinnedNote.expand') : t('sweep.weldcrm.globalPinnedNote.minimize')}
-      >
-        {isMinimized ? <Maximize className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
-      </Button>
-      <Button
-        variant="ghost"
-        onClick={isMinimized ? onRestore : onUnpin}
-        className={cn(
-          "rounded-md p-1.5 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary",
-          isMinimized ? "text-gray-500" : "text-blue-500"
-        )}
-        title={isMinimized ? t('sweep.weldcrm.globalPinnedNote.expand') : t('sweep.weldcrm.globalPinnedNote.unpin')}
-      >
-        <PinIcon className={cn("h-4 w-4", !isMinimized && "fill-current")} />
-      </Button>
-      <Button
-        variant="ghost"
-        onClick={onClose}
-        className="rounded-md p-1.5 text-gray-500 transition-colors hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-secondary"
-        title={t('sweep.weldcrm.globalPinnedNote.close')}
-      >
-        <X className="h-4 w-4" />
-      </Button>
-    </div>
-  );
-}
-
+/**
+ * The pinned note: a small panel in the bottom-right corner that stays on
+ * screen across pages. It is the note popup's `NoteEditorSurface` in its
+ * compact size, in a fixed frame instead of a dialog and without a backdrop,
+ * since the page behind stays in use.
+ *
+ * Minimized, it is the round dock button a minimized mail is
+ * (`MinimizedDockButton`); the panel stays mounted but hidden behind it, so
+ * the editor keeps what was typed.
+ */
 export function GlobalPinnedNote() {
   const t = useTranslations();
   const { pinnedNote, isOpen, onSave, closePinnedNote, unpinToDialog, unpinnedNote, unpinnedNoteSave, unpinnedNoteDelete, clearUnpinnedNote, startMinimized, setStartMinimized } = usePinnedNote();
 
-  const [title, setTitle] = useState('');
-  const contentRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLDivElement>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSavedContentRef = useRef<string>('');
+  const surfaceRef = useRef<NoteEditorSurfaceHandle>(null);
   const [isMinimized, setIsMinimized] = useState(false);
+  // Where the note was minimized from, which is where its button reopens it:
+  // the centred popup, or this panel.
+  const [minimizedFrom, setMinimizedFrom] = useState<'dialog' | 'panel'>('panel');
+  const [minimizedTitle, setMinimizedTitle] = useState('');
+  const mobileNav = useMobileNavOptional();
+  const dockAllowed = useMinimizedDockAllowed();
+  const dockOccupied = useMinimizedDockOccupied();
 
-  // Sync minimized state from context when pinned note opens. Intentionally
-  // excludes startMinimized/setStartMinimized — this must fire once per
-  // open transition, not again when setStartMinimized(false) itself changes
-  // the value being read.
-  useEffect(() => {
-    if (pinnedNote && isOpen) {
+  // Take the minimized state from the context the moment a note is pinned,
+  // while rendering rather than in an effect: an effect runs after the first
+  // paint, so a note sent here minimized showed the open panel for a frame
+  // and then shrank.
+  const openNote = pinnedNote && isOpen ? pinnedNote : null;
+  const [syncedNote, setSyncedNote] = useState<typeof openNote>(null);
+  if (openNote !== syncedNote) {
+    setSyncedNote(openNote);
+    if (openNote) {
       setIsMinimized(startMinimized);
-      setStartMinimized(false);
+      setMinimizedFrom(startMinimized ? 'dialog' : 'panel');
+      setMinimizedTitle(getNoteTitle(openNote.content));
     }
+  }
+
+  // The flag is one-shot: clear it once this open has consumed it. Excludes
+  // startMinimized/setStartMinimized on purpose, so it fires once per open
+  // and not again when clearing the flag changes the value being read.
+  useEffect(() => {
+    if (pinnedNote && isOpen) setStartMinimized(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinnedNote, isOpen]);
-  const [activeFormats, setActiveFormats] = useState({
-    bold: false,
-    italic: false,
-    underline: false,
-    unorderedList: false,
-    orderedList: false,
-  });
-
-  // Check active formatting on selection change
-  useEffect(() => {
-    const checkFormats = () => {
-      setActiveFormats({
-        bold: isEditorCommandActive('bold'),
-        italic: isEditorCommandActive('italic'),
-        underline: isEditorCommandActive('underline'),
-        unorderedList: isEditorCommandActive('insertUnorderedList'),
-        orderedList: isEditorCommandActive('insertOrderedList'),
-      });
-    };
-
-    document.addEventListener('selectionchange', checkFormats);
-    return () => document.removeEventListener('selectionchange', checkFormats);
-  }, []);
-
-  // Extract title and content from note
-  useEffect(() => {
-    if (pinnedNote) {
-      const noteTitle = getNoteTitle(pinnedNote.content);
-      setTitle(noteTitle === 'Untitled' ? '' : noteTitle);
-      lastSavedContentRef.current = pinnedNote.content;
-
-      if (titleRef.current) {
-        titleRef.current.textContent = noteTitle === 'Untitled' ? '' : noteTitle;
-      }
-      if (contentRef.current) {
-        const htmlWithoutTitle = pinnedNote.content.replace(/<h[1-3][^>]*>.*?<\/h[1-3]>/i, '');
-        contentRef.current.innerHTML = htmlWithoutTitle || '';
-      }
-    }
-  }, [pinnedNote]);
-
-  // Auto-save with debounce
-  const triggerAutoSave = useCallback(() => {
-    if (!pinnedNote || !onSave) return;
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    saveTimeoutRef.current = setTimeout(async () => {
-      const fullContent = title ? `<h1>${title}</h1>${contentRef.current?.innerHTML || ''}` : contentRef.current?.innerHTML || '';
-
-      if (fullContent === lastSavedContentRef.current) return;
-
-      setIsSaving(true);
-      try {
-        await onSave(fullContent);
-        lastSavedContentRef.current = fullContent;
-      } catch (error) {
-        console.error('Auto-save failed:', error);
-      }
-      setIsSaving(false);
-    }, 1000);
-  }, [pinnedNote, title, onSave]);
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  // Handle content changes
-  const handleContentChange = () => {
-    triggerAutoSave();
-  };
-
-  // Handle title changes
-  const handleTitleChange = (newTitle: string) => {
-    setTitle(newTitle);
-    triggerAutoSave();
-  };
-
-  // Toolbar formatting functions
-  const execFormat = useCallback((command: string, value?: string) => {
-    runEditorCommand(command, value);
-    setActiveFormats({
-      bold: isEditorCommandActive('bold'),
-      italic: isEditorCommandActive('italic'),
-      underline: isEditorCommandActive('underline'),
-      unorderedList: isEditorCommandActive('insertUnorderedList'),
-      orderedList: isEditorCommandActive('insertOrderedList'),
-    });
-    triggerAutoSave();
-  }, [triggerAutoSave]);
-
-  const handleBold = (e: React.MouseEvent) => {
-    e.preventDefault();
-    execFormat('bold');
-  };
-  const handleItalic = (e: React.MouseEvent) => {
-    e.preventDefault();
-    execFormat('italic');
-  };
-  const handleUnderline = (e: React.MouseEvent) => {
-    e.preventDefault();
-    execFormat('underline');
-  };
-  const handleUnorderedList = (e: React.MouseEvent) => {
-    e.preventDefault();
-    execFormat('insertUnorderedList');
-  };
-  const handleOrderedList = (e: React.MouseEvent) => {
-    e.preventDefault();
-    execFormat('insertOrderedList');
-  };
-  const handleLink = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const selection = window.getSelection();
-    const hasSelection = selection && selection.toString().length > 0;
-    const url = prompt(t('sweep.weldcrm.globalPinnedNote.enterUrl'));
-    if (url) {
-      if (!hasSelection) {
-        runEditorCommand('insertHTML', `<a href="${url}">${url}</a>`);
-      } else {
-        execFormat('createLink', url);
-      }
-    }
-  };
 
   // Only render on client
   const [mounted, setMounted] = useState(false);
@@ -311,109 +82,95 @@ export function GlobalPinnedNote() {
 
   if (!mounted) return null;
 
-  // Fallback dialog when unpinned from a different page — uses the same NoteEditorDialog
+  // Unpinned on a page other than Notes, which is not there to show its
+  // popup: show the same popup from here.
   if (unpinnedNote) {
     return (
-      <NoteEditorDialog
-        note={unpinnedNote}
-        open={true}
-        onOpenChange={(open) => { if (!open) clearUnpinnedNote(); }}
-        onSave={unpinnedNoteSave || (async () => {})}
-        onDelete={unpinnedNoteDelete || (() => clearUnpinnedNote())}
-      />
+      <Suspense fallback={null}>
+        <NotePopupDialog
+          note={unpinnedNote}
+          open={true}
+          onOpenChange={(open) => { if (!open) clearUnpinnedNote(); }}
+          onSave={unpinnedNoteSave ?? NO_SAVE}
+          onDelete={unpinnedNoteDelete ?? clearUnpinnedNote}
+        />
+      </Suspense>
     );
   }
 
   if (!pinnedNote || !isOpen) return null;
 
+  // Back to the centred dialog, with what the panel holds right now.
+  const handleUnpin = () => {
+    const content = surfaceRef.current?.getContent();
+    void surfaceRef.current?.flushSave();
+    unpinToDialog(content);
+  };
+
+  const handleClose = () => {
+    void surfaceRef.current?.flushSave();
+    closePinnedNote();
+  };
+
+  const handleMinimize = () => {
+    setMinimizedTitle(getNoteTitle(surfaceRef.current?.getContent() ?? pinnedNote.content));
+    setMinimizedFrom('panel');
+    setIsMinimized(true);
+  };
+
+  const RecordIcon = pinnedNote.recordKind === 'person' ? User : Building2;
+
   const panel = (
-    <div
-      className={cn(
-        "bg-background fixed z-50 p-0 flex flex-col gap-0 transition-all duration-200",
-        "bottom-4 right-4",
-        isMinimized ? "rounded-xl" : "rounded-lg"
-      )}
-      style={isMinimized
-        ? { width: '320px', height: '50px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' }
-        : { width: '440px', maxWidth: '90vw', height: '500px', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.06), 0 24px 56px -4px rgba(0, 0, 0, 0.2)', border: '1px solid hsl(var(--border))' }
-      }
-    >
-      {isMinimized ? (
-        /* Minimized view */
-        <div className="flex items-center h-full px-4">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            {pinnedNote?.recordName && (
-              <div className="flex items-center gap-1.5">
-                <div className="w-4 h-4 rounded flex items-center justify-center bg-primary/10">
-                  {getCompanyIcon(pinnedNote.recordName)}
-                </div>
-              </div>
-            )}
-            <span className="text-sm font-medium truncate">{title || t('sweep.weldcrm.globalPinnedNote.untitled')}</span>
-            {isSaving && <span className="text-xs text-muted-foreground">{t('sweep.weldcrm.globalPinnedNote.saving')}</span>}
-          </div>
-        </div>
-      ) : (
-        /* Full view */
-        <>
-          <div className="px-4 border-b flex items-center justify-between h-[46px]">
-            <div className="flex items-center gap-2">
-              {pinnedNote?.recordName && (
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-muted rounded-md">
-                  <div className="w-4 h-4 rounded flex items-center justify-center bg-primary/10">
-                    {getCompanyIcon(pinnedNote.recordName)}
-                  </div>
-                  <span className="text-xs font-medium">{pinnedNote.recordName}</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Editor */}
-          <div className="flex-1 overflow-auto p-6 [&::-webkit-scrollbar]:w-[5px] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-black/5 [&::-webkit-scrollbar-thumb]:rounded-full">
-            {/* Title */}
-            <div
-              ref={titleRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={(e) => handleTitleChange(e.currentTarget.textContent || '')}
-              data-placeholder={t('sweep.weldcrm.globalPinnedNote.untitled')}
-              className="text-2xl font-bold outline-none mb-4 empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/40"
-            />
-
-            {/* Content */}
-            <div
-              ref={contentRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={handleContentChange}
-              data-placeholder={t('sweep.weldcrm.globalPinnedNote.startWriting')}
-              className="outline-none min-h-[300px] text-base leading-relaxed empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/40 [&_p]:mb-2 [&_ul]:list-disc [&_ul]:ml-6 [&_ul]:mb-2 [&_ol]:list-decimal [&_ol]:ml-6 [&_ol]:mb-2 [&_li]:mb-1"
-            />
-          </div>
-
-          {/* Toolbar - at bottom */}
-          <FormattingToolbar
-            activeFormats={activeFormats}
-            onBold={handleBold}
-            onItalic={handleItalic}
-            onUnderline={handleUnderline}
-            onUnorderedList={handleUnorderedList}
-            onOrderedList={handleOrderedList}
-            onLink={handleLink}
+    <>
+      {/* Minimized: the note's group in the dock, above any minimized mails. */}
+      {isMinimized && dockAllowed && (
+        <MinimizedDockGroup kind="note" testId="pinned-note-minimized">
+          <MinimizedDockButton
+            label={minimizedTitle === 'Untitled' ? t('sweep.weldcrm.globalPinnedNote.untitled') : minimizedTitle}
+            icon={<StickyNote className="size-4 text-foreground" />}
+            avatarUrl={pinnedNote.recordAvatar}
+            avatarAlt={pinnedNote.recordName}
+            avatarFallback={<RecordIcon className="size-2 text-muted-foreground" />}
+            onOpen={minimizedFrom === 'dialog' ? handleUnpin : () => setIsMinimized(false)}
+            onDismiss={handleClose}
+            openLabel={t('sweep.weldcrm.globalPinnedNote.expand')}
+            dismissLabel={t('sweep.weldcrm.globalPinnedNote.close')}
+            testId="pinned-note-minimized-btn"
           />
-        </>
+        </MinimizedDockGroup>
       )}
-
-      {/* Window controls */}
-      <WindowControls
-        isMinimized={isMinimized}
-        onMinimize={() => setIsMinimized(true)}
-        onRestore={() => setIsMinimized(false)}
-        onUnpin={unpinToDialog}
-        onClose={closePinnedNote}
-      />
-    </div>
+      <div
+        className={cn(
+          "bg-background fixed z-50 p-0 flex flex-col gap-0 rounded-lg",
+          "bottom-4",
+          NOTE_POPUP_FRAME,
+          isMinimized && "hidden"
+        )}
+        // What is minimized (mails) keeps the corner; the panel sits beside it.
+        style={{
+          right: dockOccupied && dockAllowed ? `calc(${minimizedDockRight(mobileNav)} + ${MINIMIZED_DOCK_ROOM})` : '16px',
+          width: '440px',
+          maxWidth: '90vw',
+          height: '500px',
+          maxHeight: '90vh',
+        }}
+      >
+        <Suspense fallback={null}>
+          <NoteEditorSurface
+            ref={surfaceRef}
+            note={pinnedNote}
+            active={isOpen}
+            onSave={onSave ?? NO_SAVE}
+            size="compact"
+            visible={!isMinimized}
+            pinTitle={t('sweep.weldcrm.globalPinnedNote.unpin')}
+            onMinimize={handleMinimize}
+            onPinToggle={handleUnpin}
+            onClose={handleClose}
+          />
+        </Suspense>
+      </div>
+    </>
   );
 
   return createPortal(panel, document.body);

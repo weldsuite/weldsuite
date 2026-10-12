@@ -5,11 +5,11 @@ import {
   useGenerateEmailDraft,
 } from '@/hooks/queries/use-mail-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useParams, usePathname, useRouter } from '@/lib/router';
-import { Mail, User, X } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { useParams, useRouter } from '@/lib/router';
+import { Mail, User } from 'lucide-react';
+import { MINIMIZED_DOCK_ROOM, MinimizedDockButton, minimizedDockRight } from '@/components/shared/minimized-dock-button';
+import { MinimizedDockGroup, useMinimizedDockAllowed, useMinimizedDockOccupied } from '@/components/shared/minimized-dock';
 import { formatAiBody } from '@/app/weldmail/lib/format-ai-body';
-import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -32,9 +32,7 @@ import { buildComposeBodies, type ComposeBodies } from '@/app/weldmail/lib/compo
 import type { DraftFields } from '@/app/weldmail/lib/draft-autosave';
 import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
 
-function getAgentRight(mobileNav: ReturnType<typeof useMobileNavOptional>): string {
-  return mobileNav?.showWeldAgent ? `${(mobileNav?.weldAgentWidth ?? 480) + 12}px` : '12px';
-}
+const getAgentRight = minimizedDockRight;
 
 function hasComposeContent(
   composeData: { to: string; subject: string; body: string },
@@ -94,52 +92,26 @@ function MinimizedComposeButton({
   const avatarUrl = person?.avatarUrl ?? null;
 
   return (
-    <div
-      className={cn(
-        'group/item relative transition-[margin] duration-[225ms] ease-out',
-        stacked && '-mt-[21px] group-hover/stack:mt-2 group-focus-within/stack:mt-2',
-      )}
-    >
-      <span className="pointer-events-none absolute right-full top-1/2 mr-2 max-w-[240px] -translate-y-1/2 truncate rounded-md border border-border bg-background px-[9px] py-[5px] text-[13px] leading-[18px] font-medium text-foreground shadow-lg opacity-0 transition-opacity group-hover/item:opacity-100 group-focus-within/item:opacity-100">
-        {compose.data.subject || t.mail.floatingCompose.title}
-      </span>
-      <Button
-        variant="outline"
-        size="icon"
-        onClick={onOpen}
-        className="relative h-9 w-9 rounded-full bg-background shadow-lg dark:bg-background dark:hover:bg-muted"
-        aria-label={t.mail.floatingCompose.expand}
-        data-testid="floating-compose-minimized-btn"
-      >
-        <Mail className="size-4 text-foreground" />
-        <Avatar
-          className={cn(
-            'absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 !rounded-[5px] bg-background ring-2 ring-background',
-            !front && 'opacity-0 transition-opacity duration-[225ms] group-hover/stack:opacity-100 group-focus-within/stack:opacity-100',
-          )}
-        >
-          {avatarUrl && <AvatarImage src={avatarUrl} alt={firstRecipient} className="!rounded-[5px]" />}
-          <AvatarFallback className="!rounded-[5px] bg-gray-200 dark:bg-accent">
-            <User className="size-2 text-muted-foreground" />
-          </AvatarFallback>
-        </Avatar>
-      </Button>
-      <button
-        type="button"
-        onClick={onDismiss}
-        className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 outline-none transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/item:opacity-100"
-        title={t.mail.floatingCompose.close}
-        aria-label={t.mail.floatingCompose.close}
-        data-testid="floating-compose-minimized-close-btn"
-      >
-        <X className="size-2.5" />
-      </button>
-    </div>
+    <MinimizedDockButton
+      label={compose.data.subject || t.mail.floatingCompose.title}
+      icon={<Mail className="size-4 text-foreground" />}
+      avatarUrl={avatarUrl}
+      avatarAlt={firstRecipient}
+      avatarFallback={<User className="size-2 text-muted-foreground" />}
+      stacked={stacked}
+      front={front}
+      onOpen={onOpen}
+      onDismiss={onDismiss}
+      openLabel={t.mail.floatingCompose.expand}
+      dismissLabel={t.mail.floatingCompose.close}
+      testId="floating-compose-minimized-btn"
+      dismissTestId="floating-compose-minimized-close-btn"
+    />
   );
 }
 
 // Room the open panel leaves for the minimized mails beside it: a button plus a gap.
-const MINIMIZED_STACK_ROOM = '44px';
+const MINIMIZED_STACK_ROOM = MINIMIZED_DOCK_ROOM;
 
 /**
  * The floating compose: the minimized mails, tucked into a stack that fans out
@@ -148,23 +120,20 @@ const MINIMIZED_STACK_ROOM = '44px';
  */
 export function FloatingComposePanel() {
   const composeContext = useComposeSafe();
-  const mobileNav = useMobileNavOptional();
-  const pathname = usePathname();
+  const dockAllowed = useMinimizedDockAllowed();
+  // Anything docked, a minimized note included: the open panel sits beside it.
+  const dockOccupied = useMinimizedDockOccupied();
   const minimizeOpenRef = useRef<(() => void) | null>(null);
   if (!composeContext) return null;
 
   const { minimizedComposes, restoreMinimized, dismissMinimized, composeSession } = composeContext;
   // The full-page compose has its Send button in that corner.
-  const showStack = minimizedComposes.length > 0 && !/\/compose\/?$/.test(pathname);
+  const showStack = minimizedComposes.length > 0 && dockAllowed;
 
   return (
     <>
       {showStack && (
-        <div
-          className="group/stack fixed bottom-3 z-50 flex flex-col items-end"
-          style={{ right: getAgentRight(mobileNav) }}
-          data-testid="floating-compose-minimized-stack"
-        >
+        <MinimizedDockGroup kind="mail" testId="floating-compose-minimized-stack">
           {minimizedComposes.map((compose, index) => (
             <MinimizedComposeButton
               key={compose.id}
@@ -178,10 +147,10 @@ export function FloatingComposePanel() {
               onDismiss={() => dismissMinimized(compose.id)}
             />
           ))}
-        </div>
+        </MinimizedDockGroup>
       )}
       {/* Keyed by the session, so every mail the panel opens starts from a clean form. */}
-      <FloatingComposeOpen key={composeSession} minimizeRef={minimizeOpenRef} besideStack={showStack} />
+      <FloatingComposeOpen key={composeSession} minimizeRef={minimizeOpenRef} besideStack={dockOccupied && dockAllowed} />
     </>
   );
 }
@@ -208,7 +177,7 @@ function FloatingComposeOpen({
   const generateAIReplyMutation = useGenerateAIReply();
   const generateEmailDraftMutation = useGenerateEmailDraft();
   const agentRight = getAgentRight(mobileNav);
-  // The minimized mails keep the corner; the open panel sits beside them.
+  // What is minimized keeps the corner; the open panel sits beside it.
   const panelRight = besideStack ? `calc(${agentRight} + ${MINIMIZED_STACK_ROOM})` : agentRight;
 
   // Only one floating panel at a time: close the call dialer when compose opens
