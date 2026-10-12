@@ -1,0 +1,101 @@
+/**
+ * Small status displays for domains and mailboxes: badges, DNS check chips and
+ * warmup progress. Colour is never the only signal: every state also has a
+ * label and, for checks, a check or cross icon.
+ */
+
+import { Check, X } from 'lucide-react';
+import { Progress } from '@weldsuite/ui/components/progress';
+import { useTranslations } from '@weldsuite/i18n/client';
+import {
+  WELDREACH_SENDING_DEFAULTS,
+  type ReachDnsStatus,
+  type ReachDomainStatus,
+  type ReachMailbox,
+  type ReachMailboxStatus,
+} from '@weldsuite/app-api-client/schemas/reach';
+import { SoftBadge, type SoftTone } from '@/components/shared/soft-badge';
+import { useReachFormat } from '@/lib/reach/format';
+import { cn } from '@/lib/utils';
+
+const MAILBOX_STATUS_TONE: Record<ReachMailboxStatus, SoftTone> = {
+  provisioning: 'neutral',
+  warming: 'warning',
+  active: 'success',
+  paused: 'neutral',
+  suspended: 'danger',
+  error: 'danger',
+  deleting: 'neutral',
+  deleted: 'neutral',
+};
+
+const DOMAIN_STATUS_TONE: Record<ReachDomainStatus, SoftTone> = {
+  connecting: 'warning',
+  active: 'success',
+  error: 'danger',
+  disconnecting: 'neutral',
+};
+
+export function MailboxStatusBadge({ status }: Readonly<{ status: ReachMailboxStatus }>) {
+  const t = useTranslations();
+  return <SoftBadge tone={MAILBOX_STATUS_TONE[status]}>{t(`reach.status.mailbox.${status}`)}</SoftBadge>;
+}
+
+export function DomainStatusBadge({ status }: Readonly<{ status: ReachDomainStatus }>) {
+  const t = useTranslations();
+  return <SoftBadge tone={DOMAIN_STATUS_TONE[status]}>{t(`reach.status.domain.${status}`)}</SoftBadge>;
+}
+
+const DNS_CHECKS = ['spf', 'dkim', 'dmarc', 'mx'] as const;
+
+/** SPF, DKIM, DMARC and MX as four chips; `null` (never checked) shows a single hint. */
+export function DnsChecks({ dns }: Readonly<{ dns: ReachDnsStatus | null }>) {
+  const t = useTranslations();
+  const format = useReachFormat();
+
+  if (!dns) {
+    return <span className="text-sm text-muted-foreground">{t('reach.mailboxes.domains.dns.unknown')}</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" title={t('reach.mailboxes.domains.dns.checkedAt', { time: format.relative(dns.checkedAt) })}>
+      {DNS_CHECKS.map((check) => {
+        const ok = dns[check];
+        const label = t(`reach.mailboxes.domains.dns.${check}`);
+        return (
+          <span
+            key={check}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium',
+              ok
+                ? 'border-transparent bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                : 'border-transparent bg-destructive/10 text-destructive',
+            )}
+            title={t(ok ? 'reach.mailboxes.domains.dns.pass' : 'reach.mailboxes.domains.dns.fail', { check: label })}
+          >
+            {ok ? <Check className="h-3 w-3" aria-hidden /> : <X className="h-3 w-3" aria-hidden />}
+            {label}
+            <span className="sr-only">
+              {t(ok ? 'reach.mailboxes.domains.dns.pass' : 'reach.mailboxes.domains.dns.fail', { check: label })}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** "Day 6 of 14" with a progress bar while a mailbox warms up. */
+export function WarmupProgress({ mailbox }: Readonly<{ mailbox: Pick<ReachMailbox, 'warmupDay' | 'status'> }>) {
+  const t = useTranslations();
+  if (mailbox.status !== 'warming') return null;
+
+  const total = WELDREACH_SENDING_DEFAULTS.warmupDays;
+  const day = Math.min(Math.max(mailbox.warmupDay, 0), total);
+  return (
+    <div className="mt-1 w-32 space-y-1">
+      <Progress value={(day / total) * 100} className="h-1.5" aria-label={t('reach.mailboxes.list.warmupProgress', { day, total })} />
+      <p className="text-xs text-muted-foreground">{t('reach.mailboxes.list.warmupProgress', { day, total })}</p>
+    </div>
+  );
+}
