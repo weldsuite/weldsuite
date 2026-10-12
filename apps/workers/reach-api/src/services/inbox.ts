@@ -190,6 +190,7 @@ async function summarize(db: Database, latestRows: ReachMessage[]): Promise<Reac
         snippet: row.snippet,
         kind: row.kind ?? 'reply',
         label: row.label,
+        labelSource: row.labelSource,
         receivedAt: iso(row.receivedAt),
         readAt: iso(row.readAt),
         handledAt: iso(row.handledAt),

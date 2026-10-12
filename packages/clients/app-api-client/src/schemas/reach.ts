@@ -587,7 +587,10 @@ export interface ReachThreadSummary {
   prospect: Pick<ReachProspect, 'id' | 'email' | 'firstName' | 'lastName' | 'companyName' | 'personId'> | null;
   campaign: { id: string; name: string } | null;
   mailbox: { id: string; email: string };
-  lastInbound: Pick<ReachMessage, 'id' | 'subject' | 'snippet' | 'kind' | 'label' | 'receivedAt' | 'readAt' | 'handledAt'>;
+  lastInbound: Pick<
+    ReachMessage,
+    'id' | 'subject' | 'snippet' | 'kind' | 'label' | 'labelSource' | 'receivedAt' | 'readAt' | 'handledAt'
+  >;
   messageCount: number;
 }
 
