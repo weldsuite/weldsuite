@@ -14,9 +14,6 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "dependencies": {
-    "mimetext": "^3.0.27"
-  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
