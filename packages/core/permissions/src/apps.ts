@@ -149,6 +149,11 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     objects: ['secrets', 'passwords'],
   },
   {
+    code: 'weldreach',
+    label: 'WeldReach',
+    objects: ['reach_campaigns', 'reach_prospects', 'reach_inbox', 'reach_mailboxes', 'reach_settings'],
+  },
+  {
     code: 'weldhr',
     label: 'WeldHR',
     objects: ['employees', 'attendance', 'leave', 'declarations', 'absences', 'coaching', 'evaluations', 'payroll', 'companies', 'people'],

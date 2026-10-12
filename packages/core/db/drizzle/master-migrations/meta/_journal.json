@@ -379,6 +379,13 @@
       "when": 1791665974963,
       "tag": "0053_partner_licensing",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791830873004,
+      "tag": "0054_long_liz_osborn",
+      "breakpoints": true
     }
   ]
 }

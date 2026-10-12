@@ -1,0 +1,115 @@
+/**
+ * Access to apps that are on request only (`app_catalog.requires_approval`).
+ *
+ * A workspace asks for access from the app store, WeldSuite staff approve it
+ * in the admin console (master `workspace_app_access`), and the module worker
+ * refuses every request until then. `appAccessGate(appCode)` runs after
+ * `apiAuth()` and answers 403 APP_ACCESS_REQUIRED with the current status, so
+ * the platform can show "pending", "rejected" or "suspended" instead of a
+ * broken screen.
+ *
+ * The status is cached in KV for 60 s (`appaccess:<org>:<app>`): a suspension
+ * reaches the request path within a minute without a master-DB read per
+ * request. Background work that must stop immediately (WeldReach's send
+ * consumer) reads the master DB with `readAppAccess` instead.
+ */
+
+import { and, eq } from 'drizzle-orm';
+import { createMiddleware } from 'hono/factory';
+import { getMasterDb, masterSchema } from './db';
+import type { DbEnv } from './env';
+
+export type AppAccessStatus = 'none' | 'requested' | 'approved' | 'rejected' | 'suspended' | 'revoked';
+
+export interface AppAccess {
+  /** Master `workspaces.id`, or null when the org has no workspace row. */
+  workspaceId: string | null;
+  status: AppAccessStatus;
+  limits: Record<string, unknown>;
+}
+
+export const APP_ACCESS_CACHE_TTL_SECONDS = 60;
+
+export function appAccessCacheKey(clerkOrgId: string, appCode: string): string {
+  return `appaccess:${clerkOrgId}:${appCode}`;
+}
+
+/** Uncached master-DB read. */
+export async function readAppAccess(
+  env: Pick<DbEnv, 'DATABASE_URL_MASTER'>,
+  clerkOrgId: string,
+  appCode: string,
+): Promise<AppAccess> {
+  const master = getMasterDb(env);
+  const [row] = await master
+    .select({
+      workspaceId: masterSchema.workspaces.id,
+      status: masterSchema.workspaceAppAccess.status,
+      limits: masterSchema.workspaceAppAccess.limits,
+    })
+    .from(masterSchema.workspaces)
+    .leftJoin(
+      masterSchema.workspaceAppAccess,
+      and(
+        eq(masterSchema.workspaceAppAccess.workspaceId, masterSchema.workspaces.id),
+        eq(masterSchema.workspaceAppAccess.appCode, appCode),
+      ),
+    )
+    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .limit(1);
+
+  return {
+    workspaceId: row?.workspaceId ?? null,
+    status: row?.status ?? 'none',
+    limits: row?.limits ?? {},
+  };
+}
+
+/** KV-cached (60 s) read for the request path. */
+export async function getAppAccess(env: DbEnv, clerkOrgId: string, appCode: string): Promise<AppAccess> {
+  const key = appAccessCacheKey(clerkOrgId, appCode);
+  try {
+    const cached = (await env.WORKSPACE_CACHE.get(key, 'json')) as AppAccess | null;
+    if (cached) return cached;
+  } catch (err) {
+    console.warn('[app-access] KV read failed:', err);
+  }
+  const access = await readAppAccess(env, clerkOrgId, appCode);
+  try {
+    await env.WORKSPACE_CACHE.put(key, JSON.stringify(access), { expirationTtl: APP_ACCESS_CACHE_TTL_SECONDS });
+  } catch (err) {
+    console.warn('[app-access] KV write failed:', err);
+  }
+  return access;
+}
+
+export function appAccessRequiredBody(appCode: string, status: AppAccessStatus) {
+  return {
+    error: {
+      code: 'APP_ACCESS_REQUIRED',
+      message: `This workspace has no approved access to ${appCode}.`,
+      details: { appCode, status },
+    },
+  };
+}
+
+type AppAccessGateVariables = {
+  orgId: string | null;
+  appAccess: AppAccess;
+};
+
+/**
+ * Refuse every request unless the workspace's access to `appCode` is approved.
+ * Runs after `apiAuth()` (needs `orgId`). Sets `c.get('appAccess')` with the
+ * staff-set limits for the routes to enforce.
+ */
+export const appAccessGate = (appCode: string) => {
+  return createMiddleware<{ Bindings: DbEnv; Variables: AppAccessGateVariables }>(async (c, next) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return c.json(appAccessRequiredBody(appCode, 'none'), 403);
+    const access = await getAppAccess(c.env, orgId, appCode);
+    if (access.status !== 'approved') return c.json(appAccessRequiredBody(appCode, access.status), 403);
+    c.set('appAccess', access);
+    await next();
+  });
+};

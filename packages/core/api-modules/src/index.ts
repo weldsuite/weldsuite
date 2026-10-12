@@ -39,7 +39,8 @@ export type ApiModuleId =
   | 'hr'
   | 'social'
   | 'ads'
-  | 'pass';
+  | 'pass'
+  | 'reach';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -402,6 +403,9 @@ export const API_MODULES: readonly ApiModule[] = [
   ]),
   mod('ads', 8819, ['weldads'], ['/api/ad-accounts', '/api/ad-campaigns', '/api/ad-connections']),
   mod('pass', 8820, ['weldpass'], ['/api/weldpass']),
+  // WeldReach (cold email on Mailpool). `/public/reach` carries the Mailpool
+  // webhook; it is unauthenticated and checked by HMAC in the route.
+  mod('reach', 8821, ['weldreach'], ['/api/reach', '/public/reach']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));

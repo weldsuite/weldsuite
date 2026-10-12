@@ -8,6 +8,16 @@
  */
 
 export { apiAuth, createModuleApi, ensurePermissionMiddleware, type ModuleApiOptions } from './app';
+export {
+  appAccessCacheKey,
+  appAccessGate,
+  appAccessRequiredBody,
+  getAppAccess,
+  readAppAccess,
+  APP_ACCESS_CACHE_TTL_SECONDS,
+  type AppAccess,
+  type AppAccessStatus,
+} from './app-access';
 export { apiCors, resolveCorsOrigin } from './cors';
 export type { Database, DbEnv, KitEnv, KitVariables } from './env';
 export { FORWARDED_BY_HEADER, moduleForwarder, type ForwardEnv } from './forward';

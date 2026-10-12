@@ -697,6 +697,17 @@ export const manifest: Record<string, SecretEntry[]> = {
     "SLACK_CLIENT_ID",
     "SLACK_CLIENT_SECRET",
   ],
+
+  // reach-api: the reach module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "reach-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

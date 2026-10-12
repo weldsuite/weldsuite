@@ -11,6 +11,8 @@
 --   mail_snooze      mail-api       (snoozed mail coming back to the inbox)
 --   calendar_replan  calendar-api   (auto-scheduled task events slipping into the past)
 --   domain_renew     host-api       (WeldHost domains entering the auto-renew window)
+--   reach_send       reach-api      (WeldReach outreach emails coming due)
+--   reach_warmup     reach-api      (WeldReach mailboxes in warmup, checked daily)
 --
 -- Write paths only ever pull next_due_at earlier (MIN); the sweep re-derives
 -- the exact value from the tenant after doing the work, using `version` as a

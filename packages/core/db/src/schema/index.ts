@@ -397,5 +397,8 @@ export * from './weldhr';
 // WeldHR payroll (NL + US engines, pay runs, payslips, filings)
 export * from './weldhr-payroll';
 
+// WeldReach (cold email outreach on Mailpool)
+export * from './reach';
+
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'

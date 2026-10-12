@@ -22,7 +22,13 @@
  * never fall back to a tenant fan-out.
  */
 
-export type DueIndexKind = 'mail_snooze' | 'calendar_replan' | 'domain_renew';
+export type DueIndexKind =
+  | 'mail_snooze'
+  | 'calendar_replan'
+  | 'domain_renew'
+  // WeldReach (reach-api): outreach sends coming due, and daily warmup progress.
+  | 'reach_send'
+  | 'reach_warmup';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */
 export interface DueIndexRow {

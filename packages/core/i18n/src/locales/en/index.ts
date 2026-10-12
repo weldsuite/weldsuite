@@ -51,6 +51,7 @@ import { developer } from './developer';
 import { weldbooksUs } from './weldbooks-us';
 import { admin } from './admin';
 import { partner } from './partner';
+import { reach } from './reach';
 
 export const en = {
   common,
@@ -105,4 +106,5 @@ export const en = {
   weldbooksUs,
   admin,
   partner,
+  reach,
 };
