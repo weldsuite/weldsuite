@@ -12,7 +12,7 @@ export const taskStatusEnum = z.enum([
   'backlog',
   'todo',
   'in_progress',
-  'in_review',
+  'review',
   'testing',
   'done',
   'cancelled',

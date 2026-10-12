@@ -19,6 +19,7 @@ import { error, list, noContent, success } from '@weldsuite/worker-kit/response'
 import { generateId } from '@weldsuite/worker-kit/id';
 import { randomString } from '@weldsuite/worker-kit/random';
 import { schema } from '@weldsuite/worker-kit/db';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { canAccessProject, canWriteProject } from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -69,19 +70,22 @@ function slugifyStage(name: string): string {
   return `${base}_${suffix}`;
 }
 
+/** A stage's system status; legacy spellings (`in_review`) are stored as their current value. */
+const stageSystemStatusSchema = z.string().transform((s) => normalizeTaskStatus(s));
+
 const createStageSchema = z.object({
   projectId: z.string().min(1),
   id: z.string().min(1).optional(),
   name: z.string().min(1),
   color: z.string().optional(),
   position: z.number().int().min(0).optional(),
-  systemStatus: z.string().optional(),
+  systemStatus: stageSystemStatusSchema.optional(),
 });
 
 const updateStageSchema = z.object({
   name: z.string().min(1).optional(),
   color: z.string().optional(),
-  systemStatus: z.string().optional(),
+  systemStatus: stageSystemStatusSchema.optional(),
 });
 
 const reorderStagesSchema = z.object({
@@ -139,7 +143,8 @@ app.get('/', requirePermission('projects:read'), async (c) => {
 
     // Aggregate task counts per stage. Tasks without `stageId` fall back to
     // matching by `status` (either a stage whose id equals the status or whose
-    // systemStatus equals the status), mirroring the kanban view's resolution.
+    // systemStatus equals the status, legacy `in_review` included), mirroring
+    // the kanban view's resolution.
     const countRows = await db
       .select({ stageId: tasks.stageId, status: tasks.status, count: sql<number>`count(*)::int` })
       .from(tasks)
@@ -152,7 +157,7 @@ app.get('/', requirePermission('projects:read'), async (c) => {
       if (!targetStageId && r.status) {
         const fallback =
           results.find((s) => s.id === r.status) ||
-          results.find((s) => s.systemStatus === r.status);
+          results.find((s) => normalizeTaskStatus(s.systemStatus) === normalizeTaskStatus(r.status));
         targetStageId = fallback?.id ?? null;
       }
       if (targetStageId) {

@@ -37,7 +37,7 @@ export default function ProjectDetailScreen() {
     { key: 'all', label: t.common.all },
     { key: 'todo', label: t.myTasks.filterTodo },
     { key: 'in_progress', label: t.myTasks.filterInProgress },
-    { key: 'in_review', label: t.myTasks.filterInReview },
+    { key: 'review', label: t.myTasks.filterInReview },
     { key: 'done', label: t.myTasks.filterDone },
   ];
 

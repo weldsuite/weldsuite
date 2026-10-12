@@ -16,7 +16,6 @@ import {
   Workflow,
   History,
   SquareCheck,
-  Contact,
   User,
   Phone,
   Video,
@@ -365,7 +364,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.weldcall.newCall, href: '/weldcall', icon: Plus },
           { title: t.navigation.moduleSidebar.weldcall.history, href: '/weldcall/history', icon: History },
-          { title: t.navigation.moduleSidebar.weldcall.contacts, href: '/weldcall/contacts', icon: Contact },
+          { title: t.navigation.moduleSidebar.weldcall.people, href: '/weldcall/people', icon: User },
         ],
       },
     ],

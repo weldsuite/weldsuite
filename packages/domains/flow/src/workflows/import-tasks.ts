@@ -28,6 +28,7 @@ import type { TaskImportError } from '@weldsuite/db/schema/task-import-jobs';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { allocateTaskNumbers } from '../task-numbering';
 import { asText } from '@weldsuite/text';
+import { TASK_STATUSES, normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 
 /**
  * The bindings the workflow reads: tenant DB resolution plus the R2 bucket
@@ -72,7 +73,7 @@ interface BatchResult {
 }
 
 const BATCH_SIZE = 500;
-const VALID_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'testing', 'done', 'cancelled'];
+const VALID_STATUSES: string[] = [...TASK_STATUSES];
 const VALID_PRIORITIES = ['critical', 'high', 'medium', 'low', 'none'];
 const VALID_TYPES = ['task', 'bug', 'story', 'epic', 'feature', 'improvement', 'subtask'];
 
@@ -124,7 +125,10 @@ function normalizeTask(
 } {
   const title = row.title ? String(row.title).trim() : '';
 
-  let status = normalizeEnum(row.status, VALID_STATUSES, 'todo', (v) => v.replaceAll(/[\s-]/g, '_'));
+  // "In review" / "in-review" / "in_review" all land on `review`.
+  let status = normalizeEnum(row.status, VALID_STATUSES, 'todo', (v) =>
+    normalizeTaskStatus(v.replaceAll(/[\s-]/g, '_')),
+  );
   const priority = normalizeEnum(row.priority, VALID_PRIORITIES, 'medium');
   const type = normalizeEnum(row.type, VALID_TYPES, 'task');
 
@@ -133,7 +137,7 @@ function normalizeTask(
   const stage = row.stageName ? ctx.stageMap.get(String(row.stageName).toLowerCase().trim()) : undefined;
   if (stage) {
     stageId = stage.id;
-    status = stage.systemStatus;
+    status = normalizeTaskStatus(stage.systemStatus);
   }
 
   // Resolve assignee by email

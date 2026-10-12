@@ -1,5 +1,38 @@
 import { z } from 'zod';
 
+/**
+ * The built-in task statuses. `review` is the one value for "In review": the
+ * default WeldFlow board stage stores it as its `systemStatus`, and the board
+ * places a task by matching its status against that. Project stages can add
+ * custom statuses, so `tasks.status` itself stays free text.
+ */
+export const TASK_STATUSES = ['backlog', 'todo', 'in_progress', 'review', 'testing', 'done', 'cancelled'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/** Older spellings still accepted on input and stored as their current value. */
+const LEGACY_TASK_STATUSES: Readonly<Record<string, TaskStatus>> = { in_review: 'review' };
+
+/** The stored form of a task status: legacy spellings (`in_review`) map to `review`. */
+export function normalizeTaskStatus(status: string): string;
+export function normalizeTaskStatus(status: string | null | undefined): string | null | undefined;
+export function normalizeTaskStatus(status: string | null | undefined): string | null | undefined {
+  if (status == null) return status;
+  return LEGACY_TASK_STATUSES[status] ?? status;
+}
+
+/**
+ * Every stored spelling of a status, for filters that must also match rows
+ * written before `in_review` was normalised: `review` → `['review', 'in_review']`.
+ */
+export function taskStatusAliases(status: string): string[] {
+  const canonical = normalizeTaskStatus(status);
+  const legacy = Object.keys(LEGACY_TASK_STATUSES).filter((k) => LEGACY_TASK_STATUSES[k] === canonical);
+  return [canonical, ...legacy];
+}
+
+/** A task status in a request body, normalised on the way in. */
+export const taskStatusSchema = z.string().max(30).transform((s) => normalizeTaskStatus(s));
+
 const repeatSchema = z.object({
   frequency: z.enum(['daily', 'weekly', 'biweekly', 'monthly', 'yearly', 'custom']),
   interval: z.number().optional(),
@@ -17,7 +50,7 @@ export const createTaskSchema = z.object({
   assigneeId: z.string().nullish(),
   assigneeIds: z.array(z.string()).optional(),
   reporterId: z.string().nullish(),
-  status: z.string().max(30).optional(),
+  status: taskStatusSchema.optional(),
   priority: z.string().max(20).optional(),
   type: z.string().max(50).optional(),
   dueDate: z.string().optional(),

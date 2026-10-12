@@ -39,6 +39,18 @@ export interface McpSession {
   role: string;
   /** The OAuth client that obtained the token, for logging/diagnostics. */
   clientId: string | null;
+  /**
+   * Apps the workspace is licensed for (partner-managed workspaces), or null
+   * when unrestricted. The internal API rejects tool calls into other modules.
+   */
+  licensedApps: readonly string[] | null;
+  /**
+   * True while the workspace is read-only (partner suspended or licence
+   * inactive): the internal API refuses writes with 403 WORKSPACE_READ_ONLY.
+   * Absent = writable.
+   */
+  readOnly?: boolean;
+  readOnlyReason?: 'partner_suspended' | 'licence_inactive' | null;
 }
 
 /**

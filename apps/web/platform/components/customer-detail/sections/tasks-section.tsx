@@ -62,7 +62,7 @@ export function TasksSection({ customer }: Readonly<TasksSectionProps>) {
     'backlog': { label: t('sweep.weldcrm.tasksSection.statusBacklog'), color: 'text-slate-600 dark:text-slate-400', bg: 'bg-slate-100 dark:bg-slate-900/50' },
     'todo': { label: t('sweep.weldcrm.tasksSection.statusTodo'), color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     'in_progress': { label: t('sweep.weldcrm.tasksSection.statusInProgress'), color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-    'in_review': { label: t('sweep.weldcrm.tasksSection.statusInReview'), color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
+    'review': { label: t('sweep.weldcrm.tasksSection.statusInReview'), color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
     'testing': { label: t('sweep.weldcrm.tasksSection.statusTesting'), color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
     'done': { label: t('sweep.weldcrm.tasksSection.statusDone'), color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
     'cancelled': { label: t('sweep.weldcrm.tasksSection.statusCancelled'), color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },

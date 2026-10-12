@@ -51,6 +51,26 @@ function headerCellLayoutClass(fillViewport: boolean | undefined, index: number)
   return index === 0 ? 'pl-5 pr-3 gap-3' : 'px-3 gap-1.5';
 }
 
+/**
+ * How far the column-menu trigger has to reach past its own box to cover the
+ * whole header cell: out to the cell edges, and under the select-all checkbox
+ * and the enrich button when the cell has them. Mirrors the padding and gaps
+ * of `headerCellLayoutClass` (px-3 = 12, pl-5 = 20, gap-3 = 12, gap-1.5 = 6),
+ * the 16px checkbox and the 24px enrich button; keep them in step.
+ */
+function headerTriggerInsets(opts: {
+  fillViewport: boolean | undefined;
+  isFirst: boolean;
+  hasCheckbox: boolean;
+  hasEnrich: boolean;
+}): { left: number; right: number } {
+  if (opts.fillViewport) return { left: 12, right: 12 };
+  const gap = opts.isFirst ? 12 : 6;
+  let left = 12;
+  if (opts.isFirst) left = opts.hasCheckbox ? 20 + 16 + gap : 20;
+  return { left, right: opts.hasEnrich ? 12 + 24 + gap : 12 };
+}
+
 export function GridHeader() {
   const t = useTranslations();
   const {
@@ -132,7 +152,15 @@ export function GridHeader() {
             style={{ width: 46, height: config.fillViewport ? 21 : 40, padding: 0, boxShadow: headerShadow }}
           />
         )}
-        {visibleColumns.map((column, index) => (
+        {visibleColumns.map((column, index) => {
+          const hasCheckbox = !config.fillViewport && index === 0 && config.enableRowSelection !== false;
+          const triggerInsets = headerTriggerInsets({
+            fillViewport: config.fillViewport,
+            isFirst: index === 0,
+            hasCheckbox,
+            hasEnrich: !!(column.isEnrichField && column.onEnrichAll),
+          });
+          return (
           <th
             key={column.id}
             className={cn(
@@ -156,7 +184,7 @@ export function GridHeader() {
               style={{ height: config.fillViewport ? '21px' : '40px' }}
             >
               {/* Checkbox for first column (non-spreadsheet mode only) */}
-              {!config.fillViewport && index === 0 && config.enableRowSelection !== false && (
+              {hasCheckbox && (
                 <Checkbox
                   checked={
                     selectedRows.size === filteredEntities.length &&
@@ -171,11 +199,12 @@ export function GridHeader() {
                       setSelectedRows(new Set());
                     }
                   }}
-                  className="flex-shrink-0 rounded-[5px]"
+                  className="relative z-[1] flex-shrink-0 rounded-[5px]"
                 />
               )}
 
-              {/* Column header with dropdown */}
+              {/* Column header with dropdown. The trigger spans the whole
+                  cell, so the checkbox and enrich button sit on top of it. */}
               <Popover
                 open={openColumnMenu === column.id}
                 onOpenChange={(open) => setOpenColumnMenu(open ? column.id : null)}
@@ -184,10 +213,19 @@ export function GridHeader() {
                   <Button
                     variant="ghost"
                     className={cn(
-                      "h-full flex items-center transition-colors gap-1.5 rounded-none",
-                      config.fillViewport ? "justify-center" : "flex-1 justify-start px-0 has-[>svg]:px-0 text-left"
+                      // No hover fill of its own: the cell behind it supplies
+                      // the same `muted/50` hover the body cells use.
+                      "h-full flex items-center transition-colors gap-1.5 rounded-none hover:bg-transparent dark:hover:bg-transparent focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
+                      config.fillViewport ? "flex-1 justify-center" : "flex-1 justify-start text-left"
                     )}
-                    style={{ height: config.fillViewport ? '21px' : '40px', overflow: 'hidden' }}
+                    style={{
+                      height: config.fillViewport ? '21px' : '40px',
+                      overflow: 'hidden',
+                      marginLeft: -triggerInsets.left,
+                      paddingLeft: triggerInsets.left,
+                      marginRight: -triggerInsets.right,
+                      paddingRight: triggerInsets.right,
+                    }}
                   >
                     {!config.fillViewport && index !== 0 && column.iconUrl ? (
                       <img src={column.iconUrl} alt="" className="h-3.5 w-3.5 flex-shrink-0 object-contain" />
@@ -203,7 +241,7 @@ export function GridHeader() {
                     </span>
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[200px] p-0" align="start" alignOffset={-9}>
+                <PopoverContent className="w-[200px] p-0" align="start" alignOffset={triggerInsets.left - 9}>
                   <Command>
                     <CommandList>
                       <CommandGroup className="px-1 py-1">
@@ -315,7 +353,7 @@ export function GridHeader() {
                         e.stopPropagation();
                         column.onEnrichAll!(filteredEntities);
                       }}
-                      className="flex-shrink-0 h-6 w-6 rounded-md border border-border text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-all hover:bg-muted hover:text-foreground"
+                      className="relative z-[1] flex-shrink-0 h-6 w-6 rounded-md border border-border text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-all hover:bg-muted hover:text-foreground"
                     >
                       <Play className="h-3 w-3 fill-current" />
                     </Button>
@@ -334,8 +372,19 @@ export function GridHeader() {
               className="absolute right-0 top-0 w-1 h-full cursor-col-resize touch-none hover:bg-muted-foreground/50 bg-transparent transition-colors"
               onPointerDown={(e) => handleResizePointerDown(e, column.id)}
             />
+
+            {/* Keeps the column separators the header's own colour while the
+                grid is scrolled. The `border-r` above is a collapsed border,
+                which the table paints at the header's un-stuck position: once
+                scrolled it is gone, leaving a 1px slit between the header
+                cells through which the body rows' own line shows (blue under
+                selected rows). This strip sits behind the header cells'
+                backgrounds and overhangs both edges, so only the slits show
+                it, wherever the browser puts them. */}
+            <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 -inset-x-2 -z-[1] bg-border" />
           </th>
-        ))}
+          );
+        })}
 
         {/* Spreadsheet mode: empty column headers extending to the right */}
         {config.fillViewport && config.onCreateAttribute ? (
@@ -363,10 +412,10 @@ export function GridHeader() {
                 add). */}
             {config.allowCustomColumns !== false && (
               <th
-                className={cn(
-                  "bg-background relative transition-colors",
-                  showAddButton && addColumnHighlighted && "bg-muted/50",
-                )}
+                // The cell stays opaque: the highlight is laid over it by the
+                // button, so a hovered header never shows the rows scrolling
+                // underneath.
+                className="bg-background relative"
                 style={{ width: '140px', height: '40px', padding: 0, boxShadow: headerShadow }}
                 onMouseEnter={() => showAddButton && setAddColumnHover(true)}
                 onMouseLeave={() => setAddColumnHover(false)}
@@ -374,18 +423,27 @@ export function GridHeader() {
                 {showAddButton && (
                 <Popover open={addColumnOpen} onOpenChange={setAddColumnOpen}>
                   <PopoverTrigger asChild>
-                    <Button variant="ghost" className="w-full h-full flex items-center justify-start px-3 gap-1.5 text-foreground/80 transition-colors rounded-none">
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        // One fill for the whole Add zone: the same `muted/50`
+                        // as the spacer cell beside it, in place of the
+                        // button's own lighter hover.
+                        "w-full h-full flex items-center justify-start px-3 gap-1.5 text-foreground/80 transition-colors rounded-none hover:bg-muted/50 dark:hover:bg-muted/50",
+                        addColumnHighlighted && "bg-muted/50",
+                      )}
+                    >
                       <Plus className="h-3.5 w-3.5 flex-shrink-0" />
                       <span className="text-[13px] font-medium">{t('sweep.entities.add')}</span>
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[240px] p-0" align="start" collisionPadding={16}>
+                  <PopoverContent className="w-[240px] p-0" align="start" alignOffset={2} collisionPadding={16}>
                     <Command>
                       <CommandInput placeholder={t('sweep.entities.searchAttributesPlaceholder')} />
                       <CommandList className="[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent" style={{ maxHeight: '400px' }}>
                         <CommandEmpty>{t('sweep.entities.noAttributesFound')}</CommandEmpty>
                         {hiddenBuiltInColumns.length > 0 && (
-                          <CommandGroup heading={t('sweep.entities.attributesHeading')}>
+                          <CommandGroup>
                             {hiddenBuiltInColumns.map((col) => (
                               <CommandItem
                                 key={col.id}
@@ -508,16 +566,20 @@ export function GridHeader() {
                 visible border-r on the Add cell, shared bg highlight on
                 hover, click anywhere opens the same popover). */}
             <th
-              className={cn(
-                "bg-background transition-colors",
-                showAddButton && "cursor-pointer",
-                showAddButton && addColumnHighlighted && "bg-muted/50",
-              )}
+              className={cn("bg-background", showAddButton && "cursor-pointer")}
               style={{ height: '40px', padding: 0, boxShadow: headerShadow }}
               onMouseEnter={() => showAddButton && setAddColumnHover(true)}
               onMouseLeave={() => setAddColumnHover(false)}
               onClick={() => showAddButton && setAddColumnOpen(true)}
-            />
+            >
+              <div
+                className={cn(
+                  "w-full transition-colors",
+                  showAddButton && addColumnHighlighted && "bg-muted/50",
+                )}
+                style={{ height: '40px' }}
+              />
+            </th>
           </>
         )}
       </tr>

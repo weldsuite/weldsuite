@@ -133,8 +133,10 @@ const SUB_AGENT_OFFSET_X = 320;
 const SUB_AGENT_GAP_Y = 20;
 
 // Default node dimensions — every node is the same compact, display-only card.
-const NODE_WIDTH = 340; // Matches w-[340px] in trigger/action/condition node CSS
-const NODE_HEIGHT = 80;
+export const NODE_WIDTH = 260; // `StepCard` takes its width and height from these
+// A 44px header, the summary strip and the card's 2px of border. The strip is
+// 42.667px so that it measures 64px on screen at the canvas's usual 150% zoom.
+export const NODE_HEIGHT = 44 + 42.667 + 2;
 const CONDITION_NODE_HEIGHT = NODE_HEIGHT; // Condition card is the same size as any action card
 const SEND_EMAIL_NODE_WIDTH = NODE_WIDTH; // No special-size email node anymore
 const SEND_EMAIL_NODE_HEIGHT = NODE_HEIGHT;

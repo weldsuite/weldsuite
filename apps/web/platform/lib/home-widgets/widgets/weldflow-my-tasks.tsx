@@ -33,7 +33,7 @@ interface ApiTask {
 
 function mapStatus(s: string | undefined): FlowStatus {
   if (s === 'in_progress' || s === 'in-progress' || s === 'doing') return 'in_progress';
-  if (s === 'review') return 'review';
+  if (s === 'review' || s === 'in_review') return 'review';
   if (s === 'done' || s === 'completed') return 'done';
   return 'todo';
 }

@@ -52,6 +52,7 @@ import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-lay
 import { useChannels, useDmChannels, useDeleteChannel, useMuteChannel, useArchiveChannel, useUnarchiveChannel, useCreateSection as useCreateSectionMutation } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { useChatActivityUnread, useChatDrafts } from '@/hooks/queries/use-weldchat-extras-queries';
+import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
 import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
@@ -473,8 +474,12 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     });
   };
 
-  const { data: channelsData } = useChannels();
-  const { data: dmsData } = useDmChannels();
+  // The sidebar hook is mounted in every module. Only talk to chat-api when the
+  // workspace has WeldChat: an app a partner licence leaves out answers 403.
+  const chatInstalled = useIsAppInstalled('weldchat');
+  const chatEnabled = isActive || chatInstalled;
+  const { data: channelsData } = useChannels(chatEnabled);
+  const { data: dmsData } = useDmChannels(chatEnabled);
   const { mutate: deleteChannel, isPending: isDeletingChannel } = useDeleteChannel();
   const { mutate: muteChannel } = useMuteChannel();
   const { mutate: archiveChannel, isPending: isArchivingChannel } = useArchiveChannel();
@@ -486,7 +491,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     deleteSection,
     renameSection,
     moveChannelToSection,
-  } = useChatSections();
+  } = useChatSections(chatEnabled);
   const createSectionMutation = useCreateSectionMutation();
 
   const callCtx = useWeldChatCallOptional();
@@ -504,8 +509,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
 
   const t = getTranslations('weldchat');
   const st = useTranslations();
-  const { data: activityUnreadData } = useChatActivityUnread();
-  const { data: draftsData } = useChatDrafts();
+  const { data: activityUnreadData } = useChatActivityUnread(chatEnabled);
+  const { data: draftsData } = useChatDrafts(chatEnabled);
   const unreadActivityCount: number = activityUnreadData?.data?.count ?? 0;
 
   const channels: ChatChannel[] = React.useMemo(

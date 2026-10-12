@@ -40,11 +40,32 @@ app.get('/', requirePermission('general:read'), async (c) => {
         id: workspaces.id,
         planId: workspaces.planId,
         purchasedSeats: workspaces.purchasedSeats,
+        billingMode: workspaces.billingMode,
       })
       .from(workspaces)
       .where(eq(workspaces.clerkOrgId, orgId));
 
     if (!workspace) return error.notFound(c, 'Workspace');
+
+    // A partner-managed workspace has no prepaid seats: its licence's seat cap
+    // is the limit (null = unlimited) and its partner changes it.
+    if (workspace.billingMode === 'partner') {
+      const [licence] = await masterDb
+        .select({ maxSeats: masterSchema.workspaceLicences.maxSeats })
+        .from(masterSchema.workspaceLicences)
+        .where(eq(masterSchema.workspaceLicences.workspaceId, workspace.id));
+      const [members, pendingInvitations] = await Promise.all([
+        getAccurateMemberCount(c.env, orgId, workspace.id, masterDb),
+        countPendingSeatInvitations(c.env, orgId),
+      ]);
+      const usedSeats = members + (pendingInvitations ?? 0);
+      const maxSeats = licence?.maxSeats ?? null;
+      if (maxSeats === null) {
+        return success(c, { prepaidSeats: usedSeats, usedSeats, availableSeats: 0, canAddMore: true });
+      }
+      const availableSeats = Math.max(0, maxSeats - usedSeats);
+      return success(c, { prepaidSeats: maxSeats, usedSeats, availableSeats, canAddMore: availableSeats > 0 });
+    }
 
     let includedUsers = 1;
 

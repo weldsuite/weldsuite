@@ -16,6 +16,8 @@ import { clerkWebhookRoutes } from './routes/webhooks/clerk';
 import { backfillMailRoutes } from './routes/backfill-mail';
 import { triggerPoolRefill } from './workflows/refill-pool';
 import { sweepScheduledDeletions } from './services/deletion-sweep';
+import { onboardPartnerWorkspace } from './services/partner-onboarding';
+import type { PartnerOnboardResult } from '@weldsuite/core-domain/partners';
 
 export interface Env {
   // Neon serverless connection string for the master database (replaces Hyperdrive)
@@ -161,6 +163,19 @@ export class WorkspaceOnboardEntrypoint extends WorkerEntrypoint<Env> {
       return { success: false, error: 'Validation failed', status: 400 };
     }
     return runOnboard(this.env, this.ctx, parsed.data);
+  }
+
+  /**
+   * Create a partner-managed workspace (reseller licensing): a Clerk org
+   * without the partner user as a member, the customer's owner invited by email,
+   * a master row with `billingMode: 'partner'` and its licence, and
+   * provisioning started with the licensed apps and credits. Input:
+   * `PartnerOnboardInput` from `@weldsuite/core-domain/partners`. Throws an
+   * Error whose message starts with its code (`[INVALID_APPS] ...`); see
+   * `PartnerOnboardError`.
+   */
+  async onboardPartnerWorkspace(input: unknown): Promise<PartnerOnboardResult> {
+    return onboardPartnerWorkspace(this.env, input);
   }
 }
 

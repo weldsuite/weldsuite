@@ -9,7 +9,7 @@
  *     it, idempotent on (workspace, periodStart) like the webhook.
  */
 
-import { and, eq, gt, isNotNull, isNull, lte, or } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, lte, ne, or } from 'drizzle-orm';
 import type { Env } from '../index';
 import { getMasterDb, masterSchema } from '../lib/db';
 import { SYSTEM_ACTOR, recordAdminAudit } from '../lib/admin-audit';
@@ -52,6 +52,8 @@ async function endExpiredComps(env: Env, masterDb: ReturnType<typeof getMasterDb
         isNotNull(workspaces.compGrantedAt),
         lte(workspaces.compEndsAt, now),
         isNull(workspaces.deletedAt),
+        // Partner-managed workspaces are billed by their partner, never comped.
+        ne(workspaces.billingMode, 'partner'),
       ),
     )
     .limit(SWEEP_BATCH_LIMIT);
@@ -111,6 +113,7 @@ async function renewCompCredits(masterDb: ReturnType<typeof getMasterDb>, now: D
         isNotNull(workspaces.compGrantedAt),
         or(isNull(workspaces.compEndsAt), gt(workspaces.compEndsAt, now)),
         isNull(workspaces.deletedAt),
+        ne(workspaces.billingMode, 'partner'),
         lte(workspaceCredits.periodEnd, now),
       ),
     )

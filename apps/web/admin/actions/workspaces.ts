@@ -22,7 +22,7 @@ const { workspaces } = masterSchema;
  * lib/billing-worker.ts); the billing forms read it to decide whether a retry
  * may reuse the request's idempotency key.
  */
-export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
+export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string; details?: unknown };
 
 /** Reject deletion dates that are in the past or unreasonably soon. */
 const MIN_LEAD_MINUTES = 5;

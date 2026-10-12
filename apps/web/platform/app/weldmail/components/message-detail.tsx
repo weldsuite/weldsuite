@@ -29,6 +29,7 @@ import {
   Clock,
   Pin,
   ChevronLeft,
+  ArrowLeft,
   Bold,
   Italic,
   Underline,
@@ -58,7 +59,7 @@ import { Calendar } from '@weldsuite/ui/components/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { useCustomerPanel } from '@/contexts/customer-panel-context';
+import { useCustomerPanelOptional } from '@/contexts/customer-panel-context';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useMailThreadListSafe } from '@/app/weldmail/contexts/mail-thread-list-context';
 import { getNextThreadHref } from '@/app/weldmail/lib/next-thread';
@@ -1275,6 +1276,28 @@ function InlineAiBar({
   );
 }
 
+/**
+ * The desktop header's close button. Embedded outside WeldMail (`onClose`),
+ * it is a back arrow to the embedding view; in WeldMail it closes the message.
+ */
+function DesktopCloseButton({ onClose, backLabel }: Readonly<{ onClose?: () => void; backLabel: string }>) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
+      onClick={onClose ?? (() => window.history.back())}
+      aria-label={onClose ? backLabel : undefined}
+    >
+      {onClose ? (
+        <ArrowLeft className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
+      ) : (
+        <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
+      )}
+    </Button>
+  );
+}
+
 interface MessageDetailProps {
   message: EmailMessage;
   thread?: EmailMessage[];
@@ -1284,9 +1307,14 @@ interface MessageDetailProps {
   onLabelsChange?: (labels: string[]) => void;
   threadId?: string | null;
   drafts?: ThreadDraft[];
+  /**
+   * Embedded outside WeldMail (e.g. a CRM panel tab): closing the message, and
+   * archiving or deleting it, calls this instead of navigating to the mailbox list.
+   */
+  onClose?: () => void;
 }
 
-export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [] }: Readonly<MessageDetailProps>) {
+export function MessageDetail({ message, thread = [], accountId, folder, availableLabels = [], onLabelsChange, threadId, drafts = [], onClose }: Readonly<MessageDetailProps>) {
   const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
@@ -1329,8 +1357,9 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const [isInlineAiGenerating, setIsInlineAiGenerating] = useState(false);
   const inlineAiInputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Customer panel context
-  const customerPanel = useCustomerPanel();
+  // Customer panel context. Only WeldMail's layout provides it; embedded
+  // elsewhere there is no contact side panel to open.
+  const customerPanel = useCustomerPanelOptional();
 
   // Compose context for floating panel
   const composeContext = useComposeSafe();
@@ -1342,6 +1371,10 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
   const isUnifiedView = threadList?.isUnified ?? pathname.startsWith('/weldmail/unified/');
   const listPath = mailListPath(isUnifiedView, accountId, folder);
   const handleBackToList = () => {
+    if (onClose) {
+      onClose();
+      return;
+    }
     router.push(listPath);
   };
 
@@ -2211,9 +2244,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           </Button>
           {/* Desktop close/done buttons */}
           <div className="hidden md:flex h-7 items-center border border-border rounded-md overflow-hidden">
-            <Button variant="ghost" size="icon-sm" className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={() => window.history.back()}>
-              <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-            </Button>
+            <DesktopCloseButton onClose={onClose} backLabel={t.mail.messageDetail.backToList} />
             <div className="w-px h-4 bg-border" />
             <Button variant="ghost" size="icon-sm" className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={handleArchiveAndNext}>
               <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
@@ -2334,7 +2365,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                 <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                   <Button
                     variant="link"
-                    onClick={() => customerPanel.openPanel(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from)), extractName(fromDisplayString(newestMessage.from)))}
+                    onClick={() => customerPanel?.openPanel(newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from)), extractName(fromDisplayString(newestMessage.from)))}
                     className="h-auto p-0 font-semibold text-gray-900 dark:text-foreground text-[14.5px] focus:outline-none max-w-full shrink min-w-0"
                   >
                     <span className="truncate">{extractName(fromDisplayString(newestMessage.from))}</span>
@@ -2342,7 +2373,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                   <span className="text-[14.5px] text-gray-500 dark:text-muted-foreground">{t.mail.messageDetail.toWord}</span>
                   <Button
                     variant="link"
-                    onClick={() => customerPanel.openPanel(primaryToEmail, emailToDisplayName(primaryToEmail))}
+                    onClick={() => customerPanel?.openPanel(primaryToEmail, emailToDisplayName(primaryToEmail))}
                     className="h-auto p-0 text-[14.5px] text-blue-600 focus:outline-none max-w-full shrink min-w-0"
                     title={primaryToEmail}
                   >
@@ -2355,7 +2386,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                       onOpenChange={setShowAllRecipients}
                       onSelect={(email, name) => {
                         setShowAllRecipients(false);
-                        customerPanel.openPanel(email, name);
+                        customerPanel?.openPanel(email, name);
                       }}
                     />
                   )}
@@ -2548,7 +2579,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
                     isExpanded={expandedThreadIds.has(threadMsg.id)}
                     canReplyAll={buildReplyRecipients(threadMsg, { all: true, selfEmail: accountEmail }).length > 1}
                     onToggle={() => toggleThreadExpanded(threadMsg.id)}
-                    onOpenContact={(email, name) => customerPanel.openPanel(email, name)}
+                    onOpenContact={(email, name) => customerPanel?.openPanel(email, name)}
                     onReply={() => startThreadReply(threadMsg, false)}
                     onReplyAll={() => startThreadReply(threadMsg, true)}
                   />
@@ -2561,6 +2592,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
       </div>
 
       {/* Customer Detail Panel - hidden on mobile */}
+      {customerPanel && (
       <div className="hidden md:block">
         <CustomerDetailPanel
           email={customerPanel.email || newestMessage.fromEmail || extractEmail(fromDisplayString(newestMessage.from))}
@@ -2577,6 +2609,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           topOffset="117px"
         />
       </div>
+      )}
 
       {/* Add Task Dialog */}
       <TaskDialog

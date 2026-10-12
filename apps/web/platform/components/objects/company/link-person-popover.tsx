@@ -7,7 +7,7 @@
  * shown but disabled to make the constraint obvious.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { useDebounce } from '@/hooks/use-debounce';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -15,42 +15,35 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@weldsuite/ui/components/command';
-import { Check, Plus, UserPlus } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePeople, type Person } from '@/hooks/queries/use-people-queries';
 import { useLinkPersonToCompany } from '@/hooks/queries/use-person-companies-queries';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
-
-function personGravatar(email: string | null | undefined): string | undefined {
-  if (!email) return undefined;
-  return `https://www.gravatar.com/avatar/${encodeURIComponent(email.toLowerCase())}?d=mp&s=48`;
-}
-
-function personInitial(p: Person): string {
-  const first = p.firstName?.[0] ?? '';
-  const last = p.lastName?.[0] ?? '';
-  return ((first + last) || p.displayName?.[0] || '?').toUpperCase();
-}
+import { RecordPickerMenu, type RecordPickerOption } from '@/components/objects/_shared/record-picker-menu';
 
 interface LinkPersonPopoverProps {
   companyId: string;
   /** Person ids already linked to this company — disabled in the picker. */
   linkedPersonIds: Set<string>;
+  /** Controlled open state, so the tab's empty-state action can open the picker. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkPersonPopoverProps>) {
+type PersonOption = RecordPickerOption & { person: Person };
+
+export function LinkPersonPopover({
+  companyId,
+  linkedPersonIds,
+  open: controlledOpen,
+  onOpenChange,
+}: Readonly<LinkPersonPopoverProps>) {
   const t = useTranslations();
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const [search, setSearch] = useState('');
   const [createQuery, setCreateQuery] = useState<string | null>(null);
   const debounced = useDebounce(search, 200);
@@ -62,11 +55,21 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkP
   const peopleQuery = usePeople(
     debounced ? { limit: 25, search: debounced, inCrm: true } : { limit: 25, inCrm: true },
   );
-  const people = peopleQuery.data?.data ?? [];
+  const options = useMemo<PersonOption[]>(
+    () =>
+      (peopleQuery.data?.data ?? []).map((person) => ({
+        id: person.id,
+        name: person.displayName,
+        detail: person.email,
+        avatarUrl: person.avatarUrl,
+        person,
+      })),
+    [peopleQuery.data],
+  );
 
   const linkMut = useLinkPersonToCompany();
 
-  const handlePick = (person: Person) => {
+  const handlePick = ({ person }: PersonOption) => {
     if (linkedPersonIds.has(person.id)) return;
     linkMut.mutate(
       { personId: person.id, companyId, isPrimary: false },
@@ -80,56 +83,10 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkP
     );
   };
 
-  const openCreate = (query: string) => {
+  const openCreate = () => {
     setOpen(false);
-    setCreateQuery(query);
+    setCreateQuery(search.trim());
   };
-
-  let peopleContent: ReactNode;
-  if (peopleQuery.isLoading) {
-    peopleContent = (
-      <div className="px-3 py-6 text-sm text-muted-foreground text-center">
-        {t('sweep.entities.loadingEllipsis')}
-      </div>
-    );
-  } else if (people.length === 0) {
-    peopleContent = (
-      <CommandEmpty>{t('sweep.entities.noPeopleFoundPeriod')}</CommandEmpty>
-    );
-  } else {
-    peopleContent = (
-      <CommandGroup>
-        {people.map((p) => {
-          const already = linkedPersonIds.has(p.id);
-          return (
-            <CommandItem
-              key={p.id}
-              value={p.displayName + (p.email ? ` ${p.email}` : '')}
-              disabled={already || linkMut.isPending}
-              onSelect={() => handlePick(p)}
-            >
-              <Avatar className="h-6 w-6 rounded-md">
-                <AvatarImage
-                  src={p.avatarUrl ?? personGravatar(p.email)}
-                  className="rounded-md object-cover"
-                />
-                <AvatarFallback className="rounded-md text-[10px]">
-                  {personInitial(p)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm truncate">{p.displayName}</div>
-                {p.email && (
-                  <div className="text-xs text-muted-foreground truncate">{p.email}</div>
-                )}
-              </div>
-              {already && <Check className="ml-auto" />}
-            </CommandItem>
-          );
-        })}
-      </CommandGroup>
-    );
-  }
 
   return (
     <>
@@ -143,30 +100,22 @@ export function LinkPersonPopover({ companyId, linkedPersonIds }: Readonly<LinkP
           {t('sweep.entities.addPerson')}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-0">
-        <Command shouldFilter={false}>
-          <CommandInput
-            placeholder={t('sweep.entities.searchPeoplePlaceholder')}
-            value={search}
-            onValueChange={setSearch}
-          />
-          <CommandList>
-            {search.trim() && (
-              <CommandGroup>
-                <CommandItem
-                  value={`__create__${search}`}
-                  onSelect={() => openCreate(search.trim())}
-                >
-                  <UserPlus />
-                  <span className="truncate">
-                    {t('sweep.entities.createPersonFromSearch', { name: search.trim() })}
-                  </span>
-                </CommandItem>
-              </CommandGroup>
-            )}
-            {peopleContent}
-          </CommandList>
-        </Command>
+      <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-0">
+        <RecordPickerMenu
+          options={options}
+          isLoading={peopleQuery.isLoading}
+          loadingLabel={t('sweep.entities.loadingEllipsis')}
+          onSelect={handlePick}
+          isDisabled={(o) => linkedPersonIds.has(o.id) || linkMut.isPending}
+          isChecked={(o) => linkedPersonIds.has(o.id)}
+          createLabel={t('sweep.entities.createNewPerson')}
+          onCreate={openCreate}
+          search={{
+            value: search,
+            onChange: setSearch,
+            placeholder: t('sweep.entities.searchPeoplePlaceholder'),
+          }}
+        />
       </PopoverContent>
     </Popover>
     <QuickAddPersonDialog

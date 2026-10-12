@@ -10,6 +10,10 @@ const repeatSchema = z.object({
   unit: z.enum(['days', 'weeks', 'months', 'years']).optional(),
 });
 
+const TASK_STATUS_DESCRIPTION =
+  'Task status: backlog, todo, in_progress, review, testing, done or cancelled (or a custom status of the project\'s board). ' +
+  'Use "review" for In review; the older "in_review" is accepted and stored as "review".';
+
 export const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().optional(),
@@ -21,7 +25,7 @@ export const createTaskSchema = z.object({
   assigneeId: z.string().nullish(),
   assigneeIds: z.array(z.string()).optional(),
   reporterId: z.string().nullish(),
-  status: z.string().max(30).optional(),
+  status: z.string().max(30).optional().describe(TASK_STATUS_DESCRIPTION),
   priority: z.string().max(20).optional(),
   type: z.string().max(50).optional(),
   dueDate: z.string().optional(),

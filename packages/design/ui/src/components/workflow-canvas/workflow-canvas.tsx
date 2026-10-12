@@ -23,7 +23,7 @@ import { TriggerNode } from './trigger-node';
 import { ActionNode, PlaceholderNode } from './action-node';
 import { ConditionNode, ConditionBranchNode } from './condition-node';
 import { SubAgentNode } from './sub-agent-node';
-import { workflowToFlow, autoLayoutNodes, getNodeHeight, getTotalNodeHeight, type FlowNodeData } from './flow-utils';
+import { workflowToFlow, autoLayoutNodes, getNodeHeight, getTotalNodeHeight, NODE_HEIGHT, NODE_WIDTH, type FlowNodeData } from './flow-utils';
 import { type WorkflowStep, type TriggerConfig, type WorkflowCanvasLabels, type VariableItem, DEFAULT_CANVAS_LABELS } from './types';
 import { Plus, Minus, Maximize } from 'lucide-react';
 
@@ -48,7 +48,7 @@ function useStructurallyStable<T>(value: T): T {
 
 const getNodeWidth = (_node: Node) => {
   // All nodes share one uniform width.
-  return 340;
+  return NODE_WIDTH;
 };
 
 const getNodeLeftX = (node: Node) => node.position.x;
@@ -90,8 +90,8 @@ const getStepTypeOf = (node: Node): string => {
 
 // Position directly below `above`, horizontally centred on it.
 const positionBelow = (above: Node, aboveHeight: number) => {
-  const aboveWidth = 340;
-  const belowWidth = 340;
+  const aboveWidth = NODE_WIDTH;
+  const belowWidth = NODE_WIDTH;
   return {
     x: above.position.x + aboveWidth / 2 - belowWidth / 2,
     y: above.position.y + aboveHeight + NODE_GAP_Y,
@@ -184,7 +184,7 @@ function withAddPlaceholder(
 
 // Centre point of a node, used to pan the viewport to a newly added step.
 function getNodeCenter(node: Node): { x: number; y: number } {
-  const height = node.type === 'placeholder' ? 80 : getNodeHeight(getStepTypeOf(node));
+  const height = node.type === 'placeholder' ? NODE_HEIGHT : getNodeHeight(getStepTypeOf(node));
   return {
     x: node.position.x + getNodeWidth(node) / 2,
     y: node.position.y + height / 2,

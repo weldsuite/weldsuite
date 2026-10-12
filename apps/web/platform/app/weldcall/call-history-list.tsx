@@ -35,9 +35,9 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useCall } from '@/contexts/call-context';
+import { TabEmptyIllustration } from '@/components/objects/_shared/tab-empty-state';
 import {
   EntityList,
-  EmptyStateIllustration,
   type HeaderColumn,
   type FilterConfig,
   type GroupConfig,
@@ -178,6 +178,8 @@ export interface CallHistoryListProps {
    * compact panel tab hides it. Defaults to shown.
    */
   showPhoneSettings?: boolean;
+  /** Overrides the empty state's default viewport-sized, centred box. */
+  emptyStateClassName?: string;
 }
 
 export function CallHistoryList({
@@ -185,6 +187,7 @@ export function CallHistoryList({
   voipConfigured,
   isLoading = false,
   showPhoneSettings = true,
+  emptyStateClassName,
 }: Readonly<CallHistoryListProps>) {
   const router = useRouter();
   const { setIsDialerOpen } = useCall();
@@ -316,7 +319,7 @@ export function CallHistoryList({
   const renderCallRow = useCallback((call: VoipCall) => (
     <div
       key={call.id}
-      className="relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-background/50"
+      className="relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50"
     >
       <button
         type="button"
@@ -456,9 +459,10 @@ export function CallHistoryList({
         label: tc.makeCall,
         onClick: () => setIsDialerOpen(true),
       }}
+      emptyStateClassName={emptyStateClassName}
       emptyState={{
         icon: (
-          <EmptyStateIllustration>
+          <TabEmptyIllustration>
             <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
               {/* Speech bubble body */}
               <path d="M30 18H90C94.4 18 98 21.6 98 26V66C98 70.4 94.4 74 90 74H56L42 88L42 74H30C25.6 74 22 70.4 22 66V26C22 21.6 25.6 18 30 18Z" className="fill-white dark:fill-white/[0.03]" />
@@ -477,7 +481,7 @@ export function CallHistoryList({
               <rect x="83" y="44" width="2.5" height="6" rx="1.25" className="fill-gray-200 dark:fill-white/20" opacity="0.3" />
               <rect x="88" y="45" width="2.5" height="4" rx="1.25" className="fill-gray-200 dark:fill-white/20" opacity="0.2" />
             </svg>
-          </EmptyStateIllustration>
+          </TabEmptyIllustration>
         ),
         title: tc.emptyState.title,
         description: voipConfigured

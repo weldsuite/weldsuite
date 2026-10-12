@@ -50,7 +50,7 @@ const TASK_FIELDS = [
   { header: "Key", accessorKey: "key", description: "External code for updating existing tasks" },
   { header: "Title", accessorKey: "title", description: "Task title (required)", required: true },
   { header: "Description", accessorKey: "description", description: "Task description" },
-  { header: "Status", accessorKey: "status", description: "todo, in_progress, in_review, done, cancelled" },
+  { header: "Status", accessorKey: "status", description: "todo, in_progress, review, done, cancelled" },
   { header: "Stage", accessorKey: "stageName", description: "Pipeline stage name (matched case-insensitively)" },
   { header: "Priority", accessorKey: "priority", description: "critical, high, medium, low, none" },
   { header: "Type", accessorKey: "type", description: "task, bug, story, epic, feature, improvement, subtask" },

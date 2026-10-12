@@ -29,7 +29,7 @@ Call `search_tasks` to list open tasks. Rank by:
 4. Created date: oldest first at same everything
 
 Filter out:
-- Tasks with status `done`, `cancelled`, `in_review`, `testing`
+- Tasks with status `done`, `cancelled`, `review`, `testing`
 - Tasks with an assignee that is NOT the current user (respect others' work)
 - Tasks tagged `needs-info` or `blocked`
 - Tasks that failed autopilot in this session (avoid infinite loops)
@@ -116,7 +116,7 @@ On "open PR and close task":
 1. Commit with message `fix(<module>): <task title> (<task-id>)` or `feat(<module>): ...` for features.
 2. Push the branch.
 3. Open the PR via `gh pr create` with body linking to the WeldSuite task.
-4. Call `update_task` to flip status to `in_review`, add a comment with the PR URL.
+4. Call `update_task` to flip status to `review`, add a comment with the PR URL.
 5. Append a closing entry to the daily digest:
    ```
    ✅ <task-id>, <title>, PR <url>

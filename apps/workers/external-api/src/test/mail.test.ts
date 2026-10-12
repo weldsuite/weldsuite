@@ -59,6 +59,7 @@ function session(fields: Partial<ApiKeySession>): ApiKeySession {
     hasApiAccess: true,
     databaseUrl: null,
     clerkOrgId: ORG_ID,
+    licensedApps: null,
     ...fields,
   };
 }

@@ -11,28 +11,32 @@
  *   - Details body: a vertical list of `PropertyRow`s — same icon + label +
  *     inline-editable value affordance as the customer panel.
  *   - All 11 tabs are wired: Details, Activity, People, Emails, Calls,
- *     Pipeline, Notes, Meetings, Tasks, Files, Audit Log.
+ *     Deals, Notes, Meetings, Tasks, Files, Audit Log.
  *   - Sidebar: company chat (locked-open in fullscreen).
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
+  Ban,
   Bookmark,
   Briefcase,
   Building,
   Diamond,
   EllipsisVertical,
+  SquareArrowOutUpRight,
   Globe,
   Languages,
   Mail,
   MapPin,
   Phone,
   Receipt,
+  Send,
   Smile,
   Tag,
   Trash2,
+  Unlink,
   User,
   Users,
 } from 'lucide-react';
@@ -58,7 +62,6 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
 import {
@@ -99,10 +102,23 @@ import {
   useResendCommercePortalAccess,
   useRevokeCommercePortalAccess,
 } from '@/hooks/queries/use-commerce-queries';
-import { EntityList } from '@/components/entity-list';
+import { EntityList, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
+import { applySelectFilters } from '@/lib/list-filters';
+import {
+  PeopleIllustration,
+  TAB_EMPTY_STATE_TABLE_CLASS,
+  tabBodyClassName,
+} from '@/components/objects/_shared/tab-empty-state';
+import {
+  LinkedRecordRow,
+  LinkedRecordStatus,
+  linkedRecordHeaderColumns,
+} from '@/components/objects/_shared/linked-record-row';
+import { TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { LinkPersonPopover } from './link-person-popover';
 import { CompanyChat } from './company-chat';
 import { useCompanyDeleteGuard } from './use-company-delete-guard';
+import { logoDomainForCompany, useCompanyLogo } from '@/lib/crm/company-logo';
 import { COMPANY_TABS, type CompanyTab } from './company-tabs';
 import type { Company } from '@weldsuite/app-api-client/schemas/companies';
 
@@ -116,10 +132,14 @@ function companyInitial(name: string): string {
 }
 
 function CompanyAvatar({ company, onUpload }: Readonly<{ company?: Company; onUpload?: (url: string) => void }>) {
+  // A company without an image of its own shows the logo our API found on its
+  // website — the same fallback as the Companies grid (`getCompanyAvatar`), so
+  // the row and the panel it opens show one avatar.
+  const websiteLogo = useCompanyLogo(company ? logoDomainForCompany(company) : undefined);
   if (!company) return <div className="size-[22px] rounded-[8px] bg-muted animate-pulse" />;
   const initial = companyInitial(company.displayName);
-  // Treat empty strings as "no avatar" so the fallback initial renders.
-  const avatarSrc = company.avatarUrl && company.avatarUrl.length > 0 ? company.avatarUrl : undefined;
+  // `||`: an empty string is "no avatar", so the logo or the initial renders.
+  const avatarSrc = company.avatarUrl || websiteLogo || undefined;
   if (onUpload) {
     return (
       <EditableEntityAvatar
@@ -444,13 +464,6 @@ type CompanyPersonRow = {
   } | null;
 };
 
-function personRowInitial(p: CompanyPersonRow['person']): string {
-  if (!p) return '?';
-  const first = p.firstName?.[0] ?? '';
-  const last = p.lastName?.[0] ?? '';
-  return ((first + last) || p.displayName?.[0] || '?').toUpperCase();
-}
-
 function personRowGravatar(email: string | null | undefined): string | undefined {
   if (!email) return undefined;
   return `https://www.gravatar.com/avatar/${encodeURIComponent(email.toLowerCase())}?d=mp&s=48`;
@@ -476,6 +489,7 @@ function CompanyPeopleTab({
   const st = useTranslations();
   const portalT = getTranslations('commerce').module.portal;
   const unlinkMut = useUnlinkPersonFromCompany();
+  const [linkOpen, setLinkOpen] = useState(false);
   const accessQuery = useCommercePortalAccess(companyId);
   const inviteMut = useInviteCommercePortalAccess();
   const revokeMut = useRevokeCommercePortalAccess(companyId);
@@ -502,151 +516,194 @@ function CompanyPeopleTab({
     [employments],
   );
 
+  const filterConfigs = useMemo<FilterConfig[]>(
+    () => [
+      {
+        field: 'status',
+        label: st('sweep.entities.fieldStatus'),
+        options: [
+          { value: 'primary', label: st('sweep.entities.primary') },
+          { value: 'current', label: st('sweep.entities.filterCurrent') },
+          { value: 'past', label: st('sweep.entities.past') },
+        ],
+      },
+      {
+        field: 'portal',
+        label: st('sweep.entities.filterPortalAccess'),
+        options: [
+          { value: 'active', label: portalT.statusActive },
+          { value: 'invited', label: portalT.statusInvited },
+          { value: 'none', label: st('sweep.entities.filterNoPortalAccess') },
+        ],
+      },
+    ],
+    [st, portalT],
+  );
+
+  const applyFilters = useCallback(
+    (list: CompanyPersonListItem[], filters: ActiveFilter[]) =>
+      applySelectFilters(list, filters, {
+        status: (pc, value) => {
+          if (value === 'primary') return !!pc.isPrimary;
+          return value === 'past' ? !!pc.endedAt : !pc.endedAt;
+        },
+        portal: (pc, value) => {
+          const status = accessByPerson.get(pc.personId)?.status;
+          const access = status === 'active' || status === 'invited' ? status : 'none';
+          return access === value;
+        },
+      }),
+    [accessByPerson],
+  );
+
+  const headerColumns = useMemo(
+    () =>
+      linkedRecordHeaderColumns({
+        name: st('sweep.entities.fieldName'),
+        secondary: st('sweep.entities.fieldEmail'),
+        role: st('sweep.entities.fieldRole'),
+        status: st('sweep.entities.fieldStatus'),
+      }),
+    [st],
+  );
+
   const renderRow = useCallback(
     (pc: CompanyPersonListItem) => {
       const name = pc.person?.displayName ?? st('sweep.entities.deletedPerson');
-      const avatarSrc = pc.person?.avatarUrl ?? personRowGravatar(pc.person?.email);
-      let portalActions: ReactNode = null;
-      if (!pc.endedAt && pc.person?.email) {
-        if (accessByPerson.get(pc.personId)?.status === 'revoked' || !accessByPerson.get(pc.personId)) {
-          portalActions = (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
-              disabled={inviteMut.isPending}
-              onClick={() => {
-                inviteMut.mutate(
-                  { personId: pc.personId, companyId },
-                  {
-                    onSuccess: () => toast.success(portalT.invitedToast),
-                    onError: () => toast.error(portalT.inviteFailed),
-                  },
-                );
-              }}
-            >
-              {portalT.invite}
-            </Button>
-          );
-        } else {
-          portalActions = (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
-                disabled={resendMut.isPending}
-                onClick={() => {
-                  const access = accessByPerson.get(pc.personId);
-                  if (!access) return;
-                  resendMut.mutate(access.id, {
-                    onSuccess: () => toast.success(portalT.resentToast),
-                    onError: () => toast.error(portalT.inviteFailed),
-                  });
-                }}
-              >
-                {portalT.resend}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="opacity-0 group-hover/row:opacity-100 h-7 text-xs"
-                disabled={revokeMut.isPending}
-                onClick={() => {
-                  const access = accessByPerson.get(pc.personId);
-                  if (!access) return;
-                  revokeMut.mutate(access.id, {
-                    onSuccess: () => toast.success(portalT.revokedToast),
-                  });
-                }}
-              >
-                {portalT.revoke}
-              </Button>
-            </>
-          );
-        }
-      }
+      const access = accessByPerson.get(pc.personId);
+      const canHavePortalAccess = !pc.endedAt && !!pc.person?.email;
+      const hasPortalAccess = !!access && access.status !== 'revoked';
       return (
-        <div key={pc.id} className="group/row flex items-center gap-1 px-2 py-0.5">
-          <Button
-            variant="ghost"
-            onClick={() => onOpenPerson(pc.personId)}
-            className="flex-1 text-left text-sm flex items-center justify-between gap-2 hover:bg-muted/50 rounded-md px-2 py-1.5 transition-colors min-w-0 h-auto"
-          >
-            <span className="flex items-center gap-2 min-w-0">
-              <Avatar className="h-7 w-7 rounded-md flex-shrink-0">
-                <AvatarImage src={avatarSrc} className="rounded-md object-cover" />
-                <AvatarFallback className="rounded-md text-[10px]">
-                  {personRowInitial(pc.person)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="flex flex-col min-w-0">
-                <span className="text-sm text-foreground truncate">{name}</span>
-                {pc.role || pc.person?.email ? (
-                  <span className="text-xs text-muted-foreground truncate">
-                    {pc.role ? pc.role : pc.person?.email}
-                    {pc.role && pc.person?.email ? ` · ${pc.person.email}` : ''}
-                  </span>
-                ) : null}
-              </span>
-            </span>
-            <span className="flex items-center gap-1 flex-shrink-0">
-              {pc.endedAt && <Badge variant="outline" className="text-[10px]">{st('sweep.entities.past')}</Badge>}
-              {pc.isPrimary && <Badge variant="default" className="text-[10px]">{st('sweep.entities.primary')}</Badge>}
-              {accessByPerson.get(pc.personId)?.status === 'active' && (
-                <Badge variant="secondary" className="text-[10px]">{portalT.statusActive}</Badge>
+        <LinkedRecordRow
+          key={pc.id}
+          name={name}
+          avatarUrl={pc.person?.avatarUrl ?? personRowGravatar(pc.person?.email)}
+          secondary={pc.person?.email}
+          role={pc.role}
+          onOpen={() => onOpenPerson(pc.personId)}
+          menuLabel={st('sweep.entities.moreActions')}
+          status={
+            pc.endedAt || pc.isPrimary || access?.status === 'active' || access?.status === 'invited' ? (
+              <>
+                {pc.endedAt && <LinkedRecordStatus tone="gray">{st('sweep.entities.past')}</LinkedRecordStatus>}
+                {pc.isPrimary && <LinkedRecordStatus tone="blue">{st('sweep.entities.primary')}</LinkedRecordStatus>}
+                {access?.status === 'active' && (
+                  <LinkedRecordStatus tone="green">{portalT.statusActive}</LinkedRecordStatus>
+                )}
+                {access?.status === 'invited' && (
+                  <LinkedRecordStatus tone="amber">{portalT.statusInvited}</LinkedRecordStatus>
+                )}
+              </>
+            ) : null
+          }
+          menu={
+            <>
+              <DropdownMenuItem onClick={() => onOpenPerson(pc.personId)}>
+                <SquareArrowOutUpRight />
+                {st('sweep.weldcrm.contactsSection.viewProfile')}
+              </DropdownMenuItem>
+              {canHavePortalAccess && !hasPortalAccess && (
+                <DropdownMenuItem
+                  disabled={inviteMut.isPending}
+                  onClick={() => {
+                    inviteMut.mutate(
+                      { personId: pc.personId, companyId },
+                      {
+                        onSuccess: () => toast.success(portalT.invitedToast),
+                        onError: () => toast.error(portalT.inviteFailed),
+                      },
+                    );
+                  }}
+                >
+                  <Send />
+                  {portalT.invite}
+                </DropdownMenuItem>
               )}
-              {accessByPerson.get(pc.personId)?.status === 'invited' && (
-                <Badge variant="outline" className="text-[10px]">{portalT.statusInvited}</Badge>
+              {canHavePortalAccess && hasPortalAccess && access && (
+                <>
+                  <DropdownMenuItem
+                    disabled={resendMut.isPending}
+                    onClick={() => {
+                      resendMut.mutate(access.id, {
+                        onSuccess: () => toast.success(portalT.resentToast),
+                        onError: () => toast.error(portalT.inviteFailed),
+                      });
+                    }}
+                  >
+                    <Send />
+                    {portalT.resend}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={revokeMut.isPending}
+                    onClick={() => {
+                      revokeMut.mutate(access.id, {
+                        onSuccess: () => toast.success(portalT.revokedToast),
+                      });
+                    }}
+                  >
+                    <Ban />
+                    {portalT.revoke}
+                  </DropdownMenuItem>
+                </>
               )}
-            </span>
-          </Button>
-          {portalActions}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              unlinkMut.mutate(
-                { id: pc.id, personId: pc.personId, companyId },
-                { onSuccess: () => toast.success(st('sweep.entities.unlinked')) },
-              );
-            }}
-            disabled={unlinkMut.isPending}
-            className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-[opacity,color,background-color]"
-            aria-label={st('sweep.entities.unlink')}
-            title={st('sweep.entities.unlinkFromCompany')}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={unlinkMut.isPending}
+                onClick={() => {
+                  unlinkMut.mutate(
+                    { id: pc.id, personId: pc.personId, companyId },
+                    { onSuccess: () => toast.success(st('sweep.entities.unlinked')) },
+                  );
+                }}
+              >
+                <Unlink />
+                {st('sweep.entities.unlink')}
+              </DropdownMenuItem>
+            </>
+          }
+        />
       );
     },
     [accessByPerson, companyId, inviteMut, onOpenPerson, portalT, resendMut, revokeMut, unlinkMut, st],
   );
 
   return (
-    <EntityList<CompanyPersonListItem>
-      items={items}
-      isLoading={false}
-      error={null}
-      filters={[]}
-      renderRow={renderRow}
-      searchPlaceholder={st('sweep.entities.searchPeoplePlaceholder')}
-      searchFields={['name', 'email', 'role']}
-      actionButtons={
-        <LinkPersonPopover companyId={companyId} linkedPersonIds={linkedIds} />
-      }
-      itemsClassName="py-1.5"
-      emptyState={{
-        icon: <Users className="h-8 w-8 text-muted-foreground/60 mb-3" />,
-        title: st('sweep.entities.noPeopleYetTitle'),
-        description: st('sweep.entities.noPeopleYetDescription'),
-      }}
-      noResultsState={{
-        title: st('sweep.entities.noPeopleFoundTitle'),
-        description: st('sweep.entities.noPeopleFoundDescription'),
-      }}
-    />
+    <TabListScope>
+      <EntityList<CompanyPersonListItem>
+        items={items}
+        isLoading={false}
+        error={null}
+        filters={filterConfigs}
+        applyFilters={applyFilters}
+        headerColumns={headerColumns}
+        renderRow={renderRow}
+        searchPlaceholder={st('sweep.entities.searchPeoplePlaceholder')}
+        searchFields={['name', 'email', 'role']}
+        actionButtons={
+          <LinkPersonPopover
+            companyId={companyId}
+            linkedPersonIds={linkedIds}
+            open={linkOpen}
+            onOpenChange={setLinkOpen}
+          />
+        }
+        emptyStateClassName={TAB_EMPTY_STATE_TABLE_CLASS}
+        emptyState={{
+          icon: <PeopleIllustration />,
+          title: st('sweep.entities.noPeopleYetTitle'),
+          description: st('sweep.entities.noPeopleYetDescription'),
+          action: {
+            label: st('sweep.entities.addPerson'),
+            onClick: () => setLinkOpen(true),
+          },
+        }}
+        noResultsState={{
+          title: st('sweep.entities.noPeopleFoundTitle'),
+          description: st('sweep.entities.noPeopleFoundDescription'),
+        }}
+      />
+    </TabListScope>
   );
 }
 
@@ -657,6 +714,9 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
   const { id, onClose, initialTab } = props;
   const companyQuery = useCompany(id);
   const company = companyQuery.data?.data as Company | undefined;
+  // Same avatar as the header and the Companies grid: the company's own image,
+  // else the logo found on its website.
+  const companyLogo = useCompanyLogo(company ? logoDomainForCompany(company) : undefined);
   const peopleQuery = useCompanyPeople(id);
   const employments = peopleQuery.data?.data ?? [];
 
@@ -762,6 +822,7 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
+      contentClassName={tabBodyClassName(mode)}
       avatar={<CompanyAvatar company={company} onUpload={(url) => handleUpdateField({ avatarUrl: url })} />}
       title={<CompanyTitle company={company} />}
       actions={
@@ -831,13 +892,22 @@ export function CompanyPanel(props: Readonly<ObjectPanelComponentProps>) {
         <MeetingsTab entityId={company.id} entityKind="company" />
       )}
       {company && activeTab === 'tasks' && (
-        <TasksTab entityId={company.id} entityKind="company" />
+        <TasksTab
+          entityId={company.id}
+          entityKind="company"
+          entityName={company.displayName}
+          entityAvatar={company.avatarUrl || companyLogo}
+        />
       )}
       {company && activeTab === 'files' && (
         <FilesTab entityId={company.id} entityKind="company" />
       )}
       {company && activeTab === 'emails' && (
-        <EmailsTab entityEmail={company.email ?? undefined} entityKind="company" />
+        <EmailsTab
+          entityEmail={company.email ?? undefined}
+          entityKind="company"
+          entityAvatar={company.avatarUrl || companyLogo}
+        />
       )}
       {company && activeTab === 'audit' && (
         <AuditTab entityId={company.id} entityKind="company" />

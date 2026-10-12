@@ -334,7 +334,6 @@ export const personGridConfig: EntityGridConfig<Person> = {
     return p.displayName.charAt(0).toUpperCase();
   },
   getEntityAvatar: (p) => getPersonAvatar(p),
-  getEntitySubtitle: (p) => p.title ?? undefined,
   statusField: 'status',
   statusConfig: personStatusConfig,
   allowCustomColumns: true,

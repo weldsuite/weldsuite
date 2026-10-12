@@ -372,6 +372,20 @@
       "when": 1791626791123,
       "tag": "0052_admin_billing_console",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791665974963,
+      "tag": "0053_partner_licensing",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791818656588,
+      "tag": "0054_partner_minimum_price",
+      "breakpoints": true
     }
   ]
 }

@@ -450,7 +450,9 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
     ],
   },
   // ── WeldHR (employee operations + workforce portal) ───────────────────
-  // HR data is need-to-know: MEMBER and VIEWER get none of these by default.
+  // HR data is need-to-know: by default MEMBER gets only `employees:self` (My
+  // HR, their own record) and VIEWER gets nothing. Approving and the team view
+  // are for ADMIN or a custom role.
   // `employees:sensitive` is kept apart from `employees:read` (same idea as
   // secrets:read vs secrets:reveal) so a team lead can coach and schedule
   // without seeing pay, national ids or home addresses.
@@ -714,6 +716,10 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // WeldKnow — teamspace membership decides which pages a member reads and
   // edits, so these only open the app; they grant nothing inside a teamspace.
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete',
+  // WeldHR — My HR only: their own leave, expenses, sick reports, attendance
+  // and payslips. Nobody else's records, no approving. Still needs the WeldHR
+  // app assigned and a linked employee record.
+  'employees:self',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [

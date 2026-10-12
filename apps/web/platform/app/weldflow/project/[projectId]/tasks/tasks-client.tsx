@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useStageLabel } from '../../../lib/stage-labels';
+import { normalizeTaskStatus } from '@weldsuite/app-api-client/schemas/tasks';
 import { flushSync } from 'react-dom';
 import { useOptionalBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useCompanies } from '@/components/objects/company/use-company-data';
@@ -69,7 +70,8 @@ import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import { ProjectPermissionContext } from '@/app/weldflow/contexts/project-permission-context';
-import { EntityList, EmptyStateIllustration, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
+import { EntityList, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter, type SortState } from '@/components/entity-list';
+import { TabEmptyIllustration, TAB_EMPTY_STATE_TABLE_CLASS } from '@/components/objects/_shared/tab-empty-state';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 
 interface Task {
@@ -79,7 +81,7 @@ interface Task {
   title: string;
   description?: string;
   stageId?: string | null;
-  status: 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'testing' | 'done' | 'cancelled';
+  status: 'backlog' | 'todo' | 'in_progress' | 'review' | 'testing' | 'done' | 'cancelled';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   assignee?: string;
   assigneeId?: string | null;
@@ -156,7 +158,7 @@ interface TasksClientProps {
    * group-by, project stages, breadcrumbs) are suppressed. Assignees come from
    * the workspace member directory instead of a per-project member list.
    */
-  entityScope?: { kind: 'company' | 'person'; id: string };
+  entityScope?: { kind: 'company' | 'person'; id: string; name?: string; avatar?: string };
 }
 
 // priorityConfig and statusConfig are built inside TasksClient (need t for labels)
@@ -190,7 +192,7 @@ function transformApiTask(apiTask: RawApiTask): Task {
     title: apiTask.title,
     description: apiTask.description || undefined,
     stageId: apiTask.stageId ?? null,
-    status: (apiTask.status as Task['status']) || 'todo',
+    status: (normalizeTaskStatus(apiTask.status) as Task['status']) || 'todo',
     priority: (apiTask.priority as Task['priority']) || 'medium',
     assignee: apiTask.assignee?.name || undefined,
     assigneeId: apiTask.assigneeId || undefined,
@@ -250,7 +252,7 @@ const statusToCrm: Record<string, CrmTask['status']> = {
   'backlog': 'backlog',
   'todo': 'todo',
   'in_progress': 'in_progress',
-  'in_review': 'in_review',
+  'review': 'review',
   'testing': 'testing',
   'done': 'done',
   'cancelled': 'cancelled',
@@ -260,7 +262,7 @@ const statusFromCrm: Record<string, Task['status']> = {
   'backlog': 'backlog',
   'todo': 'todo',
   'in_progress': 'in_progress',
-  'in_review': 'in_review',
+  'review': 'review',
   'testing': 'testing',
   'done': 'done',
   'cancelled': 'cancelled',
@@ -333,7 +335,9 @@ function toCrmTask(
     id: task.id,
     title: task.title,
     description: task.description,
-    status: statusToCrm[task.status] || 'todo',
+    // Unknown (custom stage) statuses pass through instead of collapsing to
+    // 'todo', which a save would then write back.
+    status: statusToCrm[task.status] ?? (task.status as CrmTask['status']),
     priority: task.priority === 'urgent' ? 'high' : (task.priority as CrmTask['priority']),
     assignee: primaryAssignee,
     assignees: assigneesList,
@@ -453,11 +457,11 @@ type TaskAssigneeEntry = NonNullable<Task['assignees']>[number];
 function AssigneeStackAvatar({ assignee, src, multiple }: Readonly<{ assignee: TaskAssigneeEntry; src: string | undefined; multiple: boolean }>) {
   const avatar = (
     <Avatar
-      className="h-5 w-5 !rounded-[7px] ring-1 ring-background"
+      className="h-[18px] w-[18px] !rounded-[6px] ring-1 ring-background"
       title={multiple ? undefined : assignee.name}
     >
-      {src && <AvatarImage src={src} alt={assignee.name} className="!rounded-[7px]" />}
-      <AvatarFallback className="!rounded-[7px] text-[10px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+      {src && <AvatarImage src={src} alt={assignee.name} className="!rounded-[6px]" />}
+      <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
         {assignee.name.charAt(0).toUpperCase()}
       </AvatarFallback>
     </Avatar>
@@ -643,8 +647,7 @@ export function TasksClient({
     backlog: { label: t.projects.tasks.statusBacklog, icon: Circle, color: 'text-slate-600 dark:text-slate-400', bg: 'bg-slate-100 dark:bg-slate-900/50' },
     todo: { label: t.projects.tasks.statusTodo, icon: Circle, color: 'text-gray-600 dark:text-muted-foreground', bg: 'bg-gray-100 dark:bg-secondary' },
     in_progress: { label: t.projects.tasks.statusInProgress, icon: Clock, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950' },
-    review: { label: t.projects.tasks.statusReview, icon: Clock, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
-    in_review: { label: t.projects.tasks.statusInReview, icon: Clock, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
+    review: { label: t.projects.tasks.statusInReview, icon: Clock, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950' },
     testing: { label: t.projects.tasks.statusTesting, icon: Clock, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-950' },
     done: { label: t.projects.tasks.statusDone, icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950' },
     cancelled: { label: t.projects.tasks.statusCancelled, icon: Circle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950' },
@@ -881,7 +884,7 @@ export function TasksClient({
           id: s.id,
           name: s.name,
           color: s.color || '#94a3b8',
-          systemStatus: s.systemStatus || s.id,
+          systemStatus: normalizeTaskStatus(s.systemStatus || s.id),
         })));
       }
     }
@@ -945,7 +948,7 @@ export function TasksClient({
       'backlog': 'backlog',
       'todo': 'todo',
       'in_progress': 'in_progress',
-      'in_review': 'in_review',
+      'review': 'review',
       'testing': 'testing',
       'done': 'done',
       'cancelled': 'cancelled',
@@ -1846,7 +1849,11 @@ export function TasksClient({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => {
-                  setEditingCrmTask(toCrmTask(task, projectMembers, availableCompanies));
+                  // The dialog's status options are this project's stages, so
+                  // preselect the task's stage; a plain status matches none of them.
+                  const editing = toCrmTask(task, projectMembers, availableCompanies);
+                  const stageId = getTaskStage(task)?.id;
+                  setEditingCrmTask(stageId ? { ...editing, status: stageId as CrmTask['status'] } : editing);
                   setShowAddDialog(true);
                 }}>
                   <Pencil className="h-3.5 w-3.5 mr-0.5" />
@@ -2017,10 +2024,11 @@ export function TasksClient({
             isLoadingMore={isFetchingNextPage}
             onLoadMore={onLoadMore}
             topBarClassName="pt-2 pb-2"
-            // A panel's task list sits in a short, scrolling box: a viewport-sized,
-            // vertically centred empty state pushed its text below the fold and
-            // left only the illustration on screen.
-            emptyStateClassName={isEntityMode ? 'min-h-0 py-10' : 'min-h-[calc(100dvh-350px)]'}
+            // A side panel's task list sits in a short, scrolling box: a
+            // viewport-sized, vertically centred empty state pushed its text
+            // below the fold. TAB_EMPTY_STATE_TABLE_CLASS only centres it when the
+            // panel is fullscreen.
+            emptyStateClassName={isEntityMode ? TAB_EMPTY_STATE_TABLE_CLASS : 'min-h-[calc(100dvh-350px)]'}
         createButton={canWrite ? {
           label: t.projects.tasks.addTaskBtn,
           // Both modes open the task dialog. In entity mode the dialog shows a
@@ -2029,14 +2037,11 @@ export function TasksClient({
           onClick: () => setShowAddDialog(true),
         } : undefined}
         emptyState={{
-          // The 240x170 illustration is for the full-page board; in a panel it
-          // takes the whole visible height and the text never shows.
-          icon: isEntityMode ? (
-            <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center mb-3">
-              <ListTodo className="h-5 w-5 text-muted-foreground" />
-            </div>
-          ) : (
-            <EmptyStateIllustration>
+          // Same drawing on the board and in a company / person panel;
+          // TabEmptyIllustration shrinks it inside a side panel (and is a
+          // plain EmptyStateIllustration everywhere else).
+          icon: (
+            <TabEmptyIllustration>
               <svg width="120" height="140" viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ transform: 'perspective(600px) rotateY(-6deg) rotateX(4deg)' }}>
                 {/* Clipboard body */}
                 <rect x="16" y="22" width="80" height="100" rx="6" className="fill-white dark:fill-white/[0.03]" />
@@ -2061,7 +2066,7 @@ export function TasksClient({
                 <rect x="48" y="94" width="28" height="3" rx="1.5" className="fill-gray-200 dark:fill-white/15" opacity="0.4" />
                 <rect x="48" y="100" width="18" height="2" rx="1" className="fill-gray-200 dark:fill-white/10" opacity="0.3" />
               </svg>
-            </EmptyStateIllustration>
+            </TabEmptyIllustration>
           ),
           title: t.projects.tasks.noTasksTitle,
           description: t.projects.tasks.noTasksDesc,
@@ -2096,6 +2101,13 @@ export function TasksClient({
         availableStatuses={projectStages.map(s => ({ id: s.id, label: stageLabel(s.name, s.systemStatus), color: s.color }))}
         onCreateLabel={handleCreateLabel}
         hideRecord
+        // Opened from a company / person panel: the task is created for that
+        // record (see handleTaskDialogSave), so the dialog shows it, fixed.
+        lockedRecord={
+          entityScope?.name
+            ? { id: entityScope.id, name: entityScope.name, avatar: entityScope.avatar }
+            : undefined
+        }
         defaultAssignee={isEntityMode ? currentUserId ?? undefined : undefined}
         onSave={handleTaskDialogSave}
         projectId={projectId}

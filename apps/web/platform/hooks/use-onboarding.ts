@@ -121,7 +121,7 @@ export function useCompleteOnboarding() {
 export function useCreateWorkspace() {
   const { getClient } = useAppApiClient();
   return useMutation({
-    mutationFn: async (input: { name: string; region?: string; selectedApps?: string[] }) => {
+    mutationFn: async (input: { name: string; region?: string; selectedApps?: string[]; country?: string }) => {
       const client = await getClient();
       const result = await client.post<{
         data: {

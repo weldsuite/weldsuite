@@ -133,7 +133,7 @@ export function LocationEditor({ value, onChange, onCommit }: Readonly<LocationE
         if (isMountedRef.current) onCommit();
       }}
       placeholder=""
-      className="h-7 text-sm shadow-none border-0 px-0 focus-visible:ring-0 bg-transparent"
+      className="h-7 text-sm shadow-none border-0 rounded-none px-0 focus-visible:ring-0 bg-transparent dark:bg-transparent"
       autoFocus
       popoverAlignOffset={-12}
       popoverSideOffset={9}

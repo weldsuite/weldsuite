@@ -43,7 +43,7 @@ Talk about the task by its number and title, never its internal id.
 Also read the task's comments (`search_task_comments` filtered on the task) and
 any parent task. A comment may answer questions the description leaves open.
 
-Stop and ask if the task is `done`, `cancelled` or `in_review`, or is assigned
+Stop and ask if the task is `done`, `cancelled` or `review`, or is assigned
 to someone else ("Work on it anyway?" / "Pick another task" / "Stop").
 
 ## 2. Decide how much to ask (per task)
@@ -165,7 +165,7 @@ Then run `graphify update .` if `graphify-out/graph.json` exists.
 3. Bind and check the PR with the app's PR tools (`get_status` / `bind_pr`).
 4. `create_task_comment` on the task: PR link, a 2–4 line summary, and anything
    the reviewer must know (migration, env var, manual step). Then
-   `update_task` status `in_review`.
+   `update_task` status `review`.
 
 ## 8. Report
 

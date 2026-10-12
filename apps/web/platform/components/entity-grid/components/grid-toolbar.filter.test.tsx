@@ -84,8 +84,10 @@ function renderToolbar() {
 }
 
 async function addStatusFilter() {
-  fireEvent.click(screen.getByRole('button', { name: 'sweep.entities.filter' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Status' }));
+  // The column menu is a dropdown menu: it opens from the keyboard (or a
+  // pointer press), not from a synthetic click.
+  fireEvent.keyDown(screen.getByRole('button', { name: 'sweep.entities.filter' }), { key: 'Enter' });
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Status' }));
 }
 
 describe('GridToolbar filter on a select column', () => {

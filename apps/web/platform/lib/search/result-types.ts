@@ -22,9 +22,11 @@ import {
 } from 'lucide-react';
 import type { SearchEntityType } from '@weldsuite/core-api-client/schemas/search';
 
+// `contact` / `customer` are the legacy search type keys for CRM people and
+// companies; the UI calls them People and Companies.
 export const RESULT_TYPE_LABEL: Record<SearchEntityType, string> = {
-  contact: 'Contacts',
-  customer: 'Customers',
+  contact: 'People',
+  customer: 'Companies',
   lead: 'Leads',
   opportunity: 'Opportunities',
   ticket: 'Tickets',

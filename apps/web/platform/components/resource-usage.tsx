@@ -15,6 +15,8 @@ import type { Credits } from '@/lib/api/types/apps/credits.types';
 import { cn } from '@/lib/utils';
 import { PricingDialog } from '@/components/pricing-dialog';
 import { Link } from '@/lib/router';
+import { useManagedBilling } from '@/hooks/queries/use-partner-queries';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface ResourceUsageProps {
   collapsed?: boolean;
@@ -54,6 +56,9 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
   const [pricingOpen, setPricingOpen] = useState(false);
   const { getClient } = useAppApiClient();
 
+  const { t, format } = useI18n();
+  // A partner-managed workspace cannot buy credits or plans: it asks its partner.
+  const { data: managed } = useManagedBilling();
   const { data: creditsResponse } = useCreditsBalance();
   const creditsData = (creditsResponse?.data as Credits.Balance) ?? null;
 
@@ -106,13 +111,19 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
                 <UsageProgressBar value={creditsData.usagePercentage} thresholds={{ red: 90, amber: 80 }} className="w-28" />
                 <span className="text-xs">{creditsData.currentBalance} of {creditsData.monthlyAllocation} remaining</span>
               </div>
-              <Button size="sm" className="mt-1 w-full" onClick={() => setPricingOpen(true)}>
-                Upgrade
-              </Button>
+              {managed ? (
+                <Button asChild size="sm" className="mt-1 w-full">
+                  <Link href="/settings/billing">{format(t.partner.managed.moreCredits, { partner: managed.partner.name })}</Link>
+                </Button>
+              ) : (
+                <Button size="sm" className="mt-1 w-full" onClick={() => setPricingOpen(true)}>
+                  Upgrade
+                </Button>
+              )}
             </TooltipContent>
           </Tooltip>
         </div>
-        <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />
+        {!managed && <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />}
       </>
     );
   }
@@ -137,10 +148,18 @@ export function ResourceUsage({ collapsed = false }: Readonly<ResourceUsageProps
         </div>
       </div>
 
-      <Button size="sm" className="mt-2.5 w-full h-9" onClick={() => setPricingOpen(true)}>
-        Upgrade
-      </Button>
-      <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />
+      {managed ? (
+        <Button asChild size="sm" className="mt-2.5 h-9 w-full">
+          <Link href="/settings/billing">{format(t.partner.managed.moreCredits, { partner: managed.partner.name })}</Link>
+        </Button>
+      ) : (
+        <>
+          <Button size="sm" className="mt-2.5 w-full h-9" onClick={() => setPricingOpen(true)}>
+            Upgrade
+          </Button>
+          <PricingDialog open={pricingOpen} onOpenChange={setPricingOpen} onPlanChanged={handlePlanChanged} />
+        </>
+      )}
     </div>
   );
 }

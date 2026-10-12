@@ -49,12 +49,25 @@
  * billing-worker rather than reimplemented: `/phone-numbers` (tenant DB) has
  * no price column, and Stripe remains the source of truth for `totalMonthly`.
  *
+ * Reseller licensing (docs/plans/reseller-licensing.md):
+ *  - GET /managed — the "managed by {partner}" billing view of a partner
+ *    workspace (null for a direct one).
+ *  - Billing mutations (checkout, seats, cancel, reactivate, payment methods)
+ *    answer 403 PARTNER_MANAGED on a partner workspace: its partner is billed.
+ *  - POST /checkout answers 409 PARTNER_TERRITORY for a direct workspace with no
+ *    running subscription when the request's network country (Cloudflare
+ *    geolocation) is served by a reseller. The billing country (Settings →
+ *    Business) is user-editable and never decides territory; it only picks the
+ *    price list.
+ *  - /plans and /plans-page carry `partnerManaged` (the reseller of the
+ *    caller's country, else null).
+ *
  * Entity events: none — the entity-events catalog has no billing/subscription
  * entity type (checked packages/core/entity-events/src/events/), and these
  * mutations write master-DB + Stripe state, not tenant entities.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
@@ -97,10 +110,20 @@ import {
   minorUnitsToCents,
   planCheckoutPrice,
   planDisplayPrice,
+  requestCountry,
   resolvePlanPricesForCaller,
 } from '../../services/plan-country-pricing';
+import { blockPartnerManaged } from '../../middleware/partner-managed';
+import {
+  getManagedContext,
+  isReadOnly,
+  partnerTerritoryResponse,
+  territoryPartnerInfo,
+} from '../../services/partner/managed';
+import { creditsUsedBetween } from '@weldsuite/core-domain/partners';
+import { monthPeriod, type ManagedBillingInfo } from '@weldsuite/app-api-client/schemas/partners';
 
-const { workspaces, plans, billingInvoices, billingPayments } = masterSchema;
+const { workspaces, plans, billingInvoices, billingPayments, workspaceCredits } = masterSchema;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -149,6 +172,10 @@ app.get('/subscription', async (c) => {
 app.get('/plans', async (c) => {
   const masterDb = getMasterDb(c.env);
   const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
+  // The reseller that serves the request's network country, if any (same on
+  // every row: this endpoint returns a bare array, so there is no envelope
+  // field for it). Same rule as checkout, so the page and the block agree.
+  const partnerManaged = await territoryPartnerInfo(masterDb, requestCountry(c.req.raw));
 
   const allPlans = await masterDb
     .select()
@@ -196,6 +223,7 @@ app.get('/plans', async (c) => {
         sortOrder: plan.sortOrder,
         stripePriceIdMonthly: plan.stripePriceIdMonthly,
         stripePriceIdYearly: plan.stripePriceIdYearly,
+        partnerManaged,
       };
     }),
   );
@@ -310,7 +338,49 @@ app.get('/plans-page', async (c) => {
     plans: mappedPlans,
     subscription,
     pricing: { country: prices.country, currency: prices.currency },
+    // The reseller of the request's network country: the page shows who to
+    // contact instead of prices.
+    partnerManaged: await territoryPartnerInfo(masterDb, requestCountry(c.req.raw)),
   });
+});
+
+// ============================================================================
+// READ: GET /managed — billing view of a partner-managed workspace
+// ============================================================================
+
+// Open to every member like /subscription: the billing page and the lock/read-
+// only banners read it. Null for a direct (self-billed) workspace. Exposes the
+// partner's public contact details and the licence, never the partner's price.
+app.get('/managed', async (c) => {
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+
+  const masterDb = getMasterDb(c.env);
+  const managed = await getManagedContext(masterDb, orgId);
+  if (!managed) return success(c, null);
+
+  const period = monthPeriod(new Date());
+  const [creditsUsedThisPeriod, [credits], activeMembers] = await Promise.all([
+    creditsUsedBetween(masterDb, managed.workspaceId, period.start, period.end),
+    masterDb
+      .select({ balance: workspaceCredits.currentBalance })
+      .from(workspaceCredits)
+      .where(eq(workspaceCredits.workspaceId, managed.workspaceId))
+      .limit(1),
+    getAccurateMemberCount(c.env, orgId, managed.workspaceId, masterDb),
+  ]);
+
+  const info: ManagedBillingInfo = {
+    partner: managed.partner,
+    partnerStatus: managed.partnerStatus,
+    // A partner workspace with no licence row has nothing licensed.
+    licence: managed.licence ?? { status: 'ended', allowedApps: [], monthlyCredits: 0, maxSeats: null },
+    creditsUsedThisPeriod,
+    creditBalance: credits?.balance ?? 0,
+    activeMembers,
+    readOnly: isReadOnly(managed),
+  };
+  return success(c, info);
 });
 
 // ============================================================================
@@ -641,7 +711,125 @@ const checkoutSchema = z.object({
   cancelUrl: z.string().optional(),
 });
 
-app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), async (c) => {
+/** Subscription statuses that still bill; a canceled one keeps its Stripe ids, so the status decides. */
+const RUNNING_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'incomplete']);
+
+function hasRunningSubscription(workspace: {
+  stripeSubscriptionId: string | null;
+  subscriptionStatus: string | null;
+}): boolean {
+  return Boolean(workspace.stripeSubscriptionId) && RUNNING_SUBSCRIPTION_STATUSES.has(workspace.subscriptionStatus ?? '');
+}
+
+type BillingContext = Context<{ Bindings: Env; Variables: Variables }>;
+type BillingWorkspace = NonNullable<Awaited<ReturnType<typeof getWorkspaceByOrgId>>>;
+type BillingPlan = NonNullable<Awaited<ReturnType<typeof getPlanById>>>;
+type CheckoutPrice = Parameters<typeof createSubscriptionCheckoutSession>[1]['price'];
+
+/**
+ * Territory: a NEW subscription is closed in a country a reseller serves; the
+ * 409 answer, or null when checkout may go on. A workspace that already has a
+ * running subscription is never refused.
+ */
+async function refuseClosedTerritory(
+  c: BillingContext,
+  masterDb: ReturnType<typeof getMasterDb>,
+  workspace: BillingWorkspace,
+): Promise<Response | null> {
+  if (hasRunningSubscription(workspace)) return null;
+  const country = requestCountry(c.req.raw);
+  const territoryPartner = await territoryPartnerInfo(masterDb, country);
+  if (territoryPartner && country) return partnerTerritoryResponse(c, country, territoryPartner);
+  return null;
+}
+
+/**
+ * What checkout charges for the caller's price display: a country price (inline
+ * price on the plan's Stripe product) or the plan row's Stripe price. A refusal
+ * is the 400 answer to send instead.
+ */
+function resolveCheckoutPrice(
+  c: BillingContext,
+  plan: BillingPlan,
+  display: ReturnType<typeof planDisplayPrice>,
+  cycle: 'monthly' | 'yearly',
+): { price: CheckoutPrice } | { refusal: Response } {
+  if (display.kind === 'on_request') {
+    return { refusal: error.badRequest(c, `The ${plan.name} plan is available on request. Please contact sales.`) };
+  }
+  if (display.kind === 'priced') {
+    if (!plan.stripeProductId) {
+      return { refusal: error.badRequest(c, 'No Stripe product configured for this plan') };
+    }
+    return { price: { productId: plan.stripeProductId, ...planCheckoutPrice(display, cycle) } };
+  }
+  const priceId = cycle === 'yearly' ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly;
+  if (!priceId) {
+    return { refusal: error.badRequest(c, `No ${cycle} Stripe price configured for this plan`) };
+  }
+  return { price: { priceId } };
+}
+
+/** The workspace's Stripe customer id, creating (and saving) the customer on first checkout. */
+async function ensureStripeCustomer(
+  masterDb: ReturnType<typeof getMasterDb>,
+  stripeKey: string,
+  workspace: BillingWorkspace,
+  orgId: string,
+): Promise<string> {
+  if (workspace.stripeCustomerId) return workspace.stripeCustomerId;
+  const customer = await createStripeCustomer(stripeKey, {
+    name: workspace.name,
+    metadata: {
+      workspaceId: workspace.id,
+      clerkOrgId: orgId,
+    },
+  });
+  const customerId = customer.id;
+
+  await masterDb
+    .update(workspaces)
+    .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+    .where(eq(workspaces.id, workspace.id));
+  return customerId;
+}
+
+/** Best-effort copy of the tenant's billing address onto the Stripe customer; never fails checkout. */
+async function syncBillingDetailsToStripeCustomer(
+  c: BillingContext,
+  stripeKey: string,
+  customerId: string,
+  workspaceName: string,
+): Promise<void> {
+  try {
+    const tenantDb = c.get('tenantDb');
+    const { workspaceSettings } = schema;
+    const [settings] = await tenantDb
+      .select()
+      .from(workspaceSettings)
+      .where(isNull(workspaceSettings.deletedAt))
+      .limit(1);
+
+    if (settings?.addressLine1 && settings?.country) {
+      await updateStripeCustomer(stripeKey, customerId, {
+        name: settings.legalName || workspaceName,
+        address: {
+          line1: settings.addressLine1 || undefined,
+          line2: settings.addressLine2 || undefined,
+          city: settings.city || undefined,
+          state: settings.state || undefined,
+          postal_code: settings.postalCode || undefined,
+          country: settings.country || undefined,
+        },
+      });
+    }
+  } catch (err) {
+    // Non-critical: if billing details sync fails, checkout can still proceed
+    console.warn('[Billing] Failed to sync billing details to Stripe customer:', err);
+  }
+}
+
+app.post('/checkout', canManageBilling, blockPartnerManaged(), zValidator('json', checkoutSchema), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
@@ -657,6 +845,14 @@ app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), asyn
 
   const plan = await getPlanById(masterDb, body.planId);
   if (!plan) return error.notFound(c, 'Plan');
+
+  // Territory: a NEW subscription is closed in a country a reseller serves.
+  // A workspace that already has a running subscription keeps renewing and
+  // upgrading; only starting one is refused. Only the network-detected country
+  // of this request decides: the billing country is user-editable, so it must
+  // not influence territory.
+  const territoryRefusal = await refuseClosedTerritory(c, masterDb, workspace);
+  if (territoryRefusal) return territoryRefusal;
 
   // Validate seat count against plan's max users
   if (plan.maxUsers !== null && body.seats > plan.maxUsers) {
@@ -686,22 +882,9 @@ app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), asyn
   // product), never the plan row's default Stripe price.
   const prices = await resolvePlanPricesForCaller({ masterDb, tenantDb: c.get('tenantDb'), req: c.req.raw });
   const display = planDisplayPrice(plan.slug, prices);
-  if (display.kind === 'on_request') {
-    return error.badRequest(c, `The ${plan.name} plan is available on request. Please contact sales.`);
-  }
-  let checkoutPrice: Parameters<typeof createSubscriptionCheckoutSession>[1]['price'];
-  if (display.kind === 'priced') {
-    if (!plan.stripeProductId) {
-      return error.badRequest(c, 'No Stripe product configured for this plan');
-    }
-    checkoutPrice = { productId: plan.stripeProductId, ...planCheckoutPrice(display, body.cycle) };
-  } else {
-    const priceId = body.cycle === 'yearly' ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly;
-    if (!priceId) {
-      return error.badRequest(c, `No ${body.cycle} Stripe price configured for this plan`);
-    }
-    checkoutPrice = { priceId };
-  }
+  const resolved = resolveCheckoutPrice(c, plan, display, body.cycle);
+  if ('refusal' in resolved) return resolved.refusal;
+  const checkoutPrice = resolved.price;
 
   // No trial. Free is the way to try WeldSuite, so a paid plan starts billing
   // immediately — including the Free → Business upgrade, which used to be the
@@ -710,51 +893,11 @@ app.post('/checkout', canManageBilling, zValidator('json', checkoutSchema), asyn
   const trialPeriodDays = undefined;
 
   // Ensure customer exists
-  let customerId = workspace.stripeCustomerId;
-  if (!customerId) {
-    const customer = await createStripeCustomer(stripeKey, {
-      name: workspace.name,
-      metadata: {
-        workspaceId: workspace.id,
-        clerkOrgId: orgId,
-      },
-    });
-    customerId = customer.id;
-
-    await masterDb
-      .update(workspaces)
-      .set({ stripeCustomerId: customerId, updatedAt: new Date() })
-      .where(eq(workspaces.id, workspace.id));
-  }
+  const customerId = await ensureStripeCustomer(masterDb, stripeKey, workspace, orgId);
 
   // Sync billing details to the Stripe customer before checkout so the
   // checkout form is pre-filled (tenant-DB workspaceSettings → Stripe).
-  try {
-    const tenantDb = c.get('tenantDb');
-    const { workspaceSettings } = schema;
-    const [settings] = await tenantDb
-      .select()
-      .from(workspaceSettings)
-      .where(isNull(workspaceSettings.deletedAt))
-      .limit(1);
-
-    if (settings?.addressLine1 && settings?.country) {
-      await updateStripeCustomer(stripeKey, customerId, {
-        name: settings.legalName || workspace.name,
-        address: {
-          line1: settings.addressLine1 || undefined,
-          line2: settings.addressLine2 || undefined,
-          city: settings.city || undefined,
-          state: settings.state || undefined,
-          postal_code: settings.postalCode || undefined,
-          country: settings.country || undefined,
-        },
-      });
-    }
-  } catch (err) {
-    // Non-critical: if billing details sync fails, checkout can still proceed
-    console.warn('[Billing] Failed to sync billing details to Stripe customer:', err);
-  }
+  await syncBillingDetailsToStripeCustomer(c, stripeKey, customerId, workspace.name);
 
   const session = await createSubscriptionCheckoutSession(stripeKey, {
     customerId,
@@ -801,7 +944,7 @@ async function getPlanSeatCapViolation(
   return null;
 }
 
-app.post('/seats', canManageBilling, zValidator('json', seatsSchema), async (c) => {
+app.post('/seats', canManageBilling, blockPartnerManaged(), zValidator('json', seatsSchema), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
@@ -933,7 +1076,7 @@ app.post('/seats', canManageBilling, zValidator('json', seatsSchema), async (c) 
 // WRITE: POST /cancel — Cancel subscription at period end
 // ============================================================================
 
-app.post('/cancel', canManageBilling, async (c) => {
+app.post('/cancel', canManageBilling, blockPartnerManaged(), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
@@ -955,7 +1098,7 @@ app.post('/cancel', canManageBilling, async (c) => {
 // WRITE: POST /reactivate — Reactivate canceled subscription
 // ============================================================================
 
-app.post('/reactivate', canManageBilling, async (c) => {
+app.post('/reactivate', canManageBilling, blockPartnerManaged(), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
@@ -1228,7 +1371,7 @@ app.get('/payment-methods', canReadBilling, async (c) => {
 });
 
 // WRITE: POST /payment-methods/setup-intent — client secret for Stripe Elements
-app.post('/payment-methods/setup-intent', canManageBilling, async (c) => {
+app.post('/payment-methods/setup-intent', canManageBilling, blockPartnerManaged(), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
@@ -1273,7 +1416,7 @@ app.post('/payment-methods/setup-intent', canManageBilling, async (c) => {
 });
 
 // WRITE: POST /payment-methods/:id/default — mark a method as primary
-app.post('/payment-methods/:id/default', canManageBilling, async (c) => {
+app.post('/payment-methods/:id/default', canManageBilling, blockPartnerManaged(), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 
@@ -1331,7 +1474,7 @@ app.post('/payment-methods/:id/default', canManageBilling, async (c) => {
 });
 
 // WRITE: DELETE /payment-methods/:id — remove a saved method
-app.delete('/payment-methods/:id', canManageBilling, async (c) => {
+app.delete('/payment-methods/:id', canManageBilling, blockPartnerManaged(), async (c) => {
   const orgId = c.get('orgId');
   if (!orgId) return error.orgRequired(c);
 

@@ -38,6 +38,18 @@
       "port": 5173
     },
     {
+      "name": "platform-3000",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "platform",
+        "dev",
+        "--port",
+        "3000"
+      ],
+      "port": 3000
+    },
+    {
       "name": "docs",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

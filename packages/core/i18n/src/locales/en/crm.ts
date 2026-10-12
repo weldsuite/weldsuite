@@ -1929,6 +1929,13 @@ export const crm = {
       nameTooLong: 'Name can be at most {max} characters',
     },
 
+    bulkActions: {
+      addedToList: 'Added {count} to {listName}',
+      alreadyInList: 'Already in {listName}',
+      noEmailAddresses: 'None of the selected records have an email address',
+      skippedWithoutEmail: 'Left out {count} without an email address',
+    },
+
     companiesGrid: {
       updateFailed: 'Update failed',
       deleteFailed: 'Delete failed',

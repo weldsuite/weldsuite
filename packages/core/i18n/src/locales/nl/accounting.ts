@@ -2118,6 +2118,14 @@ export const accounting = {
       statusUpdateFailed: 'Factuur bijwerken mislukt',
       finalized: 'Factuur gefinaliseerd',
       finalizeFailed: 'Factuur finaliseren mislukt',
+      recordRefund: 'Terugbetaling registreren',
+      creditUsed: 'Verrekend of terugbetaald',
+      creditRemaining: 'Resterend tegoed',
+      applyCredit: 'Verrekenen met de factuur',
+      applyingCredit: 'Verrekenen...',
+      creditApplied: '{amount} verrekend met de factuur',
+      applyCreditFailed: 'Verrekenen mislukt',
+      creditNotesTitle: 'Creditnota’s',
     },
 
     // Billing / shipping address section shared by the invoice form and dialog
@@ -2182,6 +2190,9 @@ export const accounting = {
       checkNumberPlaceholder: 'bijv. 1042',
       recorded: 'Betaling geregistreerd',
       failed: 'Betaling registreren mislukt',
+      refundTitle: 'Terugbetaling registreren',
+      refundRecorded: 'Terugbetaling geregistreerd',
+      refundFailed: 'Terugbetaling registreren mislukt',
     },
 
     // Payment methods (values stored on payments.payment_method)

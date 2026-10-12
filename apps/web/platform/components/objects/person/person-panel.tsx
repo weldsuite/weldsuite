@@ -10,7 +10,7 @@
  *   - Details body: a vertical list of `PropertyRow`s with the same icon +
  *     label + inline-editable value affordance as the customer panel.
  *   - All 11 tabs are wired: Details, Activity, Companies, Emails, Calls,
- *     Pipeline, Notes, Meetings, Tasks, Files, Audit Log.
+ *     Deals, Notes, Meetings, Tasks, Files, Audit Log.
  *   - Sidebar: person chat (locked-open in fullscreen).
  */
 
@@ -20,8 +20,8 @@ import {
   Archive,
   Briefcase,
   Bookmark,
-  Building,
   ExternalLink,
+  SquareArrowOutUpRight,
   EllipsisVertical,
   Languages,
   Mail,
@@ -31,6 +31,7 @@ import {
   StickyNote,
   Tag,
   Trash2,
+  Unlink,
   User,
   UserPlus,
 } from 'lucide-react';
@@ -54,7 +55,6 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
 import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
@@ -80,7 +80,19 @@ import { FilesTab } from '@/components/objects/_shared/files-tab';
 import { AuditTab } from '@/components/objects/_shared/audit-tab';
 import { EmailsTab } from '@/components/objects/_shared/emails-tab';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
-import { EntityList } from '@/components/entity-list';
+import { EntityList, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
+import { applySelectFilters } from '@/lib/list-filters';
+import {
+  CompaniesIllustration,
+  TAB_EMPTY_STATE_TABLE_CLASS,
+  tabBodyClassName,
+} from '@/components/objects/_shared/tab-empty-state';
+import {
+  LinkedRecordRow,
+  LinkedRecordStatus,
+  linkedRecordHeaderColumns,
+} from '@/components/objects/_shared/linked-record-row';
+import { TabListScope } from '@/components/objects/_shared/tab-list-row';
 import { useUnlinkPersonFromCompany } from '@/hooks/queries/use-person-companies-queries';
 import {
   personKeys,
@@ -465,11 +477,6 @@ type PersonCompanyRow = {
   } | null;
 };
 
-function companyInitial(c: PersonCompanyRow['company']): string {
-  if (!c) return '?';
-  return (c.displayName?.[0] || '?').toUpperCase();
-}
-
 // Search-friendly row: flattens nested company fields so EntityList's
 // `searchFields` can match on name / industry without a custom applyFilters.
 type PersonCompanyListItem = PersonCompanyRow & {
@@ -488,6 +495,7 @@ function PersonCompaniesTab({
 }>) {
   const st = useTranslations();
   const unlinkMut = useUnlinkPersonFromCompany();
+  const [linkOpen, setLinkOpen] = useState(false);
   const linkedIds = useMemo(
     () => new Set(employments.map((e) => e.companyId)),
     [employments],
@@ -503,83 +511,140 @@ function PersonCompaniesTab({
     [employments],
   );
 
+  const filterConfigs = useMemo<FilterConfig[]>(() => {
+    const industries = [...new Set(items.map((pc) => pc.industry).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b),
+    );
+    return [
+      {
+        field: 'status',
+        label: st('sweep.entities.fieldStatus'),
+        options: [
+          { value: 'primary', label: st('sweep.entities.primary') },
+          { value: 'current', label: st('sweep.entities.filterCurrent') },
+          { value: 'past', label: st('sweep.entities.past') },
+        ],
+      },
+      // Only companies that have an industry can be told apart by it.
+      ...(industries.length > 0
+        ? [
+            {
+              field: 'industry',
+              label: st('sweep.entities.fieldIndustry'),
+              options: industries.map((industry) => ({ value: industry, label: industry })),
+            },
+          ]
+        : []),
+    ];
+  }, [items, st]);
+
+  const applyFilters = useCallback(
+    (list: PersonCompanyListItem[], filters: ActiveFilter[]) =>
+      applySelectFilters(list, filters, {
+        status: (pc, value) => {
+          if (value === 'primary') return !!pc.isPrimary;
+          return value === 'past' ? !!pc.endedAt : !pc.endedAt;
+        },
+        industry: (pc, value) => pc.industry === value,
+      }),
+    [],
+  );
+
+  const headerColumns = useMemo(
+    () =>
+      linkedRecordHeaderColumns({
+        name: st('sweep.entities.fieldCompany'),
+        secondary: st('sweep.entities.fieldIndustry'),
+        role: st('sweep.entities.fieldRole'),
+        status: st('sweep.entities.fieldStatus'),
+      }),
+    [st],
+  );
+
   const renderRow = useCallback(
     (pc: PersonCompanyListItem) => {
       const name = pc.company?.displayName ?? st('sweep.entities.deletedCompany');
       return (
-        <div key={pc.id} className="group/row flex items-center gap-1 px-2 py-0.5">
-          <Button
-            variant="ghost"
-            onClick={() => onOpenCompany(pc.companyId)}
-            className="flex-1 text-left text-sm flex items-center justify-between gap-2 hover:bg-muted/50 rounded-md px-2 py-1.5 transition-colors min-w-0 h-auto"
-          >
-            <span className="flex items-center gap-2 min-w-0">
-              <Avatar className="h-7 w-7 rounded-md flex-shrink-0">
-                <AvatarImage src={pc.company?.avatarUrl ?? undefined} className="rounded-md object-cover" />
-                <AvatarFallback className="rounded-md text-[10px]">
-                  {companyInitial(pc.company)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="flex flex-col min-w-0">
-                <span className="text-sm text-foreground truncate">{name}</span>
-                {pc.role || pc.company?.industry ? (
-                  <span className="text-xs text-muted-foreground truncate">
-                    {pc.role ? pc.role : pc.company?.industry}
-                    {pc.role && pc.company?.industry ? ` · ${pc.company.industry}` : ''}
-                  </span>
-                ) : null}
-              </span>
-            </span>
-            <span className="flex items-center gap-1 flex-shrink-0">
-              {pc.endedAt && <Badge variant="outline" className="text-[10px]">{st('sweep.entities.past')}</Badge>}
-              {pc.isPrimary && <Badge variant="default" className="text-[10px]">{st('sweep.entities.primary')}</Badge>}
-            </span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => {
-              unlinkMut.mutate(
-                { id: pc.id, personId, companyId: pc.companyId },
-                { onSuccess: () => toast.success(st('sweep.entities.unlinked')) },
-              );
-            }}
-            disabled={unlinkMut.isPending}
-            className="opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 p-1.5 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-[opacity,color,background-color]"
-            aria-label={st('sweep.entities.unlink')}
-            title={st('sweep.entities.unlinkFromPerson')}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <LinkedRecordRow
+          key={pc.id}
+          name={name}
+          avatarUrl={pc.company?.avatarUrl}
+          secondary={pc.company?.industry}
+          role={pc.role}
+          onOpen={() => onOpenCompany(pc.companyId)}
+          menuLabel={st('sweep.entities.moreActions')}
+          status={
+            pc.endedAt || pc.isPrimary ? (
+              <>
+                {pc.endedAt && <LinkedRecordStatus tone="gray">{st('sweep.entities.past')}</LinkedRecordStatus>}
+                {pc.isPrimary && <LinkedRecordStatus tone="blue">{st('sweep.entities.primary')}</LinkedRecordStatus>}
+              </>
+            ) : null
+          }
+          menu={
+            <>
+              <DropdownMenuItem onClick={() => onOpenCompany(pc.companyId)}>
+                <SquareArrowOutUpRight />
+                {st('sweep.weldcrm.contactsSection.viewProfile')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={unlinkMut.isPending}
+                onClick={() => {
+                  unlinkMut.mutate(
+                    { id: pc.id, personId, companyId: pc.companyId },
+                    { onSuccess: () => toast.success(st('sweep.entities.unlinked')) },
+                  );
+                }}
+              >
+                <Unlink />
+                {st('sweep.entities.unlink')}
+              </DropdownMenuItem>
+            </>
+          }
+        />
       );
     },
     [onOpenCompany, personId, unlinkMut, st],
   );
 
   return (
-    <EntityList<PersonCompanyListItem>
-      items={items}
-      isLoading={false}
-      error={null}
-      filters={[]}
-      renderRow={renderRow}
-      searchPlaceholder={st('sweep.entities.searchCompaniesPlaceholder')}
-      searchFields={['name', 'industry', 'role']}
-      actionButtons={
-        <LinkCompanyPopover personId={personId} linkedCompanyIds={linkedIds} />
-      }
-      itemsClassName="py-1.5"
-      emptyState={{
-        icon: <Building className="h-8 w-8 text-muted-foreground/60 mb-3" />,
-        title: st('sweep.entities.noCompaniesYetTitle'),
-        description: st('sweep.entities.noCompaniesYetDescription'),
-      }}
-      noResultsState={{
-        title: st('sweep.entities.noCompaniesFoundTitle'),
-        description: st('sweep.entities.noCompaniesFoundDescription'),
-      }}
-    />
+    <TabListScope>
+      <EntityList<PersonCompanyListItem>
+        items={items}
+        isLoading={false}
+        error={null}
+        filters={filterConfigs}
+        applyFilters={applyFilters}
+        headerColumns={headerColumns}
+        renderRow={renderRow}
+        searchPlaceholder={st('sweep.entities.searchCompaniesPlaceholder')}
+        searchFields={['name', 'industry', 'role']}
+        actionButtons={
+          <LinkCompanyPopover
+            personId={personId}
+            linkedCompanyIds={linkedIds}
+            open={linkOpen}
+            onOpenChange={setLinkOpen}
+          />
+        }
+        emptyStateClassName={TAB_EMPTY_STATE_TABLE_CLASS}
+        emptyState={{
+          icon: <CompaniesIllustration />,
+          title: st('sweep.entities.noCompaniesYetTitle'),
+          description: st('sweep.entities.noCompaniesYetDescription'),
+          action: {
+            label: st('sweep.entities.addCompany'),
+            onClick: () => setLinkOpen(true),
+          },
+        }}
+        noResultsState={{
+          title: st('sweep.entities.noCompaniesFoundTitle'),
+          description: st('sweep.entities.noCompaniesFoundDescription'),
+        }}
+      />
+    </TabListScope>
   );
 }
 
@@ -692,6 +757,7 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
   return (
     <EntityDetailView
       {...shell.entityDetailViewProps}
+      contentClassName={tabBodyClassName(mode)}
       avatar={<PersonAvatar person={person} onUpload={(url) => handleUpdateField({ avatarUrl: url })} />}
       title={<PersonTitle person={person} />}
       actions={
@@ -761,13 +827,22 @@ export function PersonPanel(props: Readonly<ObjectPanelComponentProps>) {
         <MeetingsTab entityId={person.id} entityKind="person" />
       )}
       {person && activeTab === 'tasks' && (
-        <TasksTab entityId={person.id} entityKind="person" />
+        <TasksTab
+          entityId={person.id}
+          entityKind="person"
+          entityName={person.displayName}
+          entityAvatar={person.avatarUrl || undefined}
+        />
       )}
       {person && activeTab === 'files' && (
         <FilesTab entityId={person.id} entityKind="person" />
       )}
       {person && activeTab === 'emails' && (
-        <EmailsTab entityEmail={person.email ?? undefined} entityKind="person" />
+        <EmailsTab
+          entityEmail={person.email ?? undefined}
+          entityKind="person"
+          entityAvatar={person.avatarUrl || undefined}
+        />
       )}
       {person && activeTab === 'audit' && (
         <AuditTab entityId={person.id} entityKind="person" />

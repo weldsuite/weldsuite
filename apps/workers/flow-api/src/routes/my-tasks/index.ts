@@ -21,8 +21,9 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, asc, desc, eq, isNull, like, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, notInArray, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
+import { taskStatusAliases } from '@weldsuite/app-api-client/schemas/tasks';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -66,10 +67,11 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
     )!,
   ];
 
-  if (q.status) conditions.push(eq(tasks.status, q.status));
+  // Status filters match every stored spelling (`review` also finds legacy `in_review`).
+  if (q.status) conditions.push(inArray(tasks.status, taskStatusAliases(q.status)));
   // tasks.status is NOT NULL, so NOT IN never drops rows through NULL semantics.
   if (q.excludeStatus && q.excludeStatus.length > 0) {
-    conditions.push(notInArray(tasks.status, q.excludeStatus));
+    conditions.push(notInArray(tasks.status, q.excludeStatus.flatMap(taskStatusAliases)));
   }
   if (q.priority) conditions.push(eq(tasks.priority, q.priority));
   if (q.projectId) conditions.push(eq(tasks.projectId, q.projectId));
@@ -101,6 +103,7 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
       ? asc(sql`CASE ${tasks.status}
           WHEN 'todo' THEN 1
           WHEN 'in_progress' THEN 2
+          WHEN 'review' THEN 3
           WHEN 'in_review' THEN 3
           WHEN 'testing' THEN 4
           WHEN 'backlog' THEN 5

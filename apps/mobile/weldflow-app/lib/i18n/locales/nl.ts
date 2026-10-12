@@ -31,7 +31,7 @@ export const nl: Translations = {
     backlog: 'Backlog',
     todo: 'Te doen',
     in_progress: 'Bezig',
-    in_review: 'In review',
+    review: 'In review',
     testing: 'Testen',
     done: 'Klaar',
     cancelled: 'Geannuleerd',

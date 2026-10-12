@@ -166,7 +166,7 @@ describe('CommandPalette', () => {
     expect(screen.getByTestId('cmdk-input')).toHaveFocus();
     expect(screen.getByText('WeldCRM')).toBeVisible();
     expect(screen.getByText('Switch to dark mode')).toBeVisible();
-    expect(screen.queryByText('Customers')).not.toBeInTheDocument();
+    expect(screen.queryByText('Companies')).not.toBeInTheDocument();
     expect(screen.queryByText('Acme Industries')).not.toBeInTheDocument();
   });
 
@@ -179,11 +179,27 @@ describe('CommandPalette', () => {
     await user.type(input, 'companies');
 
     expect(screen.getByText('Acme Industries')).toBeVisible();
-    const option = await screen.findByRole('option', { name: /Companies/ });
+    const option = await screen.findByRole('option', { name: /^Companies/ });
     fireEvent.click(option);
 
     expect(push).toHaveBeenCalledWith('/weldcrm/companies');
     expect(screen.queryByTestId('command-palette')).not.toBeInTheDocument();
+  });
+
+  it('labels a company record as Companies and opens it in the company panel', async () => {
+    const user = userEvent.setup();
+    render(<CommandPalette />);
+    openWithShortcut();
+
+    await user.type(await screen.findByTestId('cmdk-input'), 'acme');
+
+    const record = await screen.findByRole('option', { name: /Acme Industries/ });
+    expect(record).toHaveTextContent('Companies');
+    expect(record).not.toHaveTextContent('Customers');
+    fireEvent.click(record);
+
+    expect(openPanel).toHaveBeenCalledWith({ type: 'company', id: 'cus_acme' });
+    expect(push).not.toHaveBeenCalled();
   });
 
   it('toggles the theme from the actions group', async () => {

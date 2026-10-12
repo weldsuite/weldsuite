@@ -14,6 +14,7 @@
 
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
+import { clerkMiddleware } from '@weldsuite/worker-kit/middleware/clerk';
 import { apiKeysRoutes } from './routes/api-keys';
 import { workspaceApiKeysRoutes } from './routes/workspace-api-keys';
 import { auditLogsRoutes } from './routes/audit-logs';
@@ -53,6 +54,8 @@ import { pushTokensRoutes } from './routes/push-tokens';
 import { workspacesRoutes } from './routes/workspaces';
 import { testFixturesRoutes } from './routes/_test-fixtures';
 import { publicUserAppsRoutes } from './routes/public-user-apps';
+import { publicPartnerTerritoriesRoutes } from './routes/public-partner-territories';
+import { partnerRoutes } from './routes/partner';
 // Legacy api-worker phase-out (W3/W4) — surfaces ported from apps/api-worker.
 import { appstoreRoutes } from './routes/appstore';
 import { authSessionsRoutes } from './routes/auth-sessions';
@@ -96,6 +99,10 @@ app.route('/test-fixtures', testFixturesRoutes);
 // stay ABOVE the app.use('/api/*', ...) guard below.
 app.route('/public/user-apps', publicUserAppsRoutes);
 
+// Which country belongs to which reseller — PUBLIC (no Clerk), cacheable. The
+// marketing site and signup screens read it. Must stay ABOVE the /api/* guard.
+app.route('/public/partner-territories', publicPartnerTerritoriesRoutes);
+
 // Clerk-authenticated but org-LESS: minting a desktop sign-in ticket must work
 // before the user has selected a workspace. The route applies clerkMiddleware()
 // itself; mounting here (BEFORE the global /api/* workspaceDb guard) skips the
@@ -133,6 +140,15 @@ app.route('/api/onboarding', onboardingRoutes);
 // router applies clerkMiddleware() itself; mounting here (BEFORE the global
 // /api/* guard) skips the org requirement.
 app.route('/api/invitations', invitationsRoutes);
+
+// Partner (reseller) portal — Clerk-authenticated but org-LESS: a partner user
+// may have no active workspace at all, so this must not pass through
+// apiAuth() / workspaceDbMiddleware. clerkMiddleware() is applied here and the
+// router's own partnerAuth() resolves the partner. Master DB only; it never
+// puts a tenant DB on the context. Must stay ABOVE the app.use('/api/*', ...)
+// line below.
+app.use('/api/partner/*', clerkMiddleware());
+app.route('/api/partner', partnerRoutes);
 
 // Internal service-to-service email dispatch — PUBLIC mount (no Clerk). Auth
 // is the in-route `Authorization: Bearer <INTERNAL_API_SECRET>` check. Caller:

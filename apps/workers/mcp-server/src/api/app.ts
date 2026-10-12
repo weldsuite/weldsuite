@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
+import { appNotLicensedBody, findModuleForExternalPath, missingLicensedApp } from '@weldsuite/api-modules';
 import { v1 } from './routes/v1';
 import { createTenantDb } from './db';
 import type { ApiKeySession, HonoEnv } from './types';
 import type { Env } from '../types/env';
 import type { McpSession } from '../lib/api-types';
+import { isReadOnlyRequestAllowed, workspaceReadOnlyBody } from '../lib/read-only';
 
 /**
  * Origin used when dispatching into the internal API. Never leaves the worker —
@@ -63,6 +65,22 @@ apiApp.use('*', async (c, next) => {
       { error: { code: 'UNAUTHORIZED', message: 'Internal dispatch is missing its session' } },
       500,
     );
+  }
+
+  // A licensed (partner-managed) workspace reaches only the modules its apps
+  // read; the same table the first-party workers use (`@weldsuite/api-modules`).
+  if (session.licensedApps) {
+    const missing = missingLicensedApp(
+      findModuleForExternalPath(c.req.path),
+      new Set(session.licensedApps),
+    );
+    if (missing) return c.json(appNotLicensedBody(missing), 403);
+  }
+
+  // A read-only workspace (partner suspended or licence inactive) may be read
+  // and exported but not changed.
+  if (session.readOnly && !isReadOnlyRequestAllowed(c.req.method, c.req.path)) {
+    return c.json(workspaceReadOnlyBody(session.readOnlyReason), 403);
   }
 
   const apiSession = toApiSession(session);

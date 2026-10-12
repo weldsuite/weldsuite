@@ -322,7 +322,7 @@ export function CrmTasksPipeline({
     { id: 'backlog', name: statusLabels['backlog'], color: '#94a3b8' },
     { id: 'todo', name: statusLabels['todo'], color: '#c4b5fd' },
     { id: 'in_progress', name: statusLabels['in_progress'], color: '#93c5fd' },
-    { id: 'in_review', name: statusLabels['in_review'], color: '#fcd34d' },
+    { id: 'review', name: statusLabels['review'], color: '#fcd34d' },
     { id: 'testing', name: statusLabels['testing'], color: '#a78bfa' },
     { id: 'done', name: statusLabels['done'], color: '#5eead4' },
     { id: 'cancelled', name: statusLabels['cancelled'], color: '#f87171' },

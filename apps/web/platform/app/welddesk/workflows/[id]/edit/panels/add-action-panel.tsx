@@ -73,11 +73,11 @@ export function AddActionPanel({
             }
             if (actionsInCategory.length === 0) return null;
             return (
-              <div key={category} className="space-y-1">
-                <Label className="text-xs font-medium">
+              <div key={category} className="space-y-1.5">
+                <Label className="text-xs font-medium text-muted-foreground">
                   {categoryLabels[category]}
                 </Label>
-                <div>
+                <div className="space-y-0.5">
                   {actionsInCategory.map((action) => {
                     const Icon = action.icon;
                     return (
@@ -86,8 +86,9 @@ export function AddActionPanel({
                         type="button"
                         variant="ghost"
                         onClick={() => onAddAction(action.id)}
-                        className="flex items-center gap-3 py-2 -mx-4 px-4 transition-all text-left hover:bg-muted"
-                        style={{ width: 'calc(100% + 2rem)' }}
+                        // Same rows as the workflow editor's Add Step panel:
+                        // `h-auto` so two-line rows are not squeezed to 36px.
+                        className="h-auto w-[calc(100%+1rem)] -mx-2 justify-start gap-3 px-2 py-2 rounded-md text-left whitespace-normal hover:bg-muted"
                       >
                         <div className="w-8 h-8 rounded-md border border-border/70 flex items-center justify-center flex-shrink-0">
                           <Icon className="w-4 h-4 text-muted-foreground" />

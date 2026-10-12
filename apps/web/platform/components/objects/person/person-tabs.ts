@@ -44,7 +44,7 @@ export const PERSON_TABS: PersonTab[] = [
   { id: 'companies', label: 'Companies', icon: Building, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'emails', label: 'Emails', icon: Mail, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'calls', label: 'Calls', icon: Phone, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
-  { id: 'deals', label: 'Pipeline', icon: SquareKanban, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
+  { id: 'deals', label: 'Deals', icon: SquareKanban, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'notes', label: 'Notes', icon: StickyNote, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'meetings', label: 'Meetings', icon: Video, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },
   { id: 'tasks', label: 'Tasks', icon: SquareCheck, defaultVisibleInPanel: true, defaultVisibleInFullscreen: true },

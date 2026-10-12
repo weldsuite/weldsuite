@@ -13,6 +13,7 @@ const { replace, state } = vi.hoisted(() => ({
 
 vi.mock('@/lib/router', () => ({
   useRouter: () => ({ replace }),
+  usePathname: () => '/weldcrm/companies',
   useSearchParams: () => new URLSearchParams(state.search),
 }));
 
@@ -55,7 +56,7 @@ describe('usePersistedGridSort', () => {
     const { result } = renderHook(() => usePersistedGridSort('company'));
     // Requested from the first render, so the first fetch is already sorted.
     expect(result.current).toEqual({ sort: 'name', sortDir: 'asc' });
-    expect(replace).toHaveBeenCalledWith('?search=acme&sort=name&sortDir=asc');
+    expect(replace).toHaveBeenCalledWith('/weldcrm/companies?search=acme&sort=name&sortDir=asc');
   });
 
   it('does not bring the sort back once the user cleared it', () => {

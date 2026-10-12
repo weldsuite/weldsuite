@@ -33,6 +33,7 @@ import {
 } from '../config/person-import-fields';
 import { useObjectPanel, useObjectPanelUrlSync } from '@/components/object-panel';
 import { EntityGridSkeleton } from '@/components/entity-grid/components/grid-skeleton';
+import { useCrmBulkActions } from '@/app/weldcrm/components/use-crm-bulk-actions';
 
 interface PeopleGridProps {
   people: Person[];
@@ -196,7 +197,11 @@ export function PeopleGrid({
     [exportMut, exportFilter, customColumns, memberNameById, t],
   );
 
+  const bulk = useCrmBulkActions({ kind: 'person', rows: people, currentListId: listContext?.listId });
+
   const actions: EntityGridActions<Person> = useMemo(() => ({
+    onAddToList: bulk.onAddToList,
+    onSendEmail: bulk.onSendEmail,
     onUpdateEntity: async (id, updates) => {
       try {
         await updateMut.mutateAsync({ id, data: updates as Parameters<typeof updateMut.mutateAsync>[0]['data'] });
@@ -245,7 +250,7 @@ export function PeopleGrid({
     onImport: () => setIsImportOpen(true),
     onExportCSV: () => handleExport('csv'),
     onExportExcel: () => handleExport('xlsx'),
-  }), [updateMut, deleteMut, openObjectPanel, t, listContext, handleExport]);
+  }), [updateMut, deleteMut, openObjectPanel, t, listContext, handleExport, bulk.onAddToList, bulk.onSendEmail]);
 
   const pagination: GridPaginationState = {
     page: 1,
@@ -270,6 +275,7 @@ export function PeopleGrid({
           hasMore={hasMore}
           isFetchingMore={isFetchingMore}
           toolbarActions={toolbarActions}
+          availableLists={bulk.availableLists}
           listName={listContext?.listName}
           persistSort={!listContext}
         />

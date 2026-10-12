@@ -30,6 +30,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { nextEntityNumber, resolveEntityBaseCurrency, resolveEntityId } from '../../lib/entity-context';
+import { documentContactFields, loadContactSnapshot, withContactNames } from '../../lib/contact-snapshot';
 import {
   ClosedPeriodError,
   LockedPeriodError,
@@ -49,6 +50,7 @@ import { PostingError, postInvoiceWriteOff } from '../../services/accounting-doc
 import { assertDimensionsBelongToEntity } from '../../services/accounting-posting';
 import { finalizeInvoice, InvoiceComplianceError } from '../../services/accounting-invoice-finalize';
 import { recordPayment } from '../../services/accounting-payments';
+import { applyCreditNote, type CreditApplication } from '../../services/accounting-credit-notes';
 import { salesTaxErrorResponse } from '../../services/sales-tax/errors';
 import { loadSalesTaxEntity, mapCreditItemsToOriginal, usesSalesTax } from '../../services/sales-tax/document-tax';
 import {
@@ -84,6 +86,22 @@ function accountingErrorResponse(c: AppContext, err: unknown): Response | undefi
     return error.badRequest(c, err.message);
   }
   return undefined;
+}
+
+/** Audit both sides of a credit note applied to an invoice. */
+async function auditCreditApplication(c: AppContext, db: Database, entityId: string, applied: CreditApplication) {
+  for (const [entityIdOfDoc, other] of [
+    [applied.creditNoteId, applied.invoiceId],
+    [applied.invoiceId, applied.creditNoteId],
+  ] as const) {
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: entityId,
+      entityType: 'invoice',
+      entityId: entityIdOfDoc,
+      action: 'credit_applied',
+      changes: { creditApplied: { old: null, new: { amount: applied.amount.toFixed(2), with: other } } },
+    });
+  }
 }
 
 /** Accepts the shared address shape and the legacy Dutch one (street + houseNumber, province). */
@@ -335,6 +353,11 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
         like(invoices.invoiceNumber, term),
         like(invoices.contactName, term),
         like(invoices.reference, term),
+        // Invoices stored without a contact name are found by the contact's own.
+        inArray(
+          invoices.contactId,
+          db.select({ id: schema.parties.id }).from(schema.parties).where(like(schema.parties.displayName, term)),
+        ),
       )!);
     }
 
@@ -346,7 +369,7 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
       db.select({ count: sql<number>`count(*)::int` }).from(invoices).where(where),
     ]);
     const totalCount = Number(countRes[0]?.count ?? 0);
-    return list(c, rows, cursorPagination(totalCount, page * pageSize < totalCount, null));
+    return list(c, await withContactNames(db, rows), cursorPagination(totalCount, page * pageSize < totalCount, null));
   } catch (err) {
     console.error('[app-api/invoices] list failed:', err);
     return error.internal(c, 'Failed to fetch invoices');
@@ -404,8 +427,25 @@ app.get('/:id', requirePermission('invoices:read'), async (c) => {
       .orderBy(desc(paymentsTable.date));
     const allocatedAmount = new Map(allocations.map((a) => [a.paymentId, a.amount]));
     const invoicePayments = paymentRows.map((p) => ({ ...p, allocatedAmount: allocatedAmount.get(p.id) ?? p.amount }));
+    const [named] = await withContactNames(db, [invoice]);
 
-    return success(c, { ...invoice, items: itemRows, payments: invoicePayments });
+    // Credit notes issued against this invoice; once finalized they lower its open balance.
+    const creditNotes =
+      invoice.type === 'credit_note'
+        ? []
+        : await db
+            .select({
+              id: invoices.id,
+              invoiceNumber: invoices.invoiceNumber,
+              status: invoices.status,
+              issueDate: invoices.issueDate,
+              total: invoices.total,
+            })
+            .from(invoices)
+            .where(and(eq(invoices.creditNoteForInvoiceId, invoiceId), isNull(invoices.deletedAt)))
+            .orderBy(invoices.issueDate);
+
+    return success(c, { ...named, items: itemRows, payments: invoicePayments, creditNotes });
   } catch (err) {
     console.error('[app-api/invoices] get failed:', err);
     return error.internal(c, 'Failed to fetch invoice');
@@ -486,16 +526,23 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
             .where(inArray(schema.exemptionCertificates.id, certificateIds))
         : [];
 
+    // Invoices stored without the contact's name (created before the API copied it) print the contact's own.
+    const contact =
+      invoice.contactName && invoice.contactEmail
+        ? { name: invoice.contactName, email: invoice.contactEmail }
+        : await loadContactSnapshot(db, invoice.contactId);
+
     const html = generateInvoiceHtml(
       {
+        draft: invoice.status === 'draft',
         certificateNumbers: Object.fromEntries(certificates.map((cert) => [cert.id, cert.number])),
         invoiceNumber: invoice.invoiceNumber || invoiceId,
         type: invoice.type || 'standard',
         issueDate: invoice.issueDate?.toISOString() || new Date().toISOString(),
         dueDate: invoice.dueDate?.toISOString() || new Date().toISOString(),
         currency: invoice.currency || entityRow.baseCurrency || 'EUR',
-        contactName: invoice.contactName || '',
-        contactEmail: invoice.contactEmail,
+        contactName: invoice.contactName || contact.name || '',
+        contactEmail: invoice.contactEmail ?? contact.email,
         contactVatNumber,
         complianceNotices,
         billingAddress: invoice.billingAddress,
@@ -580,6 +627,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
     // The engine being down doesn't stop a draft; finalizing recalculates and refuses until it is back.
     const totals = drafted.calc;
     const status = data.status ?? 'draft';
+    const contactFields = await documentContactFields(db, data.contactId, data);
     const newInvoice = {
       id: invoiceId,
       entityId,
@@ -587,8 +635,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       type: data.type || 'standard',
       status,
       contactId: data.contactId,
-      contactName: data.contactName || null,
-      contactEmail: data.contactEmail || null,
+      ...contactFields,
       issueDate: new Date(data.issueDate),
       dueDate: new Date(data.dueDate),
       currency,
@@ -679,6 +726,19 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     }
 
     const updateData: Record<string, unknown> = buildInvoiceFieldUpdates(data);
+
+    // Another customer, or a draft stored without a contact name, takes the contact's name and email.
+    const contactChanged = !!data.contactId && data.contactId !== invoice.contactId;
+    if (contactChanged || !invoice.contactName) {
+      const kept = contactChanged ? { contactName: null, contactEmail: null } : invoice;
+      Object.assign(
+        updateData,
+        await documentContactFields(db, data.contactId ?? invoice.contactId, {
+          contactName: data.contactName ?? kept.contactName,
+          contactEmail: data.contactEmail ?? kept.contactEmail,
+        }),
+      );
+    }
 
     // Tax is recalculated when the lines change, and on a US entity when anything the tax depends on does
     // (customer, date, addresses): the stored lines are re-taxed then.
@@ -928,6 +988,12 @@ app.patch('/:id/status', requirePermission('invoices:update'), zValidator('json'
       }
       await db.update(invoices).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(invoices.id, invoiceId));
     } else {
+      if (invoice.type === 'credit_note') {
+        return error.badRequest(
+          c,
+          'A credit note is money owed to the customer, not by them: apply it to an invoice or refund it instead of writing it off.',
+        );
+      }
       if (!invoice.journalEntryId) {
         return error.badRequest(c, 'Only a finalized invoice can be written off as uncollectible');
       }
@@ -1031,11 +1097,13 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
         data: { id: result.journalEntryId, sourceType: invoice.type === 'credit_note' ? 'credit_note' : 'invoice', sourceId: invoiceId },
       });
     }
+    if (result.creditApplied) await auditCreditApplication(c, db, invoice.entityId, result.creditApplied);
 
     return success(c, {
       invoiceId,
       journalEntryId: result.journalEntryId,
       entryNumber: result.entryNumber,
+      creditApplied: result.creditApplied ?? null,
       status: 'sent',
       // Sales tax: engine warnings (not_registered_in_state, address_unverified, ...) and the provider sync outcome.
       warnings: result.warnings,
@@ -1227,6 +1295,7 @@ app.post('/:id/credit-note', requirePermission('invoices:create'), async (c) => 
 
     let creditNoteRow: typeof invoice = {
       ...invoice,
+      ...(await documentContactFields(db, invoice.contactId, invoice)),
       id: newId,
       invoiceNumber: creditNoteNumber,
       type: 'credit_note',
@@ -1308,6 +1377,7 @@ app.post('/:id/credit-note', requirePermission('invoices:create'), async (c) => 
 
 // POST /:id/record-payment — record a payment against this invoice (posted:
 // Dr bank / Cr receivable, and the invoice's paid amount and status updated).
+// On a credit note it records the refund to the customer: Dr receivable / Cr bank.
 app.post('/:id/record-payment', requirePermission('banking:create'), zValidator('json', recordPaymentSchema), async (c) => {
   const db = c.get('tenantDb');
   const invoiceId = c.req.param('id');
@@ -1325,16 +1395,17 @@ app.post('/:id/record-payment', requirePermission('banking:create'), zValidator(
     if (!invoice) return error.notFound(c, 'Invoice', invoiceId);
 
     const amount = Number.parseFloat(data.amount);
+    const refund = invoice.type === 'credit_note';
     const result = await recordPayment(db, {
       entityId: invoice.entityId,
-      type: 'received',
+      type: refund ? 'sent' : 'received',
       amount,
       currency: invoice.currency,
       exchangeRate: invoice.exchangeRate,
       date: new Date(data.date),
       paymentMethod: data.paymentMethod ?? null,
       checkNumber: data.checkNumber ?? null,
-      depositTo: data.depositTo ?? null,
+      depositTo: refund ? null : data.depositTo ?? null,
       reference: data.reference ?? null,
       notes: data.notes ?? null,
       contactId: invoice.contactId,
@@ -1353,7 +1424,7 @@ app.post('/:id/record-payment', requirePermission('banking:create'), zValidator(
       accountingEntityId: invoice.entityId,
       entityType: 'invoice',
       entityId: invoiceId,
-      action: 'payment_recorded',
+      action: refund ? 'refund_recorded' : 'payment_recorded',
       changes: {
         amountPaid: { old: invoice.amountPaid, new: updated?.amountPaid ?? null },
         status: { old: invoice.status, new: updated?.status ?? null },
@@ -1387,6 +1458,61 @@ app.post('/:id/record-payment', requirePermission('banking:create'), zValidator(
     return error.internal(c, 'Failed to record payment');
   }
 });
+
+// POST /:id/apply-credit — apply a finalized credit note to an open invoice of
+// the same customer (the invoice it credits unless `invoiceId` says otherwise).
+// Nothing is posted: both documents already sit in receivables.
+app.post(
+  '/:id/apply-credit',
+  requirePermission('invoices:update'),
+  zValidator('json', z.object({ invoiceId: z.string().max(30).optional(), amount: z.string().optional() })),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const creditNoteId = c.req.param('id');
+    const data = c.req.valid('json');
+
+    try {
+      const amount = data.amount !== undefined ? Number.parseFloat(data.amount) : null;
+      if (amount !== null && !(amount > 0)) return error.badRequest(c, 'The amount must be greater than zero');
+      const applied = await applyCreditNote(db, creditNoteId, { invoiceId: data.invoiceId ?? null, amount });
+      if (!applied) return error.badRequest(c, 'Nothing left to apply: the credit note or the invoice has no open balance');
+
+      const rows = await db
+        .select()
+        .from(schema.invoices)
+        .where(inArray(schema.invoices.id, [creditNoteId, applied.invoiceId]));
+      const note = rows.find((r) => r.id === creditNoteId)!;
+      await auditCreditApplication(c, db, note.entityId, applied);
+      for (const doc of rows) {
+        publishEntityEvent({
+          c,
+          entityType: 'invoice',
+          entityId: doc.id,
+          action: 'updated',
+          data: {
+            id: doc.id,
+            invoiceNumber: doc.invoiceNumber,
+            status: doc.status,
+            total: doc.total || '0',
+            currency: doc.currency,
+            contactId: doc.contactId,
+          },
+        });
+      }
+
+      return success(c, {
+        ...applied,
+        amount: applied.amount.toFixed(2),
+        creditNote: { balanceDue: note.balanceDue, status: note.status },
+      });
+    } catch (err) {
+      const handled = accountingErrorResponse(c, err);
+      if (handled) return handled;
+      console.error('[books-api/invoices] apply-credit failed:', err);
+      return error.internal(c, 'Failed to apply the credit note');
+    }
+  },
+);
 
 // POST /from-order/:orderId — create a draft invoice from a commerce order
 app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c) => {

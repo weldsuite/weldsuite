@@ -21,8 +21,10 @@ export default function InvitePage() {
   const email = params.get('email') || undefined;
   const orgName = params.get('org_name') || params.get('orgName') || params.get('organization') || undefined;
 
-  // If user is already authenticated with an organization, go to dashboard
-  if (isSignedIn && orgId) {
+  // A signed-in member with nothing to accept goes to the dashboard. With a
+  // ticket or a target workspace in the link they stay: the invite client
+  // accepts the invitation and switches to that workspace.
+  if (isSignedIn && orgId && !clerkTicket && !orgIdParam) {
     return <Navigate to="/" />;
   }
 

@@ -3,7 +3,7 @@ import { smokeRoute } from '../../helpers/smoke';
 
 const routes = [
   '/weldcall',
-  '/weldcall/contacts',
+  '/weldcall/people',
   '/weldcall/history',
   '/weldcall/new',
 ];

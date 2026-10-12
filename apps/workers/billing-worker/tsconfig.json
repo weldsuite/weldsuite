@@ -8,6 +8,9 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // @weldsuite/emails ships its templates as .tsx source (no build step), so
+    // importing it for sendSystemEmail needs a jsx mode to resolve their types.
+    "jsx": "react-jsx",
     "noEmit": true,
     "lib": ["ESNext"],
     "types": ["@cloudflare/workers-types"],

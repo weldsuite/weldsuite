@@ -15,15 +15,24 @@ interface NoteActionsMenuProps {
   onEdit: () => void;
   onToggleFavorite: () => void;
   onDelete: () => void;
+  /** Overrides the trigger button's size (h-7 w-7 by default). */
+  triggerClassName?: string;
 }
 
 /** Edit / favourite / delete menu shown on a note row. Clicks never reach the row underneath. */
-export function NoteActionsMenu({ isPinned, onEdit, onToggleFavorite, onDelete }: Readonly<NoteActionsMenuProps>) {
+export function NoteActionsMenu({ isPinned, onEdit, onToggleFavorite, onDelete, triggerClassName }: Readonly<NoteActionsMenuProps>) {
   const t = useTranslations();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent">
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            'h-7 w-7 p-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:bg-accent',
+            triggerClassName,
+          )}
+        >
           <EllipsisVertical className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>

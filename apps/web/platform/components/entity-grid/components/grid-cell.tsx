@@ -30,6 +30,7 @@ import {
   UrlEditor,
 } from '../editors';
 import { formatCurrency, formatPercent } from '../utils/calculations';
+import { UrlLink, toHref } from './url-link';
 import { asText } from '@weldsuite/text';
 
 interface GridCellProps<TEntity> {
@@ -45,6 +46,10 @@ function cellPadding(isFirstColumn?: boolean, compact?: boolean): string {
 
 const CELL_FOCUS_CLASS =
   'group/cell focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring';
+
+// How far the favourite star sits into the name cell's right padding. Keep in
+// step with the star button's `-mr-[4px]`.
+const FAVORITE_BLEED_PX = 4;
 
 const CELL_CONTENT_STYLE: React.CSSProperties = {
   overflow: 'hidden',
@@ -70,17 +75,31 @@ const CellWrapper: React.FC<{
   label?: string;
   /** The cell contains interactive children, so it cannot itself be a button. */
   hasControls?: boolean;
-}> = ({ children, onClick, isFirstColumn, compact, isEditing, label, hasControls }) => {
+  /**
+   * Pixels the content box may extend into the cell's right padding, so a
+   * trailing control can sit closer to the cell border (with a matching
+   * negative right margin) without being clipped. Text still ends where it
+   * did.
+   */
+  bleedRight?: number;
+  /**
+   * Drop the cell's own padding so the child can span the whole cell. The
+   * padding is handed down as `--grid-cell-padding` for the child to apply,
+   * which keeps its content where a padded cell would put it.
+   */
+  flush?: boolean;
+}> = ({ children, onClick, isFirstColumn, compact, isEditing, label, hasControls, bleedRight, flush }) => {
+  const padding = cellPadding(isFirstColumn, compact);
   const style: React.CSSProperties = {
     height: compact ? '21px' : '40px',
     width: '100%',
     display: 'flex',
     alignItems: 'center',
     overflow: 'hidden',
-    padding: cellPadding(isFirstColumn, compact),
+    padding: flush ? 0 : padding,
+    ...(flush ? { ['--grid-cell-padding' as string]: padding } : null),
     cursor: onClick ? 'pointer' : 'default',
     fontSize: compact ? '12px' : undefined,
-    boxShadow: isEditing ? '0 0 0 1px color-mix(in srgb, var(--border) 70%, var(--foreground) 30%)' : undefined,
     position: isEditing || (onClick && hasControls) ? 'relative' : undefined,
     zIndex: isEditing ? 1 : undefined,
   };
@@ -103,7 +122,21 @@ const CellWrapper: React.FC<{
           className="absolute inset-0 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         />
       )}
-      <div style={CELL_CONTENT_STYLE}>{children}</div>
+      <div
+        style={
+          bleedRight
+            ? {
+                ...CELL_CONTENT_STYLE,
+                width: `calc(100% + ${bleedRight}px)`,
+                marginRight: -bleedRight,
+                paddingRight: bleedRight,
+                flexShrink: 0,
+              }
+            : CELL_CONTENT_STYLE
+        }
+      >
+        {children}
+      </div>
     </div>
   );
 };
@@ -156,7 +189,7 @@ function FavoriteButton<TEntity>({ entity, entityId, field }: Readonly<FavoriteB
       data-testid="entity-grid-favorite"
       aria-pressed={isFavorite}
       className={cn(
-        "relative z-[1] p-0.5 rounded-[5px] transition-colors hover:bg-muted flex-shrink-0",
+        "relative z-[1] size-6 -mr-[4px] rounded-[7px] transition-colors hover:bg-muted flex-shrink-0",
         isFavorite ? "inline-flex" : "hidden group-hover:inline-flex"
       )}
     >
@@ -186,7 +219,6 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
   const name = config.getEntityName(entity);
   const initials = config.getEntityInitials?.(entity) || name.charAt(0).toUpperCase();
   const avatar = config.getEntityAvatar?.(entity);
-  const subtitle = config.getEntitySubtitle?.(entity);
   const contextMenuItems = config.renderRowContextMenu?.(entity);
 
   const toggleRowSelected = (checked: boolean | 'indeterminate') => {
@@ -200,7 +232,14 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
   };
 
   const cell = (
-    <CellWrapper onClick={() => actions.onRowClick?.(entity)} isFirstColumn compact={compact} label={name} hasControls>
+    <CellWrapper
+      onClick={() => actions.onRowClick?.(entity)}
+      isFirstColumn
+      compact={compact}
+      label={name}
+      hasControls
+      bleedRight={column.favoriteField ? FAVORITE_BLEED_PX : undefined}
+    >
       <div className="flex items-center gap-2.5 min-w-0 flex-1">
         {config.enableRowSelection !== false && (
           <Checkbox
@@ -217,16 +256,9 @@ function CompanyCell<TEntity>({ entity, column, compact }: Readonly<CompanyCellP
               {initials}
             </AvatarFallback>
           </Avatar>
-          <div className="min-w-0 flex-1">
-            <span className="font-medium text-[14px] text-foreground group-hover/cell:text-primary truncate block">
-              {name}
-            </span>
-            {subtitle && (
-              <span className="text-[12px] text-muted-foreground truncate block">
-                {subtitle}
-              </span>
-            )}
-          </div>
+          <span className="min-w-0 flex-1 font-medium text-[14px] text-foreground group-hover/cell:text-primary truncate block">
+            {name}
+          </span>
         </div>
       </div>
       {column.favoriteField && (
@@ -313,8 +345,39 @@ function renderTextCell(type: TextCellType, ctx: CellRenderCtx) {
         <Editor value={text} onCommit={ctx.handleCommit} onCancel={ctx.handleCancel} />
       )}
     >
-      <span className="text-[14px] text-foreground/80 truncate">{text || null}</span>
+      <span
+        className={cn(
+          'text-[14px] truncate',
+          type === 'url' ? 'text-blue-600 dark:text-blue-400 underline' : 'text-foreground/80',
+        )}
+      >
+        {text || null}
+      </span>
     </EditableCell>
+  );
+}
+
+/**
+ * A link cell: a click on the link opens it, a double click edits the cell.
+ * A click beside the link edits, as it does in every other cell, and so does
+ * any click while the cell is empty or holds something that is not a link.
+ */
+function renderUrlCell(ctx: CellRenderCtx) {
+  const text = (ctx.value as string | undefined) || '';
+  const href = ctx.isEditing ? null : toHref(text);
+  if (!href) return renderTextCell('url', ctx);
+  return (
+    <CellWrapper
+      isFirstColumn={ctx.isFirstColumn}
+      compact={ctx.compact}
+      onClick={ctx.startEditing}
+      label={text}
+      hasControls
+    >
+      <UrlLink href={href} onEdit={ctx.startEditing}>
+        {text}
+      </UrlLink>
+    </CellWrapper>
   );
 }
 
@@ -468,7 +531,12 @@ function renderSelectCell(multi: boolean, ctx: CellRenderCtx) {
       ctx.setOpenPopover(open ? { rowId: ctx.entityId, fieldId: ctx.columnId } : null),
   };
   return (
-    <CellWrapper isFirstColumn={ctx.isFirstColumn} compact={ctx.compact} isEditing={ctx.isPopoverOpen}>
+    <CellWrapper
+      isFirstColumn={ctx.isFirstColumn}
+      compact={ctx.compact}
+      isEditing={ctx.isPopoverOpen}
+      flush={!multi}
+    >
       {multi ? (
         <MultiSelectEditor
           value={(ctx.value as string[] | undefined) || []}
@@ -601,8 +669,9 @@ function renderCellByType(type: GridColumnDef<unknown>['type'], ctx: CellRenderC
     case 'email':
     case 'phone':
     case 'text':
-    case 'url':
       return renderTextCell(type, ctx);
+    case 'url':
+      return renderUrlCell(ctx);
     case 'number':
     case 'currency':
     case 'percent':

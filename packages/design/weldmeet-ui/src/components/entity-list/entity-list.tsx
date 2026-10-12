@@ -31,6 +31,21 @@ import type {
 } from './types';
 import { asText } from '@weldsuite/text';
 
+/**
+ * Whether the content around `node` overflows its scroll container, i.e. the
+ * user has something to scroll. Only an ancestor that actually overflows
+ * counts: `overflow-x-hidden` alone makes an element report `overflow-y: auto`.
+ */
+function hasScrollingAncestor(node: HTMLElement): boolean {
+  for (let el = node.parentElement; el; el = el.parentElement) {
+    const { overflowY } = getComputedStyle(el);
+    if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
+      return true;
+    }
+  }
+  return document.documentElement.scrollHeight > window.innerHeight + 1;
+}
+
 export function EntityList<T extends { id: string }>({
   // Data
   items,
@@ -104,6 +119,10 @@ export function EntityList<T extends { id: string }>({
   const [internalActiveFilters, setInternalActiveFilters] = useState<ActiveFilter[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  // The list itself never scrolls; one of its ancestors does. `listScrolls` is
+  // whether that is happening, which decides if the last row keeps its divider.
+  const [itemsNode, setItemsNode] = useState<HTMLDivElement | null>(null);
+  const [listScrolls, setListScrolls] = useState(false);
 
   const isSearchControlled = onSearchChange !== undefined;
   const isFiltersControlled = onFiltersChange !== undefined;
@@ -151,6 +170,20 @@ export function EntityList<T extends { id: string }>({
     observer.observe(node);
     return () => observer.disconnect();
   }, [onLoadMore, hasMore, isLoadingMore]);
+
+  useEffect(() => {
+    if (!itemsNode || typeof ResizeObserver === 'undefined') return;
+    const update = () => setListScrolls(hasScrollingAncestor(itemsNode));
+    update();
+    // Rows coming and going resize the list; the window resizes the scroller.
+    const observer = new ResizeObserver(update);
+    observer.observe(itemsNode);
+    window.addEventListener('resize', update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [itemsNode]);
 
   // Row handlers for actions
   const rowHandlers: RowHandlers<T> = useMemo(() => ({
@@ -445,9 +478,20 @@ export function EntityList<T extends { id: string }>({
       )}
 
       {/* Grouped Items */}
-      <div>
-        {groupedItems.map((group) => (
-          <div key={group.id}>
+      <div ref={setItemsNode}>
+        {groupedItems.map((group, groupIndex) => (
+          <div
+            key={group.id}
+            // A list that scrolls ends at the bottom edge of its page, where a
+            // divider under the very last row is one line too many; a short
+            // list keeps it to close itself off. Transparent rather than
+            // removed, so the list's height (and the check above) is unchanged.
+            className={cn(
+              listScrolls &&
+                groupIndex === groupedItems.length - 1 &&
+                '[&>:last-child]:!border-b-transparent',
+            )}
+          >
             {group.label && renderGroupHeader(group.label, group.items.length, group.rightContent, group.leadingContent)}
             {itemsClassName ? (
               <div className={itemsClassName}>

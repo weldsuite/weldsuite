@@ -33,6 +33,7 @@ import { Route as WeldbooksRouteRouteImport } from './routes/weldbooks/route'
 import { Route as WeldadsRouteRouteImport } from './routes/weldads/route'
 import { Route as SocialRouteRouteImport } from './routes/social/route'
 import { Route as SettingsRouteRouteImport } from './routes/settings/route'
+import { Route as PartnerRouteRouteImport } from './routes/partner/route'
 import { Route as AuthRouteRouteImport } from './routes/auth/route'
 import { Route as AppstoreRouteRouteImport } from './routes/appstore/route'
 import { Route as AgentsRouteRouteImport } from './routes/agents/route'
@@ -59,6 +60,7 @@ import { Route as WeldadsIndexRouteImport } from './routes/weldads/index'
 import { Route as WelcomeIndexRouteImport } from './routes/welcome/index'
 import { Route as SocialIndexRouteImport } from './routes/social/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
+import { Route as PartnerIndexRouteImport } from './routes/partner/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as InviteIndexRouteImport } from './routes/invite/index'
 import { Route as AppstoreIndexRouteImport } from './routes/appstore/index'
@@ -161,6 +163,7 @@ import { Route as WeldchatSearchIndexRouteImport } from './routes/weldchat/searc
 import { Route as WeldchatDmIndexRouteImport } from './routes/weldchat/dm/index'
 import { Route as WeldchatBookmarksIndexRouteImport } from './routes/weldchat/bookmarks/index'
 import { Route as WeldchatChannelIdIndexRouteImport } from './routes/weldchat/$channelId/index'
+import { Route as WeldcallPeopleIndexRouteImport } from './routes/weldcall/people/index'
 import { Route as WeldcallNewIndexRouteImport } from './routes/weldcall/new/index'
 import { Route as WeldcallHistoryIndexRouteImport } from './routes/weldcall/history/index'
 import { Route as WeldcallContactsIndexRouteImport } from './routes/weldcall/contacts/index'
@@ -230,6 +233,12 @@ import { Route as PreviewWelddataIndexRouteImport } from './routes/preview/weldd
 import { Route as PreviewWeldcalendarIndexRouteImport } from './routes/preview/weldcalendar/index'
 import { Route as PreviewHelpDocsIndexRouteImport } from './routes/preview/help-docs/index'
 import { Route as PreviewAppstoreIndexRouteImport } from './routes/preview/appstore/index'
+import { Route as PartnerWorkspacesIndexRouteImport } from './routes/partner/workspaces/index'
+import { Route as PartnerTeamIndexRouteImport } from './routes/partner/team/index'
+import { Route as PartnerStatementsIndexRouteImport } from './routes/partner/statements/index'
+import { Route as PartnerSettingsIndexRouteImport } from './routes/partner/settings/index'
+import { Route as PartnerRequestsIndexRouteImport } from './routes/partner/requests/index'
+import { Route as PartnerPackagesIndexRouteImport } from './routes/partner/packages/index'
 import { Route as ObjectsSlugIndexRouteImport } from './routes/objects/$slug/index'
 import { Route as InviteAcceptIndexRouteImport } from './routes/invite/accept/index'
 import { Route as AuthSsoCallbackIndexRouteImport } from './routes/auth/sso-callback/index'
@@ -383,6 +392,8 @@ import { Route as PreviewWeldchatChannelIdIndexRouteImport } from './routes/prev
 import { Route as PreviewWeldcalendarSchedulingIndexRouteImport } from './routes/preview/weldcalendar/scheduling/index'
 import { Route as PreviewSettingsTeamIndexRouteImport } from './routes/preview/settings/team/index'
 import { Route as PreviewAppstoreCodeIndexRouteImport } from './routes/preview/appstore/$code/index'
+import { Route as PartnerWorkspacesWorkspaceIdIndexRouteImport } from './routes/partner/workspaces/$workspaceId/index'
+import { Route as PartnerStatementsStatementIdIndexRouteImport } from './routes/partner/statements/$statementId/index'
 import { Route as WeldchatDmGroupChannelIdRouteImport } from './routes/weldchat/dm/group/$channelId'
 import { Route as WeldchatChannelIdThreadMessageIdRouteImport } from './routes/weldchat/$channelId/thread/$messageId'
 import { Route as SettingsIntegrationsHubspotCallbackRouteImport } from './routes/settings/integrations/hubspot/callback'
@@ -592,6 +603,11 @@ const SettingsRouteRoute = SettingsRouteRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PartnerRouteRoute = PartnerRouteRouteImport.update({
+  id: '/partner',
+  path: '/partner',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRouteRoute = AuthRouteRouteImport.update({
   id: '/auth',
   path: '/auth',
@@ -721,6 +737,11 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => SettingsRouteRoute,
+} as any)
+const PartnerIndexRoute = PartnerIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PartnerRouteRoute,
 } as any)
 const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
   id: '/onboarding/',
@@ -1248,6 +1269,11 @@ const WeldchatChannelIdIndexRoute = WeldchatChannelIdIndexRouteImport.update({
   path: '/$channelId/',
   getParentRoute: () => WeldchatRouteRoute,
 } as any)
+const WeldcallPeopleIndexRoute = WeldcallPeopleIndexRouteImport.update({
+  id: '/people/',
+  path: '/people/',
+  getParentRoute: () => WeldcallRouteRoute,
+} as any)
 const WeldcallNewIndexRoute = WeldcallNewIndexRouteImport.update({
   id: '/new/',
   path: '/new/',
@@ -1604,6 +1630,36 @@ const PreviewAppstoreIndexRoute = PreviewAppstoreIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => PreviewAppstoreRouteRoute,
+} as any)
+const PartnerWorkspacesIndexRoute = PartnerWorkspacesIndexRouteImport.update({
+  id: '/workspaces/',
+  path: '/workspaces/',
+  getParentRoute: () => PartnerRouteRoute,
+} as any)
+const PartnerTeamIndexRoute = PartnerTeamIndexRouteImport.update({
+  id: '/team/',
+  path: '/team/',
+  getParentRoute: () => PartnerRouteRoute,
+} as any)
+const PartnerStatementsIndexRoute = PartnerStatementsIndexRouteImport.update({
+  id: '/statements/',
+  path: '/statements/',
+  getParentRoute: () => PartnerRouteRoute,
+} as any)
+const PartnerSettingsIndexRoute = PartnerSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => PartnerRouteRoute,
+} as any)
+const PartnerRequestsIndexRoute = PartnerRequestsIndexRouteImport.update({
+  id: '/requests/',
+  path: '/requests/',
+  getParentRoute: () => PartnerRouteRoute,
+} as any)
+const PartnerPackagesIndexRoute = PartnerPackagesIndexRouteImport.update({
+  id: '/packages/',
+  path: '/packages/',
+  getParentRoute: () => PartnerRouteRoute,
 } as any)
 const ObjectsSlugIndexRoute = ObjectsSlugIndexRouteImport.update({
   id: '/objects/$slug/',
@@ -2481,6 +2537,18 @@ const PreviewAppstoreCodeIndexRoute =
     path: '/$code/',
     getParentRoute: () => PreviewAppstoreRouteRoute,
   } as any)
+const PartnerWorkspacesWorkspaceIdIndexRoute =
+  PartnerWorkspacesWorkspaceIdIndexRouteImport.update({
+    id: '/workspaces/$workspaceId/',
+    path: '/workspaces/$workspaceId/',
+    getParentRoute: () => PartnerRouteRoute,
+  } as any)
+const PartnerStatementsStatementIdIndexRoute =
+  PartnerStatementsStatementIdIndexRouteImport.update({
+    id: '/statements/$statementId/',
+    path: '/statements/$statementId/',
+    getParentRoute: () => PartnerRouteRoute,
+  } as any)
 const WeldchatDmGroupChannelIdRoute =
   WeldchatDmGroupChannelIdRouteImport.update({
     id: '/dm/group/$channelId',
@@ -3013,6 +3081,7 @@ export interface FileRoutesByFullPath {
   '/agents': typeof AgentsRouteRouteWithChildren
   '/appstore': typeof AppstoreRouteRouteWithChildren
   '/auth': typeof AuthRouteRouteWithChildren
+  '/partner': typeof PartnerRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/social': typeof SocialRouteRouteWithChildren
   '/weldads': typeof WeldadsRouteRouteWithChildren
@@ -3063,6 +3132,7 @@ export interface FileRoutesByFullPath {
   '/appstore/': typeof AppstoreIndexRoute
   '/invite/': typeof InviteIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
+  '/partner/': typeof PartnerIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/social/': typeof SocialIndexRoute
   '/welcome/': typeof WelcomeIndexRoute
@@ -3113,6 +3183,12 @@ export interface FileRoutesByFullPath {
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
   '/objects/$slug/': typeof ObjectsSlugIndexRoute
+  '/partner/packages/': typeof PartnerPackagesIndexRoute
+  '/partner/requests/': typeof PartnerRequestsIndexRoute
+  '/partner/settings/': typeof PartnerSettingsIndexRoute
+  '/partner/statements/': typeof PartnerStatementsIndexRoute
+  '/partner/team/': typeof PartnerTeamIndexRoute
+  '/partner/workspaces/': typeof PartnerWorkspacesIndexRoute
   '/preview/appstore/': typeof PreviewAppstoreIndexRoute
   '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
   '/preview/weldcalendar/': typeof PreviewWeldcalendarIndexRoute
@@ -3182,6 +3258,7 @@ export interface FileRoutesByFullPath {
   '/weldcall/contacts/': typeof WeldcallContactsIndexRoute
   '/weldcall/history/': typeof WeldcallHistoryIndexRoute
   '/weldcall/new/': typeof WeldcallNewIndexRoute
+  '/weldcall/people/': typeof WeldcallPeopleIndexRoute
   '/weldchat/$channelId/': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks/': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm/': typeof WeldchatDmIndexRoute
@@ -3267,6 +3344,8 @@ export interface FileRoutesByFullPath {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/partner/statements/$statementId/': typeof PartnerStatementsStatementIdIndexRoute
+  '/partner/workspaces/$workspaceId/': typeof PartnerWorkspacesWorkspaceIdIndexRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team/': typeof PreviewSettingsTeamIndexRoute
   '/preview/weldcalendar/scheduling/': typeof PreviewWeldcalendarSchedulingIndexRoute
@@ -3494,6 +3573,7 @@ export interface FileRoutesByTo {
   '/appstore': typeof AppstoreIndexRoute
   '/invite': typeof InviteIndexRoute
   '/onboarding': typeof OnboardingIndexRoute
+  '/partner': typeof PartnerIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/social': typeof SocialIndexRoute
   '/welcome': typeof WelcomeIndexRoute
@@ -3540,6 +3620,12 @@ export interface FileRoutesByTo {
   '/auth/sso-callback': typeof AuthSsoCallbackIndexRoute
   '/invite/accept': typeof InviteAcceptIndexRoute
   '/objects/$slug': typeof ObjectsSlugIndexRoute
+  '/partner/packages': typeof PartnerPackagesIndexRoute
+  '/partner/requests': typeof PartnerRequestsIndexRoute
+  '/partner/settings': typeof PartnerSettingsIndexRoute
+  '/partner/statements': typeof PartnerStatementsIndexRoute
+  '/partner/team': typeof PartnerTeamIndexRoute
+  '/partner/workspaces': typeof PartnerWorkspacesIndexRoute
   '/preview/appstore': typeof PreviewAppstoreIndexRoute
   '/preview/help-docs': typeof PreviewHelpDocsIndexRoute
   '/preview/weldcalendar': typeof PreviewWeldcalendarIndexRoute
@@ -3609,6 +3695,7 @@ export interface FileRoutesByTo {
   '/weldcall/contacts': typeof WeldcallContactsIndexRoute
   '/weldcall/history': typeof WeldcallHistoryIndexRoute
   '/weldcall/new': typeof WeldcallNewIndexRoute
+  '/weldcall/people': typeof WeldcallPeopleIndexRoute
   '/weldchat/$channelId': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm': typeof WeldchatDmIndexRoute
@@ -3692,6 +3779,8 @@ export interface FileRoutesByTo {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/partner/statements/$statementId': typeof PartnerStatementsStatementIdIndexRoute
+  '/partner/workspaces/$workspaceId': typeof PartnerWorkspacesWorkspaceIdIndexRoute
   '/preview/appstore/$code': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team': typeof PreviewSettingsTeamIndexRoute
   '/preview/weldcalendar/scheduling': typeof PreviewWeldcalendarSchedulingIndexRoute
@@ -3903,6 +3992,7 @@ export interface FileRoutesById {
   '/agents': typeof AgentsRouteRouteWithChildren
   '/appstore': typeof AppstoreRouteRouteWithChildren
   '/auth': typeof AuthRouteRouteWithChildren
+  '/partner': typeof PartnerRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/social': typeof SocialRouteRouteWithChildren
   '/weldads': typeof WeldadsRouteRouteWithChildren
@@ -3953,6 +4043,7 @@ export interface FileRoutesById {
   '/appstore/': typeof AppstoreIndexRoute
   '/invite/': typeof InviteIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
+  '/partner/': typeof PartnerIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/social/': typeof SocialIndexRoute
   '/welcome/': typeof WelcomeIndexRoute
@@ -4003,6 +4094,12 @@ export interface FileRoutesById {
   '/auth/sso-callback/': typeof AuthSsoCallbackIndexRoute
   '/invite/accept/': typeof InviteAcceptIndexRoute
   '/objects/$slug/': typeof ObjectsSlugIndexRoute
+  '/partner/packages/': typeof PartnerPackagesIndexRoute
+  '/partner/requests/': typeof PartnerRequestsIndexRoute
+  '/partner/settings/': typeof PartnerSettingsIndexRoute
+  '/partner/statements/': typeof PartnerStatementsIndexRoute
+  '/partner/team/': typeof PartnerTeamIndexRoute
+  '/partner/workspaces/': typeof PartnerWorkspacesIndexRoute
   '/preview/appstore/': typeof PreviewAppstoreIndexRoute
   '/preview/help-docs/': typeof PreviewHelpDocsIndexRoute
   '/preview/weldcalendar/': typeof PreviewWeldcalendarIndexRoute
@@ -4072,6 +4169,7 @@ export interface FileRoutesById {
   '/weldcall/contacts/': typeof WeldcallContactsIndexRoute
   '/weldcall/history/': typeof WeldcallHistoryIndexRoute
   '/weldcall/new/': typeof WeldcallNewIndexRoute
+  '/weldcall/people/': typeof WeldcallPeopleIndexRoute
   '/weldchat/$channelId/': typeof WeldchatChannelIdIndexRoute
   '/weldchat/bookmarks/': typeof WeldchatBookmarksIndexRoute
   '/weldchat/dm/': typeof WeldchatDmIndexRoute
@@ -4157,6 +4255,8 @@ export interface FileRoutesById {
   '/settings/integrations/hubspot/callback': typeof SettingsIntegrationsHubspotCallbackRoute
   '/weldchat/$channelId/thread/$messageId': typeof WeldchatChannelIdThreadMessageIdRoute
   '/weldchat/dm/group/$channelId': typeof WeldchatDmGroupChannelIdRoute
+  '/partner/statements/$statementId/': typeof PartnerStatementsStatementIdIndexRoute
+  '/partner/workspaces/$workspaceId/': typeof PartnerWorkspacesWorkspaceIdIndexRoute
   '/preview/appstore/$code/': typeof PreviewAppstoreCodeIndexRoute
   '/preview/settings/team/': typeof PreviewSettingsTeamIndexRoute
   '/preview/weldcalendar/scheduling/': typeof PreviewWeldcalendarSchedulingIndexRoute
@@ -4369,6 +4469,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/appstore'
     | '/auth'
+    | '/partner'
     | '/settings'
     | '/social'
     | '/weldads'
@@ -4419,6 +4520,7 @@ export interface FileRouteTypes {
     | '/appstore/'
     | '/invite/'
     | '/onboarding/'
+    | '/partner/'
     | '/settings/'
     | '/social/'
     | '/welcome/'
@@ -4469,6 +4571,12 @@ export interface FileRouteTypes {
     | '/auth/sso-callback/'
     | '/invite/accept/'
     | '/objects/$slug/'
+    | '/partner/packages/'
+    | '/partner/requests/'
+    | '/partner/settings/'
+    | '/partner/statements/'
+    | '/partner/team/'
+    | '/partner/workspaces/'
     | '/preview/appstore/'
     | '/preview/help-docs/'
     | '/preview/weldcalendar/'
@@ -4538,6 +4646,7 @@ export interface FileRouteTypes {
     | '/weldcall/contacts/'
     | '/weldcall/history/'
     | '/weldcall/new/'
+    | '/weldcall/people/'
     | '/weldchat/$channelId/'
     | '/weldchat/bookmarks/'
     | '/weldchat/dm/'
@@ -4623,6 +4732,8 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/partner/statements/$statementId/'
+    | '/partner/workspaces/$workspaceId/'
     | '/preview/appstore/$code/'
     | '/preview/settings/team/'
     | '/preview/weldcalendar/scheduling/'
@@ -4850,6 +4961,7 @@ export interface FileRouteTypes {
     | '/appstore'
     | '/invite'
     | '/onboarding'
+    | '/partner'
     | '/settings'
     | '/social'
     | '/welcome'
@@ -4896,6 +5008,12 @@ export interface FileRouteTypes {
     | '/auth/sso-callback'
     | '/invite/accept'
     | '/objects/$slug'
+    | '/partner/packages'
+    | '/partner/requests'
+    | '/partner/settings'
+    | '/partner/statements'
+    | '/partner/team'
+    | '/partner/workspaces'
     | '/preview/appstore'
     | '/preview/help-docs'
     | '/preview/weldcalendar'
@@ -4965,6 +5083,7 @@ export interface FileRouteTypes {
     | '/weldcall/contacts'
     | '/weldcall/history'
     | '/weldcall/new'
+    | '/weldcall/people'
     | '/weldchat/$channelId'
     | '/weldchat/bookmarks'
     | '/weldchat/dm'
@@ -5048,6 +5167,8 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/partner/statements/$statementId'
+    | '/partner/workspaces/$workspaceId'
     | '/preview/appstore/$code'
     | '/preview/settings/team'
     | '/preview/weldcalendar/scheduling'
@@ -5258,6 +5379,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/appstore'
     | '/auth'
+    | '/partner'
     | '/settings'
     | '/social'
     | '/weldads'
@@ -5308,6 +5430,7 @@ export interface FileRouteTypes {
     | '/appstore/'
     | '/invite/'
     | '/onboarding/'
+    | '/partner/'
     | '/settings/'
     | '/social/'
     | '/welcome/'
@@ -5358,6 +5481,12 @@ export interface FileRouteTypes {
     | '/auth/sso-callback/'
     | '/invite/accept/'
     | '/objects/$slug/'
+    | '/partner/packages/'
+    | '/partner/requests/'
+    | '/partner/settings/'
+    | '/partner/statements/'
+    | '/partner/team/'
+    | '/partner/workspaces/'
     | '/preview/appstore/'
     | '/preview/help-docs/'
     | '/preview/weldcalendar/'
@@ -5427,6 +5556,7 @@ export interface FileRouteTypes {
     | '/weldcall/contacts/'
     | '/weldcall/history/'
     | '/weldcall/new/'
+    | '/weldcall/people/'
     | '/weldchat/$channelId/'
     | '/weldchat/bookmarks/'
     | '/weldchat/dm/'
@@ -5512,6 +5642,8 @@ export interface FileRouteTypes {
     | '/settings/integrations/hubspot/callback'
     | '/weldchat/$channelId/thread/$messageId'
     | '/weldchat/dm/group/$channelId'
+    | '/partner/statements/$statementId/'
+    | '/partner/workspaces/$workspaceId/'
     | '/preview/appstore/$code/'
     | '/preview/settings/team/'
     | '/preview/weldcalendar/scheduling/'
@@ -5723,6 +5855,7 @@ export interface RootRouteChildren {
   AgentsRouteRoute: typeof AgentsRouteRouteWithChildren
   AppstoreRouteRoute: typeof AppstoreRouteRouteWithChildren
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
+  PartnerRouteRoute: typeof PartnerRouteRouteWithChildren
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   SocialRouteRoute: typeof SocialRouteRouteWithChildren
   WeldadsRouteRoute: typeof WeldadsRouteRouteWithChildren
@@ -5940,6 +6073,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/partner': {
+      id: '/partner'
+      path: '/partner'
+      fullPath: '/partner'
+      preLoaderRoute: typeof PartnerRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
@@ -6121,6 +6261,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/'
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/partner/': {
+      id: '/partner/'
+      path: '/'
+      fullPath: '/partner/'
+      preLoaderRoute: typeof PartnerIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
     }
     '/onboarding/': {
       id: '/onboarding/'
@@ -6836,6 +6983,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldchatChannelIdIndexRouteImport
       parentRoute: typeof WeldchatRouteRoute
     }
+    '/weldcall/people/': {
+      id: '/weldcall/people/'
+      path: '/people'
+      fullPath: '/weldcall/people/'
+      preLoaderRoute: typeof WeldcallPeopleIndexRouteImport
+      parentRoute: typeof WeldcallRouteRoute
+    }
     '/weldcall/new/': {
       id: '/weldcall/new/'
       path: '/new'
@@ -7318,6 +7472,48 @@ declare module '@tanstack/react-router' {
       fullPath: '/preview/appstore/'
       preLoaderRoute: typeof PreviewAppstoreIndexRouteImport
       parentRoute: typeof PreviewAppstoreRouteRoute
+    }
+    '/partner/workspaces/': {
+      id: '/partner/workspaces/'
+      path: '/workspaces'
+      fullPath: '/partner/workspaces/'
+      preLoaderRoute: typeof PartnerWorkspacesIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
+    }
+    '/partner/team/': {
+      id: '/partner/team/'
+      path: '/team'
+      fullPath: '/partner/team/'
+      preLoaderRoute: typeof PartnerTeamIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
+    }
+    '/partner/statements/': {
+      id: '/partner/statements/'
+      path: '/statements'
+      fullPath: '/partner/statements/'
+      preLoaderRoute: typeof PartnerStatementsIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
+    }
+    '/partner/settings/': {
+      id: '/partner/settings/'
+      path: '/settings'
+      fullPath: '/partner/settings/'
+      preLoaderRoute: typeof PartnerSettingsIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
+    }
+    '/partner/requests/': {
+      id: '/partner/requests/'
+      path: '/requests'
+      fullPath: '/partner/requests/'
+      preLoaderRoute: typeof PartnerRequestsIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
+    }
+    '/partner/packages/': {
+      id: '/partner/packages/'
+      path: '/packages'
+      fullPath: '/partner/packages/'
+      preLoaderRoute: typeof PartnerPackagesIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
     }
     '/objects/$slug/': {
       id: '/objects/$slug/'
@@ -8390,6 +8586,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewAppstoreCodeIndexRouteImport
       parentRoute: typeof PreviewAppstoreRouteRoute
     }
+    '/partner/workspaces/$workspaceId/': {
+      id: '/partner/workspaces/$workspaceId/'
+      path: '/workspaces/$workspaceId'
+      fullPath: '/partner/workspaces/$workspaceId/'
+      preLoaderRoute: typeof PartnerWorkspacesWorkspaceIdIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
+    }
+    '/partner/statements/$statementId/': {
+      id: '/partner/statements/$statementId/'
+      path: '/statements/$statementId'
+      fullPath: '/partner/statements/$statementId/'
+      preLoaderRoute: typeof PartnerStatementsStatementIdIndexRouteImport
+      parentRoute: typeof PartnerRouteRoute
+    }
     '/weldchat/dm/group/$channelId': {
       id: '/weldchat/dm/group/$channelId'
       path: '/dm/group/$channelId'
@@ -9065,6 +9275,36 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
   AuthRouteRouteChildren,
 )
 
+interface PartnerRouteRouteChildren {
+  PartnerIndexRoute: typeof PartnerIndexRoute
+  PartnerPackagesIndexRoute: typeof PartnerPackagesIndexRoute
+  PartnerRequestsIndexRoute: typeof PartnerRequestsIndexRoute
+  PartnerSettingsIndexRoute: typeof PartnerSettingsIndexRoute
+  PartnerStatementsIndexRoute: typeof PartnerStatementsIndexRoute
+  PartnerTeamIndexRoute: typeof PartnerTeamIndexRoute
+  PartnerWorkspacesIndexRoute: typeof PartnerWorkspacesIndexRoute
+  PartnerStatementsStatementIdIndexRoute: typeof PartnerStatementsStatementIdIndexRoute
+  PartnerWorkspacesWorkspaceIdIndexRoute: typeof PartnerWorkspacesWorkspaceIdIndexRoute
+}
+
+const PartnerRouteRouteChildren: PartnerRouteRouteChildren = {
+  PartnerIndexRoute: PartnerIndexRoute,
+  PartnerPackagesIndexRoute: PartnerPackagesIndexRoute,
+  PartnerRequestsIndexRoute: PartnerRequestsIndexRoute,
+  PartnerSettingsIndexRoute: PartnerSettingsIndexRoute,
+  PartnerStatementsIndexRoute: PartnerStatementsIndexRoute,
+  PartnerTeamIndexRoute: PartnerTeamIndexRoute,
+  PartnerWorkspacesIndexRoute: PartnerWorkspacesIndexRoute,
+  PartnerStatementsStatementIdIndexRoute:
+    PartnerStatementsStatementIdIndexRoute,
+  PartnerWorkspacesWorkspaceIdIndexRoute:
+    PartnerWorkspacesWorkspaceIdIndexRoute,
+}
+
+const PartnerRouteRouteWithChildren = PartnerRouteRoute._addFileChildren(
+  PartnerRouteRouteChildren,
+)
+
 interface SettingsRouteRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsAppsWeldcrmRoute: typeof SettingsAppsWeldcrmRoute
@@ -9490,6 +9730,7 @@ interface WeldcallRouteRouteChildren {
   WeldcallContactsIndexRoute: typeof WeldcallContactsIndexRoute
   WeldcallHistoryIndexRoute: typeof WeldcallHistoryIndexRoute
   WeldcallNewIndexRoute: typeof WeldcallNewIndexRoute
+  WeldcallPeopleIndexRoute: typeof WeldcallPeopleIndexRoute
 }
 
 const WeldcallRouteRouteChildren: WeldcallRouteRouteChildren = {
@@ -9498,6 +9739,7 @@ const WeldcallRouteRouteChildren: WeldcallRouteRouteChildren = {
   WeldcallContactsIndexRoute: WeldcallContactsIndexRoute,
   WeldcallHistoryIndexRoute: WeldcallHistoryIndexRoute,
   WeldcallNewIndexRoute: WeldcallNewIndexRoute,
+  WeldcallPeopleIndexRoute: WeldcallPeopleIndexRoute,
 }
 
 const WeldcallRouteRouteWithChildren = WeldcallRouteRoute._addFileChildren(
@@ -10402,6 +10644,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentsRouteRoute: AgentsRouteRouteWithChildren,
   AppstoreRouteRoute: AppstoreRouteRouteWithChildren,
   AuthRouteRoute: AuthRouteRouteWithChildren,
+  PartnerRouteRoute: PartnerRouteRouteWithChildren,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   SocialRouteRoute: SocialRouteRouteWithChildren,
   WeldadsRouteRoute: WeldadsRouteRouteWithChildren,

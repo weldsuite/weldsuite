@@ -25,10 +25,6 @@ function getCustomerInitials(customer: Customer): string {
   return customer.name.charAt(0).toUpperCase();
 }
 
-function getCustomerSubtitle(customer: Customer): string | undefined {
-  return customer.company || customer.email || undefined;
-}
-
 interface CustomerGridTranslations {
   name: string;
   email: string;
@@ -189,7 +185,6 @@ export function getCustomerGridConfig(tc: CustomerGridTranslations): EntityGridC
     getEntityId: (customer) => customer.id,
     getEntityName: (customer) => customer.name,
     getEntityInitials: getCustomerInitials,
-    getEntitySubtitle: getCustomerSubtitle,
     statusField: 'status',
     statusConfig: customerStatusConfig,
     allowCustomColumns: false,

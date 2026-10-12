@@ -59,6 +59,7 @@ import { createWorkspaceSettingsApi } from '@weldsuite/app-api-client/domains/wo
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
 import { createSearchApi } from '@weldsuite/app-api-client/domains/search';
 import { createAccessRequestsApi } from '@weldsuite/app-api-client/domains/access-requests';
+import { createPartnersApi } from '@weldsuite/app-api-client/domains/partners';
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
@@ -185,6 +186,10 @@ export function useAppApi() {
       notifications: createNotificationsApi(lazyClient),
       search: createSearchApi(lazyClient),
       accessRequests: createAccessRequestsApi(lazyClient),
+      // Reseller licensing: workspace-facing calls (managed billing, territory
+      // requests). The portal itself builds its own clients with `X-Partner-Id`
+      // (lib/partner/partner-api.ts).
+      partners: createPartnersApi(lazyClient),
       weldpass: createWeldPassApi(lazyClient),
       weldpassPasswords: createWeldPassPasswordsApi(lazyClient),
       weldhr: createWeldHrApi(lazyClient),

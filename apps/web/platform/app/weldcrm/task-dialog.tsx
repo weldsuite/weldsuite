@@ -53,7 +53,7 @@ const statusConfig = {
   'backlog': { label: 'Backlog', color: 'bg-gray-100 text-gray-800 dark:bg-background/30 dark:text-muted-foreground', btnColor: 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200 dark:bg-secondary dark:text-muted-foreground dark:border-border' },
   'todo': { label: 'To Do', color: 'bg-gray-100 text-gray-800 dark:bg-background/30 dark:text-muted-foreground', btnColor: 'bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-200 dark:bg-secondary dark:text-muted-foreground dark:border-border' },
   'in_progress': { label: 'In Progress', color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400', btnColor: 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800' },
-  'in_review': { label: 'In Review', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', btnColor: 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800' },
+  'review': { label: 'In Review', color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', btnColor: 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800' },
   'testing': { label: 'Testing', color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400', btnColor: 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800' },
   'done': { label: 'Done', color: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400', btnColor: 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' },
   'cancelled': { label: 'Cancelled', color: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400', btnColor: 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800' },
@@ -137,6 +137,13 @@ interface TaskDialogProps {
   recordSearchPlaceholder?: string;
   recordEmptyLabel?: string;
   hideRecord?: boolean;
+  /**
+   * The record the task belongs to when the dialog is opened from that record
+   * (a company or person panel): shown as the selected record and not
+   * changeable. The caller links the task to it on save; the dialog's own
+   * record field is not used.
+   */
+  lockedRecord?: { id: string; name: string; avatar?: string };
   projectId?: string;
   // When provided, the status dropdown renders these options (project-specific
   // pipeline stages) instead of the built-in `statusConfig`. Values are stage IDs.
@@ -359,7 +366,7 @@ function StatusPopover({
     backlog: tCrm.tasks.status.backlog,
     todo: tCrm.tasks.status.todo,
     in_progress: tCrm.tasks.status.inProgress,
-    in_review: tCrm.tasks.status.inReview,
+    review: tCrm.tasks.status.inReview,
     testing: tCrm.tasks.status.testing,
     done: tCrm.tasks.status.done,
     cancelled: tCrm.tasks.status.cancelled,
@@ -872,6 +879,28 @@ function RecordPopover({
   );
 }
 
+/** The record chip of `RecordPopover` in its selected state, without the picker. */
+function LockedRecordChip({ record }: Readonly<{ record: { id: string; name: string; avatar?: string } }>) {
+  return (
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className="h-7 text-xs font-normal gap-1.5 pl-1 cursor-default bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-100 hover:text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800 dark:hover:bg-purple-900/30 dark:hover:text-purple-400"
+    >
+      <span>
+        <Avatar className="h-5 w-5 !rounded-[6px]">
+          {record.avatar && <AvatarImage src={record.avatar} alt={record.name} className="!rounded-[6px]" />}
+          <AvatarFallback className="!rounded-[6px] text-[10px] font-medium bg-purple-200/60 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300">
+            {(record.name || '?').charAt(0).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate max-w-[180px]">{record.name}</span>
+      </span>
+    </Button>
+  );
+}
+
 function RepeatPopover({
   repeat,
   repeatInterval,
@@ -982,6 +1011,7 @@ export function TaskDialog({
   recordSearchPlaceholder,
   recordEmptyLabel,
   hideRecord,
+  lockedRecord,
   projectId,
   availableStatuses,
   onSave,
@@ -1503,7 +1533,8 @@ export function TaskDialog({
             />
 
             {/* Select Record */}
-            {!hideRecord && (
+            {lockedRecord && <LockedRecordChip record={lockedRecord} />}
+            {!lockedRecord && !hideRecord && (
               <RecordPopover
                 record={record}
                 companies={recordOptions}

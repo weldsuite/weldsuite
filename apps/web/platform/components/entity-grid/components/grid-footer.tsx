@@ -103,7 +103,7 @@ export function GridFooter() {
                         <Button
                           variant="ghost"
                           className={cn(
-                            "w-full h-full pr-3 flex items-center gap-1 transition-colors",
+                            "w-full h-full pr-3 flex items-center gap-1 transition-colors rounded-none",
                             isFirstColumn ? "pl-5" : "pl-3",
                             openCalculationField === column.id
                               ? "bg-muted/50 text-foreground/80"
@@ -126,7 +126,7 @@ export function GridFooter() {
                       <PopoverContent className="w-[220px] p-0" align="start">
                         <Command>
                           <CommandList>
-                            <CommandGroup heading={t('sweep.entities.calculate')} className="px-1 py-1">
+                            <CommandGroup className="px-1 py-1">
                               {options.map((option) => (
                                 <CommandItem
                                   key={option.value}

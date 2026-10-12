@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { updateTaskSchema } from '@weldsuite/app-api-client/schemas/tasks';
+import {
+  createTaskSchema,
+  normalizeTaskStatus,
+  taskStatusAliases,
+  updateTaskSchema,
+} from '@weldsuite/app-api-client/schemas/tasks';
 
 describe('updateTaskSchema', () => {
   it('strips server-owned and undeclared keys instead of passing them through', () => {
@@ -44,5 +49,27 @@ describe('updateTaskSchema', () => {
     expect(updateTaskSchema.parse({ duration: null })).toEqual({ duration: null });
     expect(updateTaskSchema.parse({})).toEqual({});
     expect(updateTaskSchema.safeParse({ duration: '30' }).success).toBe(false);
+  });
+
+  it('stores the legacy in_review status as review and leaves other statuses alone', () => {
+    expect(updateTaskSchema.parse({ status: 'in_review' })).toEqual({ status: 'review' });
+    expect(createTaskSchema.parse({ title: 't', status: 'in_review' })).toMatchObject({ status: 'review' });
+    expect(updateTaskSchema.parse({ status: 'blocked_3a8y' })).toEqual({ status: 'blocked_3a8y' });
+  });
+});
+
+describe('task status helpers', () => {
+  it('normalizeTaskStatus maps only legacy spellings', () => {
+    expect(normalizeTaskStatus('in_review')).toBe('review');
+    expect(normalizeTaskStatus('review')).toBe('review');
+    expect(normalizeTaskStatus('done')).toBe('done');
+    expect(normalizeTaskStatus(null)).toBeNull();
+    expect(normalizeTaskStatus(undefined)).toBeUndefined();
+  });
+
+  it('taskStatusAliases lists every stored spelling of a status', () => {
+    expect(taskStatusAliases('review')).toEqual(['review', 'in_review']);
+    expect(taskStatusAliases('in_review')).toEqual(['review', 'in_review']);
+    expect(taskStatusAliases('todo')).toEqual(['todo']);
   });
 });
