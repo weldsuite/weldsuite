@@ -1,7 +1,9 @@
 # WeldReach: cold email outreach on Mailpool
 
-Status (2026-10-12): plan, nothing built. Every phase that adds tables needs the
-owner's go-ahead before its migration is generated (see CLAUDE.md, Database).
+Status (2026-10-12): built on branch `claude/weldsuite-cold-email-platform-72f54d`
+(phases 1–4 and the code parts of phase 5); not deployed. Phase 0 checks with
+real Mailpool mailboxes are still open, and the "Rollout checklist" below lists
+the ops steps. Migrations were generated with the owner's go-ahead.
 
 WeldReach is a new `weld*` module for cold email outreach. Mailpool provides the
 sending infrastructure (mailboxes, warmup; domains come from WeldHost and are
@@ -200,7 +202,7 @@ Onboarding wizard (first visit after approval):
 
 Lifecycle:
 - **Status changes** come from Mailpool webhooks (`mailboxes.updated`, `domains.updated`) routed through `reach_routes`.
-- **Warmup progress** is pulled by a due-index sweep (kind `reach_warmup`, daily, only for workspaces with warming mailboxes). A mailbox becomes `active` after 14 warmup days or when DNS and warmup report healthy, whichever is later.
+- **Warmup progress** is pulled by a due-index sweep (kind `reach_warmup`; each workspace is due once a day, the hourly cron works through them in batches of 40). A mailbox becomes `active` after 14 warmup days or when DNS and warmup report healthy, whichever is later.
 - **Deleting a mailbox**: Mailpool scheduled deletion, then Stripe quantity -1, then the route is marked deleted.
 - **Disconnecting a domain**: only once it has no mailboxes left. Mailpool domain delete, then the `reach_domains` row is removed. The domain stays in WeldHost. Phase 0 checks whether Mailpool removes the records it wrote in Cloudflare; if not, reach-api removes them through `@weldsuite/cloudflare-zones`.
 - **WeldHost side** (host-api):
@@ -357,6 +359,7 @@ i18n: new `reach` namespace in `packages/core/i18n/src/locales/en/reach.ts` and 
   - SMTP to a `shared` mailbox (587 STARTTLS).
 - Prove that `forwardTo` delivers replies, auto-replies and bounces with `Message-ID`, `In-Reply-To` and `References` intact, for both google and shared mailboxes.
 - Prove Email Routing on the `reply.weldsuite.org` subdomain to a worker.
+- Check the real shapes the code had to assume: Mailpool webhook payloads (the OpenAPI export had no webhook bodies; the parser accepts `event|type|eventType|name` with `data|payload|body|object`), the public Cloudflare connect endpoint, and whether `forwardTo` forwards inline or as an attachment.
 - Update this plan's "To verify" list with the results. **If forwarding or Google sign-ins fail, stop and re-plan** (fallback: IMAP via Cloudflare Containers).
 
 ### Phase 1: foundation and access (PR 1)
@@ -436,6 +439,8 @@ i18n: new `reach` namespace in `packages/core/i18n/src/locales/en/reach.ts` and 
 - **weldsuite.org reputation**: guarded by the "no WeldSuite domain in outbound mail" rule and code review.
 - **Cost drift** between Mailpool slots and Stripe quantities: the daily reconciliation and alerts catch it.
 - **Undocumented Mailpool rate limits**: client backoff; bulk operations queued, never fired in parallel.
+- **Spoofed replies** (found while building): when a reply has no threading headers, the sender address decides which prospect it belongs to. A forged `From` equal to a prospect's address can stop that prospect's sequence, and a forged bare "stop" can suppress them. Header-matched replies are safe (Message-IDs are unguessable).
+- **Billing after a Stripe cancellation**: if Stripe cancels the inbox subscription for non-payment while mailboxes remain, new mailboxes are refused (402 BILLING_CANCELED) until staff restart billing; there is no self-service restart yet.
 
 ## Owner answers (2026-10-12)
 
@@ -445,6 +450,23 @@ i18n: new `reach` namespace in `packages/core/i18n/src/locales/en/reach.ts` and 
 4. **Existing domains**: allowed. They come into WeldHost (transfer or nameservers) and are then connected like any WeldHost domain.
 5. **Access-request notification**: `gert@weldsuite.org`, set in the app-api var `ACCESS_REQUEST_NOTIFY_EMAIL`.
 6. **Currency**: the inbox price is charged in USD ($5.00).
+
+## Rollout checklist (ops, per environment)
+
+Code can't do these; run them before the first approval.
+
+1. **Migrations**: master `0054` (workspace_app_access, reach_routes, app_catalog.requires_approval) and tenant `0209` (reach_* tables) go out with the normal deploy.
+2. **Secrets** (`scripts/secrets/manifest.ts` → `reach-api`): `MAILPOOL_API_KEY`, `MAILPOOL_WEBHOOK_SECRET`, `AI_GATEWAY_API_TOKEN`, `CLOUDFLARE_API_TOKEN` plus the base API-worker secrets; then `pnpm secrets:sync <env> reach-api`.
+3. **Queues**: `wrangler queues create reach-send-<env>` and `reach-send-dlq-<env>` (dev, test, production).
+4. **Inbound replies**: Cloudflare Email Routing on `reply-test.weldsuite.org` / `reply.weldsuite.org` (subdomain of the weldsuite.org zone): enable it, then a catch-all rule → Worker `weldsuite-reach-api[-test]`.
+5. **Mailpool**: webhook URL `https://reach-api[-test].weldsuite.org/public/reach/webhooks/mailpool` with the same secret as `MAILPOOL_WEBHOOK_SECRET`; confirm the public Cloudflare connect endpoint is live and matches `src/lib/mailpool` (Phase 0 list).
+6. **Cloudflare token for Mailpool**: limit it to Zone Read + DNS Edit; set up an alert on DNS changes by that token to zones not connected to WeldReach (accepted risk, see Risks).
+7. **Flagship**: create the boolean flag `weldreach-sending` (default on) in test and production.
+8. **Stripe**: nothing to create up front; billing-worker creates the $5.00/month inbox price on first use (or set `STRIPE_PRICE_WELDREACH_INBOX`).
+9. **App catalog**: in the admin console → App Catalog, create `weldreach` (name WeldReach, path `/weldreach`), published, with **Requires approval** on.
+10. **app-api**: deploy after reach-api so the `REACH_API` service binding resolves; `ACCESS_REQUEST_NOTIFY_EMAIL` is gert@weldsuite.org.
+11. **Help docs**: take screenshots for `apps/web/docs/src/app/weldreach` once the screens are live (`pnpm --filter docs capture-screenshots:all`).
+12. **Legal**: lawyer review of the request-form terms (`reach.access.terms.*`, version `weldreach-2026-10`) before approving the first workspace.
 
 ## Follow-ups (not in this plan)
 
@@ -457,3 +479,11 @@ i18n: new `reach` namespace in `packages/core/i18n/src/locales/en/reach.ts` and 
 - A/B variants and spintax.
 - Per-workspace own Mailpool API key option.
 - WeldConnect triggers and actions for WeldReach (enroll from workflow, on interested reply).
+- Found during the build:
+  - Sidebar unread badge for the reply inbox (`useReachUnreadCount` exists; the module sidebar config has no per-item badge field yet).
+  - A `mailpool_warmup_id` column on `reach_mailboxes` (the warmup sweep now looks the warmup inbox up by email once per run).
+  - host-api: `markWorkspaceDue(…, 'reach_warmup', …)` when a connected WeldHost domain is suspended, cancelled or expires (today the hourly sweep notices it on its next visit or at the expiry date).
+  - Entity events `reach_reply:replied` / `handled` for answers sent from the inbox and read/handled changes.
+  - Unwrap replies Mailpool forwards as `message/rfc822` attachments, if Phase 0 shows it does that.
+  - Self-service restart of billing after a Stripe cancellation.
+  - Approvals reach the workspace within the 60 s KV TTL; the admin console cannot clear the cache key itself.
