@@ -63,6 +63,11 @@ type EveryoneItem = { kind: 'everyone' };
 type FlatItem = PersonItem | EntityItem | EveryoneItem;
 
 const PEOPLE_LIMIT = 5;
+
+// Overrides the Button base (justify-center, h-9, rounded-md, font-medium) so
+// rows read as a left-aligned list instead of centered buttons.
+const ROW_CLASS =
+  'flex items-center justify-start gap-2 w-full h-auto px-3 py-2 rounded-none text-sm font-normal text-left';
 const ENTITY_QUERY_MIN = 2;
 const ENTITY_PER_GROUP_LIMIT = 4;
 
@@ -261,7 +266,7 @@ export function MentionAutocomplete({
               key="everyone"
               type="button"
               variant="ghost"
-              className={`flex items-center gap-2 w-full px-3 py-2 text-sm text-left ${
+              className={`${ROW_CLASS} ${
                 everyoneIndex === activeIndex ? 'bg-muted' : 'hover:bg-muted'
               }`}
               onMouseEnter={() => setActiveIndex(everyoneIndex)}
@@ -297,7 +302,7 @@ export function MentionAutocomplete({
                 key={`p-${s.userId}`}
                 type="button"
                 variant="ghost"
-                className={`flex items-center gap-2 w-full px-3 py-2 text-sm text-left ${
+                className={`${ROW_CLASS} ${
                   active ? 'bg-muted' : 'hover:bg-muted'
                 }`}
                 onMouseEnter={() => setActiveIndex(idx)}
@@ -347,7 +352,7 @@ export function MentionAutocomplete({
                       key={`e-${item.type}-${item.id}`}
                       type="button"
                       variant="ghost"
-                      className={`flex items-center gap-2 w-full px-3 py-2 text-sm text-left ${
+                      className={`${ROW_CLASS} ${
                         active ? 'bg-muted' : 'hover:bg-muted'
                       }`}
                       onMouseEnter={() => setActiveIndex(idx)}
