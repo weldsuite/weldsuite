@@ -26,9 +26,6 @@ import {
 } from './slash-menu';
 import { useTableResizeClamp } from './use-table-resize-clamp';
 import {
-  Bold,
-  Italic,
-  Underline,
   Strikethrough,
   Code,
   List,
@@ -45,9 +42,9 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
-  Indent,
-  Outdent,
-  Palette,
+  IndentDecrease,
+  IndentIncrease,
+  Baseline,
   Highlighter,
   RemoveFormatting,
   Pilcrow,
@@ -688,6 +685,67 @@ function computeToolbarState(editor: BlockNoteEditorInstance, lastState: Toolbar
   }
 }
 
+// The static toolbar wears the design of the mail compose formatting bar
+// (`app/weldmail/components/compose-surface.tsx`): one rounded, tinted bar of
+// 28px ghost buttons with hairline separators. Keep the two in step.
+const TOOL_BUTTON =
+  'h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors';
+const TOOL_MENU_BUTTON = cn(TOOL_BUTTON, 'data-[state=open]:bg-muted data-[state=open]:text-foreground');
+const TOOL_SELECT =
+  'h-7 px-2 flex items-center gap-1 text-[13.5px] font-normal rounded-md text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground';
+const TOOL_SEPARATOR = 'w-px h-4 bg-border';
+
+// Same glyphs as the compose bar, which draws these four by hand.
+function BoldGlyph() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+      <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+    </svg>
+  );
+}
+function ItalicGlyph() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <line x1="19" y1="4" x2="10" y2="4" />
+      <line x1="14" y1="20" x2="5" y2="20" />
+      <line x1="15" y1="4" x2="9" y2="20" />
+    </svg>
+  );
+}
+function UnderlineGlyph() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3" />
+      <line x1="4" y1="21" x2="20" y2="21" />
+    </svg>
+  );
+}
+function BulletListGlyph() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <circle cx="4" cy="6" r="1" fill="currentColor" />
+      <circle cx="4" cy="12" r="1" fill="currentColor" />
+      <circle cx="4" cy="18" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+function NumberedListGlyph() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="10" y1="6" x2="21" y2="6" />
+      <line x1="10" y1="12" x2="21" y2="12" />
+      <line x1="10" y1="18" x2="21" y2="18" />
+      <path d="M4 6h1v4" />
+      <path d="M4 10h2" />
+      <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
+    </svg>
+  );
+}
+
 export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNoteEditorInstance }>) {
   const [state, setState] = useState<ToolbarState>(INITIAL_TOOLBAR_STATE);
   const { activeStyles, activeBlockType, activeHeadingLevel, activeTextAlignment } = state;
@@ -929,11 +987,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
     try { (editor as unknown as { unnestBlock: () => void }).unnestBlock(); } catch { /* noop */ }
   }, [editor]);
 
-  const btn = (isActive: boolean) =>
-    cn(
-      'h-7 w-7 flex items-center justify-center rounded-[7px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors',
-      isActive && 'bg-accent text-foreground',
-    );
+  const btn = (isActive: boolean) => cn(TOOL_BUTTON, isActive && 'bg-muted text-foreground');
 
   // Names of the block types added with the Notion-style blocks; BlockNote's
   // dictionary and our own strings are both in the app language.
@@ -964,7 +1018,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
   return (
     <TooltipProvider delayDuration={10000} skipDelayDuration={300}>
     <div
-      className="flex items-center gap-0.5 flex-wrap"
+      className="inline-flex items-center gap-1 rounded-lg bg-muted/60 px-1 py-1 max-w-full flex-wrap"
       // Keep the caret inside the document when clicking any toolbar
       // control — the browser's default mousedown behaviour moves focus
       // to the clicked button and collapses the editor selection. Skip
@@ -985,6 +1039,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       <ToolbarTooltip label="Undo">
         <Button
           variant="ghost"
+          size="icon"
           type="button"
           className={cn(
             btn(false),
@@ -1000,6 +1055,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       <ToolbarTooltip label="Redo">
         <Button
           variant="ghost"
+          size="icon"
           type="button"
           className={cn(
             btn(false),
@@ -1013,7 +1069,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         </Button>
       </ToolbarTooltip>
 
-      <div className="w-px h-5 bg-border mx-1" />
+      <div className={TOOL_SEPARATOR} />
 
       {/* Block type — Popover instead of DropdownMenu so opening the
           menu doesn't yank the caret out of the document. */}
@@ -1022,11 +1078,11 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
           <Button
             variant="ghost"
             type="button"
-            className="h-[30px] px-2 flex items-center gap-1 text-sm rounded-[7px] text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+            className={TOOL_SELECT}
             title="Block type"
           >
             <span className="truncate max-w-[110px]">{currentBlockLabel}</span>
-            <ChevronDown className="h-3 w-3" />
+            <ChevronDown className="h-4 w-4 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent
@@ -1077,7 +1133,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         </PopoverContent>
       </Popover>
 
-      <div className="w-px h-5 bg-border mx-1" />
+      <div className={TOOL_SEPARATOR} />
 
       {/* Font family — Popover with a search input at the top. */}
       <FontFamilyPicker
@@ -1093,7 +1149,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
           <Button
             variant="ghost"
             type="button"
-            className="h-[30px] px-2 flex items-center gap-1 text-sm rounded-[7px] text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+            className={TOOL_SELECT}
             title="Font size"
           >
             <span className="tabular-nums">
@@ -1101,7 +1157,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
                 ? (activeStyles.fontSize as string)
                 : state.effectiveFontSize}
             </span>
-            <ChevronDown className="h-3 w-3" />
+            <ChevronDown className="h-4 w-4 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent
@@ -1143,31 +1199,31 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         </PopoverContent>
       </Popover>
 
-      <div className="w-px h-5 bg-border mx-1" />
+      <div className={TOOL_SEPARATOR} />
 
       {/* Inline styles */}
       <ToolbarTooltip label="Bold (⌘B)">
-        <Button variant="ghost" type="button" className={btn(!!activeStyles.bold)} onClick={() => toggleStyle('bold')}>
-          <Bold className="h-4 w-4" />
+        <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.bold)} onClick={() => toggleStyle('bold')}>
+          <BoldGlyph />
         </Button>
       </ToolbarTooltip>
       <ToolbarTooltip label="Italic (⌘I)">
-        <Button variant="ghost" type="button" className={btn(!!activeStyles.italic)} onClick={() => toggleStyle('italic')}>
-          <Italic className="h-4 w-4" />
+        <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.italic)} onClick={() => toggleStyle('italic')}>
+          <ItalicGlyph />
         </Button>
       </ToolbarTooltip>
       <ToolbarTooltip label="Underline (⌘U)">
-        <Button variant="ghost" type="button" className={btn(!!activeStyles.underline)} onClick={() => toggleStyle('underline')}>
-          <Underline className="h-4 w-4" />
+        <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.underline)} onClick={() => toggleStyle('underline')}>
+          <UnderlineGlyph />
         </Button>
       </ToolbarTooltip>
       <ToolbarTooltip label="Strikethrough">
-        <Button variant="ghost" type="button" className={btn(!!activeStyles.strike)} onClick={() => toggleStyle('strike')}>
+        <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.strike)} onClick={() => toggleStyle('strike')}>
           <Strikethrough className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
       <ToolbarTooltip label="Inline code">
-        <Button variant="ghost" type="button" className={btn(!!activeStyles.code)} onClick={() => toggleStyle('code')}>
+        <Button variant="ghost" size="icon" type="button" className={btn(!!activeStyles.code)} onClick={() => toggleStyle('code')}>
           <Code className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
@@ -1177,11 +1233,12 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
+            size="icon"
             type="button"
-            className="h-[30px] w-[30px] flex items-center justify-center rounded-[7px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors data-[state=open]:bg-accent data-[state=open]:text-foreground"
+            className={TOOL_MENU_BUTTON}
             title="Text color"
           >
-            <Palette className="h-4 w-4" />
+            <Baseline className="h-4 w-4" />
           </Button>
         </PopoverTrigger>
         <PopoverContent
@@ -1222,8 +1279,9 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
+            size="icon"
             type="button"
-            className="h-[30px] w-[30px] flex items-center justify-center rounded-[7px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors data-[state=open]:bg-accent data-[state=open]:text-foreground"
+            className={TOOL_MENU_BUTTON}
             title="Highlight"
           >
             <Highlighter className="h-4 w-4" />
@@ -1266,7 +1324,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
       {/* Link */}
       <LinkButton onApply={applyLink} getSelectionText={getSelectionText} />
 
-      <div className="w-px h-5 bg-border mx-1" />
+      <div className={TOOL_SEPARATOR} />
 
       {/* Alignment — Popover instead of DropdownMenu so we can prevent
           focus from ever leaving the editor. DropdownMenu moves focus
@@ -1276,8 +1334,9 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
         <PopoverTrigger asChild>
           <Button
             variant="ghost"
+            size="icon"
             type="button"
-            className="h-[30px] w-[30px] flex items-center justify-center rounded-[7px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors data-[state=open]:bg-accent data-[state=open]:text-foreground"
+            className={TOOL_MENU_BUTTON}
             title="Alignment"
           >
             <AlignCurrent className="h-4 w-4" />
@@ -1317,39 +1376,39 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
 
       {/* Lists */}
       <ToolbarTooltip label="Bullet list">
-        <Button variant="ghost" type="button" className={btn(activeBlockType === 'bulletListItem')} onClick={() => setBlockType('bulletListItem')}>
-          <List className="h-4 w-4" />
+        <Button variant="ghost" size="icon" type="button" className={btn(activeBlockType === 'bulletListItem')} onClick={() => setBlockType('bulletListItem')}>
+          <BulletListGlyph />
         </Button>
       </ToolbarTooltip>
       <ToolbarTooltip label="Numbered list">
-        <Button variant="ghost" type="button" className={btn(activeBlockType === 'numberedListItem')} onClick={() => setBlockType('numberedListItem')}>
-          <ListOrdered className="h-4 w-4" />
+        <Button variant="ghost" size="icon" type="button" className={btn(activeBlockType === 'numberedListItem')} onClick={() => setBlockType('numberedListItem')}>
+          <NumberedListGlyph />
         </Button>
       </ToolbarTooltip>
       <ToolbarTooltip label="Check list">
-        <Button variant="ghost" type="button" className={btn(activeBlockType === 'checkListItem')} onClick={() => setBlockType('checkListItem')}>
+        <Button variant="ghost" size="icon" type="button" className={btn(activeBlockType === 'checkListItem')} onClick={() => setBlockType('checkListItem')}>
           <ListChecks className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
 
-      {/* Indent / Outdent */}
-      <ToolbarTooltip label="Increase indent">
-        <Button variant="ghost" type="button" className={btn(false)} onClick={nestBlock}>
-          <Indent className="h-4 w-4" />
+      {/* Outdent / Indent */}
+      <ToolbarTooltip label="Decrease indent">
+        <Button variant="ghost" size="icon" type="button" className={btn(false)} onClick={unnestBlock}>
+          <IndentDecrease className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
-      <ToolbarTooltip label="Decrease indent">
-        <Button variant="ghost" type="button" className={btn(false)} onClick={unnestBlock}>
-          <Outdent className="h-4 w-4" />
+      <ToolbarTooltip label="Increase indent">
+        <Button variant="ghost" size="icon" type="button" className={btn(false)} onClick={nestBlock}>
+          <IndentIncrease className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
 
-      <div className="w-px h-5 bg-border mx-1" />
+      <div className={TOOL_SEPARATOR} />
 
       {/* Add comment (collaborative documents only) */}
       {hasComments && (
         <ToolbarTooltip label="Add comment">
-          <Button variant="ghost" type="button" className={btn(false)} onClick={addComment}>
+          <Button variant="ghost" size="icon" type="button" className={btn(false)} onClick={addComment}>
             <MessageSquarePlus className="h-4 w-4" />
           </Button>
         </ToolbarTooltip>
@@ -1357,7 +1416,7 @@ export function StaticFormattingToolbar({ editor }: Readonly<{ editor: BlockNote
 
       {/* Clear formatting */}
       <ToolbarTooltip label="Clear formatting">
-        <Button variant="ghost" type="button" className={btn(false)} onClick={clearFormatting}>
+        <Button variant="ghost" size="icon" type="button" className={btn(false)} onClick={clearFormatting}>
           <RemoveFormatting className="h-4 w-4" />
         </Button>
       </ToolbarTooltip>
@@ -1396,13 +1455,13 @@ function FontFamilyPicker({
         <Button
           variant="ghost"
           type="button"
-          className="h-[30px] px-2 flex items-center gap-1 text-sm rounded-[7px] text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+          className={TOOL_SELECT}
           title="Font"
         >
           <span className="truncate max-w-[90px]">
             {FONT_FAMILIES.find((f) => f.value === currentFamily)?.label || 'Default'}
           </span>
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown className="h-4 w-4 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -1584,8 +1643,9 @@ function LinkButton({
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
+          size="icon"
           type="button"
-          className="h-[30px] w-[30px] flex items-center justify-center rounded-[7px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors data-[state=open]:bg-accent data-[state=open]:text-foreground"
+          className={TOOL_MENU_BUTTON}
           title="Insert link"
         >
           <LinkIcon className="h-4 w-4" />

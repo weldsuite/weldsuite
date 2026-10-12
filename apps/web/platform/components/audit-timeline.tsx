@@ -213,6 +213,7 @@ export function AuditTimeline({
                 <>
                   <Button
                     variant="ghost"
+                    size="xs"
                     onClick={() => toggleExpanded(log.id)}
                     className="flex items-center gap-0.5 mt-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                   >

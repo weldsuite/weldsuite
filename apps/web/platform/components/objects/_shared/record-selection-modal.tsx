@@ -406,13 +406,16 @@ export function RecordSelectionModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[560px] w-[560px] max-h-[600px] h-[600px] p-0 gap-0 overflow-hidden rounded-xl [&>button]:hidden flex flex-col">
-        <div className="flex items-center justify-between pl-4 pr-2.5 pt-4 pb-0">
+        {/* min-h + mr-1: the close button is 28px, but the header keeps the
+            height (36px + its top padding) and the X the spot they had with
+            the 36px button. */}
+        <div className="flex items-center justify-between min-h-[52px] pl-4 pr-2.5 pt-4 pb-0">
           <DialogTitle className="text-[17px] font-semibold">{title}</DialogTitle>
           <Button
             variant="ghost"
             size="icon"
             onClick={() => onOpenChange(false)}
-            className="rounded-md p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
+            className="h-7 w-7 mr-1 rounded-md p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
           >
             <X className="h-4 w-4" />
           </Button>

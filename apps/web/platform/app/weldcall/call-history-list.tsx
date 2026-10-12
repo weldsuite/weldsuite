@@ -319,7 +319,7 @@ export function CallHistoryList({
   const renderCallRow = useCallback((call: VoipCall) => (
     <div
       key={call.id}
-      className="relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-background/50"
+      className="relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border group cursor-pointer hover:bg-gray-50 dark:hover:bg-secondary/50"
     >
       <button
         type="button"
