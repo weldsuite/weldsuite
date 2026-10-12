@@ -1,5 +1,9 @@
 /**
  * `/api/mail-signatures` — backed by `mail_signatures`.
+ *
+ * `personal` signatures belong to the member who made them; `company` and
+ * `department` ones are shared with the workspace and need mail-admin rights.
+ * Empty `accountIds` means every mail account.
  */
 
 import { z } from 'zod';
@@ -8,8 +12,8 @@ export const mailSignatureType = z.enum(['personal', 'company', 'department']);
 export const mailSignaturePosition = z.enum(['above', 'below']);
 
 const signatureBaseFields = {
-  name: z.string().min(1).max(255),
-  content: z.string().min(1),
+  name: z.string().trim().min(1).max(255),
+  content: z.string().min(1).max(100_000),
   isDefault: z.boolean().optional(),
   type: mailSignatureType.optional(),
   accountIds: z.array(z.string()).optional(),

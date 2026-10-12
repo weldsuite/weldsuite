@@ -17,10 +17,10 @@ export interface MailSignatureRow {
   isDefault: boolean;
   accountIds: string[] | null;
   userIds: string[] | null;
-  type: string;
+  type: 'personal' | 'company' | 'department';
   includeInReplies: boolean;
   includeInForwards: boolean;
-  position: string;
+  position: 'above' | 'below';
   tags: string[] | null;
   metadata: Record<string, unknown> | null;
   createdAt: string;

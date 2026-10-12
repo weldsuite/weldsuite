@@ -20,6 +20,8 @@ import type {
   BulkMailMessageActionInput,
   CreateMailLabelInput,
   UpdateMailLabelInput,
+  CreateMailSignatureInput,
+  UpdateMailSignatureInput,
   CreateMailDraftInput,
   CheckWeldMailAddressInput,
   ReserveWeldMailAddressInput,
@@ -525,6 +527,61 @@ export function useDeleteMailLabel() {
     },
   });
 }
+
+// =============================================================================
+// Signatures
+// =============================================================================
+
+/**
+ * The caller's signatures: their own personal ones plus the shared ones. Few
+ * enough to load in one page, and the composer reads them on every open, so
+ * they stay fresh for a while.
+ */
+export function useMailSignatures(enabled = true) {
+  const { mailSignatures } = useAppApi();
+  return useQuery({
+    queryKey: mailKeys.signatures(),
+    queryFn: () => mailSignatures.list({ limit: 100 }),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useCreateMailSignature() {
+  const { mailSignatures } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateMailSignatureInput) => mailSignatures.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.signatures() });
+    },
+  });
+}
+
+export function useUpdateMailSignature() {
+  const { mailSignatures } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...fields }: { id: string } & UpdateMailSignatureInput) =>
+      mailSignatures.update(id, fields),
+    // Making one the default can unset others, so the whole list is refetched.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.signatures() });
+    },
+  });
+}
+
+export function useDeleteMailSignature() {
+  const { mailSignatures } = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => mailSignatures.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: mailKeys.signatures() });
+    },
+  });
+}
+
 
 /** Server-side narrowing of a thread list: the search box and the Filter panel. */
 export type MailThreadSearch = {
