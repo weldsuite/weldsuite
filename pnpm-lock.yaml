@@ -6890,10 +6890,6 @@ importers:
         version: 3.2.7(@types/debug@4.1.12)(@types/node@20.19.43)(jiti@2.7.0)(jsdom@25.0.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(lightningcss@1.32.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1)
 
   packages/core/smtp:
-    dependencies:
-      mimetext:
-        specifier: ^3.0.27
-        version: 3.0.28
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20250110.0
