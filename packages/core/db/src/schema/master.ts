@@ -1277,7 +1277,9 @@ export { featureRequests, featureTypeEnum, featureStatusEnum, type FeatureReques
 export {
   workspaceAppAccess,
   APP_ACCESS_STATUSES,
+  APP_ACCESS_BILLING_STATUSES,
   type AppAccessStatus,
+  type AppAccessBillingStatus,
   type AppAccessRequestDetails,
   type AppAccessLimits,
   type WorkspaceAppAccess,

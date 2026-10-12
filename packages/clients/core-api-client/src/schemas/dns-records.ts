@@ -84,6 +84,12 @@ export interface DnsRecord {
   syncError: string | null;
   comment: string | null;
   metadata: Record<string, unknown> | null;
+  /**
+   * 'weldreach' for the mail records Mailpool writes into a domain connected to
+   * WeldReach (apex MX, apex SPF, DKIM, DMARC): read-only, update and delete
+   * answer 409 DNS_RECORD_MANAGED_BY_WELDREACH. `null` for every other record.
+   */
+  managedBy?: 'weldreach' | null;
 }
 
 export interface DnsRecordsListResponse {

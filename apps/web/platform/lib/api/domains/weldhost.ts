@@ -47,6 +47,8 @@ export interface HostDomain {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
+  /** Connected to WeldReach (cold email): delete, auth code and nameserver changes are blocked. */
+  usedByWeldReach?: boolean;
 }
 
 export interface DomainContact {

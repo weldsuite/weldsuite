@@ -1,14 +1,29 @@
-# WeldSuite reach-api worker — the reach module's API.
+# WeldSuite reach-api worker — WeldReach (cold email outreach on Mailpool).
 #
-# Split out of app-api (docs/plans/app-api-module-split.md). Serves the same
-# /api/<object> paths app-api served for this module; only the host differs:
+# docs/plans/weldreach.md. Owns /api/reach/* (behind apiAuth + the
+# weldreach app-access gate) and /public/reach/* (Mailpool webhook, HMAC):
 #   reach-api.weldsuite.org        production
 #   reach-api-test.weldsuite.org   test
 # The path prefixes it owns live in packages/core/api-modules.
 #
+# Besides HTTP it runs:
+#   - a cron sweep every minute: due workspaces (D1 workspace_due_index, kind
+#     reach_send) → one `reach-send` queue message per workspace → the queue
+#     consumer sends over SMTP (cloudflare:sockets, ports 465/587);
+#   - an hourly cron: warmup progress (kind reach_warmup), plus the Mailpool slot
+#     reconciliation (master DB only) once a day at 03:15 UTC;
+#   - an `email()` handler: Cloudflare Email Routing catch-all on
+#     REACH_INBOUND_DOMAIN delivers the replies Mailpool mailboxes forward.
+#
 # Secrets (scripts/secrets/manifest.ts → "reach-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
-#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY, MAILPOOL_API_KEY, MAILPOOL_WEBHOOK_SECRET,
+#   AI_GATEWAY_API_TOKEN, CLOUDFLARE_API_TOKEN
+#
+# Ops before first deploy (per env): create the queues reach-send-<env> and
+# reach-send-dlq-<env>; enable Email Routing on REACH_INBOUND_DOMAIN with a
+# catch-all rule → this worker; set the Mailpool webhook URL to
+# https://reach-api[-test].weldsuite.org/public/reach/webhooks/mailpool.
 
 name = "weldsuite-reach-api"
 main = "src/index.ts"
@@ -30,20 +45,47 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+REACH_INBOUND_DOMAIN = "reply-test.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
 [[queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
+
+[[queues.producers]]
+binding = "REACH_SEND_QUEUE"
+queue = "reach-send-dev"
+
+[[queues.consumers]]
+queue = "reach-send-dev"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-send-dlq-dev"
 
 # Remote binding so local dev reaches the deployed test realtime worker.
 [[services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
 remote = true
+
+# Every minute: send sweep (reads only D1 on a quiet tick).
+# Hourly at :15: warmup progress (+ Mailpool slot reconciliation at 03:15 UTC).
+[triggers]
+crons = ["* * * * *", "15 * * * *"]
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -55,6 +97,11 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+REACH_INBOUND_DOMAIN = "reply-test.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[env.test.triggers]
+crons = ["* * * * *", "15 * * * *"]
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -64,9 +111,29 @@ app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
 
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-test"
+
+[[env.test.queues.producers]]
+binding = "REACH_SEND_QUEUE"
+queue = "reach-send-test"
+
+[[env.test.queues.consumers]]
+queue = "reach-send-test"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-send-dlq-test"
 
 [[env.test.services]]
 binding = "REALTIME"
@@ -86,6 +153,11 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+REACH_INBOUND_DOMAIN = "reply.weldsuite.org"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[env.production.triggers]
+crons = ["* * * * *", "15 * * * *"]
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
@@ -95,9 +167,29 @@ app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 binding = "WORKSPACE_CACHE"
 id = "99689831a815455ba7f836175e5e17c9"
 
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events"
+
+[[env.production.queues.producers]]
+binding = "REACH_SEND_QUEUE"
+queue = "reach-send-production"
+
+[[env.production.queues.consumers]]
+queue = "reach-send-production"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-send-dlq-production"
 
 [[env.production.services]]
 binding = "REALTIME"

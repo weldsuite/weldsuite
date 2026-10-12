@@ -26,6 +26,10 @@ export interface AppAccess {
   workspaceId: string | null;
   status: AppAccessStatus;
   limits: Record<string, unknown>;
+  /** The app's own Stripe subscription state (billing-worker keeps it current). */
+  billingStatus: 'none' | 'active' | 'past_due' | 'canceled';
+  /** When billingStatus last changed (ISO), for grace periods. */
+  billingStatusAt: string | null;
 }
 
 export const APP_ACCESS_CACHE_TTL_SECONDS = 60;
@@ -46,6 +50,8 @@ export async function readAppAccess(
       workspaceId: masterSchema.workspaces.id,
       status: masterSchema.workspaceAppAccess.status,
       limits: masterSchema.workspaceAppAccess.limits,
+      billingStatus: masterSchema.workspaceAppAccess.billingStatus,
+      billingStatusAt: masterSchema.workspaceAppAccess.billingStatusAt,
     })
     .from(masterSchema.workspaces)
     .leftJoin(
@@ -62,6 +68,8 @@ export async function readAppAccess(
     workspaceId: row?.workspaceId ?? null,
     status: row?.status ?? 'none',
     limits: row?.limits ?? {},
+    billingStatus: row?.billingStatus ?? 'none',
+    billingStatusAt: row?.billingStatusAt ? row.billingStatusAt.toISOString() : null,
   };
 }
 

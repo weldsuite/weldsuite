@@ -20,6 +20,11 @@ export default defineConfig({
         __dirname,
         '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
       ),
+      // @weldsuite/smtp connects over cloudflare:sockets; tests inject a fake socket.
+      'cloudflare:sockets': path.resolve(
+        __dirname,
+        '../../../packages/core/smtp/src/testing/cloudflare-sockets-stub.ts',
+      ),
     },
   },
 });

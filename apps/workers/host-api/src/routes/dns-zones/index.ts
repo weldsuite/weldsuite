@@ -17,6 +17,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import * as dnsZonesService from '../../services/dns-zones';
+import { changesZoneRouting, domainInUseResponse, isDomainUsedByWeldReach } from '../../lib/weldreach';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -82,7 +83,17 @@ app.patch(
   zValidator('json', updateDnsZoneSchema),
   async (c) => {
     const id = c.req.param('id');
+    const patch = c.req.valid('json');
     try {
+      // Pointing the zone elsewhere changes the nameservers of its domain.
+      const zone = await dnsZonesService.getDnsZone(c.get('tenantDb'), id);
+      if (
+        zone &&
+        changesZoneRouting(zone, patch) &&
+        (await isDomainUsedByWeldReach(c.get('tenantDb'), zone.domainId))
+      ) {
+        return domainInUseResponse(c);
+      }
       const row = await dnsZonesService.updateDnsZone(
         c.get('tenantDb'),
         id,
@@ -107,6 +118,11 @@ app.patch(
 app.delete('/:id', requirePermission('dns:delete'), async (c) => {
   const id = c.req.param('id');
   try {
+    // Mailpool's records live in this zone.
+    const zone = await dnsZonesService.getDnsZone(c.get('tenantDb'), id);
+    if (zone && (await isDomainUsedByWeldReach(c.get('tenantDb'), zone.domainId))) {
+      return domainInUseResponse(c);
+    }
     const deleted = await dnsZonesService.deleteDnsZone(c.get('tenantDb'), id);
     if (!deleted) return error.notFound(c, 'DNS zone', id);
     publishEntityEvent({

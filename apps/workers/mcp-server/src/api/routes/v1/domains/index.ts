@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, like, ne, or, sql, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
@@ -27,6 +27,32 @@ import {
 const domainTable = schema.hostDomains;
 const zoneTable = schema.hostDnsZones;
 const recordTable = schema.hostDnsRecords;
+const reachDomainTable = schema.reachDomains;
+
+type TenantDb = HonoEnv['Variables']['tenantDb'];
+
+/**
+ * A WeldHost domain connected to WeldReach carries Mailpool's mail records.
+ * host-api refuses to delete it or move its DNS until it is disconnected in
+ * WeldReach (docs/plans/weldreach.md); the public API must not be a way around
+ * that. A tenant without the WeldReach tables has no connected domains.
+ */
+async function isUsedByWeldReach(db: TenantDb, domainId: string): Promise<boolean> {
+  try {
+    const [row] = await db
+      .select({ id: reachDomainTable.id })
+      .from(reachDomainTable)
+      .where(and(eq(reachDomainTable.hostDomainId, domainId), ne(reachDomainTable.status, 'disconnecting')))
+      .limit(1);
+    return Boolean(row);
+  } catch {
+    return false;
+  }
+}
+
+const DOMAIN_IN_USE_BY_WELDREACH = {
+  error: { code: 'DOMAIN_IN_USE_BY_WELDREACH', message: 'Disconnect this domain in WeldReach first.' },
+} as const;
 
 const DOMAIN_DATE_FIELDS = ['registrarSyncedAt', 'registeredAt', 'expiresAt', 'renewedAt', 'authCodeExpiresAt'] as const;
 
@@ -87,6 +113,9 @@ app.patch('/:id', requireScope('domains:write'), zValidator('json', updateDomain
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const body = c.req.valid('json');
+  if ((body.nameservers !== undefined || body.customNameservers !== undefined) && (await isUsedByWeldReach(db, id))) {
+    return c.json(DOMAIN_IN_USE_BY_WELDREACH, 409);
+  }
   const [row] = await db
     .update(domainTable)
     .set({ ...coerceDates(body as Record<string, unknown>, DOMAIN_DATE_FIELDS), updatedAt: new Date() })
@@ -100,6 +129,7 @@ app.patch('/:id', requireScope('domains:write'), zValidator('json', updateDomain
 app.delete('/:id', requireScope('domains:write'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
+  if (await isUsedByWeldReach(db, id)) return c.json(DOMAIN_IN_USE_BY_WELDREACH, 409);
   const [row] = await db
     .update(domainTable)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -151,6 +181,7 @@ zonesApp.post('/', requireScope('domains:write'), zValidator('json', createDnsZo
 zonesApp.patch('/:id', requireScope('domains:write'), zValidator('json', updateDnsZoneSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
+  if (await isUsedByWeldReach(db, c.req.param('domainId') as string)) return c.json(DOMAIN_IN_USE_BY_WELDREACH, 409);
   const body = c.req.valid('json');
   const [row] = await db
     .update(zoneTable)
@@ -165,6 +196,7 @@ zonesApp.patch('/:id', requireScope('domains:write'), zValidator('json', updateD
 zonesApp.delete('/:id', requireScope('domains:write'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
+  if (await isUsedByWeldReach(db, c.req.param('domainId') as string)) return c.json(DOMAIN_IN_USE_BY_WELDREACH, 409);
   const [row] = await db
     .update(zoneTable)
     .set({ deletedAt: new Date(), updatedAt: new Date() })

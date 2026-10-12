@@ -16,6 +16,9 @@ import { pgTable, varchar, text, timestamp, jsonb, index, uniqueIndex } from 'dr
 export const APP_ACCESS_STATUSES = ['requested', 'approved', 'rejected', 'suspended', 'revoked'] as const;
 export type AppAccessStatus = (typeof APP_ACCESS_STATUSES)[number];
 
+export const APP_ACCESS_BILLING_STATUSES = ['none', 'active', 'past_due', 'canceled'] as const;
+export type AppAccessBillingStatus = (typeof APP_ACCESS_BILLING_STATUSES)[number];
+
 /** What the workspace told us when it asked for access. Validated with Zod in app-api. */
 export interface AppAccessRequestDetails {
   companyName: string;
@@ -64,6 +67,16 @@ export const workspaceAppAccess = pgTable(
     rejectionReason: text('rejection_reason'),
     /** Shown to the workspace while access is suspended. */
     suspendedReason: text('suspended_reason'),
+
+    /**
+     * The app's own Stripe subscription (WeldReach: $5 per inbox, quantity =
+     * inboxes), written by billing-worker. `billing_status` follows Stripe's
+     * subscription status so the module can pause work after a failed payment
+     * without calling Stripe.
+     */
+    stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+    billingStatus: varchar('billing_status', { length: 20 }).$type<AppAccessBillingStatus>().notNull().default('none'),
+    billingStatusAt: timestamp('billing_status_at', { withTimezone: true }),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

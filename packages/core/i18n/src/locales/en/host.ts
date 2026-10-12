@@ -902,4 +902,15 @@ export const host = {
       yes: 'Yes',
       goToDomain: 'Go to domain',
     },
+
+    // WeldReach (cold email) uses WeldHost domains: badge, read-only mail records, 409 messages.
+    weldReach: {
+      usedByBadge: 'Used by WeldReach',
+      usedByHint: 'This domain is connected to WeldReach. Disconnect it there before you delete it, transfer it away or change its nameservers.',
+      recordBadge: 'WeldReach',
+      recordManaged: 'Managed by WeldReach',
+      recordManagedHint: 'This record is managed by WeldReach and cannot be changed here. Disconnect the domain in WeldReach first.',
+      domainInUse: 'Disconnect this domain in WeldReach first.',
+      recordManagedError: 'This record is managed by WeldReach. Disconnect the domain in WeldReach first.',
+    },
   };

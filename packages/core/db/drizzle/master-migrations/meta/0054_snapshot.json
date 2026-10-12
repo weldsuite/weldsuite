@@ -1,5 +1,5 @@
 {
-  "id": "7f5db0cb-58fb-4c6b-8d69-413edbe116b1",
+  "id": "5c8d268c-0815-4de4-870c-5d30158fe4b4",
   "prevId": "d118b27b-6fda-4898-98d1-aa9785291705",
   "version": "7",
   "dialect": "postgresql",
@@ -7413,6 +7413,25 @@
         "suspended_reason": {
           "name": "suspended_reason",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stripe_subscription_id": {
+          "name": "stripe_subscription_id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "billing_status": {
+          "name": "billing_status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'none'"
+        },
+        "billing_status_at": {
+          "name": "billing_status_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

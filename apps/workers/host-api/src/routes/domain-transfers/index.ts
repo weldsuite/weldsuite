@@ -20,6 +20,11 @@ import { cursorPagination, error, list, success } from '@weldsuite/worker-kit/re
 import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import * as transfersService from '../../services/domain-transfers';
 import * as domainsService from '@weldsuite/host-domain/domains';
+import {
+  domainInUseResponse,
+  isDomainNameUsedByWeldReach,
+  isDomainUsedByWeldReach,
+} from '../../lib/weldreach';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -62,6 +67,14 @@ app.post(
   async (c) => {
     try {
       const input = c.req.valid('json');
+      // Moving a domain out of WeldHost is blocked while WeldReach uses it.
+      if (input.type === 'outgoing') {
+        const db = c.get('tenantDb');
+        const connected =
+          (input.domainId ? await isDomainUsedByWeldReach(db, input.domainId) : false) ||
+          (await isDomainNameUsedByWeldReach(db, input.domainName));
+        if (connected) return domainInUseResponse(c);
+      }
       const rtr = getRealtimeRegistrar(c.env);
       let registrantContact: Record<string, unknown> | null = null;
       let nameservers: string[] | undefined;

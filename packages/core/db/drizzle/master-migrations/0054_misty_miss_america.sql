@@ -25,6 +25,9 @@ CREATE TABLE "workspace_app_access" (
 	"review_notes" text,
 	"rejection_reason" text,
 	"suspended_reason" text,
+	"stripe_subscription_id" varchar(255),
+	"billing_status" varchar(20) DEFAULT 'none' NOT NULL,
+	"billing_status_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
