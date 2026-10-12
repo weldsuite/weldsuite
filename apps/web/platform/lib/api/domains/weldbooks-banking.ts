@@ -282,6 +282,8 @@ export interface RecordInvoicePaymentWithTarget {
   reference?: string;
   /** Naming a bank account debits it directly; leave out to let checks and cash wait in Undeposited Funds. */
   bankAccountId?: string;
+  /** Foreign-currency invoice: the rate of the payment (foreign units per base unit); left out = the rate of the payment date. */
+  exchangeRate?: string;
 }
 
 // ============================================================================

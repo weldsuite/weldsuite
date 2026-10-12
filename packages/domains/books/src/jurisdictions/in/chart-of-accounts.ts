@@ -142,18 +142,19 @@ export const inChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   },
   { code: '0540', name: 'Drawings', type: 'equity', subtype: 'capital', normalSide: 'debit' },
 
-  // Revenue
+  // Revenue. Operating revenue carries a sales / service_revenue subtype; only 8100 and 8400
+  // are `other_income`, which the profit & loss shows below the operating line.
   {
     code: '8000',
     name: 'Sales',
     type: 'revenue',
-    subtype: 'other_income',
+    subtype: 'sales',
     normalSide: 'credit',
     isSystemAccount: true,
     systemRole: 'sales_revenue',
   },
-  { code: '8010', name: 'Sales — goods', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
-  { code: '8020', name: 'Sales — services', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
+  { code: '8010', name: 'Sales — goods', type: 'revenue', subtype: 'sales', normalSide: 'credit' },
+  { code: '8020', name: 'Sales — services', type: 'revenue', subtype: 'service_revenue', normalSide: 'credit' },
   { code: '8100', name: 'Other income', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
   {
     code: '8400',
@@ -164,11 +165,11 @@ export const inChartOfAccounts: ChartOfAccountsTemplateRow[] = [
     isSystemAccount: true,
     systemRole: 'realized_fx_gain',
   },
-  { code: '8500', name: 'Discount allowed', type: 'revenue', subtype: 'other_income', normalSide: 'debit' },
+  { code: '8500', name: 'Discount allowed', type: 'revenue', subtype: 'sales', normalSide: 'debit' },
 
   // Expenses
-  { code: '4000', name: 'Cost of goods sold', type: 'expense', subtype: 'cost_of_goods', normalSide: 'debit' },
-  { code: '4010', name: 'Purchases', type: 'expense', subtype: 'cost_of_goods', normalSide: 'debit' },
+  { code: '4000', name: 'Cost of goods sold', type: 'expense', subtype: 'cost_of_goods_sold', normalSide: 'debit' },
+  { code: '4010', name: 'Purchases', type: 'expense', subtype: 'cost_of_goods_sold', normalSide: 'debit' },
   { code: '4100', name: 'Employee benefits', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4200', name: 'Rent', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4300', name: 'Office expenses', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },

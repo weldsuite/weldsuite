@@ -321,6 +321,16 @@ export function useFiscalCalendar(params: FiscalCalendarParams, options: { enabl
   });
 }
 
+/** Close or reopen one stored fiscal period; the calendar is refetched either way. */
+export function useSetFiscalPeriodStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: 'close' | 'reopen' }) =>
+      (await (action === 'close' ? fiscalCalendarApi.close(id) : fiscalCalendarApi.reopen(id))).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: fiscalCalendarKeys.all }),
+  });
+}
+
 export function useGenerateFiscalPeriods() {
   const qc = useQueryClient();
   return useMutation({

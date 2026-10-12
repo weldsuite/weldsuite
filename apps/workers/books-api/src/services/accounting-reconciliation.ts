@@ -100,7 +100,7 @@ export async function loadMatchCandidates(
   const limit = args.limit ?? 5000;
   const near = args.amount === undefined ? undefined : amountBounds(args.amount);
 
-  const invoiceWhere: SQL[] = [inArray(invoices.status, ['sent', 'partial', 'overdue']), isNull(invoices.deletedAt)];
+  const invoiceWhere: SQL[] = [inArray(invoices.status, ['sent', 'finalized', 'partial', 'overdue']), isNull(invoices.deletedAt)];
   const billWhere: SQL[] = [inArray(bills.status, ['approved', 'partial', 'overdue']), isNull(bills.deletedAt)];
   if (args.entityId) {
     invoiceWhere.push(eq(invoices.entityId, args.entityId));

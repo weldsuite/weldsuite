@@ -16,6 +16,7 @@ import type {
   TrialBalanceReport,
   ValueSet,
 } from './accounting-reports';
+import type { CashFlowResult } from './accounting-cash-flow';
 import type { ReportColumn } from './accounting-report-periods';
 
 export interface ReportTableColumn {
@@ -309,10 +310,50 @@ export function generalLedgerTable(report: GeneralLedgerReport): ReportTable {
   };
 }
 
-export function cashFlowTable(report: {
-  monthly: Array<{ month: string; inflows: string; outflows: string; net: string }>;
-  totals: { inflows: string; outflows: string; net: string };
-}): ReportTable {
+const CASH_FLOW_ACTIVITY_LABELS: Record<string, string> = {
+  operating: 'Operating activities',
+  investing: 'Investing activities',
+  financing: 'Financing activities',
+};
+
+const CASH_FLOW_CATEGORY_LABELS: Record<string, string> = {
+  customer_receipts: 'Customer receipts',
+  supplier_payments: 'Supplier payments',
+  operating_expenses: 'Operating expenses paid',
+  taxes: 'Taxes',
+  payroll: 'Payroll',
+  other_operating: 'Other operating',
+  fixed_assets: 'Fixed assets',
+  equity: 'Equity',
+  loans: 'Loans',
+};
+
+export function cashFlowTable(report: CashFlowResult): ReportTable {
+  const figures = (f: { inflows: string; outflows: string; net: string }) => ({
+    inflows: f.inflows,
+    outflows: f.outflows,
+    net: f.net,
+  });
+  const rows: ReportTableRow[] = [
+    { kind: 'subtotal', depth: 0, label: 'Opening cash balance', values: { net: report.openingBalance } },
+  ];
+  for (const block of report.activities) {
+    const active = block.categories.filter((c) => Number(c.inflows) !== 0 || Number(c.outflows) !== 0);
+    if (active.length === 0) continue;
+    rows.push({ kind: 'section', depth: 0, label: CASH_FLOW_ACTIVITY_LABELS[block.activity] ?? block.activity, values: {} });
+    for (const c of active) {
+      rows.push({ kind: 'account', depth: 1, label: CASH_FLOW_CATEGORY_LABELS[c.category] ?? c.category, values: figures(c) });
+    }
+    rows.push({ kind: 'subtotal', depth: 0, label: `Net cash from ${block.activity} activities`, values: figures(block) });
+  }
+  rows.push({ kind: 'total', depth: 0, label: 'Net change in cash', values: figures(report.totals) });
+  rows.push({ kind: 'total', depth: 0, label: 'Closing cash balance', values: { net: report.closingBalance } });
+  if (report.monthly.length > 0) {
+    rows.push({ kind: 'section', depth: 0, label: 'By month', values: {} });
+    for (const m of report.monthly) {
+      rows.push({ kind: 'account', depth: 1, label: m.month, values: figures(m) });
+    }
+  }
   return {
     report: 'cash_flow',
     title: 'Cash flow',
@@ -322,16 +363,8 @@ export function cashFlowTable(report: {
       { key: 'outflows', label: 'Outflows', numeric: true },
       { key: 'net', label: 'Net', numeric: true },
     ],
-    rows: [
-      ...report.monthly.map((m) => ({
-        kind: 'account' as const,
-        depth: 0,
-        label: m.month,
-        values: { inflows: m.inflows, outflows: m.outflows, net: m.net },
-      })),
-      { kind: 'total', depth: 0, label: 'Total', values: { ...report.totals } },
-    ],
-    notes: [],
+    rows,
+    notes: ['Movements on the cash and bank accounts of the ledger, grouped by what the other side of each entry says the money was for.'],
   };
 }
 

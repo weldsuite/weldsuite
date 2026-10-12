@@ -56,6 +56,8 @@ export interface TaxPreviewRequest {
   deliveryAddress?: PostalAddress | null;
   marketplaceFacilitated?: boolean;
   originalInvoiceId?: string | null;
+  /** India GST: two-digit state code of the place of supply the user chose; omitted to derive it from the customer. */
+  placeOfSupply?: string | null;
   items: TaxPreviewItem[];
 }
 
@@ -128,6 +130,8 @@ export interface TaxPreviewResult {
   lines: TaxPreviewLine[];
   jurisdictions: TaxPreviewJurisdiction[];
   taxBreakdown: TaxBreakdownRow[];
+  /** India GST: the place of supply the split was calculated for; null when it is not known. */
+  placeOfSupply?: string | null;
 }
 
 /** Codes of the refusals the document routes answer with (`error.code`). */
@@ -179,6 +183,10 @@ export interface InvoiceTaxFields {
   creditNoteForInvoiceId?: string | null;
   shipFromAddress?: StoredAccountingAddress | null;
   marketplaceFacilitated?: boolean | null;
+  /** India GST: two-digit state code of the place of supply (96 = outside India). */
+  placeOfSupply?: string | null;
+  /** The buyer's GSTIN / VAT number as it was when the invoice was finalized. */
+  contactTaxNumber?: string | null;
   taxEngine?: string | null;
   taxEngineRef?: string | null;
   taxCalculatedAt?: string | null;
@@ -190,6 +198,8 @@ export interface InvoiceTaxFields {
 export interface InvoiceItemTaxFields {
   productId?: string | null;
   taxCode?: string | null;
+  /** India GST: HSN (goods) or SAC (services) code. */
+  hsnSac?: string | null;
   taxUse?: TaxUse | null;
   taxIncluded?: boolean | null;
   taxOverrideAmount?: string | null;

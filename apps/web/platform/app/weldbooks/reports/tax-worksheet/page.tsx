@@ -28,6 +28,9 @@ import { useReportExport } from '../components/use-report-export';
 import { useReportHeadings } from '../components/use-report-headings';
 import { useReportParams } from '../components/use-report-params';
 
+/** The calculated row on the retained earnings line (net income not yet closed to equity): not a chart account. */
+const CALCULATED_RESULT_ID = 'calculated_net_income';
+
 /** How many fiscal years the picker offers, newest first. */
 const YEAR_CHOICES = 8;
 
@@ -88,10 +91,14 @@ function LineRow({
         <ul className="border-t bg-muted/20 py-1 pl-10 pr-4 text-sm">
           {line.accounts.map((account) => (
             <li key={account.accountId} className="flex items-baseline justify-between gap-3 py-1">
-              <Link to="/weldbooks/accounts/$id" params={{ id: account.accountId }} className="min-w-0 truncate hover:underline">
-                <span className="mr-2 font-mono text-xs text-muted-foreground">{account.code}</span>
-                {account.name}
-              </Link>
+              {account.accountId === CALCULATED_RESULT_ID ? (
+                <span className="min-w-0 truncate italic text-muted-foreground">{tr.worksheet.calculatedResult}</span>
+              ) : (
+                <Link to="/weldbooks/accounts/$id" params={{ id: account.accountId }} className="min-w-0 truncate hover:underline">
+                  <span className="mr-2 font-mono text-xs text-muted-foreground">{account.code}</span>
+                  {account.name}
+                </Link>
+              )}
               <span className="shrink-0 tabular-nums">
                 {account.beginningAmount !== undefined ? (
                   <span className="mr-3 text-xs text-muted-foreground">{formatMoney(account.beginningAmount)}</span>

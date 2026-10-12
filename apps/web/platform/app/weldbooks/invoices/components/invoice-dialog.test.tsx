@@ -36,7 +36,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
     },
   }),
   useAccountingCustomers: () => ({ data: { data: [{ id: 'cus_1', name: 'Globex', email: 'ap@globex.test' }] } }),
-  useAccountingTaxRates: () => ({ data: { data: [{ id: 'tax_21', name: 'BTW 21%', rate: '21' }] } }),
+  useAccountingTaxRates: () => ({ data: { data: [{ id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both' }] } }),
   useDimensionValues: () => ({ data: [] }),
 }));
 vi.mock('@/lib/api/domains/weldbooks', () => ({ accountingApi: { listCustomers: async () => ({ data: [] }) } }));

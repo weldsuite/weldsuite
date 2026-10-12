@@ -66,6 +66,7 @@ import {
   hasProviderSyncWarning,
 } from '@/lib/weldbooks/document-tax';
 import { isWeldTaxCode } from '@/lib/weldbooks/tax-codes';
+import { isForeignCurrency } from '@/lib/weldbooks/currencies';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
 
@@ -109,8 +110,8 @@ export default function InvoiceDetailPage() {
   const ti = t.accounting.invoiceDetail;
   const td = useDocumentTexts();
   const tsl = t.accounting.statusLabels.invoice;
-  const { formatMoney, formatDate, formatDateTime } = useWeldbooksFormat();
-  const { labels } = useJurisdictionLabels();
+  const { formatMoney, formatDate, formatDateTime, formatNumber, entityCurrency } = useWeldbooksFormat();
+  const { labels, features } = useJurisdictionLabels();
   const canUpdate = useCan('invoices:update');
   const canCreate = useCan('invoices:create');
   const describeError = useDescribeError();
@@ -128,6 +129,7 @@ export default function InvoiceDetailPage() {
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [statusDialog, setStatusDialog] = useState<'cancelled' | 'uncollectible' | null>(null);
+  const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
   /** The last finalize / send that a sales tax rule refused, shown until the next attempt. */
@@ -154,6 +156,10 @@ export default function InvoiceDetailPage() {
       creditNote: labels.creditNote.toUpperCase(),
       jurisdictionTax: td.pdf.jurisdictionTax,
       exempt: td.exempt,
+      // India GST tax invoice
+      placeOfSupply: t.weldbooksIn.gst.placeOfSupply,
+      hsnSac: t.weldbooksIn.gst.hsnSac,
+      outsideIndia: t.weldbooksIn.gst.placeOfSupplyOutside,
     };
   };
 
@@ -222,11 +228,17 @@ export default function InvoiceDetailPage() {
 
   const isDraft = invoice.status === 'draft';
   const isCreditMemo = invoice.type === 'credit_note';
-  const canSend = isDraft || invoice.status === 'finalized';
+  // A finalized invoice still has to be sent, and a sent one can be sent again.
+  const canSend = !CLOSED_STATUSES.has(invoice.status);
+  // What a written-off invoice still has written off: it can be paid after all (the write-off is taken back).
+  const writtenOffBalance =
+    invoice.status === 'uncollectible' ? Math.max(0, Number(invoice.total ?? 0) - Number(invoice.amountPaid ?? 0)) : 0;
   const canRecordPayment =
+    invoice.status === 'finalized' ||
     invoice.status === 'sent' ||
     invoice.status === 'partial' ||
-    invoice.status === 'overdue';
+    invoice.status === 'overdue' ||
+    (invoice.status === 'uncollectible' && !isCreditMemo && writtenOffBalance > 0);
   const canCancel = canUpdate && !CLOSED_STATUSES.has(invoice.status);
   // A credit note is owed to the customer: it is applied to an invoice or refunded, never written off.
   const canWriteOff =
@@ -255,6 +267,8 @@ export default function InvoiceDetailPage() {
 
   const handleFinalize = () => {
     setTaxError(null);
+    // The button shows "Finalizing..." while it runs; a refusal comes back as a notice or a toast.
+    setFinalizeDialogOpen(false);
     finalizeMutation.mutate(invoice.id, {
       onSuccess: (res) => {
         toast.success(ti.finalized);
@@ -312,8 +326,14 @@ export default function InvoiceDetailPage() {
   const handleStatusChange = async () => {
     if (!statusDialog) return;
     try {
-      await statusMutation.mutateAsync({ id: invoice.id, status: statusDialog });
-      toast.success(ti.statusUpdated);
+      const res = await statusMutation.mutateAsync({ id: invoice.id, status: statusDialog });
+      // With bad debt VAT relief the write-off says how much VAT comes back through the next return.
+      const vatRelief = Number((res?.data as { vatRelief?: number } | undefined)?.vatRelief ?? 0);
+      toast.success(
+        statusDialog === 'uncollectible' && vatRelief > 0
+          ? ti.statusUpdatedVatRelief.replace('{amount}', formatMoney(vatRelief, invoice.currency))
+          : ti.statusUpdated,
+      );
       setStatusDialog(null);
     } catch (err) {
       // The server explains why, e.g. a finalized invoice needs a credit note.
@@ -393,7 +413,7 @@ export default function InvoiceDetailPage() {
           {isDraft && (
             <Button
               variant="outline"
-              onClick={handleFinalize}
+              onClick={() => setFinalizeDialogOpen(true)}
               disabled={finalizeMutation.isPending}
             >
               {finalizeMutation.isPending ? ti.finalizing : ti.finalize}
@@ -406,7 +426,7 @@ export default function InvoiceDetailPage() {
           )}
           {canRecordPayment && (
             <Button onClick={() => setPaymentDialogOpen(true)}>
-              {isCreditMemo ? ti.recordRefund : ti.recordPayment}
+              {isCreditMemo ? ti.recordRefund : invoice.status === 'uncollectible' ? ti.recordRecovery : ti.recordPayment}
             </Button>
           )}
           {(canCancel || canWriteOff || canCreateCreditMemo) && (
@@ -509,6 +529,16 @@ export default function InvoiceDetailPage() {
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{ti.reference}</span>
                 <span>{invoice.reference}</span>
+              </div>
+            )}
+            {isForeignCurrency(entityCurrency, invoice.currency) && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">{t.accounting.documentCurrency.exchangeRate}</span>
+                <span data-testid="exchange-rate">
+                  {invoice.exchangeRate && Number(invoice.exchangeRate) > 0
+                    ? `1 ${entityCurrency} = ${formatNumber(invoice.exchangeRate)} ${invoice.currency}`
+                    : '-'}
+                </span>
               </div>
             )}
           </CardContent>
@@ -626,17 +656,17 @@ export default function InvoiceDetailPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      {item.quantity ?? '-'}
+                      {item.quantity ? formatNumber(item.quantity) : '-'}
                       {item.unit ? ` ${item.unit}` : ''}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatMoney(item.unitPrice, invoice.currency)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {item.discountPercent ? `${Number(item.discountPercent)}%` : '-'}
+                      {item.discountPercent ? `${formatNumber(item.discountPercent)}%` : '-'}
                     </TableCell>
                     <TableCell className="text-right">
-                      {item.taxRate ? `${Number(item.taxRate)}%` : '-'}
+                      {item.taxRate ? `${formatNumber(item.taxRate)}%` : '-'}
                     </TableCell>
                     <TableCell className="text-right font-medium">
                       {formatMoney(item.lineTotalWithTax ?? item.lineTotal, invoice.currency)}
@@ -725,10 +755,21 @@ export default function InvoiceDetailPage() {
       />
       <RecordPaymentDialog
         invoiceId={invoice.id}
-        balanceDue={invoice.balanceDue ?? '0'}
+        balanceDue={invoice.status === 'uncollectible' ? writtenOffBalance.toFixed(2) : (invoice.balanceDue ?? '0')}
+        currency={invoice.currency}
         open={paymentDialogOpen}
         onOpenChange={setPaymentDialogOpen}
         refund={isCreditMemo}
+      />
+      <ConfirmDialog
+        open={finalizeDialogOpen}
+        onOpenChange={setFinalizeDialogOpen}
+        title={ti.finalizeConfirmTitle}
+        description={ti.finalizeConfirmDescription}
+        confirmLabel={ti.confirmFinalize}
+        cancelLabel={ti.keepDraft}
+        loading={finalizeMutation.isPending}
+        onConfirm={handleFinalize}
       />
       <ConfirmDialog
         open={statusDialog !== null}
@@ -736,7 +777,15 @@ export default function InvoiceDetailPage() {
           if (!open) setStatusDialog(null);
         }}
         title={statusDialog === 'uncollectible' ? ti.uncollectibleTitle : ti.cancelInvoiceTitle}
-        description={statusDialog === 'uncollectible' ? ti.uncollectibleDescription : ti.cancelInvoiceDescription}
+        description={
+          statusDialog === 'uncollectible'
+            ? features?.vatReturn
+              ? ti.uncollectibleDescriptionVat
+              : features?.salesTax
+                ? ti.uncollectibleDescriptionSalesTax
+                : ti.uncollectibleDescription
+            : ti.cancelInvoiceDescription
+        }
         confirmLabel={statusDialog === 'uncollectible' ? ti.confirmUncollectible : ti.confirmCancel}
         cancelLabel={ti.keepInvoice}
         variant="destructive"

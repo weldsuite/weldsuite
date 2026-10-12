@@ -14,7 +14,9 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFP
 import type { InvoiceWithTax } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { formatPostalAddressLines, type PostalAddress } from '@/components/address/postal-address';
 import { normalizeAccountingAddress, type StoredAccountingAddress } from './address';
+import { formatWeldbooksNumber } from './format-money';
 import { exemptNoticeText, exemptReasonsOf, groupTaxBreakdown, hasExemptRows, type ExemptNoticeLabels } from './document-tax';
+import { placeOfSupplyName } from './gst';
 
 export interface InvoicePdfEntity {
   name: string;
@@ -81,6 +83,10 @@ export interface InvoicePdfLabels {
   jurisdictionTax?: string;
   /** The notice printed under the totals of a sale a certificate exempts from tax. */
   exempt?: ExemptNoticeLabels;
+  /** India GST tax invoice: "Place of supply", "HSN/SAC" (printed under a line) and "Outside India" (place of supply 96). */
+  placeOfSupply?: string;
+  hsnSac?: string;
+  outsideIndia?: string;
 }
 
 export interface InvoicePdfOptions {
@@ -328,6 +334,8 @@ function drawHeader(
 }
 
 interface RenderHelpers {
+  /** An India GST tax invoice: the buyer's GSTIN and the place of supply are printed. */
+  gst?: boolean;
   labels: InvoicePdfLabels;
   formatDate: (value: string | null | undefined) => string;
   countryName?: (code: string) => string;
@@ -372,12 +380,23 @@ function drawFromAndMeta(
   drawText(ctx, helpers.formatDate(invoice.issueDate), metaX, y, { size: 9, align: 'right', width: metaW });
   drawText(ctx, labels.dueDate, metaX, y - 16, { size: 8, bold: true, color: muted });
   drawText(ctx, helpers.formatDate(invoice.dueDate), metaX, y - 16, { size: 9, align: 'right', width: metaW });
+  let metaY = y - 32;
   if (invoice.reference) {
-    drawText(ctx, labels.reference, metaX, y - 32, { size: 8, bold: true, color: muted });
-    drawText(ctx, invoice.reference, metaX, y - 32, { size: 9, align: 'right', width: metaW });
+    drawText(ctx, labels.reference, metaX, metaY, { size: 8, bold: true, color: muted });
+    drawText(ctx, invoice.reference, metaX, metaY, { size: 9, align: 'right', width: metaW });
+    metaY -= 16;
+  }
+  if (helpers.gst && invoice.placeOfSupply) {
+    drawText(ctx, labels.placeOfSupply ?? 'Place of supply', metaX, metaY, { size: 8, bold: true, color: muted });
+    drawText(ctx, placeOfSupplyName(invoice.placeOfSupply, labels.outsideIndia ?? 'Outside India'), metaX, metaY, {
+      size: 9,
+      align: 'right',
+      width: metaW,
+    });
+    metaY -= 16;
   }
 
-  return Math.min(fromY, y - 48) - 12;
+  return Math.min(fromY, metaY, y - 48) - 12;
 }
 
 /** "BILL TO" (and "SHIP TO" when the invoice ships elsewhere) blocks. Returns the next y. */
@@ -405,7 +424,13 @@ function drawBillTo(
     return y;
   };
 
-  const billY = drawBlock(labels.billTo, [name, email, ...addressLines(billing, helpers)].filter(Boolean), MARGIN_X);
+  // An Indian tax invoice names the buyer's GSTIN (as it was when the invoice was finalized).
+  const buyerTaxId = helpers.gst && invoice.contactTaxNumber ? `${labels.taxId}: ${invoice.contactTaxNumber}` : '';
+  const billY = drawBlock(
+    labels.billTo,
+    [name, email, ...addressLines(billing, helpers), buyerTaxId].filter(Boolean),
+    MARGIN_X,
+  );
   if (!shipping) return billY;
   const shipX = MARGIN_X + (ctx.size.width - 2 * MARGIN_X) / 2;
   const shipY = drawBlock(labels.shipTo, [name, ...addressLines(shipping, helpers)].filter(Boolean), shipX);
@@ -447,7 +472,10 @@ function drawLineItems(
     tableX,
     tableWidth,
     startY,
+    gst,
   }: {
+    /** An India GST tax invoice: a line's HSN/SAC code is printed under it. */
+    gst?: boolean;
     labels: InvoicePdfLabels;
     currency: string | null;
     locale: string | undefined;
@@ -461,7 +489,9 @@ function drawLineItems(
   const totalsReservedHeight = 120; // approx space for totals + footer
   for (const item of invoice.items ?? []) {
     const descLines = wrapText(item.description, ctx.font, 9, col.description.width);
-    const rowLines = Math.max(1, descLines.length);
+    // India GST: the HSN/SAC code goes on a line of its own under the description.
+    const hsnLine = gst && item.hsnSac ? `${labels.hsnSac ?? 'HSN/SAC'}: ${item.hsnSac}` : null;
+    const rowLines = Math.max(1, descLines.length + (hsnLine ? 1 : 0));
     const rowH = rowLines * ROW_HEIGHT;
 
     // Page break if we'd overlap totals band.
@@ -480,13 +510,14 @@ function drawLineItems(
       drawText(ctx, line, tableX + col.description.x, lineY, { size: 9 });
       lineY -= ROW_HEIGHT;
     }
-    drawText(ctx, item.quantity ?? '1', tableX + col.qty.x, y, { size: 9, align: 'right', width: col.qty.width });
+    if (hsnLine) drawText(ctx, hsnLine, tableX + col.description.x, lineY, { size: 8, color: ctx.muted });
+    drawText(ctx, formatWeldbooksNumber(item.quantity ?? '1', locale), tableX + col.qty.x, y, { size: 9, align: 'right', width: col.qty.width });
     drawText(ctx, formatCurrency(item.unitPrice, currency, locale), tableX + col.unitPrice.x, y, {
       size: 9,
       align: 'right',
       width: col.unitPrice.width,
     });
-    drawText(ctx, item.taxRate ? Number(item.taxRate) + '%' : '-', tableX + col.tax.x, y, {
+    drawText(ctx, item.taxRate ? formatWeldbooksNumber(item.taxRate, locale) + '%' : '-', tableX + col.tax.x, y, {
       size: 9,
       align: 'right',
       width: col.tax.width,
@@ -664,6 +695,7 @@ export async function generateInvoicePdf(
   const locale = entity.locale || undefined;
   const size = (options.paperSize ?? invoicePaperSize(entity)) === 'letter' ? LETTER : A4;
   const helpers: RenderHelpers = {
+    gst: entity.jurisdictionCode?.toUpperCase() === 'IN',
     labels: options.labels,
     formatDate: options.formatDate ?? defaultFormatDate(locale),
     countryName: options.countryName,
@@ -687,7 +719,7 @@ export async function generateInvoicePdf(
   drawTableHeader(ctx, options.labels, tableX, tableWidth, y);
   y -= TABLE_HEADER_HEIGHT;
 
-  y = drawLineItems(pdf, ctx, invoice, { labels: options.labels, currency, locale, tableX, tableWidth, startY: y });
+  y = drawLineItems(pdf, ctx, invoice, { labels: options.labels, currency, locale, tableX, tableWidth, startY: y, gst: helpers.gst });
 
   y = drawTotals(ctx, invoice, options.labels, currency, locale, y);
   drawExemptNotice(ctx, invoice, options.labels, options.certificateNumbers ?? [], y);

@@ -153,7 +153,9 @@ export function useForm945(year: number, options: { enabled?: boolean } = {}) {
  * list keys, so every contact mutation refreshes it; `only1099` asks the
  * server for the vendors flagged for 1099 reporting.
  */
-export function useSupplierContacts(options: { search?: string; role?: 'supplier' | 'both'; only1099?: boolean } = {}) {
+export function useSupplierContacts(
+  options: { search?: string; role?: 'supplier' | 'both'; only1099?: boolean; archived?: 'only' | 'include' } = {},
+) {
   return useQuery({
     queryKey: [...accountingKeys.customers.lists(), 'suppliers', options] as const,
     queryFn: () =>
@@ -161,6 +163,7 @@ export function useSupplierContacts(options: { search?: string; role?: 'supplier
         role: options.role ?? 'supplier',
         search: options.search || undefined,
         is1099Vendor: options.only1099 ? true : undefined,
+        archived: options.archived,
         pageSize: 100,
       }),
   });

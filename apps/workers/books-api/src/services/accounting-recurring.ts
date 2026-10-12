@@ -21,6 +21,7 @@ import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-addre
 import { nextEntityNumber, resolveEntityBaseCurrency } from '../lib/entity-context';
 import { type DocumentTaxItem } from './accounting-tax-resolve';
 import { finalizeInvoice } from './accounting-invoice-finalize';
+import { resolveGstSupply } from './accounting-gst';
 import { PostingError } from './accounting-posting';
 import {
   calculateDraftTax,
@@ -53,6 +54,8 @@ export const recurringTemplateSchema = z.object({
     taxCode: z.string().max(30).nullable().optional(),
     taxUse: z.enum(['business', 'personal']).nullable().optional(),
     taxIncluded: z.boolean().optional(),
+    /** India GST: HSN or SAC code. */
+    hsnSac: z.string().regex(/^(\d{4,8})?$/).nullable().optional(),
     classId: z.string().max(30).nullable().optional(),
     locationId: z.string().max(30).nullable().optional(),
   })).optional(),
@@ -159,12 +162,15 @@ export async function generateRecurringInvoice(
   }));
   const issueDate = now;
   const shipFromAddress = normalizePostalAddress(template.shipFromAddress);
+  // India GST: the buyer's place of supply decides CGST + SGST versus IGST.
+  const gst = await resolveGstSupply(db, { entityId, contactId: rec.contactId, shippingAddress, billingAddress });
   const drafted = await calculateDraftTax(db, {
     entityId,
     direction: 'sales',
     items: lines,
     buyerCountry: taxAddress?.country,
     billingProvince: taxAddress?.state,
+    ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry, buyerGstin: gst.buyerGstin ?? undefined } : {}),
     runtime: opts.tax,
     document: {
       kind: 'invoice',
@@ -196,6 +202,7 @@ export async function generateRecurringInvoice(
     ...invoiceTaxColumns(totals),
     ...(drafted.ok ? {} : { taxWarnings: [engineUnavailableWarning(drafted.message)] }),
     shipFromAddress,
+    placeOfSupply: gst?.placeOfSupply ?? null,
     amountPaid: '0',
     balanceDue: totals.balanceDue,
     paymentTermsDays,
@@ -224,6 +231,7 @@ export async function generateRecurringInvoice(
     productId: item.productId || null,
     sortOrder: idx,
     taxCode: item.taxCode || null,
+    hsnSac: item.hsnSac || null,
     taxUse: item.taxUse || null,
     taxIncluded: item.taxIncluded ?? false,
     classId: item.classId || null,

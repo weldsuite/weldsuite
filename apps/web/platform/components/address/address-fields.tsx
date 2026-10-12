@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { countryOptions } from './countries';
 import { US_STATES, toUsStateCode } from './us-states';
+import { IN_STATES, findInState, toInStateName } from './in-states';
 import type { PostalAddress } from './postal-address';
 
 const NO_COUNTRY = '__none__';
@@ -29,7 +30,10 @@ interface AddressFieldsProps {
 /**
  * Postal address inputs in the shared `PostalAddress` shape. When the country
  * is the United States the region becomes a state picker (50 states + DC,
- * stored as the USPS code) and the postal code is labelled "ZIP code".
+ * stored as the USPS code) and the postal code is labelled "ZIP code". For
+ * India it is a picker of the GST states and union territories (stored as the
+ * state's name; the GST state code, which decides an invoice's place of
+ * supply, is read from it).
  */
 export function AddressFields({ value, onChange, idPrefix, disabled, className }: Readonly<AddressFieldsProps>) {
   const { t, language } = useI18n();
@@ -37,6 +41,7 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
   const address = value ?? {};
   const country = address.country?.trim().toUpperCase() ?? '';
   const isUs = country === 'US';
+  const isIn = country === 'IN';
 
   const countries = useMemo(() => countryOptions(language || 'en'), [language]);
 
@@ -45,12 +50,14 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
   const handleCountryChange = (next: string) => {
     const code = next === NO_COUNTRY ? '' : next;
     // Moving to the US: turn a typed state name into its USPS code so the picker shows it.
-    const state = code === 'US' ? toUsStateCode(address.state) : address.state;
+    let state = address.state;
+    if (code === 'US') state = toUsStateCode(address.state);
+    else if (code === 'IN') state = toInStateName(address.state);
     update({ country: code, state: state ?? '' });
   };
 
   const id = (field: string) => `${idPrefix}-${field}`;
-  const stateValue = isUs ? toUsStateCode(address.state) : address.state ?? '';
+  const stateValue = isUs ? toUsStateCode(address.state) : isIn ? (findInState(address.state)?.name ?? '') : address.state ?? '';
 
   return (
     <div className={cn('grid grid-cols-1 sm:grid-cols-2 gap-4', className)}>
@@ -100,6 +107,23 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
             <SelectContent>
               {US_STATES.map((s) => (
                 <SelectItem key={s.code} value={s.code}>
+                  {s.name} ({s.code})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : isIn ? (
+          <Select
+            value={stateValue || undefined}
+            onValueChange={(next) => update({ state: next })}
+            disabled={disabled}
+          >
+            <SelectTrigger id={id('state')}>
+              <SelectValue placeholder={ta.selectState} />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              {IN_STATES.map((s) => (
+                <SelectItem key={s.code} value={s.name}>
                   {s.name} ({s.code})
                 </SelectItem>
               ))}

@@ -18,11 +18,14 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { Loader2 } from 'lucide-react';
+import { AddressFields } from '@/components/address/address-fields';
+import { cleanPostalAddress, type PostalAddress } from '@/components/address/postal-address';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { weldbooksApi } from '@/lib/api/weldbooks-client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useRouter } from '@/lib/router';
+import { useI18n } from '@/lib/i18n/provider';
 
 interface Jurisdiction {
   code: string;
@@ -34,7 +37,7 @@ interface Jurisdiction {
 /** Example tax IDs and time zones; locale and currency come from the jurisdiction list. */
 const JURISDICTION_HINTS: Record<string, { vatHint: string; timezone: string }> = {
   NL: { vatHint: 'NL123456789B01', timezone: 'Europe/Amsterdam' },
-  IN: { vatHint: '27AABCU9603R1ZM', timezone: 'Asia/Kolkata' },
+  IN: { vatHint: '27AABCU9603R1ZN', timezone: 'Asia/Kolkata' },
 };
 
 function browserTimeZone(): string | undefined {
@@ -46,6 +49,14 @@ function browserTimeZone(): string | undefined {
 }
 
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
+
+/** The country of the business address that goes with a jurisdiction. */
+const ADDRESS_COUNTRY: Record<string, string> = { NL: 'NL', IN: 'IN' };
+
+/** A business address an invoice can print: street, city and country. */
+function isUsableAddress(address: PostalAddress): boolean {
+  return Boolean(address.line1?.trim() && address.city?.trim() && address.country?.trim());
+}
 
 const FALLBACK_JURISDICTIONS = [
   { code: 'NL', name: 'Netherlands' },
@@ -67,6 +78,8 @@ interface CreateEntityDialogProps {
 export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly<CreateEntityDialogProps>) {
   const t = useTranslations();
   const tus = useDocumentTexts().createEntity;
+  const { t: tr } = useI18n();
+  const tin = tr.weldbooksIn.address;
   const router = useRouter();
   const queryClient = useQueryClient();
   const { setEntityId } = useCurrentAccountingEntity();
@@ -75,6 +88,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   const [jurisdictionCode, setJurisdictionCode] = useState('NL');
   const [baseCurrency, setBaseCurrency] = useState('EUR');
   const [vatNumber, setVatNumber] = useState('');
+  const [address, setAddress] = useState<PostalAddress>({ country: ADDRESS_COUNTRY.NL });
 
   const { data: jurisdictions = [] } = useQuery<Jurisdiction[]>({
     queryKey: ['accounting', 'jurisdictions'],
@@ -99,6 +113,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
         locale: selectedJurisdiction?.defaultLocale,
         timezone: JURISDICTION_HINTS[jurisdictionCode]?.timezone ?? browserTimeZone(),
         taxIdentifiers: vatNumber ? { vatNumber } : undefined,
+        address: cleanPostalAddress(address),
         isDefault: true,
         seedDefaults: true,
       });
@@ -109,6 +124,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
       queryClient.invalidateQueries({ queryKey: ['accounting'] });
       setName('');
       setVatNumber('');
+      setAddress({ country: ADDRESS_COUNTRY[jurisdictionCode] ?? '' });
       onOpenChange(false);
     },
   });
@@ -129,7 +145,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>
             {firstEntity ? t('sweep.weldbooks.createEntity.welcomeTitle') : t('sweep.weldbooks.createEntity.newEntityTitle')}
@@ -144,7 +160,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
               id="entity-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="WeldCorp BV"
+              placeholder={jurisdictionCode === 'IN' ? 'WeldCorp Pvt Ltd' : 'WeldCorp BV'}
               autoFocus
             />
           </div>
@@ -159,6 +175,11 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
                   setJurisdictionCode(v);
                   const currency = jurisdictions.find((j) => j.code === v)?.defaultCurrency;
                   if (currency) setBaseCurrency(currency);
+                  // The address country follows the jurisdiction until the user picks another one.
+                  const previous = ADDRESS_COUNTRY[jurisdictionCode];
+                  if (!address.country || address.country === previous) {
+                    setAddress({ ...address, country: ADDRESS_COUNTRY[v] ?? address.country, state: '' });
+                  }
                 }}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -212,6 +233,17 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
             />
           </div>
           )}
+
+          {!isUs && (
+            <div className="space-y-3 rounded-md border border-border p-3" data-testid="entity-address">
+              <div>
+                <p className="text-sm font-medium">{tin.title}</p>
+                <p className="text-xs text-muted-foreground">{tin.description}</p>
+              </div>
+              <AddressFields idPrefix="create-entity-address" value={address} onChange={setAddress} />
+              {!isUsableAddress(address) && <p className="text-xs text-muted-foreground">{tin.required}</p>}
+            </div>
+          )}
         </div>
 
         {createMutation.isError ? (
@@ -227,7 +259,7 @@ export function CreateEntityDialog({ open, onOpenChange, firstEntity }: Readonly
           {isUs ? (
             <Button onClick={startUsSetup}>{tus.usButton}</Button>
           ) : (
-            <Button onClick={() => createMutation.mutate()} disabled={!name || createMutation.isPending}>
+            <Button onClick={() => createMutation.mutate()} disabled={!name || !isUsableAddress(address) || createMutation.isPending}>
               {createMutation.isPending ? (
                 <><Loader2 className="h-4 w-4 mr-1 animate-spin" />{t('sweep.weldbooks.createEntity.creating')}</>
               ) : (

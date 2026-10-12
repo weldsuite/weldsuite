@@ -22,6 +22,7 @@ import {
 } from './accounting-reports-basis';
 import type { DateRange, ReportColumn } from './accounting-report-periods';
 import { roundMoney } from './accounting-posting';
+import { toBaseCurrency } from './accounting-currency';
 import { withContactNames } from '../lib/contact-snapshot';
 
 // ---------------------------------------------------------------------------
@@ -165,7 +166,7 @@ function byCode(a: { code: string; name: string }, b: { code: string; name: stri
 
 export type ProfitLossSection = 'income' | 'cost_of_goods_sold' | 'expense' | 'other_income' | 'other_expense';
 
-const COGS_SUBTYPE = /^cost_of_(goods_sold|sales)$|^cogs$/i;
+const COGS_SUBTYPE = /^cost_of_(goods_sold|goods|sales)$|^cogs$/i;
 /** Income below the operating line: other and interest income. Expenses below it: other expense and income tax. */
 const OTHER_INCOME_SUBTYPE = /^(other_income|interest_income)$/i;
 const OTHER_EXPENSE_SUBTYPE = /^(other_expense|tax_expense)$/i;
@@ -617,7 +618,23 @@ export interface AgedReport {
 
 const NOT_OPEN_STATUSES = ['draft', 'cancelled', 'void', 'paid', 'uncollectible', 'written_off'];
 
-/** Open invoices (receivables) or bills (payables) aged by due date as of a day. */
+/**
+ * A document balance in the entity's base currency. Documents carry their own
+ * currency and a rate in foreign units per base unit (see journal-entries
+ * schema), so base = balance / rate. Aged totals add up across documents, so
+ * they have to be in one currency.
+ */
+export function balanceInBase(
+  balance: number,
+  doc: { currency: string | null; exchangeRate: string | null },
+  baseCurrency: string,
+): number {
+  if (!doc.currency || doc.currency === baseCurrency) return balance;
+  const rate = Number.parseFloat(doc.exchangeRate ?? '1');
+  return Number.isFinite(rate) && rate > 0 ? toBaseCurrency(balance, rate) : balance;
+}
+
+/** Open invoices (receivables) or bills (payables) aged by due date as of a day, in the entity's base currency. */
 export async function buildAgedReport(
   db: Database,
   entityId: string,
@@ -626,6 +643,12 @@ export async function buildAgedReport(
 ): Promise<AgedReport> {
   const documents: AgedDocument[] = [];
   const toDay = (d: Date) => d.toISOString().slice(0, 10);
+  const [entity] = await db
+    .select({ baseCurrency: schema.entities.baseCurrency })
+    .from(schema.entities)
+    .where(eq(schema.entities.id, entityId))
+    .limit(1);
+  const baseCurrency = entity?.baseCurrency ?? 'EUR';
 
   if (kind === 'receivables') {
     const { invoices } = schema;
@@ -654,7 +677,7 @@ export async function buildAgedReport(
         dueDate: toDay(r.dueDate),
         daysPastDue: days,
         bucket: bucketOf(days),
-        balance: money(sign * Number.parseFloat(r.balanceDue ?? '0')),
+        balance: money(sign * balanceInBase(Number.parseFloat(r.balanceDue ?? '0'), r, baseCurrency)),
       });
     }
   } else {
@@ -683,7 +706,7 @@ export async function buildAgedReport(
         dueDate: toDay(r.dueDate),
         daysPastDue: days,
         bucket: bucketOf(days),
-        balance: money(sign * Number.parseFloat(r.balanceDue ?? '0')),
+        balance: money(sign * balanceInBase(Number.parseFloat(r.balanceDue ?? '0'), r, baseCurrency)),
       });
     }
   }

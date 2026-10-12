@@ -1,7 +1,17 @@
 import { useMemo, useState } from 'react';
-import { CalendarRange, Loader2 } from 'lucide-react';
+import { CalendarRange, Loader2, Lock, LockOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@weldsuite/ui/components/alert-dialog';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
@@ -23,8 +33,12 @@ import {
   TableRow,
 } from '@weldsuite/ui/components/table';
 import { PageLoader } from '@/components/page-loader';
-import { useFiscalCalendar, useGenerateFiscalPeriods } from '@/hooks/queries/use-weldbooks-assets-queries';
-import type { GenerateFiscalPeriodsResult } from '@/lib/api/domains/weldbooks-assets';
+import {
+  useFiscalCalendar,
+  useGenerateFiscalPeriods,
+  useSetFiscalPeriodStatus,
+} from '@/hooks/queries/use-weldbooks-assets-queries';
+import type { GenerateFiscalPeriodsResult, PlannedFiscalPeriod } from '@/lib/api/domains/weldbooks-assets';
 import { useI18n } from '@/lib/i18n/provider';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { errorMessage, fill } from '../fixed-assets/text';
@@ -45,6 +59,9 @@ export default function FiscalPeriodsPage() {
   const [includeYear, setIncludeYear] = useState(false);
   const [generated, setGenerated] = useState<GenerateFiscalPeriodsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ period: PlannedFiscalPeriod; action: 'close' | 'reopen' } | null>(null);
+  const setStatus = useSetFiscalPeriodStatus();
+  const canChangeStatus = can('reports:update');
 
   const params = useMemo(() => ({ fiscalYear, includeQuarters, includeYear }), [fiscalYear, includeQuarters, includeYear]);
   const calendar = useFiscalCalendar(params);
@@ -66,6 +83,22 @@ export default function FiscalPeriodsPage() {
       toast.success(fill(tf.generatedToast, { count: result.created.length }));
     } catch (err) {
       setError(errorMessage(err));
+    }
+  };
+
+  const changeStatus = async () => {
+    if (!confirm?.period.existingId) return;
+    const { period, action } = confirm;
+    setError(null);
+    try {
+      await setStatus.mutateAsync({ id: period.existingId!, action });
+      toast.success(fill(action === 'close' ? tf.closedToast : tf.reopenedToast, { period: period.name }));
+    } catch (err) {
+      const message = errorMessage(err);
+      setError(message);
+      toast.error(action === 'close' ? tf.closeFailed : tf.reopenFailed, { description: message });
+    } finally {
+      setConfirm(null);
     }
   };
 
@@ -115,6 +148,7 @@ export default function FiscalPeriodsPage() {
                 <TableHead>{tf.columns.dates}</TableHead>
                 {weekBased ? <TableHead className="text-right">{tf.columns.weeks}</TableHead> : null}
                 <TableHead>{tf.columns.status}</TableHead>
+                {canChangeStatus ? <TableHead className="text-right">{tf.columns.actions}</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -131,8 +165,54 @@ export default function FiscalPeriodsPage() {
                     </TableCell>
                   ) : null}
                   <TableCell>
-                    <Badge variant={period.existingId ? 'success' : 'outline'}>{period.existingId ? tf.exists : tf.toCreate}</Badge>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {period.existingId ? (
+                        period.existingStatus ? (
+                          <Badge
+                            variant={period.existingStatus === 'closed' ? 'secondary' : 'success'}
+                            data-testid={`fiscal-status-${period.name}`}
+                          >
+                            {period.existingStatus === 'closed' ? tf.statuses.closed : tf.statuses.open}
+                          </Badge>
+                        ) : (
+                          <Badge variant="success">{tf.exists}</Badge>
+                        )
+                      ) : (
+                        <Badge variant="outline">{tf.toCreate}</Badge>
+                      )}
+                      {period.locked ? (
+                        <Badge variant="warning" title={tf.lockedHelp}>
+                          {tf.statuses.locked}
+                        </Badge>
+                      ) : null}
+                    </div>
                   </TableCell>
+                  {canChangeStatus ? (
+                    <TableCell className="text-right">
+                      {period.existingId && period.existingStatus === 'open' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setConfirm({ period, action: 'close' })}
+                          data-testid={`fiscal-close-${period.name}`}
+                        >
+                          <Lock className="h-4 w-4" aria-hidden />
+                          {tf.close}
+                        </Button>
+                      ) : null}
+                      {period.existingId && period.existingStatus === 'closed' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setConfirm({ period, action: 'reopen' })}
+                          data-testid={`fiscal-reopen-${period.name}`}
+                        >
+                          <LockOpen className="h-4 w-4" aria-hidden />
+                          {tf.reopen}
+                        </Button>
+                      ) : null}
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>
@@ -204,6 +284,30 @@ export default function FiscalPeriodsPage() {
       ) : null}
 
       {body}
+
+      <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {fill(confirm?.action === 'reopen' ? tf.reopenTitle : tf.closeTitle, { period: confirm?.period.name ?? '' })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{confirm?.action === 'reopen' ? tf.reopenDesc : tf.closeDesc}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{tf.cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void changeStatus();
+              }}
+              disabled={setStatus.isPending}
+              data-testid="fiscal-confirm"
+            >
+              {confirm?.action === 'reopen' ? tf.reopen : tf.close}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

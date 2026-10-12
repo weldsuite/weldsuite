@@ -35,7 +35,7 @@ export default function GeneralLedgerReportPage() {
   const [page, setPage] = useState(1);
   const { rangeLabel } = useReportHeadings();
 
-  const accountsQuery = useAccountingAccounts();
+  const accountsQuery = useAccountingAccounts({ includeInactive: true });
   const accounts = useMemo(
     () => [...(accountsQuery.data?.data ?? [])].sort((a, b) => a.code.localeCompare(b.code, 'en', { numeric: true })),
     [accountsQuery.data],

@@ -41,20 +41,21 @@ export const nlChartOfAccounts: ChartOfAccountsTemplateRow[] = [
   { code: '0530', name: 'Onverdeelde winst', type: 'equity', subtype: 'retained_earnings', normalSide: 'credit', isSystemAccount: true, systemRole: 'retained_earnings' },
   { code: '0540', name: 'Privé', type: 'equity', subtype: 'capital', normalSide: 'debit' },
 
-  // Revenue
-  { code: '8000', name: 'Omzet', type: 'revenue', subtype: 'other_income', normalSide: 'credit', isSystemAccount: true, systemRole: 'sales_revenue' },
-  { code: '8010', name: 'Omzet producten', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
-  { code: '8020', name: 'Omzet diensten', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
-  { code: '8030', name: 'Omzet abonnementen', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
+  // Revenue. Operating revenue carries a sales / service_revenue subtype; only 8100-8400
+  // are `other_income`, which the profit & loss shows below the operating line.
+  { code: '8000', name: 'Omzet', type: 'revenue', subtype: 'sales', normalSide: 'credit', isSystemAccount: true, systemRole: 'sales_revenue' },
+  { code: '8010', name: 'Omzet producten', type: 'revenue', subtype: 'sales', normalSide: 'credit' },
+  { code: '8020', name: 'Omzet diensten', type: 'revenue', subtype: 'service_revenue', normalSide: 'credit' },
+  { code: '8030', name: 'Omzet abonnementen', type: 'revenue', subtype: 'service_revenue', normalSide: 'credit' },
   { code: '8100', name: 'Overige opbrengsten', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
   { code: '8200', name: 'Financiële baten', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
   { code: '8300', name: 'Buitengewone baten', type: 'revenue', subtype: 'other_income', normalSide: 'credit' },
   { code: '8400', name: 'Koerswinst', type: 'revenue', subtype: 'other_income', normalSide: 'credit', isSystemAccount: true, systemRole: 'realized_fx_gain' },
-  { code: '8500', name: 'Korting gegeven', type: 'revenue', subtype: 'other_income', normalSide: 'debit' },
+  { code: '8500', name: 'Korting gegeven', type: 'revenue', subtype: 'sales', normalSide: 'debit' },
 
   // Expenses
-  { code: '4000', name: 'Inkoopkosten', type: 'expense', subtype: 'cost_of_goods', normalSide: 'debit' },
-  { code: '4010', name: 'Inkoop producten', type: 'expense', subtype: 'cost_of_goods', normalSide: 'debit' },
+  { code: '4000', name: 'Inkoopkosten', type: 'expense', subtype: 'cost_of_goods_sold', normalSide: 'debit' },
+  { code: '4010', name: 'Inkoop producten', type: 'expense', subtype: 'cost_of_goods_sold', normalSide: 'debit' },
   { code: '4100', name: 'Personeelskosten', type: 'expense', subtype: 'operating_expense', normalSide: 'debit' },
   { code: '4110', name: 'Lonen en salarissen', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'payroll_wages_expense' },
   { code: '4120', name: 'Sociale lasten', type: 'expense', subtype: 'operating_expense', normalSide: 'debit', systemRole: 'payroll_tax_expense' },

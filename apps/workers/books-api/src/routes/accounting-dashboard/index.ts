@@ -7,20 +7,53 @@
  * accounting entity via `resolveEntityId` (X-Accounting-Entity-Id header →
  * `?entityId=` query param → workspace default entity).
  *
+ * Every money figure is in the entity's base currency (returned as
+ * `currency`):
+ *   - revenue / expenses / profit and the monthly trend come from the ledger,
+ *     the same profit & loss the report shows (net of VAT, posted entries
+ *     only, the entity's accounting basis);
+ *   - receivables / payables are the aged-receivables / aged-payables
+ *     documents: posted only, credit notes reduce the total, balances
+ *     converted at the document's exchange rate. Overdue leaves credit notes out.
+ *
  * Read-only — no mutations, no entity events.
  *
  * Permissions: reports:read.
  */
 
 import { Hono } from 'hono';
-import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, lte, notInArray, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
 import { resolveEntityId } from '../../lib/entity-context';
+import { createLedger, resolveBasis } from '../../services/accounting-reports-basis';
+import { balanceInBase, buildAgedReport, buildProfitLoss, money } from '../../services/accounting-reports';
+import { todayFor, type ReportColumn } from '../../services/accounting-report-periods';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/** Documents that are not posted to the ledger: they are no revenue, expense, receivable or payable. */
+const UNPOSTED_STATUSES = ['draft', 'cancelled', 'void'];
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const lastDayOf = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+/** `YYYY-MM` columns for the last `count` calendar months ending with the month of `today`. */
+function monthColumns(today: string, count: number): ReportColumn[] {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const columns: ReportColumn[] = [];
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(year, month - 1 - i, 1));
+    const y = d.getUTCFullYear();
+    const m = d.getUTCMonth() + 1;
+    const key = `${y}-${pad(m)}`;
+    columns.push({ key, label: key, from: `${key}-01`, to: `${key}-${pad(lastDayOf(y, m))}` });
+  }
+  return columns;
+}
 
 // ---------------------------------------------------------------------------
 // GET / — dashboard aggregates
@@ -32,116 +65,62 @@ app.get('/', requirePermission('reports:read'), async (c) => {
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
 
-    const { invoices, bills, bankAccounts, payments, documents } = schema;
+    const { invoices, bankAccounts, payments, documents, entities } = schema;
+
+    const [entity] = await db
+      .select()
+      .from(entities)
+      .where(and(eq(entities.id, entityId), isNull(entities.deletedAt)))
+      .limit(1);
+    if (!entity) return error.notFound(c, 'Accounting entity', entityId);
+    const baseCurrency = entity.baseCurrency;
 
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const today = todayFor(entity, now);
+    const year = Number(today.slice(0, 4));
+    const monthStart = new Date(Date.UTC(year, Number(today.slice(5, 7)) - 1, 1));
 
-    // Revenue this month
-    const [revenueMonth] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${invoices.total}::numeric), 0)`,
-        count: sql<number>`count(*)::int`,
-      })
+    // Revenue, expenses and profit: the ledger's profit & loss.
+    const trend = monthColumns(today, 12);
+    const currentMonth = trend[trend.length - 1];
+    const yearColumn: ReportColumn = { key: 'year', label: String(year), from: `${year}-01-01`, to: `${year}-12-31` };
+    const basis = await resolveBasis(db, entity, null);
+    const ledger = await createLedger(db, { entityId, basis, upTo: new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999)) });
+    const profitLoss = await buildProfitLoss(ledger, [...trend, yearColumn], { from: trend[0].from!, to: yearColumn.to });
+    const revenueRow = profitLoss.totals.totalRevenue.values;
+    const expensesRow = profitLoss.totals.totalExpenses.values;
+    const profitRow = profitLoss.totals.netProfit.values;
+
+    // Posted standard invoices issued this month.
+    const [issuedThisMonth] = await db
+      .select({ count: sql<number>`count(*)::int` })
       .from(invoices)
       .where(
         and(
           eq(invoices.entityId, entityId),
           isNull(invoices.deletedAt),
-          gte(invoices.issueDate, startOfMonth),
+          gte(invoices.issueDate, monthStart),
           eq(invoices.type, 'standard'),
+          notInArray(invoices.status, UNPOSTED_STATUSES),
         ),
       );
 
-    // Revenue this year
-    const [revenueYear] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${invoices.total}::numeric), 0)`,
-      })
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.entityId, entityId),
-          isNull(invoices.deletedAt),
-          gte(invoices.issueDate, startOfYear),
-          eq(invoices.type, 'standard'),
-        ),
-      );
-
-    // Expenses this month
-    const [expensesMonth] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${bills.total}::numeric), 0)`,
-      })
-      .from(bills)
-      .where(
-        and(
-          eq(bills.entityId, entityId),
-          isNull(bills.deletedAt),
-          gte(bills.issueDate, startOfMonth),
-        ),
-      );
-
-    // Expenses this year
-    const [expensesYear] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${bills.total}::numeric), 0)`,
-      })
-      .from(bills)
-      .where(
-        and(
-          eq(bills.entityId, entityId),
-          isNull(bills.deletedAt),
-          gte(bills.issueDate, startOfYear),
-        ),
-      );
-
-    // Outstanding receivables
-    const [receivables] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${invoices.balanceDue}::numeric), 0)`,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.entityId, entityId),
-          isNull(invoices.deletedAt),
-          sql`${invoices.balanceDue}::numeric > 0`,
-        ),
-      );
-
-    // Overdue receivables
-    const [overdueReceivables] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${invoices.balanceDue}::numeric), 0)`,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.entityId, entityId),
-          isNull(invoices.deletedAt),
-          sql`${invoices.balanceDue}::numeric > 0`,
-          lte(invoices.dueDate, now),
-        ),
-      );
-
-    // Outstanding payables
-    const [payables] = await db
-      .select({
-        total: sql<string>`coalesce(sum(${bills.balanceDue}::numeric), 0)`,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(bills)
-      .where(
-        and(
-          eq(bills.entityId, entityId),
-          isNull(bills.deletedAt),
-          sql`${bills.balanceDue}::numeric > 0`,
-        ),
-      );
+    // Receivables and payables: the aged reports' documents, in base currency.
+    const [agedReceivables, agedPayables] = await Promise.all([
+      buildAgedReport(db, entityId, 'receivables', today),
+      buildAgedReport(db, entityId, 'payables', today),
+    ]);
+    const summarize = (report: typeof agedReceivables) => {
+      const overdue = report.documents.filter((d) => d.daysPastDue > 0 && Number(d.balance) > 0);
+      return {
+        outstanding: report.total,
+        outstandingCount: report.documents.length,
+        overdue: money(overdue.reduce((total, d) => total + Number(d.balance), 0)),
+        overdueCount: overdue.length,
+      };
+    };
+    const receivables = summarize(agedReceivables);
+    const payables = summarize(agedPayables);
 
     // Bank balances (entity-scoped)
     const bankAccountsList = await db
@@ -170,15 +149,17 @@ app.get('/', requirePermission('reports:read'), async (c) => {
       .orderBy(desc(payments.date))
       .limit(10);
 
-    // Upcoming due invoices (next 30 days)
+    // Upcoming due invoices (next 30 days): posted, no credit notes, in base currency
     const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const upcomingDue = await db
+    const upcomingRows = await db
       .select({
         id: invoices.id,
         invoiceNumber: invoices.invoiceNumber,
         contactName: invoices.contactName,
         dueDate: invoices.dueDate,
         balanceDue: invoices.balanceDue,
+        currency: invoices.currency,
+        exchangeRate: invoices.exchangeRate,
       })
       .from(invoices)
       .where(
@@ -186,12 +167,18 @@ app.get('/', requirePermission('reports:read'), async (c) => {
           eq(invoices.entityId, entityId),
           isNull(invoices.deletedAt),
           sql`${invoices.balanceDue}::numeric > 0`,
+          notInArray(invoices.status, [...UNPOSTED_STATUSES, 'paid', 'uncollectible', 'written_off']),
+          notInArray(invoices.type, ['credit_note', 'proforma']),
           lte(invoices.dueDate, thirtyDaysFromNow),
           gte(invoices.dueDate, now),
         ),
       )
       .orderBy(invoices.dueDate)
       .limit(10);
+    const upcomingDue = upcomingRows.map(({ currency, exchangeRate, ...row }) => ({
+      ...row,
+      balanceDue: money(balanceInBase(Number(row.balanceDue ?? 0), { currency, exchangeRate }, baseCurrency)),
+    }));
 
     // Pending documents
     const [pendingDocs] = await db
@@ -205,53 +192,28 @@ app.get('/', requirePermission('reports:read'), async (c) => {
         ),
       );
 
-    // Monthly revenue trend (last 12 months)
-    const monthlyRevenue = await db
-      .select({
-        month: sql<string>`to_char(${invoices.issueDate}, 'YYYY-MM')`,
-        total: sql<string>`coalesce(sum(${invoices.total}::numeric), 0)`,
-      })
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.entityId, entityId),
-          isNull(invoices.deletedAt),
-          gte(invoices.issueDate, new Date(now.getFullYear() - 1, now.getMonth(), 1)),
-          eq(invoices.type, 'standard'),
-        ),
-      )
-      .groupBy(sql`to_char(${invoices.issueDate}, 'YYYY-MM')`)
-      .orderBy(sql`to_char(${invoices.issueDate}, 'YYYY-MM')`);
-
     return success(c, {
+      currency: baseCurrency,
       revenue: {
-        month: revenueMonth.total,
-        year: revenueYear.total,
-        invoiceCount: revenueMonth.count,
+        month: revenueRow[currentMonth.key],
+        year: revenueRow.year,
+        invoiceCount: issuedThisMonth.count,
       },
       expenses: {
-        month: expensesMonth.total,
-        year: expensesYear.total,
+        month: expensesRow[currentMonth.key],
+        year: expensesRow.year,
       },
       profit: {
-        month: String(Number.parseFloat(revenueMonth.total) - Number.parseFloat(expensesMonth.total)),
-        year: String(Number.parseFloat(revenueYear.total) - Number.parseFloat(expensesYear.total)),
+        month: profitRow[currentMonth.key],
+        year: profitRow.year,
       },
-      receivables: {
-        outstanding: receivables.total,
-        outstandingCount: receivables.count,
-        overdue: overdueReceivables.total,
-        overdueCount: overdueReceivables.count,
-      },
-      payables: {
-        outstanding: payables.total,
-        outstandingCount: payables.count,
-      },
+      receivables,
+      payables,
       bankAccounts: bankAccountsList,
       recentPayments,
       upcomingDue,
       pendingDocuments: pendingDocs.count,
-      monthlyRevenue,
+      monthlyRevenue: trend.map((column) => ({ month: column.key, total: revenueRow[column.key] })),
     });
   } catch (err) {
     console.error('[app-api/accounting-dashboard] get failed:', err);

@@ -1,0 +1,133 @@
+/**
+ * WeldBooks India: GST on invoices (place of supply, HSN/SAC, CGST/SGST/IGST
+ * split), the entity's business address and the GST return worksheet.
+ * Placeholders are written `{name}`. Reached as `t.weldbooksIn`.
+ */
+export const weldbooksIn = {
+  gst: {
+    placeOfSupply: 'Place of supply',
+    placeOfSupplyAuto: 'Automatic',
+    placeOfSupplyAutoWith: 'Automatic: {place}',
+    placeOfSupplyOutside: 'Outside India (96)',
+    placeOfSupplyHelp:
+      'The state the supply is made in. It decides CGST + SGST (your own state) or IGST (another state). By default it follows the customer\'s GSTIN, then the state of the address.',
+    placeOfSupplyUnknown:
+      'Not known yet: choose the place of supply, or add the customer\'s GSTIN or address state. GST cannot be split into CGST + SGST or IGST (and the invoice cannot be finalized) without it.',
+    hsnSac: 'HSN/SAC',
+    hsnSacPlaceholder: 'e.g. 998313',
+    hsnSacHelp: 'HSN (goods) or SAC (services) code of 4 to 8 digits, printed on the tax invoice.',
+    hsnSacInvalid: 'HSN/SAC must be 4 to 8 digits',
+    splitTitle: 'GST split',
+    splitRow: '{label} {rate}% on {amount}',
+    components: {
+      cgst: 'CGST',
+      sgst: 'SGST',
+      utgst: 'UTGST',
+      igst: 'IGST',
+      export: 'Export (zero-rated)',
+      other: 'GST',
+    },
+  },
+
+  address: {
+    title: 'Business address',
+    description:
+      'Printed on every invoice and used as your place of supply. An invoice cannot be finalized without it.',
+    required: 'Enter the street, city and country.',
+  },
+
+  gstReturn: {
+    title: 'GST return',
+    description:
+      'GSTR-1 and GSTR-3B summary for a period, worked out from your tax ledger. Check the figures here before you file on the GST portal. Nothing is submitted from WeldBooks.',
+    periodStart: 'From',
+    periodEnd: 'To',
+    thisMonth: 'This month',
+    lastMonth: 'Last month',
+    thisQuarter: 'This quarter',
+    gstin: 'GSTIN',
+    stateCode: 'State code',
+    loading: 'Calculating the worksheet…',
+    loadFailed: 'The GST worksheet could not be calculated.',
+    retry: 'Try again',
+    worksheetOnly: 'Worksheet only: it is not filed with the GST portal.',
+    tabs: {
+      gstr3b: 'GSTR-3B summary',
+      gstr1: 'GSTR-1 outward supplies',
+      hsn: 'HSN/SAC summary',
+    },
+    columns: {
+      taxableValue: 'Taxable value',
+      igst: 'IGST',
+      cgst: 'CGST',
+      sgst: 'SGST/UTGST',
+      cess: 'Cess',
+      total: 'Total',
+      gstin: 'GSTIN',
+      customer: 'Customer',
+      invoice: 'Invoice',
+      date: 'Date',
+      value: 'Invoice value',
+      placeOfSupply: 'Place of supply',
+      rate: 'Rate',
+      hsnSac: 'HSN/SAC',
+      unit: 'UQC',
+      quantity: 'Quantity',
+      originalInvoice: 'Credited invoice',
+      category: 'Category',
+      intraRegistered: 'Intra-state, registered',
+      intraUnregistered: 'Intra-state, unregistered',
+      interRegistered: 'Inter-state, registered',
+      interUnregistered: 'Inter-state, unregistered',
+    },
+    gstr3b: {
+      outwardTitle: '3.1 Outward supplies and inward supplies liable to reverse charge',
+      outwardTaxable: '(a) Outward taxable supplies (other than zero rated, nil rated and exempted)',
+      zeroRated: '(b) Outward taxable supplies (zero rated)',
+      nilExempt: '(c) Other outward supplies (nil rated, exempted)',
+      reverseCharge: '(d) Inward supplies liable to reverse charge',
+      interStateTitle: '3.2 Inter-state supplies to unregistered persons',
+      interStateEmpty: 'No inter-state supplies to unregistered persons in this period.',
+      itcTitle: '4 Eligible input tax credit',
+      itcOther: '(A)(5) All other ITC',
+      itcReverseCharge: '(A)(3) Inward supplies liable to reverse charge',
+      itcTotal: 'Total ITC available',
+      paymentTitle: '6.1 Payment of tax',
+      liability: 'Tax payable on outward supplies',
+      reverseChargeLiability: 'Tax payable under reverse charge (cash only)',
+      creditUsed: 'Paid through ITC',
+      netPayable: 'Net payable in cash',
+      carryForward: 'ITC carried forward',
+      totalNetPayable: 'Total payable in cash',
+    },
+    gstr1: {
+      b2bTitle: 'B2B supplies to registered persons (table 4)',
+      b2bEmpty: 'No supplies to registered persons in this period.',
+      b2cLargeTitle: 'B2C inter-state supplies above 2.5 lakh (table 5)',
+      b2cSmallTitle: 'B2C supplies by place of supply (table 7)',
+      b2cEmpty: 'No supplies to unregistered persons in this period.',
+      exportsTitle: 'Exports (table 6A)',
+      exportsEmpty: 'No exports in this period.',
+      nilExemptTitle: 'Nil rated and exempted supplies (table 8)',
+      nilRated: 'Nil rated',
+      exempt: 'Exempted',
+      creditNotesTitle: 'Credit notes (table 9B)',
+      creditNotesEmpty: 'No credit notes in this period.',
+      totalsTitle: 'Totals of outward supplies',
+    },
+    hsn: {
+      title: 'HSN/SAC summary of outward supplies (table 12)',
+      empty: 'No invoice lines in this period.',
+      notSpecified: 'Not specified',
+    },
+    unknownPlace: 'Unknown',
+    warnings: {
+      unsplit_tax:
+        'GST of {amount} was booked at a slab rate without a CGST/SGST/IGST split because the place of supply was not known. It is in none of the heads below. Set the place of supply on those invoices.',
+      missing_hsn: '{count} invoice lines have no HSN/SAC code. Add the codes before you file table 12.',
+      missing_place_of_supply: '{count} invoices have no place of supply recorded.',
+      tax_on_other_documents:
+        '{count} tax ledger rows from journal entries or other documents are in the totals but not in the invoice tables.',
+    },
+  },
+};

@@ -18,6 +18,7 @@ type Variant = NonNullable<BadgeProps['variant']>;
 
 const INVOICE_VARIANTS: Record<InvoiceStatus, Variant> = {
   draft: 'secondary',
+  finalized: 'default',
   sent: 'default',
   viewed: 'default',
   partially_paid: 'warning',
@@ -58,7 +59,7 @@ export function InvoiceStatusBadge({
   const { t } = useI18n();
   // app-api never returns `overdue`; derive it so the pill matches the platform.
   const derived: InvoiceStatus =
-    (status === 'sent' || status === 'viewed' || status === 'partially_paid') &&
+    (status === 'finalized' || status === 'sent' || status === 'viewed' || status === 'partially_paid') &&
     isOverdue(dueDate, toNumber(balanceDue))
       ? 'overdue'
       : status;

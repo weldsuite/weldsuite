@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
 import { useI18n } from '@/lib/i18n/provider';
+import { formatWeldbooksNumber } from './format-money';
 import {
   formatWeldbooksDate,
   formatWeldbooksDateTime,
@@ -50,11 +51,18 @@ export function useWeldbooksFormat() {
 
   const today = useCallback(() => localToday(timeZone), [timeZone]);
 
+  /** Quantities and rates without trailing zeros, in the entity's locale. */
+  const formatNumber = useCallback(
+    (value: number | string | null | undefined) => formatWeldbooksNumber(value, dateLocale),
+    [dateLocale],
+  );
+
   return {
     formatMoney,
     formatDate,
     formatDateTime,
     formatMonth,
+    formatNumber,
     today,
     currency,
     entityCurrency,

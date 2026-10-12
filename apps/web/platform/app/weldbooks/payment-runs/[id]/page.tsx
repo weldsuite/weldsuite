@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/componen
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import {
   useApprovePaymentRun,
   useCancelPaymentRun,
@@ -46,6 +47,7 @@ export default function PaymentRunDetailPage() {
   const { can } = usePermissions();
   const { userId } = useAuth();
   const nameOf = useMemberNames();
+  const { formatDate } = useWeldbooksFormat();
 
   const { data: run, isLoading, isError, error, refetch } = usePaymentRun(id);
   const canCreate = can('banking:create');
@@ -115,7 +117,7 @@ export default function PaymentRunDetailPage() {
   return (
     <PaymentRunsFrame
       title={td.title}
-      subtitle={run.bankAccountName ? `${run.bankAccountName} · ${run.id}` : run.id}
+      subtitle={[run.bankAccountName, tp.methods[run.method], formatDate(run.paymentDate)].filter(Boolean).join(' · ')}
       actions={
         <Button asChild variant="outline" size="sm">
           <Link to="/weldbooks/payment-runs">

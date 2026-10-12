@@ -46,6 +46,7 @@ export default function BillsPage() {
   const { t } = useI18n();
   const { formatMoney, formatDate } = useWeldbooksFormat();
   const tbp = t.accounting.billsPage;
+  const tsl = t.accounting.statusLabels.bill as Record<string, string>;
 
   const bills = (data?.data ?? []) as unknown as BillRow[];
 
@@ -102,7 +103,7 @@ export default function BillsPage() {
       id: 'status',
       header: tbp.colStatus,
       width: 'w-[140px]',
-      render: (bill) => <Badge variant={statusVariant(bill.status)}>{bill.status}</Badge>,
+      render: (bill) => <Badge variant={statusVariant(bill.status)}>{tsl[bill.status] ?? bill.status}</Badge>,
     },
   ];
 

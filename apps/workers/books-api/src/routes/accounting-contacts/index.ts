@@ -37,13 +37,24 @@
  * in `tax_id_reveals`); POST /:id/verify-bank-details (`banking:manage`)
  * lifts the payment hold that a bank-detail change puts on a vendor.
  *
- * Permissions: invoices:read | invoices:create | invoices:update | invoices:delete.
+ * Deleting is refused (409 CONTACT_IN_USE) once the contact is referenced by
+ * any document, payment, ledger line or 1099; POST /:id/archive and
+ * /:id/unarchive hide a contact from lists and pickers instead (lists take
+ * ?archived=only|include).
+ *
+ * Creating a person contact whose email belongs to another CRM person is
+ * refused (409 PERSON_EMAIL_EXISTS with `existingPerson`) unless that person is
+ * a bare mail identity or has the same name; the client then resubmits with
+ * `linkPersonId` or `createSeparatePerson: true`.
+ *
+ * Permissions: invoices:read | invoices:create | invoices:update; deleting and
+ * archiving take customers:delete|suppliers:delete and customers:update|suppliers:update.
  */
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
@@ -65,6 +76,9 @@ import {
   type PartySecretField,
 } from '../../services/vendor-tax-data';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
+import { validateGstin } from '@weldsuite/books-domain/jurisdictions/in';
+import { checkVatNumberFormat, ibanProblem, IBAN_LENGTHS, normalizeIban } from '@weldsuite/books-domain/identifiers';
+import { resolveEntityId } from '../../lib/entity-context';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import {
   createCompany,
@@ -76,9 +90,19 @@ import {
   PersonDuplicateEmailError,
   updatePerson,
 } from '@weldsuite/crm-domain/people';
+import { describeUsage, getContactUsage, usedReferences } from '../../services/contact-usage';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.parties;
+
+/**
+ * Deleting or archiving a contact is a decision about a customer or a
+ * supplier, so it takes the books' customer / supplier permissions (weldbooks
+ * `customers:*` and `suppliers:*`), not the invoice permissions that guard
+ * everything else on this surface.
+ */
+const CONTACT_DELETE_PERMISSIONS = ['customers:delete', 'suppliers:delete'] as const;
+const CONTACT_ARCHIVE_PERMISSIONS = ['customers:update', 'suppliers:update'] as const;
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 type PartyRow = typeof schema.parties.$inferSelect;
@@ -132,6 +156,14 @@ const createContactSchema = z.object({
     type: z.enum(['one-off', 'recurring']).optional(),
   }).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
+  /**
+   * Answers a 409 `PERSON_EMAIL_EXISTS`: a CRM person already has this email.
+   * `linkPersonId` makes the contact wrap that person (their existing facts
+   * stay, only empty fields are filled); `createSeparatePerson` creates a new
+   * person with the same email instead. Neither is ever assumed.
+   */
+  linkPersonId: z.string().max(30).optional(),
+  createSeparatePerson: z.boolean().optional(),
   ...vendorTaxFields,
 });
 
@@ -514,23 +546,70 @@ async function createIdentity(
   }
 
   const input = presentOnly(personIdentityInput(data));
+
+  // The user picked the person to link to.
+  if (data.linkPersonId) {
+    return linkExistingPerson(c, db, data.linkPersonId, input, primaryAddress);
+  }
+
   try {
-    const person = await createPerson(db, { ...input, primaryAddress, ownerId });
+    const person = await createPerson(
+      db,
+      { ...input, primaryAddress, ownerId },
+      { allowDuplicateEmail: data.createSeparatePerson === true },
+    );
     publishIdentityEvent(c, 'person', 'created', person);
     return { kind, companyId: null, personId: person.id, displayName: person.displayName };
   } catch (err) {
     if (!(err instanceof PersonDuplicateEmailError)) throw err;
-    return linkExistingPerson(c, db, err.existingPersonId, input, primaryAddress);
+    const [existing] = await db.select().from(schema.people).where(eq(schema.people.id, err.existingPersonId)).limit(1);
+    if (!existing) throw err;
+    // Another contact already wraps this person: nothing to choose, it is a duplicate.
+    await assertPersonNotWrapped(db, existing.id);
+    // A bare mail identity (no name of its own) or the same person: reuse it quietly.
+    if (isSamePerson(existing, personNames(data), data.fullName)) {
+      return linkExistingPerson(c, db, existing.id, input, primaryAddress);
+    }
+    // Someone else's record: never attach this contact's tax and bank data to it unasked.
+    const existingName = existing.displayName || existing.fullName || '';
+    throw new ContactIdentityError(
+      'conflict',
+      `A person with this email already exists${existingName ? `: ${existingName}` : ''}. Link the contact to them or create a separate person.`,
+      {
+        code: 'PERSON_EMAIL_EXISTS',
+        existingPerson: { id: existing.id, name: existingName, email: existing.email },
+      },
+    );
   }
 }
 
-async function linkExistingPerson(
-  c: AppContext,
-  db: Database,
-  personId: string,
-  input: Partial<ReturnType<typeof personIdentityInput>>,
-  primaryAddress: Record<string, string | undefined> | undefined,
-): Promise<IdentityLink> {
+const normalizeName = (value: string | null | undefined) => (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * Whether an existing CRM person can be reused for a new contact without
+ * asking: it carries no name of its own (a mail identity whose display name
+ * is just the address), or it has the same first + last / display name as the
+ * contact being created (case-insensitive).
+ */
+function isSamePerson(
+  existing: PersonRow,
+  typed: { firstName?: string; lastName?: string },
+  typedFullName: string | undefined,
+): boolean {
+  const own =
+    normalizeName([existing.firstName, existing.lastName].filter(Boolean).join(' ')) || normalizeName(existing.fullName);
+  const display = normalizeName(existing.displayName);
+  if (!own && (!display || display === normalizeName(existing.email))) return true;
+
+  const existingNames = new Set([own, display, normalizeName(existing.fullName)].filter(Boolean));
+  const typedNames = [
+    normalizeName([typed.firstName, typed.lastName].filter(Boolean).join(' ')),
+    normalizeName(typedFullName),
+  ].filter(Boolean);
+  return typedNames.some((name) => existingNames.has(name));
+}
+
+async function assertPersonNotWrapped(db: Database, personId: string): Promise<void> {
   const [wrapped] = await db
     .select({ id: t.id })
     .from(t)
@@ -541,8 +620,20 @@ async function linkExistingPerson(
       contactId: wrapped.id,
     });
   }
+}
+
+async function linkExistingPerson(
+  c: AppContext,
+  db: Database,
+  personId: string,
+  input: Partial<ReturnType<typeof personIdentityInput>>,
+  primaryAddress: Record<string, string | undefined> | undefined,
+): Promise<IdentityLink> {
+  await assertPersonNotWrapped(db, personId);
   const [existing] = await db.select().from(schema.people).where(eq(schema.people.id, personId)).limit(1);
-  if (!existing) throw new Error(`Person ${personId} disappeared`);
+  if (!existing || existing.deletedAt) {
+    throw new ContactIdentityError('badRequest', 'The person to link to no longer exists.', { code: 'PERSON_NOT_FOUND' });
+  }
 
   const fill: Record<string, unknown> = { inCrm: true };
   const candidates: Record<string, unknown> = { ...input, primaryAddress };
@@ -592,7 +683,16 @@ async function syncIdentity(
         'This contact is a person, and VAT and registration numbers are stored on a company. Create the contact as a company to record them.',
       );
     }
-    const result = await updatePerson(db, contact.personId, definedOnly(personIdentityInput(data)));
+    let result: Awaited<ReturnType<typeof updatePerson>>;
+    try {
+      result = await updatePerson(db, contact.personId, definedOnly(personIdentityInput(data)));
+    } catch (err) {
+      if (!(err instanceof PersonDuplicateEmailError)) throw err;
+      throw new ContactIdentityError('conflict', 'Another person in the CRM already has this email address.', {
+        code: 'PERSON_EMAIL_EXISTS',
+        existingPersonId: err.existingPersonId,
+      });
+    }
     if (result) {
       if (result.changes) publishIdentityEvent(c, 'person', 'updated', result.row);
       return { kind: 'person', companyId: null, personId: result.row.id, displayName: result.row.displayName };
@@ -605,6 +705,74 @@ async function syncIdentity(
     fullName: data.fullName ?? contact.displayName ?? 'Unnamed contact',
     billingAddress: data.billingAddress !== undefined ? data.billingAddress : contact.billingAddress,
   });
+}
+
+/**
+ * Format checks on what was typed: a VAT number has to fit the country in its prefix (or, without one,
+ * the contact's country: "BE0123" is not a Belgian number), an IBAN needs the right length for its
+ * country and valid mod-97 check digits. A value that is no EU VAT number at all (a US EIN, an
+ * Indian GSTIN) is left to the checks of its own country. `storedBilling` is the address the contact
+ * already has, for an update that does not send one.
+ */
+function checkIdentifierFormats(data: ContactPayload, storedBilling?: unknown): void {
+  const vat = data.vatNumber?.trim();
+  if (vat) {
+    const billing = data.billingAddress !== undefined ? data.billingAddress : storedBilling;
+    const check = checkVatNumberFormat(vat, normalizePostalAddress(billing as never)?.country);
+    if (!check.valid) {
+      throw new ContactIdentityError(
+        'badRequest',
+        `"${vat}" is not a valid ${check.prefix} VAT number${check.example ? ` (for example ${check.example})` : ''}`,
+        { field: 'vatNumber' },
+      );
+    }
+    if (check.prefix && check.formatted) data.vatNumber = check.formatted;
+  }
+
+  const iban = data.iban?.trim();
+  if (iban) {
+    const problem = ibanProblem(iban);
+    if (problem) {
+      const code = normalizeIban(iban).slice(0, 2);
+      const reason =
+        problem === 'country_length'
+          ? `an IBAN from ${code} has ${IBAN_LENGTHS[code]} characters`
+          : problem === 'checksum'
+            ? 'the check digits do not match'
+            : 'it should be two letters, two digits and the account number';
+      throw new ContactIdentityError('badRequest', `"${iban}" is not a valid IBAN: ${reason}`, { field: 'iban' });
+    }
+  }
+}
+
+/**
+ * India: a GSTIN on a contact of an Indian entity is checked like the entity's
+ * own (format, state code, check digit, and the contact's PAN when it has one)
+ * and stored upper-cased. A number that is not GSTIN-shaped on a contact outside
+ * India (a customer abroad with a VAT number) is left alone.
+ */
+async function checkIndianTaxNumber(c: AppContext, db: Database, data: ContactPayload): Promise<void> {
+  const vat = data.vatNumber?.trim();
+  if (!vat) return;
+  const entityId = await resolveEntityId(c, db);
+  if (!entityId) return;
+  const [entity] = await db
+    .select({ jurisdictionCode: schema.entities.jurisdictionCode })
+    .from(schema.entities)
+    .where(eq(schema.entities.id, entityId))
+    .limit(1);
+  if (entity?.jurisdictionCode?.toUpperCase() !== 'IN') return;
+
+  const country = normalizePostalAddress(data.billingAddress)?.country;
+  const indian = !country || ['IN', 'IND', 'INDIA'].includes(country);
+  const looksLikeGstin = /^\d{2}[A-Z]{5}\d{4}/i.test(vat.replace(/[\s-]/g, ''));
+  if (!indian || (!looksLikeGstin && country !== 'IN')) return;
+
+  const check = validateGstin(vat, { pan: data.registrationNumber });
+  if (!check.valid) {
+    throw new ContactIdentityError('badRequest', check.error ?? 'Invalid GSTIN', { field: 'vatNumber' });
+  }
+  data.vatNumber = check.formatted;
 }
 
 function identityErrorResponse(c: AppContext, err: ContactIdentityError) {
@@ -661,6 +829,12 @@ app.get('/', requirePermission('invoices:read'), async (c) => {
     const roleFilter = c.req.query('role');
     const search = c.req.query('search');
     const conditions = [isNull(t.deletedAt)];
+
+    // Archived contacts stay out of lists and pickers unless asked for:
+    // ?archived=only lists just them, ?archived=include lists everyone.
+    const archived = c.req.query('archived');
+    if (archived === 'only') conditions.push(isNotNull(t.archivedAt));
+    else if (archived !== 'include') conditions.push(isNull(t.archivedAt));
 
     if (roleFilter) {
       if (roleFilter === 'customer' || roleFilter === 'supplier') {
@@ -794,6 +968,8 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createCon
   try {
     // Validate (and encrypt) the tax data first, so a bad TIN leaves no orphan identity behind.
     await assertW9Document(db, data);
+    checkIdentifierFormats(data);
+    await checkIndianTaxNumber(c, db, data);
     const taxChange = await buildVendorTaxChange(null, data, c.env);
     const identity = await createIdentity(c, db, data);
 
@@ -845,6 +1021,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     const before = await loadContactView(db, id);
 
     await assertW9Document(db, data);
+    checkIdentifierFormats(data, contact.billingAddress);
+    await checkIndianTaxNumber(c, db, data);
     const taxChange = await buildVendorTaxChange(contact, data, c.env);
     const link = await syncIdentity(c, db, contact, data);
 
@@ -879,14 +1057,26 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
   }
 });
 
-// DELETE /:id — soft delete
-app.delete('/:id', requirePermission('invoices:delete'), async (c) => {
+// DELETE /:id — soft delete, only for a contact the books never used. One that
+// appears on a document, payment, ledger line or 1099 is archived instead.
+app.delete('/:id', requirePermission(...CONTACT_DELETE_PERMISSIONS), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
 
   try {
     const [contact] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!contact) return error.notFound(c, 'Contact', id);
+
+    const used = usedReferences(await getContactUsage(db, id));
+    const openBalance = Number(contact.outstandingBalance ?? 0) !== 0;
+    if (Object.keys(used).length > 0 || openBalance) {
+      const reason = Object.keys(used).length > 0 ? describeUsage(used) : 'an open balance';
+      return error.conflict(
+        c,
+        `This contact can't be deleted because it is used by ${reason}. Archive it instead to hide it from lists and pickers.`,
+        { code: 'CONTACT_IN_USE', references: used, openBalance, canArchive: true },
+      );
+    }
 
     await db
       .update(t)
@@ -906,6 +1096,50 @@ app.delete('/:id', requirePermission('invoices:delete'), async (c) => {
     return error.internal(c, 'Failed to delete contact');
   }
 });
+
+// POST /:id/archive and /:id/unarchive — hide a contact from lists and pickers
+// without touching its history (documents, payments and ledger lines keep
+// pointing at it). Idempotent.
+async function setContactArchived(c: AppContext, archived: boolean) {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id') ?? '';
+  try {
+    const [contact] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
+    if (!contact) return error.notFound(c, 'Contact', id);
+
+    const alreadyDone = archived ? contact.archivedAt !== null : contact.archivedAt === null;
+    if (!alreadyDone) {
+      const now = new Date();
+      await db
+        .update(t)
+        .set({ archivedAt: archived ? now : null, status: archived ? 'archived' : 'active', updatedAt: now })
+        .where(eq(t.id, id));
+
+      await writeAccountingAudit(c, db, {
+        entityType: 'accounting_contact',
+        entityId: id,
+        action: archived ? 'archived' : 'unarchived',
+      });
+      publishEntityEvent({
+        c,
+        entityType: 'accounting_contact',
+        entityId: id,
+        action: archived ? 'archived' : 'updated',
+        data: { id, archived },
+      });
+    }
+
+    const view = await loadContactView(db, id);
+    if (!view) return error.notFound(c, 'Contact', id);
+    return success(c, view);
+  } catch (err) {
+    console.error('[books-api/accounting-contacts] archive failed:', err);
+    return error.internal(c, archived ? 'Failed to archive contact' : 'Failed to unarchive contact');
+  }
+}
+
+app.post('/:id/archive', requirePermission(...CONTACT_ARCHIVE_PERMISSIONS), (c) => setContactArchived(c, true));
+app.post('/:id/unarchive', requirePermission(...CONTACT_ARCHIVE_PERMISSIONS), (c) => setContactArchived(c, false));
 
 // ---------------------------------------------------------------------------
 // POST /:id/promote-role — promote a party's accounting role

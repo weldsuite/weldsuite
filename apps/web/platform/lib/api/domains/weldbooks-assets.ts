@@ -791,6 +791,11 @@ export interface PlannedFiscalPeriod {
   weeks: number | null;
   /** The id of the stored period with the same dates and type, if there is one. */
   existingId: string | null;
+  /** `open` or `closed`; null while the period has not been created. */
+  existingStatus?: 'open' | 'closed' | null;
+  closedAt?: string | null;
+  /** An entity lock date (period or hard lock) covers the period, whatever its status. */
+  locked?: boolean;
 }
 
 export interface FiscalCalendar {
@@ -842,6 +847,10 @@ export const fiscalCalendarApi = {
     ),
   generate: (params: FiscalCalendarParams) =>
     weldbooksApi.post<Envelope<GenerateFiscalPeriodsResult>>('/fiscal-periods/generate', params),
+  /** open to closed: bookings dated inside the period are refused from now on. */
+  close: (id: string) => weldbooksApi.post<Envelope<{ id: string; status: 'closed' }>>(`/fiscal-periods/${id}/close`),
+  /** closed to open. */
+  reopen: (id: string) => weldbooksApi.post<Envelope<{ id: string; status: 'open' }>>(`/fiscal-periods/${id}/reopen`),
 };
 
 // ============================================================================

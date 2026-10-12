@@ -77,7 +77,8 @@ export default function InvoicesScreen() {
     if (filter !== 'overdue') return list.items;
     return list.items.filter(
       (invoice) =>
-        (invoice.status === 'sent' ||
+        (invoice.status === 'finalized' ||
+          invoice.status === 'sent' ||
           invoice.status === 'viewed' ||
           invoice.status === 'partially_paid') &&
         isOverdue(invoice.dueDate, toNumber(invoice.balanceDue)),

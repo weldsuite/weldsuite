@@ -291,5 +291,36 @@ describe('EditEntityPage (non-US entity)', () => {
     expect(screen.queryByTestId('fiscal-year-preview')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Entity type' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Fiscal year starts in' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Fiscal year starts in' })).toBeEnabled();
+    expect(screen.queryByTestId('fiscal-year-locked')).not.toBeInTheDocument();
+  });
+
+  const nlEntity = {
+    id: 'ent_nl',
+    name: 'Weld BV',
+    entityType: 'bv',
+    jurisdictionCode: 'NL',
+    baseCurrency: 'EUR',
+    fiscalYearStart: 1,
+    taxIdentifiers: { vatNumber: 'NL123456789B01' },
+  } satisfies AccountingEntity;
+
+  it('locks the fiscal year start, with the reason, once the entity has posted transactions', () => {
+    mocks.entity = { ...nlEntity, hasPostings: true, baseSettingsLocked: true, fiscalYearLocked: true };
+    render(<EditEntityPage />);
+
+    expect(screen.getByRole('combobox', { name: 'Fiscal year starts in' })).toBeDisabled();
+    expect(screen.getByTestId('fiscal-year-locked')).toHaveTextContent('already has posted transactions');
+    expect(screen.getByText('Locked: this entity already has posted transactions.')).toBeInTheDocument();
+  });
+
+  it('locks the fiscal year start when only fiscal periods exist, and leaves the rest of the form editable', () => {
+    mocks.entity = { ...nlEntity, hasPostings: false, hasFiscalPeriods: true, baseSettingsLocked: false, fiscalYearLocked: true };
+    render(<EditEntityPage />);
+
+    expect(screen.getByRole('combobox', { name: 'Fiscal year starts in' })).toBeDisabled();
+    expect(screen.getByTestId('fiscal-year-locked')).toHaveTextContent('fiscal periods have been generated');
+    expect(screen.getByRole('combobox', { name: 'Entity type' })).toBeEnabled();
+    expect(screen.queryByText('Locked: this entity already has posted transactions.')).not.toBeInTheDocument();
   });
 });

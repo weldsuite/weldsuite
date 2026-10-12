@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { FiscalCalendar, FiscalCalendarParams, PlannedFiscalPeriod } from '@/lib/api/domains/weldbooks-assets';
 
 const generateAsync = vi.fn();
+const setStatusAsync = vi.fn();
 const permissions = new Set(['reports:read', 'reports:create']);
 let calendar: FiscalCalendar;
 const calendarParams: FiscalCalendarParams[] = [];
@@ -21,6 +22,7 @@ vi.mock('@/hooks/queries/use-weldbooks-assets-queries', () => ({
     return { data: calendar, isLoading: false, isError: false, refetch: vi.fn() };
   },
   useGenerateFiscalPeriods: () => ({ mutateAsync: generateAsync, isPending: false }),
+  useSetFiscalPeriodStatus: () => ({ mutateAsync: setStatusAsync, isPending: false }),
 }));
 
 import FiscalPeriodsPage from './page';
@@ -50,6 +52,7 @@ describe('Fiscal periods page', () => {
   beforeAll(polyfillRadixSelect);
   beforeEach(() => {
     generateAsync.mockReset().mockResolvedValue({ created: new Array(9).fill({}), skipped: new Array(3).fill({}) });
+    setStatusAsync.mockReset().mockResolvedValue({});
     calendarParams.length = 0;
     permissions.clear();
     permissions.add('reports:read');
@@ -153,5 +156,94 @@ describe('Fiscal periods page', () => {
     renderWithProviders(<FiscalPeriodsPage />);
     expect(screen.queryByTestId('fiscal-generate')).not.toBeInTheDocument();
     expect(screen.getByTestId('fiscal-period-FY2026 P01')).toBeInTheDocument();
+  });
+});
+
+describe('Fiscal periods page: closing and reopening', () => {
+  beforeAll(polyfillRadixSelect);
+  beforeEach(() => {
+    setStatusAsync.mockReset().mockResolvedValue({});
+    permissions.clear();
+    ['reports:read', 'reports:create', 'reports:update'].forEach((p) => permissions.add(p));
+    const periods = weekPeriods(3).map((period, index) =>
+      index === 0
+        ? { ...period, existingStatus: 'open' as const }
+        : index === 1
+          ? { ...period, existingStatus: 'closed' as const, closedAt: '2026-02-01T10:00:00Z' }
+          : index === 2
+            ? { ...period, existingStatus: 'open' as const, locked: true }
+            : period,
+    );
+    calendar = {
+      entityId: 'ent_1',
+      fiscalYear: 2026,
+      startDate: '2025-12-29',
+      endDate: '2027-01-03',
+      kind: 'fifty_two_fifty_three',
+      weeks: 53,
+      periods,
+    };
+  });
+
+  it('shows Open, Closed and Locked next to each existing period, and To create for the rest', () => {
+    renderWithProviders(<FiscalPeriodsPage />);
+    expect(screen.getByTestId('fiscal-status-FY2026 P01')).toHaveTextContent('Open');
+    expect(screen.getByTestId('fiscal-status-FY2026 P02')).toHaveTextContent('Closed');
+    const locked = screen.getByTestId('fiscal-period-FY2026 P03');
+    expect(within(locked).getByText('Open')).toBeInTheDocument();
+    expect(within(locked).getByText('Locked')).toBeInTheDocument();
+    expect(within(screen.getByTestId('fiscal-period-FY2026 P04')).getByText('To create')).toBeInTheDocument();
+    // A period that does not exist has nothing to close.
+    expect(screen.queryByTestId('fiscal-close-FY2026 P04')).not.toBeInTheDocument();
+  });
+
+  it('closes an open period after a confirmation', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FiscalPeriodsPage />);
+
+    await user.click(screen.getByTestId('fiscal-close-FY2026 P01'));
+    expect(screen.getByText('Close FY2026 P01?')).toBeInTheDocument();
+    expect(setStatusAsync).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('fiscal-confirm'));
+    await waitFor(() => expect(setStatusAsync).toHaveBeenCalledWith({ id: 'fp_0', action: 'close' }));
+  });
+
+  it('reopens a closed period after a confirmation', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FiscalPeriodsPage />);
+
+    expect(screen.queryByTestId('fiscal-close-FY2026 P02')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('fiscal-reopen-FY2026 P02'));
+    expect(screen.getByText('Reopen FY2026 P02?')).toBeInTheDocument();
+    await user.click(screen.getByTestId('fiscal-confirm'));
+    await waitFor(() => expect(setStatusAsync).toHaveBeenCalledWith({ id: 'fp_1', action: 'reopen' }));
+  });
+
+  it('does not close anything when the confirmation is cancelled', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FiscalPeriodsPage />);
+    await user.click(screen.getByTestId('fiscal-close-FY2026 P01'));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(setStatusAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows what the server said when closing fails', async () => {
+    setStatusAsync.mockRejectedValueOnce(new Error('Fiscal period is already closed'));
+    const user = userEvent.setup();
+    renderWithProviders(<FiscalPeriodsPage />);
+    await user.click(screen.getByTestId('fiscal-close-FY2026 P01'));
+    await user.click(screen.getByTestId('fiscal-confirm'));
+    expect(await screen.findByTestId('fiscal-error')).toHaveTextContent('Fiscal period is already closed');
+  });
+
+  it('offers no close or reopen without reports:update', () => {
+    permissions.delete('reports:update');
+    renderWithProviders(<FiscalPeriodsPage />);
+    expect(screen.queryByTestId('fiscal-close-FY2026 P01')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('fiscal-reopen-FY2026 P02')).not.toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Actions' })).not.toBeInTheDocument();
+    // The statuses are still shown.
+    expect(screen.getByTestId('fiscal-status-FY2026 P02')).toHaveTextContent('Closed');
   });
 });

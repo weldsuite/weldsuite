@@ -71,7 +71,7 @@ export type SystemAccountRole =
   | 'unapplied_cash_bill_payment_expense';
 
 /** GST component code used in India tax expansion (CGST/SGST/IGST). */
-export type GstComponentCode = 'cgst' | 'sgst' | 'igst';
+export type GstComponentCode = 'cgst' | 'sgst' | 'igst' | 'utgst';
 
 export interface GstTaxComponentTemplate {
   code: GstComponentCode;
@@ -97,6 +97,8 @@ export interface TaxCategoryTemplate {
   type: 'sales' | 'purchase' | 'both';
   taxCategoryCode: TaxCategoryCode;
   isDefault?: boolean;
+  /** Seeded but switched off (slabs the law no longer applies to new supplies). Defaults to true. */
+  isActive?: boolean;
   jurisdictionMetadata?: Record<string, unknown>;
 }
 
@@ -125,10 +127,14 @@ export interface InvoiceLabels {
   registrationLabel: string;
   /** Banner on a draft's preview, so it can't pass for the finalized document. */
   draftNotice: string;
+  /** India GST tax invoice labels (English fallbacks when a jurisdiction omits them). */
+  hsnSac?: string;
+  placeOfSupply?: string;
+  taxableValue?: string;
 }
 
 /** Entity identifiers an invoice can print. `einOrSsn` is the US tax ID (print it only when it is an EIN). */
-export type InvoiceField = 'vatNumber' | 'registrationNumber' | 'einOrSsn' | 'iban' | 'bic';
+export type InvoiceField = 'vatNumber' | 'registrationNumber' | 'einOrSsn' | 'iban' | 'bic' | 'address';
 
 export interface InvoiceRequirements {
   /** Format an entity-scoped sequence number (prefix + padded number). */
@@ -232,6 +238,8 @@ export interface TaxReturnLine {
   sourceLineId?: string | null;
   certificateId?: string | null;
   taxDate?: string;
+  /** India GST: cgst | sgst | utgst | igst (tax_lines.component). */
+  component?: string | null;
 }
 
 export interface TaxReturnArtifact {
@@ -303,6 +311,13 @@ export interface JurisdictionAdapter {
   readonly terminology: JurisdictionTerminology;
   /** Bills post supplier-charged tax as a receivable (`recoverable`) or into the cost (`cost`). */
   readonly purchaseTax: PurchaseTaxTreatment;
+  /**
+   * The seller can recover the tax of an uncollectible invoice (NL art. 29 Wet OB,
+   * UK bad debt relief): a write-off splits the open balance into net bad debt and
+   * tax, and the tax comes back through the next return. Without it a write-off is
+   * booked gross. US sales tax follows its own agency-based path.
+   */
+  readonly badDebtVatRelief?: boolean;
 
   getChartOfAccountsTemplate(opts?: ChartOfAccountsTemplateOptions): ChartOfAccountsTemplateRow[];
 

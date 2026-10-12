@@ -3,12 +3,18 @@
  *
  * Lifecycle: calculated → reviewed → filed → accepted/rejected.
  * POST /calculate aggregates the tax ledger (tax_lines, written with every
- * posting) into the Dutch BTW-aangifte rubrieken (1a–5f) via each tax rate's
- * `jurisdictionMetadata.btwRubriek`; POST /:id/file renders SBR/XBRL, submits
+ * posting) into the Dutch BTW-aangifte rubrieken (1a–5g) via each tax rate's
+ * `jurisdictionMetadata.btwRubriek`; calculating a period again updates the
+ * open return of that period (a filed one is corrected with a suppletie), and
+ * an unfiled return can be deleted. POST /:id/file renders SBR/XBRL, submits
  * via Digipoort, stamps the period's tax lines with the return and moves the
  * entity's tax lock date to the period end. Filed returns are immutable —
  * corrections happen through a new (suppletie) return. Only entities whose
  * jurisdiction has the `vatReturn` feature (NL) can calculate or file.
+ *
+ * India (`features.gstReturn`) has no stored return: GET /gst-worksheet computes the
+ * GSTR-1 and GSTR-3B summary of a period from the tax ledger on demand. It is a
+ * worksheet to reconcile with the GST portal, nothing is filed.
  *
  * Permissions: reports:read | reports:create | reports:update | reports:delete.
  */
@@ -16,12 +22,12 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { VatRubrieken } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../../types';
-import { error, success } from '@weldsuite/worker-kit/response';
+import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
@@ -30,9 +36,20 @@ import { fileTaxPeriodStatements, nlRubriekenForPeriod } from '../../services/ac
 import { resolveEntityId } from '../../lib/entity-context';
 import { isKorActive, writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { generateVatXml } from '@weldsuite/books-domain/accounting-vat-xml';
+import { normalizeVatRubrieken, recomputeRubriekTotals } from '@weldsuite/books-domain/jurisdictions/nl';
+import { isUnfiledReturn, parseReturnPeriod } from '../../services/accounting-return-periods';
 import { submitFiling, checkFilingStatus, createConfig } from '../../services/accounting-digipoort';
+import { GstReturnError, loadGstWorksheet } from '../../services/accounting-gst-return';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/** A stored return with its rubrieken in the current layout (returns stored before the official numbering are converted). */
+function withNormalizedRubrieken<T extends { rubrieken: unknown }>(row: T): T {
+  return { ...row, rubrieken: normalizeVatRubrieken(row.rubrieken) } as T;
+}
+
+/** The phone number is a mandatory part of the aangifte message. */
+const PHONE_REQUIRED_MESSAGE = 'A telephone number is required in the BTW-aangifte message. Add it to the entity contact details first.';
 
 // GET /
 app.get('/', requirePermission('reports:read'), async (c) => {
@@ -45,10 +62,41 @@ app.get('/', requirePermission('reports:read'), async (c) => {
       .from(schema.vatReturns)
       .where(and(isNull(schema.vatReturns.deletedAt), eq(schema.vatReturns.entityId, entityId)))
       .orderBy(desc(schema.vatReturns.periodStart));
-    return success(c, results);
+    return success(c, results.map(withNormalizedRubrieken));
   } catch (err) {
     console.error('[app-api/vat-returns] list failed:', err);
     return error.internal(c, 'Failed to fetch VAT returns');
+  }
+});
+
+// GET /gst-worksheet?periodStart=YYYY-MM-DD&periodEnd=YYYY-MM-DD — India GSTR-1 / GSTR-3B summary of a period
+app.get('/gst-worksheet', requirePermission('reports:read'), async (c) => {
+  const db = c.get('tenantDb');
+  const periodStart = c.req.query('periodStart') ?? '';
+  const periodEnd = c.req.query('periodEnd') ?? '';
+  const isDay = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value));
+  if (!isDay(periodStart) || !isDay(periodEnd)) {
+    return error.badRequest(c, 'periodStart and periodEnd are required as YYYY-MM-DD dates');
+  }
+  if (periodStart > periodEnd) return error.badRequest(c, 'periodStart must not be after periodEnd');
+
+  try {
+    const entityId = await resolveEntityId(c, db);
+    if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+    const [entityRow] = await db
+      .select({ jurisdictionCode: schema.entities.jurisdictionCode })
+      .from(schema.entities)
+      .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
+      .limit(1);
+    if (!entityRow) return error.notFound(c, 'Entity', entityId);
+    if (!getJurisdictionFeatures(entityRow.jurisdictionCode).gstReturn) {
+      return error.badRequest(c, "This entity's jurisdiction has no GST return.");
+    }
+    return success(c, await loadGstWorksheet(db, entityId, periodStart, periodEnd));
+  } catch (err) {
+    if (err instanceof GstReturnError) return error.badRequest(c, err.message);
+    console.error('[books-api/vat-returns] gst-worksheet failed:', err);
+    return error.internal(c, 'Failed to build the GST worksheet');
   }
 });
 
@@ -60,7 +108,7 @@ app.get('/:id', requirePermission('reports:read'), async (c) => {
     const [ret] = await db.select().from(schema.vatReturns)
       .where(and(eq(schema.vatReturns.id, id), isNull(schema.vatReturns.deletedAt))).limit(1);
     if (!ret) return error.notFound(c, 'VAT return', id);
-    return success(c, ret);
+    return success(c, withNormalizedRubrieken(ret));
   } catch (err) {
     console.error('[app-api/vat-returns] get failed:', err);
     return error.internal(c, 'Failed to fetch VAT return');
@@ -97,33 +145,75 @@ app.post('/calculate', requirePermission('reports:create'), zValidator('json', z
       );
     }
 
-    const periodStart = new Date(data.periodStart);
-    const periodEnd = new Date(data.periodEnd);
-    const rubrieken = await nlRubriekenForPeriod(db, entityId, periodStart, periodEnd);
+    const period = parseReturnPeriod(data.periodStart, data.periodEnd);
+    if (!period.ok) return error.badRequest(c, period.error);
+    const { start: periodStart, end: periodEnd } = period;
 
-    const vatReturnId = generateId('vat');
-    await db.insert(schema.vatReturns).values({
-      id: vatReturnId,
-      entityId,
-      periodType: data.periodType,
-      periodStart,
-      periodEnd,
-      periodLabel: data.periodLabel || null,
-      status: 'calculated',
-      rubrieken,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    // The period's regular return, when one exists: an open one is recalculated in place, a filed one stands
+    // (a correction of a filed return is a suppletie, not a second return).
+    const [existing] = await db
+      .select()
+      .from(schema.vatReturns)
+      .where(and(
+        eq(schema.vatReturns.entityId, entityId),
+        eq(schema.vatReturns.periodStart, periodStart),
+        eq(schema.vatReturns.periodEnd, periodEnd),
+        isNull(schema.vatReturns.correctionOfId),
+        isNull(schema.vatReturns.deletedAt),
+      ))
+      .orderBy(desc(schema.vatReturns.createdAt))
+      .limit(1);
+    if (existing && !isUnfiledReturn(existing.status)) {
+      return error.badRequest(
+        c,
+        'The BTW-aangifte of this period has already been filed. Use "Check for corrections" on it to file a suppletie.',
+      );
+    }
+
+    const calculated = await nlRubriekenForPeriod(db, entityId, periodStart, periodEnd);
+    // The manual boxes (KOR reduction, estimates) belong to the return, not to the ledger: keep them.
+    const kept = existing ? normalizeVatRubrieken(existing.rubrieken) : null;
+    const rubrieken = kept
+      ? recomputeRubriekTotals({ ...calculated, r5d: kept.r5d, r5e: kept.r5e, r5f: kept.r5f })
+      : calculated;
+
+    const now = new Date();
+    const vatReturnId = existing?.id ?? generateId('vat');
+    if (existing) {
+      await db.update(schema.vatReturns).set({
+        periodType: data.periodType,
+        periodLabel: data.periodLabel || existing.periodLabel,
+        status: 'calculated',
+        rubrieken,
+        xmlContent: null,
+        rejectedAt: null,
+        rejectionReason: null,
+        updatedAt: now,
+      }).where(eq(schema.vatReturns.id, vatReturnId));
+    } else {
+      await db.insert(schema.vatReturns).values({
+        id: vatReturnId,
+        entityId,
+        periodType: data.periodType,
+        periodStart,
+        periodEnd,
+        periodLabel: data.periodLabel || null,
+        status: 'calculated',
+        rubrieken,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entityId,
       entityType: 'vat_return',
       entityId: vatReturnId,
-      action: 'calculated',
+      action: existing ? 'recalculated' : 'calculated',
     });
-    publishEntityEvent({ c, entityType: 'vat_return', entityId: vatReturnId, action: 'created', data: { id: vatReturnId, rubrieken } });
+    publishEntityEvent({ c, entityType: 'vat_return', entityId: vatReturnId, action: existing ? 'updated' : 'created', data: { id: vatReturnId, rubrieken } });
 
-    return success(c, { id: vatReturnId, rubrieken }, 201);
+    return success(c, { id: vatReturnId, rubrieken, recalculated: Boolean(existing) }, existing ? 200 : 201);
   } catch (err) {
     console.error('[app-api/vat-returns] calculate failed:', err);
     return error.internal(c, 'Failed to calculate VAT return');
@@ -143,12 +233,21 @@ app.patch('/:id', requirePermission('reports:update'), zValidator('json', z.obje
     const [ret] = await db.select().from(schema.vatReturns)
       .where(and(eq(schema.vatReturns.id, id), isNull(schema.vatReturns.deletedAt))).limit(1);
     if (!ret) return error.notFound(c, 'VAT return', id);
-    if (ret.status === 'filed' || ret.status === 'accepted') {
+    if (!isUnfiledReturn(ret.status)) {
       return error.badRequest(c, 'Filed VAT returns are immutable — file a correction (suppletie) instead');
     }
 
     const updateData: Record<string, unknown> = { status: 'reviewed', updatedAt: new Date() };
-    if (data.rubrieken) updateData.rubrieken = data.rubrieken;
+    if (data.rubrieken) {
+      // Merge the adjusted boxes into the return's current ones and recompute 5a / 5c / 5g.
+      const current = normalizeVatRubrieken(ret.rubrieken) ?? normalizeVatRubrieken({ r5g: 0 })!;
+      const adjusted = { ...current };
+      for (const key of Object.keys(current) as Array<keyof VatRubrieken>) {
+        const value = data.rubrieken[key];
+        if (typeof value === 'number' && Number.isFinite(value)) adjusted[key] = Math.round(value * 100) / 100;
+      }
+      updateData.rubrieken = recomputeRubriekTotals(adjusted);
+    }
     if (data.notes !== undefined) updateData.notes = data.notes;
 
     await db.update(schema.vatReturns).set(updateData).where(eq(schema.vatReturns.id, id));
@@ -159,12 +258,12 @@ app.patch('/:id', requirePermission('reports:update'), zValidator('json', z.obje
       entityId: id,
       action: 'reviewed',
       changes: data.rubrieken
-        ? { rubrieken: { old: ret.rubrieken, new: data.rubrieken } }
+        ? { rubrieken: { old: ret.rubrieken, new: updateData.rubrieken } }
         : undefined,
     });
     publishEntityEvent({ c, entityType: 'vat_return', entityId: id, action: 'updated', data: { ...ret, ...updateData } as unknown as Record<string, unknown> });
 
-    return success(c, { ...ret, ...updateData });
+    return success(c, withNormalizedRubrieken({ ...ret, ...updateData }));
   } catch (err) {
     console.error('[app-api/vat-returns] update failed:', err);
     return error.internal(c, 'Failed to update VAT return');
@@ -181,8 +280,9 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
     const [ret] = await db.select().from(schema.vatReturns)
       .where(and(eq(schema.vatReturns.id, id), isNull(schema.vatReturns.deletedAt))).limit(1);
     if (!ret) return error.notFound(c, 'VAT return', id);
-    if (!ret.rubrieken) return error.badRequest(c, 'VAT return has no calculated rubrieken');
-    if (ret.status === 'filed' || ret.status === 'accepted') {
+    const rubriekenToFile = normalizeVatRubrieken(ret.rubrieken);
+    if (!rubriekenToFile) return error.badRequest(c, 'VAT return has no calculated rubrieken');
+    if (!isUnfiledReturn(ret.status)) {
       return error.badRequest(c, 'VAT return has already been filed');
     }
 
@@ -198,6 +298,8 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
       return error.badRequest(c, 'VAT/BTW number is not configured on this entity');
     }
 
+    if (!entityRow.contact?.phone) return error.badRequest(c, PHONE_REQUIRED_MESSAGE);
+
     const xmlContent = generateVatXml({
       btwNumber,
       companyName: entityRow.legalName || entityRow.name,
@@ -205,7 +307,8 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
       contactPhone: entityRow.contact?.phone || '',
       periodStart: ret.periodStart.toISOString(),
       periodEnd: ret.periodEnd.toISOString(),
-      rubrieken: ret.rubrieken,
+      rubrieken: rubriekenToFile,
+      messageReference: `OB-${id}`,
     });
 
     // Mode + mTLS certificate come from the environment: DIGIPOORT_MODE
@@ -220,6 +323,7 @@ app.post('/:id/file', requirePermission('reports:update'), async (c) => {
     await atomically(db, (h) => [
       h.update(schema.vatReturns).set({
         status: 'filed',
+        rubrieken: rubriekenToFile,
         xmlContent,
         filingReference: submitResult.kenmerk || null,
         digipoortResponse: submitResult as unknown as Record<string, unknown>,
@@ -276,7 +380,7 @@ app.post('/:id/suppletie', requirePermission('reports:create'), async (c) => {
     const [original] = await db.select().from(schema.vatReturns)
       .where(and(eq(schema.vatReturns.id, id), isNull(schema.vatReturns.deletedAt))).limit(1);
     if (!original) return error.notFound(c, 'VAT return', id);
-    if (original.status !== 'filed' && original.status !== 'accepted') {
+    if (isUnfiledReturn(original.status)) {
       return error.badRequest(c, 'Suppletie only applies to filed returns — unfiled returns can simply be recalculated');
     }
     if (!original.rubrieken) return error.badRequest(c, 'Original return has no rubrieken');
@@ -284,8 +388,8 @@ app.post('/:id/suppletie', requirePermission('reports:create'), async (c) => {
     // Recalculate the same period from the tax ledger as it stands NOW.
     const recalculated = await nlRubriekenForPeriod(db, original.entityId, original.periodStart, original.periodEnd);
 
-    const filed = original.rubrieken as VatRubrieken;
-    const netDiff = Math.round(((recalculated.r5f ?? 0) - (filed.r5f ?? 0)) * 100) / 100;
+    const filed = normalizeVatRubrieken(original.rubrieken) as VatRubrieken;
+    const netDiff = Math.round(((recalculated.r5g ?? 0) - (filed.r5g ?? 0)) * 100) / 100;
 
     if (netDiff === 0) {
       return success(c, {
@@ -416,14 +520,16 @@ app.get('/:id/filing-status', requirePermission('reports:read'), async (c) => {
 app.get('/:id/xml', requirePermission('reports:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
+    const id = c.req.param('id');
     const [ret] = await db.select().from(schema.vatReturns)
-      .where(and(eq(schema.vatReturns.id, c.req.param('id')), isNull(schema.vatReturns.deletedAt))).limit(1);
-    if (!ret) return error.notFound(c, 'VAT return', c.req.param('id'));
+      .where(and(eq(schema.vatReturns.id, id), isNull(schema.vatReturns.deletedAt))).limit(1);
+    if (!ret) return error.notFound(c, 'VAT return', id);
 
     let xmlContent = ret.xmlContent;
 
     if (!xmlContent) {
-      if (!ret.rubrieken) {
+      const rubriekenForXml = normalizeVatRubrieken(ret.rubrieken);
+      if (!rubriekenForXml) {
         return error.badRequest(c, 'VAT return has no calculated rubrieken');
       }
       const [entityRow] = await db
@@ -442,7 +548,8 @@ app.get('/:id/xml', requirePermission('reports:read'), async (c) => {
         contactPhone: entityRow.contact?.phone || '',
         periodStart: ret.periodStart.toISOString(),
         periodEnd: ret.periodEnd.toISOString(),
-        rubrieken: ret.rubrieken,
+        rubrieken: rubriekenForXml,
+        messageReference: `OB-${id}`,
       });
     }
 
@@ -456,6 +563,38 @@ app.get('/:id/xml', requirePermission('reports:read'), async (c) => {
   } catch (err) {
     console.error('[app-api/vat-returns] xml failed:', err);
     return error.internal(c, 'Failed to get XML');
+  }
+});
+
+// DELETE /:id — remove a return that was not filed yet (recalculate to get a fresh one)
+app.delete('/:id', requirePermission('reports:delete'), async (c) => {
+  const db = c.get('tenantDb');
+  const id = c.req.param('id');
+  try {
+    const [ret] = await db.select().from(schema.vatReturns)
+      .where(and(eq(schema.vatReturns.id, id), isNull(schema.vatReturns.deletedAt))).limit(1);
+    if (!ret) return error.notFound(c, 'VAT return', id);
+    if (!isUnfiledReturn(ret.status)) {
+      return error.badRequest(c, 'A filed VAT return can not be deleted — correct it with a suppletie instead');
+    }
+
+    const now = new Date();
+    await db.update(schema.vatReturns)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(eq(schema.vatReturns.id, id), ne(schema.vatReturns.status, 'filed')));
+
+    await writeAccountingAudit(c, db, {
+      accountingEntityId: ret.entityId,
+      entityType: 'vat_return',
+      entityId: id,
+      action: 'deleted',
+      changes: { status: { old: ret.status, new: 'deleted' } },
+    });
+    publishEntityEvent({ c, entityType: 'vat_return', entityId: id, action: 'deleted', data: { id } });
+    return noContent(c);
+  } catch (err) {
+    console.error('[app-api/vat-returns] delete failed:', err);
+    return error.internal(c, 'Failed to delete VAT return');
   }
 });
 

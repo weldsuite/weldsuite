@@ -901,6 +901,22 @@ describe('a check run', () => {
     expect(reveals[0]).toMatchObject({ subjectType: 'bank_account', subjectId: bankId, field: 'account_number', revealedBy: APPROVER_A });
   });
 
+  it('puts the invoice number of the vendor on the memo and the stub, our bill number only as a fallback', async () => {
+    await db.update(schema.bills).set({ externalReference: 'VINV-2026-77' }).where(eq(schema.bills.billNumber, 'G-1'));
+    try {
+      const res = await runs(`/${runId}/checks`, { perms: MANAGER_PERMS, user: APPROVER_A });
+      expect(res.status, res.text).toBe(200);
+      const golf = res.data.checks.find((c: { payee: { partyId: string } }) => c.payee.partyId === 'pty_golf');
+      expect(golf.memo).toBe('Bill VINV-2026-77');
+      expect(golf.voucher.rows[0].reference).toBe('VINV-2026-77');
+      // The hotel bill has no vendor number: ours is used.
+      const hotel = res.data.checks.find((c: { payee: { partyId: string } }) => c.payee.partyId === 'pty_hotel');
+      expect(hotel.memo).not.toContain('VINV');
+    } finally {
+      await db.update(schema.bills).set({ externalReference: null }).where(eq(schema.bills.billNumber, 'G-1'));
+    }
+  });
+
   it('prints preprinted stock without touching the account number', async () => {
     await runs(`/settings/${bankId}`, { method: 'PUT', body: { checkSettings: { printMicr: false } } });
     const before = (await db.select().from(schema.taxIdReveals)).length;

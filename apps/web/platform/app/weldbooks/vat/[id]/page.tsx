@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import { ArrowLeft, Download, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Download, Send, CheckCircle2, AlertCircle, Trash2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { accountingApi } from '@/lib/api/domains/weldbooks';
@@ -11,6 +12,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { VatNotAvailable } from '../components/vat-not-available';
 
 function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'outline' {
@@ -19,11 +21,25 @@ function vatStatusBadgeVariant(status: string): 'default' | 'destructive' | 'out
   return 'outline';
 }
 
-/** NL BTW return boxes, in filing order. Labels come from `accounting.vat.rubriekLabels`. */
-const RUBRIEK_KEYS = [
-  'r1a', 'r1b', 'r1c', 'r1d', 'r1e', 'r1f', 'r2a', 'r3a', 'r3b', 'r3c', 'r4a', 'r4b',
-  'r5a', 'r5b', 'r5c', 'r5d', 'r5e', 'r5f',
-] as const;
+/**
+ * The boxes of the aangifte omzetbelasting, in filing order, with the key of
+ * their turnover (omzet) and, where the box has one, their BTW amount. Labels
+ * come from `accounting.vat.rubriekLabels`. The totals of rubriek 5 follow.
+ */
+const BOXES: ReadonlyArray<{ key: string; turnover: string; vat?: string }> = [
+  { key: 'r1a', turnover: 'r1a', vat: 'r1aBtw' },
+  { key: 'r1b', turnover: 'r1b', vat: 'r1bBtw' },
+  { key: 'r1c', turnover: 'r1c', vat: 'r1cBtw' },
+  { key: 'r1d', turnover: 'r1d', vat: 'r1dBtw' },
+  { key: 'r1e', turnover: 'r1e' },
+  { key: 'r2a', turnover: 'r2a', vat: 'r2aBtw' },
+  { key: 'r3a', turnover: 'r3a' },
+  { key: 'r3b', turnover: 'r3b' },
+  { key: 'r3c', turnover: 'r3c' },
+  { key: 'r4a', turnover: 'r4a', vat: 'r4aBtw' },
+  { key: 'r4b', turnover: 'r4b', vat: 'r4bBtw' },
+];
+const TOTAL_KEYS = ['r5a', 'r5b', 'r5c', 'r5d', 'r5e', 'r5f', 'r5g'] as const;
 
 export default function VatReturnDetailPage() {
   const { id } = useParams({ strict: false });
@@ -36,6 +52,7 @@ export default function VatReturnDetailPage() {
   const { features, isResolved, isError: jurisdictionError } = useCurrentJurisdiction();
 
   const qc = useQueryClient();
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['accounting', 'vat-returns', 'detail', id],
@@ -46,6 +63,16 @@ export default function VatReturnDetailPage() {
   const fileMutation = useMutation({
     mutationFn: () => accountingApi.fileVatReturn(id!),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounting', 'vat-returns'] }); },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => accountingApi.deleteVatReturn(id!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounting', 'vat-returns'] });
+      toast.success(tv.returnDeleted);
+      navigate({ to: '/weldbooks/vat' });
+    },
+    onError: (err) => toast.error(tv.returnDeleteFailed, { description: err instanceof Error ? err.message : undefined }),
   });
 
   const suppletieMutation = useMutation({
@@ -136,6 +163,17 @@ export default function VatReturnDetailPage() {
               {fileMutation.isPending ? tv.filing : tv.fileToTax}
             </Button>
           )}
+          {(vr.status === 'calculated' || vr.status === 'reviewed' || vr.status === 'draft' || vr.status === 'rejected') && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDeleteOpen(true)}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              {tv.deleteReturn}
+            </Button>
+          )}
           {(vr.status === 'filed' || vr.status === 'accepted') && (
             <>
               <Button
@@ -189,21 +227,33 @@ export default function VatReturnDetailPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-1">
-            {RUBRIEK_KEYS.map((key) => {
-              const label = tv.rubriekLabels[key];
-              const isTotals = key.startsWith('r5');
-              return (
-                <div
-                  key={key}
-                  className={`flex items-center justify-between py-2 px-3 rounded ${
-                    isTotals ? 'bg-muted font-medium' : ''
-                  } ${key === 'r5f' ? 'bg-primary/10 font-semibold text-lg' : ''}`}
-                >
-                  <span className="text-sm">{label}</span>
-                  <span className="text-sm tabular-nums">{fmt(rubrieken[key])}</span>
-                </div>
-              );
-            })}
+            <div className="flex items-center justify-between px-3 pb-1 text-xs text-muted-foreground">
+              <span />
+              <span className="flex gap-6">
+                <span className="w-28 text-right">{tv.colTurnover}</span>
+                <span className="w-28 text-right">{tv.colVat}</span>
+              </span>
+            </div>
+            {BOXES.map(({ key, turnover, vat }) => (
+              <div key={key} className="flex items-center justify-between gap-4 py-2 px-3 rounded">
+                <span className="text-sm">{tv.rubriekLabels[key as keyof typeof tv.rubriekLabels]}</span>
+                <span className="flex gap-6 text-sm tabular-nums">
+                  <span className="w-28 text-right">{fmt(rubrieken[turnover])}</span>
+                  <span className="w-28 text-right">{vat ? fmt(rubrieken[vat]) : ''}</span>
+                </span>
+              </div>
+            ))}
+            {TOTAL_KEYS.map((key) => (
+              <div
+                key={key}
+                className={`flex items-center justify-between gap-4 py-2 px-3 rounded bg-muted font-medium ${
+                  key === 'r5g' ? 'bg-primary/10 font-semibold text-lg' : ''
+                }`}
+              >
+                <span className="text-sm">{tv.rubriekLabels[key]}</span>
+                <span className="text-sm tabular-nums">{fmt(rubrieken[key])}</span>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
@@ -244,6 +294,19 @@ export default function VatReturnDetailPage() {
           </CardContent>
         </Card>
       )}
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={tv.deleteReturnTitle}
+        description={tv.deleteReturnDescription}
+        confirmLabel={tv.deleteReturn}
+        cancelLabel={tv.keepReturn}
+        variant="destructive"
+        loading={deleteMutation.isPending}
+        onConfirm={async () => {
+          await deleteMutation.mutateAsync().catch(() => undefined);
+        }}
+      />
     </div>
   );
 }

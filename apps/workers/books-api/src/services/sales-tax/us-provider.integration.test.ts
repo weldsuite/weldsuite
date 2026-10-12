@@ -256,7 +256,7 @@ describe('Stripe Tax', () => {
     expect(res.status).toBe(200);
     expect(res.data.taxSync.status).toBe('failed');
     let row = await invoiceRow(created.id);
-    expect(row.status).toBe('sent');
+    expect(row.status).toBe('finalized');
     expect(row.journalEntryId).toMatch(/^je_/);
     expect(row.taxCommittedAt).toBeNull();
     expect(row.taxWarnings?.[0]).toMatch(/^commit_failed/);

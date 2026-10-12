@@ -80,6 +80,10 @@ export const invoices = pgTable('invoices', {
   taxWarnings: jsonb('tax_warnings').$type<string[]>(),
   /** Sold through a marketplace facilitator that collects the tax: counts toward nexus, no tax charged. */
   marketplaceFacilitated: boolean('marketplace_facilitated').default(false),
+  /** India GST: two-digit state code of the place of supply; decides CGST+SGST vs IGST. */
+  placeOfSupply: varchar('place_of_supply', { length: 2 }),
+  /** Buyer's tax id (GSTIN / VAT number) as it was when the document was finalized. */
+  contactTaxNumber: varchar('contact_tax_number', { length: 50 }),
 
   paymentLink: varchar('payment_link', { length: 500 }),
   journalEntryId: varchar('journal_entry_id', { length: 30 }),
@@ -122,6 +126,8 @@ export const invoiceItems = pgTable('invoice_items', {
   taxCode: varchar('tax_code', { length: 30 }),
   /** business | personal: some states tax a product for only one of them. Defaults to the customer's. */
   taxUse: varchar('tax_use', { length: 10 }),
+  /** India GST: HSN (goods) or SAC (services) code printed on the tax invoice. */
+  hsnSac: varchar('hsn_sac', { length: 10 }),
   /** The price includes the tax; it is backed out of the line. */
   taxIncluded: boolean('tax_included').default(false),
   /** Tax the user set by hand; kept across recalculations of the draft. */

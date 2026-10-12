@@ -19,6 +19,7 @@ interface CustomerRow {
   email?: string | null;
   role?: string | null;
   vatNumber?: string | null;
+  archivedAt?: string | null;
 }
 
 export default function AccountingCustomersPage() {
@@ -35,9 +36,18 @@ export default function AccountingCustomersPage() {
     {
       field: 'role',
       label: tcp.filterRoleLabel,
-      options: [{ value: 'both', label: tcp.filterBoth }],
+      options: [{ value: 'both', label: tcp.filterBoth.replace('{role}', labels.customerAndSupplier) }],
+    },
+    {
+      field: 'archived',
+      label: tcp.filterArchivedLabel,
+      options: [
+        { value: 'include', label: tcp.filterArchivedInclude },
+        { value: 'only', label: tcp.filterArchivedOnly },
+      ],
     },
   ];
+  const archivedFilter = filters.find((f) => f.field === 'archived' && f.value)?.value as 'include' | 'only' | undefined;
 
   const roleFilter = filters.find((f) => f.field === 'role' && f.value)?.value as
     | 'both'
@@ -46,6 +56,7 @@ export default function AccountingCustomersPage() {
   const { data, isLoading } = useAccountingCustomers({
     search,
     role: roleFilter ?? 'customer',
+    archived: archivedFilter,
   });
 
   const customers = (data?.data ?? []) as CustomerRow[];
@@ -68,9 +79,12 @@ export default function AccountingCustomersPage() {
       header: tcp.colRole,
       width: 'w-[140px]',
       render: (c) => (
-        <Badge variant="outline" className="capitalize">
-          {c.role === 'both' ? tcp.roleBoth : c.role ?? '—'}
-        </Badge>
+        <>
+          <Badge variant="outline" className="capitalize">
+            {c.role === 'both' ? labels.customerAndSupplier : c.role ?? '—'}
+          </Badge>
+          {c.archivedAt ? <Badge variant="secondary" className="ml-1">{t.accounting.contacts.archived}</Badge> : null}
+        </>
       ),
     },
     {
