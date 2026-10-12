@@ -412,9 +412,17 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 | `deploy.yml` | push to `develop` → test; push to `main` → production | n/a |
 | `release-desktop.yml` | manual | n/a |
 
-`deploy.yml` runs: **Prepare** (migration + mobile + per-worker diff) → **Migrations**
-(path-gated) → **Workers** (only changed workers) → **Mobile OTA** (path-gated) →
-**Pages** (`weldsuite-test` / `weldsuite`).
+`deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
+**Migrations** (path-gated) → **Workers** (only changed workers) → **Mobile OTA**
+(path-gated) → **Pages** (`weldsuite-test` / `weldsuite`) + **Vercel** (only changed
+apps: admin, api-docs, booking-portal, docs, helpcenter, helpdesk-widget, hr-portal,
+meeting-portal; map in `.github/scripts/vercel-apps.mjs`).
+
+Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
+Each app's `vercel.json` sets `git.deploymentEnabled` off for `develop`/`main`, so
+Vercel's Git integration only builds previews for other branches. A new Vercel
+app needs an entry in `vercel-apps.mjs`, the same `vercel.json` block, and its
+folder in `deploy.yml`'s `on.push.paths`.
 
 `.github/actions/setup-monorepo/action.yml` pins pnpm 10.34.5 + Node 22 and caches the pnpm store + turbo cache.
 
