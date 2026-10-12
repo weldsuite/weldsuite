@@ -1276,6 +1276,28 @@ function InlineAiBar({
   );
 }
 
+/**
+ * The desktop header's close button. Embedded outside WeldMail (`onClose`),
+ * it is a back arrow to the embedding view; in WeldMail it closes the message.
+ */
+function DesktopCloseButton({ onClose, backLabel }: Readonly<{ onClose?: () => void; backLabel: string }>) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
+      onClick={onClose ?? (() => window.history.back())}
+      aria-label={onClose ? backLabel : undefined}
+    >
+      {onClose ? (
+        <ArrowLeft className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
+      ) : (
+        <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
+      )}
+    </Button>
+  );
+}
+
 interface MessageDetailProps {
   message: EmailMessage;
   thread?: EmailMessage[];
@@ -2222,19 +2244,7 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
           </Button>
           {/* Desktop close/done buttons */}
           <div className="hidden md:flex h-7 items-center border border-border rounded-md overflow-hidden">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-              onClick={onClose ?? (() => window.history.back())}
-              aria-label={onClose ? t.mail.messageDetail.backToList : undefined}
-            >
-              {onClose ? (
-                <ArrowLeft className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-              ) : (
-                <X className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />
-              )}
-            </Button>
+            <DesktopCloseButton onClose={onClose} backLabel={t.mail.messageDetail.backToList} />
             <div className="w-px h-4 bg-border" />
             <Button variant="ghost" size="icon-sm" className="h-full w-7 p-1 hover:bg-gray-100 dark:hover:bg-secondary transition-colors" onClick={handleArchiveAndNext}>
               <Check className="h-3.5 w-3.5 text-gray-500 dark:text-muted-foreground" />

@@ -3,7 +3,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Building2, StickyNote, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { usePinnedNote } from '@/contexts/pinned-note-context';
+import { usePinnedNote, type PinnedNote } from '@/contexts/pinned-note-context';
 import { useMobileNavOptional } from '@/contexts/mobile-nav-context';
 import { MINIMIZED_DOCK_ROOM, MinimizedDockButton, minimizedDockRight } from '@/components/shared/minimized-dock-button';
 import { MinimizedDockGroup, useMinimizedDockAllowed, useMinimizedDockOccupied } from '@/components/shared/minimized-dock';
@@ -28,6 +28,40 @@ const NotePopupDialog = lazy(() =>
 const NO_SAVE = async () => {};
 
 /**
+ * Whether the panel is minimized, and how. Taken from the context the moment
+ * a note is pinned, while rendering rather than in an effect: an effect runs
+ * after the first paint, so a note sent here minimized showed the open panel
+ * for a frame and then shrank.
+ */
+function useMinimizedState(openNote: PinnedNote | null, startMinimized: boolean) {
+  const [isMinimized, setIsMinimized] = useState(false);
+  // Where the note was minimized from, which is where its button reopens it:
+  // the centred popup, or this panel.
+  const [minimizedFrom, setMinimizedFrom] = useState<'dialog' | 'panel'>('panel');
+  const [minimizedTitle, setMinimizedTitle] = useState('');
+
+  const [syncedNote, setSyncedNote] = useState<PinnedNote | null>(null);
+  if (openNote !== syncedNote) {
+    setSyncedNote(openNote);
+    if (openNote) {
+      setIsMinimized(startMinimized);
+      setMinimizedFrom(startMinimized ? 'dialog' : 'panel');
+      setMinimizedTitle(getNoteTitle(openNote.content));
+    }
+  }
+
+  // Minimized from the panel itself, so its button reopens the panel.
+  const minimize = (title: string) => {
+    setMinimizedTitle(title);
+    setMinimizedFrom('panel');
+    setIsMinimized(true);
+  };
+  const restore = () => setIsMinimized(false);
+
+  return { isMinimized, minimizedFrom, minimizedTitle, minimize, restore };
+}
+
+/**
  * The pinned note: a small panel in the bottom-right corner that stays on
  * screen across pages. It is the note popup's `NoteEditorSurface` in its
  * compact size, in a fixed frame instead of a dialog and without a backdrop,
@@ -42,29 +76,11 @@ export function GlobalPinnedNote() {
   const { pinnedNote, isOpen, onSave, closePinnedNote, unpinToDialog, unpinnedNote, unpinnedNoteSave, unpinnedNoteDelete, clearUnpinnedNote, startMinimized, setStartMinimized } = usePinnedNote();
 
   const surfaceRef = useRef<NoteEditorSurfaceHandle>(null);
-  const [isMinimized, setIsMinimized] = useState(false);
-  // Where the note was minimized from, which is where its button reopens it:
-  // the centred popup, or this panel.
-  const [minimizedFrom, setMinimizedFrom] = useState<'dialog' | 'panel'>('panel');
-  const [minimizedTitle, setMinimizedTitle] = useState('');
+  const openNote = pinnedNote && isOpen ? pinnedNote : null;
+  const { isMinimized, minimizedFrom, minimizedTitle, minimize, restore } = useMinimizedState(openNote, startMinimized);
   const mobileNav = useMobileNavOptional();
   const dockAllowed = useMinimizedDockAllowed();
   const dockOccupied = useMinimizedDockOccupied();
-
-  // Take the minimized state from the context the moment a note is pinned,
-  // while rendering rather than in an effect: an effect runs after the first
-  // paint, so a note sent here minimized showed the open panel for a frame
-  // and then shrank.
-  const openNote = pinnedNote && isOpen ? pinnedNote : null;
-  const [syncedNote, setSyncedNote] = useState<typeof openNote>(null);
-  if (openNote !== syncedNote) {
-    setSyncedNote(openNote);
-    if (openNote) {
-      setIsMinimized(startMinimized);
-      setMinimizedFrom(startMinimized ? 'dialog' : 'panel');
-      setMinimizedTitle(getNoteTitle(openNote.content));
-    }
-  }
 
   // The flag is one-shot: clear it once this open has consumed it. Excludes
   // startMinimized/setStartMinimized on purpose, so it fires once per open
@@ -113,9 +129,7 @@ export function GlobalPinnedNote() {
   };
 
   const handleMinimize = () => {
-    setMinimizedTitle(getNoteTitle(surfaceRef.current?.getContent() ?? pinnedNote.content));
-    setMinimizedFrom('panel');
-    setIsMinimized(true);
+    minimize(getNoteTitle(surfaceRef.current?.getContent() ?? pinnedNote.content));
   };
 
   const RecordIcon = pinnedNote.recordKind === 'person' ? User : Building2;
@@ -131,7 +145,7 @@ export function GlobalPinnedNote() {
             avatarUrl={pinnedNote.recordAvatar}
             avatarAlt={pinnedNote.recordName}
             avatarFallback={<RecordIcon className="size-2 text-muted-foreground" />}
-            onOpen={minimizedFrom === 'dialog' ? handleUnpin : () => setIsMinimized(false)}
+            onOpen={minimizedFrom === 'dialog' ? handleUnpin : restore}
             onDismiss={handleClose}
             openLabel={t('sweep.weldcrm.globalPinnedNote.expand')}
             dismissLabel={t('sweep.weldcrm.globalPinnedNote.close')}
