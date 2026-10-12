@@ -1,0 +1,56 @@
+Delivered-To: sam@getacme.com
+Received: by 2002:a05:6a20:1234:b0:12:34 with SMTP id abc123csp1234567pzb;
+        Mon, 12 Oct 2026 07:41:02 -0700 (PDT)
+Return-Path: <jane@acme.nl>
+Received: from mail-sor-f41.google.com (mail-sor-f41.google.com. [209.85.220.41])
+        by mx.google.com with SMTPS id b12-20020a170902d50c00b001abc123def4si1234pld.56.2026.10.12.07.41.01
+        for <sam@getacme.com>
+        (Google Transport Security);
+        Mon, 12 Oct 2026 07:41:02 -0700 (PDT)
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@acme.nl header.s=google header.b=AbCdEfGh;
+       spf=pass (google.com: domain of jane@acme.nl designates 209.85.220.41 as permitted sender) smtp.mailfrom=jane@acme.nl
+MIME-Version: 1.0
+References: <out-1001@getacme.com>
+In-Reply-To: <out-1001@getacme.com>
+From: Jane Doe <jane@acme.nl>
+Date: Mon, 12 Oct 2026 16:40:48 +0200
+Message-ID: <CAKx9Qm7vJ1-gmail-reply-1@mail.gmail.com>
+Subject: Re: Quick question about Acme logistics
+To: Sam Jansen <sam@getacme.com>
+Content-Type: multipart/alternative; boundary="000000000000a1b2c3d4"
+
+--000000000000a1b2c3d4
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Sam,
+
+This looks interesting. Can you send me a few more details and pricing?
+
+Thanks,
+Jane
+
+On Mon, 12 Oct 2026 at 09:14, Sam Jansen <sam@getacme.com> wrote:
+
+> Hi Jane,
+>
+> I noticed Acme is expanding its warehouse network. We help logistics teams
+> cut manual dispatch work by about 30%.
+>
+> Worth a quick chat?
+>
+> Sam
+
+--000000000000a1b2c3d4
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<div dir=3D"ltr">Hi Sam,<br><br>This looks interesting. Can you send me a f=
+ew more details and pricing?<br><br>Thanks,<br>Jane</div><br><div class=3D"=
+gmail_quote"><div dir=3D"ltr" class=3D"gmail_attr">On Mon, 12 Oct 2026 at 0=
+9:14, Sam Jansen &lt;<a href=3D"mailto:sam@getacme.com">sam@getacme.com</a>=
+&gt; wrote:<br></div><blockquote class=3D"gmail_quote">Hi Jane,<br><br>I no=
+ticed Acme is expanding its warehouse network.</blockquote></div>
+
+--000000000000a1b2c3d4--

@@ -1,0 +1,60 @@
+Received: from AM9PR02MB7777.eurprd02.prod.outlook.com (2603:10a6:20b:1::5)
+ by DB9PR02MB1111.eurprd02.prod.outlook.com with HTTPS; Mon, 12 Oct 2026 14:20:40 +0000
+From: Microsoft Outlook <MicrosoftExchange329e71ec88ae4615bbc36ab6ce41109e@bluesky.io>
+To: sam@getacme.com
+Date: Mon, 12 Oct 2026 14:20:39 +0000
+Message-ID: <3b2c9a1e-7f00-4f0a-9d21-undeliverable-1@AM9PR02MB7777.eurprd02.prod.outlook.com>
+Subject: Undeliverable: Quick question about Acme logistics
+Content-Language: en-US
+X-MS-Exchange-Message-Is-Ndr:
+Content-Type: multipart/report; report-type=delivery-status;
+	boundary="9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF"
+MIME-Version: 1.0
+
+--9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF
+Content-Type: text/plain; charset="us-ascii"
+
+Delivery has failed to these recipients or groups:
+
+former.employee@bluesky.io<mailto:former.employee@bluesky.io>
+The email address you entered couldn't be found. Please check the recipient's email address and try to resend the message. If the problem continues, please contact your email administrator.
+
+Diagnostic information for administrators:
+
+Generating server: AM9PR02MB7777.eurprd02.prod.outlook.com
+
+former.employee@bluesky.io
+Remote Server returned '550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup'
+
+--9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns;AM9PR02MB7777.eurprd02.prod.outlook.com
+Received-From-MTA: dns;AM9PR02MB7777.eurprd02.prod.outlook.com
+Arrival-Date: Mon, 12 Oct 2026 14:20:39 +0000
+
+Final-Recipient: rfc822;former.employee@bluesky.io
+Action: failed
+Status: 5.1.10
+Diagnostic-Code: smtp;550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup
+
+--9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF
+Content-Type: message/rfc822
+
+Received: from sam-pc ([203.0.113.9]) by smtp.getacme.com with ESMTPSA
+        for <former.employee@bluesky.io>; Mon, 12 Oct 2026 14:20:30 +0000
+From: Sam Jansen <sam@getacme.com>
+To: former.employee@bluesky.io
+Subject: Quick question about Acme logistics
+Message-ID: <out-3002@getacme.com>
+Date: Mon, 12 Oct 2026 16:20:29 +0200
+MIME-Version: 1.0
+Content-Type: text/plain; charset="us-ascii"
+
+Hi,
+
+Quick question about your warehouse.
+
+Sam
+
+--9B095B5ADSN=_01D9A7E8B0C14ABC0123456789ABCDEF--
