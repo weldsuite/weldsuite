@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo, useTransition } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef, useTransition } from "react";
 import { useI18n } from '@/lib/i18n/provider';
 import { useDateLocale } from '@/lib/i18n/date-locale';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -208,6 +208,9 @@ export function AllProjectsClient({
   const [colorPopoverOpen, setColorPopoverOpen] = useState(false);
   const [iconPopoverOpen, setIconPopoverOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Set synchronously so a second click (or Enter) that lands before React
+  // re-renders with the disabled button cannot start a second create.
+  const isCreatingProjectRef = useRef(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [selectedMember, setSelectedMember] = useState<TeamMemberDetail | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -279,7 +282,8 @@ export function AllProjectsClient({
 
   // Add project
   const handleAddProject = async () => {
-    if (!newProjectName.trim()) return;
+    if (!newProjectName.trim() || isCreatingProjectRef.current) return;
+    isCreatingProjectRef.current = true;
     try {
       setLoading(true);
       const iconLabel = coloredSquareIcons.find((i) => i.value === selectedIcon)?.label || '';
@@ -307,6 +311,7 @@ export function AllProjectsClient({
       console.error('Failed to create project:', error);
       toast.error(t.allProjects.projectCreateFailed);
     } finally {
+      isCreatingProjectRef.current = false;
       setLoading(false);
     }
   };
