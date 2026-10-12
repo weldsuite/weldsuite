@@ -40,7 +40,7 @@ describe('statementToCsv', () => {
     const rows = statementToCsv(view([line(), line({ workspaceId: 'ws_2', workspaceName: 'Beta' })])).trim().split('\r\n');
     expect(rows).toHaveLength(3);
     expect(rows[0]).toBe(
-      'Workspace,Workspace ID,Days active,Days in period,Seats billed,Customer price,WeldSuite share,Floor,Credit floor,Extra credits,WeldSuite bills,Your margin',
+      'Workspace,Workspace ID,Days active,Days in period,Seats billed,Customer price,WeldSuite share,Minimum (base + seats),Minimum (credits),Extra credits,WeldSuite bills,Your margin',
     );
     expect(rows[1]).toBe('Acme,ws_1,31,31,5,199.00,149.25,50.00,0.00,0.00,149.25,49.75');
   });

@@ -85,6 +85,12 @@ export default function PartnerOverviewPage() {
                 <li>
                   {format(to.baseMinimum, { amount: f.money(contract.baseMinimum, contract.currency) })}
                 </li>
+                {Number(contract.seatFloorPrice) > 0 && (
+                  <>
+                    <li>{format(to.includedSeats, { count: f.number(contract.includedSeats) })}</li>
+                    <li>{format(to.seatFloor, { price: f.money(contract.seatFloorPrice, contract.currency) })}</li>
+                  </>
+                )}
                 <li>{format(to.includedCredits, { count: f.number(contract.includedCredits) })}</li>
                 <li>{format(to.creditFloor, { price: f.unitPrice(contract.creditFloorPrice, contract.currency) })}</li>
                 <li>{format(to.extraCreditPrice, { price: f.unitPrice(contract.extraCreditPrice, contract.currency) })}</li>

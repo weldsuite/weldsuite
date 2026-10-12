@@ -1,6 +1,6 @@
 # Reseller licensing (partner-managed workspaces)
 
-Status: **Phases 0–3 implemented** (one PR). Schema is in `packages/core/db/src/schema/partners.ts`; master migration `0053_partner_licensing` must be applied before this deploys (app-api reads the new `workspaces` columns). See "Known gaps" at the end.
+Status: **Phases 0–3 implemented** (one PR). **Minimum selling price** (seats, per-partner currency, default terms) added 2026-10-12. Schema is in `packages/core/db/src/schema/partners.ts`; master migration `0053_partner_licensing` must be applied before this deploys (app-api reads the new `workspaces` columns). See "Known gaps" at the end.
 
 ## Problem
 
@@ -13,8 +13,9 @@ They need to:
    workspace or a per-user price.
 3. **Record that price**, because the contract is a revenue share. The reseller
    keeps 25% of what they charge, WeldSuite gets 75%.
-4. Pay WeldSuite **at least a base minimum per workspace** per month, even if 75%
-   of their price is lower.
+4. **Never sell a workspace below a minimum price** that WeldSuite sets per
+   reseller: a base price that includes a number of seats, plus a price per
+   extra seat (and per licensed credit above an included amount).
 
 Today none of this has a home. The code has:
 
@@ -30,12 +31,13 @@ The rest of this plan builds those pieces on what already exists.
 |---|---|
 | Who bills the end customer? | **The reseller.** WeldSuite sends the reseller one statement a month and never bills their customers. |
 | Reseller price | Free to choose. The reseller records it in WeldSuite. **WeldSuite's share is 75% of it**; the reseller keeps 25%. |
-| Base minimum | **A floor on what WeldSuite charges** per workspace per month. |
+| Base minimum | ~~A floor on what WeldSuite charges~~ Changed 2026-10-12: **a minimum selling price** per workspace per month. The portal refuses a lower price; WeldSuite bills 75% of the price. |
+| Minimum shape (2026-10-12) | **Base price including N seats, plus a price per extra seat**, plus the credit term below. Set per partner contract; new contracts start from **default terms** saved in the admin console. |
 | Credits | **A monthly allowance per workspace**, set by the reseller and reset every month. |
 | Reseller UI | **A partner portal inside the WeldSuite platform app.** |
 | Pricing shape | **Flat fee per workspace or per user.** The reseller chooses per workspace; per-seat is never forced. |
 | Credits in the floor | **Yes.** Credits above an included amount carry a minimum price per credit, which raises the floor. |
-| Currency | **USD.** One contract currency; resale prices are recorded in USD. |
+| Currency | ~~USD only~~ Changed 2026-10-12: **per partner**, on its contract (two-decimal currencies: USD, EUR, GBP, …). Fixed once the partner has been invoiced. |
 | Trials | **None for now.** The floor applies from a workspace's first day. |
 | Per-user count | **The highest active member count in the month.** |
 | Unpaid partner invoice | Banner and `past_due` **14 days** after the due date; workspaces read-only at **30 days**. Never deleted. |
@@ -102,18 +104,38 @@ From a survey of the repo at `74fd7d68`:
 resale        = flat_amount                                  (flat)
               | unit_amount × max(billable_seats, min_seats)  (per seat)
 
-floor         = base_minimum
+minimum       = base_minimum
+              + max(0, billable_seats − included_seats) × seat_floor_price
               + max(0, licensed_credits − included_credits) × credit_floor_price
 
-weldsuite_due = max(resale × revenue_share, floor)
+weldsuite_due = max(resale, minimum) × revenue_share
               + extra credit packs granted this month        (see Credits)
 
 partner_keeps = resale − weldsuite_due
 ```
 
+`minimum` is a **minimum selling price** (changed 2026-10-12; it used to be a
+floor on `weldsuite_due`). A licence or package whose price is below it is
+refused when it is written (`resaleMinimumShortfall`, run by
+`validateLicenceTerms` and live in the portal and admin forms):
+
+- the price must cover the minimum at **every seat count the licence allows**,
+  1 up to `max_seats`;
+- so with `seat_floor_price > 0`, a **flat** price needs a seat limit, and an
+  unlimited **per-seat** price must be at least `seat_floor_price`;
+- the refusal is `400 BELOW_MINIMUM` with `details` (seat count, minimum and
+  price at that count, currency).
+
+The `max()` in `weldsuite_due` is the safety net for what can still change after
+a licence was accepted: a new contract with a higher minimum, or a peak above the
+seats the check could see. The portal marks such a workspace "Below minimum".
+
 **Defaults**
 - `revenue_share` is 0.75. It is stored as basis points (`7500`) on the contract, not in code.
-- `base_minimum`, `included_credits` and `credit_floor_price` are set per contract, in USD.
+- `base_minimum`, `included_seats`, `seat_floor_price`, `included_credits` and `credit_floor_price` are set per contract, in the contract currency.
+- A new partner's first contract is prefilled from the **default terms**
+  (`system_settings` key `billing.partner_contract_defaults`, admin console:
+  Partners > Default terms). Saving them never changes an existing contract.
 
 **Billable seats**
 - The highest active member count seen in the month.
@@ -124,32 +146,33 @@ partner_keeps = resale − weldsuite_due
 - Licence changes and workspaces created or ended mid-month are prorated by day. Any part of a day counts as a day: the day a workspace is created and the day its licence ends are both billed.
 - Each day is charged under the licence that was in force that day; the history table below makes this possible.
 
-**Worked examples** (contract: 75%, $50 base minimum, 2,000 included credits,
-$0.004 per credit above that; the figures are placeholders, not contract values):
+**Worked examples** (contract: 75%, $100 base minimum including 5 seats, $10 per
+extra seat, 2,000 included credits, $0.004 per credit above that; the figures
+are placeholders, not contract values):
 
-| Workspace | Licensed credits | Floor | Reseller charges | 75% | WeldSuite bills | Reseller keeps |
+| Workspace | Seats | Licensed credits | Minimum | Reseller charges | WeldSuite bills (75%) | Reseller keeps |
 |---|---|---|---|---|---|---|
-| Acme (flat) | 2,000 | $50 | $400 | $300 | **$300** | $100 (25%) |
-| Beta (per seat, $12 × 5) | 2,000 | $50 | $60 | $45 | **$50** (floor) | $10 |
-| Gamma (flat) | 20,000 | $50 + 18,000 × $0.004 = $122 | $150 | $112.50 | **$122** (floor) | $28 |
-| Delta (given away at $0) | 2,000 | $50 | $0 | $0 | **$50** (floor) | −$50 |
+| Acme (flat, up to 10 seats) | 4 | 2,000 | $150 at its 10-seat limit | $400 | **$300** | $100 |
+| Beta (flat, up to 8 seats) | 8 | 2,000 | $100 + 3 × $10 = $130 | $130 | **$97.50** | $32.50 |
+| Gamma (flat, up to 5 seats) | 5 | 20,000 | $100 + 18,000 × $0.004 = $172 | $150 | refused | – |
+| Delta (given away at $0) | 1 | 2,000 | $100 | $0 | refused | – |
 
-The floor is what protects WeldSuite against a reseller giving workspaces away
-or licensing credits below cost. There are no trials: a workspace costs at least
-the floor from its first day, whatever the reseller charges.
+The minimum is what protects WeldSuite against a reseller giving workspaces
+away or licensing credits below cost. There are no trials: a workspace is sold
+at the minimum or more from its first day.
 
-### Why credits raise the floor
+### Why credits raise the minimum
 
 Credits are spent on AI (Cloudflare AI Gateway), telephony, OCR and similar
-services, and every one has a hard cost to WeldSuite. With only a flat floor, a
-reseller could license 1,000,000 credits at $50 and WeldSuite would lose money.
-So the contract has two credit terms:
+services, and every one has a hard cost to WeldSuite. With only a flat minimum,
+a reseller could license 1,000,000 credits at $50 and WeldSuite would lose
+money. So the contract has two credit terms:
 - `included_credits`: credits covered by the base minimum.
 - `credit_floor_price`: the minimum price per licensed credit above that.
 
 Licensed credits are what the licence grants each month, used or not, because
-the reseller decides the allowance. The 75% share still applies on top. If the
-reseller charges enough, the floor never bites.
+the reseller decides the allowance. WeldSuite then bills 75% of the price, so
+`credit_floor_price` must carry the credit cost at 75% of it.
 
 `credit_floor_price` should sit above the blended cost per credit (AI model
 rates in `ai_model_rates` plus telephony and OCR), with margin. Set it from the
@@ -173,9 +196,9 @@ WeldBooks; the recorded price would then be the invoiced price.
 
 ### Currency and tax
 
-- **Currency:** USD. Resale prices, floors and statements are all in USD.
-  - A reseller selling in BRL or MXN converts on their side.
-  - FX is the reseller's risk, and WeldSuite never needs an exchange rate.
+- **Currency:** per partner, on its contract (`PARTNER_CURRENCIES`: two-decimal currencies only, because the maths works in cents). Resale prices, minimums, statements and the Stripe invoice are all in it.
+  - Licence prices are plain amounts, so changing the currency would silently reinterpret them, and Stripe bills a customer in one currency. A new contract may therefore change the currency only until the partner's first invoice.
+  - A reseller selling in another currency converts on their side; FX is their risk, and WeldSuite never needs an exchange rate.
 - **Tax:** the reseller is WeldSuite's only customer for these workspaces, so tax on WeldSuite's invoice is a B2B question between WeldSuite and the reseller's entity. The reseller handles tax towards their own customers. Confirm the VAT treatment with the accountant; `accounting-nl` and `accounting-us` can help.
 
 ### Collecting the money
@@ -249,6 +272,7 @@ Migration: `packages/core/db/drizzle/master-migrations/0053_partner_licensing.sq
 - `partner_id`, `effective_from`, `effective_to`.
 - `currency` (`USD`).
 - `revenue_share_bps` (7500), `base_minimum` (numeric).
+- `included_seats`, `seat_floor_price` (added 2026-10-12, master migration `0054_partner_minimum_price`).
 - `included_credits`, `credit_floor_price`, `extra_credit_pack_price`.
 - `allowed_feature_plan_ids` (jsonb), `payment_terms_days`.
 - `past_due_after_days` (14), `read_only_after_days` (30).
@@ -534,7 +558,7 @@ The design questions are answered (see "Decisions taken"). What remains is
 contract data and two business calls. None of them blocks Phase 0 or the Phase 1
 code, because every one is a value stored per partner.
 
-1. **Contract numbers:** `base_minimum`, `included_credits`, `credit_floor_price` and `extra_credit_pack_price`. Set `credit_floor_price` from real cost per credit (AI model rates, telephony, OCR) plus margin.
+1. **Contract numbers:** `base_minimum`, `included_seats`, `seat_floor_price`, `included_credits`, `credit_floor_price` and `extra_credit_pack_price`. Set `credit_floor_price` from real cost per credit (AI model rates, telephony, OCR) plus margin.
 2. **Territory country list.** Do Central America and the Caribbean count as "North and South America"?
 3. **Existing direct customers in the territory.** The design keeps them direct. Does the reseller contract say anything about them (commission, transfer)?
 4. **VAT and tax treatment** of WeldSuite's invoice to the reseller's entity. Confirm with the accountant.
@@ -554,6 +578,7 @@ These turned up in the survey and stand on their own:
 
 - **Migration**
   - `0053_partner_licensing` (master) creates the partner tables and adds the two `workspaces` columns. It has to be applied before the workers deploy.
+  - `0054_partner_minimum_price` (master) adds `partner_contracts.included_seats` and `seat_floor_price` for the minimum selling price. It has to be applied before the workers deploy.
 - **Read-only for background jobs**
   - Read-only is enforced on API writes only.
   - Background writers do not skip a suspended partner's workspaces yet: workflow runs, sequences, scheduled social posts, inbound mail rules.

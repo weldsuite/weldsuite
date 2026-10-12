@@ -417,6 +417,8 @@ describe('createPartner', () => {
       currency: 'USD' as const,
       revenueShareBps: 7500,
       baseMinimum: '50.00',
+      includedSeats: 0,
+      seatFloorPrice: '0',
       includedCredits: 2000,
       creditFloorPrice: '0.004',
       extraCreditPrice: '0.01',
@@ -468,6 +470,8 @@ describe('addContract', () => {
     currency: 'USD' as const,
     revenueShareBps: 7000,
     baseMinimum: '60.00',
+    includedSeats: 0,
+    seatFloorPrice: '0',
     includedCredits: 2000,
     creditFloorPrice: '0.004',
     extraCreditPrice: '0.01',
@@ -479,8 +483,8 @@ describe('addContract', () => {
 
   it('closes the contract in force at the new start and inserts the new one', async () => {
     const { db, written } = createFakeDb({
-      selects: [[{ effectiveFrom: new Date('2026-01-01T00:00:00Z') }]],
-      returns: [[], [{ id: 'ptc_2', effectiveFrom: new Date('2026-11-01T00:00:00Z'), effectiveTo: null, currency: 'USD', revenueShareBps: 7000, baseMinimum: '60.00', includedCredits: 2000, creditFloorPrice: '0.004', extraCreditPrice: '0.01', allowedFeaturePlanIds: [], paymentTermsDays: 30, pastDueAfterDays: 14, readOnlyAfterDays: 30 }]],
+      selects: [[{ effectiveFrom: new Date('2026-01-01T00:00:00Z'), currency: 'USD' }]],
+      returns: [[], [{ id: 'ptc_2', effectiveFrom: new Date('2026-11-01T00:00:00Z'), effectiveTo: null, currency: 'USD', revenueShareBps: 7000, baseMinimum: '60.00', includedSeats: 0, seatFloorPrice: '0', includedCredits: 2000, creditFloorPrice: '0.004', extraCreditPrice: '0.01', allowedFeaturePlanIds: [], paymentTermsDays: 30, pastDueAfterDays: 14, readOnlyAfterDays: 30 }]],
     });
     const view = await admin.addContract(ctx(db), 'ptr_a', { ...contract, effectiveFrom: '2026-11-01T00:00:00.000Z' });
     expect(written('update')[0]).toEqual({ effectiveTo: new Date('2026-11-01T00:00:00Z') });
@@ -488,7 +492,7 @@ describe('addContract', () => {
   });
 
   it('refuses a contract that would start before the current one', async () => {
-    const { db } = createFakeDb({ selects: [[{ effectiveFrom: new Date('2026-11-01T00:00:00Z') }]] });
+    const { db } = createFakeDb({ selects: [[{ effectiveFrom: new Date('2026-11-01T00:00:00Z'), currency: 'USD' }]] });
     await expect(admin.addContract(ctx(db), 'ptr_a', { ...contract, effectiveFrom: '2026-10-01T00:00:00.000Z' })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     });
@@ -500,6 +504,26 @@ describe('addContract', () => {
       code: 'BAD_REQUEST',
       message: expect.stringContaining('plan_nope'),
     });
+  });
+
+  it('keeps the currency once the partner has been invoiced', async () => {
+    const { db, calls } = createFakeDb({
+      selects: [[{ effectiveFrom: new Date('2026-01-01T00:00:00Z'), currency: 'USD' }], [{ id: 'pst_1' }]],
+    });
+    await expect(
+      admin.addContract(ctx(db), 'ptr_a', { ...contract, currency: 'EUR', effectiveFrom: '2026-11-01T00:00:00.000Z' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT', message: expect.stringContaining('USD') });
+    expect(calls.some((c) => c.op === 'insert' || c.op === 'update')).toBe(false);
+  });
+
+  it('changes the currency while nothing has been invoiced', async () => {
+    const { db, written } = createFakeDb({
+      selects: [[{ effectiveFrom: new Date('2026-01-01T00:00:00Z'), currency: 'USD' }], []],
+      returns: [[], [{ id: 'ptc_2', effectiveFrom: new Date('2026-11-01T00:00:00Z'), effectiveTo: null, currency: 'EUR', revenueShareBps: 7000, baseMinimum: '60.00', includedSeats: 0, seatFloorPrice: '0', includedCredits: 2000, creditFloorPrice: '0.004', extraCreditPrice: '0.01', allowedFeaturePlanIds: [], paymentTermsDays: 30, pastDueAfterDays: 14, readOnlyAfterDays: 30 }]],
+    });
+    const view = await admin.addContract(ctx(db), 'ptr_a', { ...contract, currency: 'EUR', effectiveFrom: '2026-11-01T00:00:00.000Z' });
+    expect(written('insert')[0]).toMatchObject({ currency: 'EUR' });
+    expect(view).toMatchObject({ currency: 'EUR' });
   });
 });
 

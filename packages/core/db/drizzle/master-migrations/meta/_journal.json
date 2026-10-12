@@ -383,8 +383,15 @@
     {
       "idx": 54,
       "version": "7",
-      "when": 1791831503804,
-      "tag": "0054_misty_miss_america",
+      "when": 1791818656588,
+      "tag": "0054_partner_minimum_price",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791835485486,
+      "tag": "0055_weldreach_app_access",
       "breakpoints": true
     }
   ]

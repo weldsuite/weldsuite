@@ -16,10 +16,12 @@ vi.mock('@weldsuite/credits', () => credits);
 
 import {
   applyLicenceCredits,
+  LicenceError,
   monthRemainder,
   proratedDecreaseTakeBack,
   proratedIncreaseGrant,
   upsertWorkspaceLicence,
+  validateLicenceTerms,
 } from './licences';
 import type { PartnerDb } from './types';
 
@@ -237,5 +239,55 @@ describe('upsertWorkspaceLicence packageId', () => {
 
   it('switches to another package', async () => {
     expect((await run('plp_2')).packageId).toBe('plp_2');
+  });
+});
+
+describe('validateLicenceTerms: minimum selling price', () => {
+  // $100 a month including 5 seats, $10 for each seat above that.
+  const contract = {
+    id: 'ptc_1',
+    partnerId: 'ptr_1',
+    effectiveFrom: new Date('2026-01-01T00:00:00Z'),
+    effectiveTo: null,
+    currency: 'EUR',
+    revenueShareBps: 7500,
+    baseMinimum: '100.00',
+    includedSeats: 5,
+    seatFloorPrice: '10.00',
+    includedCredits: 2000,
+    creditFloorPrice: '0',
+    allowedFeaturePlanIds: [],
+  };
+  const terms = (amount: string, maxSeats: number | null) => ({
+    allowedApps: [],
+    monthlyCredits: 2000,
+    creditRolloverCap: 0,
+    maxSeats,
+    featurePlanId: null,
+    storageGb: null,
+    resalePricing: { model: 'flat' as const, amount },
+  });
+
+  it('accepts a price at the minimum for the seat limit', async () => {
+    const { db } = fakeDb([[contract]]);
+    await expect(validateLicenceTerms(db, 'ptr_1', terms('150', 10))).resolves.toBeUndefined();
+  });
+
+  it('refuses a price below it, with where it falls short', async () => {
+    const { db } = fakeDb([[contract]]);
+    const err = await validateLicenceTerms(db, 'ptr_1', terms('120', 10)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LicenceError);
+    expect(err).toMatchObject({
+      code: 'BELOW_MINIMUM',
+      details: { reason: 'below_minimum', currency: 'EUR', seats: 10, minimum: '150.00', price: '120.00' },
+    });
+  });
+
+  it('refuses a flat price without a seat limit', async () => {
+    const { db } = fakeDb([[contract]]);
+    await expect(validateLicenceTerms(db, 'ptr_1', terms('1000', null))).rejects.toMatchObject({
+      code: 'BELOW_MINIMUM',
+      details: { reason: 'needs_seat_limit', seatFloorPrice: '10.00' },
+    });
   });
 });

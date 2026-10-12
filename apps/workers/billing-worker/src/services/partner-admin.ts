@@ -13,7 +13,7 @@
  * TerritoryConflictError, which the route maps to HTTP.
  */
 
-import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import {
   TerritoryConflictError,
   applyLicenceCredits,
@@ -68,6 +68,7 @@ const {
   partners,
   partnerMembers,
   partnerContracts,
+  partnerStatements,
   partnerTerritories,
   workspaces,
   workspaceLicences,
@@ -286,6 +287,8 @@ function contractValues(contract: PartnerContractInput, effectiveFrom: Date, ctx
     currency: contract.currency,
     revenueShareBps: contract.revenueShareBps,
     baseMinimum: contract.baseMinimum,
+    includedSeats: contract.includedSeats,
+    seatFloorPrice: contract.seatFloorPrice,
     includedCredits: contract.includedCredits,
     creditFloorPrice: contract.creditFloorPrice,
     extraCreditPrice: contract.extraCreditPrice,
@@ -342,6 +345,32 @@ export async function updatePartner(ctx: AdminContext, partnerId: string, patch:
 // ============================================================================
 
 /**
+ * A partner's currency is fixed once it has been invoiced: Stripe bills a
+ * customer in one currency, and licence prices are plain amounts that a new
+ * currency would silently reinterpret.
+ */
+async function assertCurrencyCanChange(
+  masterDb: MasterDb,
+  partnerId: string,
+  contracts: ReadonlyArray<{ effectiveFrom: Date; currency: string }>,
+  currency: string,
+): Promise<void> {
+  const latest = [...contracts].sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime())[0];
+  if (!latest || latest.currency === currency) return;
+  const [invoiced] = await masterDb
+    .select({ id: partnerStatements.id })
+    .from(partnerStatements)
+    .where(and(eq(partnerStatements.partnerId, partnerId), isNotNull(partnerStatements.stripeInvoiceId)))
+    .limit(1);
+  if (invoiced) {
+    throw new AdminBillingError(
+      'CONFLICT',
+      `This partner has been invoiced in ${latest.currency}, so its currency can no longer change.`,
+    );
+  }
+}
+
+/**
  * A new effective-dated contract. The one in force is closed at the new
  * `effectiveFrom` (default now); contracts are never edited in place.
  */
@@ -359,6 +388,7 @@ export async function addContract(ctx: AdminContext, partnerId: string, input: P
       `A new contract must start after the current one starts (${latest.toISOString().slice(0, 10)}).`,
     );
   }
+  await assertCurrencyCanChange(masterDb, partnerId, existing, input.currency);
 
   return masterDb.transaction(async (tx) => {
     await tx

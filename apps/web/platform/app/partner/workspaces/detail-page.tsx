@@ -243,7 +243,7 @@ function LicenceCard({ workspace, canManage }: Readonly<{ workspace: ManagedWork
 
   const onSave = async () => {
     setFailure(null);
-    const parsed = parseDraft(draft);
+    const parsed = parseDraft(draft, overview.data?.contract);
     if (!parsed.ok) {
       setErrors(parsed.errors);
       return;
@@ -273,6 +273,7 @@ function LicenceCard({ workspace, canManage }: Readonly<{ workspace: ManagedWork
             disabled={!editable || save.isPending}
             showReason={editable}
             idPrefix="ld"
+            currency={overview.data?.contract?.currency ?? 'USD'}
           />
           {failure && (
             <p role="alert" className="text-sm text-destructive">
@@ -346,7 +347,7 @@ function GrantCreditsDialog({ workspaceId, onClose }: Readonly<{ workspaceId: st
               disabled={grant.isPending}
               autoFocus
             />
-            {cost !== null && <p className="text-xs text-muted-foreground">{format(tw.grantCost, { amount: f.cents(cost) })}</p>}
+            {cost !== null && <p className="text-xs text-muted-foreground">{format(tw.grantCost, { amount: f.cents(cost, contract?.currency) })}</p>}
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="grant-note">{tw.grantNote}</Label>
@@ -373,6 +374,7 @@ function GrantCreditsDialog({ workspaceId, onClose }: Readonly<{ workspaceId: st
 }
 
 function HistoryCard({ history }: Readonly<{ history: LicenceChangeView[] }>) {
+  const currency = usePartnerOverview().data?.contract?.currency;
   const { t, format } = useI18n();
   const tw = t.partner.workspaceDetail;
   const f = useFormatters();
@@ -406,8 +408,8 @@ function HistoryCard({ history }: Readonly<{ history: LicenceChangeView[] }>) {
                       apps: entry.snapshot.allowedApps.length,
                       credits: f.number(entry.snapshot.monthlyCredits),
                       price: perSeat
-                        ? `${f.money(pricing.amount)} ${t.partner.licence.pricingPerSeat.toLowerCase()}`
-                        : f.money(pricing.amount),
+                        ? `${f.money(pricing.amount, currency)} ${t.partner.licence.pricingPerSeat.toLowerCase()}`
+                        : f.money(pricing.amount, currency),
                     })}
                     {' · '}
                     {t.partner.licenceStatus[entry.snapshot.status]}

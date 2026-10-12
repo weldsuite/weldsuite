@@ -97,17 +97,18 @@ not shared with the client are never signalled to the portal.
 
 ## Deployment
 
-Vercel project **`weldsuite-hr-portal`** (team `weldsuite`), Git-connected to
-this repo with root directory `apps/web/hr-portal` — the same setup as
-`booking-portal` and `meeting-portal`. Build settings live in `vercel.json`.
-It is not part of `.github/workflows/deploy.yml`; Vercel's Git integration is
-the releaser.
+Vercel project **`weldsuite-hr-portal`** (team `weldsuite`), root directory
+`apps/web/hr-portal` — the same setup as `booking-portal` and
+`meeting-portal`. Build settings live in `vercel.json`. `develop` and `main`
+are released by the `vercel` job in `.github/workflows/deploy.yml` (Vercel CLI,
+prebuilt upload); `vercel.json` turns Vercel's own Git builds off for those two
+branches. Other branches still get Vercel Git previews.
 
 | Branch | Vercel target | Hostname | `APP_API_URL` |
 | --- | --- | --- | --- |
-| `main` | Production | `team.weldsuite.org` | `https://app-api.weldsuite.org` |
-| `develop` | Preview (branch domain) | `team-test.weldsuite.org` | `https://app-api-test.weldsuite.org` |
-| other branches | Preview | `*.vercel.app` | `https://app-api-test.weldsuite.org` |
+| `main` | Production (GitHub Actions) | `team.weldsuite.org` | `https://app-api.weldsuite.org` |
+| `develop` | Preview (GitHub Actions, aliased to the branch domain) | `team-test.weldsuite.org` | `https://app-api-test.weldsuite.org` |
+| other branches | Preview (Vercel Git) | `*.vercel.app` | `https://app-api-test.weldsuite.org` |
 
 `HR_PORTAL_DEFAULT_HOSTS` is `team.weldsuite.org,team-test.weldsuite.org` in
 every environment. These hostnames match what `app-api` puts in invite emails

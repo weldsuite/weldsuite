@@ -65,6 +65,7 @@ const LICENCE_ERROR_STATUS: Record<LicenceError['code'], 400 | 404 | 409> = {
   NO_CONTRACT: 409,
   NOT_FOUND: 404,
   WRONG_PARTNER: 409,
+  BELOW_MINIMUM: 400,
 };
 
 export function errorResponse(c: AdminCtx, err: unknown) {
@@ -75,7 +76,10 @@ export function errorResponse(c: AdminCtx, err: unknown) {
     );
   }
   if (err instanceof LicenceError) {
-    return c.json({ error: { code: err.code, message: err.message } }, LICENCE_ERROR_STATUS[err.code]);
+    return c.json(
+      { error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } },
+      LICENCE_ERROR_STATUS[err.code],
+    );
   }
   if (err instanceof TerritoryConflictError) {
     return c.json(

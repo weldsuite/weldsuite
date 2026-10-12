@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Field } from '@/components/billing/action-dialog';
 import type { PlanOption } from '@/lib/billing-types';
 import type { LicenceFormState } from '@/lib/partners';
+import { fill } from '@/lib/i18n';
 import { partnersCopy } from '@/lib/partners-copy';
 
 export interface AppOption {
@@ -23,6 +24,7 @@ export function LicenceFields({
   appOptions,
   planOptions,
   idPrefix,
+  currency,
 }: Readonly<{
   value: LicenceFormState;
   onChange: (next: LicenceFormState) => void;
@@ -30,6 +32,8 @@ export function LicenceFields({
   appOptions: AppOption[];
   planOptions: PlanOption[];
   idPrefix: string;
+  /** The partner's contract currency, which the customer price is in. */
+  currency: string;
 }>) {
   const l = partnersCopy().workspaces.licence;
   const set = <K extends keyof LicenceFormState>(key: K) => (v: LicenceFormState[K]) => onChange({ ...value, [key]: v });
@@ -100,7 +104,7 @@ export function LicenceFields({
               </SelectContent>
             </Select>
           </Field>
-          <Field label={l.amount} htmlFor={`${idPrefix}-amount`}>
+          <Field label={fill(l.amount, { currency })} htmlFor={`${idPrefix}-amount`}>
             <Input id={`${idPrefix}-amount`} inputMode="decimal" value={value.amount} onChange={text('amount')} disabled={disabled} placeholder="199.00" />
           </Field>
           {value.pricingModel === 'per_seat' && (

@@ -70,6 +70,8 @@ import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
 import { RecipientsRow, StringRecipientsRow } from '@/app/weldmail/components/compose-recipients';
+import { SignaturePicker, useComposeSignature } from '@/app/weldmail/components/compose-signature';
+import type { SignatureMode } from '@/app/weldmail/lib/signature';
 
 /**
  * Pairs each attachment with a stable content-based React key. The same file can
@@ -234,6 +236,11 @@ export interface ComposeSurfaceProps {
   editorRef: React.RefObject<HTMLDivElement | null>;
   onBodyInput: (html: string, text: string) => void;
   onBodyBlur: (html: string) => void;
+  /**
+   * Which default signature goes into a blank body once the surface opens; null
+   * for none (an opened draft keeps what it had). The picker is there either way.
+   */
+  signatureMode: SignatureMode | null;
 
   attachedFiles: File[];
   onAttachedFilesChange: React.Dispatch<React.SetStateAction<File[]>>;
@@ -278,6 +285,7 @@ export function ComposeSurface({
   editorRef,
   onBodyInput,
   onBodyBlur,
+  signatureMode,
   attachedFiles,
   onAttachedFilesChange,
   scheduledTime,
@@ -287,6 +295,7 @@ export function ComposeSurface({
   isSending,
 }: Readonly<ComposeSurfaceProps>) {
   const { t } = useI18n();
+  const signature = useComposeSignature({ editorRef, accountId, autoInsert: signatureMode, onChange: onBodyInput });
 
   const [fontSize, setFontSize] = useState('14');
   const [showFormatting, setShowFormatting] = useState(false);
@@ -920,6 +929,14 @@ export function ComposeSurface({
                 </Command>
               </PopoverContent>
             </Popover>
+
+            <SignaturePicker
+              className={TOOL_BUTTON}
+              signatures={signature.signatures}
+              getSelectedId={signature.getSelectedId}
+              onSelect={signature.select}
+              testId={`${testIdPrefix}-signature-btn`}
+            />
 
             {/* Schedule send */}
             <Popover>

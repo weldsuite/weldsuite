@@ -455,7 +455,7 @@ i18n: new `reach` namespace in `packages/core/i18n/src/locales/en/reach.ts` and 
 
 Code can't do these; run them before the first approval.
 
-1. **Migrations**: master `0054` (workspace_app_access, reach_routes, app_catalog.requires_approval) and tenant `0209` (reach_* tables) go out with the normal deploy.
+1. **Migrations**: master `0055` (workspace_app_access, reach_routes, app_catalog.requires_approval) and tenant `0209` (reach_* tables) go out with the normal deploy.
 2. **Secrets** (`scripts/secrets/manifest.ts` → `reach-api`): `MAILPOOL_API_KEY`, `MAILPOOL_WEBHOOK_SECRET`, `AI_GATEWAY_API_TOKEN`, `CLOUDFLARE_API_TOKEN` plus the base API-worker secrets; then `pnpm secrets:sync <env> reach-api`.
 3. **Queues**: `wrangler queues create reach-send-<env>` and `reach-send-dlq-<env>` (dev, test, production).
 4. **Inbound replies**: Cloudflare Email Routing on `reply-test.weldsuite.org` / `reply.weldsuite.org` (subdomain of the weldsuite.org zone): enable it, then a catch-all rule → Worker `weldsuite-reach-api[-test]`.

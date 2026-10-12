@@ -191,6 +191,20 @@ describe('writes', () => {
     expect((await json(bad)).error?.code).toBe('INVALID_APPS');
     mocks.svc.setWorkspaceLicence.mockRejectedValueOnce(new LicenceError('NO_CONTRACT', 'This partner has no contract in force'));
     expect((await call('PUT', '/ptr_a/workspaces/ws_1/licence', body)).status).toBe(409);
+    const details = {
+      reason: 'below_minimum' as const,
+      currency: 'USD',
+      includedSeats: 5,
+      seats: 10,
+      minimum: '150.00',
+      price: '10.00',
+      seatFloorPrice: null,
+      message: 'At 10 seats the price is 10.00 USD, below the minimum of 150.00 USD',
+    };
+    mocks.svc.setWorkspaceLicence.mockRejectedValueOnce(new LicenceError('BELOW_MINIMUM', details.message, details));
+    const below = await call('PUT', '/ptr_a/workspaces/ws_1/licence', body);
+    expect(below.status).toBe(400);
+    expect((await json(below)).error).toMatchObject({ code: 'BELOW_MINIMUM', details: { seats: 10, minimum: '150.00' } });
   });
 
   it('pass the workspace and licence to attach, with the reason kept in the audit', async () => {

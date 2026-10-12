@@ -125,7 +125,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, prefill }: Readonly<New
 
   const onSubmit = form.handleSubmit(async (values) => {
     setSubmitError(null);
-    const licence = parseDraft(draft);
+    const licence = parseDraft(draft, overview.data?.contract);
     if (!licence.ok) {
       setDraftErrors(licence.errors);
       return;
@@ -231,6 +231,7 @@ export function NewWorkspaceDialog({ open, onOpenChange, prefill }: Readonly<New
               packages={packages}
               disabled={pending}
               idPrefix="nw"
+              currency={overview.data?.contract?.currency ?? 'USD'}
             />
           </div>
 

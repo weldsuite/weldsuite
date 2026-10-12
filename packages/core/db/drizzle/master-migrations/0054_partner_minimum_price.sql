@@ -1,0 +1,2 @@
+ALTER TABLE "partner_contracts" ADD COLUMN "included_seats" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "partner_contracts" ADD COLUMN "seat_floor_price" numeric(12, 2) DEFAULT '0' NOT NULL;
