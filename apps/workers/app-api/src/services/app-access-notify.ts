@@ -17,8 +17,15 @@ export const DEFAULT_ADMIN_CONSOLE_URL = 'https://admin.weldsuite.org';
 /** Display names of the on-request apps, for the email. Unknown codes are shown as they are. */
 const APP_NAMES: Record<string, string> = { weldreach: 'WeldReach' };
 
+/** Drops every trailing slash with a single scan (a `/\/+$/` regex backtracks quadratically on long runs). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 export function accessRequestsUrl(env: Pick<Env, 'ADMIN_CONSOLE_URL'>): string {
-  const base = (env.ADMIN_CONSOLE_URL?.trim() || DEFAULT_ADMIN_CONSOLE_URL).replace(/\/+$/, '');
+  const base = stripTrailingSlashes(env.ADMIN_CONSOLE_URL?.trim() || DEFAULT_ADMIN_CONSOLE_URL);
   return `${base}/access-requests`;
 }
 

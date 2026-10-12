@@ -73,12 +73,35 @@ interface RequestInitLike {
 
 export type MailpoolClient = ReturnType<typeof createMailpoolClient>;
 
+/** `value` without trailing slashes (a character scan: a `/\/+$/` regex backtracks on long runs). */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  return value.slice(0, end);
+}
+
+/** A whole number in [0, bound) from the Web Crypto source, used as retry jitter. */
+function randomBelow(bound: number): number {
+  const [value] = crypto.getRandomValues(new Uint32Array(1));
+  return (value ?? 0) % bound;
+}
+
+/** `base` + `path`, plus the defined query values as a query string. */
+function buildUrl(base: string, path: string, query: RequestInitLike['query']): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `${base}${path}?${qs}` : `${base}${path}`;
+}
+
 /** Throws MailpoolNotConfiguredError when the API key is missing. */
 export function createMailpoolClient(env: MailpoolEnv, options: MailpoolClientOptions = {}) {
   const apiKey = env.MAILPOOL_API_KEY;
   if (!apiKey) throw new MailpoolNotConfiguredError();
 
-  const baseUrl = (env.MAILPOOL_API_URL || MAILPOOL_DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const baseUrl = trimTrailingSlashes(env.MAILPOOL_API_URL || MAILPOOL_DEFAULT_BASE_URL);
   const maxRetries = options.maxRetries ?? MAX_RETRIES;
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -126,7 +149,7 @@ export function createMailpoolClient(env: MailpoolEnv, options: MailpoolClientOp
       if (Number.isFinite(seconds) && seconds >= 0) return Math.min(seconds * 1000, MAX_BACKOFF_MS);
     }
     const exponential = BASE_BACKOFF_MS * 2 ** retry;
-    return Math.min(exponential + Math.floor(Math.random() * 100), MAX_BACKOFF_MS);
+    return Math.min(exponential + randomBelow(100), MAX_BACKOFF_MS);
   }
 
   async function readBody(response: Response): Promise<unknown> {
@@ -140,12 +163,7 @@ export function createMailpoolClient(env: MailpoolEnv, options: MailpoolClientOp
   }
 
   async function request<T>(method: string, path: string, init: RequestInitLike = {}): Promise<T> {
-    const query = new URLSearchParams();
-    for (const [key, value] of Object.entries(init.query ?? {})) {
-      if (value !== undefined) query.set(key, String(value));
-    }
-    const qs = query.toString();
-    const url = `${baseUrl}${path}${qs ? `?${qs}` : ''}`;
+    const url = buildUrl(baseUrl, path, init.query);
 
     for (let retry = 0; ; retry++) {
       const outcome = await attempt(method, path, url, init);

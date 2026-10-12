@@ -94,6 +94,6 @@ describe('subjects, body and footer', () => {
 
   it('cuts a snippet to one line', () => {
     expect(snippetOf('Hi\n\n  there   friend')).toBe('Hi there friend');
-    expect(snippetOf('x'.repeat(600)).length).toBe(500);
+    expect(snippetOf('x'.repeat(600))).toHaveLength(500);
   });
 });

@@ -244,10 +244,12 @@ function Section({ title, children }: Readonly<{ title: string; children: React.
 function StatusLines({ access }: Readonly<{ access: AppAccessDetail }>) {
   const lines: string[] = [];
   if (access.requestedAt) {
-    lines.push(`Requested ${formatDateTime(access.requestedAt)}${access.requestedByEmail ? ` by ${access.requestedByEmail}` : ''}`);
+    const by = access.requestedByEmail ? ` by ${access.requestedByEmail}` : '';
+    lines.push(`Requested ${formatDateTime(access.requestedAt)}${by}`);
   }
   if (access.reviewedAt) {
-    lines.push(`Last decision ${formatDateTime(access.reviewedAt)}${access.reviewedBy ? ` by ${access.reviewedBy}` : ''}`);
+    const by = access.reviewedBy ? ` by ${access.reviewedBy}` : '';
+    lines.push(`Last decision ${formatDateTime(access.reviewedAt)}${by}`);
   }
   return (
     <div className="space-y-1 text-sm text-muted-foreground">

@@ -11,6 +11,7 @@ import {
   parseLimitsForm,
   planAccessUpdate,
   type AccessAction,
+  type AccessUpdate,
   type LimitsFormValues,
 } from '@/lib/app-access';
 import { getAppAccess, requesterContact, type AppAccessDetail } from '@/lib/app-access-data';
@@ -99,6 +100,122 @@ async function installInTenant(clerkOrgId: string | null, appCode: string, insta
   }
 }
 
+type MasterDb = ReturnType<typeof getMasterDb>;
+
+/** The workspace columns a decision needs. */
+type DecisionWorkspace = Pick<typeof workspaces.$inferSelect, 'id' | 'name' | 'clerkOrgId' | 'deletedAt'>;
+
+type Failure = { ok: false; error: string };
+
+/** The workspace the decision is about, or why it cannot be decided on. */
+async function loadWorkspace(
+  db: MasterDb,
+  workspaceId: string,
+): Promise<{ ok: true; workspace: DecisionWorkspace } | Failure> {
+  const [workspace] = await db
+    .select({ id: workspaces.id, name: workspaces.name, clerkOrgId: workspaces.clerkOrgId, deletedAt: workspaces.deletedAt })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1);
+  if (!workspace) return { ok: false, error: 'Workspace not found.' };
+  if (workspace.deletedAt) return { ok: false, error: 'This workspace has been deleted.' };
+  return { ok: true, workspace };
+}
+
+/** With no access row yet, only an approval of an app in the catalog can start one. Returns the refusal, if any. */
+async function refuseWithoutRow(db: MasterDb, action: AccessAction, appCode: string): Promise<string | null> {
+  if (action !== 'approve') return NOT_FOUND;
+  const [app] = await db.select({ code: appCatalog.code }).from(appCatalog).where(eq(appCatalog.code, appCode)).limit(1);
+  return app ? null : `Unknown app "${appCode}".`;
+}
+
+/** The limits already stored on the row; empty when there is no row or none were stored yet. */
+function storedLimits(current: AppAccessDetail | null): Record<string, unknown> {
+  return current && !current.limitsUnset ? current.limits : {};
+}
+
+/** Writes the planned update to the existing row, or inserts a row when there is none. Returns the refusal, if any. */
+async function saveAccessUpdate(
+  db: MasterDb,
+  current: AppAccessDetail | null,
+  set: AccessUpdate,
+  target: { workspaceId: string; appCode: string },
+): Promise<string | null> {
+  const now = new Date();
+
+  if (current) {
+    // Guarded on the status we planned from, so two staff acting at once cannot both win.
+    const updated = await db
+      .update(workspaceAppAccess)
+      .set({ ...set, updatedAt: now })
+      .where(and(eq(workspaceAppAccess.id, current.id), eq(workspaceAppAccess.status, current.status)))
+      .returning({ id: workspaceAppAccess.id });
+    return updated.length === 0 ? 'Someone else just changed this request. Reload the page and try again.' : null;
+  }
+
+  await db
+    .insert(workspaceAppAccess)
+    .values({
+      id: generateId('waa'),
+      workspaceId: target.workspaceId,
+      appCode: target.appCode,
+      status: set.status,
+      limits: set.limits ?? {},
+      reviewedBy: set.reviewedBy,
+      reviewedAt: set.reviewedAt,
+      rejectionReason: set.rejectionReason,
+      suspendedReason: set.suspendedReason,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
+  return null;
+}
+
+/** Installs the app in the workspace and emails the requester; returns the warnings staff should see. */
+async function afterApproval(workspace: DecisionWorkspace, access: AppAccessDetail, appCode: string): Promise<string[]> {
+  const warnings: string[] = [];
+  const installWarning = await installInTenant(workspace.clerkOrgId, appCode, access.requestedBy ?? 'admin-console');
+  if (installWarning) warnings.push(installWarning);
+  // Only a workspace that asked is emailed; a grant staff made on their own has nobody to tell.
+  if (access.request) {
+    const contact = requesterContact(access);
+    const outcome = await sendAccessApprovedEmail({
+      to: contact.email,
+      recipientName: contact.name,
+      workspaceName: workspace.name,
+      limits: access.limits,
+    });
+    if (outcome !== 'sent') warnings.push('The requester was not emailed about the approval. Tell them yourself.');
+  }
+  return warnings;
+}
+
+/** Emails the requester the reason; returns the warnings staff should see. */
+async function afterRejection(workspace: DecisionWorkspace, access: AppAccessDetail, reason: string): Promise<string[]> {
+  const contact = requesterContact(access);
+  const outcome = await sendAccessRejectedEmail({
+    to: contact.email,
+    recipientName: contact.name,
+    workspaceName: workspace.name,
+    reason: reason.trim(),
+  });
+  return outcome === 'sent' ? [] : ['The requester was not emailed about the rejection. Tell them yourself.'];
+}
+
+/** What a decision does beyond the row itself: only approve and reject have anything more to do. */
+async function runDecisionSideEffects(
+  action: AccessAction,
+  workspace: DecisionWorkspace,
+  access: AppAccessDetail,
+  appCode: string,
+  reason: string,
+): Promise<string[]> {
+  if (action === 'approve') return afterApproval(workspace, access, appCode);
+  if (action === 'reject') return afterRejection(workspace, access, reason);
+  return [];
+}
+
 async function changeStatus(
   action: AccessAction,
   workspaceId: string,
@@ -110,61 +227,28 @@ async function changeStatus(
   if (!isText(workspaceId) || !isText(appCode) || !isText(reason)) return { ok: false, error: 'Invalid request.' };
 
   const db = getMasterDb();
-  const [workspace] = await db
-    .select({ id: workspaces.id, name: workspaces.name, clerkOrgId: workspaces.clerkOrgId, deletedAt: workspaces.deletedAt })
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
-    .limit(1);
-  if (!workspace) return { ok: false, error: 'Workspace not found.' };
-  if (workspace.deletedAt) return { ok: false, error: 'This workspace has been deleted.' };
+  const found = await loadWorkspace(db, workspaceId);
+  if (!found.ok) return found;
 
   const current = await getAppAccess(workspaceId, appCode);
   if (!current) {
-    if (action !== 'approve') return { ok: false, error: NOT_FOUND };
-    const [app] = await db.select({ code: appCatalog.code }).from(appCatalog).where(eq(appCatalog.code, appCode)).limit(1);
-    if (!app) return { ok: false, error: `Unknown app "${appCode}".` };
+    const refusal = await refuseWithoutRow(db, action, appCode);
+    if (refusal) return { ok: false, error: refusal };
   }
 
+  const from = current?.status ?? 'none';
   const planned = planAccessUpdate({
     action,
-    from: current?.status ?? 'none',
+    from,
     appCode,
     reason,
     reviewer: guard.identity.email,
-    currentLimits: current && !current.limitsUnset ? current.limits : {},
+    currentLimits: storedLimits(current),
   });
   if (!planned.ok) return { ok: false, error: planned.error };
-  const set = planned.set;
-  const now = new Date();
 
-  if (current) {
-    // Guarded on the status we planned from, so two staff acting at once cannot both win.
-    const updated = await db
-      .update(workspaceAppAccess)
-      .set({ ...set, updatedAt: now })
-      .where(and(eq(workspaceAppAccess.id, current.id), eq(workspaceAppAccess.status, current.status)))
-      .returning({ id: workspaceAppAccess.id });
-    if (updated.length === 0) {
-      return { ok: false, error: 'Someone else just changed this request. Reload the page and try again.' };
-    }
-  } else {
-    await db
-      .insert(workspaceAppAccess)
-      .values({
-        id: generateId('waa'),
-        workspaceId,
-        appCode,
-        status: set.status,
-        limits: set.limits ?? {},
-        reviewedBy: set.reviewedBy,
-        reviewedAt: set.reviewedAt,
-        rejectionReason: set.rejectionReason,
-        suspendedReason: set.suspendedReason,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing();
-  }
+  const conflict = await saveAccessUpdate(db, current, planned.set, { workspaceId, appCode });
+  if (conflict) return { ok: false, error: conflict };
 
   await recordConsoleAudit({
     identity: guard.identity,
@@ -172,37 +256,13 @@ async function changeStatus(
     action: `app_access.${action}`,
     outcome: 'success',
     reason: reason.trim(),
-    details: { appCode, from: current?.status ?? 'none', to: set.status },
+    details: { appCode, from, to: planned.set.status },
   });
 
   const refreshed = await getAppAccess(workspaceId, appCode);
   if (!refreshed) return { ok: false, error: NOT_FOUND };
 
-  const warnings: string[] = [];
-  const contact = requesterContact(refreshed);
-
-  if (action === 'approve') {
-    const installWarning = await installInTenant(workspace.clerkOrgId, appCode, refreshed.requestedBy ?? 'admin-console');
-    if (installWarning) warnings.push(installWarning);
-    // Only a workspace that asked is emailed; a grant staff made on their own has nobody to tell.
-    if (refreshed.request) {
-      const outcome = await sendAccessApprovedEmail({
-        to: contact.email,
-        recipientName: contact.name,
-        workspaceName: workspace.name,
-        limits: refreshed.limits,
-      });
-      if (outcome !== 'sent') warnings.push('The requester was not emailed about the approval. Tell them yourself.');
-    }
-  } else if (action === 'reject') {
-    const outcome = await sendAccessRejectedEmail({
-      to: contact.email,
-      recipientName: contact.name,
-      workspaceName: workspace.name,
-      reason: reason.trim(),
-    });
-    if (outcome !== 'sent') warnings.push('The requester was not emailed about the rejection. Tell them yourself.');
-  }
+  const warnings = await runDecisionSideEffects(action, found.workspace, refreshed, appCode, reason);
 
   refresh(workspaceId, refreshed.id);
   return { ok: true, data: { access: refreshed, warnings } };

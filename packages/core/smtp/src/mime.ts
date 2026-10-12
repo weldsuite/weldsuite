@@ -52,17 +52,23 @@ const HEADER_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 const ATEXT_WORD_PATTERN = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~]+$/;
 const PRINTABLE_ASCII_PATTERN = /^[\x20-\x7e]*$/;
 
+/** Drops leading and trailing dots and hyphens with a linear scan (the equivalent regex backtracks quadratically). */
+function trimDotsAndHyphens(value: string): string {
+  const isEdge = (char: string | undefined): boolean => char === '.' || char === '-';
+  let start = 0;
+  let end = value.length;
+  while (start < end && isEdge(value[start])) start++;
+  while (end > start && isEdge(value[end - 1])) end--;
+  return value.slice(start, end);
+}
+
 /**
  * `<random>.<base36 timestamp>@domain`, without angle brackets. The random part
  * is 128 bits, so ids do not collide and cannot be guessed.
  */
 export function generateMessageId(domain: string): string {
   const afterAt = domain.slice(domain.lastIndexOf('@') + 1);
-  const cleaned = afterAt
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]/g, '')
-    .replace(/^[.-]+|[.-]+$/g, '');
+  const cleaned = trimDotsAndHyphens(afterAt.trim().toLowerCase().replace(/[^a-z0-9.-]/g, ''));
   if (!cleaned) throw new TypeError('generateMessageId: a domain is required');
   return `${randomHex(16)}.${Date.now().toString(36)}@${cleaned}`;
 }

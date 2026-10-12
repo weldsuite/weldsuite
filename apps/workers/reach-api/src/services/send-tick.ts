@@ -65,7 +65,7 @@ import {
   type Readiness,
 } from './scheduler';
 import { CREDENTIALS_UNAVAILABLE, sendFromMailbox } from './outbound';
-import { loadSuppressionIndex, suppressEmail } from './suppressions';
+import { loadSuppressionIndex, suppressEmail, type SuppressionIndex } from './suppressions';
 
 /** Most rows one tick claims. */
 const CLAIM_MAX = 100;
@@ -444,6 +444,52 @@ interface Triage {
 }
 
 /**
+ * What triage decided about one claimed enrollment that needs no send: the
+ * patch that settles it, and which tally it counts toward (if any).
+ */
+interface Settlement {
+  patch: EnrollmentPatch;
+  counts?: 'failed' | 'deferred';
+}
+
+function failed(state: TickState, reason: string): Settlement {
+  return { patch: stop(state, 'failed', reason), counts: 'failed' };
+}
+
+/**
+ * Settle a claimed enrollment that does not need a send: a prospect that is
+ * gone, a step that already went out, an address that became suppressed.
+ * null when it is still to be planned.
+ */
+function settleWithoutSending(
+  state: TickState,
+  e: ReachEnrollment,
+  prospect: ReachProspect | undefined,
+  history: readonly ReachMessage[],
+  suppression: SuppressionIndex,
+): Settlement | null {
+  const step = stepOf(state, e);
+  if (!prospect || prospect.deletedAt) return failed(state, 'prospect_deleted');
+  if (!step) return { patch: stop(state, 'completed', null) };
+  const past = historyFor(e.id, step.id, history);
+  if (past.sentOrUnknown) {
+    // A crash between the SMTP reply and the enrollment update: the step is out already.
+    return { patch: advance(state, e, past.sentOrUnknown, past.sentOrUnknown.mailboxId) };
+  }
+  if (past.inFlight) return { patch: putBack(state, after(state.now, IN_FLIGHT_RETRY_MS)), counts: 'deferred' };
+  if (past.failedAttempts >= MAX_SEND_ATTEMPTS) return failed(state, 'send_failed');
+  const hit = suppression.check(prospect.email);
+  if (hit) {
+    return { patch: stop(state, hit.reason === 'bounced' ? 'bounced' : 'unsubscribed', `suppressed:${hit.reason}`) };
+  }
+  if (!state.deps.limits.allowConsumerRecipients && isConsumerEmail(prospect.email)) return failed(state, 'consumer_domain');
+  // Whatever the prospect lacks is known now; the sender's own name is always set.
+  const probe = buildTemplateValues(prospect, { firstName: 'sender', lastName: 'sender' });
+  if (renderStepContent(step, probe).missing.length > 0) return failed(state, 'missing_variables');
+  return null;
+}
+
+/**
  * Settle claimed enrollments that do not need a send: a prospect that is gone,
  * a step that already went out, an address that became suppressed. What is
  * left is planned.
@@ -473,53 +519,15 @@ async function triage(state: TickState, claimed: ReachEnrollment[], tally: TickR
   const prospects = new Map(prospectRows.map((p) => [p.id, p]));
   const patches = new Map<string, EnrollmentPatch>();
   const toPlan: ReachEnrollment[] = [];
-  const fail = (e: ReachEnrollment, reason: string) => {
-    patches.set(e.id, stop(state, 'failed', reason));
-    tally.failed += 1;
-  };
 
   for (const e of claimed) {
-    const prospect = prospects.get(e.prospectId);
-    const step = stepOf(state, e);
-    if (!prospect || prospect.deletedAt) {
-      fail(e, 'prospect_deleted');
+    const settled = settleWithoutSending(state, e, prospects.get(e.prospectId), history, suppression);
+    if (!settled) {
+      toPlan.push(e);
       continue;
     }
-    if (!step) {
-      patches.set(e.id, stop(state, 'completed', null));
-      continue;
-    }
-    const past = historyFor(e.id, step.id, history);
-    if (past.sentOrUnknown) {
-      // A crash between the SMTP reply and the enrollment update: the step is out already.
-      patches.set(e.id, advance(state, e, past.sentOrUnknown, past.sentOrUnknown.mailboxId));
-      continue;
-    }
-    if (past.inFlight) {
-      patches.set(e.id, putBack(state, after(state.now, IN_FLIGHT_RETRY_MS)));
-      tally.deferred += 1;
-      continue;
-    }
-    if (past.failedAttempts >= MAX_SEND_ATTEMPTS) {
-      fail(e, 'send_failed');
-      continue;
-    }
-    const hit = suppression.check(prospect.email);
-    if (hit) {
-      patches.set(e.id, stop(state, hit.reason === 'bounced' ? 'bounced' : 'unsubscribed', `suppressed:${hit.reason}`));
-      continue;
-    }
-    if (!state.deps.limits.allowConsumerRecipients && isConsumerEmail(prospect.email)) {
-      fail(e, 'consumer_domain');
-      continue;
-    }
-    // Whatever the prospect lacks is known now; the sender's own name is always set.
-    const probe = buildTemplateValues(prospect, { firstName: 'sender', lastName: 'sender' });
-    if (renderStepContent(step, probe).missing.length > 0) {
-      fail(e, 'missing_variables');
-      continue;
-    }
-    toPlan.push(e);
+    patches.set(e.id, settled.patch);
+    if (settled.counts) tally[settled.counts] += 1;
   }
   return { patches, toPlan, prospects, history };
 }

@@ -164,7 +164,7 @@ describe('Setup wizard', () => {
       );
       await user.click(screen.getByRole('button', { name: 'Continue' }));
 
-      expect((await screen.findAllByText('This field is required.')).length).toBe(2);
+      expect(await screen.findAllByText('This field is required.')).toHaveLength(2);
       expect(api.reach.updateSettings).not.toHaveBeenCalled();
     });
 

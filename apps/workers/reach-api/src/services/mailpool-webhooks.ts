@@ -100,7 +100,9 @@ function mailpoolIdOf(data: Record<string, unknown>): string | null {
   return null;
 }
 
-function remoteStatusOf(data: Record<string, unknown>): 'active' | 'pending' | 'inactive' | null {
+type RemoteStatus = 'active' | 'pending' | 'inactive';
+
+function remoteStatusOf(data: Record<string, unknown>): RemoteStatus | null {
   const status = typeof data.status === 'string' ? data.status.toLowerCase() : '';
   return status === 'active' || status === 'pending' || status === 'inactive' ? status : null;
 }
@@ -209,47 +211,65 @@ async function onMailboxUpdated(deps: WebhookDeps, data: Record<string, unknown>
 
   const now = deps.now ? deps.now() : new Date();
   const remote = remoteStatusOf(data);
-  const remoteMailbox = data as unknown as MailpoolMailbox;
 
-  if (remote === 'inactive') {
-    const { code, message } = errorOf(data);
-    const status = code !== null && CONFIGURATION_ERROR_CODES.has(code) ? 'error' : 'suspended';
-    const reason = message ?? (status === 'error' ? 'The mailbox provider reported a problem with this mailbox.' : 'Suspended by the mailbox provider.');
-    if (mailbox.status === status && mailbox.lastError === reason) return { handled: true, changed: false };
+  if (remote === 'inactive') return suspendInactiveMailbox(deps, db, route.clerkOrgId, mailbox, data, now);
+  if (remote === 'active') return applyActiveMailbox(deps, db, route.clerkOrgId, mailbox, data as unknown as MailpoolMailbox, now);
+  return { handled: true, changed: false };
+}
 
-    const updated = await updateMailbox(db, mailbox.id, { status, pausedReason: status === 'suspended' ? reason : null, lastError: reason }, now);
-    // Both mean "needs attention": the platform and workflows hear it as a suspension.
-    if (updated) await emit(deps, route.clerkOrgId, 'reach_mailbox', 'suspended', updated.id, omitSensitive('reach_mailboxes', updated));
+/** Mailpool reports the mailbox inactive: suspended, or `error` when the account itself needs fixing. */
+async function suspendInactiveMailbox(
+  deps: WebhookDeps,
+  db: Database,
+  clerkOrgId: string,
+  mailbox: MailboxRow,
+  data: Record<string, unknown>,
+  now: Date,
+): Promise<WebhookOutcome> {
+  const { code, message } = errorOf(data);
+  const status = code !== null && CONFIGURATION_ERROR_CODES.has(code) ? 'error' : 'suspended';
+  const reason = message ?? (status === 'error' ? 'The mailbox provider reported a problem with this mailbox.' : 'Suspended by the mailbox provider.');
+  if (mailbox.status === status && mailbox.lastError === reason) return { handled: true, changed: false };
+
+  const updated = await updateMailbox(db, mailbox.id, { status, pausedReason: status === 'suspended' ? reason : null, lastError: reason }, now);
+  // Both mean "needs attention": the platform and workflows hear it as a suspension.
+  if (updated) await emit(deps, clerkOrgId, 'reach_mailbox', 'suspended', updated.id, omitSensitive('reach_mailboxes', updated));
+  return { handled: true, changed: true };
+}
+
+/** Mailpool reports the mailbox active: start warming, clear a suspension, or fill in late logins. */
+async function applyActiveMailbox(
+  deps: WebhookDeps,
+  db: Database,
+  clerkOrgId: string,
+  mailbox: MailboxRow,
+  remoteMailbox: MailpoolMailbox,
+  now: Date,
+): Promise<WebhookOutcome> {
+  if (mailbox.status === 'provisioning') {
+    const warmed = await beginWarming(
+      {
+        db,
+        mailpool: deps.mailpool,
+        env: deps.env,
+        now,
+        lookup: deps.mailpool ? searchWarmupLookup(deps.mailpool) : { find: async () => null },
+      },
+      mailbox,
+      remoteMailbox,
+    );
+    await emit(deps, clerkOrgId, 'reach_mailbox', 'updated', warmed.id, omitSensitive('reach_mailboxes', warmed));
     return { handled: true, changed: true };
   }
 
-  if (remote === 'active') {
-    if (mailbox.status === 'provisioning') {
-      const warmed = await beginWarming(
-        {
-          db,
-          mailpool: deps.mailpool,
-          env: deps.env,
-          now,
-          lookup: deps.mailpool ? searchWarmupLookup(deps.mailpool) : { find: async () => null },
-        },
-        mailbox,
-        remoteMailbox,
-      );
-      await emit(deps, route.clerkOrgId, 'reach_mailbox', 'updated', warmed.id, omitSensitive('reach_mailboxes', warmed));
-      return { handled: true, changed: true };
-    }
-
-    if (mailbox.status === 'suspended' || mailbox.status === 'error') {
-      const restored = await updateMailbox(db, mailbox.id, { status: resumeStatusFor(mailbox), pausedReason: null, lastError: null }, now);
-      if (restored) await emit(deps, route.clerkOrgId, 'reach_mailbox', 'updated', restored.id, omitSensitive('reach_mailboxes', restored));
-      return { handled: true, changed: true };
-    }
-
-    // Logins that were not ready at create time arrive with a later update.
-    if (!mailbox.smtpCredentials) return fillCredentials(deps, db, mailbox, remoteMailbox, now);
+  if (mailbox.status === 'suspended' || mailbox.status === 'error') {
+    const restored = await updateMailbox(db, mailbox.id, { status: resumeStatusFor(mailbox), pausedReason: null, lastError: null }, now);
+    if (restored) await emit(deps, clerkOrgId, 'reach_mailbox', 'updated', restored.id, omitSensitive('reach_mailboxes', restored));
+    return { handled: true, changed: true };
   }
 
+  // Logins that were not ready at create time arrive with a later update.
+  if (!mailbox.smtpCredentials) return fillCredentials(deps, db, mailbox, remoteMailbox, now);
   return { handled: true, changed: false };
 }
 
@@ -299,6 +319,13 @@ async function onMailboxDeleted(deps: WebhookDeps, data: Record<string, unknown>
 
 const DOMAIN_PAUSE_REASON = 'domain_error';
 
+/** Our domain status for each status Mailpool can report. */
+const DOMAIN_STATUS_BY_REMOTE: Record<RemoteStatus, DomainRow['status']> = {
+  active: 'active',
+  pending: 'connecting',
+  inactive: 'error',
+};
+
 async function onDomainUpdated(deps: WebhookDeps, data: Record<string, unknown>): Promise<WebhookOutcome> {
   const mailpoolId = mailpoolIdOf(data);
   if (!mailpoolId) return ignored('no_id');
@@ -314,7 +341,7 @@ async function onDomainUpdated(deps: WebhookDeps, data: Record<string, unknown>)
 
   const now = deps.now ? deps.now() : new Date();
   const { message } = errorOf(data);
-  const status: DomainRow['status'] = remote === 'active' ? 'active' : remote === 'pending' ? 'connecting' : 'error';
+  const status = DOMAIN_STATUS_BY_REMOTE[remote];
   const lastError = remote === 'inactive' ? (message ?? 'The mailbox provider disabled this domain.') : null;
   if (status === domain.status && lastError === domain.lastError) return { handled: true, changed: false };
 

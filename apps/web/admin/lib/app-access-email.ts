@@ -12,9 +12,16 @@ import type { WeldReachLimits } from './app-access';
  */
 export type EmailOutcome = 'sent' | 'skipped' | 'failed';
 
+/** Drops every trailing slash with a single scan (a `/\/+$/` regex backtracks quadratically on long runs). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
+}
+
 /** The platform the requester opens, e.g. https://app.weldsuite.org (PLATFORM_APP_URL on the console). */
 export function platformUrl(): string {
-  return (process.env.PLATFORM_APP_URL?.trim() || 'https://app.weldsuite.org').replace(/\/+$/, '');
+  return stripTrailingSlashes(process.env.PLATFORM_APP_URL?.trim() || 'https://app.weldsuite.org');
 }
 
 export async function sendAccessApprovedEmail(params: {

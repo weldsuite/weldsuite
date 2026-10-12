@@ -82,6 +82,65 @@ function notSent(error: string): SendFromMailboxResult {
   return { ok: false, message: null, permanent: true, recipientRejected: false, authFailed: false, error };
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Why this mailbox may not send now (the `error` to report), or null when it may. */
+function mailboxProblem(status: string, sentBy: string | null | undefined): string | null {
+  const allowed = sentBy ? REPLY_SEND_STATUSES.has(status) : status === 'active';
+  return allowed ? null : `${MAILBOX_NOT_USABLE}: ${status}`;
+}
+
+type SendMailResult = Awaited<ReturnType<typeof sendMail>>;
+
+/** Patch the message row that was written before the SMTP transaction; the row itself when the patch finds nothing. */
+async function finishMessage(
+  db: Database,
+  now: () => Date,
+  row: ReachMessage,
+  patch: Partial<typeof reachMessages.$inferInsert>,
+): Promise<ReachMessage> {
+  const [updated] = await db
+    .update(reachMessages)
+    .set({ ...patch, updatedAt: now() })
+    .where(eq(reachMessages.id, row.id))
+    .returning();
+  return updated ?? row;
+}
+
+/** Record how the SMTP transaction ended and shape the answer for the caller. */
+async function recordSendResult(
+  db: Database,
+  now: () => Date,
+  row: ReachMessage,
+  mailboxId: string,
+  result: SendMailResult,
+): Promise<SendFromMailboxResult> {
+  if (result.ok) {
+    const sentAt = now();
+    const message = await finishMessage(db, now, row, { status: 'sent', sentAt, smtpResponse: result.response, error: null });
+    await db
+      .update(reachMailboxes)
+      .set({ lastSentAt: sentAt, updatedAt: sentAt })
+      .where(eq(reachMailboxes.id, mailboxId));
+    return { ok: true, message };
+  }
+
+  const uncertain = result.deliveryUncertain === true;
+  const error = `${result.stage}: ${result.response}`;
+  const message = await finishMessage(db, now, row, { status: uncertain ? 'unknown' : 'failed', smtpResponse: result.response, error });
+  return {
+    ok: false,
+    message,
+    // A reply that may already be delivered must never be retried either.
+    permanent: result.permanent || uncertain,
+    recipientRejected: result.recipientRejected,
+    authFailed: result.authFailed,
+    error,
+  };
+}
+
 export async function sendFromMailbox(deps: OutboundDeps, input: SendFromMailboxInput): Promise<SendFromMailboxResult> {
   const { env, db } = deps;
   const now = deps.now ?? (() => new Date());
@@ -93,8 +152,8 @@ export async function sendFromMailbox(deps: OutboundDeps, input: SendFromMailbox
     .limit(1);
   if (!mailbox) return notSent(MAILBOX_NOT_FOUND);
 
-  const allowed = input.sentBy ? REPLY_SEND_STATUSES.has(mailbox.status) : mailbox.status === 'active';
-  if (!allowed) return notSent(`${MAILBOX_NOT_USABLE}: ${mailbox.status}`);
+  const problem = mailboxProblem(mailbox.status, input.sentBy);
+  if (problem) return notSent(problem);
 
   const credentials = await openMailServerCredentials(env, mailbox.smtpCredentials);
   if (!credentials) return notSent(CREDENTIALS_UNAVAILABLE);
@@ -123,7 +182,7 @@ export async function sendFromMailbox(deps: OutboundDeps, input: SendFromMailbox
       date: now(),
     });
   } catch (err) {
-    return notSent(`message_build_failed: ${err instanceof Error ? err.message : String(err)}`);
+    return notSent(`message_build_failed: ${errorMessage(err)}`);
   }
 
   // The row exists before the SMTP transaction starts: whatever happens next
@@ -153,16 +212,7 @@ export async function sendFromMailbox(deps: OutboundDeps, input: SendFromMailbox
     .returning();
   if (!row) return notSent('message_insert_failed');
 
-  const finish = async (patch: Partial<typeof reachMessages.$inferInsert>): Promise<ReachMessage> => {
-    const [updated] = await db
-      .update(reachMessages)
-      .set({ ...patch, updatedAt: now() })
-      .where(eq(reachMessages.id, row.id))
-      .returning();
-    return updated ?? row;
-  };
-
-  let result: Awaited<ReturnType<typeof sendMail>>;
+  let result: SendMailResult;
   try {
     result = await sendMail(
       {
@@ -179,31 +229,10 @@ export async function sendFromMailbox(deps: OutboundDeps, input: SendFromMailbox
   } catch (err) {
     // sendMail reports network and server errors as results; an exception means
     // something unexpected, and the message may or may not have left.
-    const reason = err instanceof Error ? err.message : String(err);
-    const message = await finish({ status: 'unknown', error: `send_threw: ${reason}` });
-    return { ok: false, message, permanent: true, recipientRejected: false, authFailed: false, error: `send_threw: ${reason}` };
+    const error = `send_threw: ${errorMessage(err)}`;
+    const message = await finishMessage(db, now, row, { status: 'unknown', error });
+    return { ok: false, message, permanent: true, recipientRejected: false, authFailed: false, error };
   }
 
-  if (result.ok) {
-    const sentAt = now();
-    const message = await finish({ status: 'sent', sentAt, smtpResponse: result.response, error: null });
-    await db
-      .update(reachMailboxes)
-      .set({ lastSentAt: sentAt, updatedAt: sentAt })
-      .where(eq(reachMailboxes.id, mailbox.id));
-    return { ok: true, message };
-  }
-
-  const uncertain = result.deliveryUncertain === true;
-  const error = `${result.stage}: ${result.response}`;
-  const message = await finish({ status: uncertain ? 'unknown' : 'failed', smtpResponse: result.response, error });
-  return {
-    ok: false,
-    message,
-    // A reply that may already be delivered must never be retried either.
-    permanent: result.permanent || uncertain,
-    recipientRejected: result.recipientRejected,
-    authFailed: result.authFailed,
-    error,
-  };
+  return recordSendResult(db, now, row, mailbox.id, result);
 }

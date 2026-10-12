@@ -146,10 +146,10 @@ export async function addToCampaignStats(
   const keys = (Object.keys(delta) as Array<keyof ReachCampaignStats>).filter((k) => (delta[k] ?? 0) !== 0);
   if (keys.length === 0) return;
   const patch = sql.join(
-    keys.map(
-      (k) =>
-        sql`${sql.raw(`'${k}'`)}, coalesce((${reachCampaigns.stats}->>${sql.raw(`'${k}'`)})::int, 0) + ${delta[k] ?? 0}`,
-    ),
+    keys.map((k) => {
+      const key = sql.raw(`'${k}'`);
+      return sql`${key}, coalesce((${reachCampaigns.stats}->>${key})::int, 0) + ${delta[k] ?? 0}`;
+    }),
     sql`, `,
   );
   await db

@@ -85,7 +85,7 @@ export function replySubject(subject: string): string {
 /** Body followed by the mailbox signature (when it has one and the body does not already end with it). */
 export function composeBody(body: string, signature: string | null | undefined): string {
   const sig = signature?.trim();
-  const trimmed = body.replace(/\s+$/, '');
+  const trimmed = body.trimEnd();
   if (!sig || trimmed.endsWith(sig)) return trimmed;
   return `${trimmed}\n\n${sig}`;
 }

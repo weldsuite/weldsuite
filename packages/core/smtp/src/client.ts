@@ -35,7 +35,7 @@ const CLOSE_TIMEOUT_MS = 2_000;
 /** Replies to AUTH that mean "these credentials / this mechanism will not work". */
 const AUTH_FAILURE_CODES = new Set([530, 534, 535, 538]);
 
-const SAFE_RECIPIENT = /^[^\s<>"\\@\x00-\x1f\x7f-\uffff]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/;
+const SAFE_RECIPIENT = /^[^\x00-\x20<>"\\@\x7f-\uffff]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/;
 
 export async function sendMail(
   config: SmtpConfig,

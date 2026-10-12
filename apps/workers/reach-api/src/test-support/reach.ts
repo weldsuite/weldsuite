@@ -86,6 +86,11 @@ export async function seedSettings(
   });
 }
 
+/** A short random lowercase-hex token, for seeded addresses and ids that must not collide. */
+function randomToken(length: number): string {
+  return crypto.randomUUID().replace(/-/g, '').slice(0, length);
+}
+
 let mailboxCounter = 0;
 
 export async function seedMailbox(
@@ -107,7 +112,7 @@ export async function seedMailbox(
       status: 'active',
       dailyCap: 30,
       rampCurrent: 30,
-      inboundToken: `tok${mailboxCounter}${Math.random().toString(36).slice(2, 10)}`,
+      inboundToken: `tok${mailboxCounter}${randomToken(8)}`,
       smtpCredentials: await sealMailServerCredentials(
         { DATABASE_ENCRYPTION_KEY: TEST_ENCRYPTION_KEY },
         { host: 'smtp.mailpool.test', port: port ?? 465, tls: true, username: email, password: password ?? 'pw' },
@@ -119,7 +124,7 @@ export async function seedMailbox(
 }
 
 export async function seedProspect(db: Database, overrides: Partial<NewReachProspect> = {}): Promise<ReachProspect> {
-  const email = overrides.email ?? `lead${Math.random().toString(36).slice(2, 10)}@bigco.io`;
+  const email = overrides.email ?? `lead${randomToken(8)}@bigco.io`;
   const [row] = await db
     .insert(reachProspects)
     .values({
@@ -227,7 +232,7 @@ export async function seedOutbound(
       id: generateId('rmsg'),
       direction: 'out',
       mailboxId,
-      messageIdHeader: `seed${messageCounter}.${Math.random().toString(36).slice(2, 8)}@getacme.com`,
+      messageIdHeader: `seed${messageCounter}.${randomToken(6)}@getacme.com`,
       fromEmail: 'sam@getacme.com',
       toEmail: 'jane@bigco.io',
       subject: 'Seeded',

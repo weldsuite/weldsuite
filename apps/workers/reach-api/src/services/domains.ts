@@ -266,10 +266,11 @@ export async function connectDomain(deps: DomainDeps, hostDomainId: string): Pro
   const connected = result.connected.find((c) => c.domain.toLowerCase() === name);
   if (!connected) {
     const skipped = result.skipped.find((s) => (s.domain ?? s.name ?? '').toLowerCase() === name);
+    const detail = skipped?.reason ? `: ${skipped.reason}` : '.';
     throw new ReachServiceError(
       422,
       'DOMAIN_CONNECT_FAILED',
-      `The mailbox provider could not connect ${name}${skipped?.reason ? `: ${skipped.reason}` : '.'}`,
+      `The mailbox provider could not connect ${name}${detail}`,
       { reason: skipped?.reason ?? null },
     );
   }

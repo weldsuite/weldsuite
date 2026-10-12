@@ -15,9 +15,8 @@ import { getTranslations } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppLicence } from '@/components/partner/use-app-licence';
 import { isNotLicensedError } from '@/lib/partner/api-errors';
-import { useAppAccessRequest } from '@/hooks/queries/use-app-access-queries';
 import { AppAccessControls } from '../app-access-controls';
-import { getAppAccessInfo, parseAppAccessState } from '../app-access-state';
+import { useAppAccessGate } from '../use-app-access-gate';
 
 function AppLogo({ code, className = 'h-7 w-7' }: Readonly<{ code: string; className?: string }>) {
   const logoPath = getAppLogo(code, 'light');
@@ -68,11 +67,7 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
   const uninstallApp = useUninstallApp();
 
   // Apps that are on request only: the catalog says so, the access request has the live state.
-  const accessInfo = getAppAccessInfo(app);
-  const accessRequest = useAppAccessRequest(app.code, accessInfo.requiresApproval);
-  const accessStatus =
-    accessRequest.data === undefined ? accessInfo.status : parseAppAccessState(accessRequest.data?.status);
-  const needsAccess = accessInfo.requiresApproval && !app.isInstalled && accessStatus !== 'approved';
+  const { status: accessStatus, view: accessView, needsAccess } = useAppAccessGate(app);
 
   const overview = content.overview || t.appstore.defaultOverview;
   const installLabel = app.isInstalled ? t.appstore.uninstall : t.appstore.install;
@@ -138,7 +133,7 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
       <AppAccessControls
         app={app}
         status={accessStatus}
-        view={accessRequest.data}
+        view={accessView}
         canManage={canManage}
         onRequested={() => setApp((prev) => ({ ...prev, accessStatus: 'requested' }))}
       />

@@ -156,7 +156,8 @@ export async function withReachBillingLock<T>(
 ): Promise<T> {
   return db.transaction(async (tx) => {
     await tx.execute(sql`set local lock_timeout = '20s'`);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`weldreach-billing:${workspaceId}`}))`);
+    const lockKey = `weldreach-billing:${workspaceId}`;
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}))`);
     return fn(tx);
   });
 }

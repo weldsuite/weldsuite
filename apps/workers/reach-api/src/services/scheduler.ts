@@ -224,6 +224,132 @@ function earlier(a: Date | null, b: Date): Date {
   return a && a.getTime() <= b.getTime() ? a : b;
 }
 
+/** Bookkeeping of one `planSends` run: what is already spoken for in this tick. */
+interface PlanRun {
+  ctx: PlanContext;
+  mailboxes: ReadonlyMap<string, PlanMailbox>;
+  plan: TickPlan;
+  usedMailboxes: Set<string>;
+  campaignRemaining: Map<string, number>;
+  workspaceRemaining: number;
+  inAnHour: Date;
+  inAMinute: Date;
+}
+
+function deferEnrollment(run: PlanRun, e: PlanEnrollment, until: Date | null, reason: DeferReason): void {
+  run.plan.deferrals.push({ enrollmentId: e.id, until, reason });
+}
+
+function retrySoon(run: PlanRun, at: Date): void {
+  run.plan.retryAt = earlier(run.plan.retryAt, at);
+}
+
+/** Most capacity left first; then the one that has rested longest. */
+function compareReadiness(a: PlanMailbox, b: PlanMailbox): number {
+  return (
+    mailboxCapacity(b) - mailboxCapacity(a) ||
+    (a.lastSentAt?.getTime() ?? 0) - (b.lastSentAt?.getTime() ?? 0) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+/**
+ * The sticky mailbox of an enrollment that already sent, when it can send now;
+ * otherwise records why not and returns null.
+ */
+function pickStickyMailbox(run: PlanRun, e: PlanEnrollment, mailboxId: string, campaign: PlanCampaign): PlanMailbox | null {
+  const m = run.mailboxes.get(mailboxId);
+  if (!m || m.status !== 'active') {
+    deferEnrollment(run, e, run.inAnHour, 'mailbox_unavailable');
+    return null;
+  }
+  if (mailboxCapacity(m) <= 0) {
+    deferEnrollment(run, e, nextDayWindowStart(campaign, run.ctx), 'mailbox_capacity');
+    return null;
+  }
+  if (run.usedMailboxes.has(m.id)) {
+    deferEnrollment(run, e, null, 'mailbox_busy');
+    retrySoon(run, run.inAMinute);
+    return null;
+  }
+  const ends = gapEndsAt(m, campaign.minGapMinutes);
+  if (ends && ends > run.ctx.now) {
+    deferEnrollment(run, e, null, 'mailbox_gap');
+    retrySoon(run, ends);
+    return null;
+  }
+  return m;
+}
+
+/**
+ * The campaign mailbox for a first email: the best of those that are active,
+ * under cap, unused this tick and past their gap; otherwise records why not
+ * and returns null.
+ */
+function pickFirstMailbox(run: PlanRun, e: PlanEnrollment, campaign: PlanCampaign): PlanMailbox | null {
+  const usable = campaign.mailboxIds
+    .map((id) => run.mailboxes.get(id))
+    .filter((m): m is PlanMailbox => !!m && m.status === 'active');
+  if (usable.length === 0) {
+    deferEnrollment(run, e, run.inAnHour, 'no_mailbox');
+    return null;
+  }
+  const withCapacity = usable.filter((m) => mailboxCapacity(m) > 0);
+  if (withCapacity.length === 0) {
+    deferEnrollment(run, e, nextDayWindowStart(campaign, run.ctx), 'mailbox_capacity');
+    return null;
+  }
+  const free = withCapacity.filter((m) => !run.usedMailboxes.has(m.id));
+  if (free.length === 0) {
+    deferEnrollment(run, e, null, 'mailbox_busy');
+    retrySoon(run, run.inAMinute);
+    return null;
+  }
+  const ready = free.filter((m) => isGapOver(m, campaign.minGapMinutes, run.ctx.now));
+  if (ready.length === 0) {
+    deferEnrollment(run, e, null, 'mailbox_gap');
+    for (const m of free) {
+      const ends = gapEndsAt(m, campaign.minGapMinutes);
+      if (ends) retrySoon(run, ends);
+    }
+    return null;
+  }
+  const best = ready.sort(compareReadiness)[0];
+  if (!best) {
+    deferEnrollment(run, e, null, 'no_mailbox');
+    return null;
+  }
+  return best;
+}
+
+/** Plan one claimed enrollment: a send from some mailbox, or a deferral. */
+function planEnrollment(run: PlanRun, campaigns: ReadonlyMap<string, PlanCampaign>, e: PlanEnrollment): void {
+  const campaign = campaigns.get(e.campaignId);
+  if (!campaign) {
+    deferEnrollment(run, e, null, 'campaign_inactive');
+    return;
+  }
+  if (!run.campaignRemaining.has(campaign.id)) {
+    run.campaignRemaining.set(campaign.id, Math.max(0, campaign.dailyLimit - campaign.sentToday));
+  }
+  if (run.workspaceRemaining <= 0) {
+    deferEnrollment(run, e, nextDayWindowStart(campaign, run.ctx), 'workspace_limit');
+    return;
+  }
+  if ((run.campaignRemaining.get(campaign.id) ?? 0) <= 0) {
+    deferEnrollment(run, e, nextDayWindowStart(campaign, run.ctx), 'campaign_limit');
+    return;
+  }
+
+  const chosen = e.mailboxId ? pickStickyMailbox(run, e, e.mailboxId, campaign) : pickFirstMailbox(run, e, campaign);
+  if (!chosen) return;
+
+  run.usedMailboxes.add(chosen.id);
+  run.workspaceRemaining -= 1;
+  run.campaignRemaining.set(campaign.id, (run.campaignRemaining.get(campaign.id) ?? 1) - 1);
+  run.plan.sends.push({ enrollmentId: e.id, campaignId: campaign.id, mailboxId: chosen.id });
+}
+
 /**
  * Decide, for the enrollments this tick claimed (oldest due first), which ones
  * send from which mailbox and which wait. Limits are applied as sends are
@@ -235,111 +361,18 @@ export function planSends(
   mailboxes: ReadonlyMap<string, PlanMailbox>,
   claimed: readonly PlanEnrollment[],
 ): TickPlan {
-  const plan: TickPlan = { sends: [], deferrals: [], retryAt: null };
-  const usedMailboxes = new Set<string>();
-  const campaignRemaining = new Map<string, number>();
-  let workspaceRemaining = Math.max(0, ctx.maxDailySends - ctx.workspaceSentToday);
-
-  const defer = (e: PlanEnrollment, until: Date | null, reason: DeferReason) => {
-    plan.deferrals.push({ enrollmentId: e.id, until, reason });
+  const run: PlanRun = {
+    ctx,
+    mailboxes,
+    plan: { sends: [], deferrals: [], retryAt: null },
+    usedMailboxes: new Set(),
+    campaignRemaining: new Map(),
+    workspaceRemaining: Math.max(0, ctx.maxDailySends - ctx.workspaceSentToday),
+    inAnHour: new Date(ctx.now.getTime() + UNAVAILABLE_RETRY_MS),
+    inAMinute: new Date(ctx.now.getTime() + MIN_RETRY_MS),
   };
-  const retrySoon = (at: Date) => {
-    plan.retryAt = earlier(plan.retryAt, at);
-  };
-  const tomorrow = (campaign: PlanCampaign) => nextDayWindowStart(campaign, ctx);
-  const inAnHour = new Date(ctx.now.getTime() + UNAVAILABLE_RETRY_MS);
-  const inAMinute = new Date(ctx.now.getTime() + MIN_RETRY_MS);
-
-  for (const e of claimed) {
-    const campaign = campaigns.get(e.campaignId);
-    if (!campaign) {
-      defer(e, null, 'campaign_inactive');
-      continue;
-    }
-    if (!campaignRemaining.has(campaign.id)) {
-      campaignRemaining.set(campaign.id, Math.max(0, campaign.dailyLimit - campaign.sentToday));
-    }
-    if (workspaceRemaining <= 0) {
-      defer(e, tomorrow(campaign), 'workspace_limit');
-      continue;
-    }
-    if ((campaignRemaining.get(campaign.id) ?? 0) <= 0) {
-      defer(e, tomorrow(campaign), 'campaign_limit');
-      continue;
-    }
-
-    let chosen: PlanMailbox | null = null;
-
-    if (e.mailboxId) {
-      const m = mailboxes.get(e.mailboxId);
-      if (!m || m.status !== 'active') {
-        defer(e, inAnHour, 'mailbox_unavailable');
-        continue;
-      }
-      if (mailboxCapacity(m) <= 0) {
-        defer(e, tomorrow(campaign), 'mailbox_capacity');
-        continue;
-      }
-      if (usedMailboxes.has(m.id)) {
-        defer(e, null, 'mailbox_busy');
-        retrySoon(inAMinute);
-        continue;
-      }
-      const ends = gapEndsAt(m, campaign.minGapMinutes);
-      if (ends && ends > ctx.now) {
-        defer(e, null, 'mailbox_gap');
-        retrySoon(ends);
-        continue;
-      }
-      chosen = m;
-    } else {
-      const usable = campaign.mailboxIds
-        .map((id) => mailboxes.get(id))
-        .filter((m): m is PlanMailbox => !!m && m.status === 'active');
-      if (usable.length === 0) {
-        defer(e, inAnHour, 'no_mailbox');
-        continue;
-      }
-      const withCapacity = usable.filter((m) => mailboxCapacity(m) > 0);
-      if (withCapacity.length === 0) {
-        defer(e, tomorrow(campaign), 'mailbox_capacity');
-        continue;
-      }
-      const free = withCapacity.filter((m) => !usedMailboxes.has(m.id));
-      if (free.length === 0) {
-        defer(e, null, 'mailbox_busy');
-        retrySoon(inAMinute);
-        continue;
-      }
-      const ready = free.filter((m) => isGapOver(m, campaign.minGapMinutes, ctx.now));
-      if (ready.length === 0) {
-        defer(e, null, 'mailbox_gap');
-        for (const m of free) {
-          const ends = gapEndsAt(m, campaign.minGapMinutes);
-          if (ends) retrySoon(ends);
-        }
-        continue;
-      }
-      // Most capacity left first; then the one that has rested longest.
-      ready.sort(
-        (a, b) =>
-          mailboxCapacity(b) - mailboxCapacity(a) ||
-          (a.lastSentAt?.getTime() ?? 0) - (b.lastSentAt?.getTime() ?? 0) ||
-          a.id.localeCompare(b.id),
-      );
-      chosen = ready[0] ?? null;
-    }
-
-    if (!chosen) {
-      defer(e, null, 'no_mailbox');
-      continue;
-    }
-    usedMailboxes.add(chosen.id);
-    workspaceRemaining -= 1;
-    campaignRemaining.set(campaign.id, (campaignRemaining.get(campaign.id) ?? 1) - 1);
-    plan.sends.push({ enrollmentId: e.id, campaignId: campaign.id, mailboxId: chosen.id });
-  }
-  return plan;
+  for (const e of claimed) planEnrollment(run, campaigns, e);
+  return run.plan;
 }
 
 // ---------------------------------------------------------------------------

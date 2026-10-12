@@ -13,8 +13,10 @@
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
+import type { z } from 'zod';
 import { and, asc, desc, eq, ilike, inArray, isNull, ne } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
+import type { Database } from '@weldsuite/worker-kit';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { atomically } from '@weldsuite/worker-kit/atomically';
@@ -40,6 +42,7 @@ import {
   reachMailboxes,
   reachProspects,
   type ReachCampaign,
+  type ReachProspect,
 } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../../types';
 import {
@@ -385,52 +388,81 @@ app.post('/:id/resume', requirePermission('reach_campaigns:update'), async (c) =
   return detailOrFail(c, id);
 });
 
+type PreviewInput = z.infer<typeof previewReachStepSchema>;
+
+type PreviewTemplateLookup =
+  | { ok: true; template: { subject: string; body: string } }
+  /** `missingStepId` is the step the request named that does not exist; null when the campaign has no step at all. */
+  | { ok: false; missingStepId: string | null };
+
+/** The subject and body to preview: the unsaved text of the request, else the chosen (or first) step. */
+async function resolvePreviewTemplate(db: Database, campaignId: string, input: PreviewInput): Promise<PreviewTemplateLookup> {
+  if (input.subject !== undefined || input.body !== undefined) {
+    return { ok: true, template: { subject: input.subject ?? '', body: input.body ?? '' } };
+  }
+  const steps = await loadSteps(db, campaignId);
+  const step = input.stepId ? steps.find((s) => s.id === input.stepId) : steps[0];
+  if (!step) return { ok: false, missingStepId: input.stepId || null };
+  return { ok: true, template: { subject: step.subject, body: step.body } };
+}
+
+async function findLiveProspect(db: Database, id: string): Promise<ReachProspect | null> {
+  const [row] = await db
+    .select()
+    .from(reachProspects)
+    .where(and(eq(reachProspects.id, id), isNull(reachProspects.deletedAt)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The oldest live prospect enrolled in the campaign, to fill the preview with real data. */
+async function firstEnrolledProspect(db: Database, campaignId: string): Promise<ReachProspect | null> {
+  const [first] = await db
+    .select({ prospect: reachProspects })
+    .from(reachEnrollments)
+    .innerJoin(reachProspects, eq(reachProspects.id, reachEnrollments.prospectId))
+    .where(and(eq(reachEnrollments.campaignId, campaignId), isNull(reachProspects.deletedAt)))
+    .orderBy(asc(reachEnrollments.createdAt))
+    .limit(1);
+  return first?.prospect ?? null;
+}
+
+/** The sender whose name and signature fill the preview: the oldest live mailbox of the campaign. */
+async function firstCampaignMailbox(db: Database, campaignId: string) {
+  const mailboxIds = await loadCampaignMailboxIds(db, campaignId);
+  if (mailboxIds.length === 0) return undefined;
+  const [mailbox] = await db
+    .select({ firstName: reachMailboxes.firstName, lastName: reachMailboxes.lastName, signature: reachMailboxes.signature })
+    .from(reachMailboxes)
+    .where(and(inArray(reachMailboxes.id, mailboxIds), isNull(reachMailboxes.deletedAt)))
+    .orderBy(asc(reachMailboxes.createdAt))
+    .limit(1);
+  return mailbox;
+}
+
 app.post('/:id/preview', requirePermission('reach_campaigns:read'), zValidator('json', previewReachStepSchema), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
   const input = c.req.valid('json');
   if (!(await findCampaign(db, id))) return error.notFound(c, 'Campaign', id);
 
-  let template: { subject: string; body: string } | null = null;
-  if (input.subject !== undefined || input.body !== undefined) {
-    template = { subject: input.subject ?? '', body: input.body ?? '' };
-  } else {
-    const steps = await loadSteps(db, id);
-    const step = input.stepId ? steps.find((s) => s.id === input.stepId) : steps[0];
-    if (input.stepId && !step) return error.notFound(c, 'Step', input.stepId);
-    if (step) template = { subject: step.subject, body: step.body };
+  const found = await resolvePreviewTemplate(db, id, input);
+  if (!found.ok) {
+    return found.missingStepId
+      ? error.notFound(c, 'Step', found.missingStepId)
+      : error.badRequest(c, 'The campaign has no step to preview');
   }
-  if (!template) return error.badRequest(c, 'The campaign has no step to preview');
+  const { template } = found;
 
-  let prospect = null;
+  let prospect: ReachProspect | null;
   if (input.prospectId) {
-    [prospect] = await db
-      .select()
-      .from(reachProspects)
-      .where(and(eq(reachProspects.id, input.prospectId), isNull(reachProspects.deletedAt)))
-      .limit(1);
+    prospect = await findLiveProspect(db, input.prospectId);
     if (!prospect) return error.notFound(c, 'Prospect', input.prospectId);
   } else {
-    const [first] = await db
-      .select({ prospect: reachProspects })
-      .from(reachEnrollments)
-      .innerJoin(reachProspects, eq(reachProspects.id, reachEnrollments.prospectId))
-      .where(and(eq(reachEnrollments.campaignId, id), isNull(reachProspects.deletedAt)))
-      .orderBy(asc(reachEnrollments.createdAt))
-      .limit(1);
-    prospect = first?.prospect ?? null;
+    prospect = await firstEnrolledProspect(db, id);
   }
 
-  const mailboxIds = await loadCampaignMailboxIds(db, id);
-  const [mailbox] =
-    mailboxIds.length > 0
-      ? await db
-          .select({ firstName: reachMailboxes.firstName, lastName: reachMailboxes.lastName, signature: reachMailboxes.signature })
-          .from(reachMailboxes)
-          .where(and(inArray(reachMailboxes.id, mailboxIds), isNull(reachMailboxes.deletedAt)))
-          .orderBy(asc(reachMailboxes.createdAt))
-          .limit(1)
-      : [];
+  const mailbox = await firstCampaignMailbox(db, id);
 
   const sampleProspect = {
     email: 'alex.morgan@example.com',

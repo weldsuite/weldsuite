@@ -1,6 +1,8 @@
 /** Parsing the "add to the suppression list" textarea. */
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+// The domain part is split at its first dot after the first character (`[^\s@][^\s@.]*\.`), so every
+// character can be matched in only one way: linear time, same matches as `[^\s@]+\.[^\s@]{2,}`.
+const EMAIL_RE = /^[^\s@]+@[^\s@][^\s@.]*\.[^\s@]{2,}$/;
 const DOMAIN_RE = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;
 
 /** Split pasted text (newlines, commas, spaces) into unique lower-case values; `invalid` are neither an email address nor a domain. */

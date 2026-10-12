@@ -298,6 +298,67 @@ function splitName(full: string | null): { firstName: string | null; lastName: s
   return { firstName: parts[0] ?? null, lastName: parts.length > 1 ? parts.slice(1).join(' ') : null };
 }
 
+/** The company name of each person in `personIds`: the primary current company, else any current one. */
+async function currentCompanyNames(db: Database, personIds: string[]): Promise<Map<string, string>> {
+  const links = await db
+    .select({
+      personId: personCompanies.personId,
+      companyId: personCompanies.companyId,
+      isPrimary: personCompanies.isPrimary,
+      startedAt: personCompanies.startedAt,
+    })
+    .from(personCompanies)
+    .where(and(inArray(personCompanies.personId, personIds), isNull(personCompanies.endedAt)));
+  const companyIds = [...new Set(links.map((l) => l.companyId))];
+  const companyNames = new Map<string, string>();
+  if (companyIds.length > 0) {
+    const cs = await db
+      .select({ id: companies.id, name: companies.displayName })
+      .from(companies)
+      .where(and(inArray(companies.id, companyIds), isNull(companies.deletedAt)));
+    for (const c of cs) companyNames.set(c.id, c.name);
+  }
+  const companyOf = new Map<string, string>();
+  const ranked = [...links].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
+  for (const link of ranked) {
+    const name = companyNames.get(link.companyId);
+    if (name && !companyOf.has(link.personId)) companyOf.set(link.personId, name);
+  }
+  return companyOf;
+}
+
+/** Import rows for a chunk of CRM people; people without an email are skipped. */
+async function crmPersonRows(db: Database, personIds: string[]): Promise<ImportRow[]> {
+  const persons = await db
+    .select({
+      id: people.id,
+      email: people.email,
+      firstName: people.firstName,
+      lastName: people.lastName,
+      displayName: people.displayName,
+      title: people.title,
+    })
+    .from(people)
+    .where(and(inArray(people.id, personIds), isNull(people.deletedAt)));
+
+  const companyOf = await currentCompanyNames(db, personIds);
+
+  const rows: ImportRow[] = [];
+  for (const p of persons) {
+    if (!p.email) continue;
+    const fallback = splitName(p.displayName);
+    rows.push({
+      email: p.email,
+      personId: p.id,
+      firstName: p.firstName ?? fallback.firstName,
+      lastName: p.lastName ?? fallback.lastName,
+      title: p.title,
+      companyName: companyOf.get(p.id) ?? null,
+    });
+  }
+  return rows;
+}
+
 /** People of a static CRM list (kind person), with their current primary company. */
 export async function loadCrmListRows(db: Database, crmListId: string): Promise<SourceListResult> {
   const [list] = await db
@@ -319,56 +380,7 @@ export async function loadCrmListRows(db: Database, crmListId: string): Promise<
   const personIds = members.map((m) => m.entityId);
   const rows: ImportRow[] = [];
   for (let i = 0; i < personIds.length; i += CHUNK) {
-    const chunk = personIds.slice(i, i + CHUNK);
-    const persons = await db
-      .select({
-        id: people.id,
-        email: people.email,
-        firstName: people.firstName,
-        lastName: people.lastName,
-        displayName: people.displayName,
-        title: people.title,
-      })
-      .from(people)
-      .where(and(inArray(people.id, chunk), isNull(people.deletedAt)));
-
-    const links = await db
-      .select({
-        personId: personCompanies.personId,
-        companyId: personCompanies.companyId,
-        isPrimary: personCompanies.isPrimary,
-        startedAt: personCompanies.startedAt,
-      })
-      .from(personCompanies)
-      .where(and(inArray(personCompanies.personId, chunk), isNull(personCompanies.endedAt)));
-    const companyIds = [...new Set(links.map((l) => l.companyId))];
-    const companyNames = new Map<string, string>();
-    if (companyIds.length > 0) {
-      const cs = await db
-        .select({ id: companies.id, name: companies.displayName })
-        .from(companies)
-        .where(and(inArray(companies.id, companyIds), isNull(companies.deletedAt)));
-      for (const c of cs) companyNames.set(c.id, c.name);
-    }
-    const companyOf = new Map<string, string>();
-    const ranked = [...links].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
-    for (const link of ranked) {
-      const name = companyNames.get(link.companyId);
-      if (name && !companyOf.has(link.personId)) companyOf.set(link.personId, name);
-    }
-
-    for (const p of persons) {
-      if (!p.email) continue;
-      const fallback = splitName(p.displayName);
-      rows.push({
-        email: p.email,
-        personId: p.id,
-        firstName: p.firstName ?? fallback.firstName,
-        lastName: p.lastName ?? fallback.lastName,
-        title: p.title,
-        companyName: companyOf.get(p.id) ?? null,
-      });
-    }
+    rows.push(...(await crmPersonRows(db, personIds.slice(i, i + CHUNK))));
   }
   return { ok: true, name: list.name, rows };
 }

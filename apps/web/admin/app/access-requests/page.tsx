@@ -13,7 +13,14 @@ import {
 import { PageBody, PageContent, PageHeading } from '@/components/shell/admin-shell';
 import { AccessStatusBadge } from '@/components/app-access/status-badge';
 import { requireAdmin } from '@/lib/auth';
-import { ACCESS_STATUSES, STATUS_LABELS, isAccessStatus, isConsentCountry, listSourceLabel } from '@/lib/app-access';
+import {
+  ACCESS_STATUSES,
+  STATUS_LABELS,
+  isAccessStatus,
+  isConsentCountry,
+  listSourceLabel,
+  type AppAccessStatus,
+} from '@/lib/app-access';
 import { countAccessRequestsByStatus, listAccessRequests } from '@/lib/app-access-data';
 import { formatDateTime } from '@/lib/billing-format';
 import { cn } from '@/lib/utils';
@@ -30,14 +37,19 @@ function href(status: string, q: string): string {
   return qs ? `/access-requests?${qs}` : '/access-requests';
 }
 
+/** `requested` is the queue; `all` lifts the filter. */
+function selectedStatus(status: string | undefined): AppAccessStatus | 'all' {
+  if (status === 'all') return 'all';
+  return isAccessStatus(status) ? status : 'requested';
+}
+
 export default async function AccessRequestsPage(props: Readonly<{
   searchParams?: Promise<SearchParams>;
 }>) {
   await requireAdmin();
   const searchParams = (await props.searchParams) ?? {};
   const q = (searchParams.q ?? '').trim();
-  // `requested` is the queue; `all` lifts the filter.
-  const selected = searchParams.status === 'all' ? 'all' : isAccessStatus(searchParams.status) ? searchParams.status : 'requested';
+  const selected = selectedStatus(searchParams.status);
 
   const [rows, counts] = await Promise.all([
     listAccessRequests({ status: selected === 'all' ? undefined : selected, search: q }),
