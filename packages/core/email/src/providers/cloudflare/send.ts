@@ -31,7 +31,7 @@ import type {
   SendResult,
 } from '../../core/types';
 import { formatEmailAddress } from '../../core/types';
-import type { EmailMessageCtor, SendEmail } from './send-binding';
+import type { EmailMessage, EmailMessageCtor, SendEmail } from './send-binding';
 import { asText } from '@weldsuite/text';
 
 const PROVIDER = 'cloudflare';
@@ -90,36 +90,11 @@ export class CloudflareSendProvider implements IEmailSendProvider {
     const { raw, messageId } = buildRfc5322(options);
     const from = formatEmailAddress(options.from);
 
-    const pendingRecipients: string[] = [];
-    const suppressedRecipients: string[] = [];
-    const sentRecipients: string[] = [];
+    const outcome: EnvelopeOutcome = { sent: [], pending: [], suppressed: [] };
     for (const rcpt of envelopeRecipients) {
-      const message = new this.opts.EmailMessage(from, rcpt.email, raw);
-      try {
-        await this.opts.sendEmail.send(message);
-        sentRecipients.push(rcpt.email);
-      } catch (err) {
-        // A recipient outside the account's allowed destination list is a
-        // "needs verifying" state the caller can surface to the user, not a
-        // transport blip — and it shouldn't sink delivery to everybody else.
-        if (isRecipientNotAllowed(err)) {
-          pendingRecipients.push(rcpt.email);
-          continue;
-        }
-        const refusal = refusalOf(err);
-        // Cloudflare suppressed this address (an earlier hard bounce or spam
-        // complaint): skip it, the others still get the message.
-        if (refusal === 'recipient_suppressed') {
-          suppressedRecipients.push(rcpt.email);
-          continue;
-        }
-        const text = `send_email failed for ${rcpt.email}: ${describeError(err)}`;
-        if (refusal) {
-          throw new ProviderRefusedError(refusal, rcpt.email, text, PROVIDER, err, sentRecipients, messageId);
-        }
-        throw new TransientProviderError(text, PROVIDER, err, sentRecipients, messageId);
-      }
+      await this.sendEnvelope(new this.opts.EmailMessage(from, rcpt.email, raw), rcpt.email, outcome, messageId);
     }
+    const { sent: sentRecipients, pending: pendingRecipients, suppressed: suppressedRecipients } = outcome;
 
     if (sentRecipients.length === 0 && pendingRecipients.length === 0 && suppressedRecipients.length > 0) {
       throw new ProviderRefusedError(
@@ -142,6 +117,49 @@ export class CloudflareSendProvider implements IEmailSendProvider {
       metadata: Object.keys(metadata).length ? metadata : undefined,
     };
   }
+
+  /**
+   * One envelope. A recipient that needs verifying or that Cloudflare
+   * suppressed is noted and skipped; any other failure ends the send, carrying
+   * the recipients that already got it.
+   */
+  private async sendEnvelope(
+    message: EmailMessage,
+    recipient: string,
+    outcome: EnvelopeOutcome,
+    messageId: string,
+  ): Promise<void> {
+    try {
+      await this.opts.sendEmail.send(message);
+      outcome.sent.push(recipient);
+    } catch (err) {
+      // A recipient outside the account's allowed destination list is a
+      // "needs verifying" state the caller can surface to the user, not a
+      // transport blip — and it shouldn't sink delivery to everybody else.
+      if (isRecipientNotAllowed(err)) {
+        outcome.pending.push(recipient);
+        return;
+      }
+      const refusal = refusalOf(err);
+      // Cloudflare suppressed this address (an earlier hard bounce or spam
+      // complaint): skip it, the others still get the message.
+      if (refusal === 'recipient_suppressed') {
+        outcome.suppressed.push(recipient);
+        return;
+      }
+      const text = `send_email failed for ${recipient}: ${describeError(err)}`;
+      if (refusal) {
+        throw new ProviderRefusedError(refusal, recipient, text, PROVIDER, err, outcome.sent, messageId);
+      }
+      throw new TransientProviderError(text, PROVIDER, err, outcome.sent, messageId);
+    }
+  }
+}
+
+interface EnvelopeOutcome {
+  sent: string[];
+  pending: string[];
+  suppressed: string[];
 }
 
 /** Cloudflare's Email Service error codes we act on (others stay a plain transient error). */

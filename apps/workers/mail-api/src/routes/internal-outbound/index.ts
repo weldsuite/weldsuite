@@ -28,7 +28,7 @@ import type { Env } from '../../types';
 
 /** A short secret is a misconfiguration, not a credential. */
 const MIN_SECRET_LENGTH = 32;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const adminEmail = z.string().email().max(255);
 
 async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
@@ -54,7 +54,7 @@ const adminAuth = () =>
       return c.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, 401);
     }
     const email = c.req.header('x-admin-email')?.trim().toLowerCase();
-    if (!email || email.length > 255 || !EMAIL_PATTERN.test(email)) {
+    if (!email || !adminEmail.safeParse(email).success) {
       return c.json({ error: { code: 'BAD_REQUEST', message: 'x-admin-email must identify the acting admin' } }, 400);
     }
     c.set('adminEmail', email);

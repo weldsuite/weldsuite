@@ -151,8 +151,10 @@ export function denialMessage(details: OutboundDenialDetails): string {
 
 /** `"Anna" <Anna@Example.com>` → `anna@example.com`. */
 export function bareAddress(value: string): string {
-  const match = /<([^>]+)>\s*$/.exec(value);
-  return (match ? match[1]! : value).trim().toLowerCase();
+  const trimmed = value.trim();
+  const open = trimmed.lastIndexOf('<');
+  const wrapped = open >= 0 && trimmed.endsWith('>');
+  return (wrapped ? trimmed.slice(open + 1, -1) : trimmed).trim().toLowerCase();
 }
 
 function uniqueAddresses(...lists: Array<string[] | null | undefined>): string[] {
@@ -204,6 +206,45 @@ export type SenderOwnership = 'owned' | 'other' | 'unregistered';
 
 const OWNERSHIP_VALUES: ReadonlySet<string> = new Set(['owned', 'other', 'unregistered']);
 
+type RegistryOwner = { workspaceId: string | null; personalAccountId: string | null };
+
+function ownedBy(subject: LedgerSubject, row: RegistryOwner): boolean {
+  return subject.kind === 'workspace'
+    ? row.workspaceId === subject.workspaceId
+    : row.personalAccountId === subject.personalAccountId;
+}
+
+/** The registry's answer for one address. Throws when the master DB can't be reached. */
+async function lookupOwnership(databaseUrl: string, subject: LedgerSubject, address: string): Promise<SenderOwnership> {
+  const db = getMasterDb({ DATABASE_URL_MASTER: databaseUrl });
+  const owner = { workspaceId: mailAccountRegistry.workspaceId, personalAccountId: mailAccountRegistry.personalAccountId };
+  const [exact] = await db
+    .select(owner)
+    .from(mailAccountRegistry)
+    .where(and(eq(mailAccountRegistry.email, address), eq(mailAccountRegistry.isActive, true)))
+    .limit(1);
+  if (exact) return ownedBy(subject, exact) ? 'owned' : 'other';
+
+  const domain = address.slice(address.lastIndexOf('@') + 1);
+  if (isSharedWeldMailDomain(domain)) return 'unregistered';
+
+  const rows = await db
+    .select(owner)
+    .from(mailAccountRegistry)
+    .where(and(like(mailAccountRegistry.email, `%@${escapeLike(domain)}`), eq(mailAccountRegistry.isActive, true)))
+    .limit(50);
+  return rows.length === 0 || rows.some((row) => ownedBy(subject, row)) ? 'owned' : 'other';
+}
+
+async function cachedOwnership(env: OutboundGuardEnv, key: string): Promise<SenderOwnership | null> {
+  try {
+    const cached = await env.WORKSPACE_CACHE?.get(key);
+    return cached && OWNERSHIP_VALUES.has(cached) ? (cached as SenderOwnership) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function senderOwnership(
   env: OutboundGuardEnv,
   subject: LedgerSubject,
@@ -212,39 +253,12 @@ export async function senderOwnership(
   if (!env.DATABASE_URL_MASTER) return 'owned';
   const ownerKey = subject.kind === 'workspace' ? subject.workspaceId : `personal:${subject.personalAccountId}`;
   const cacheKey = `outbound:own:${ownerKey}:${address}`;
-  try {
-    const cached = await env.WORKSPACE_CACHE?.get(cacheKey);
-    if (cached && OWNERSHIP_VALUES.has(cached)) return cached as SenderOwnership;
-  } catch {
-    // Cache miss.
-  }
+  const cached = await cachedOwnership(env, cacheKey);
+  if (cached) return cached;
 
-  const belongs = (row: { workspaceId: string | null; personalAccountId: string | null }) =>
-    subject.kind === 'workspace'
-      ? row.workspaceId === subject.workspaceId
-      : row.personalAccountId === subject.personalAccountId;
-
-  let ownership: SenderOwnership = 'owned';
+  let ownership: SenderOwnership;
   try {
-    const db = getMasterDb({ DATABASE_URL_MASTER: env.DATABASE_URL_MASTER });
-    const domain = address.slice(address.lastIndexOf('@') + 1);
-    const [exact] = await db
-      .select({ workspaceId: mailAccountRegistry.workspaceId, personalAccountId: mailAccountRegistry.personalAccountId })
-      .from(mailAccountRegistry)
-      .where(and(eq(mailAccountRegistry.email, address), eq(mailAccountRegistry.isActive, true)))
-      .limit(1);
-    if (exact) {
-      ownership = belongs(exact) ? 'owned' : 'other';
-    } else if (isSharedWeldMailDomain(domain)) {
-      ownership = 'unregistered';
-    } else {
-      const rows = await db
-        .select({ workspaceId: mailAccountRegistry.workspaceId, personalAccountId: mailAccountRegistry.personalAccountId })
-        .from(mailAccountRegistry)
-        .where(and(like(mailAccountRegistry.email, `%@${escapeLike(domain)}`), eq(mailAccountRegistry.isActive, true)))
-        .limit(50);
-      ownership = rows.length === 0 || rows.some(belongs) ? 'owned' : 'other';
-    }
+    ownership = await lookupOwnership(env.DATABASE_URL_MASTER, subject, address);
   } catch (err) {
     // Fail open: the registry being down must not stop mail.
     console.warn('[outbound] ownership lookup failed:', err instanceof Error ? err.message : err);
@@ -308,22 +322,7 @@ export async function checkOutbound(
     throw new OutboundDeniedError({ code: 'SENDER_NOT_OWNED', reason: 'address_registered_elsewhere' });
   }
 
-  let firstContact: string[] = [];
-  if (db) {
-    try {
-      const suppressed = (await findSuppressed(db, recipients)).filter((s) => s.reason === 'complaint');
-      if (suppressed.length > 0) {
-        throw new OutboundDeniedError({ code: 'RECIPIENT_SUPPRESSED', recipients: suppressed.map((s) => s.email) });
-      }
-      const known = await findKnownCorrespondents(db, recipients);
-      firstContact = recipients.filter((r) => !known.has(r));
-    } catch (err) {
-      if (err instanceof OutboundDeniedError) throw err;
-      // The tables may not exist yet on a tenant that hasn't migrated: count as known.
-      console.warn('[outbound] correspondent lookup failed:', err instanceof Error ? err.message : err);
-    }
-  }
-
+  const firstContact = db ? await firstContactsOf(db, recipients) : [];
   const base: Omit<OutboundReservation, 'mode'> = {
     ledger: subject ? { key: ledgerKeyFor(subject), subject } : null,
     reservationId: null,
@@ -336,42 +335,13 @@ export async function checkOutbound(
     return { ...base, mode: 'unavailable' };
   }
 
-  const isNewConversation = input.kind !== 'reply';
-  const content = isNewConversation
-    ? screenOutboundContent({ subject: input.subjectLine, text: input.text, html: input.html, attachments: input.attachments })
-    : null;
-  let template: ReserveRequest['template'] = null;
-  if (isNewConversation && (input.text || input.html)) {
-    const fp = fingerprintTemplate({
-      subject: input.subjectLine,
-      text: input.text || '',
-      personalTokens: personalTokensFor(recipients, input.recipientNames),
-    });
-    if (!fp.tooShort) template = { fingerprint: fp.fingerprint, sample: fp.normalized, subject: input.subjectLine ?? '' };
-  }
-
-  const request: ReserveRequest = {
-    sender,
-    source: input.source,
-    kind: input.kind,
-    recipients,
-    firstContact,
-    template,
-    contentScore: content?.score ?? 0,
-    contentFlags: content
-      ? { coldOutreach: content.flags.coldOutreach, bulk: content.flags.bulk, phishing: content.flags.phishing }
-      : undefined,
-    sharedDomain: !!sender && isSharedWeldMailDomain(sender.slice(sender.lastIndexOf('@') + 1)),
-    senderDailyCap: input.senderDailyCap ?? null,
-    senderUnregistered: ownership === 'unregistered',
-  };
-
+  const request = reserveRequestFor(input, base, ownership);
   let decision: ReserveDecision;
   try {
-    decision = await ledgerStub(env, base.ledger!.key).reserve(subject, request);
+    decision = await ledgerStub(env, ledgerKeyFor(subject)).reserve(subject, request);
   } catch (err) {
     console.error('[outbound] ledger unavailable, failing open:', err instanceof Error ? err.message : err);
-    await backstop(env, `${base.ledger!.key}:${sender}`);
+    await backstop(env, `${ledgerKeyFor(subject)}:${sender}`);
     return { ...base, mode: 'unavailable' };
   }
   if (!decision.allow && decision.denial) throw new OutboundDeniedError(decision.denial);
@@ -380,6 +350,64 @@ export async function checkOutbound(
     reservationId: decision.reservationId,
     mode: decision.mode,
     ...(decision.shadowDenial ? { shadowDenial: decision.shadowDenial } : {}),
+  };
+}
+
+/**
+ * The recipients who never wrote to the workspace. Refuses a recipient who
+ * complained about earlier mail. On a tenant without the tables yet (not
+ * migrated) everyone counts as known.
+ */
+async function firstContactsOf(db: Database, recipients: string[]): Promise<string[]> {
+  try {
+    const suppressed = (await findSuppressed(db, recipients)).filter((s) => s.reason === 'complaint');
+    if (suppressed.length > 0) {
+      throw new OutboundDeniedError({ code: 'RECIPIENT_SUPPRESSED', recipients: suppressed.map((s) => s.email) });
+    }
+    const known = await findKnownCorrespondents(db, recipients);
+    return recipients.filter((r) => !known.has(r));
+  } catch (err) {
+    if (err instanceof OutboundDeniedError) throw err;
+    console.warn('[outbound] correspondent lookup failed:', err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+/** The template fingerprint of a new conversation, or null for replies and short mails. */
+function templateOf(input: CheckOutboundInput, recipients: string[]): ReserveRequest['template'] {
+  if (input.kind === 'reply' || !(input.text || input.html)) return null;
+  const fp = fingerprintTemplate({
+    subject: input.subjectLine,
+    text: input.text || '',
+    personalTokens: personalTokensFor(recipients, input.recipientNames),
+  });
+  return fp.tooShort ? null : { fingerprint: fp.fingerprint, sample: fp.normalized, subject: input.subjectLine ?? '' };
+}
+
+function reserveRequestFor(
+  input: CheckOutboundInput,
+  base: Pick<OutboundReservation, 'sender' | 'recipients' | 'firstContact'>,
+  ownership: SenderOwnership,
+): ReserveRequest {
+  const content =
+    input.kind === 'reply'
+      ? null
+      : screenOutboundContent({ subject: input.subjectLine, text: input.text, html: input.html, attachments: input.attachments });
+  const sender = base.sender;
+  return {
+    sender,
+    source: input.source,
+    kind: input.kind,
+    recipients: base.recipients,
+    firstContact: base.firstContact,
+    template: templateOf(input, base.recipients),
+    contentScore: content?.score ?? 0,
+    contentFlags: content
+      ? { coldOutreach: content.flags.coldOutreach, bulk: content.flags.bulk, phishing: content.flags.phishing }
+      : undefined,
+    sharedDomain: !!sender && isSharedWeldMailDomain(sender.slice(sender.lastIndexOf('@') + 1)),
+    senderDailyCap: input.senderDailyCap ?? null,
+    senderUnregistered: ownership === 'unregistered',
   };
 }
 
@@ -394,24 +422,30 @@ export async function commitOutbound(
   opts: { sentRecipients?: string[]; waitUntil?: (promise: Promise<unknown>) => void } = {},
 ): Promise<void> {
   const sent = opts.sentRecipients ? uniqueAddresses(opts.sentRecipients) : reservation.recipients;
-  const work = (async () => {
-    if (reservation.ledger && reservation.reservationId && env.OUTBOUND_LEDGER) {
-      try {
-        await ledgerStub(env, reservation.ledger.key).commit(reservation.reservationId, opts.sentRecipients ? sent : undefined);
-      } catch (err) {
-        console.error('[outbound] ledger commit failed:', err instanceof Error ? err.message : err);
-      }
-    }
-    if (db && sent.length > 0) {
-      try {
-        await recordOutboundCorrespondents(db, sent);
-      } catch (err) {
-        console.warn('[outbound] correspondent record failed:', err instanceof Error ? err.message : err);
-      }
-    }
-  })();
+  const work = Promise.all([
+    commitToLedger(env, reservation, opts.sentRecipients ? sent : undefined),
+    recordCorrespondents(db, sent),
+  ]);
   if (opts.waitUntil) opts.waitUntil(work);
   else await work;
+}
+
+async function commitToLedger(env: OutboundGuardEnv, reservation: OutboundReservation, sent: string[] | undefined): Promise<void> {
+  if (!reservation.ledger || !reservation.reservationId || !env.OUTBOUND_LEDGER) return;
+  try {
+    await ledgerStub(env, reservation.ledger.key).commit(reservation.reservationId, sent);
+  } catch (err) {
+    console.error('[outbound] ledger commit failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+async function recordCorrespondents(db: Database | null, sent: string[]): Promise<void> {
+  if (!db || sent.length === 0) return;
+  try {
+    await recordOutboundCorrespondents(db, sent);
+  } catch (err) {
+    console.warn('[outbound] correspondent record failed:', err instanceof Error ? err.message : err);
+  }
 }
 
 /** Give back a reservation whose send never went out. Never throws. */

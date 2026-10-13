@@ -92,8 +92,28 @@ const PHISHING_PHRASES: RegExp[] = [
 const SHORTENERS = /\b(?:bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|is\.gd|buff\.ly|rebrand\.ly|cutt\.ly|shorturl\.at|rb\.gy|t\.ly)\//i;
 const BOOKING_LINKS = /\b(?:calendly\.com|cal\.com|savvycal\.com|meetings\.hubspot\.com|zcal\.co|tidycal\.com)\//i;
 const LINK_RE = /\bhttps?:\/\/[^\s<>"')]+/gi;
-const PIXEL_RE = /<img\b[^>]*\b(?:width\s*=\s*["']?1(?:px)?["']?[^>]*\bheight\s*=\s*["']?1(?:px)?["']?|height\s*=\s*["']?1(?:px)?["']?[^>]*\bwidth\s*=\s*["']?1(?:px)?["']?)[^>]*>/i;
 const RISKY_ATTACHMENT = /\.(?:exe|scr|js|jse|vbs|vbe|bat|cmd|msi|jar|iso|img|lnk|hta|ps1|docm|xlsm|pptm)$/i;
+
+/** A `width`/`height` attribute's number in one tag (whitespace already removed), or null. */
+function attributeNumber(compactTag: string, attr: 'width' | 'height'): string | null {
+  const at = compactTag.indexOf(`${attr}=`);
+  if (at < 0) return null;
+  return /^["']?(\d+)/.exec(compactTag.slice(at + attr.length + 1))?.[1] ?? null;
+}
+
+/** An `<img>` that is 1×1: the classic open-tracking pixel. */
+function hasTrackingPixel(html: string): boolean {
+  const lower = html.toLowerCase();
+  let from = 0;
+  for (;;) {
+    const start = lower.indexOf('<img', from);
+    const end = start < 0 ? -1 : lower.indexOf('>', start);
+    if (end < 0) return false;
+    const tag = lower.slice(start, end + 1).replace(/\s+/g, '');
+    if (attributeNumber(tag, 'width') === '1' && attributeNumber(tag, 'height') === '1') return true;
+    from = end + 1;
+  }
+}
 
 function countMatches(text: string, patterns: RegExp[]): number {
   let hits = 0;
@@ -138,7 +158,7 @@ export function screenOutboundContent(input: ContentScreenInput): ContentScreenR
     score += 1;
     reasons.push('booking_link');
   }
-  if (html && PIXEL_RE.test(html)) {
+  if (html && hasTrackingPixel(html)) {
     score += 2;
     reasons.push('tracking_pixel');
   }

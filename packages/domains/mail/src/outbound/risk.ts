@@ -35,69 +35,82 @@ export interface RiskResult {
   complaintRate7d: number | null;
 }
 
-export function computeRisk(input: RiskInput): RiskResult {
-  const reasons: string[] = [];
-  let score = 0;
+/** One signal's contribution: points and, when it counts, the reason shown to staff. */
+interface Signal {
+  points: number;
+  reason: string | null;
+}
 
-  if (input.phishingVerdict) {
-    return {
-      score: 100,
-      reasons: ['phishing_verdict'],
-      ...rates(input),
-    };
-  }
+const NONE: Signal = { points: 0, reason: null };
 
-  if (input.recipientsDay >= 20) {
-    const share = input.firstContactDay / input.recipientsDay;
-    const points = Math.round(share * 30);
-    if (points > 0) {
-      score += points;
-      reasons.push(`first_contact_share:${share.toFixed(2)}`);
-    }
-  }
+function firstContactShare(input: RiskInput): Signal {
+  if (input.recipientsDay < 20) return NONE;
+  const share = input.firstContactDay / input.recipientsDay;
+  const points = Math.round(share * 30);
+  return points > 0 ? { points, reason: `first_contact_share:${share.toFixed(2)}` } : NONE;
+}
 
-  if (input.topTemplateFirstContact >= 50) score += 30;
-  else if (input.topTemplateFirstContact >= OUTBOUND_THRESHOLDS.coldTemplateFirstContactPerDay) score += 20;
-  else if (input.topTemplateFirstContact >= OUTBOUND_THRESHOLDS.reviewFirstContactRecipients) score += 10;
-  if (input.topTemplateFirstContact >= OUTBOUND_THRESHOLDS.reviewFirstContactRecipients) {
-    reasons.push(`template_first_contact:${input.topTemplateFirstContact}`);
-  }
+function templateReach(input: RiskInput): Signal {
+  const reach = input.topTemplateFirstContact;
+  if (reach < OUTBOUND_THRESHOLDS.reviewFirstContactRecipients) return NONE;
+  let points = 10;
+  if (reach >= 50) points = 30;
+  else if (reach >= OUTBOUND_THRESHOLDS.coldTemplateFirstContactPerDay) points = 20;
+  return { points, reason: `template_first_contact:${reach}` };
+}
 
-  const { hardBounceRate7d, complaintRate7d } = rates(input);
-  if (hardBounceRate7d !== null) {
-    if (hardBounceRate7d > 0.1) score += 35;
-    else if (hardBounceRate7d > OUTBOUND_THRESHOLDS.hardBounceRate) score += 25;
-    else if (hardBounceRate7d > 0.02) score += 10;
-    if (hardBounceRate7d > 0.02) reasons.push(`hard_bounce_rate:${hardBounceRate7d.toFixed(3)}`);
-  }
+function hardBounces(rate: number | null): Signal {
+  if (rate === null || rate <= 0.02) return NONE;
+  let points = 10;
+  if (rate > 0.1) points = 35;
+  else if (rate > OUTBOUND_THRESHOLDS.hardBounceRate) points = 25;
+  return { points, reason: `hard_bounce_rate:${rate.toFixed(3)}` };
+}
 
-  if (input.complaints7d >= OUTBOUND_THRESHOLDS.complaints7d) score += 30;
-  else if (input.complaints7d === 1) score += 10;
-  if (input.complaints7d > 0) reasons.push(`complaints:${input.complaints7d}`);
+function complaints(input: RiskInput): Signal {
+  if (input.complaints7d === 0) return NONE;
+  const points = input.complaints7d >= OUTBOUND_THRESHOLDS.complaints7d ? 30 : 10;
+  return { points, reason: `complaints:${input.complaints7d}` };
+}
 
-  if (input.sendsDay >= 10 && input.flaggedSendsDay / input.sendsDay > 0.3) {
-    score += 10;
-    reasons.push('flagged_content');
-  }
+function flaggedContent(input: RiskInput): Signal {
+  const flagged = input.sendsDay >= 10 && input.flaggedSendsDay / input.sendsDay > 0.3;
+  return flagged ? { points: 10, reason: 'flagged_content' } : NONE;
+}
 
-  if (
+function automatedFirstContact(input: RiskInput): Signal {
+  const automated =
     input.recipientsDay >= 20 &&
     input.automatedDay / input.recipientsDay > 0.5 &&
-    input.firstContactDay / input.recipientsDay > 0.5
-  ) {
-    score += 10;
-    reasons.push('automated_first_contact');
-  }
+    input.firstContactDay / input.recipientsDay > 0.5;
+  return automated ? { points: 10, reason: 'automated_first_contact' } : NONE;
+}
 
-  if (input.coldTemplates > 0) {
-    score += 15;
-    reasons.push(`cold_templates:${input.coldTemplates}`);
-  }
+function coldTemplates(input: RiskInput): Signal {
+  return input.coldTemplates > 0 ? { points: 15, reason: `cold_templates:${input.coldTemplates}` } : NONE;
+}
 
-  if (input.trustLevel === 'new') score *= 1.2;
-  else if (input.trustLevel === 'trusted') score *= 0.8;
+const TRUST_WEIGHT: Record<OutboundTrustLevel, number> = { new: 1.2, standard: 1, trusted: 0.8 };
 
-  return { score: Math.min(100, Math.round(score)), reasons, hardBounceRate7d, complaintRate7d };
+export function computeRisk(input: RiskInput): RiskResult {
+  const deliveryRates = rates(input);
+  if (input.phishingVerdict) return { score: 100, reasons: ['phishing_verdict'], ...deliveryRates };
+
+  const signals = [
+    firstContactShare(input),
+    templateReach(input),
+    hardBounces(deliveryRates.hardBounceRate7d),
+    complaints(input),
+    flaggedContent(input),
+    automatedFirstContact(input),
+    coldTemplates(input),
+  ];
+  const raw = signals.reduce((total, signal) => total + signal.points, 0) * TRUST_WEIGHT[input.trustLevel];
+  return {
+    score: Math.min(100, Math.round(raw)),
+    reasons: signals.map((signal) => signal.reason).filter((reason): reason is string => reason !== null),
+    ...deliveryRates,
+  };
 }
 
 function rates(input: RiskInput): Pick<RiskResult, 'hardBounceRate7d' | 'complaintRate7d'> {

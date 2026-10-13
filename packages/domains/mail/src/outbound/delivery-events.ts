@@ -57,38 +57,11 @@ export function parseSendingEvent(body: unknown): ParsedSendingEvent | null {
   const recipient = typeof payload.recipient === 'string' ? payload.recipient.trim().toLowerCase() : '';
   if (!sender.includes('@') || !recipient.includes('@')) return null;
 
-  let type: DeliveryEventType;
-  switch (event.type.slice(PREFIX.length)) {
-    case 'delivered':
-      type = 'delivered';
-      break;
-    case 'deferred':
-      type = 'deferred';
-      break;
-    case 'bounced':
-      type = payload.bounce?.type === 'soft' ? 'soft_bounce' : 'hard_bounce';
-      break;
-    case 'complained':
-      type = 'complained';
-      break;
-    case 'rejected':
-      type = 'rejected';
-      break;
-    case 'failed':
-      type = 'failed';
-      break;
-    default:
-      return null;
-  }
+  const type = eventTypeOf(event.type.slice(PREFIX.length), payload);
+  if (!type) return null;
 
   const timestamp = typeof event.metadata?.eventTimestamp === 'string' ? Date.parse(event.metadata.eventTimestamp) : NaN;
-  const smtp = payload.delivery?.smtpResponse;
-  const detail =
-    typeof smtp === 'string' && smtp
-      ? smtp
-      : type === 'complained' && typeof payload.complaint?.type === 'string'
-        ? `complaint: ${payload.complaint.type}`
-        : null;
+  const detail = eventDetail(type, payload);
   return {
     type,
     sender,
@@ -96,6 +69,29 @@ export function parseSendingEvent(body: unknown): ParsedSendingEvent | null {
     at: Number.isNaN(timestamp) ? new Date() : new Date(timestamp),
     detail: detail ? detail.slice(0, 500) : null,
   };
+}
+
+const PLAIN_EVENT_TYPES: Readonly<Record<string, DeliveryEventType>> = {
+  delivered: 'delivered',
+  deferred: 'deferred',
+  complained: 'complained',
+  rejected: 'rejected',
+  failed: 'failed',
+};
+
+type RawPayload = NonNullable<RawSendingEvent['payload']>;
+
+function eventTypeOf(name: string, payload: RawPayload): DeliveryEventType | null {
+  if (name === 'bounced') return payload.bounce?.type === 'soft' ? 'soft_bounce' : 'hard_bounce';
+  return PLAIN_EVENT_TYPES[name] ?? null;
+}
+
+/** The SMTP response, or the complaint type for a complaint. */
+function eventDetail(type: DeliveryEventType, payload: RawPayload): string | null {
+  const smtp = payload.delivery?.smtpResponse;
+  if (typeof smtp === 'string' && smtp) return smtp;
+  if (type === 'complained' && typeof payload.complaint?.type === 'string') return `complaint: ${payload.complaint.type}`;
+  return null;
 }
 
 const STATUS_FOR: Record<DeliveryEventType, MailDeliveryStatus> = {
@@ -204,33 +200,36 @@ export async function applySendingEvents(env: DeliveryEventsEnv, events: ParsedS
   for (const [sender, senderEvents] of bySender) {
     const route = await resolveSender(env, sender);
     if (!route) continue;
-
-    if (env.OUTBOUND_LEDGER) {
-      const stub = env.OUTBOUND_LEDGER.get(env.OUTBOUND_LEDGER.idFromName(ledgerKeyFor(route.subject)));
-      for (const event of senderEvents) await stub.recordDelivery(route.subject, event.type, event.at.getTime());
-    }
-
+    await countInLedger(env, route.subject, senderEvents);
     if (route.subject.kind === 'workspace' && route.clerkOrgId) {
       const db = await getTenantDbForWorkspace(env, route.clerkOrgId);
-      for (const event of senderEvents) {
-        try {
-          await markSentCopy(db, route.accountId, event);
-          if (event.type === 'hard_bounce' || event.type === 'complained') {
-            await addSuppression(db, {
-              email: event.recipient,
-              reason: event.type === 'complained' ? 'complaint' : 'hard_bounce',
-              senderEmail: sender,
-              source: 'cloudflare_event',
-              details: event.detail ? { detail: event.detail } : undefined,
-            });
-          }
-        } catch (err) {
-          // A tenant that hasn't run the migration yet: the ledger still counted it.
-          console.warn('[outbound-events] tenant update failed:', err instanceof Error ? err.message : err);
-        }
-      }
+      for (const event of senderEvents) await applyToTenant(db, route.accountId, sender, event);
     }
     applied += senderEvents.length;
   }
   return applied;
+}
+
+async function countInLedger(env: DeliveryEventsEnv, subject: LedgerSubject, events: ParsedSendingEvent[]): Promise<void> {
+  if (!env.OUTBOUND_LEDGER) return;
+  const stub = env.OUTBOUND_LEDGER.get(env.OUTBOUND_LEDGER.idFromName(ledgerKeyFor(subject)));
+  for (const event of events) await stub.recordDelivery(subject, event.type, event.at.getTime());
+}
+
+/** Mark the SENT copy and suppress the address after a hard bounce or a complaint. */
+async function applyToTenant(db: Database, accountId: string, sender: string, event: ParsedSendingEvent): Promise<void> {
+  try {
+    await markSentCopy(db, accountId, event);
+    if (event.type !== 'hard_bounce' && event.type !== 'complained') return;
+    await addSuppression(db, {
+      email: event.recipient,
+      reason: event.type === 'complained' ? 'complaint' : 'hard_bounce',
+      senderEmail: sender,
+      source: 'cloudflare_event',
+      details: event.detail ? { detail: event.detail } : undefined,
+    });
+  } catch (err) {
+    // A tenant that hasn't run the migration yet: the ledger still counted it.
+    console.warn('[outbound-events] tenant update failed:', err instanceof Error ? err.message : err);
+  }
 }

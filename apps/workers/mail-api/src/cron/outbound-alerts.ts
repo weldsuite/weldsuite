@@ -18,6 +18,12 @@ const BATCH = 20;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_ADMIN_CONSOLE_URL = 'https://admin.weldsuite.org';
 
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  return url.slice(0, end);
+}
+
 function verdictLabel(verdict: OutboundCaseVerdict | null): string | null {
   return verdict ? `${verdict.category} (${verdict.confidence.toFixed(2)})` : null;
 }
@@ -50,7 +56,7 @@ export async function sendPendingOutboundAlerts(env: Env): Promise<number> {
       .orderBy(asc(outboundMailCases.createdAt))
       .limit(BATCH);
 
-    const origin = (env.ADMIN_CONSOLE_URL?.trim() || DEFAULT_ADMIN_CONSOLE_URL).replace(/\/+$/, '');
+    const origin = withoutTrailingSlashes(env.ADMIN_CONSOLE_URL?.trim() || DEFAULT_ADMIN_CONSOLE_URL);
     for (const { row, workspaceName } of pending) {
       const metrics = row.metrics as Record<string, unknown>;
       try {

@@ -621,79 +621,28 @@ export async function sendAndPersist(
   // ---- Opt-in policies (public API): verified sender, daily limit ------
   await assertSendPolicy(db, account, opts);
 
-  // Sanitize the HTML once for both the transmitted and stored copies. Covers
-  // reply/forward too (they funnel through here), so a forwarded message can't
-  // re-emit script from quoted inbound HTML, and shared-mailbox composers can't
-  // store XSS for the next reader. Inbound mail is also sanitized at ingest.
-  // A client that put its editor HTML in `body` still gets a real HTML part,
-  // and the text/plain part is always tag-free (see ./text).
-  const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
-  const htmlBody = sanitizeEmailHtml(rawHtml) || undefined;
-  const textBody = plainTextBody(data.body, htmlBody);
-
-  // ---- Recipient validation (format + MX) ------------------------------
-  // Dry-run keeps the format check but skips the network MX lookup.
-  const check = await validateRecipients(data.to, data.cc, data.bcc, env, {
-    skipMx: opts?.dryRun,
-  });
-  if (!check.ok) {
-    throw new MailSendError('INVALID_RECIPIENTS', 'One or more recipient addresses are invalid', {
-      invalidFormat: check.invalidFormat,
-      unreachableDomains: check.unreachableDomains,
-    });
-  }
+  const body = prepareBody(data);
+  await assertValidRecipients(env, data, opts?.dryRun);
 
   // ---- Outbound guard: sender, limits, cold-email screening ------------
   // (docs/plans/weldmail-outbound-abuse.md). Dry-run sends never reach
   // Cloudflare, so they are not counted.
-  const reservation = opts?.dryRun
-    ? null
-    : await reserveOutbound(env, db, orgId, account, data, { html: htmlBody, text: textBody }, opts);
+  const reservation = opts?.dryRun ? null : await reserveOutbound(env, db, orgId, account, data, body, opts);
 
   // ---- Attachment resolution (R2) --------------------------------------
   const extraAttachments = opts?.extraAttachments ?? [];
-  let resolvedAttachments: ResolvedAttachment[];
-  try {
-    resolvedAttachments = await resolveAttachments(
-      env,
-      orgId,
-      data,
-      extraAttachments.reduce((total, att) => total + att.content.byteLength, 0),
-    );
-  } catch (err) {
-    if (reservation) await releaseOutbound(env, reservation);
-    throw err;
-  }
+  const resolvedAttachments = await resolveAttachmentsFor(env, orgId, data, extraAttachments, reservation);
 
   // ---- Send via Cloudflare ---------------------------------------------
-  let sendResult: TransmitResult;
-  let partial: { sent: string[]; failed: string[] } | null = null;
-  try {
-    sendResult = await transmitEmail(
-      env,
-      account,
-      data,
-      { html: htmlBody, text: textBody },
-      [...resolvedAttachments, ...extraAttachments],
-      opts?.dryRun,
-    );
-  } catch (err) {
-    const sent = err instanceof TransientProviderError ? err.sentRecipients : [];
-    if (!(err instanceof TransientProviderError) || sent.length === 0 || !err.messageId) {
-      if (reservation) await releaseOutbound(env, reservation);
-      throw await transmitFailure(env, err);
-    }
-    // Some recipients already have it: record the sent copy, then report.
-    if (err instanceof ProviderRefusedError && err.refusal === 'daily_limit') {
-      await tripPlatformBreaker(env, 'Cloudflare refused a send with E_DAILY_LIMIT_EXCEEDED.');
-    }
-    const sentSet = new Set(sent.map((r) => r.toLowerCase()));
-    partial = {
-      sent,
-      failed: [...data.to, ...(data.cc ?? []), ...(data.bcc ?? [])].filter((r) => !sentSet.has(r.toLowerCase())),
-    };
-    sendResult = { messageId: err.messageId, pendingVerification: false };
-  }
+  const { result: sendResult, partial } = await transmitGuarded(
+    env,
+    account,
+    data,
+    body,
+    [...resolvedAttachments, ...extraAttachments],
+    opts?.dryRun,
+    reservation,
+  );
   if (reservation) {
     await commitOutbound(env, db, reservation, { sentRecipients: partial?.sent, waitUntil: opts?.waitUntil });
   }
@@ -702,12 +651,6 @@ export async function sendAndPersist(
   const smtpMessageId = toSmtpMessageId(externalMessageId);
   const messageId = generateId('msg');
   const now = new Date();
-  const suppressed = sendResult.suppressedRecipients ?? [];
-  const delivery = partial
-    ? { status: 'failed' as const, detail: `Not sent to: ${partial.failed.join(', ')}` }
-    : suppressed.length > 0
-      ? { status: 'rejected' as const, detail: `Skipped, on the suppression list: ${suppressed.join(', ')}` }
-      : undefined;
 
   // ---- Thread stitching (replies inherit parent thread) ----------------
   const threadId = await resolveThreadId(db, accountId, data, smtpMessageId);
@@ -718,11 +661,11 @@ export async function sendAndPersist(
     smtpMessageId,
     externalMessageId,
     threadId,
-    htmlBody,
-    textBody,
+    htmlBody: body.html,
+    textBody: body.text,
     attachmentCount: resolvedAttachments.length + extraAttachments.length,
     now,
-    delivery,
+    delivery: deliveryNote(partial, sendResult.suppressedRecipients ?? []),
   });
   if (replayed) return replayed;
 
@@ -757,6 +700,100 @@ export async function sendAndPersist(
     subject: data.subject || '(No subject)',
     pendingVerification: sendResult.pendingVerification ?? false,
   };
+}
+
+/**
+ * Sanitize the HTML once for both the transmitted and stored copies. Covers
+ * reply/forward too (they funnel through here), so a forwarded message can't
+ * re-emit script from quoted inbound HTML, and shared-mailbox composers can't
+ * store XSS for the next reader. Inbound mail is also sanitized at ingest.
+ * A client that put its editor HTML in `body` still gets a real HTML part,
+ * and the text/plain part is always tag-free (see ./text).
+ */
+function prepareBody(data: SendComposeInput): { html: string | undefined; text: string | undefined } {
+  const rawHtml = data.htmlBody ?? (data.body && looksLikeHtml(data.body) ? data.body : undefined);
+  const html = sanitizeEmailHtml(rawHtml) || undefined;
+  return { html, text: plainTextBody(data.body, html) };
+}
+
+/** Recipient validation (format + MX). Dry-run keeps the format check but skips the network MX lookup. */
+async function assertValidRecipients(env: MailSendEnv, data: SendComposeInput, dryRun: boolean | undefined): Promise<void> {
+  const check = await validateRecipients(data.to, data.cc, data.bcc, env, { skipMx: dryRun });
+  if (check.ok) return;
+  throw new MailSendError('INVALID_RECIPIENTS', 'One or more recipient addresses are invalid', {
+    invalidFormat: check.invalidFormat,
+    unreachableDomains: check.unreachableDomains,
+  });
+}
+
+/** Resolve the uploaded attachments; give the reservation back when that fails. */
+async function resolveAttachmentsFor(
+  env: MailSendEnv,
+  orgId: string,
+  data: SendComposeInput,
+  extraAttachments: InlineAttachment[],
+  reservation: OutboundReservation | null,
+): Promise<ResolvedAttachment[]> {
+  try {
+    return await resolveAttachments(
+      env,
+      orgId,
+      data,
+      extraAttachments.reduce((total, att) => total + att.content.byteLength, 0),
+    );
+  } catch (err) {
+    if (reservation) await releaseOutbound(env, reservation);
+    throw err;
+  }
+}
+
+interface PartialSend {
+  sent: string[];
+  failed: string[];
+}
+
+/**
+ * Hand the message to Cloudflare. A send that failed halfway (some recipients
+ * already have it) comes back as `partial` so its copy is recorded; any other
+ * failure gives the reservation back and becomes a MailSendError where
+ * Cloudflare named the reason.
+ */
+async function transmitGuarded(
+  env: MailSendEnv,
+  account: MailAccountRow,
+  data: SendComposeInput,
+  body: { html: string | undefined; text: string | undefined },
+  attachments: InlineAttachment[],
+  dryRun: boolean | undefined,
+  reservation: OutboundReservation | null,
+): Promise<{ result: TransmitResult; partial: PartialSend | null }> {
+  try {
+    return { result: await transmitEmail(env, account, data, body, attachments, dryRun), partial: null };
+  } catch (err) {
+    const sent = err instanceof TransientProviderError ? err.sentRecipients : [];
+    if (!(err instanceof TransientProviderError) || sent.length === 0 || !err.messageId) {
+      if (reservation) await releaseOutbound(env, reservation);
+      throw await transmitFailure(env, err);
+    }
+    if (err instanceof ProviderRefusedError && err.refusal === 'daily_limit') {
+      await tripPlatformBreaker(env, 'Cloudflare refused a send with E_DAILY_LIMIT_EXCEEDED.');
+    }
+    const sentSet = new Set(sent.map((r) => r.toLowerCase()));
+    const everyone = [...data.to, ...(data.cc ?? []), ...(data.bcc ?? [])];
+    return {
+      result: { messageId: err.messageId, pendingVerification: false },
+      partial: { sent, failed: everyone.filter((r) => !sentSet.has(r.toLowerCase())) },
+    };
+  }
+}
+
+/** What the SENT copy should say about delivery when it is known at send time. */
+function deliveryNote(partial: PartialSend | null, suppressed: string[]): SentCopyInput['delivery'] {
+  if (partial) return { status: 'failed', detail: `Not sent to: ${partial.failed.join(', ')}` };
+  if (suppressed.length > 0) {
+    return { status: 'rejected', detail: `Skipped, on the suppression list: ${suppressed.join(', ')}` };
+  }
+  return undefined;
 }
 
 function tooLarge(): MailSendError {
@@ -1049,6 +1086,31 @@ export async function forwardAndPersist(
 }
 
 /**
+ * Who a reply goes to: the original sender, and with reply-all everyone who was
+ * on the original To/Cc lines — Cc recipients stay on Cc — minus this mailbox,
+ * which is already the sender.
+ */
+function replyRecipients(
+  original: OriginalMessage,
+  mailbox: string,
+  replyAll: boolean,
+): { to: string[]; cc: string[] } {
+  const originalFrom = original.from as { email?: string; name?: string } | null;
+  const to: string[] = originalFrom?.email ? [originalFrom.email] : [];
+  const cc: string[] = [];
+  if (!replyAll) return { to, cc };
+  const isNew = (email: string | undefined): email is string =>
+    !!email && email !== mailbox && !to.includes(email) && !cc.includes(email);
+  for (const addr of (original.to as { email?: string }[] | null) ?? []) {
+    if (isNew(addr.email)) to.push(addr.email);
+  }
+  for (const addr of (original.cc as { email?: string }[] | null) ?? []) {
+    if (isNew(addr.email)) cc.push(addr.email);
+  }
+  return { to, cc };
+}
+
+/**
  * Reply variant — looks up the original message, derives recipients and
  * threading headers, then hands off to `sendAndPersist`.
  */
@@ -1077,23 +1139,7 @@ export async function replyAndPersist(
     .limit(1);
   if (!account) throw new MailSendError('ACCOUNT_NOT_FOUND', 'Mail account not found');
 
-  const originalFrom = original.from as { email?: string; name?: string } | null;
-  const toAddresses: string[] = [];
-  if (originalFrom?.email) toAddresses.push(originalFrom.email);
-  // Reply-all keeps everyone who was on the original To/Cc lines — Cc
-  // recipients stay on Cc — minus this mailbox, which is already the sender.
-  const ccAddresses: string[] = [];
-  if (data.replyAll) {
-    const isNew = (email: string | undefined): email is string =>
-      !!email && email !== account.email && !toAddresses.includes(email) && !ccAddresses.includes(email);
-    for (const addr of (original.to as { email?: string }[] | null) ?? []) {
-      if (isNew(addr.email)) toAddresses.push(addr.email);
-    }
-    for (const addr of (original.cc as { email?: string }[] | null) ?? []) {
-      if (isNew(addr.email)) ccAddresses.push(addr.email);
-    }
-  }
-
+  const { to: toAddresses, cc: ccAddresses } = replyRecipients(original, account.email, !!data.replyAll);
   const originalSmtpId = original.messageId;
   const existingRefs = (original.references as string[]) || [];
   const references = [...existingRefs, originalSmtpId].filter(Boolean);

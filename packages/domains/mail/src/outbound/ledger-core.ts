@@ -285,6 +285,21 @@ function isPhishingVerdict(v: StoredVerdict | null | undefined): boolean {
   return !!v && v.category === 'phishing_or_scam' && v.confidence >= OUTBOUND_THRESHOLDS.phishingConfidence;
 }
 
+type ActionDetails = Record<string, number | string | boolean | null>;
+type TightenRule = (to: OutboundState, trigger: OutboundCaseTrigger) => boolean;
+
+/** Restrict the workspace when that tightens its state; otherwise just open a case. */
+function restrictOrCase(
+  trigger: OutboundCaseTrigger,
+  reason: string,
+  details: ActionDetails,
+  canTighten: TightenRule,
+): AutomaticAction {
+  return canTighten('restricted', trigger)
+    ? { kind: 'state', toState: 'restricted', trigger, severity: 'warning', reason, details }
+    : { kind: 'case', trigger, severity: 'warning', reason, details };
+}
+
 let reservationCounter = 0;
 
 // ---------------------------------------------------------------------------
@@ -327,26 +342,29 @@ export class LedgerCore {
     for (const [k, v] of shadow) this.shadow.set(Number(k.slice(3)), v);
   }
 
+  /** The in-memory value behind a storage key (`<prefix>:<id>`). */
+  private valueFor(key: string): unknown {
+    const split = key.indexOf(':');
+    const prefix = key.slice(0, split);
+    const raw = key.slice(split + 1);
+    const readers: Record<string, () => unknown> = {
+      h: () => this.hours.get(Number(raw)),
+      d: () => this.deliveries.get(Number(raw)),
+      t: () => this.templates.get(Number(raw)),
+      v: () => this.verdicts.get(raw),
+      m: () => this.months.get(raw),
+      rs: () => this.reviewSamples.get(Number(raw)),
+      sh: () => this.shadow.get(Number(raw)),
+    };
+    return readers[prefix]?.();
+  }
+
   /** Persist everything changed since the last flush. */
   async flush(): Promise<void> {
     if (this.dirty.size === 0) return;
     const entries: Record<string, unknown> = {};
     for (const key of this.dirty) {
-      const [prefix, raw] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
-      const value =
-        prefix === 'h'
-          ? this.hours.get(Number(raw))
-          : prefix === 'd'
-            ? this.deliveries.get(Number(raw))
-            : prefix === 't'
-              ? this.templates.get(Number(raw))
-              : prefix === 'v'
-                ? this.verdicts.get(raw)
-                : prefix === 'm'
-                  ? this.months.get(raw)
-                  : prefix === 'rs'
-                    ? this.reviewSamples.get(Number(raw))
-                    : this.shadow.get(Number(raw));
+      const value = this.valueFor(key);
       if (value !== undefined) entries[key] = value;
     }
     this.dirty.clear();
@@ -441,38 +459,54 @@ export class LedgerCore {
 
   /** The first limit this send would break, or null. */
   private decide(ctx: ReserveContext, req: ReserveRequest): OutboundDenialDetails | null {
-    const { policy } = ctx;
-    const limits = policy.limits;
-    const n = req.recipients.length;
-    const fc = req.firstContact.length;
-    const isReply = req.kind === 'reply';
+    const gate = this.stateGate(ctx.policy, req);
+    if (gate) return gate;
     // Calendar and WeldMeet invitations come from WeldSuite's own address, one
     // message per attendee: no per-message or per-sender window applies, only
     // the workspace's day, month and first-contact windows.
-    const systemSend = req.sender === '';
+    if (req.sender === '') return this.decideWorkspaceWindows(ctx, req);
+    // Answering someone who wrote in keeps working up to the reply floor,
+    // whatever the volume windows say (suspension and hold are handled above).
+    if (this.withinReplyFloor(ctx.policy.limits, req)) return null;
+    return (
+      this.senderVolume(ctx.policy.limits, req) ??
+      this.sharedDomainFirstContact(req) ??
+      this.decideWorkspaceWindows(ctx, req)
+    );
+  }
 
+  /** Suspension, an unregistered shared address, the per-message cap and a hold. */
+  private stateGate(policy: LedgerPolicy, req: ReserveRequest): OutboundDenialDetails | null {
+    const isReply = req.kind === 'reply';
+    const n = req.recipients.length;
     if (policy.state === 'suspended' && !(isReply && policy.allowRepliesWhenSuspended)) {
       return { code: 'SENDING_SUSPENDED', reason: 'staff_suspension' };
     }
     if (req.senderUnregistered) {
       return { code: 'SENDER_NOT_OWNED', reason: 'unregistered_shared_address' };
     }
-    if (!systemSend && n > limits.recipientsPerMessage) {
-      return { code: 'TOO_MANY_RECIPIENTS', window: 'message', limit: limits.recipientsPerMessage, used: n };
+    if (req.sender !== '' && n > policy.limits.recipientsPerMessage) {
+      return { code: 'TOO_MANY_RECIPIENTS', window: 'message', limit: policy.limits.recipientsPerMessage, used: n };
     }
     if (policy.state === 'hold' && !isReply) {
       return { code: 'SENDING_ON_HOLD', reason: 'under_review' };
     }
-    if (systemSend) return this.decideWorkspaceWindows(ctx, req);
+    return null;
+  }
 
+  private withinReplyFloor(limits: OutboundLimits, req: ReserveRequest): boolean {
+    if (req.kind !== 'reply') return false;
     const sender = req.sender;
-    const senderRepliesDay =
+    const repliesDay =
       this.sum(24, (b) => this.senderCounts(b, sender).rp) +
       this.pending((r) => (r.sender === sender && r.kind === 'reply' ? r.recipients.length : 0));
-    // Answering someone who wrote in keeps working up to the reply floor,
-    // whatever the volume windows say (suspension and hold are handled above).
-    if (isReply && senderRepliesDay + n <= limits.repliesPerSenderPerDay) return null;
+    return repliesDay + req.recipients.length <= limits.repliesPerSenderPerDay;
+  }
 
+  /** The sender's hour and day windows; its own `dailySendLimit` can only lower the day. */
+  private senderVolume(limits: OutboundLimits, req: ReserveRequest): OutboundDenialDetails | null {
+    const sender = req.sender;
+    const n = req.recipients.length;
     const pendingSender = this.pending((r) => (r.sender === sender ? r.recipients.length : 0));
     const senderHour = this.senderCounts(this.hours.get(this.hour) ?? emptyBucket(), sender).r + pendingSender;
     if (senderHour + n > limits.senderPerHour) {
@@ -486,10 +520,8 @@ export class LedgerCore {
       };
     }
 
-    const senderPerDay =
-      req.senderDailyCap != null && req.senderDailyCap > 0
-        ? Math.min(limits.senderPerDay, req.senderDailyCap)
-        : limits.senderPerDay;
+    const cap = req.senderDailyCap ?? 0;
+    const senderPerDay = cap > 0 ? Math.min(limits.senderPerDay, cap) : limits.senderPerDay;
     const senderDay = this.sum(24, (b) => this.senderCounts(b, sender).r) + pendingSender;
     if (senderDay + n > senderPerDay) {
       return {
@@ -501,34 +533,42 @@ export class LedgerCore {
         reason: 'sender_day',
       };
     }
+    return null;
+  }
 
-    if (fc > 0 && req.sharedDomain) {
-      const senderFc =
-        this.sum(24, (b) => this.senderCounts(b, sender).fc) +
-        this.pending((r) => (r.sender === sender ? r.firstContact.length : 0));
-      if (senderFc + fc > WELDMAIL_SHARED_FIRST_CONTACT_PER_DAY) {
-        return {
-          code: 'FIRST_CONTACT_LIMITED',
-          window: 'day',
-          limit: WELDMAIL_SHARED_FIRST_CONTACT_PER_DAY,
-          used: senderFc,
-          retryAfter: this.dayWindowRetry((b) => this.senderCounts(b, sender).fc),
-          reason: 'weldmail_shared_domain',
-          suggestWeldReach: true,
-        };
-      }
-    }
-
-    return this.decideWorkspaceWindows(ctx, req);
+  /** `*.weldmail.com` addresses share one reputation: a tight first-contact cap per sender. */
+  private sharedDomainFirstContact(req: ReserveRequest): OutboundDenialDetails | null {
+    const fc = req.firstContact.length;
+    if (fc === 0 || !req.sharedDomain) return null;
+    const sender = req.sender;
+    const senderFc =
+      this.sum(24, (b) => this.senderCounts(b, sender).fc) +
+      this.pending((r) => (r.sender === sender ? r.firstContact.length : 0));
+    if (senderFc + fc <= WELDMAIL_SHARED_FIRST_CONTACT_PER_DAY) return null;
+    return {
+      code: 'FIRST_CONTACT_LIMITED',
+      window: 'day',
+      limit: WELDMAIL_SHARED_FIRST_CONTACT_PER_DAY,
+      used: senderFc,
+      retryAfter: this.dayWindowRetry((b) => this.senderCounts(b, sender).fc),
+      reason: 'weldmail_shared_domain',
+      suggestWeldReach: true,
+    };
   }
 
   /** The workspace-wide windows: day, month, first contact, cold-outreach templates, platform budget. */
   private decideWorkspaceWindows(ctx: ReserveContext, req: ReserveRequest): OutboundDenialDetails | null {
-    const { policy } = ctx;
-    const limits = policy.limits;
-    const n = req.recipients.length;
-    const fc = req.firstContact.length;
+    const volume = this.workspaceVolume(ctx.policy.limits, req);
+    if (volume || req.firstContact.length === 0) return volume;
+    return (
+      this.workspaceFirstContact(ctx.policy.limits, req) ??
+      this.coldTemplateCap(req) ??
+      this.platformBudget(ctx)
+    );
+  }
 
+  private workspaceVolume(limits: OutboundLimits, req: ReserveRequest): OutboundDenialDetails | null {
+    const n = req.recipients.length;
     const pendingAll = this.pending((r) => r.recipients.length);
     const wsDay = this.sum(24, (b) => b.ws.r) + pendingAll;
     if (wsDay + n > limits.workspacePerDay) {
@@ -541,66 +581,57 @@ export class LedgerCore {
         reason: 'workspace_day',
       };
     }
+    if (limits.monthlyRecipients === null) return null;
+    const month = (this.months.get(monthKey(this.clock())) ?? 0) + pendingAll;
+    if (month + n <= limits.monthlyRecipients) return null;
+    return {
+      code: 'SENDING_LIMITED',
+      window: 'month',
+      limit: limits.monthlyRecipients,
+      used: month,
+      retryAfter: iso(nextMonthStart(this.clock())),
+      reason: 'workspace_month',
+    };
+  }
 
-    if (limits.monthlyRecipients !== null) {
-      const month = (this.months.get(monthKey(this.clock())) ?? 0) + pendingAll;
-      if (month + n > limits.monthlyRecipients) {
-        return {
-          code: 'SENDING_LIMITED',
-          window: 'month',
-          limit: limits.monthlyRecipients,
-          used: month,
-          retryAfter: iso(nextMonthStart(this.clock())),
-          reason: 'workspace_month',
-        };
-      }
-    }
-
-    if (fc === 0) return null;
-
+  private workspaceFirstContact(limits: OutboundLimits, req: ReserveRequest): OutboundDenialDetails | null {
     const wsFc = this.sum(24, (b) => b.ws.fc) + this.pending((r) => r.firstContact.length);
-    if (wsFc + fc > limits.firstContactPerDay) {
-      return {
-        code: 'FIRST_CONTACT_LIMITED',
-        window: 'day',
-        limit: limits.firstContactPerDay,
-        used: wsFc,
-        ...(limits.firstContactPerDay > 0
-          ? { retryAfter: this.dayWindowRetry((b) => b.ws.fc) }
-          : {}),
-        reason: 'workspace_first_contact',
-        suggestWeldReach: true,
-      };
-    }
+    if (wsFc + req.firstContact.length <= limits.firstContactPerDay) return null;
+    return {
+      code: 'FIRST_CONTACT_LIMITED',
+      window: 'day',
+      limit: limits.firstContactPerDay,
+      used: wsFc,
+      ...(limits.firstContactPerDay > 0 ? { retryAfter: this.dayWindowRetry((b) => b.ws.fc) } : {}),
+      reason: 'workspace_first_contact',
+      suggestWeldReach: true,
+    };
+  }
 
-    if (req.template) {
-      const verdict = this.verdictFor(req.template.fingerprint);
-      if (isColdVerdict(verdict)) {
-        const entry = this.templateEntry(req.template.fingerprint);
-        const used =
-          (entry?.fc ?? 0) +
-          this.pending((r) =>
-            r.template && isSameTemplate(r.template.fingerprint, req.template!.fingerprint) ? r.firstContact.length : 0,
-          );
-        const cap = OUTBOUND_THRESHOLDS.coldTemplateFirstContactPerDay;
-        if (used + fc > cap) {
-          return {
-            code: 'FIRST_CONTACT_LIMITED',
-            window: 'day',
-            limit: cap,
-            used,
-            retryAfter: iso((this.day + 1) * DAY),
-            reason: 'cold_outreach_template',
-            suggestWeldReach: true,
-          };
-        }
-      }
-    }
+  /** A template the AI called cold outreach reaches a limited number of new people a day. */
+  private coldTemplateCap(req: ReserveRequest): OutboundDenialDetails | null {
+    const template = req.template;
+    if (!template || !isColdVerdict(this.verdictFor(template.fingerprint))) return null;
+    const sameTemplate = (r: ReserveRequest) =>
+      r.template && isSameTemplate(r.template.fingerprint, template.fingerprint) ? r.firstContact.length : 0;
+    const used = (this.templateEntry(template.fingerprint)?.fc ?? 0) + this.pending(sameTemplate);
+    const cap = OUTBOUND_THRESHOLDS.coldTemplateFirstContactPerDay;
+    if (used + req.firstContact.length <= cap) return null;
+    return {
+      code: 'FIRST_CONTACT_LIMITED',
+      window: 'day',
+      limit: cap,
+      used,
+      retryAfter: iso((this.day + 1) * DAY),
+      reason: 'cold_outreach_template',
+      suggestWeldReach: true,
+    };
+  }
 
-    if (ctx.platformTripped && policy.trustLevel !== 'trusted') {
-      return { code: 'PLATFORM_LIMITED', window: 'day', retryAfter: iso((this.day + 1) * DAY) };
-    }
-    return null;
+  /** Platform budget used up: first contacts wait until tomorrow, except for trusted workspaces. */
+  private platformBudget(ctx: ReserveContext): OutboundDenialDetails | null {
+    if (!ctx.platformTripped || ctx.policy.trustLevel === 'trusted') return null;
+    return { code: 'PLATFORM_LIMITED', window: 'day', retryAfter: iso((this.day + 1) * DAY) };
   }
 
   release(reservationId: string): void {
@@ -620,17 +651,27 @@ export class LedgerCore {
     const sent = sentSet ? req.recipients.filter((r) => sentSet.has(r)) : req.recipients;
     if (sent.length === 0) return {};
     const fcSent = req.firstContact.filter((r) => !sentSet || sentSet.has(r));
-    const n = sent.length;
-    const fc = fcSent.length;
-    const isReply = req.kind === 'reply';
 
-    const bucket = this.hours.get(this.hour) ?? emptyBucket();
+    this.countSend(req, sent.length, fcSent.length);
+    if (!req.template || req.kind === 'reply') return {};
+    const entry = this.trackTemplate(req, req.template, sent, fcSent);
+    if (entry.reviewQueuedAt || this.verdictFor(entry.fp)) return {};
+    const reason = this.reviewReason(policy, entry, fcSent.length);
+    if (!reason) return {};
+    entry.reviewQueuedAt = this.clock();
+    return { review: this.reviewFor(entry, reason, policy.trustLevel) };
+  }
+
+  /** Add one sent message to the hour bucket and the month. */
+  private countSend(req: ReserveRequest, n: number, fc: number): void {
+    const isReply = req.kind === 'reply';
     const add = (counts: Counts) => {
       counts.r += n;
       counts.fc += fc;
       counts.nt += isReply ? 0 : 1;
       counts.rp += isReply ? n : 0;
     };
+    const bucket = this.hours.get(this.hour) ?? emptyBucket();
     add(bucket.ws);
     const senderCounts = bucket.senders[req.sender] ?? emptyCounts();
     add(senderCounts);
@@ -644,56 +685,51 @@ export class LedgerCore {
     const mk = monthKey(this.clock());
     this.months.set(mk, (this.months.get(mk) ?? 0) + n);
     this.dirty.add(`m:${mk}`);
+  }
 
-    if (!req.template || isReply) return {};
+  /** Today's entry for this template (a near-duplicate counts), updated with this send. */
+  private trackTemplate(
+    req: ReserveRequest,
+    template: NonNullable<ReserveRequest['template']>,
+    sent: string[],
+    fcSent: string[],
+  ): TemplateEntry {
     const entries = this.templates.get(this.day) ?? [];
-    let entry = entries.find((e) => isSameTemplate(e.fp, req.template!.fingerprint));
+    let entry = entries.find((e) => isSameTemplate(e.fp, template.fingerprint));
     if (!entry) {
       entry = {
-        fp: req.template.fingerprint,
+        fp: template.fingerprint,
         firstSeen: this.clock(),
         recipients: [],
         fc: 0,
         sources: [],
         domains: [],
-        subject: req.template.subject.slice(0, 200),
-        sample: req.template.sample,
+        subject: template.subject.slice(0, 200),
+        sample: template.sample,
       };
       entries.push(entry);
     }
     const known = new Set(entry.recipients);
-    for (const r of sent) {
-      if (entry.recipients.length >= MAX_TEMPLATE_RECIPIENTS) break;
-      const h = shortHash(r);
-      if (!known.has(h)) {
-        known.add(h);
-        entry.recipients.push(h);
-      }
-    }
-    entry.fc += fc;
+    const fresh = sent.map(shortHash).filter((h) => !known.has(h));
+    entry.recipients.push(...[...new Set(fresh)].slice(0, Math.max(0, MAX_TEMPLATE_RECIPIENTS - entry.recipients.length)));
+    entry.fc += fcSent.length;
     if (!entry.sources.includes(req.source)) entry.sources.push(req.source);
-    for (const r of fcSent) {
-      const d = domainOf(r);
-      if (entry.domains.length < MAX_TEMPLATE_DOMAINS && !entry.domains.includes(d)) entry.domains.push(d);
-    }
+    const newDomains = fcSent.map(domainOf).filter((d) => !entry.domains.includes(d));
+    entry.domains.push(...[...new Set(newDomains)].slice(0, Math.max(0, MAX_TEMPLATE_DOMAINS - entry.domains.length)));
     this.templates.set(this.day, entries);
     this.dirty.add(`t:${this.day}`);
+    return entry;
+  }
 
-    if (entry.reviewQueuedAt || this.verdictFor(entry.fp)) return {};
-    let reason: ReviewRequest['reason'] | null = null;
-    if (entry.fc >= OUTBOUND_THRESHOLDS.reviewFirstContactRecipients) {
-      reason = 'template_threshold';
-    } else if (policy.trustLevel === 'new' && fc > 0) {
-      const samples = this.reviewSamples.get(this.day) ?? 0;
-      if (samples < OUTBOUND_THRESHOLDS.newWorkspaceReviewSamplesPerDay) {
-        this.reviewSamples.set(this.day, samples + 1);
-        this.dirty.add(`rs:${this.day}`);
-        reason = 'new_workspace_sample';
-      }
-    }
-    if (!reason) return {};
-    entry.reviewQueuedAt = this.clock();
-    return { review: this.reviewFor(entry, reason, policy.trustLevel) };
+  /** Why this template should be reviewed now, or null. Uses up a daily sample for a new workspace. */
+  private reviewReason(policy: LedgerPolicy, entry: TemplateEntry, fc: number): ReviewRequest['reason'] | null {
+    if (entry.fc >= OUTBOUND_THRESHOLDS.reviewFirstContactRecipients) return 'template_threshold';
+    if (policy.trustLevel !== 'new' || fc === 0) return null;
+    const samples = this.reviewSamples.get(this.day) ?? 0;
+    if (samples >= OUTBOUND_THRESHOLDS.newWorkspaceReviewSamplesPerDay) return null;
+    this.reviewSamples.set(this.day, samples + 1);
+    this.dirty.add(`rs:${this.day}`);
+    return 'new_workspace_sample';
   }
 
   private reviewFor(entry: TemplateEntry, reason: ReviewRequest['reason'], trustLevel: OutboundTrustLevel): ReviewRequest {
@@ -879,7 +915,6 @@ export class LedgerCore {
    */
   evaluate(policy: LedgerPolicy): { risk: RiskResult; actions: AutomaticAction[]; review: ReviewRequest | null } {
     const risk = this.risk(policy);
-    const actions: AutomaticAction[] = [];
     const deliveries = this.deliveries7d();
     const recipients7d = this.sum(24 * 7, (b) => b.ws.r);
     const details = {
@@ -890,84 +925,88 @@ export class LedgerCore {
       recipientsDay: this.sum(24, (b) => b.ws.r),
       firstContactDay: this.sum(24, (b) => b.ws.fc),
     };
+    const canTighten = this.tightenRule(policy);
+    const top = this.topTemplate();
+    const actions = [
+      this.phishingAction(details, canTighten),
+      this.bounceAction(risk, details, canTighten),
+      this.complaintAction(deliveries.complaints, recipients7d, details, canTighten),
+      this.riskScoreAction(risk, details, canTighten, top),
+    ].filter((action): action is AutomaticAction => action !== null);
+    return { risk, actions, review: this.greyZoneReview(policy, risk, top) };
+  }
 
+  /** Only tighten, and leave a state staff set in the last 7 days alone (phishing aside). */
+  private tightenRule(policy: LedgerPolicy): (to: OutboundState, trigger: OutboundCaseTrigger) => boolean {
     const staffRecently =
       policy.stateSetBy !== null &&
       policy.stateSetBy !== 'system' &&
       policy.stateSetAt !== null &&
       this.clock() - Date.parse(policy.stateSetAt) < STAFF_COOLDOWN_MS;
-    const canTighten = (to: OutboundState, trigger: OutboundCaseTrigger) =>
-      STATE_ORDER[to] > STATE_ORDER[policy.state] && (!staffRecently || trigger === 'phishing');
+    return (to, trigger) => STATE_ORDER[to] > STATE_ORDER[policy.state] && (!staffRecently || trigger === 'phishing');
+  }
 
-    const entries = this.templates.get(this.day) ?? [];
-    const phishing = entries.find((e) => isPhishingVerdict(this.verdictFor(e.fp)));
-    if (phishing && canTighten('hold', 'phishing')) {
-      actions.push({
-        kind: 'state',
-        toState: 'hold',
-        trigger: 'phishing',
-        severity: 'urgent',
-        reason: 'A template was classified as phishing or a scam.',
-        details,
-        template: this.summarize(phishing),
-      });
+  private phishingAction(details: ActionDetails, canTighten: TightenRule): AutomaticAction | null {
+    const phishing = (this.templates.get(this.day) ?? []).find((e) => isPhishingVerdict(this.verdictFor(e.fp)));
+    if (!phishing || !canTighten('hold', 'phishing')) return null;
+    return {
+      kind: 'state',
+      toState: 'hold',
+      trigger: 'phishing',
+      severity: 'urgent',
+      reason: 'A template was classified as phishing or a scam.',
+      details,
+      template: this.summarize(phishing),
+    };
+  }
+
+  private bounceAction(risk: RiskResult, details: ActionDetails, canTighten: TightenRule): AutomaticAction | null {
+    if (risk.hardBounceRate7d === null || risk.hardBounceRate7d <= OUTBOUND_THRESHOLDS.hardBounceRate) return null;
+    const reason = `Hard bounces at ${(risk.hardBounceRate7d * 100).toFixed(1)}% over 7 days.`;
+    return restrictOrCase('bounce_rate', reason, details, canTighten);
+  }
+
+  private complaintAction(
+    complaints: number,
+    recipients7d: number,
+    details: ActionDetails,
+    canTighten: TightenRule,
+  ): AutomaticAction | null {
+    const rate = recipients7d > 0 ? complaints / recipients7d : 0;
+    const tooMany =
+      complaints >= OUTBOUND_THRESHOLDS.complaints7d || (complaints > 0 && rate > OUTBOUND_THRESHOLDS.complaintRate);
+    if (!tooMany) return null;
+    return restrictOrCase('complaints', `${complaints} spam complaint(s) in 7 days.`, details, canTighten);
+  }
+
+  private riskScoreAction(
+    risk: RiskResult,
+    details: ActionDetails,
+    canTighten: TightenRule,
+    top: TemplateEntry | null,
+  ): AutomaticAction | null {
+    const hold = risk.score >= OUTBOUND_THRESHOLDS.riskHold && canTighten('hold', 'risk_score');
+    const restrict = !hold && risk.score >= OUTBOUND_THRESHOLDS.riskRestricted && canTighten('restricted', 'risk_score');
+    if (!hold && !restrict) return null;
+    return {
+      kind: 'state',
+      toState: hold ? 'hold' : 'restricted',
+      trigger: 'risk_score',
+      severity: hold ? 'urgent' : 'warning',
+      reason: `Risk score ${risk.score}: ${risk.reasons.join(', ')}.`,
+      details,
+      template: top ? this.summarize(top) : undefined,
+    };
+  }
+
+  /** In the grey zone, have the AI look at today's biggest template once. */
+  private greyZoneReview(policy: LedgerPolicy, risk: RiskResult, top: TemplateEntry | null): ReviewRequest | null {
+    if (risk.score < OUTBOUND_THRESHOLDS.riskReviewMin || !top || top.reviewQueuedAt || this.verdictFor(top.fp)) {
+      return null;
     }
-
-    if (risk.hardBounceRate7d !== null && risk.hardBounceRate7d > OUTBOUND_THRESHOLDS.hardBounceRate) {
-      const reason = `Hard bounces at ${(risk.hardBounceRate7d * 100).toFixed(1)}% over 7 days.`;
-      actions.push(
-        canTighten('restricted', 'bounce_rate')
-          ? { kind: 'state', toState: 'restricted', trigger: 'bounce_rate', severity: 'warning', reason, details }
-          : { kind: 'case', trigger: 'bounce_rate', severity: 'warning', reason, details },
-      );
-    }
-
-    const complaintRate = recipients7d > 0 ? deliveries.complaints / recipients7d : 0;
-    if (deliveries.complaints >= OUTBOUND_THRESHOLDS.complaints7d || (deliveries.complaints > 0 && complaintRate > OUTBOUND_THRESHOLDS.complaintRate)) {
-      const reason = `${deliveries.complaints} spam complaint(s) in 7 days.`;
-      actions.push(
-        canTighten('restricted', 'complaints')
-          ? { kind: 'state', toState: 'restricted', trigger: 'complaints', severity: 'warning', reason, details }
-          : { kind: 'case', trigger: 'complaints', severity: 'warning', reason, details },
-      );
-    }
-
-    const top = this.topTemplate();
-    if (risk.score >= OUTBOUND_THRESHOLDS.riskHold && canTighten('hold', 'risk_score')) {
-      actions.push({
-        kind: 'state',
-        toState: 'hold',
-        trigger: 'risk_score',
-        severity: 'urgent',
-        reason: `Risk score ${risk.score}: ${risk.reasons.join(', ')}.`,
-        details,
-        template: top ? this.summarize(top) : undefined,
-      });
-    } else if (risk.score >= OUTBOUND_THRESHOLDS.riskRestricted && canTighten('restricted', 'risk_score')) {
-      actions.push({
-        kind: 'state',
-        toState: 'restricted',
-        trigger: 'risk_score',
-        severity: 'warning',
-        reason: `Risk score ${risk.score}: ${risk.reasons.join(', ')}.`,
-        details,
-        template: top ? this.summarize(top) : undefined,
-      });
-    }
-
-    let review: ReviewRequest | null = null;
-    if (
-      risk.score >= OUTBOUND_THRESHOLDS.riskReviewMin &&
-      top &&
-      !top.reviewQueuedAt &&
-      !this.verdictFor(top.fp)
-    ) {
-      top.reviewQueuedAt = this.clock();
-      this.dirty.add(`t:${this.day}`);
-      review = this.reviewFor(top, 'risk_grey_zone', policy.trustLevel);
-    }
-
-    return { risk, actions, review };
+    top.reviewQueuedAt = this.clock();
+    this.dirty.add(`t:${this.day}`);
+    return this.reviewFor(top, 'risk_grey_zone', policy.trustLevel);
   }
 
   /** Anything sent or delivered in the last 48 hours (keeps the alarm running). */
@@ -988,46 +1027,25 @@ export class LedgerCore {
   /** Drop buckets and verdicts past their retention. Returns the deleted keys. */
   prune(): string[] {
     const deleted: string[] = [];
+    const drop = <K extends string | number>(map: Map<K, unknown>, prefix: string, isOld: (key: K) => boolean) => {
+      for (const key of [...map.keys()]) {
+        if (!isOld(key)) continue;
+        map.delete(key);
+        deleted.push(`${prefix}:${key}`);
+      }
+    };
     const oldestHour = this.hour - KEEP_HOURS;
-    for (const h of [...this.hours.keys()]) {
-      if (h < oldestHour) {
-        this.hours.delete(h);
-        deleted.push(`h:${h}`);
-      }
-    }
-    for (const h of [...this.deliveries.keys()]) {
-      if (h < oldestHour) {
-        this.deliveries.delete(h);
-        deleted.push(`d:${h}`);
-      }
-    }
-    for (const d of [...this.templates.keys()]) {
-      if (d < this.day - 1) {
-        this.templates.delete(d);
-        deleted.push(`t:${d}`);
-      }
-    }
-    for (const map of [this.reviewSamples, this.shadow]) {
-      for (const d of [...map.keys()]) {
-        if (d < this.day - 8) {
-          map.delete(d);
-          deleted.push(`${map === this.shadow ? 'sh' : 'rs'}:${d}`);
-        }
-      }
-    }
-    for (const [fp, verdict] of [...this.verdicts]) {
-      if (this.clock() - Date.parse(verdict.reviewedAt) > KEEP_VERDICT_MS) {
-        this.verdicts.delete(fp);
-        deleted.push(`v:${fp}`);
-      }
-    }
+    drop(this.hours, 'h', (h) => h < oldestHour);
+    drop(this.deliveries, 'd', (h) => h < oldestHour);
+    drop(this.templates, 't', (d) => d < this.day - 1);
+    drop(this.reviewSamples, 'rs', (d) => d < this.day - 8);
+    drop(this.shadow, 'sh', (d) => d < this.day - 8);
+    drop(this.verdicts, 'v', (fp) => {
+      const verdict = this.verdicts.get(fp);
+      return !!verdict && this.clock() - Date.parse(verdict.reviewedAt) > KEEP_VERDICT_MS;
+    });
     const keepMonths = new Set([monthKey(this.clock()), monthKey(this.clock() - 31 * DAY)]);
-    for (const mk of [...this.months.keys()]) {
-      if (!keepMonths.has(mk)) {
-        this.months.delete(mk);
-        deleted.push(`m:${mk}`);
-      }
-    }
+    drop(this.months, 'm', (mk) => !keepMonths.has(mk));
     return deleted;
   }
 

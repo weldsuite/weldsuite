@@ -816,6 +816,14 @@ async function finalizeSequence(
   }
 }
 
+/** How a run ended before it got through its steps; `run()` returns it as its result. */
+type RunEnd =
+  | { executionId: string; status: 'stopped'; reason: string }
+  | { executionId: string; status: 'failed'; error: string };
+
+/** The pause/unenroll gate as `run()` checks it, by label. */
+type CheckGate = (label: string) => Promise<RunGate>;
+
 /**
  * Ends a run whose enrollment was unenrolled (or whose sequence stopped) while
  * it was in flight. Closes the execution record as cancelled and leaves the
@@ -828,7 +836,7 @@ async function stopRun(
   reason: string,
   step: WorkflowStep,
   waitingStepExecutionId?: string,
-) {
+): Promise<RunEnd> {
   await step.do('stop-run', async () => {
     const db = await getTenantDbForWorkspace(env, params.workspaceId);
     const now = new Date();
@@ -843,6 +851,91 @@ async function stopRun(
     }
   });
   return { executionId, status: 'stopped', reason };
+}
+
+/** Ends a run on a failed step: publishes the failure and updates the sequence stats. */
+async function failRun(
+  ctx: SequenceRunContext,
+  step: WorkflowStep,
+  outcome: Extract<StepOutcome, { type: 'failed' }>,
+): Promise<RunEnd> {
+  const { env, params, rt, executionId } = ctx;
+  await publishExecutionEvent(rt, params.workspaceId, executionId, 'failed', {
+    executionId, error: outcome.error, failedStepId: outcome.stepId,
+  });
+  // Update stats
+  await step.do('update-stats-failed', async () => {
+    const db = await getTenantDbForWorkspace(env, params.workspaceId);
+    await updateSequenceStats(db, params.sequenceId);
+  });
+  return { executionId, status: 'failed', error: outcome.error };
+}
+
+/**
+ * Runs step `i`. A send the outbound guard held back on a limit with a known
+ * end sleeps (durable, no compute) until it clears and runs the step again.
+ * The wait comes from the stored outcome, so a replay sleeps the same way.
+ * Returns the step's final outcome, or how the run ended when the gate
+ * stopped it during a wait.
+ */
+async function runStepWithSendWaits(
+  ctx: SequenceRunContext,
+  step: WorkflowStep,
+  checkGate: CheckGate,
+  wfStep: WorkflowStepDef,
+  i: number,
+): Promise<{ outcome: StepOutcome } | { end: RunEnd }> {
+  let outcome = await step.do(`step-${i}-${wfStep.id}`, () => runSequenceStep(ctx, wfStep, i));
+
+  let attempt = 0;
+  let waitedMs = 0;
+  while (outcome.type === 'send_deferred') {
+    attempt++;
+    waitedMs += outcome.waitMs;
+    await step.sleep(`send-wait-${i}-${attempt}`, outcome.waitMs);
+    const waitGate = await checkGate(`send-${i}-${attempt}`);
+    if (waitGate.state === 'stop') {
+      const { env, params, executionId } = ctx;
+      return { end: await stopRun(env, params, executionId, waitGate.reason, step, outcome.stepExecutionId) };
+    }
+    const retry: SendRetry = { stepExecutionId: outcome.stepExecutionId, attempts: attempt, waitedMs };
+    outcome = await step.do(`step-${i}-${wfStep.id}-send-${attempt}`, () => runSequenceStep(ctx, wfStep, i, retry));
+  }
+  return { outcome };
+}
+
+/**
+ * Step 4: runs the sequence's steps in order, checking the pause/unenroll gate
+ * between them. Returns how the run ended when it stopped or a step failed,
+ * `null` once every step ran.
+ */
+async function runSteps(
+  ctx: SequenceRunContext,
+  step: WorkflowStep,
+  checkGate: CheckGate,
+): Promise<RunEnd | null> {
+  const { env, params, executionId, steps, stepResults } = ctx;
+  for (let i = 0; i < steps.length; i++) {
+    const wfStep = steps[i];
+
+    if (i > 0) {
+      const gate = await checkGate(`step-${i}`);
+      if (gate.state === 'stop') return stopRun(env, params, executionId, gate.reason, step);
+    }
+
+    const ran = await runStepWithSendWaits(ctx, step, checkGate, wfStep, i);
+    if ('end' in ran) return ran.end;
+
+    // Handle step outcomes outside step.do()
+    if (ran.outcome.type === 'failed') return failRun(ctx, step, ran.outcome);
+
+    // Handle delay — sleep after step.do() completes (durable, no compute consumed)
+    const delayMs = recordStepOutcome(stepResults, ran.outcome);
+    if (delayMs > 0) {
+      await step.sleep(`delay-${i}`, delayMs);
+    }
+  }
+  return null;
 }
 
 export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceEnv, ExecuteSequenceParams> {
@@ -909,50 +1002,8 @@ export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceE
     const executionStartTime = Date.now();
 
     // Step 4: Execute each step
-    for (let i = 0; i < steps.length; i++) {
-      const wfStep = steps[i];
-
-      if (i > 0) {
-        const gate = await checkGate(`step-${i}`);
-        if (gate.state === 'stop') return stopRun(this.env, params, executionId, gate.reason, step);
-      }
-
-      let stepOutcome = await step.do(`step-${i}-${wfStep.id}`, () => runSequenceStep(ctx, wfStep, i));
-
-      // A send the outbound guard held back on a limit with a known end: sleep
-      // (durable, no compute) until it clears and run the step again. The wait
-      // comes from the stored outcome, so a replay sleeps the same way.
-      let waitedMs = 0;
-      for (let attempt = 1; stepOutcome.type === 'send_deferred'; attempt++) {
-        waitedMs += stepOutcome.waitMs;
-        await step.sleep(`send-wait-${i}-${attempt}`, stepOutcome.waitMs);
-        const waitGate = await checkGate(`send-${i}-${attempt}`);
-        if (waitGate.state === 'stop') {
-          return stopRun(this.env, params, executionId, waitGate.reason, step, stepOutcome.stepExecutionId);
-        }
-        const retry: SendRetry = { stepExecutionId: stepOutcome.stepExecutionId, attempts: attempt, waitedMs };
-        stepOutcome = await step.do(`step-${i}-${wfStep.id}-send-${attempt}`, () => runSequenceStep(ctx, wfStep, i, retry));
-      }
-
-      // Handle step outcomes outside step.do()
-      if (stepOutcome.type === 'failed') {
-        await publishExecutionEvent(rt, params.workspaceId, executionId, 'failed', {
-          executionId, error: stepOutcome.error, failedStepId: stepOutcome.stepId,
-        });
-        // Update stats
-        await step.do('update-stats-failed', async () => {
-          const db = await getTenantDbForWorkspace(this.env, params.workspaceId);
-          await updateSequenceStats(db, params.sequenceId);
-        });
-        return { executionId, status: 'failed', error: stepOutcome.error };
-      }
-
-      // Handle delay — sleep after step.do() completes (durable, no compute consumed)
-      const delayMs = recordStepOutcome(stepResults, stepOutcome);
-      if (delayMs > 0) {
-        await step.sleep(`delay-${i}`, delayMs);
-      }
-    }
+    const ended = await runSteps(ctx, step, checkGate);
+    if (ended) return ended;
 
     // The last step may be a delay: do not complete a run that was paused or
     // unenrolled while it slept.

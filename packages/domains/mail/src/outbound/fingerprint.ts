@@ -47,19 +47,27 @@ export interface NormalizeInput {
   personalTokens?: string[];
 }
 
-const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
-const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"')]+/gi;
-const NUMBER_RE = /\d+(?:[.,:/-]\d+)*/g;
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** One whitespace-separated word, with an address, link or number replaced by a token. */
+function tokenizeWord(word: string): string {
+  if (word.includes('://') || word.startsWith('www.')) return 'tokurl';
+  const at = word.indexOf('@');
+  if (at > 0 && word.indexOf('.', at) > at + 1) return 'tokemail';
+  if (/^[\d.,:/-]+$/.test(word) && /\d/.test(word)) return 'toknum';
+  return word.replace(/\d+/g, ' toknum ');
 }
 
 /** Lower-cased, tokenised text with merge fields replaced. Deterministic. */
 export function normalizeForFingerprint(input: NormalizeInput): string {
   const subject = (input.subject ?? '').replace(/^\s*((re|fw|fwd|aw|wg|antw)\s*:\s*)+/i, '');
-  let text = `${subject}\n${stripQuotedAndSignature(input.text)}`.toLowerCase();
-  text = text.replace(EMAIL_RE, ' tokemail ').replace(URL_RE, ' tokurl ').replace(NUMBER_RE, ' toknum ');
+  let text = `${subject}\n${stripQuotedAndSignature(input.text)}`
+    .toLowerCase()
+    .split(/\s+/)
+    .map(tokenizeWord)
+    .join(' ');
   for (const raw of input.personalTokens ?? []) {
     const token = raw.trim().toLowerCase();
     if (token.length < 2) continue;
@@ -88,31 +96,38 @@ function fnv1a32(value: string, seed: number): number {
   return hash >>> 0;
 }
 
+/** Word 3-shingles; a text of fewer than three words is one shingle. */
+function shinglesOf(words: string[]): string[] {
+  if (words.length < 3) return words.length > 0 ? [words.join(' ')] : [];
+  const shingles: string[] = [];
+  for (let i = 0; i + 2 < words.length; i++) shingles.push(`${words[i]} ${words[i + 1]} ${words[i + 2]}`);
+  return shingles;
+}
+
+/** Add one 32-bit hash to 32 of the SimHash weights, from `offset`. */
+function addVotes(weights: number[], hash: number, offset: number): void {
+  for (let bit = 0; bit < 32; bit++) {
+    weights[offset + bit] = (weights[offset + bit] ?? 0) + ((hash >>> bit) & 1 ? 1 : -1);
+  }
+}
+
+/** The 32 bits whose weights from `offset` are positive, as 8 hex characters. */
+function bitsToHex(weights: number[], offset: number): string {
+  let value = 0;
+  for (let bit = 0; bit < 32; bit++) {
+    if ((weights[offset + bit] ?? 0) > 0) value |= 1 << bit;
+  }
+  return (value >>> 0).toString(16).padStart(8, '0');
+}
+
 /** 64-bit SimHash of word 3-shingles, as 16 lower-case hex characters. */
 export function simhash64(normalized: string): string {
-  const words = normalized.split(' ').filter(Boolean);
-  const shingles: string[] = [];
-  if (words.length < 3) {
-    if (words.length > 0) shingles.push(words.join(' '));
-  } else {
-    for (let i = 0; i + 2 < words.length; i++) shingles.push(`${words[i]} ${words[i + 1]} ${words[i + 2]}`);
-  }
   const weights = new Array<number>(64).fill(0);
-  for (const shingle of shingles) {
-    const hi = fnv1a32(shingle, 0x9e3779b9);
-    const lo = fnv1a32(shingle, 0x7f4a7c15);
-    for (let bit = 0; bit < 32; bit++) {
-      weights[bit] = (weights[bit] ?? 0) + ((hi >>> bit) & 1 ? 1 : -1);
-      weights[bit + 32] = (weights[bit + 32] ?? 0) + ((lo >>> bit) & 1 ? 1 : -1);
-    }
+  for (const shingle of shinglesOf(normalized.split(' ').filter(Boolean))) {
+    addVotes(weights, fnv1a32(shingle, 0x9e3779b9), 0);
+    addVotes(weights, fnv1a32(shingle, 0x7f4a7c15), 32);
   }
-  let hi = 0;
-  let lo = 0;
-  for (let bit = 0; bit < 32; bit++) {
-    if (weights[bit]! > 0) hi |= 1 << bit;
-    if (weights[bit + 32]! > 0) lo |= 1 << bit;
-  }
-  return (hi >>> 0).toString(16).padStart(8, '0') + (lo >>> 0).toString(16).padStart(8, '0');
+  return bitsToHex(weights, 0) + bitsToHex(weights, 32);
 }
 
 function popcount32(value: number): number {
@@ -166,15 +181,19 @@ export function fingerprintTemplate(input: NormalizeInput): TemplateFingerprint 
  * split on dots ("anna.de.vries" → anna, vries), and the company label of the
  * domain ("acme" from anna@acme.co.uk). Generic labels are skipped.
  */
+const GENERIC_LABELS = new Set([
+  'info', 'mail', 'contact', 'hello', 'sales', 'support', 'admin', 'office', 'team',
+  'gmail', 'outlook', 'hotmail', 'yahoo', 'icloud', 'live',
+]);
+
+/** Name-like parts of one address: local-part pieces and the domain's first label. */
+function addressTokens(address: string): string[] {
+  const [local, domain] = address.toLowerCase().split('@');
+  const candidates = [...(local ?? '').split(/[._+-]/), (domain ?? '').split('.')[0] ?? ''];
+  return candidates.filter((part) => part.length >= 3 && !GENERIC_LABELS.has(part));
+}
+
 export function personalTokensFor(recipients: string[], names: string[] = []): string[] {
-  const generic = new Set(['info', 'mail', 'contact', 'hello', 'sales', 'support', 'admin', 'office', 'team', 'gmail', 'outlook', 'hotmail', 'yahoo', 'icloud', 'live']);
-  const tokens = new Set<string>();
-  for (const name of names) for (const part of name.split(/\s+/)) if (part.length >= 2) tokens.add(part);
-  for (const address of recipients) {
-    const [local, domain] = address.toLowerCase().split('@');
-    for (const part of (local ?? '').split(/[._+-]/)) if (part.length >= 3 && !generic.has(part)) tokens.add(part);
-    const label = (domain ?? '').split('.')[0];
-    if (label && label.length >= 3 && !generic.has(label)) tokens.add(label);
-  }
-  return [...tokens];
+  const nameParts = names.flatMap((name) => name.split(/\s+/)).filter((part) => part.length >= 2);
+  return [...new Set([...nameParts, ...recipients.flatMap(addressTokens)])];
 }

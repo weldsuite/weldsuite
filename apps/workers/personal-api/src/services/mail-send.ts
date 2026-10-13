@@ -361,6 +361,79 @@ async function bumpSentToday(
 }
 
 /**
+ * Transmit through the outbound guard: it checks the send and reserves its
+ * recipients, then counts them once `deliver` returns (or releases them when
+ * nothing went out). A refusal becomes a `PersonalMailSendError` with the
+ * guard's code.
+ */
+async function guardedDeliver(
+  env: Env,
+  db: PersonalDatabase,
+  account: PersonalMailAccountRow,
+  subject: CheckOutboundInput['subject'],
+  input: SendComposeInput,
+  htmlBody: string | undefined,
+): Promise<{ providerMessageId: string; pendingVerification: boolean }> {
+  const fromHeader = account.displayName
+    ? `"${account.displayName}" <${account.email}>`
+    : account.email;
+
+  try {
+    return await guardedSend(
+      env,
+      null,
+      {
+        subject,
+        source: input.outbound?.source ?? 'personal',
+        kind: input.outbound?.kind ?? (await outboundKindOf(db, account.id, input)),
+        from: account.email,
+        to: input.to,
+        cc: input.cc,
+        bcc: input.bcc,
+        subjectLine: input.subject,
+        text: input.textBody ?? plainTextOf(htmlBody),
+        html: htmlBody,
+      },
+      () => deliver(env, fromHeader, input, htmlBody),
+    );
+  } catch (err) {
+    if (err instanceof OutboundDeniedError) {
+      throw new PersonalMailSendError(err.code, err.message, err.details);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Store the SENT copy and bump the account's display counter. When a
+ * concurrent send with the same idempotency key won the unique-index race,
+ * returns the row that won instead.
+ */
+async function storeSentCopy(
+  db: PersonalDatabase,
+  account: PersonalMailAccountRow,
+  idempotencyKey: string | undefined,
+  values: typeof personalMailMessages.$inferInsert,
+  now: Date,
+): Promise<PersonalMailMessageRow> {
+  let created: PersonalMailMessageRow;
+  try {
+    const [row] = await db.insert(personalMailMessages).values(values).returning();
+    created = row!;
+  } catch (insertErr) {
+    // A concurrent send with the same key won the unique-index race. The
+    // delivery already happened, so return the row that won rather than
+    // recording a duplicate.
+    const prior = idempotencyKey ? await findByIdempotencyKey(db, account.id, idempotencyKey) : null;
+    if (prior) return prior;
+    throw insertErr;
+  }
+
+  await bumpSentToday(db, account, now);
+  return created;
+}
+
+/**
  * Send a composed message and persist the SENT copy.
  *
  * Throws `PersonalMailSendError` for every expected failure so route handlers
@@ -400,38 +473,14 @@ export async function sendAndPersist(
   // back out and then re-rendered in the sender's own Sent view.
   const htmlBody = sanitizeEmailHtml(input.htmlBody) || undefined;
 
-  const fromHeader = account.displayName
-    ? `"${account.displayName}" <${account.email}>`
-    : account.email;
-
-  // The outbound guard checks the send and reserves its recipients, then
-  // counts them once `deliver` returns (or releases them when nothing went out).
-  let delivered: { providerMessageId: string; pendingVerification: boolean };
-  try {
-    delivered = await guardedSend(
-      env,
-      null,
-      {
-        subject: { kind: 'personal', personalAccountId, plan: entitlements.plan },
-        source: input.outbound?.source ?? 'personal',
-        kind: input.outbound?.kind ?? (await outboundKindOf(db, account.id, input)),
-        from: account.email,
-        to: input.to,
-        cc: input.cc,
-        bcc: input.bcc,
-        subjectLine: input.subject,
-        text: input.textBody ?? plainTextOf(htmlBody),
-        html: htmlBody,
-      },
-      () => deliver(env, fromHeader, input, htmlBody),
-    );
-  } catch (err) {
-    if (err instanceof OutboundDeniedError) {
-      throw new PersonalMailSendError(err.code, err.message, err.details);
-    }
-    throw err;
-  }
-  const { providerMessageId, pendingVerification } = delivered;
+  const { providerMessageId, pendingVerification } = await guardedDeliver(
+    env,
+    db,
+    account,
+    { kind: 'personal', personalAccountId, plan: entitlements.plan },
+    input,
+    htmlBody,
+  );
 
   const id = generateId('msg');
   const now = new Date();
@@ -479,24 +528,8 @@ export async function sendAndPersist(
     updatedAt: now,
   };
 
-  let created: PersonalMailMessageRow;
-  try {
-    const [row] = await db.insert(personalMailMessages).values(values).returning();
-    created = row!;
-  } catch (insertErr) {
-    // A concurrent send with the same key won the unique-index race. The
-    // delivery above already happened, so return the row that won rather than
-    // recording a duplicate.
-    if (input.idempotencyKey) {
-      const prior = await findByIdempotencyKey(db, account.id, input.idempotencyKey);
-      if (prior) return { message: prior, pendingVerification };
-    }
-    throw insertErr;
-  }
-
-  await bumpSentToday(db, account, now);
-
-  return { message: created, pendingVerification };
+  const message = await storeSentCopy(db, account, input.idempotencyKey, values, now);
+  return { message, pendingVerification };
 }
 
 /** Case-insensitive membership test for address lists. */

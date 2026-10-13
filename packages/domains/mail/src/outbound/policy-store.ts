@@ -15,6 +15,7 @@ import {
   outboundLimitOverridesSchema,
   resolveOutboundLimits,
   type OutboundGuardMode,
+  type OutboundLimits,
   type OutboundState,
   type OutboundTrustLevel,
 } from '@weldsuite/app-api-client/schemas/outbound-mail';
@@ -80,47 +81,11 @@ export async function loadLedgerPolicy(
     db.select().from(outboundMailPolicies).where(policyFilter(subject)).limit(1),
   ]);
   const state: OutboundState = row?.state ?? 'active';
-  const trustOverride =
-    row?.trustOverride && (OUTBOUND_TRUST_LEVELS as readonly string[]).includes(row.trustOverride)
-      ? (row.trustOverride as OutboundTrustLevel)
-      : null;
-
-  let trustLevel: OutboundTrustLevel;
-  let limits;
-  if (subject.kind === 'personal') {
-    trustLevel = trustOverride ?? (subject.plan === 'pro' ? 'standard' : 'new');
-    const parsed = outboundLimitOverridesSchema.safeParse(row?.limits ?? {});
-    limits =
-      state === 'restricted'
-        ? resolveOutboundLimits(trustLevel, state, null)
-        : { ...OUTBOUND_PERSONAL_LIMITS[subject.plan], ...(parsed.success ? parsed.data : {}) };
-  } else {
-    const [workspace] = await db
-      .select({
-        createdAt: workspaces.createdAt,
-        subscriptionStatus: workspaces.subscriptionStatus,
-        compGrantedAt: workspaces.compGrantedAt,
-        billingMode: workspaces.billingMode,
-        planPriceMonthly: plans.priceMonthly,
-      })
-      .from(workspaces)
-      .leftJoin(plans, eq(plans.id, workspaces.planId))
-      .where(eq(workspaces.id, subject.workspaceId))
-      .limit(1);
-    trustLevel = workspace
-      ? computeTrustLevel({
-          createdAt: workspace.createdAt,
-          subscriptionStatus: workspace.subscriptionStatus,
-          planPriceMonthly: workspace.planPriceMonthly === null ? null : Number(workspace.planPriceMonthly),
-          // Comp plans and partner-billed workspaces are paid for, just not by Stripe here.
-          compGranted: !!workspace.compGrantedAt || workspace.billingMode === 'partner',
-          trustOverride,
-          hardBounceRate7d: rates.hardBounceRate7d,
-          complaintRate7d: rates.complaintRate7d,
-        })
-      : (trustOverride ?? 'new');
-    limits = resolveOutboundLimits(trustLevel, state, row?.limits ?? null);
-  }
+  const trustOverride = validTrustLevel(row?.trustOverride);
+  const { trustLevel, limits } =
+    subject.kind === 'personal'
+      ? personalTrustAndLimits(subject.plan, trustOverride, state, row?.limits)
+      : await workspaceTrustAndLimits(db, subject.workspaceId, trustOverride, state, row?.limits, rates);
 
   return {
     mode,
@@ -133,6 +98,59 @@ export async function loadLedgerPolicy(
     limits,
     riskScore: row?.riskScore ?? 0,
   };
+}
+
+function validTrustLevel(value: string | null | undefined): OutboundTrustLevel | null {
+  return value && (OUTBOUND_TRUST_LEVELS as readonly string[]).includes(value) ? (value as OutboundTrustLevel) : null;
+}
+
+type TrustAndLimits = { trustLevel: OutboundTrustLevel; limits: OutboundLimits };
+
+function personalTrustAndLimits(
+  plan: 'free' | 'pro',
+  trustOverride: OutboundTrustLevel | null,
+  state: OutboundState,
+  overrides: Record<string, unknown> | null | undefined,
+): TrustAndLimits {
+  const trustLevel = trustOverride ?? (plan === 'pro' ? 'standard' : 'new');
+  if (state === 'restricted') return { trustLevel, limits: resolveOutboundLimits(trustLevel, state, null) };
+  const parsed = outboundLimitOverridesSchema.safeParse(overrides ?? {});
+  return { trustLevel, limits: { ...OUTBOUND_PERSONAL_LIMITS[plan], ...(parsed.success ? parsed.data : {}) } };
+}
+
+async function workspaceTrustAndLimits(
+  db: MasterDatabase,
+  workspaceId: string,
+  trustOverride: OutboundTrustLevel | null,
+  state: OutboundState,
+  overrides: Record<string, unknown> | null | undefined,
+  rates: DeliveryRates,
+): Promise<TrustAndLimits> {
+  const [workspace] = await db
+    .select({
+      createdAt: workspaces.createdAt,
+      subscriptionStatus: workspaces.subscriptionStatus,
+      compGrantedAt: workspaces.compGrantedAt,
+      billingMode: workspaces.billingMode,
+      planPriceMonthly: plans.priceMonthly,
+    })
+    .from(workspaces)
+    .leftJoin(plans, eq(plans.id, workspaces.planId))
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1);
+  const trustLevel = workspace
+    ? computeTrustLevel({
+        createdAt: workspace.createdAt,
+        subscriptionStatus: workspace.subscriptionStatus,
+        planPriceMonthly: workspace.planPriceMonthly === null ? null : Number(workspace.planPriceMonthly),
+        // Comp plans and partner-billed workspaces are paid for, just not by Stripe here.
+        compGranted: !!workspace.compGrantedAt || workspace.billingMode === 'partner',
+        trustOverride,
+        hardBounceRate7d: rates.hardBounceRate7d,
+        complaintRate7d: rates.complaintRate7d,
+      })
+    : (trustOverride ?? 'new');
+  return { trustLevel, limits: resolveOutboundLimits(trustLevel, state, overrides ?? null) };
 }
 
 function subjectColumns(subject: LedgerSubject) {
