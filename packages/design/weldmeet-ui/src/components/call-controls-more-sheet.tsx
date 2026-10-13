@@ -1,5 +1,5 @@
 import type { ComponentType, ReactNode } from 'react';
-import { Check, Circle, Image, Info, LayoutGrid, Maximize, Minimize, Pause, PictureInPicture2, Play, Settings, Square } from 'lucide-react';
+import { Check, Circle, Hand, Image, Info, LayoutGrid, Maximize, Minimize, MonitorUp, MonitorX, Pause, PictureInPicture2, Play, Settings, Square } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@weldsuite/ui/components/drawer';
 import type { RecordingState, ViewMode } from '../types';
@@ -22,6 +22,12 @@ export interface CallControlsMoreSheetProps {
 
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
+
+  /** Share screen and raise hand live here on phones: the control bar keeps
+   *  only mic, camera, More and leave. Omit one to leave it out; `disabled`
+   *  shows it without letting it be used (the guest waiting room). */
+  screenShare?: { active: boolean; onToggle: () => void; disabled?: boolean };
+  handRaise?: { raised: boolean; onToggle: () => void; disabled?: boolean };
 
   onOpenInfo?: () => void;
   onOpenTools?: () => void;
@@ -53,20 +59,23 @@ function SheetTile({
   icon: Icon,
   label,
   selected,
+  disabled,
   onClick,
 }: Readonly<{
   icon: ComponentType<{ className?: string }>;
   label: string;
   selected?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }>) {
   return (
     <button
       type="button"
       aria-pressed={selected}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
-        'flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-xl bg-secondary px-2 py-3 text-center text-xs font-medium leading-tight transition-colors active:bg-secondary/70',
+        'flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-xl bg-secondary px-2 py-3 text-center text-xs font-medium leading-tight transition-colors active:bg-secondary/70 disabled:opacity-50',
         selected && 'ring-2 ring-primary',
       )}
     >
@@ -109,6 +118,8 @@ export function CallControlsMoreSheet({
   runAfterClose,
   viewMode,
   setViewMode,
+  screenShare,
+  handRaise,
   onOpenInfo,
   onOpenTools,
   onToggleEffects,
@@ -136,6 +147,32 @@ export function CallControlsMoreSheet({
         </DrawerHeader>
         <div className="overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <div className="grid grid-cols-3 gap-2 pt-4">
+            {/* Run in the tap itself, not after the close animation: browsers
+                only open the screen picker straight from a user gesture. */}
+            {screenShare && (
+              <SheetTile
+                icon={screenShare.active ? MonitorX : MonitorUp}
+                label={screenShare.active ? 'Stop sharing screen' : 'Share screen'}
+                selected={screenShare.active}
+                disabled={screenShare.disabled}
+                onClick={() => {
+                  onOpenChange(false);
+                  screenShare.onToggle();
+                }}
+              />
+            )}
+            {handRaise && (
+              <SheetTile
+                icon={Hand}
+                label={handRaise.raised ? 'Lower hand' : 'Raise hand'}
+                selected={handRaise.raised}
+                disabled={handRaise.disabled}
+                onClick={() => {
+                  onOpenChange(false);
+                  handRaise.onToggle();
+                }}
+              />
+            )}
             {onOpenInfo && (
               <SheetTile icon={Info} label="Meeting details" onClick={() => runAfterClose(onOpenInfo)} />
             )}

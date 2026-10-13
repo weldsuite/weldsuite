@@ -3,8 +3,9 @@
  *
  * Below 768px the header keeps only People and Chat, and the control bar's
  * "More options" becomes a bottom sheet that also carries what no longer fits
- * elsewhere: meeting details, meeting tools and the device pickers. Browsers
- * that cannot capture a screen (phones) get no share button at all.
+ * elsewhere: share screen, raise hand, meeting details, meeting tools and the
+ * device pickers. Browsers that cannot capture a screen (phones) get no share
+ * option at all.
  *
  * These specs mount without Tailwind, so they assert what is rendered, not how
  * it is laid out.
@@ -43,7 +44,6 @@ function header(extra: Partial<React.ComponentProps<typeof MeetingHeader>> = {})
   return (
     <MeetingHeader
       meetingTitle="Standup"
-      duration={0}
       rightPanel={null}
       showChat={false}
       onToggleRightPanel={noop}
@@ -108,19 +108,45 @@ test.describe('phone viewport', () => {
     await expect.poll(() => modes).toEqual(['speaker']);
   });
 
-  test('the share button is there when the browser can capture a screen', async ({ mount }) => {
-    const comp = await mount(bar());
-    await expect(comp.getByRole('button', { name: 'Share screen' })).toBeVisible();
+  test('share screen and raise hand sit in the sheet, not on the bar', async ({ mount, page }) => {
+    let raised = 0;
+    const comp = await mount(bar({ toggleHandRaise: () => { raised += 1; } }));
+    await expect(comp.getByRole('button', { name: 'Turn off microphone' })).toBeVisible();
+    await expect(comp.getByRole('button', { name: 'Share screen' })).toHaveCount(0);
+    await expect(comp.getByRole('button', { name: 'Raise hand' })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'More options' }).click();
+    const sheet = page.getByRole('dialog', { name: 'More options' });
+    await expect(sheet.getByRole('button', { name: 'Share screen' })).toBeVisible();
+    await sheet.getByRole('button', { name: 'Raise hand' }).click();
+    await expect.poll(() => raised).toBe(1);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
-  test('no share button where the browser cannot capture a screen', async ({ mount, page }) => {
+  test('a raised hand reads as "Lower hand" in the sheet', async ({ mount, page }) => {
+    await mount(bar({ handRaised: true }));
+    await page.getByRole('button', { name: 'More options' }).click();
+    const sheet = page.getByRole('dialog', { name: 'More options' });
+    await expect(sheet.getByRole('button', { name: 'Lower hand' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('no share option where the browser cannot capture a screen', async ({ mount, page }) => {
     await page.evaluate(() => {
       Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { value: undefined, configurable: true });
     });
-    const comp = await mount(bar());
-    await expect(comp.getByRole('button', { name: 'Turn off microphone' })).toBeVisible();
-    await expect(comp.getByRole('button', { name: 'Raise hand' })).toBeVisible();
-    await expect(comp.getByRole('button', { name: 'Share screen' })).toHaveCount(0);
+    await mount(bar());
+    await page.getByRole('button', { name: 'More options' }).click();
+    const sheet = page.getByRole('dialog', { name: 'More options' });
+    await expect(sheet.getByRole('button', { name: 'Raise hand' })).toBeVisible();
+    await expect(sheet.getByRole('button', { name: 'Share screen' })).toHaveCount(0);
+  });
+
+  test('controls that are not usable yet are shown disabled in the sheet', async ({ mount, page }) => {
+    await mount(bar({ disabledControls: { screenShare: 'Not yet', handRaise: 'Not yet' } }));
+    await page.getByRole('button', { name: 'More options' }).click();
+    const sheet = page.getByRole('dialog', { name: 'More options' });
+    await expect(sheet.getByRole('button', { name: 'Share screen' })).toBeDisabled();
+    await expect(sheet.getByRole('button', { name: 'Raise hand' })).toBeDisabled();
   });
 
   test('the header keeps People and Chat when the rest moved to the sheet', async ({ mount }) => {

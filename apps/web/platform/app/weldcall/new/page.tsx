@@ -15,14 +15,45 @@ import {
   ChevronRight,
   ClipboardType,
   History,
+  PhoneOff,
 } from 'lucide-react';
 import { useCall } from '@/contexts/call-context';
+import { cn } from '@/lib/utils';
 import { WeldCallGate } from '../components/weldcall-gate';
 import { getTranslations } from '@/lib/i18n';
 
+type NewCallStrings = ReturnType<typeof getTranslations<'weldmeet'>>['weldcall']['newCall'];
+
+/** Under the dial controls while the workspace has no phone number: the dialer can't call out yet. */
+function NoNumberNotice({ tn, onConfigure }: Readonly<{ tn: NewCallStrings; onConfigure: () => void }>) {
+  return (
+    <div
+      data-testid="weldcall-no-number"
+      className="mt-6 mx-6 max-w-md w-[calc(100%-3rem)] rounded-lg border border-border bg-background p-5 text-center"
+    >
+      <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+        <PhoneOff className="h-5 w-5 text-muted-foreground" />
+      </div>
+      <h2 className="text-base font-semibold">{tn.noNumberTitle}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{tn.noNumberDescription}</p>
+      <Button className="mt-4 gap-2 rounded-lg" onClick={onConfigure}>
+        <Phone className="h-4 w-4" />
+        {tn.configureNumber}
+      </Button>
+    </div>
+  );
+}
+
 function NewCallContent() {
   const navigate = useNavigate();
-  const { setIsDialerOpen, setInitialDialerNumber } = useCall();
+  const {
+    setIsDialerOpen,
+    setInitialDialerNumber,
+    phoneNumbers,
+    isDialerOpen,
+    callState,
+    isMinimized,
+  } = useCall();
   const [phoneNumber, setPhoneNumber] = useState('');
   const t = getTranslations('weldmeet');
   const tn = t.weldcall.newCall;
@@ -38,9 +69,20 @@ function NewCallContent() {
     setIsDialerOpen(true);
   };
 
+  const hasNumber = phoneNumbers.length > 0;
+  // The dialer floats over the bottom-right corner (340px + 16px gutters). While
+  // it's expanded, shift the hero out from under it when there's room to.
+  const isDialerShown = isDialerOpen || (!!callState && !isMinimized);
+
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] -mt-[60px]">
+    <div className="flex-1 overflow-auto @container">
+      <div
+        data-testid="weldcall-landing"
+        className={cn(
+          'flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] -mt-[60px] transition-[padding] duration-300 ease-in-out',
+          isDialerShown && '@3xl:pr-[372px]',
+        )}
+      >
         {/* Hero Section */}
         <div className="text-center max-w-2xl mx-auto px-6">
           <h1
@@ -119,6 +161,13 @@ function NewCallContent() {
             </Button>
           </div>
         </div>
+
+        {!hasNumber && (
+          <NoNumberNotice
+            tn={tn}
+            onConfigure={() => navigate({ to: '/settings/apps/phone-numbers' })}
+          />
+        )}
       </div>
     </div>
   );

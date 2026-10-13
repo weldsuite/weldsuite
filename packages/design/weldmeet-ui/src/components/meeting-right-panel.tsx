@@ -6,6 +6,7 @@ import { cn } from '@weldsuite/ui/lib/utils';
 import { PeoplePanel } from './people-panel';
 import { MeetingToolsPanel, toolTitle } from './meeting-tools-panel';
 import { useIsMobile } from '../hooks/use-is-mobile';
+import { formatDuration } from '../lib/format-duration';
 import type { RecordingLabels, RecordingState, MeetingClient, MeetingPeer } from '../types';
 import type { MeetingToolsController } from '../tools/use-meeting-tools-controller';
 
@@ -48,6 +49,10 @@ export interface MeetingRightPanelProps {
   shareUrl?: string;
   description?: string;
   scheduledStart?: string | null;
+  /** Whole seconds the call has been running. Shown in Meeting details. Omit to hide. */
+  duration?: number;
+  /** Heading of the call timer. Default "Duration". */
+  durationLabel?: string;
   participants: MeetingPeer[];
   meeting: MeetingClient | null;
 
@@ -78,6 +83,8 @@ export function MeetingRightPanel({
   shareUrl,
   description,
   scheduledStart,
+  duration,
+  durationLabel,
   participants,
   meeting,
   peoplePanelSlot,
@@ -106,17 +113,17 @@ export function MeetingRightPanel({
       className={cn(
         'flex flex-col min-h-0 overflow-hidden',
         // Mobile: a sheet over the whole meeting view (absolute, so it stays
-        // below any app chrome above the room). Desktop: 480px right dock.
+        // below any app chrome above the room). Desktop: 400px right dock.
         isMobile
           ? 'absolute inset-0 z-40 bg-background'
           : 'flex-shrink-0 border-l border-gray-200 dark:border-border',
       )}
-      style={isMobile ? undefined : { width: 480 }}
+      style={isMobile ? undefined : { width: 400 }}
     >
       <div
         className={cn(
           'flex flex-col min-h-0 h-full',
-          isMobile ? 'w-full' : 'w-[479px] flex-shrink-0',
+          isMobile ? 'w-full' : 'w-[399px] flex-shrink-0',
         )}
       >
         <div className="px-4 border-b flex-shrink-0 h-[53px] flex items-center justify-between">
@@ -149,6 +156,8 @@ export function MeetingRightPanel({
               shareUrl={shareUrl}
               description={description}
               scheduledStart={scheduledStart}
+              duration={duration}
+              durationLabel={durationLabel}
               participantsCount={participants.length}
             />
           )}
@@ -190,6 +199,8 @@ interface MeetingInfoPanelProps {
   shareUrl?: string;
   description?: string;
   scheduledStart?: string | null;
+  duration?: number;
+  durationLabel?: string;
   participantsCount: number;
 }
 
@@ -199,12 +210,15 @@ function MeetingInfoPanel({
   shareUrl,
   description,
   scheduledStart,
+  duration,
+  durationLabel,
   participantsCount,
 }: Readonly<MeetingInfoPanelProps>) {
   const [copied, setCopied] = useState(false);
 
   const formattedDate = scheduledStart ? formatMeetingDate(scheduledStart) : null;
   const formattedId = joinCode ? formatMeetingId(joinCode) : null;
+  const hasDuration = typeof duration === 'number';
 
   const joinInfoText = [
     'WeldMeet meeting',
@@ -282,7 +296,7 @@ function MeetingInfoPanel({
         </div>
       )}
 
-      {(description || participantsCount > 0) && <Separator />}
+      {(description || hasDuration || participantsCount > 0) && <Separator />}
 
       {description && (
         <div className="space-y-1">
@@ -290,6 +304,15 @@ function MeetingInfoPanel({
             Description
           </span>
           <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+      )}
+
+      {hasDuration && (
+        <div className="space-y-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            {durationLabel ?? 'Duration'}
+          </span>
+          <p className="text-sm font-mono tabular-nums">{formatDuration(duration)}</p>
         </div>
       )}
 

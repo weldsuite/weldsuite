@@ -119,6 +119,16 @@
       "port": 3018
     },
     {
+      "name": "meeting-portal",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "meeting-portal",
+        "dev"
+      ],
+      "port": 3020
+    },
+    {
       "name": "partner",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

@@ -79,6 +79,7 @@ export const reach = {
     countryNone: 'Geen landen gevonden',
     removeCountry: '{country} verwijderen',
     termsRequired: 'Vink elke verklaring aan om door te gaan.',
+    termsProgress: '{count} van {total} bevestigd',
     requestFailed: 'We konden je aanvraag niet versturen. Probeer het opnieuw.',
     requestedOn: 'Aangevraagd op {date}',
     previousRequest: 'Je eerdere antwoorden staan hieronder al ingevuld.',

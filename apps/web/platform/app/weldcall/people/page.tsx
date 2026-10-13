@@ -11,26 +11,44 @@ import {
   type GridPaginationState,
   type GridColumnDef,
 } from '@/components/entity-grid';
-import { User, Mail, Phone, Smartphone, Briefcase, Calendar } from 'lucide-react';
+import {
+  User,
+  Mail,
+  Phone,
+  Smartphone,
+  Briefcase,
+  Calendar,
+  PhoneCall,
+  PhoneIncoming,
+  PhoneOutgoing,
+  Clock,
+} from 'lucide-react';
+import type { ContactCallStats } from '@weldsuite/app-api-client/schemas/call-intelligence';
 import { useInfinitePeople, type ListPeopleQuery, type Person } from '@/hooks/queries/use-people-queries';
+import { useContactCallStats } from '@/hooks/queries/use-voip-calls-queries';
 import { QuickAddPersonDialog } from '@/app/weldcrm/people/components/quick-add-person-dialog';
 import { useCall } from '@/contexts/call-context';
 import { WeldCallGate } from '../components/weldcall-gate';
+import { formatCallDuration } from '../call-history-list';
 
 const pageSize = 50;
 
-function getPrimaryPhone(person: Person): string | undefined {
+/** A person plus their WeldCall stats (undefined until those have loaded). */
+type CallPerson = Person & { callStats?: ContactCallStats };
+
+function getPrimaryPhone(person: CallPerson): string | undefined {
   return person.directPhone?.trim() || person.mobilePhone?.trim() || undefined;
 }
 
-function getPersonInitials(person: Person): string {
+function getPersonInitials(person: CallPerson): string {
   const parts = person.displayName.split(/\s+/).filter(Boolean);
   if (parts.length >= 2) return (parts[0]!.charAt(0) + parts[parts.length - 1]!.charAt(0)).toUpperCase();
   return person.displayName.charAt(0).toUpperCase();
 }
 
-// Column ids double as the server-side sort keys of GET /people.
-function buildCallPeopleColumns(tc: TranslationNamespaces['weldmeet']['weldcall']['people']): GridColumnDef<Person>[] {
+// Column ids double as the server-side sort keys of GET /people. The call-stat
+// columns come from GET /calls/contact-stats and aren't sortable server-side.
+function buildCallPeopleColumns(tc: TranslationNamespaces['weldmeet']['weldcall']['people']): GridColumnDef<CallPerson>[] {
   return [
     {
       id: 'name',
@@ -99,6 +117,61 @@ function buildCallPeopleColumns(tc: TranslationNamespaces['weldmeet']['weldcall'
       getValue: (p) => p.lastContactedAt ?? null,
     },
     {
+      id: 'callCount',
+      name: tc.columns.calls,
+      type: 'number',
+      width: 110,
+      icon: PhoneCall,
+      visible: true,
+      editable: false,
+      sortable: false,
+      getValue: (p) => p.callStats?.totalCalls ?? null,
+    },
+    {
+      id: 'inboundCalls',
+      name: tc.columns.inbound,
+      type: 'number',
+      width: 110,
+      icon: PhoneIncoming,
+      visible: true,
+      editable: false,
+      sortable: false,
+      getValue: (p) => p.callStats?.inboundCalls ?? null,
+    },
+    {
+      id: 'outboundCalls',
+      name: tc.columns.outbound,
+      type: 'number',
+      width: 110,
+      icon: PhoneOutgoing,
+      visible: true,
+      editable: false,
+      sortable: false,
+      getValue: (p) => p.callStats?.outboundCalls ?? null,
+    },
+    {
+      id: 'callTime',
+      name: tc.columns.totalTime,
+      type: 'text',
+      width: 130,
+      icon: Clock,
+      visible: true,
+      editable: false,
+      sortable: false,
+      getValue: (p) => (p.callStats ? formatCallDuration(p.callStats.totalDuration) : ''),
+    },
+    {
+      id: 'lastCallAt',
+      name: tc.columns.lastCall,
+      type: 'date',
+      width: 150,
+      icon: Calendar,
+      visible: true,
+      editable: false,
+      sortable: false,
+      getValue: (p) => p.callStats?.lastCallAt ?? null,
+    },
+    {
       id: 'createdAt',
       name: tc.columns.added,
       type: 'date',
@@ -144,9 +217,19 @@ function CallPeopleContent() {
     isFetchingNextPage,
   } = useInfinitePeople(filters);
 
-  const people = useMemo(
-    () => infiniteData?.pages.flatMap((page) => page.data ?? []) ?? [],
+  // One stats request per loaded page, so scrolling only fetches the new page.
+  const idBatches = useMemo(
+    () => infiniteData?.pages.map((page) => (page.data ?? []).map((p) => p.id)) ?? [],
     [infiniteData],
+  );
+  const callStats = useContactCallStats(idBatches);
+
+  const people: CallPerson[] = useMemo(
+    () =>
+      infiniteData?.pages.flatMap((page) =>
+        (page.data ?? []).map((p) => ({ ...p, callStats: callStats.get(p.id) })),
+      ) ?? [],
+    [infiniteData, callStats],
   );
   const totalCount = infiniteData?.pages[0]?.pagination?.totalCount ?? 0;
 
@@ -154,7 +237,7 @@ function CallPeopleContent() {
     if (hasNextPage && !isFetchingNextPage) fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  const callPeopleGridConfig: EntityGridConfig<Person> = useMemo(() => ({
+  const callPeopleGridConfig: EntityGridConfig<CallPerson> = useMemo(() => ({
     entityName: tc.entityName,
     // Key from when this page was Contacts; kept so saved column layouts survive.
     gridViewName: 'weldcall-contact',
@@ -180,7 +263,7 @@ function CallPeopleContent() {
     hasMore: !!hasNextPage,
   };
 
-  const actions: EntityGridActions<Person> = useMemo(
+  const actions: EntityGridActions<CallPerson> = useMemo(
     () => ({
       onUpdateEntity: () => Promise.resolve({ success: true }),
       onDeleteEntity: () => Promise.resolve({ success: true }),
