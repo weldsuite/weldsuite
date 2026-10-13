@@ -17,6 +17,20 @@ import type { PostalAddress } from './postal-address';
 
 const NO_COUNTRY = '__none__';
 
+/** The state as the field shows it: a USPS code for the US, a GST state name for India. */
+function stateValueFor(country: string, state: string | null | undefined): string {
+  if (country === 'US') return toUsStateCode(state);
+  if (country === 'IN') return findInState(state)?.name ?? '';
+  return state ?? '';
+}
+
+/** The picker's states, or null where the state is typed. US stores the code, India the name. */
+function stateOptionsFor(country: string): { code: string; name: string; value: string }[] | null {
+  if (country === 'US') return US_STATES.map((s) => ({ code: s.code, name: s.name, value: s.code }));
+  if (country === 'IN') return IN_STATES.map((s) => ({ code: s.code, name: s.name, value: s.name }));
+  return null;
+}
+
 interface AddressFieldsProps {
   /** The address being edited. Missing fields are treated as empty. */
   value: PostalAddress | null | undefined;
@@ -57,7 +71,8 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
   };
 
   const id = (field: string) => `${idPrefix}-${field}`;
-  const stateValue = isUs ? toUsStateCode(address.state) : isIn ? (findInState(address.state)?.name ?? '') : address.state ?? '';
+  const stateValue = stateValueFor(country, address.state);
+  const stateOptions = stateOptionsFor(country);
 
   return (
     <div className={cn('grid grid-cols-1 sm:grid-cols-2 gap-4', className)}>
@@ -95,7 +110,7 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
       </div>
       <div className="space-y-2">
         <Label htmlFor={id('state')}>{isUs ? ta.stateUs : ta.state}</Label>
-        {isUs ? (
+        {stateOptions ? (
           <Select
             value={stateValue || undefined}
             onValueChange={(next) => update({ state: next })}
@@ -104,26 +119,9 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
             <SelectTrigger id={id('state')}>
               <SelectValue placeholder={ta.selectState} />
             </SelectTrigger>
-            <SelectContent>
-              {US_STATES.map((s) => (
-                <SelectItem key={s.code} value={s.code}>
-                  {s.name} ({s.code})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : isIn ? (
-          <Select
-            value={stateValue || undefined}
-            onValueChange={(next) => update({ state: next })}
-            disabled={disabled}
-          >
-            <SelectTrigger id={id('state')}>
-              <SelectValue placeholder={ta.selectState} />
-            </SelectTrigger>
-            <SelectContent className="max-h-72">
-              {IN_STATES.map((s) => (
-                <SelectItem key={s.code} value={s.name}>
+            <SelectContent className={isIn ? 'max-h-72' : undefined}>
+              {stateOptions.map((s) => (
+                <SelectItem key={s.code} value={s.value}>
                   {s.name} ({s.code})
                 </SelectItem>
               ))}

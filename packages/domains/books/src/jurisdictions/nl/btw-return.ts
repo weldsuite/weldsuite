@@ -60,6 +60,52 @@ export function recomputeRubriekTotals(r: VatRubrieken): VatRubrieken {
   return next;
 }
 
+/** Whether a line is a sale or a purchase; lines without a stated direction follow their rubriek. */
+function lineDirection(line: TaxReturnLine, code: string): 'sales' | 'purchase' {
+  if (line.direction) return line.direction;
+  return code === '5b' || PURCHASE_BASE_RUBRIEKEN.has(code) ? 'purchase' : 'sales';
+}
+
+/** A reverse-charge or acquisition line: its base and the BTW the buyer owes on it. */
+function addAcquisitionLine(rubrieken: VatRubrieken, code: string, line: TaxReturnLine) {
+  if (code === '2a') {
+    rubrieken.r2a += line.taxableAmount;
+    rubrieken.r2aBtw += line.taxAmount;
+  } else if (code === '4a') {
+    rubrieken.r4a += line.taxableAmount;
+    rubrieken.r4aBtw += line.taxAmount;
+  } else {
+    rubrieken.r4b += line.taxableAmount;
+    rubrieken.r4bBtw += line.taxAmount;
+  }
+}
+
+/** A purchase line: voorbelasting (5b), except self-assessed tax; an acquisition also reports its base. */
+function addPurchaseLine(rubrieken: VatRubrieken, code: string, line: TaxReturnLine) {
+  if (PURCHASE_BASE_RUBRIEKEN.has(code)) {
+    addAcquisitionLine(rubrieken, code, line);
+    rubrieken.r5b += line.taxAmount;
+  } else if (!line.selfAssessed) {
+    rubrieken.r5b += line.taxAmount;
+  }
+}
+
+/** A sales line: omzet (and BTW) of the rubriek it belongs to. */
+function addSalesLine(rubrieken: VatRubrieken, code: string, line: TaxReturnLine) {
+  if (code in SALES_RUBRIEKEN) {
+    const [base, btw] = SALES_RUBRIEKEN[code as keyof typeof SALES_RUBRIEKEN];
+    rubrieken[base] += line.taxableAmount;
+    rubrieken[btw] += line.taxAmount;
+    return;
+  }
+  switch (code) {
+    case '1e': rubrieken.r1e += line.taxableAmount; break;
+    case '3a': rubrieken.r3a += line.taxableAmount; break;
+    case '3b': rubrieken.r3b += line.taxableAmount; break;
+    case '3c': rubrieken.r3c += line.taxableAmount; break;
+  }
+}
+
 /**
  * The boxes of the Dutch BTW return from tax-ledger lines.
  *
@@ -77,39 +123,8 @@ export function computeNlRubrieken(lines: TaxReturnLine[]): VatRubrieken {
 
   for (const line of lines) {
     const code = resolveNlRubriek(line);
-    const direction = line.direction ?? (code === '5b' || PURCHASE_BASE_RUBRIEKEN.has(code) ? 'purchase' : 'sales');
-
-    if (direction === 'purchase') {
-      if (PURCHASE_BASE_RUBRIEKEN.has(code)) {
-        if (code === '2a') {
-          rubrieken.r2a += line.taxableAmount;
-          rubrieken.r2aBtw += line.taxAmount;
-        } else if (code === '4a') {
-          rubrieken.r4a += line.taxableAmount;
-          rubrieken.r4aBtw += line.taxAmount;
-        } else {
-          rubrieken.r4b += line.taxableAmount;
-          rubrieken.r4bBtw += line.taxAmount;
-        }
-        rubrieken.r5b += line.taxAmount;
-      } else if (!line.selfAssessed) {
-        rubrieken.r5b += line.taxAmount;
-      }
-      continue;
-    }
-
-    if (code in SALES_RUBRIEKEN) {
-      const [base, btw] = SALES_RUBRIEKEN[code as keyof typeof SALES_RUBRIEKEN];
-      rubrieken[base] += line.taxableAmount;
-      rubrieken[btw] += line.taxAmount;
-      continue;
-    }
-    switch (code) {
-      case '1e': rubrieken.r1e += line.taxableAmount; break;
-      case '3a': rubrieken.r3a += line.taxableAmount; break;
-      case '3b': rubrieken.r3b += line.taxableAmount; break;
-      case '3c': rubrieken.r3c += line.taxableAmount; break;
-    }
+    if (lineDirection(line, code) === 'purchase') addPurchaseLine(rubrieken, code, line);
+    else addSalesLine(rubrieken, code, line);
   }
 
   for (const key of Object.keys(rubrieken) as Array<keyof VatRubrieken>) {

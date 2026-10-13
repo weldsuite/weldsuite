@@ -784,11 +784,8 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const title = isCreditMemo ? td.form.creditMemoTitle : mode === 'add' ? tf.newInvoice : tf.editInvoice;
   // A credit note saves as "Update credit note", not "Update Invoice".
   const creditNoteSave = td.form.creditMemoSave.replace('{name}', labels.creditNote.toLowerCase());
-  const submitText = isCreditMemo
-    ? creditNoteSave.charAt(0).toUpperCase() + creditNoteSave.slice(1)
-    : mode === 'add'
-      ? tf.createInvoice
-      : tf.updateInvoice;
+  const invoiceSave = mode === 'add' ? tf.createInvoice : tf.updateInvoice;
+  const submitText = isCreditMemo ? creditNoteSave.charAt(0).toUpperCase() + creditNoteSave.slice(1) : invoiceSave;
 
   return (
     <EntityFormLayout

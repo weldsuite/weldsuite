@@ -572,9 +572,10 @@ async function createIdentity(
     }
     // Someone else's record: never attach this contact's tax and bank data to it unasked.
     const existingName = existing.displayName || existing.fullName || '';
+    const existingSuffix = existingName ? `: ${existingName}` : '';
     throw new ContactIdentityError(
       'conflict',
-      `A person with this email already exists${existingName ? `: ${existingName}` : ''}. Link the contact to them or create a separate person.`,
+      `A person with this email already exists${existingSuffix}. Link the contact to them or create a separate person.`,
       {
         code: 'PERSON_EMAIL_EXISTS',
         existingPerson: { id: existing.id, name: existingName, email: existing.email },
@@ -650,6 +651,53 @@ async function linkExistingPerson(
   return { kind: 'person', companyId: null, personId, displayName: person.displayName };
 }
 
+/** Update the company a contact wraps. Null when it is gone, so the caller builds a fresh identity. */
+async function updateWrappedCompany(
+  c: AppContext,
+  db: Database,
+  companyId: string,
+  data: ContactPayload,
+): Promise<IdentityLink | null> {
+  const [existing] = await db
+    .select()
+    .from(schema.companies)
+    .where(and(eq(schema.companies.id, companyId), isNull(schema.companies.deletedAt)))
+    .limit(1);
+  if (!existing) return null;
+  const result = await updateCompany(db, existing.id, definedOnly(companyIdentityInput(data, existing)));
+  if (!result) return null;
+  if (result.changes) publishIdentityEvent(c, 'company', 'updated', result.row);
+  return { kind: 'company', companyId: result.row.id, personId: null, displayName: result.row.displayName };
+}
+
+/** Update the person a contact wraps. Null when it is gone, so the caller builds a fresh identity. */
+async function updateWrappedPerson(
+  c: AppContext,
+  db: Database,
+  personId: string,
+  data: ContactPayload,
+): Promise<IdentityLink | null> {
+  if (data.vatNumber || data.registrationNumber) {
+    throw new ContactIdentityError(
+      'badRequest',
+      'This contact is a person, and VAT and registration numbers are stored on a company. Create the contact as a company to record them.',
+    );
+  }
+  let result: Awaited<ReturnType<typeof updatePerson>>;
+  try {
+    result = await updatePerson(db, personId, definedOnly(personIdentityInput(data)));
+  } catch (err) {
+    if (!(err instanceof PersonDuplicateEmailError)) throw err;
+    throw new ContactIdentityError('conflict', 'Another person in the CRM already has this email address.', {
+      code: 'PERSON_EMAIL_EXISTS',
+      existingPersonId: err.existingPersonId,
+    });
+  }
+  if (!result) return null;
+  if (result.changes) publishIdentityEvent(c, 'person', 'updated', result.row);
+  return { kind: 'person', companyId: null, personId: result.row.id, displayName: result.row.displayName };
+}
+
 /**
  * Apply identity changes to the contact's company or person, creating the
  * identity first when the party wraps none (rows from the old route) or the
@@ -661,42 +709,15 @@ async function syncIdentity(
   contact: PartyRow,
   data: ContactPayload,
 ): Promise<IdentityLink | null> {
-  if (contact.kind === 'company' && contact.companyId) {
+  const wrappedCompanyId = contact.kind === 'company' ? contact.companyId : null;
+  const wrappedPersonId = contact.kind === 'person' ? contact.personId : null;
+
+  if (wrappedCompanyId || wrappedPersonId) {
     if (!touchesIdentity(data)) return null;
-    const [existing] = await db
-      .select()
-      .from(schema.companies)
-      .where(and(eq(schema.companies.id, contact.companyId), isNull(schema.companies.deletedAt)))
-      .limit(1);
-    if (existing) {
-      const result = await updateCompany(db, existing.id, definedOnly(companyIdentityInput(data, existing)));
-      if (result) {
-        if (result.changes) publishIdentityEvent(c, 'company', 'updated', result.row);
-        return { kind: 'company', companyId: result.row.id, personId: null, displayName: result.row.displayName };
-      }
-    }
-  } else if (contact.kind === 'person' && contact.personId) {
-    if (!touchesIdentity(data)) return null;
-    if (data.vatNumber || data.registrationNumber) {
-      throw new ContactIdentityError(
-        'badRequest',
-        'This contact is a person, and VAT and registration numbers are stored on a company. Create the contact as a company to record them.',
-      );
-    }
-    let result: Awaited<ReturnType<typeof updatePerson>>;
-    try {
-      result = await updatePerson(db, contact.personId, definedOnly(personIdentityInput(data)));
-    } catch (err) {
-      if (!(err instanceof PersonDuplicateEmailError)) throw err;
-      throw new ContactIdentityError('conflict', 'Another person in the CRM already has this email address.', {
-        code: 'PERSON_EMAIL_EXISTS',
-        existingPersonId: err.existingPersonId,
-      });
-    }
-    if (result) {
-      if (result.changes) publishIdentityEvent(c, 'person', 'updated', result.row);
-      return { kind: 'person', companyId: null, personId: result.row.id, displayName: result.row.displayName };
-    }
+    const updated = wrappedCompanyId
+      ? await updateWrappedCompany(c, db, wrappedCompanyId, data)
+      : await updateWrappedPerson(c, db, wrappedPersonId as string, data);
+    if (updated) return updated;
   }
 
   // No (live) identity yet: build one from the payload and the party's name.
@@ -715,34 +736,38 @@ async function syncIdentity(
  * already has, for an update that does not send one.
  */
 function checkIdentifierFormats(data: ContactPayload, storedBilling?: unknown): void {
-  const vat = data.vatNumber?.trim();
-  if (vat) {
-    const billing = data.billingAddress !== undefined ? data.billingAddress : storedBilling;
-    const check = checkVatNumberFormat(vat, normalizePostalAddress(billing as never)?.country);
-    if (!check.valid) {
-      throw new ContactIdentityError(
-        'badRequest',
-        `"${vat}" is not a valid ${check.prefix} VAT number${check.example ? ` (for example ${check.example})` : ''}`,
-        { field: 'vatNumber' },
-      );
-    }
-    if (check.prefix && check.formatted) data.vatNumber = check.formatted;
-  }
+  checkVatFormat(data, storedBilling);
+  checkIbanFormat(data);
+}
 
-  const iban = data.iban?.trim();
-  if (iban) {
-    const problem = ibanProblem(iban);
-    if (problem) {
-      const code = normalizeIban(iban).slice(0, 2);
-      const reason =
-        problem === 'country_length'
-          ? `an IBAN from ${code} has ${IBAN_LENGTHS[code]} characters`
-          : problem === 'checksum'
-            ? 'the check digits do not match'
-            : 'it should be two letters, two digits and the account number';
-      throw new ContactIdentityError('badRequest', `"${iban}" is not a valid IBAN: ${reason}`, { field: 'iban' });
-    }
+function checkVatFormat(data: ContactPayload, storedBilling?: unknown): void {
+  const vat = data.vatNumber?.trim();
+  if (!vat) return;
+  const billing = data.billingAddress !== undefined ? data.billingAddress : storedBilling;
+  const check = checkVatNumberFormat(vat, normalizePostalAddress(billing as never)?.country);
+  if (!check.valid) {
+    const example = check.example ? ` (for example ${check.example})` : '';
+    throw new ContactIdentityError('badRequest', `"${vat}" is not a valid ${check.prefix} VAT number${example}`, {
+      field: 'vatNumber',
+    });
   }
+  if (check.prefix && check.formatted) data.vatNumber = check.formatted;
+}
+
+/** Why an IBAN was rejected, in words for the form. */
+function ibanProblemReason(problem: NonNullable<ReturnType<typeof ibanProblem>>, countryCode: string): string {
+  if (problem === 'country_length') return `an IBAN from ${countryCode} has ${IBAN_LENGTHS[countryCode]} characters`;
+  if (problem === 'checksum') return 'the check digits do not match';
+  return 'it should be two letters, two digits and the account number';
+}
+
+function checkIbanFormat(data: ContactPayload): void {
+  const iban = data.iban?.trim();
+  if (!iban) return;
+  const problem = ibanProblem(iban);
+  if (!problem) return;
+  const reason = ibanProblemReason(problem, normalizeIban(iban).slice(0, 2));
+  throw new ContactIdentityError('badRequest', `"${iban}" is not a valid IBAN: ${reason}`, { field: 'iban' });
 }
 
 /**

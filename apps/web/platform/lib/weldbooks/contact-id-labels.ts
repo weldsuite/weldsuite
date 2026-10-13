@@ -43,13 +43,13 @@ export function contactIdLabels(
   entityLabels: { taxId: string; registrationId: string },
 ): { taxId: string; registrationId: string | null } {
   const kinds = contactIdKinds(countryCode);
+  let registrationId: string | null = null;
+  if (kinds.registrationId === 'entity') registrationId = entityLabels.registrationId;
+  else if (kinds.registrationId !== null) {
+    registrationId = tt.registrationId[kinds.registrationId] ?? entityLabels.registrationId;
+  }
   return {
     taxId: kinds.taxId === 'entity' ? entityLabels.taxId : (tt.taxId[kinds.taxId] ?? entityLabels.taxId),
-    registrationId:
-      kinds.registrationId === null
-        ? null
-        : kinds.registrationId === 'entity'
-          ? entityLabels.registrationId
-          : (tt.registrationId[kinds.registrationId] ?? entityLabels.registrationId),
+    registrationId,
   };
 }

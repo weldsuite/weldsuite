@@ -103,7 +103,7 @@ export interface CounterpartAccount {
 }
 
 const TAX_SUBTYPE = /^(tax|tax_payable|tax_expense)$/i;
-const TAX_ROLE = /^tax_|tax_payable|sales_tax|use_tax|vat|backup_withholding/i;
+const TAX_ROLE = /(?:^tax_|tax_payable|sales_tax|use_tax|vat|backup_withholding)/i;
 const FIXED_ASSET_SUBTYPE = /^(fixed_assets?|intangible_assets?|property_plant_equipment)$/i;
 const LOAN_SUBTYPE = /^(long_term_liability|loan|loans|notes_payable|mortgage)$/i;
 const LOAN_NAME = /lening|loan|mortgage|hypotheek|borrowing/i;
@@ -181,15 +181,8 @@ function figures(bucket: Bucket): CashFlowFigures {
   };
 }
 
-export async function buildCashFlow(db: Database, entityId: string, range: DateRange): Promise<CashFlowResult> {
-  const { journalLines: jl, journalEntries: je, accounts } = schema;
-  const from = parseReportDate(range.from, 'start');
-  const to = parseReportDate(range.to, 'end');
-
-  const cashAccounts = await cashAccountsOf(db, entityId);
-  const cashIds = cashAccounts.map((a) => a.id);
-
-  const empty: CashFlowResult = {
+function emptyCashFlow(range: DateRange): CashFlowResult {
+  return {
     period: range,
     openingBalance: '0.00',
     closingBalance: '0.00',
@@ -209,7 +202,114 @@ export async function buildCashFlow(db: Database, entityId: string, range: DateR
     })),
     cashAccounts: [],
   };
-  if (cashIds.length === 0) return empty;
+}
+
+/** Type, subtype, name and system role of the given (counterpart) accounts, read in chunks. */
+async function loadCounterpartInfo(db: Database, accountIds: string[]): Promise<Map<string, CounterpartAccount>> {
+  const { accounts } = schema;
+  const accountInfo = new Map<string, CounterpartAccount>();
+  for (let i = 0; i < accountIds.length; i += 400) {
+    const rows = await db
+      .select({ id: accounts.id, type: accounts.type, subtype: accounts.subtype, name: accounts.name, metadata: accounts.metadata })
+      .from(accounts)
+      .where(inArray(accounts.id, accountIds.slice(i, i + 400)));
+    for (const a of rows) {
+      accountInfo.set(a.id, {
+        type: a.type,
+        subtype: a.subtype,
+        name: a.name,
+        systemRole: (a.metadata as { systemRole?: string } | null)?.systemRole ?? null,
+      });
+    }
+  }
+  return accountInfo;
+}
+
+interface EntryCounterparts {
+  date: Date;
+  lines: Array<{ accountId: string; amount: number }>;
+}
+
+/** The non-cash lines of each entry, keyed by entry id. */
+function groupCounterpartLines(
+  lineRows: Array<{ entryId: string; date: Date; accountId: string; debit: string; credit: string }>,
+  cashIds: string[],
+): Map<string, EntryCounterparts> {
+  const byEntry = new Map<string, EntryCounterparts>();
+  for (const r of lineRows) {
+    if (cashIds.includes(r.accountId)) continue;
+    const entry = byEntry.get(r.entryId) ?? { date: r.date, lines: [] };
+    // Positive: the line pays cash in (credit), negative: it takes cash out (debit).
+    entry.lines.push({ accountId: r.accountId, amount: Number(r.credit) - Number(r.debit) });
+    byEntry.set(r.entryId, entry);
+  }
+  return byEntry;
+}
+
+function bucketOf<K>(buckets: Map<K, Bucket>, key: K): Bucket {
+  return buckets.get(key) ?? buckets.set(key, { inflows: 0, outflows: 0 }).get(key)!;
+}
+
+/** Net amount per category of one entry. */
+function netPerCategory(entry: EntryCounterparts, accountInfo: Map<string, CounterpartAccount>) {
+  // One entry, one category: opposite lines of the same category net off (a payment discount against the receivable).
+  const perCategory = new Map<CashFlowCategory, number>();
+  for (const line of entry.lines) {
+    const info = accountInfo.get(line.accountId);
+    const category = info ? classifyCounterpart(info) : 'other_operating';
+    perCategory.set(category, (perCategory.get(category) ?? 0) + line.amount);
+  }
+  return perCategory;
+}
+
+/** Inflows and outflows per category, per month and in total. */
+function accumulateCashMovements(
+  byEntry: Map<string, EntryCounterparts>,
+  accountInfo: Map<string, CounterpartAccount>,
+) {
+  const categoryTotals = new Map<CashFlowCategory, Bucket>();
+  const monthTotals = new Map<string, Bucket>();
+  const total: Bucket = { inflows: 0, outflows: 0 };
+  for (const entry of byEntry.values()) {
+    const month = entry.date.toISOString().slice(0, 7);
+    for (const [category, amount] of netPerCategory(entry, accountInfo)) {
+      const rounded = roundMoney(amount);
+      if (Math.abs(rounded) < 0.005) continue;
+      add(bucketOf(categoryTotals, category), rounded);
+      add(bucketOf(monthTotals, month), rounded);
+      add(total, rounded);
+    }
+  }
+  return { categoryTotals, monthTotals, total };
+}
+
+function buildActivityBlocks(categoryTotals: Map<CashFlowCategory, Bucket>): CashFlowActivityBlock[] {
+  return ACTIVITIES.map((activity) => {
+    const categories = CASH_FLOW_CATEGORIES.filter((c) => c.activity === activity).map((c) => ({
+      category: c.category,
+      ...figures(categoryTotals.get(c.category) ?? { inflows: 0, outflows: 0 }),
+    }));
+    const block: Bucket = { inflows: 0, outflows: 0 };
+    for (const c of CASH_FLOW_CATEGORIES.filter((x) => x.activity === activity)) {
+      const t = categoryTotals.get(c.category);
+      if (t) {
+        block.inflows += t.inflows;
+        block.outflows += t.outflows;
+      }
+    }
+    return { activity, ...figures(block), categories };
+  });
+}
+
+export async function buildCashFlow(db: Database, entityId: string, range: DateRange): Promise<CashFlowResult> {
+  const { journalLines: jl, journalEntries: je } = schema;
+  const from = parseReportDate(range.from, 'start');
+  const to = parseReportDate(range.to, 'end');
+
+  const cashAccounts = await cashAccountsOf(db, entityId);
+  const cashIds = cashAccounts.map((a) => a.id);
+
+  if (cashIds.length === 0) return emptyCashFlow(range);
 
   const booked = [
     eq(jl.entityId, entityId),
@@ -254,67 +354,10 @@ export async function buildCashFlow(db: Database, entityId: string, range: DateR
     .groupBy(je.id, je.date, jl.accountId);
 
   const counterpartIds = [...new Set(lineRows.map((r) => r.accountId).filter((id) => !cashIds.includes(id)))];
-  const accountInfo = new Map<string, CounterpartAccount>();
-  for (let i = 0; i < counterpartIds.length; i += 400) {
-    const rows = await db
-      .select({ id: accounts.id, type: accounts.type, subtype: accounts.subtype, name: accounts.name, metadata: accounts.metadata })
-      .from(accounts)
-      .where(inArray(accounts.id, counterpartIds.slice(i, i + 400)));
-    for (const a of rows) {
-      accountInfo.set(a.id, {
-        type: a.type,
-        subtype: a.subtype,
-        name: a.name,
-        systemRole: (a.metadata as { systemRole?: string } | null)?.systemRole ?? null,
-      });
-    }
-  }
-
-  const byEntry = new Map<string, { date: Date; lines: Array<{ accountId: string; amount: number }> }>();
-  for (const r of lineRows) {
-    if (cashIds.includes(r.accountId)) continue;
-    const entry = byEntry.get(r.entryId) ?? { date: r.date, lines: [] };
-    // Positive: the line pays cash in (credit), negative: it takes cash out (debit).
-    entry.lines.push({ accountId: r.accountId, amount: Number(r.credit) - Number(r.debit) });
-    byEntry.set(r.entryId, entry);
-  }
-
-  const categoryTotals = new Map<CashFlowCategory, Bucket>();
-  const monthTotals = new Map<string, Bucket>();
-  const total: Bucket = { inflows: 0, outflows: 0 };
-  for (const entry of byEntry.values()) {
-    // One entry, one category: opposite lines of the same category net off (a payment discount against the receivable).
-    const perCategory = new Map<CashFlowCategory, number>();
-    for (const line of entry.lines) {
-      const info = accountInfo.get(line.accountId);
-      const category = info ? classifyCounterpart(info) : 'other_operating';
-      perCategory.set(category, (perCategory.get(category) ?? 0) + line.amount);
-    }
-    const month = entry.date.toISOString().slice(0, 7);
-    for (const [category, amount] of perCategory) {
-      const rounded = roundMoney(amount);
-      if (Math.abs(rounded) < 0.005) continue;
-      add(categoryTotals.get(category) ?? categoryTotals.set(category, { inflows: 0, outflows: 0 }).get(category)!, rounded);
-      add(monthTotals.get(month) ?? monthTotals.set(month, { inflows: 0, outflows: 0 }).get(month)!, rounded);
-      add(total, rounded);
-    }
-  }
-
-  const activities: CashFlowActivityBlock[] = ACTIVITIES.map((activity) => {
-    const categories = CASH_FLOW_CATEGORIES.filter((c) => c.activity === activity).map((c) => ({
-      category: c.category,
-      ...figures(categoryTotals.get(c.category) ?? { inflows: 0, outflows: 0 }),
-    }));
-    const block: Bucket = { inflows: 0, outflows: 0 };
-    for (const c of CASH_FLOW_CATEGORIES.filter((x) => x.activity === activity)) {
-      const t = categoryTotals.get(c.category);
-      if (t) {
-        block.inflows += t.inflows;
-        block.outflows += t.outflows;
-      }
-    }
-    return { activity, ...figures(block), categories };
-  });
+  const accountInfo = await loadCounterpartInfo(db, counterpartIds);
+  const byEntry = groupCounterpartLines(lineRows, cashIds);
+  const { categoryTotals, monthTotals, total } = accumulateCashMovements(byEntry, accountInfo);
+  const activities = buildActivityBlocks(categoryTotals);
 
   const opening = [...balances.values()].reduce((sum, b) => sum + b.opening, 0);
   const closing = [...balances.values()].reduce((sum, b) => sum + b.closing, 0);

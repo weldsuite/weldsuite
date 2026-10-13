@@ -205,7 +205,7 @@ describe('ICP: goods and services', () => {
     expect(again.status).toBe(200);
     expect(again.data.id).toBe(res.data.id);
     const list = await call('/api/icp-declarations', icpDeclarationsRoutes, '/api/icp-declarations');
-    expect((list.data as unknown as unknown[]).length).toBe(1);
+    expect(list.data as unknown as unknown[]).toHaveLength(1);
     expect((await call('/api/icp-declarations', icpDeclarationsRoutes, `/api/icp-declarations/${res.data.id}`, 'DELETE')).status).toBe(204);
   });
 
@@ -273,6 +273,6 @@ describe('existing NL entities pick up the current seed rates', () => {
 
     // Listing again changes nothing (no duplicate goods rate).
     const again = await call('/api/tax-rates', taxRatesRoutes, '/api/tax-rates');
-    expect((again.data as unknown as unknown[]).length).toBe(rates.length);
+    expect(again.data as unknown as unknown[]).toHaveLength(rates.length);
   });
 });

@@ -65,6 +65,8 @@ import { streamDocumentAttachment } from '../../lib/document-attachment';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+
 /** 400 for errors the user can fix (closed period, lock date, posting rules, tax rates). */
 function accountingErrorResponse(c: Context<{ Bindings: Env; Variables: Variables }>, err: unknown): Response | undefined {
   // Sales tax refusals carry their own code (TAX_ENGINE_UNAVAILABLE, TAX_RATES_NOT_CONFIGURED, ...).
@@ -656,6 +658,176 @@ app.patch('/:id/reject', requirePermission('bills:update'), zValidator('json', z
   }
 });
 
+type BillRow = typeof schema.bills.$inferSelect;
+type BillUpdate = z.infer<typeof updateBillSchema>;
+type BillItemRecords = ReturnType<typeof buildBillItemRecords>;
+
+/** Another supplier, or a draft stored without a contact name, takes the contact's name. */
+async function applyBillContactName(
+  db: Database,
+  bill: BillRow,
+  data: BillUpdate,
+  updateData: Record<string, unknown>,
+): Promise<void> {
+  const contactChanged = !!data.contactId && data.contactId !== bill.contactId;
+  if (!contactChanged && bill.contactName) return;
+  const { contactName } = await documentContactFields(db, data.contactId ?? bill.contactId, {
+    contactName: data.contactName ?? (contactChanged ? null : bill.contactName),
+  });
+  updateData.contactName = contactName;
+}
+
+/** The exchange rate follows a typed rate, a change of currency or issue date, or a null (look it up again). */
+async function applyBillExchangeRate(
+  db: Database,
+  bill: BillRow,
+  data: BillUpdate,
+  updateData: Record<string, unknown>,
+): Promise<void> {
+  const currencyChanged = data.currency !== undefined && data.currency !== bill.currency;
+  const issueDateChanged =
+    data.issueDate !== undefined && new Date(data.issueDate).getTime() !== bill.issueDate.getTime();
+  if (data.exchangeRate === undefined && !currencyChanged && !issueDateChanged) return;
+  const baseCurrency = await resolveEntityBaseCurrency(db, bill.entityId);
+  updateData.exchangeRate = await draftRate(db, {
+    baseCurrency,
+    currency: (updateData.currency as string | undefined) ?? bill.currency ?? baseCurrency,
+    date: (updateData.issueDate as Date | undefined) ?? bill.issueDate,
+    override: data.exchangeRate,
+  });
+}
+
+/** The plain text and address fields of a bill PATCH that were sent. */
+function billTextFieldsPatch(data: BillUpdate): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  if (data.externalReference !== undefined) patch.externalReference = data.externalReference;
+  if (data.reference !== undefined) patch.reference = data.reference;
+  if (data.notes !== undefined) patch.notes = data.notes;
+  if (data.internalNotes !== undefined) patch.internalNotes = data.internalNotes;
+  if (data.expenseAccountId !== undefined) patch.expenseAccountId = data.expenseAccountId || null;
+  if (data.vendorAddress !== undefined) patch.vendorAddress = normalizePostalAddress(data.vendorAddress);
+  if (data.deliveryAddress !== undefined) patch.deliveryAddress = normalizePostalAddress(data.deliveryAddress);
+  return patch;
+}
+
+/** The bill columns a PATCH sets (everything but the lines and their tax). */
+async function buildBillHeaderPatch(db: Database, bill: BillRow, data: BillUpdate): Promise<Record<string, unknown>> {
+  const updateData: Record<string, unknown> = { updatedAt: new Date() };
+  if (data.contactId) updateData.contactId = data.contactId;
+  if (data.contactName !== undefined) updateData.contactName = data.contactName;
+  await applyBillContactName(db, bill, data, updateData);
+  if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
+  if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
+  if (data.currency) updateData.currency = data.currency;
+  await applyBillExchangeRate(db, bill, data, updateData);
+  Object.assign(updateData, billTextFieldsPatch(data));
+  return updateData;
+}
+
+/** Replace the lines: tax is recalculated server-side and the totals land in `updateData`. */
+async function replaceBillItems(
+  c: AppContext,
+  db: Database,
+  bill: BillRow,
+  items: BillLineInput[],
+  updateData: Record<string, unknown>,
+): Promise<BillItemRecords> {
+  const { itemIds, taxItems } = withLineIds(items);
+  await assertDimensionsBelongToEntity(db, bill.entityId, items);
+  const effective = { ...bill, ...updateData } as typeof bill;
+  const gst = await resolveGstBillSupply(db, {
+    entityId: bill.entityId,
+    contactId: effective.contactId,
+    vendorAddress: effective.vendorAddress,
+  });
+  const { processedItems, taxBreakdown, salesTax: _salesTax, ...billTotals } = await calculateDocumentTax(db, {
+    entityId: bill.entityId,
+    direction: 'purchase',
+    items: taxItems,
+    ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry } : {}),
+    runtime: salesTaxRuntimeFromEnv(c.env),
+    document: billDocumentContext(effective),
+  });
+  Object.assign(updateData, billTotals, {
+    taxBreakdown,
+    balanceDue: String(Number.parseFloat(billTotals.total) - Number.parseFloat(bill.amountPaid || '0')),
+  });
+  return buildBillItemRecords(bill.entityId, bill.id, itemIds, items, processedItems);
+}
+
+/** The use tax rate follows the delivery address and the date: re-tax the saved lines. */
+async function retaxBillUseTax(
+  c: AppContext,
+  db: Database,
+  bill: BillRow,
+  updateData: Record<string, unknown>,
+): Promise<void> {
+  const { billItems } = schema;
+  const stored = await db
+    .select()
+    .from(billItems)
+    .where(and(eq(billItems.billId, bill.id), isNull(billItems.deletedAt)));
+  if (!hasUseTaxLines(stored)) return;
+  const effective = { ...bill, ...updateData } as typeof bill;
+  const calc = await calculateDocumentTax(db, {
+    entityId: bill.entityId,
+    direction: 'purchase',
+    items: stored.map(billItemToTaxItem),
+    runtime: salesTaxRuntimeFromEnv(c.env),
+    document: billDocumentContext(effective),
+  });
+  updateData.taxBreakdown = calc.taxBreakdown;
+}
+
+/** India GST: another supplier (or supplier state) can turn CGST + SGST into IGST: re-split the saved lines. */
+async function resplitBillGst(db: Database, bill: BillRow, updateData: Record<string, unknown>): Promise<void> {
+  const { billItems } = schema;
+  const stored = await db
+    .select()
+    .from(billItems)
+    .where(and(eq(billItems.billId, bill.id), isNull(billItems.deletedAt)));
+  if (stored.length === 0) return;
+  const effective = { ...bill, ...updateData } as typeof bill;
+  const gst = await resolveGstBillSupply(db, {
+    entityId: bill.entityId,
+    contactId: effective.contactId,
+    vendorAddress: effective.vendorAddress,
+  });
+  const calc = await calculateDocumentTax(db, {
+    entityId: bill.entityId,
+    direction: 'purchase',
+    items: stored.map(billItemToTaxItem),
+    ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry } : {}),
+  });
+  updateData.taxBreakdown = calc.taxBreakdown;
+}
+
+/**
+ * Re-tax what the PATCH changed: new lines, or the saved ones when the delivery
+ * address, date or supplier moves the tax. Returns the new line rows, if any.
+ */
+async function applyBillTaxChanges(
+  c: AppContext,
+  db: Database,
+  bill: BillRow,
+  data: BillUpdate,
+  updateData: Record<string, unknown>,
+): Promise<BillItemRecords | undefined> {
+  if (data.items) return replaceBillItems(c, db, bill, data.items, updateData);
+  if (
+    (data.deliveryAddress !== undefined || data.issueDate !== undefined || data.contactId !== undefined) &&
+    usesSalesTax(await loadSalesTaxEntity(db, bill.entityId))
+  ) {
+    await retaxBillUseTax(c, db, bill, updateData);
+  } else if (
+    (data.vendorAddress !== undefined || data.contactId !== undefined) &&
+    (await isGstEntity(db, bill.entityId))
+  ) {
+    await resplitBillGst(db, bill, updateData);
+  }
+  return undefined;
+}
+
 // PUT /:id (PATCH alias kept for app-api clients) — drafts only
 app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('json', updateBillSchema), async (c) => {
   const db = c.get('tenantDb');
@@ -669,109 +841,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
     if (!bill) return error.notFound(c, 'Bill', billId);
     if (bill.status !== 'draft') return error.badRequest(c, 'Can only edit draft bills');
 
-    const updateData: Record<string, unknown> = { updatedAt: new Date() };
-    if (data.contactId) updateData.contactId = data.contactId;
-    if (data.contactName !== undefined) updateData.contactName = data.contactName;
-    // Another supplier, or a draft stored without a contact name, takes the contact's name.
-    const contactChanged = !!data.contactId && data.contactId !== bill.contactId;
-    if (contactChanged || !bill.contactName) {
-      const { contactName } = await documentContactFields(db, data.contactId ?? bill.contactId, {
-        contactName: data.contactName ?? (contactChanged ? null : bill.contactName),
-      });
-      updateData.contactName = contactName;
-    }
-    if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
-    if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
-    if (data.currency) updateData.currency = data.currency;
-    // The exchange rate follows a typed rate, a change of currency or issue date, or a null (look it up again).
-    const currencyChanged = data.currency !== undefined && data.currency !== bill.currency;
-    const issueDateChanged =
-      data.issueDate !== undefined && new Date(data.issueDate).getTime() !== bill.issueDate.getTime();
-    if (data.exchangeRate !== undefined || currencyChanged || issueDateChanged) {
-      const baseCurrency = await resolveEntityBaseCurrency(db, bill.entityId);
-      updateData.exchangeRate = await draftRate(db, {
-        baseCurrency,
-        currency: (updateData.currency as string | undefined) ?? bill.currency ?? baseCurrency,
-        date: (updateData.issueDate as Date | undefined) ?? bill.issueDate,
-        override: data.exchangeRate,
-      });
-    }
-    if (data.externalReference !== undefined) updateData.externalReference = data.externalReference;
-    if (data.reference !== undefined) updateData.reference = data.reference;
-    if (data.notes !== undefined) updateData.notes = data.notes;
-    if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes;
-    if (data.expenseAccountId !== undefined) updateData.expenseAccountId = data.expenseAccountId || null;
-    if (data.vendorAddress !== undefined) updateData.vendorAddress = normalizePostalAddress(data.vendorAddress);
-    if (data.deliveryAddress !== undefined) updateData.deliveryAddress = normalizePostalAddress(data.deliveryAddress);
-
-    let newItems: ReturnType<typeof buildBillItemRecords> | undefined;
-    if (data.items) {
-      const { itemIds, taxItems } = withLineIds(data.items);
-      await assertDimensionsBelongToEntity(db, bill.entityId, data.items);
-      const effective = { ...bill, ...updateData } as typeof bill;
-      const gst = await resolveGstBillSupply(db, {
-        entityId: bill.entityId,
-        contactId: effective.contactId,
-        vendorAddress: effective.vendorAddress,
-      });
-      const { processedItems, taxBreakdown, salesTax: _salesTax, ...billTotals } = await calculateDocumentTax(db, {
-        entityId: bill.entityId,
-        direction: 'purchase',
-        items: taxItems,
-        ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry } : {}),
-        runtime: salesTaxRuntimeFromEnv(c.env),
-        document: billDocumentContext(effective),
-      });
-      Object.assign(updateData, billTotals, {
-        taxBreakdown,
-        balanceDue: String(Number.parseFloat(billTotals.total) - Number.parseFloat(bill.amountPaid || '0')),
-      });
-      newItems = buildBillItemRecords(bill.entityId, billId, itemIds, data.items, processedItems);
-    } else if (
-      (data.deliveryAddress !== undefined || data.issueDate !== undefined || data.contactId !== undefined) &&
-      usesSalesTax(await loadSalesTaxEntity(db, bill.entityId))
-    ) {
-      // The use tax rate follows the delivery address and the date: re-tax the saved lines.
-      const stored = await db
-        .select()
-        .from(billItems)
-        .where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt)));
-      if (hasUseTaxLines(stored)) {
-        const effective = { ...bill, ...updateData } as typeof bill;
-        const calc = await calculateDocumentTax(db, {
-          entityId: bill.entityId,
-          direction: 'purchase',
-          items: stored.map(billItemToTaxItem),
-          runtime: salesTaxRuntimeFromEnv(c.env),
-          document: billDocumentContext(effective),
-        });
-        updateData.taxBreakdown = calc.taxBreakdown;
-      }
-    } else if (
-      (data.vendorAddress !== undefined || data.contactId !== undefined) &&
-      (await isGstEntity(db, bill.entityId))
-    ) {
-      // India GST: another supplier (or supplier state) can turn CGST + SGST into IGST: re-split the saved lines.
-      const stored = await db
-        .select()
-        .from(billItems)
-        .where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt)));
-      if (stored.length > 0) {
-        const effective = { ...bill, ...updateData } as typeof bill;
-        const gst = await resolveGstBillSupply(db, {
-          entityId: bill.entityId,
-          contactId: effective.contactId,
-          vendorAddress: effective.vendorAddress,
-        });
-        const calc = await calculateDocumentTax(db, {
-          entityId: bill.entityId,
-          direction: 'purchase',
-          items: stored.map(billItemToTaxItem),
-          ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry } : {}),
-        });
-        updateData.taxBreakdown = calc.taxBreakdown;
-      }
-    }
+    const updateData = await buildBillHeaderPatch(db, bill, data);
+    const newItems = await applyBillTaxChanges(c, db, bill, data, updateData);
 
     const now = new Date();
     await atomically(db, (h) => [

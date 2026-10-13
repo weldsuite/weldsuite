@@ -324,83 +324,117 @@ function addToOutward(t: GstOutwardTotals, taxable: number, heads: GstHeads) {
 // the worksheet
 // ---------------------------------------------------------------------------
 
-export function computeGstWorksheet(input: GstWorksheetInput): GstWorksheet {
-  const { entityStateCode } = input;
-  const docs = new Map(input.documents.map((d) => [d.id, d]));
-  const isInterState = (pos: string | null | undefined): boolean =>
-    Boolean(pos && entityStateCode && pos !== entityStateCode);
+/** What the pass over the ledger entries collects. */
+interface LedgerAccumulator {
+  unsplitTax: number;
+  /** Sales, aggregated per document, supply kind and slab rate. */
+  salesAgg: Map<string, DocAgg>;
+  outwardTaxable: GstOutwardTotals;
+  zeroRated: GstOutwardTotals;
+  nilExemptTotal: { taxableValue: number };
+  /** Tax on rows that are not an invoice or credit note (journals and the like). */
+  otherDocumentTax: number;
+  otherDocumentRows: number;
+  itcOther: GstHeads;
+  itcReverse: GstHeads;
+  reverseCharge: GstOutwardTotals;
+}
 
-  let unsplitTax = 0;
-
-  // ---- sales: aggregate per document, supply kind and slab rate
-  const salesAgg = new Map<string, DocAgg>();
-  const outwardTaxable = newOutward();
-  const zeroRated = newOutward();
-  const nilExemptTotal = { taxableValue: 0 };
-  let otherDocumentTax = 0;
-  let otherDocumentRows = 0;
-
-  // ---- purchases
-  const itcOther = zeroHeads();
-  const itcReverse = zeroHeads();
-  const reverseCharge = newOutward();
-
-  for (const e of input.entries) {
-    if (e.direction === 'purchase') {
-      const head = headOf(e.component);
-      if (e.selfAssessed) {
-        if (countsTaxable(e.component)) reverseCharge.taxableValue = round2(reverseCharge.taxableValue + e.taxableAmount);
-        if (head) {
-          reverseCharge[head] = round2(reverseCharge[head] + e.taxAmount);
-          itcReverse[head] = round2(itcReverse[head] + e.taxAmount);
-        } else if (e.taxAmount !== 0) {
-          unsplitTax = round2(unsplitTax + e.taxAmount);
-        }
-      } else if (head) {
-        itcOther[head] = round2(itcOther[head] + e.taxAmount);
-      } else if (e.taxAmount !== 0 && e.component !== 'export') {
-        unsplitTax = round2(unsplitTax + e.taxAmount);
-      }
-      continue;
-    }
-
-    // sales
-    const kind = classify(e);
-    const head = headOf(e.component);
-    const heads = zeroHeads();
-    if (head) heads[head] = e.taxAmount;
-    else if (kind === 'taxable' && e.taxAmount !== 0) unsplitTax = round2(unsplitTax + e.taxAmount);
-    const taxable = countsTaxable(e.component) ? e.taxableAmount : 0;
-
-    if (kind === 'taxable') addToOutward(outwardTaxable, taxable, heads);
-    else if (kind === 'export') addToOutward(zeroRated, taxable, heads);
-    else nilExemptTotal.taxableValue = round2(nilExemptTotal.taxableValue + taxable);
-
-    const isDocument = e.sourceType === 'invoice' || e.sourceType === 'credit_note';
-    if (!isDocument || !e.sourceId) {
-      otherDocumentRows += 1;
-      otherDocumentTax = round2(otherDocumentTax + e.taxAmount);
-      continue;
-    }
-    const slabRate = kind === 'taxable' ? slabRateOf(e) : 0;
-    const key = `${e.sourceId}|${kind}|${slabRate}`;
-    const agg = salesAgg.get(key) ?? { doc: docs.get(e.sourceId), kind, slabRate, taxable: 0, heads: zeroHeads() };
-    agg.taxable = round2(agg.taxable + taxable);
-    agg.heads = addHeads(agg.heads, heads);
-    salesAgg.set(key, agg);
+/** A purchase row booked by the buyer (reverse charge): its tax is owed and claimed back as ITC. */
+function addReverseChargeEntry(acc: LedgerAccumulator, e: GstLedgerEntry, head: GstHead | null) {
+  if (countsTaxable(e.component)) acc.reverseCharge.taxableValue = round2(acc.reverseCharge.taxableValue + e.taxableAmount);
+  if (head) {
+    acc.reverseCharge[head] = round2(acc.reverseCharge[head] + e.taxAmount);
+    acc.itcReverse[head] = round2(acc.itcReverse[head] + e.taxAmount);
+  } else if (e.taxAmount !== 0) {
+    acc.unsplitTax = round2(acc.unsplitTax + e.taxAmount);
   }
+}
 
-  // ---- GSTR-1 tables from the per-document aggregates
-  const b2bByGstin = new Map<string, GstB2bParty>();
-  const b2cLarge: GstRateLine[] = [];
-  const b2cSmall = new Map<string, GstB2cSmallLine>();
-  const exportsByDoc = new Map<string, { documentId: string; number: string; date: string; value: number; taxable: number; igst: number }>();
-  const nilExempt = new Map<'nil_rated' | 'exempt', GstNilExemptRow>();
-  const creditNotes: GstCreditNoteLine[] = [];
-  let missingPlaceOfSupply = 0;
-  const flaggedMissingPos = new Set<string>();
+function addPurchaseEntry(acc: LedgerAccumulator, e: GstLedgerEntry) {
+  const head = headOf(e.component);
+  if (e.selfAssessed) {
+    addReverseChargeEntry(acc, e, head);
+  } else if (head) {
+    acc.itcOther[head] = round2(acc.itcOther[head] + e.taxAmount);
+  } else if (e.taxAmount !== 0 && e.component !== 'export') {
+    acc.unsplitTax = round2(acc.unsplitTax + e.taxAmount);
+  }
+}
 
-  const rateLine = (agg: DocAgg): GstRateLine => ({
+/** The GSTR-1 / 3B outward totals the supply belongs to. */
+function addToSupplyTotals(acc: LedgerAccumulator, kind: SupplyKind, taxable: number, heads: GstHeads) {
+  if (kind === 'taxable') addToOutward(acc.outwardTaxable, taxable, heads);
+  else if (kind === 'export') addToOutward(acc.zeroRated, taxable, heads);
+  else acc.nilExemptTotal.taxableValue = round2(acc.nilExemptTotal.taxableValue + taxable);
+}
+
+function addSalesEntry(acc: LedgerAccumulator, e: GstLedgerEntry, docs: Map<string, GstDocument>) {
+  const kind = classify(e);
+  const head = headOf(e.component);
+  const heads = zeroHeads();
+  if (head) heads[head] = e.taxAmount;
+  else if (kind === 'taxable' && e.taxAmount !== 0) acc.unsplitTax = round2(acc.unsplitTax + e.taxAmount);
+  const taxable = countsTaxable(e.component) ? e.taxableAmount : 0;
+
+  addToSupplyTotals(acc, kind, taxable, heads);
+
+  const isDocument = e.sourceType === 'invoice' || e.sourceType === 'credit_note';
+  if (!isDocument || !e.sourceId) {
+    acc.otherDocumentRows += 1;
+    acc.otherDocumentTax = round2(acc.otherDocumentTax + e.taxAmount);
+    return;
+  }
+  const slabRate = kind === 'taxable' ? slabRateOf(e) : 0;
+  const key = `${e.sourceId}|${kind}|${slabRate}`;
+  const agg = acc.salesAgg.get(key) ?? { doc: docs.get(e.sourceId), kind, slabRate, taxable: 0, heads: zeroHeads() };
+  agg.taxable = round2(agg.taxable + taxable);
+  agg.heads = addHeads(agg.heads, heads);
+  acc.salesAgg.set(key, agg);
+}
+
+/** Sales: aggregate per document, supply kind and slab rate. Purchases: ITC and reverse charge. */
+function aggregateEntries(entries: GstLedgerEntry[], docs: Map<string, GstDocument>): LedgerAccumulator {
+  const acc: LedgerAccumulator = {
+    unsplitTax: 0,
+    salesAgg: new Map<string, DocAgg>(),
+    outwardTaxable: newOutward(),
+    zeroRated: newOutward(),
+    nilExemptTotal: { taxableValue: 0 },
+    otherDocumentTax: 0,
+    otherDocumentRows: 0,
+    itcOther: zeroHeads(),
+    itcReverse: zeroHeads(),
+    reverseCharge: newOutward(),
+  };
+  for (const e of entries) {
+    if (e.direction === 'purchase') addPurchaseEntry(acc, e);
+    else addSalesEntry(acc, e, docs);
+  }
+  return acc;
+}
+
+type GstExportRow = GstWorksheet['gstr1']['exports'][number];
+
+/** The GSTR-1 tables as they are built, before sorting. */
+interface Gstr1Tables {
+  b2bByGstin: Map<string, GstB2bParty>;
+  b2cLarge: GstRateLine[];
+  b2cSmall: Map<string, GstB2cSmallLine>;
+  exportsByDoc: Map<string, GstExportRow>;
+  nilExempt: Map<'nil_rated' | 'exempt', GstNilExemptRow>;
+  creditNotes: GstCreditNoteLine[];
+  missingPlaceOfSupply: number;
+}
+
+/** Who the document is made out to: registered (has a GSTIN) or not, in the entity's state or another. */
+interface Buyer {
+  registered: boolean;
+  inter: boolean;
+}
+
+function toRateLine(agg: DocAgg): GstRateLine {
+  return {
     documentId: agg.doc!.id,
     number: agg.doc!.number,
     date: agg.doc!.date,
@@ -411,66 +445,102 @@ export function computeGstWorksheet(input: GstWorksheetInput): GstWorksheet {
     igst: agg.heads.igst,
     cgst: agg.heads.cgst,
     sgst: agg.heads.sgst,
-  });
+  };
+}
+
+const nilExemptCategory = (kind: SupplyKind): 'nil_rated' | 'exempt' => (kind === 'exempt' ? 'exempt' : 'nil_rated');
+
+/** Export value is the document total: positive on an invoice, negative on a credit note. */
+function addExportAgg(exportsByDoc: Map<string, GstExportRow>, doc: GstDocument, value: number, agg: DocAgg) {
+  const row = exportsByDoc.get(doc.id) ?? { documentId: doc.id, number: doc.number, date: doc.date, value, taxable: 0, igst: 0 };
+  row.taxable = round2(row.taxable + agg.taxable);
+  row.igst = round2(row.igst + agg.heads.igst);
+  exportsByDoc.set(doc.id, row);
+}
+
+function addB2bLine(b2bByGstin: Map<string, GstB2bParty>, doc: GstDocument, agg: DocAgg) {
+  const party = b2bByGstin.get(doc.gstin!) ?? { gstin: doc.gstin!, name: doc.counterpartyName, lines: [], taxable: 0, igst: 0, cgst: 0, sgst: 0 };
+  const line = toRateLine(agg);
+  party.lines.push(line);
+  party.taxable = round2(party.taxable + line.taxable);
+  party.igst = round2(party.igst + line.igst);
+  party.cgst = round2(party.cgst + line.cgst);
+  party.sgst = round2(party.sgst + line.sgst);
+  b2bByGstin.set(doc.gstin!, party);
+}
+
+function addB2cSmallLine(b2cSmall: Map<string, GstB2cSmallLine>, doc: GstDocument, agg: DocAgg) {
+  const key = `${doc.placeOfSupply ?? ''}|${agg.slabRate}`;
+  const small = b2cSmall.get(key) ?? { placeOfSupply: doc.placeOfSupply, slabRate: agg.slabRate, taxable: 0, igst: 0, cgst: 0, sgst: 0 };
+  small.taxable = round2(small.taxable + agg.taxable);
+  small.igst = round2(small.igst + agg.heads.igst);
+  small.cgst = round2(small.cgst + agg.heads.cgst);
+  small.sgst = round2(small.sgst + agg.heads.sgst);
+  b2cSmall.set(key, small);
+}
+
+/** A taxable invoice: B2B by GSTIN, B2C large (inter-state, above the threshold) or B2C small. */
+function addTaxableInvoiceAgg(tables: Gstr1Tables, doc: GstDocument, agg: DocAgg, buyer: Buyer) {
+  if (buyer.registered) addB2bLine(tables.b2bByGstin, doc, agg);
+  else if (buyer.inter && doc.total > B2C_LARGE_THRESHOLD) tables.b2cLarge.push(toRateLine(agg));
+  else addB2cSmallLine(tables.b2cSmall, doc, agg);
+}
+
+function addInvoiceAgg(tables: Gstr1Tables, doc: GstDocument, agg: DocAgg, buyer: Buyer) {
+  if (agg.kind === 'taxable') {
+    addTaxableInvoiceAgg(tables, doc, agg, buyer);
+  } else if (agg.kind === 'export') {
+    addExportAgg(tables.exportsByDoc, doc, doc.total, agg);
+  } else {
+    addNilExempt(tables.nilExempt, nilExemptCategory(agg.kind), buyer.registered, buyer.inter, agg.taxable);
+  }
+}
+
+function addCreditNoteAgg(tables: Gstr1Tables, doc: GstDocument, agg: DocAgg, buyer: Buyer) {
+  if (agg.kind === 'taxable') {
+    tables.creditNotes.push({ ...toRateLine(agg), gstin: doc.gstin, originalNumber: doc.originalNumber ?? null });
+  } else if (agg.kind === 'export') {
+    // An export credit note: reported with the exports (negative).
+    addExportAgg(tables.exportsByDoc, doc, -doc.total, agg);
+  } else {
+    addNilExempt(tables.nilExempt, nilExemptCategory(agg.kind), buyer.registered, buyer.inter, agg.taxable);
+  }
+}
+
+/** GSTR-1 tables from the per-document aggregates. */
+function buildGstr1Tables(salesAgg: Map<string, DocAgg>, isInterState: (pos: string | null | undefined) => boolean): Gstr1Tables {
+  const tables: Gstr1Tables = {
+    b2bByGstin: new Map(),
+    b2cLarge: [],
+    b2cSmall: new Map(),
+    exportsByDoc: new Map(),
+    nilExempt: new Map(),
+    creditNotes: [],
+    missingPlaceOfSupply: 0,
+  };
+  const flaggedMissingPos = new Set<string>();
 
   for (const agg of salesAgg.values()) {
     const doc = agg.doc;
     if (!doc) continue;
-    const registered = Boolean(doc.gstin);
-    const inter = isInterState(doc.placeOfSupply);
+    const buyer: Buyer = { registered: Boolean(doc.gstin), inter: isInterState(doc.placeOfSupply) };
 
     if (agg.kind === 'taxable' && !doc.placeOfSupply && !flaggedMissingPos.has(doc.id)) {
       flaggedMissingPos.add(doc.id);
-      missingPlaceOfSupply += 1;
+      tables.missingPlaceOfSupply += 1;
     }
 
-    if (doc.kind === 'credit_note') {
-      if (agg.kind === 'taxable') {
-        creditNotes.push({ ...rateLine(agg), gstin: doc.gstin, originalNumber: doc.originalNumber ?? null });
-      } else if (agg.kind === 'export') {
-        // An export credit note: reported with the exports (negative).
-        const row = exportsByDoc.get(doc.id) ?? { documentId: doc.id, number: doc.number, date: doc.date, value: -doc.total, taxable: 0, igst: 0 };
-        row.taxable = round2(row.taxable + agg.taxable);
-        row.igst = round2(row.igst + agg.heads.igst);
-        exportsByDoc.set(doc.id, row);
-      } else {
-        addNilExempt(nilExempt, agg.kind === 'exempt' ? 'exempt' : 'nil_rated', registered, inter, agg.taxable);
-      }
-      continue;
-    }
-
-    if (agg.kind === 'taxable') {
-      if (registered) {
-        const party = b2bByGstin.get(doc.gstin!) ?? { gstin: doc.gstin!, name: doc.counterpartyName, lines: [], taxable: 0, igst: 0, cgst: 0, sgst: 0 };
-        const line = rateLine(agg);
-        party.lines.push(line);
-        party.taxable = round2(party.taxable + line.taxable);
-        party.igst = round2(party.igst + line.igst);
-        party.cgst = round2(party.cgst + line.cgst);
-        party.sgst = round2(party.sgst + line.sgst);
-        b2bByGstin.set(doc.gstin!, party);
-      } else if (inter && doc.total > B2C_LARGE_THRESHOLD) {
-        b2cLarge.push(rateLine(agg));
-      } else {
-        const key = `${doc.placeOfSupply ?? ''}|${agg.slabRate}`;
-        const small = b2cSmall.get(key) ?? { placeOfSupply: doc.placeOfSupply, slabRate: agg.slabRate, taxable: 0, igst: 0, cgst: 0, sgst: 0 };
-        small.taxable = round2(small.taxable + agg.taxable);
-        small.igst = round2(small.igst + agg.heads.igst);
-        small.cgst = round2(small.cgst + agg.heads.cgst);
-        small.sgst = round2(small.sgst + agg.heads.sgst);
-        b2cSmall.set(key, small);
-      }
-    } else if (agg.kind === 'export') {
-      const row = exportsByDoc.get(doc.id) ?? { documentId: doc.id, number: doc.number, date: doc.date, value: doc.total, taxable: 0, igst: 0 };
-      row.taxable = round2(row.taxable + agg.taxable);
-      row.igst = round2(row.igst + agg.heads.igst);
-      exportsByDoc.set(doc.id, row);
-    } else {
-      addNilExempt(nilExempt, agg.kind === 'exempt' ? 'exempt' : 'nil_rated', registered, inter, agg.taxable);
-    }
+    if (doc.kind === 'credit_note') addCreditNoteAgg(tables, doc, agg, buyer);
+    else addInvoiceAgg(tables, doc, agg, buyer);
   }
+  return tables;
+}
 
-  // GSTR-3B 3.2: inter-state supplies to unregistered buyers, by place of supply
+/** GSTR-3B 3.2: inter-state supplies to unregistered buyers, by place of supply. */
+function buildInterStateUnregistered(
+  salesAgg: Map<string, DocAgg>,
+  isInterState: (pos: string | null | undefined) => boolean,
+) {
   const interUnregistered = new Map<string, { placeOfSupply: string | null; taxable: number; igst: number }>();
   for (const agg of salesAgg.values()) {
     const doc = agg.doc;
@@ -481,41 +551,58 @@ export function computeGstWorksheet(input: GstWorksheetInput): GstWorksheet {
     row.igst = round2(row.igst + agg.heads.igst);
     interUnregistered.set(key, row);
   }
+  return interUnregistered;
+}
 
-  // ---- HSN summary (Table 12)
+/** Whether each sales document was supplied in the entity's state (CGST) or another (IGST). */
+function supplyOfDocuments(entries: GstLedgerEntry[]): Map<string, 'intra' | 'inter'> {
   const supplyOfDoc = new Map<string, 'intra' | 'inter'>();
-  for (const e of input.entries) {
+  for (const e of entries) {
     if (e.direction !== 'sales' || !e.sourceId) continue;
     if (e.component === 'igst') supplyOfDoc.set(e.sourceId, 'inter');
     else if ((e.component === 'cgst') && !supplyOfDoc.has(e.sourceId)) supplyOfDoc.set(e.sourceId, 'intra');
   }
+  return supplyOfDoc;
+}
+
+/** One invoice line added to its HSN/SAC row, signed (a credit note subtracts). */
+function addHsnLine(row: GstHsnRow, line: GstInvoiceLine, supply: 'intra' | 'inter' | undefined) {
+  const taxable = round2(line.taxableValue * line.sign);
+  const tax = round2(line.taxAmount * line.sign);
+  row.quantity = round2(row.quantity + line.quantity * line.sign);
+  row.taxable = round2(row.taxable + taxable);
+  if (supply === 'inter') row.igst = round2(row.igst + tax);
+  else if (supply === 'intra') {
+    const cgst = round2((taxable * (line.slabRate / 2)) / 100);
+    row.cgst = round2(row.cgst + cgst);
+    row.sgst = round2(row.sgst + (tax - cgst));
+  }
+}
+
+/** HSN summary (Table 12), and how many lines carry no HSN/SAC code. */
+function buildHsnSummary(entries: GstLedgerEntry[], lines: GstInvoiceLine[]) {
+  const supplyOfDoc = supplyOfDocuments(entries);
   const hsn = new Map<string, GstHsnRow>();
   let missingHsn = 0;
-  for (const line of input.lines) {
-    const taxable = round2(line.taxableValue * line.sign);
-    const tax = round2(line.taxAmount * line.sign);
-    const supply = supplyOfDoc.get(line.documentId);
+  for (const line of lines) {
     const key = `${line.hsnSac ?? ''}|${line.unit ?? ''}|${line.slabRate}`;
     const row = hsn.get(key) ?? { hsnSac: line.hsnSac, unit: line.unit, slabRate: line.slabRate, quantity: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0 };
-    row.quantity = round2(row.quantity + line.quantity * line.sign);
-    row.taxable = round2(row.taxable + taxable);
-    if (supply === 'inter') row.igst = round2(row.igst + tax);
-    else if (supply === 'intra') {
-      const cgst = round2((taxable * (line.slabRate / 2)) / 100);
-      row.cgst = round2(row.cgst + cgst);
-      row.sgst = round2(row.sgst + (tax - cgst));
-    }
+    addHsnLine(row, line, supplyOfDoc.get(line.documentId));
     hsn.set(key, row);
     if (!line.hsnSac) missingHsn += 1;
   }
+  return { hsn, missingHsn };
+}
 
-  // ---- totals
+/** GSTR-1 totals, the ITC, the liability and what is payable in cash after utilising the credit. */
+function computePayment(acc: LedgerAccumulator) {
+  const { outwardTaxable, zeroRated, reverseCharge } = acc;
   const gstr1Totals: GstOutwardTotals = newOutward();
   addToOutward(gstr1Totals, outwardTaxable.taxableValue, outwardTaxable);
   addToOutward(gstr1Totals, zeroRated.taxableValue, zeroRated);
-  addToOutward(gstr1Totals, nilExemptTotal.taxableValue, zeroHeads());
+  addToOutward(gstr1Totals, acc.nilExemptTotal.taxableValue, zeroHeads());
 
-  const itcTotal = addHeads(itcOther, itcReverse);
+  const itcTotal = addHeads(acc.itcOther, acc.itcReverse);
   const liability = addHeads(
     { igst: outwardTaxable.igst, cgst: outwardTaxable.cgst, sgst: outwardTaxable.sgst, cess: outwardTaxable.cess },
     { igst: zeroRated.igst, cgst: zeroRated.cgst, sgst: zeroRated.sgst, cess: zeroRated.cess },
@@ -525,41 +612,79 @@ export function computeGstWorksheet(input: GstWorksheetInput): GstWorksheet {
   // becomes available once the RCM tax is paid in cash, so it counts in the same pool.
   const utilisation = utiliseItc(liability, itcTotal);
   const netPayable = addHeads(utilisation.cash, reverseLiability);
+  return { gstr1Totals, itcTotal, liability, reverseLiability, utilisation, netPayable };
+}
 
+function buildWarnings(counts: {
+  unsplitTax: number;
+  missingHsn: number;
+  missingPlaceOfSupply: number;
+  otherDocumentRows: number;
+  otherDocumentTax: number;
+}): GstWarning[] {
   const warnings: GstWarning[] = [];
-  if (unsplitTax !== 0) warnings.push({ code: 'unsplit_tax', count: 1, amount: unsplitTax });
-  if (missingHsn > 0) warnings.push({ code: 'missing_hsn', count: missingHsn });
-  if (missingPlaceOfSupply > 0) warnings.push({ code: 'missing_place_of_supply', count: missingPlaceOfSupply });
-  if (otherDocumentRows > 0) warnings.push({ code: 'tax_on_other_documents', count: otherDocumentRows, amount: otherDocumentTax });
+  if (counts.unsplitTax !== 0) warnings.push({ code: 'unsplit_tax', count: 1, amount: counts.unsplitTax });
+  if (counts.missingHsn > 0) warnings.push({ code: 'missing_hsn', count: counts.missingHsn });
+  if (counts.missingPlaceOfSupply > 0) warnings.push({ code: 'missing_place_of_supply', count: counts.missingPlaceOfSupply });
+  if (counts.otherDocumentRows > 0) {
+    warnings.push({ code: 'tax_on_other_documents', count: counts.otherDocumentRows, amount: counts.otherDocumentTax });
+  }
+  return warnings;
+}
 
-  const byGstin = [...b2bByGstin.values()].sort((a, b) => a.gstin.localeCompare(b.gstin));
-  for (const party of byGstin) party.lines.sort((a, b) => a.date.localeCompare(b.date) || a.number.localeCompare(b.number));
+const byDate = (a: { date: string }, b: { date: string }) => a.date.localeCompare(b.date);
+const byPlaceOfSupply = (a: { placeOfSupply: string | null }, b: { placeOfSupply: string | null }) =>
+  (a.placeOfSupply ?? '').localeCompare(b.placeOfSupply ?? '');
+
+/** The GSTR-1 tables, sorted the way the worksheet lists them. */
+function sortedGstr1Tables(tables: Gstr1Tables): Omit<GstWorksheet['gstr1'], 'hsn' | 'totals'> {
+  const b2b = [...tables.b2bByGstin.values()].sort((a, b) => a.gstin.localeCompare(b.gstin));
+  for (const party of b2b) party.lines.sort((a, b) => byDate(a, b) || a.number.localeCompare(b.number));
+  return {
+    b2b,
+    b2cLarge: tables.b2cLarge.sort(byDate),
+    b2cSmall: [...tables.b2cSmall.values()].sort((a, b) => byPlaceOfSupply(a, b) || a.slabRate - b.slabRate),
+    exports: [...tables.exportsByDoc.values()].sort(byDate),
+    nilExempt: [...tables.nilExempt.values()],
+    creditNotes: tables.creditNotes.sort(byDate),
+  };
+}
+
+export function computeGstWorksheet(input: GstWorksheetInput): GstWorksheet {
+  const { entityStateCode } = input;
+  const docs = new Map(input.documents.map((d) => [d.id, d]));
+  const isInterState = (pos: string | null | undefined): boolean =>
+    Boolean(pos && entityStateCode && pos !== entityStateCode);
+
+  const acc = aggregateEntries(input.entries, docs);
+  const tables = buildGstr1Tables(acc.salesAgg, isInterState);
+  const interUnregistered = buildInterStateUnregistered(acc.salesAgg, isInterState);
+  const { hsn, missingHsn } = buildHsnSummary(input.entries, input.lines);
+  const { gstr1Totals, itcTotal, liability, reverseLiability, utilisation, netPayable } = computePayment(acc);
+  const warnings = buildWarnings({
+    unsplitTax: acc.unsplitTax,
+    missingHsn,
+    missingPlaceOfSupply: tables.missingPlaceOfSupply,
+    otherDocumentRows: acc.otherDocumentRows,
+    otherDocumentTax: acc.otherDocumentTax,
+  });
 
   return {
     periodStart: input.periodStart,
     periodEnd: input.periodEnd,
     entityStateCode,
     gstr1: {
-      b2b: byGstin,
-      b2cLarge: b2cLarge.sort((a, b) => a.date.localeCompare(b.date)),
-      b2cSmall: [...b2cSmall.values()].sort(
-        (a, b) => (a.placeOfSupply ?? '').localeCompare(b.placeOfSupply ?? '') || a.slabRate - b.slabRate,
-      ),
-      exports: [...exportsByDoc.values()].sort((a, b) => a.date.localeCompare(b.date)),
-      nilExempt: [...nilExempt.values()],
-      creditNotes: creditNotes.sort((a, b) => a.date.localeCompare(b.date)),
+      ...sortedGstr1Tables(tables),
       hsn: [...hsn.values()].sort((a, b) => (a.hsnSac ?? '').localeCompare(b.hsnSac ?? '') || a.slabRate - b.slabRate),
       totals: gstr1Totals,
     },
     gstr3b: {
-      outwardTaxable,
-      zeroRated,
-      nilExempt: nilExemptTotal,
-      reverseCharge,
-      interStateUnregistered: [...interUnregistered.values()].sort((a, b) =>
-        (a.placeOfSupply ?? '').localeCompare(b.placeOfSupply ?? ''),
-      ),
-      itc: { other: itcOther, reverseCharge: itcReverse, total: itcTotal },
+      outwardTaxable: acc.outwardTaxable,
+      zeroRated: acc.zeroRated,
+      nilExempt: acc.nilExemptTotal,
+      reverseCharge: acc.reverseCharge,
+      interStateUnregistered: [...interUnregistered.values()].sort(byPlaceOfSupply),
+      itc: { other: acc.itcOther, reverseCharge: acc.itcReverse, total: itcTotal },
       payment: {
         liability,
         reverseChargeLiability: reverseLiability,
@@ -568,7 +693,7 @@ export function computeGstWorksheet(input: GstWorksheetInput): GstWorksheet {
         totalNetPayable: round2(netPayable.igst + netPayable.cgst + netPayable.sgst + netPayable.cess),
       },
     },
-    unsplitTax,
+    unsplitTax: acc.unsplitTax,
     warnings,
   };
 }

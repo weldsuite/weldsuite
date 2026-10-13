@@ -341,7 +341,8 @@ function buildGstItemsTable(
       } else {
         taxCells = [td(rate ? `${escapeHtml(fmtNumber(rate))}%` : '—'), td(fmtCurrency(lineTax))].join('');
       }
-      const quantity = `${escapeHtml(fmtNumber(item.quantity))}${item.unit ? ` ${escapeHtml(item.unit)}` : ''}`;
+      const unit = item.unit ? ' ' + escapeHtml(item.unit) : '';
+      const quantity = escapeHtml(fmtNumber(item.quantity)) + unit;
       return `
     <tr>
       ${td(escapeHtml(item.description), 'left')}
@@ -594,11 +595,10 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const taxBreakdown = invoice.taxBreakdown || [];
   const usSalesTax = adapter.features.salesTax && taxBreakdown.some((row) => row.jurisdictionName);
   const gstInvoice = entity.jurisdictionCode === 'IN';
-  const taxRows = usSalesTax
-    ? buildUsTaxRows(taxBreakdown, labels, fmtCurrency, fmtNumber)
-    : gstInvoice
-      ? buildGstTaxRows(taxBreakdown, labels, fmtCurrency, fmtNumber)
-      : buildTaxRows(taxBreakdown, labels, fmtCurrency, fmtNumber);
+  let buildRows = buildTaxRows;
+  if (usSalesTax) buildRows = buildUsTaxRows;
+  else if (gstInvoice) buildRows = buildGstTaxRows;
+  const taxRows = buildRows(taxBreakdown, labels, fmtCurrency, fmtNumber);
   const exemptNotices = usSalesTax
     ? buildUsExemptNotices(taxBreakdown, invoice.certificateNumbers, fmtCurrency)
     : '';

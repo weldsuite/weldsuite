@@ -262,11 +262,8 @@ function EntityDetailsForm({
   const isUs = isUsJurisdictionCode(entity.jurisdictionCode);
   const [remap, setRemap] = useState<{ formLabel: string | null } | null>(null);
   // The books rest on the fiscal year once there are postings or generated periods.
-  const fiscalYearLockedReason = entity.fiscalYearLocked
-    ? entity.hasPostings
-      ? te.fiscalYearLockedPostings
-      : te.fiscalYearLockedPeriods
-    : null;
+  const lockedBy = entity.hasPostings ? te.fiscalYearLockedPostings : te.fiscalYearLockedPeriods;
+  const fiscalYearLockedReason = entity.fiscalYearLocked ? lockedBy : null;
 
   const schema = useMemo(
     () =>
