@@ -5,6 +5,7 @@ export type {
   MeetingRoomViewProps,
   LeaveLabels,
   RecordingLabels,
+  HeaderLabels,
   MeetingClient,
   MeetingPeer,
   WaitlistedPeer,
@@ -25,9 +26,12 @@ export {
 } from './components/meeting-chat-notification';
 
 // Components
-export { ParticipantTile, ScreenShareTile, useIsSpeaking, getPersonTheme, getInitials, type ParticipantTileProps, type ScreenShareTileProps } from './components/participant-tile';
+export { ParticipantTile, ScreenShareTile, useIsSpeaking, type ParticipantTileProps, type ScreenShareTileProps } from './components/participant-tile';
+export { getPersonTheme, getInitialsColor, getInitials, getPeerColorSeed, PERSON_THEMES, type PersonTheme } from './lib/person-theme';
+export { getRealPicture } from './lib/avatar-picture';
+export { PersonAvatar, type PersonAvatarProps } from './components/person-avatar';
 export { ParticipantContextMenu, type ParticipantContextMenuProps } from './components/participant-context-menu';
-export { CallControlsBar, type CallControlsBarProps } from './components/call-controls-bar';
+export { CallControlsBar, type CallControlsBarProps, type CallControlsDeviceSource } from './components/call-controls-bar';
 export {
   PermissionHelp,
   DEFAULT_PERMISSION_HELP_LABELS,

@@ -10,7 +10,6 @@ import { MeetingToolsPanel } from '../src/components/meeting-tools-panel';
 
 const headerProps = {
   meetingTitle: 'Standup',
-  duration: 0,
   rightPanel: null,
   showChat: false,
   onToggleRightPanel: () => {},

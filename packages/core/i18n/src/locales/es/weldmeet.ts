@@ -77,6 +77,13 @@ export const weldmeet = {
       active: 'Grabando',
       paused: 'Grabación en pausa',
     },
+    header: {
+      details: 'Detalles',
+      people: 'Personas',
+      chat: 'Chat',
+      tools: 'Herramientas',
+      duration: 'Duración',
+    },
     preview: {
       defaultTitle: 'Unirse a la reunión',
       subtitle: 'Comprueba tu audio y vídeo antes de unirte',

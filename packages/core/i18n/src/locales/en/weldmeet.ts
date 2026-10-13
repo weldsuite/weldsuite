@@ -78,6 +78,13 @@ export const weldmeet = {
       active: 'Recording',
       paused: 'Recording paused',
     },
+    header: {
+      details: 'Details',
+      people: 'People',
+      chat: 'Chat',
+      tools: 'Tools',
+      duration: 'Duration',
+    },
     preview: {
       defaultTitle: 'Join meeting',
       subtitle: 'Check your audio and video before joining',

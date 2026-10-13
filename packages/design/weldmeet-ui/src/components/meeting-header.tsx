@@ -3,18 +3,19 @@ import { Info, MessageSquare, Users, LayoutGrid } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { useIsMobile } from '../hooks/use-is-mobile';
-import type { RecordingLabels, RecordingState } from '../types';
+import type { HeaderLabels, RecordingLabels, RecordingState } from '../types';
 import type { RightPanelKind } from './meeting-right-panel';
 
 export interface MeetingHeaderProps {
   meetingTitle: string;
-  duration: number;
   isRecording?: boolean;
   recordingState?: RecordingState;
   /** Whole seconds since the recorder was asked to start (shown while STARTING). */
   recordingStartElapsedSeconds?: number;
   /** Copy for the recording-start cue. English when omitted. */
   recordingLabels?: RecordingLabels;
+  /** Copy for the panel buttons. English when omitted. */
+  headerLabels?: HeaderLabels;
   waitlistedCount?: number;
   /** Number of people currently in the call — rendered inline on the People button. */
   participantsCount?: number;
@@ -37,19 +38,13 @@ export interface MeetingHeaderProps {
   mobileOverflowActions?: boolean;
 }
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
 export function MeetingHeader({
   meetingTitle,
-  duration,
   isRecording,
   recordingState,
   recordingStartElapsedSeconds,
   recordingLabels,
+  headerLabels,
   waitlistedCount = 0,
   participantsCount,
   rightPanel,
@@ -126,7 +121,11 @@ export function MeetingHeader({
   };
 
   const overflowed = isMobile && mobileOverflowActions;
-  const durationLabel = formatDuration(duration);
+  const hasRecordingCue = !!isRecording || recordingState === 'STARTING';
+  // Desktop: bordered text buttons. Phone: icon only, the row is too narrow
+  // for labels.
+  const idleVariant = isMobile ? 'ghost' : 'outline';
+  const hasCount = typeof participantsCount === 'number';
 
   const recordingCue = (
     <>
@@ -206,14 +205,12 @@ export function MeetingHeader({
   return (
     <div className="flex items-center justify-between gap-2 px-3 md:px-4 border-b flex-shrink-0 h-[53px]">
       {isMobile ? (
-        // Phone: the title gets the whole row; time and recording state sit
-        // on a second, quieter line beneath it.
+        // Phone: the title gets the whole row; the recording state sits on a
+        // second, quieter line beneath it while there is one. (The call timer
+        // is in the Meeting details panel.)
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
           <div className="flex min-w-0 items-center">{title}</div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-mono tabular-nums">{durationLabel}</span>
-            {recordingCue}
-          </div>
+          {hasRecordingCue && <div className="flex items-center gap-2">{recordingCue}</div>}
         </div>
       ) : (
         <div className="flex items-center gap-2">
@@ -221,35 +218,32 @@ export function MeetingHeader({
           {title}
         </div>
       )}
-      <div className={cn('flex items-center gap-1', isMobile && 'flex-shrink-0')}>
-        {!isMobile && (
-          <>
-            <span className="text-sm text-muted-foreground font-mono mr-1">{durationLabel}</span>
-            <div className="h-4 w-px bg-border mx-0.5" />
-          </>
-        )}
+      <div className={cn('flex items-center', isMobile ? 'gap-1 flex-shrink-0' : 'gap-1.5')}>
         {showInfoButton && !overflowed && (
           <Button
-            variant={rightPanel === 'info' ? 'secondary' : 'ghost'}
-            size="icon-sm"
+            variant={rightPanel === 'info' ? 'secondary' : idleVariant}
+            size={isMobile ? 'icon-sm' : 'sm'}
+            className={cn(!isMobile && 'border')}
             onClick={() => onToggleRightPanel('info')}
             title="Meeting details"
           >
-            <Info className="h-4 w-4" />
+            {isMobile ? <Info className="h-4 w-4" /> : (headerLabels?.details ?? 'Details')}
           </Button>
         )}
         {showPeopleButton && (
           <Button
-            variant={rightPanel === 'people' ? 'secondary' : 'ghost'}
-            size={typeof participantsCount === 'number' ? 'sm' : 'icon-sm'}
-            className="relative overflow-visible max-md:h-9 max-md:min-w-9"
+            variant={rightPanel === 'people' ? 'secondary' : idleVariant}
+            size={hasCount || !isMobile ? 'sm' : 'icon-sm'}
+            className={cn("relative overflow-visible max-md:h-9 max-md:min-w-9", !isMobile && 'border', !isMobile && hasCount && 'pr-[10px]')}
             onClick={() => onToggleRightPanel('people')}
             title="People"
           >
-            <Users className="h-4 w-4" />
-            {typeof participantsCount === 'number' && (
-              <span className="text-[13px] font-medium tabular-nums">
-                {participantsCount}
+            {isMobile ? <Users className="h-4 w-4" /> : (headerLabels?.people ?? 'People')}
+            {hasCount && (
+              // The count square of the platform's list group headers (My tasks),
+              // at 18px instead of 16px.
+              <span className="relative text-[10px] font-mono text-foreground/85 bg-muted border border-border w-[18px] h-[18px] flex items-center justify-center rounded-[5px]">
+                <span className="translate-y-[1px]">{participantsCount}</span>
               </span>
             )}
             {waitlistedCount > 0 && (
@@ -261,22 +255,24 @@ export function MeetingHeader({
         )}
         {showChatButton && (
           <Button
-            variant={showChat ? 'secondary' : 'ghost'}
-            size={isMobile ? 'icon' : 'icon-sm'}
+            variant={showChat ? 'secondary' : idleVariant}
+            size={isMobile ? 'icon' : 'sm'}
+            className={cn(!isMobile && 'border')}
             onClick={onToggleChat}
             title="Chat"
           >
-            <MessageSquare className="h-4 w-4" />
+            {isMobile ? <MessageSquare className="h-4 w-4" /> : (headerLabels?.chat ?? 'Chat')}
           </Button>
         )}
         {showToolsButton && !overflowed && (
           <Button
-            variant={rightPanel === 'tools' ? 'secondary' : 'ghost'}
-            size="icon-sm"
+            variant={rightPanel === 'tools' ? 'secondary' : idleVariant}
+            size={isMobile ? 'icon-sm' : 'sm'}
+            className={cn(!isMobile && 'border')}
             onClick={() => onToggleRightPanel('tools')}
             title="Meeting tools"
           >
-            <LayoutGrid className="h-4 w-4" />
+            {isMobile ? <LayoutGrid className="h-4 w-4" /> : (headerLabels?.tools ?? 'Tools')}
           </Button>
         )}
         {/* Host controls (Settings) moved into the 3-dots More-options menu in
