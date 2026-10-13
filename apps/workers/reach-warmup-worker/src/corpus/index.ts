@@ -1,5 +1,5 @@
 /**
- * Warmup corpus access. Implemented in the WeldReach warmup build.
+ * Warmup corpus access.
  *
  * CONTRACT:
  *   loadCorpus(env) → the current corpus: the latest generated set in R2
@@ -11,24 +11,10 @@
  *     stores it in R2 when the stored set is older than 30 days; no-op otherwise.
  */
 
-import type { Env } from '../env';
-import type { CorpusPerson, CorpusThread, RenderedCorpusMessage } from './types';
-
 export type { CorpusMessage, CorpusPerson, CorpusThread, RenderedCorpusMessage } from './types';
 
-export async function loadCorpus(_env: Env): Promise<CorpusThread[]> {
-  throw new Error('loadCorpus: not implemented yet');
-}
-
-export function renderCorpusMessage(
-  _thread: CorpusThread,
-  _step: number,
-  _sender: CorpusPerson,
-  _recipient: CorpusPerson,
-): RenderedCorpusMessage {
-  throw new Error('renderCorpusMessage: not implemented yet');
-}
-
-export async function refreshCorpus(_env: Env, _now: Date): Promise<{ refreshed: boolean }> {
-  throw new Error('refreshCorpus: not implemented yet');
-}
+export { BUILTIN_CORPUS } from './builtin';
+export { refreshCorpus } from './generate';
+export { loadCorpus } from './load';
+export { renderCorpusMessage } from './render';
+export { parseCorpusThread, parseCorpusThreads } from './validate';
