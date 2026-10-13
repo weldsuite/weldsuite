@@ -5,6 +5,8 @@ export const CORPUS_PREFIX = 'reach-warmup/corpus/';
 export const CORPUS_LATEST_KEY = `${CORPUS_PREFIX}latest.json`;
 /** `{ generatedAt }`: when `latest.json` was produced. */
 export const CORPUS_META_KEY = `${CORPUS_PREFIX}meta.json`;
+/** The set a refresh replaced: warmup mail planned before the refresh still renders from it. */
+export const CORPUS_PREVIOUS_KEY = `${CORPUS_PREFIX}previous.json`;
 
 /** A stored set with fewer valid threads than this is ignored in favour of the built-in set. */
 export const MIN_STORED_THREADS = 30;

@@ -14,6 +14,7 @@ import {
   CORPUS_LATEST_KEY,
   CORPUS_MAX_AGE_MS,
   CORPUS_META_KEY,
+  CORPUS_PREVIOUS_KEY,
   CORPUS_PREFIX,
   MIN_GENERATED_THREADS,
 } from './constants';
@@ -334,6 +335,9 @@ async function storeCorpus(storage: R2Bucket, threads: CorpusThread[], now: Date
   const month = String(now.getUTCMonth() + 1).padStart(2, '0');
   const options = { httpMetadata: { contentType: 'application/json' } };
   await storage.put(`${CORPUS_PREFIX}${now.getUTCFullYear()}-${month}.json`, json, options);
+  // Keep the set being replaced: threads planned or mid-conversation still reference its ids.
+  const replaced = await storage.get(CORPUS_LATEST_KEY);
+  if (replaced) await storage.put(CORPUS_PREVIOUS_KEY, await replaced.text(), options);
   await storage.put(CORPUS_LATEST_KEY, json, options);
   // Last, so a meta file only ever describes a latest.json that exists.
   const meta = { generatedAt: now.toISOString(), threads: threads.length, model: CORPUS_MODEL_ID };

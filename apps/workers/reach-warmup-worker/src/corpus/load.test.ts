@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../env';
 import { BUILTIN_CORPUS } from './builtin';
-import { CORPUS_CACHE_TTL_MS, CORPUS_LATEST_KEY, MIN_STORED_THREADS } from './constants';
+import { CORPUS_CACHE_TTL_MS, CORPUS_LATEST_KEY, CORPUS_PREVIOUS_KEY, MIN_STORED_THREADS } from './constants';
 import { createFakeR2 } from './fake-r2.test-helper';
-import { loadCorpus, resetCorpusCache } from './load';
+import { loadCorpus, loadCorpusForLookup, resetCorpusCache } from './load';
 import type { CorpusThread } from './types';
 
 function envWith(storage?: R2Bucket): Env {
@@ -137,5 +137,35 @@ describe('loadCorpus', () => {
     first.length = 0;
     const second = await loadCorpus(env);
     expect(second.map((thread) => thread.id)).toEqual(BUILTIN_IDS);
+  });
+});
+
+describe('loadCorpusForLookup', () => {
+  beforeEach(() => {
+    resetCorpusCache();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('finds threads from the current set, the replaced set and the built-in set', async () => {
+    const current = generated(MIN_STORED_THREADS);
+    const previous = BUILTIN_CORPUS.slice(0, 3).map((thread, index) => ({ ...thread, id: `gen-2026-09-00${index + 1}` }));
+    const r2 = createFakeR2({
+      [CORPUS_LATEST_KEY]: JSON.stringify(current),
+      [CORPUS_PREVIOUS_KEY]: JSON.stringify(previous),
+    });
+
+    const ids = new Set((await loadCorpusForLookup(envWith(r2.bucket))).map((thread) => thread.id));
+    expect(ids.has('gen-2026-10-001')).toBe(true);
+    expect(ids.has('gen-2026-09-001')).toBe(true);
+    expect(ids.has(BUILTIN_IDS[0]!)).toBe(true);
+  });
+
+  it('still works without a replaced set or a bucket', async () => {
+    const ids = (await loadCorpusForLookup(envWith())).map((thread) => thread.id);
+    expect(ids).toEqual(BUILTIN_IDS);
   });
 });

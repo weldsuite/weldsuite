@@ -120,6 +120,16 @@ describe('refreshCorpus', () => {
       expect(meta).toMatchObject({ generatedAt: NOW.toISOString(), threads: threads.length });
     });
 
+    it('keeps the replaced set as previous.json', async () => {
+      mockModelReturningValidThreads();
+      const old = JSON.stringify([{ id: 'gen-2026-08-001' }]);
+      const r2 = createFakeR2({ [CORPUS_META_KEY]: metaJson('2026-08-01T00:00:00.000Z'), [CORPUS_LATEST_KEY]: old });
+
+      expect(await refreshCorpus(envWith(r2.bucket), NOW)).toEqual({ refreshed: true });
+      expect(r2.store.get('reach-warmup/corpus/previous.json')).toBe(old);
+      expect(r2.puts.indexOf('reach-warmup/corpus/previous.json')).toBeLessThan(r2.puts.indexOf(CORPUS_LATEST_KEY));
+    });
+
     it('generates when there is no meta yet, and when the meta is unreadable', async () => {
       mockModelReturningValidThreads();
       const fresh = createFakeR2();

@@ -15,6 +15,6 @@ export type { CorpusMessage, CorpusPerson, CorpusThread, RenderedCorpusMessage }
 
 export { BUILTIN_CORPUS } from './builtin';
 export { refreshCorpus } from './generate';
-export { loadCorpus } from './load';
+export { loadCorpus, loadCorpusForLookup } from './load';
 export { renderCorpusMessage } from './render';
 export { parseCorpusThread, parseCorpusThreads } from './validate';

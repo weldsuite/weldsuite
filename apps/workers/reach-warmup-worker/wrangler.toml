@@ -41,6 +41,11 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
 [[r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
@@ -85,6 +90,11 @@ crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
 [[env.test.flagship]]
 binding = "FLAGSHIP"
 app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
 
 [[env.test.r2_buckets]]
 binding = "STORAGE"
@@ -131,6 +141,11 @@ crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
 [[env.production.flagship]]
 binding = "FLAGSHIP"
 app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"

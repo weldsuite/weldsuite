@@ -19,6 +19,8 @@ export interface Env {
   /** Seals the pool mailboxes' SMTP/IMAP logins; same value as on reach-api. */
   WELDREACH_WARMUP_KEY?: string;
 
+  /** D1 schedule index: mark a workspace due (kind reach_warmup) when its pool mailbox fails or is paused, so reach-api reacts the same day. */
+  SCHEDULE_INDEX?: D1Database;
   WARMUP_SEND_QUEUE?: Queue<WarmupSendMessage>;
   WARMUP_ENGAGE_QUEUE?: Queue<WarmupEngageMessage>;
   /** Generated corpus (`reach-warmup/corpus/*.json`). */
