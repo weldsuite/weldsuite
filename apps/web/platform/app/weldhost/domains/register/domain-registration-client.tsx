@@ -380,7 +380,6 @@ export function DomainRegistrationClient() {
       submitText={tr.proceedToPayment}
       submitVariant="default"
       showBackButton={false}
-      hideMobileSummary={true}
     />
   );
 }

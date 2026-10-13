@@ -43,6 +43,28 @@ export const createCallTranscriptionSchema = z.object({
   language: z.string().optional(),
 });
 
+/** Most people ids one GET /api/calls/contact-stats request may ask for. */
+export const CONTACT_CALL_STATS_MAX_IDS = 100;
+
+/** GET /api/calls/contact-stats?contactIds=a,b,c — people ids, comma-separated. */
+export const contactCallStatsQuerySchema = z.object({
+  contactIds: z
+    .string()
+    .transform((v) => [...new Set(v.split(',').map((id) => id.trim()).filter(Boolean))])
+    .pipe(z.array(z.string().max(30)).min(1).max(CONTACT_CALL_STATS_MAX_IDS)),
+});
+
+export const contactCallStatsSchema = z.object({
+  contactId: z.string(),
+  totalCalls: z.number().int(),
+  inboundCalls: z.number().int(),
+  outboundCalls: z.number().int(),
+  /** Seconds. */
+  totalDuration: z.number().int(),
+  lastCallAt: z.string().nullable(),
+});
+
+export type ContactCallStats = z.infer<typeof contactCallStatsSchema>;
 export type CreatePhoneNumberInput = z.infer<typeof createPhoneNumberSchema>;
 export type UpdatePhoneNumberInput = z.infer<typeof updatePhoneNumberSchema>;
 export type CreateCallTranscriptionInput = z.infer<typeof createCallTranscriptionSchema>;

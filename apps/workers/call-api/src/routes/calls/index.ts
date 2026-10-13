@@ -26,7 +26,9 @@ import {
   resolveInternalWorkspaceId,
   SERVICE_CREDIT_RATES,
 } from '@weldsuite/credits';
+import { contactCallStatsQuerySchema } from '@weldsuite/app-api-client/schemas/call-intelligence';
 import type { Env, Variables } from '../../types';
+import { getContactCallStats } from '../../services/contact-call-stats';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, getMasterDb, type MasterDatabase } from '@weldsuite/worker-kit/db';
@@ -143,6 +145,27 @@ app.get('/', requirePermission('activities:read'), async (c) => {
     return error.internal(c, 'Failed to list calls');
   }
 });
+
+/**
+ * GET /contact-stats?contactIds=a,b,c — calls, inbound/outbound, total time
+ * and last call per person, for the WeldCall People grid. Same owner scope as
+ * the list. Registered before /:id so the path isn't read as a call id.
+ */
+app.get(
+  '/contact-stats',
+  requirePermission('activities:read'),
+  zValidator('query', contactCallStatsQuerySchema),
+  async (c) => {
+    const { contactIds } = c.req.valid('query');
+    try {
+      const stats = await getContactCallStats(c.get('tenantDb'), contactIds, await scopeFor(c));
+      return success(c, stats);
+    } catch (err) {
+      console.error('[app-api/calls] contact stats failed:', err);
+      return error.internal(c, 'Failed to fetch contact call statistics');
+    }
+  },
+);
 
 app.get('/:id', requirePermission('activities:read'), async (c) => {
   const db = c.get('tenantDb');

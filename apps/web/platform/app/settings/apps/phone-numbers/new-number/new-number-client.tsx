@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useMemo } from 'react';
-import { getTranslations, type TranslationNamespaces } from '@/lib/i18n';
+import { getLocale, getTranslations, type TranslationNamespaces } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useRouter } from '@/lib/router';
 import { HostEntityFormLayout, type HostFormSection, type HostSummaryField } from '@/app/weldhost/components/host-entity-form-layout';
@@ -45,6 +45,7 @@ import {
   useProvisionPhoneNumber,
   useCreateAddress,
 } from '@/hooks/use-phone-numbers';
+import { useWorkspaceSettings } from '@/hooks/queries/use-settings-queries';
 
 export interface ProviderAddress {
   id: string;
@@ -138,8 +139,22 @@ function pricingKey(countryCode: string, numberType: string): string {
 
 type NewNumberStrings = TranslationNamespaces['settings']['phoneNumbers']['newNumber'];
 
-function formatMoney(currency: string, amount: number): string {
-  return `${currency} ${amount.toFixed(2)}`;
+/** Amount in the currency it is billed in, formatted for the user's locale (`€ 1,20`, `$1.20`). */
+export function formatMoney(currency: string, amount: number): string {
+  try {
+    return new Intl.NumberFormat(getLocale(), { style: 'currency', currency }).format(amount);
+  } catch {
+    // Not an ISO 4217 code.
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+}
+
+const FALLBACK_COUNTRY = 'US';
+
+/** The workspace's country (Settings > General) when numbers can be bought there. */
+export function defaultSearchCountry(workspaceCountry: string | null | undefined): string {
+  const code = workspaceCountry?.trim().toUpperCase();
+  return COUNTRIES.some((c) => c.code === code) ? code! : FALLBACK_COUNTRY;
 }
 
 function formatCapabilities(capabilities: AvailableNumber['capabilities']): string {
@@ -307,20 +322,20 @@ function AvailableNumberRow({
         type="button"
         aria-pressed={isPreviewed}
         onClick={onTogglePreview}
-        className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 self-stretch py-3 text-left md:gap-3"
+        className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 self-stretch py-3 text-left @md:gap-3"
       >
         <span className="flex-1 min-w-0 flex items-center gap-2">
-          <span className="block text-sm md:text-base font-medium font-mono text-gray-900 dark:text-foreground truncate">
+          <span className="block min-w-0 text-sm @md:text-base font-medium font-mono text-gray-900 dark:text-foreground truncate">
             {num.friendly_name || num.phone_number}
           </span>
           {num.locality && (
-            <Badge variant="secondary" className="hidden md:inline-flex font-mono text-xs rounded-md border border-border flex-shrink-0">
-              {formatLocation(num)}
+            <Badge variant="secondary" className="hidden @xl:inline-flex min-w-0 max-w-[45%] font-mono text-xs rounded-md border border-border">
+              <span className="truncate">{formatLocation(num)}</span>
             </Badge>
           )}
         </span>
 
-        <span className="block text-right min-w-[70px] md:min-w-[100px] text-sm md:text-base font-medium text-gray-900 dark:text-foreground">
+        <span className="block shrink-0 whitespace-nowrap text-right text-sm @md:text-base font-medium text-gray-900 dark:text-foreground">
           {priceLabel}
         </span>
       </button>
@@ -453,8 +468,11 @@ export function NewNumberClient({
   const provisionMutation = useProvisionPhoneNumber();
   const createAddressMutation = useCreateAddress();
 
+  const { data: workspaceSettings } = useWorkspaceSettings();
   const [countryOpen, setCountryOpen] = useState(false);
-  const [searchCountry, setSearchCountry] = useState('US');
+  // Not blocked on the settings query: a member without general:read just gets the fallback.
+  const [chosenCountry, setSearchCountry] = useState<string | null>(null);
+  const searchCountry = chosenCountry ?? defaultSearchCountry(workspaceSettings?.data?.country);
   const [searchAreaCode, setSearchAreaCode] = useState('');
   const [searchContains, setSearchContains] = useState('');
   const [searchType, setSearchType] = useState<'local' | 'toll-free' | 'mobile'>('local');
@@ -686,7 +704,6 @@ export function NewNumberClient({
   const allCartPriced = cartNumbers.length > 0 && cartNumbers.every((num) => monthlyAmount(num) > 0);
   const totalPrice = cartNumbers.reduce((sum, num) => sum + firstMonthAmount(num), 0);
   const monthlyTotal = cartNumbers.reduce((sum, num) => sum + monthlyAmount(num), 0);
-  const totalFormatted = totalPrice.toFixed(2);
   const cartCurrency =
     cartNumbers.length > 0
       ? (getPrice(cartNumbers[0]!.iso_country, searchType)?.currency
@@ -752,8 +769,8 @@ export function NewNumberClient({
       description: '',
       content: (
         <div className="space-y-4">
-            <div className="bg-background rounded-lg border border-border px-4 md:px-6 py-5 md:py-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="@container bg-background rounded-lg border border-border px-4 md:px-6 py-5 md:py-6 space-y-4">
+              <div className="grid grid-cols-1 @lg:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>{tn.countryLabel}</Label>
                   <Popover open={countryOpen} onOpenChange={setCountryOpen}>
@@ -852,7 +869,7 @@ export function NewNumberClient({
 
               {/* Available Numbers List — Domain-style rows */}
               {availableNumbers.length > 0 && (
-                <div className="bg-white dark:bg-background rounded-lg border border-border">
+                <div className="@container bg-white dark:bg-background rounded-lg border border-border">
                   <div className="divide-y divide-border">
                     {availableNumbers.map((num) => {
                       const isInCart = cartNumbers.some(n => n.phone_number === num.phone_number);
@@ -896,11 +913,11 @@ export function NewNumberClient({
         summaryBottomFields={!isPreviewingNumber && cartNumbers.length > 0 ? [
           {
             label: <span className="text-base">{tn.firstMonth}</span>,
-            value: <span className="text-base font-semibold">{allCartPriced ? `${cartCurrency} ${totalFormatted}` : tn.notAvailable}</span>,
+            value: <span className="text-base font-semibold">{allCartPriced ? formatMoney(cartCurrency, totalPrice) : tn.notAvailable}</span>,
             bordered: false,
           },
           {
-            label: <span className="text-sm text-muted-foreground">{tn.thenMonthly.replace('{price}', `${cartCurrency} ${monthlyTotal.toFixed(2)}`)}</span>,
+            label: <span className="text-sm text-muted-foreground">{tn.thenMonthly.replace('{price}', formatMoney(cartCurrency, monthlyTotal))}</span>,
             value: <span className="text-sm text-muted-foreground">{'\u00a0'}</span>,
             bordered: false,
           },
@@ -912,7 +929,6 @@ export function NewNumberClient({
         showBackButton={true}
         backLink="/settings/apps/phone-numbers"
         backButtonText={tn.backToNumbers}
-        hideMobileSummary={true}
         summaryHeaderAction={isPreviewingNumber ? (
           <Button
             type="button"
