@@ -45,8 +45,10 @@ import { ALL_SENSITIVE_KEYS } from '@weldsuite/db/lib/sensitive-columns';
 import { getAdapter, hasAdapter, listJurisdictions } from '@weldsuite/books-domain/jurisdictions/registry';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
+import { isValidIban } from '@weldsuite/books-domain/identifiers';
 import {
   extractStateCodeFromGstin,
+  isValidGstStateCode,
   validateGstin,
 } from '@weldsuite/books-domain/jurisdictions/in';
 import { US_ENTITY_TYPE_INFO, US_ENTITY_TYPES, taxFormForClassification } from '@weldsuite/books-domain/jurisdictions/us/entity-types';
@@ -64,6 +66,7 @@ import {
   resolveEntityKind,
   taxYearOf,
 } from '../../services/accounting-entity-setup';
+import { getEntityLockState } from '../../services/accounting-entity-lock';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -159,6 +162,29 @@ function unsupportedJurisdictionMessage(code: string): string {
 }
 
 /**
+ * The GSTIN of an Indian entity: checked in full (and stored normalized) when `check` is set, otherwise
+ * only mined for its state code. Returns the settings with the state code set.
+ */
+function applyGstin(
+  taxIdentifiers: TaxIdentifiers,
+  gstin: string,
+  jurisdictionSettings: Record<string, unknown>,
+  check: boolean,
+): { error?: string; jurisdictionSettings: Record<string, unknown> } {
+  if (!check) {
+    const stateCode = gstin ? extractStateCodeFromGstin(gstin) : undefined;
+    return {
+      jurisdictionSettings: stateCode && isValidGstStateCode(stateCode) ? { ...jurisdictionSettings, stateCode } : jurisdictionSettings,
+    };
+  }
+  const result = validateGstin(gstin, { pan: taxIdentifiers.registrationNumber });
+  if (!result.valid) return { error: result.error ?? 'Invalid GSTIN', jurisdictionSettings };
+  taxIdentifiers.vatNumber = result.formatted;
+  const stateCode = extractStateCodeFromGstin(result.formatted!);
+  return { jurisdictionSettings: stateCode ? { ...jurisdictionSettings, stateCode } : jurisdictionSettings };
+}
+
+/**
  * Validate/normalize India GSTIN and derive jurisdictionSettings.stateCode.
  * Returns an error message when GSTIN is present but invalid.
  */
@@ -167,6 +193,12 @@ function applyIndiaTaxIdentifiers(opts: {
   taxIdentifiers?: TaxIdentifiers | null;
   jurisdictionSettings?: Record<string, unknown> | null;
   timezone?: string | null;
+  /**
+   * Run the full GSTIN check (check digit, state code, PAN match). False on an
+   * update that touches neither the GSTIN nor the PAN, so a number saved before
+   * the check existed doesn't block an unrelated edit.
+   */
+  checkGstin?: boolean;
 }): {
   error?: string;
   taxIdentifiers?: TaxIdentifiers;
@@ -186,16 +218,10 @@ function applyIndiaTaxIdentifiers(opts: {
   const timezone = opts.timezone ?? 'Asia/Kolkata';
   const gstin = taxIdentifiers?.vatNumber;
   // Field presence (including '') must be validated — empty GSTIN would leave a stale stateCode
-  if (gstin !== undefined) {
-    const check = validateGstin(gstin);
-    if (!check.valid) {
-      return { error: check.error ?? 'Invalid GSTIN' };
-    }
-    taxIdentifiers!.vatNumber = check.formatted;
-    const stateCode = extractStateCodeFromGstin(check.formatted!);
-    if (stateCode) {
-      jurisdictionSettings = { ...jurisdictionSettings, stateCode };
-    }
+  if (taxIdentifiers && gstin !== undefined) {
+    const applied = applyGstin(taxIdentifiers, gstin, jurisdictionSettings, opts.checkGstin !== false);
+    if (applied.error) return { error: applied.error };
+    jurisdictionSettings = applied.jurisdictionSettings;
   }
   return {
     taxIdentifiers,
@@ -236,7 +262,10 @@ const contactSchema = z.object({
 }).partial();
 
 const bankDetailsSchema = z.object({
-  iban: z.string().optional(),
+  iban: z
+    .string()
+    .refine((value) => value.trim() === '' || isValidIban(value), { message: 'Not a valid IBAN (length for the country and check digits)' })
+    .optional(),
   bic: z.string().optional(),
   accountNumber: z.string().optional(),
   routingNumber: z.string().optional(),
@@ -395,7 +424,7 @@ app.get('/:id', requirePermission('entities:read'), async (c) => {
       .where(and(eq(schema.entities.id, c.req.param('id')), isNull(schema.entities.deletedAt)))
       .limit(1);
     if (!entity) return error.notFound(c, 'Entity', c.req.param('id'));
-    return success(c, serializeEntity(entity));
+    return success(c, { ...serializeEntity(entity), ...(await getEntityLockState(db, entity.id)) });
   } catch (err) {
     console.error('[app-api/accounting-entities] get failed:', err);
     return error.internal(c, 'Failed to fetch entity');
@@ -549,7 +578,7 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
         type: t.type,
         taxCategoryCode: t.taxCategoryCode,
         isDefault: t.isDefault ?? false,
-        isActive: true,
+        isActive: t.isActive ?? true,
         jurisdictionMetadata: t.jurisdictionMetadata,
         createdAt: now,
         updatedAt: now,
@@ -601,6 +630,194 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
   }
 });
 
+type EntityRow = typeof schema.entities.$inferSelect;
+/** The PATCH body without the request-shape aliases (`jurisdiction`, `vatNumber`) and the write-only `ssn`. */
+type EntityUpdateData = Omit<z.infer<typeof updateEntitySchema>, 'jurisdiction' | 'vatNumber' | 'ssn'>;
+type IndiaTaxResult = ReturnType<typeof applyIndiaTaxIdentifiers>;
+
+/** Whether a PATCH moves the fiscal year (month start or 52–53-week config). */
+function fiscalYearChanged(data: EntityUpdateData, existing: EntityRow): boolean {
+  if (data.fiscalYearStart !== undefined && data.fiscalYearStart !== existing.fiscalYearStart) return true;
+  return (
+    data.fiscalYearConfig !== undefined &&
+    JSON.stringify(data.fiscalYearConfig) !== JSON.stringify(existing.fiscalYearConfig ?? null)
+  );
+}
+
+/**
+ * Base currency, jurisdiction and fiscal-year start are frozen once the
+ * books rest on them (posted documents, or generated fiscal periods).
+ * Returns the conflict to answer with, or null when the change is allowed.
+ */
+async function entityLockConflict(
+  db: Database,
+  existing: EntityRow,
+  data: EntityUpdateData,
+  nextJurisdiction: string,
+): Promise<{ message: string; details: Record<string, unknown> } | null> {
+  const baseCurrencyChanges =
+    data.baseCurrency !== undefined && data.baseCurrency.toUpperCase() !== (existing.baseCurrency ?? '').toUpperCase();
+  const jurisdictionChanges = nextJurisdiction !== (existing.jurisdictionCode ?? '').toUpperCase();
+  const fiscalYearChanges = fiscalYearChanged(data, existing);
+  if (!baseCurrencyChanges && !jurisdictionChanges && !fiscalYearChanges) return null;
+
+  const lock = await getEntityLockState(db, existing.id);
+  if ((baseCurrencyChanges || jurisdictionChanges) && lock.baseSettingsLocked) {
+    const fields = [baseCurrencyChanges && 'base currency', jurisdictionChanges && 'jurisdiction'].filter(Boolean).join(' and ');
+    return {
+      message: `The ${fields} of this entity can no longer be changed because it already has posted transactions. Create a new entity instead.`,
+      details: { code: 'ENTITY_HAS_POSTINGS', fields: [baseCurrencyChanges && 'baseCurrency', jurisdictionChanges && 'jurisdictionCode'].filter(Boolean) },
+    };
+  }
+  if (fiscalYearChanges && lock.fiscalYearLocked) {
+    return {
+      message: lock.hasPostings
+        ? 'The fiscal year of this entity can no longer be changed because it already has posted transactions.'
+        : 'The fiscal year of this entity can no longer be changed because fiscal periods have been generated for it.',
+      details: { code: lock.hasPostings ? 'ENTITY_HAS_POSTINGS' : 'ENTITY_HAS_FISCAL_PERIODS', fields: ['fiscalYearStart'] },
+    };
+  }
+  return null;
+}
+
+type UpdatedTaxIdentifiers =
+  | { ok: false; error: string }
+  | { ok: true; india: IndiaTaxResult; taxIdentifiers: TaxIdentifiers | undefined };
+
+/** Merge the PATCH's tax identifiers into the stored ones and run the India and adapter checks on what it touched. */
+function validateUpdatedTaxIdentifiers(
+  existing: EntityRow,
+  data: EntityUpdateData,
+  vatAlias: string | undefined,
+  nextJurisdiction: string,
+): UpdatedTaxIdentifiers {
+  const mergedWithoutAlias = data.taxIdentifiers
+    ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
+    : existing.taxIdentifiers;
+  const mergedTaxIdentifiers =
+    vatAlias !== undefined
+      ? { ...existing.taxIdentifiers, ...data.taxIdentifiers, vatNumber: vatAlias }
+      : mergedWithoutAlias;
+  const touched = touchedTaxIdentifiers(data.taxIdentifiers, vatAlias);
+
+  const india = applyIndiaTaxIdentifiers({
+    jurisdictionCode: nextJurisdiction,
+    taxIdentifiers: mergedTaxIdentifiers,
+    jurisdictionSettings: data.jurisdictionSettings ?? existing.jurisdictionSettings,
+    timezone: data.timezone ?? existing.timezone,
+    checkGstin: touched.size > 0,
+  });
+  if (india.error) return { ok: false, error: india.error };
+
+  const checked = hasAdapter(nextJurisdiction)
+    ? validateTaxIdentifiersWithAdapter(nextJurisdiction, india.taxIdentifiers, touched)
+    : { taxIdentifiers: india.taxIdentifiers };
+  if (checked.error) return { ok: false, error: checked.error };
+  return { ok: true, india, taxIdentifiers: checked.taxIdentifiers };
+}
+
+/** The 52–53-week year replaces the month-based one, and the other way round. */
+function applyFiscalYearToPatch(patch: Record<string, unknown>, data: EntityUpdateData): void {
+  if (data.fiscalYearConfig !== undefined) {
+    patch.fiscalYearConfig = data.fiscalYearConfig;
+    if (data.fiscalYearConfig && data.fiscalYearStart === undefined) {
+      patch.fiscalYearStart = (data.fiscalYearConfig.endMonth % 12) + 1;
+    }
+  } else if (data.fiscalYearStart !== undefined) {
+    patch.fiscalYearConfig = null;
+  }
+}
+
+/**
+ * Entity type and tax classification (US) are checked against each other.
+ * Returns whether the US return form changed (the accounts' tax lines then need a remap).
+ */
+function applyEntityKindToPatch(
+  patch: Record<string, unknown>,
+  existing: EntityRow,
+  data: EntityUpdateData,
+  nextJurisdiction: string,
+): boolean {
+  const isUs = nextJurisdiction === 'US';
+  const kindGiven = data.entityType !== undefined || data.taxClassification !== undefined;
+  if (!kindGiven && !(isUs && existing.jurisdictionCode !== 'US')) return false;
+
+  const kind = resolveEntityKind(
+    nextJurisdiction,
+    { entityType: data.entityType, taxClassification: data.taxClassification },
+    { entityType: existing.entityType, taxClassification: existing.taxClassification },
+  );
+  patch.entityType = kind.entityType ?? undefined;
+  patch.taxClassification = kind.taxClassification;
+  if (!isUs) return false;
+  return (
+    existing.jurisdictionCode !== 'US' ||
+    formOfEntity(existing) !== formOfEntity({ entityType: kind.entityType, taxClassification: kind.taxClassification })
+  );
+}
+
+/** The columns a PATCH sets (everything but the SSN), and whether the US return form changed. */
+function buildEntityPatch(
+  existing: EntityRow,
+  data: EntityUpdateData,
+  opts: {
+    nextJurisdiction: string;
+    jurisdictionGiven: boolean;
+    taxIdentifiersGiven: boolean;
+    tax: Extract<UpdatedTaxIdentifiers, { ok: true }>;
+  },
+): { patch: Record<string, unknown>; formChanged: boolean } {
+  const { nextJurisdiction, tax } = opts;
+  const patch: Record<string, unknown> = {
+    ...data,
+    updatedAt: new Date(),
+  };
+  if (opts.jurisdictionGiven) {
+    patch.jurisdictionCode = nextJurisdiction;
+  }
+  if (opts.taxIdentifiersGiven) {
+    patch.taxIdentifiers = tax.taxIdentifiers;
+  }
+  if (data.address !== undefined) {
+    const normalized = normalizePostalAddress(data.address);
+    patch.address = nextJurisdiction === 'US' ? checkUsAddress(normalized) : normalized;
+  }
+  // The existing timezone stays unless explicitly patched.
+  if (nextJurisdiction === 'IN') {
+    patch.jurisdictionSettings = tax.india.jurisdictionSettings ?? existing.jurisdictionSettings;
+    if (!data.timezone && !existing.timezone) patch.timezone = tax.india.timezone;
+  }
+
+  const formChanged = applyEntityKindToPatch(patch, existing, data, nextJurisdiction);
+  applyFiscalYearToPatch(patch, data);
+  return { patch, formChanged };
+}
+
+/**
+ * Encrypt a typed SSN into the patch (null or '' clears it). Returns the error
+ * response when it can not be stored, null otherwise.
+ */
+async function applySsnToPatch(
+  c: AppContext,
+  patch: Record<string, unknown>,
+  ssn: string | null | undefined,
+  isUs: boolean,
+): Promise<Response | null> {
+  if (ssn === undefined) return null;
+  if (ssn === null || ssn === '') {
+    patch.ssnEncrypted = null;
+    patch.ssnLast4 = null;
+    return null;
+  }
+  if (!isUs) return error.badRequest(c, 'An SSN can only be stored on a US entity');
+  const formatted = checkSsn(ssn);
+  const keyring = keyringFromEnv(c.env);
+  if (!keyring.v1 && !keyring.v2) return error.unavailable(c, 'Encryption is not configured, so an SSN can not be stored');
+  patch.ssnEncrypted = await encryptField(formatted, keyring);
+  patch.ssnLast4 = tinLast4(formatted);
+  return null;
+}
+
 // PATCH /:id
 app.patch('/:id', requirePermission('entities:update'), zValidator('json', updateEntitySchema), async (c) => {
   const db = c.get('tenantDb');
@@ -625,97 +842,21 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
     }
     const isUs = nextJurisdiction === 'US';
 
-    const mergedWithoutAlias = data.taxIdentifiers
-      ? { ...existing.taxIdentifiers, ...data.taxIdentifiers }
-      : existing.taxIdentifiers;
-    const mergedTaxIdentifiers =
-      vatAlias !== undefined
-        ? { ...existing.taxIdentifiers, ...data.taxIdentifiers, vatNumber: vatAlias }
-        : mergedWithoutAlias;
+    const conflict = await entityLockConflict(db, existing, data, nextJurisdiction);
+    if (conflict) return error.conflict(c, conflict.message, conflict.details);
 
-    const india = applyIndiaTaxIdentifiers({
-      jurisdictionCode: nextJurisdiction,
-      taxIdentifiers: mergedTaxIdentifiers,
-      jurisdictionSettings: data.jurisdictionSettings ?? existing.jurisdictionSettings,
-      timezone: data.timezone ?? existing.timezone,
+    const tax = validateUpdatedTaxIdentifiers(existing, data, vatAlias, nextJurisdiction);
+    if (!tax.ok) return error.badRequest(c, tax.error);
+
+    const { patch, formChanged } = buildEntityPatch(existing, data, {
+      nextJurisdiction,
+      jurisdictionGiven: Boolean(data.jurisdictionCode || jurisdictionAlias),
+      taxIdentifiersGiven: vatAlias !== undefined || Boolean(data.taxIdentifiers),
+      tax,
     });
-    if (india.error) {
-      return error.badRequest(c, india.error);
-    }
 
-    const checked = hasAdapter(nextJurisdiction)
-      ? validateTaxIdentifiersWithAdapter(
-          nextJurisdiction,
-          india.taxIdentifiers,
-          touchedTaxIdentifiers(data.taxIdentifiers, vatAlias),
-        )
-      : { taxIdentifiers: india.taxIdentifiers };
-    if (checked.error) {
-      return error.badRequest(c, checked.error);
-    }
-
-    const patch: Record<string, unknown> = {
-      ...data,
-      updatedAt: new Date(),
-    };
-    if (data.jurisdictionCode || jurisdictionAlias) {
-      patch.jurisdictionCode = nextJurisdiction;
-    }
-    if (vatAlias !== undefined || data.taxIdentifiers) {
-      patch.taxIdentifiers = checked.taxIdentifiers;
-    }
-    if (data.address !== undefined) {
-      const normalized = normalizePostalAddress(data.address);
-      patch.address = isUs ? checkUsAddress(normalized) : normalized;
-    }
-    if (nextJurisdiction === 'IN') {
-      patch.jurisdictionSettings = india.jurisdictionSettings ?? existing.jurisdictionSettings;
-      if (!data.timezone && !existing.timezone) {
-        patch.timezone = india.timezone;
-      } else if (india.timezone && data.timezone === undefined && nextJurisdiction === 'IN') {
-        // keep existing timezone unless explicitly patched
-      }
-    }
-
-    // Entity type and tax classification (US) are checked against each other.
-    let formChanged = false;
-    if (data.entityType !== undefined || data.taxClassification !== undefined || (isUs && existing.jurisdictionCode !== 'US')) {
-      const kind = resolveEntityKind(
-        nextJurisdiction,
-        { entityType: data.entityType, taxClassification: data.taxClassification },
-        { entityType: existing.entityType, taxClassification: existing.taxClassification },
-      );
-      patch.entityType = kind.entityType ?? undefined;
-      patch.taxClassification = kind.taxClassification;
-      formChanged =
-        isUs &&
-        (existing.jurisdictionCode !== 'US' ||
-          formOfEntity(existing) !== formOfEntity({ entityType: kind.entityType, taxClassification: kind.taxClassification }));
-    }
-
-    // A 52–53-week year replaces the month-based one, and the other way round.
-    if (data.fiscalYearConfig !== undefined) {
-      patch.fiscalYearConfig = data.fiscalYearConfig;
-      if (data.fiscalYearConfig && data.fiscalYearStart === undefined) {
-        patch.fiscalYearStart = (data.fiscalYearConfig.endMonth % 12) + 1;
-      }
-    } else if (data.fiscalYearStart !== undefined) {
-      patch.fiscalYearConfig = null;
-    }
-
-    if (ssn !== undefined) {
-      if (ssn === null || ssn === '') {
-        patch.ssnEncrypted = null;
-        patch.ssnLast4 = null;
-      } else {
-        if (!isUs) return error.badRequest(c, 'An SSN can only be stored on a US entity');
-        const formatted = checkSsn(ssn);
-        const keyring = keyringFromEnv(c.env);
-        if (!keyring.v1 && !keyring.v2) return error.unavailable(c, 'Encryption is not configured, so an SSN can not be stored');
-        patch.ssnEncrypted = await encryptField(formatted, keyring);
-        patch.ssnLast4 = tinLast4(formatted);
-      }
-    }
+    const ssnFailure = await applySsnToPatch(c, patch, ssn, isUs);
+    if (ssnFailure) return ssnFailure;
 
     await db
       .update(schema.entities)
@@ -737,7 +878,7 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
     publishEntityEvent({ c, entityType: 'accounting_entity', entityId: id, action: 'updated', data: { id, name: updated?.name } });
 
     // After a classification change the accounts still point at the old return's lines.
-    return success(c, { ...serializeEntity(updated), taxLineRemapNeeded: formChanged });
+    return success(c, { ...serializeEntity(updated), ...(await getEntityLockState(db, id)), taxLineRemapNeeded: formChanged });
   } catch (err) {
     if (err instanceof EntitySetupError) return error.badRequest(c, err.message);
     console.error('[app-api/accounting-entities] update failed:', err);

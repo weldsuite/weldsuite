@@ -164,6 +164,8 @@ export const vendorTaxApi = {
       role?: 'customer' | 'supplier' | 'both' | 'none';
       search?: string;
       is1099Vendor?: boolean;
+      /** Archived contacts are left out unless asked for: `only` lists just them, `include` lists everyone. */
+      archived?: 'only' | 'include';
       page?: number;
       pageSize?: number;
     } = {},

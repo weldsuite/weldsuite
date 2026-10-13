@@ -287,6 +287,12 @@ export const weldbooksUsBanking = {
   },
 
   deposits: {
+    usOnly: {
+      title: 'Deposits are for US entities',
+      description:
+        'Undeposited Funds and bank deposits are available for US accounting entities. Switch to a US entity to use them.',
+      back: 'Back to the dashboard',
+    },
     title: 'Deposits',
     subtitle: 'Bank deposits made from Undeposited Funds.',
     makeDeposit: 'Make deposit',

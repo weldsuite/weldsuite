@@ -11,6 +11,7 @@
     "./accounting-invoice-html": "./src/accounting-invoice-html.ts",
     "./accounting-roles": "./src/accounting-roles.ts",
     "./accounting-vat-xml": "./src/accounting-vat-xml.ts",
+    "./identifiers": "./src/identifiers.ts",
     "./jurisdictions/in": "./src/jurisdictions/in/index.ts",
     "./jurisdictions/nl": "./src/jurisdictions/nl/index.ts",
     "./jurisdictions/registry": "./src/jurisdictions/registry.ts",

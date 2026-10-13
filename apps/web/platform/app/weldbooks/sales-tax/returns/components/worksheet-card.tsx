@@ -19,7 +19,7 @@ import {
   type TaxReturnDetail,
 } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { Notice } from '../../shared/notice';
-import { fill, toCents } from '../../shared/text';
+import { fill, toCents, visibleJurisdictionCode } from '../../shared/text';
 
 interface WorksheetRowProps {
   label: string;
@@ -49,7 +49,6 @@ function LocationTable({ title, lines }: Readonly<LocationTableProps>) {
   const tl = t.weldbooksUs.salesTax.center.returnPage.byLocation;
   const levels = t.weldbooksUs.salesTax.center.levels as Record<string, string>;
   const { formatMoney } = useWeldbooksFormat();
-  const totalTaxable = lines.reduce((sum, line) => sum + toCents(line.taxableSales), 0) / 100;
   const totalTax = lines.reduce((sum, line) => sum + toCents(line.tax), 0) / 100;
 
   return (
@@ -78,9 +77,9 @@ function LocationTable({ title, lines }: Readonly<LocationTableProps>) {
               lines.map((line) => (
                 <TableRow key={`${line.jurisdictionCode}|${line.reportingCode}|${line.rate}`}>
                   <TableCell>
-                    <span className="font-medium">{line.jurisdictionName || line.jurisdictionCode}</span>
-                    {line.jurisdictionName && line.jurisdictionCode ? (
-                      <span className="ml-2 text-xs text-muted-foreground">{line.jurisdictionCode}</span>
+                    <span className="font-medium">{line.jurisdictionName || visibleJurisdictionCode(line.jurisdictionCode) || '—'}</span>
+                    {line.jurisdictionName && visibleJurisdictionCode(line.jurisdictionCode) ? (
+                      <span className="ml-2 text-xs text-muted-foreground">{visibleJurisdictionCode(line.jurisdictionCode)}</span>
                     ) : null}
                   </TableCell>
                   <TableCell>{levels[line.level] ?? line.level}</TableCell>
@@ -96,7 +95,8 @@ function LocationTable({ title, lines }: Readonly<LocationTableProps>) {
             <TableFooter>
               <TableRow className="font-semibold">
                 <TableCell colSpan={4}>{t.weldbooksUs.salesTax.center.common.total}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(totalTaxable)}</TableCell>
+                {/* The same sale is taxed at every level (state, county, city), so its taxable amount is not summed. */}
+                <TableCell />
                 <TableCell className="text-right tabular-nums">{formatMoney(totalTax)}</TableCell>
               </TableRow>
             </TableFooter>

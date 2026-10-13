@@ -36,6 +36,7 @@ import type { ProductOption } from '@/hooks/queries/use-weldbooks-tax-preview';
 import { toPostalAddressFormValue, type PostalAddress } from '@/components/address/postal-address';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useI18n } from '@/lib/i18n/provider';
+import { taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
@@ -129,7 +130,8 @@ export function InvoiceDialog({ open, onOpenChange, onCreated }: Readonly<Invoic
   const { data: taxRatesData } = useAccountingTaxRates();
 
   const contacts = useMemo(() => contactsData?.data ?? [], [contactsData]);
-  const taxRates = useMemo(() => taxRatesData?.data ?? [], [taxRatesData]);
+  // An invoice takes sales (and both) rates only.
+  const taxRates = useMemo(() => taxRatesFor(taxRatesData?.data ?? [], 'sales'), [taxRatesData]);
 
   const toContactOption = useCallback((c: Customer): AutocompleteOption => {
     const fullName = [c.firstName, c.lastName].filter(Boolean).join(' ');

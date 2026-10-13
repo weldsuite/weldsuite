@@ -9,6 +9,11 @@ const env = vi.hoisted(() => ({
   us: true,
   previewState: null as unknown,
   requests: [] as unknown[],
+  taxRates: [
+    { id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both' },
+    { id: 'tax_sales', name: 'BTW verkoop 9%', rate: '9', type: 'sales' },
+    { id: 'tax_purchase', name: 'BTW inkoop 21%', rate: '21', type: 'purchase' },
+  ] as Array<{ id: string; name: string; rate: string; type: string }>,
 }));
 
 vi.mock('@/lib/router', async () => {
@@ -22,7 +27,7 @@ vi.mock('@tanstack/react-router', async () => {
 vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   useAccountingCustomer: () => ({ data: { data: { id: 'sup_1', name: 'Dell', billingAddress: null } } }),
   useAccountingCustomers: () => ({ data: { data: [{ id: 'sup_1', name: 'Dell' }] } }),
-  useAccountingTaxRates: () => ({ data: { data: [{ id: 'tax_21', name: 'BTW 21%', rate: '21' }] } }),
+  useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
   useAccountingAccounts: () => ({
     data: {
       data: [
@@ -51,6 +56,7 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => {
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | string) => `$${Number(value).toFixed(2)}`,
+    entityCurrency: 'USD',
     today: () => '2026-03-01',
     entity: { address: { line1: '1 Main St', city: 'Austin', state: 'TX', postalCode: '78701', country: 'US' } },
   }),
@@ -291,6 +297,43 @@ describe('BillForm', { timeout: 30_000 }, () => {
       expect(payload.items[0]).toMatchObject({ taxRateId: 'tax_21', quantity: '1', unitPrice: '1000' });
       expect(payload.items[0]).not.toHaveProperty('accrueUseTax');
       expect(payload.items[0]).not.toHaveProperty('form1099Box');
+    });
+
+    it('offers purchase and both rates on a bill line, never a sales-only rate', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={vi.fn()} />);
+
+      await user.click(screen.getByRole('combobox', { name: 'Tax rate' }));
+      expect(await screen.findByRole('option', { name: 'BTW 21% (21%)' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'BTW inkoop 21% (21%)' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: /BTW verkoop/ })).not.toBeInTheDocument();
+    });
+
+    it('sends the currency, and a typed exchange rate for a currency other than the entity base', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={onSubmit} />);
+
+      expect(screen.getByLabelText('Currency')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Exchange rate')).not.toBeInTheDocument();
+
+      await user.click(screen.getByLabelText('Currency'));
+      await user.click(await screen.findByRole('option', { name: 'GBP' }));
+      await user.type(await screen.findByLabelText('Exchange rate'), '0.79');
+      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][0]).toMatchObject({ currency: 'GBP', exchangeRate: '0.79' });
+    });
+
+    it('sends no exchange rate when the field was never touched', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn();
+      renderWithProviders(<BillForm mode="edit" bill={bill()} onSubmit={onSubmit} />);
+      await user.click(screen.getByRole('button', { name: /Update Bill/ }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      expect(onSubmit.mock.calls[0][0].currency).toBe('USD');
+      expect(onSubmit.mock.calls[0][0]).not.toHaveProperty('exchangeRate');
     });
   });
 });

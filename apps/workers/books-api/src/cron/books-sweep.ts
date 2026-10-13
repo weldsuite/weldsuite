@@ -70,7 +70,7 @@ export async function sweepTenant(
     .set({ status: 'overdue', updatedAt: now })
     .where(
       and(
-        eq(schema.invoices.status, 'sent'),
+        inArray(schema.invoices.status, ['sent', 'finalized']),
         isNull(schema.invoices.deletedAt),
         lt(schema.invoices.dueDate, now),
         gt(sql`coalesce(${schema.invoices.balanceDue}, '0')::numeric`, 0),

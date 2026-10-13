@@ -13,6 +13,7 @@ import { formatPostalAddressLines, normalizePostalAddress } from './accounting-a
 import { getAdapter } from './jurisdictions/registry';
 import type { InvoiceLabels } from './jurisdictions/types';
 import { formatExemptSaleNotice } from './jurisdictions/us/invoice-format';
+import { gstStateName } from './jurisdictions/in/states';
 
 interface InvoiceLineItem {
   description: string;
@@ -24,6 +25,8 @@ interface InvoiceLineItem {
   lineTotal: string;
   lineTotalWithTax?: string;
   taxAmount?: string;
+  /** India GST: HSN (goods) or SAC (services) code. */
+  hsnSac?: string | null;
 }
 
 interface TaxBreakdownItem {
@@ -31,6 +34,8 @@ interface TaxBreakdownItem {
   taxRate: number;
   taxableAmount: number;
   taxAmount: number;
+  /** India GST: cgst | sgst | utgst | igst | export when the slab was split. */
+  component?: string;
   // US sales tax: one row per jurisdiction and line.
   lineId?: string;
   jurisdictionCode?: string;
@@ -72,6 +77,8 @@ export interface InvoiceRenderData {
   amountPaid?: string;
   balanceDue?: string;
   taxBreakdown?: TaxBreakdownItem[];
+  /** India GST: two-digit state code of the place of supply (96 = outside India). */
+  placeOfSupply?: string | null;
   /** US: certificate number by certificate id, for the exempt-sale notice. */
   certificateNumbers?: Record<string, string | null | undefined>;
   /** A draft prints a "not a valid invoice" banner and a watermark: it isn't booked and can still change. */
@@ -83,11 +90,20 @@ function makeCurrencyFmt(locale: string, currency: string) {
     new Intl.NumberFormat(locale, { style: 'currency', currency }).format(Number(value) || 0);
 }
 
+/** Quantities and rates without trailing zeros ("10", "21", "7.5"), in the document's locale. */
+function makeNumberFmt(locale: string) {
+  const fmt = new Intl.NumberFormat(locale, { maximumFractionDigits: 4 });
+  return (value: string | number) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? fmt.format(n) : String(value);
+  };
+}
+
 function makeDateFmt(locale: string) {
   return (dateStr: string) => {
     try {
       return new Intl.DateTimeFormat(locale, {
-        day: '2-digit',
+        day: 'numeric',
         month: 'long',
         year: 'numeric',
       }).format(new Date(dateStr));
@@ -130,19 +146,20 @@ function safeImageUrl(value: string | null | undefined): string | null {
 }
 
 type CurrencyFmt = (value: string | number) => string;
+type NumberFmt = (value: string | number) => string;
 type Branding = NonNullable<Entity['branding']>;
 type TaxIdentifiers = NonNullable<Entity['taxIdentifiers']>;
 type BankDetails = NonNullable<Entity['bankDetails']>;
 
-function buildItemRows(items: InvoiceLineItem[], fmtCurrency: CurrencyFmt): string {
+function buildItemRows(items: InvoiceLineItem[], fmtCurrency: CurrencyFmt, fmtNumber: NumberFmt): string {
   return items
     .map(
       (item) => `
     <tr>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;">${escapeHtml(item.description)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${escapeHtml(String(item.quantity))}${item.unit ? ` ${escapeHtml(item.unit)}` : ''}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:center;">${escapeHtml(fmtNumber(item.quantity))}${item.unit ? ` ${escapeHtml(item.unit)}` : ''}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${fmtCurrency(item.unitPrice)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${item.taxRate ? `${escapeHtml(String(item.taxRate))}%` : '—'}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;">${item.taxRate ? `${escapeHtml(fmtNumber(item.taxRate))}%` : '—'}</td>
       <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:500;">${fmtCurrency(item.lineTotal)}</td>
     </tr>
   `,
@@ -154,12 +171,13 @@ function buildTaxRows(
   taxBreakdown: TaxBreakdownItem[],
   labels: InvoiceLabels,
   fmtCurrency: CurrencyFmt,
+  fmtNumber: NumberFmt,
 ): string {
   return taxBreakdown
     .map(
       (tb) => `
     <tr>
-      <td style="padding:4px 0;">${labels.tax} ${escapeHtml(String(tb.taxRate))}% ${fmtCurrency(tb.taxableAmount)}</td>
+      <td style="padding:4px 0;">${labels.tax} ${escapeHtml(fmtNumber(tb.taxRate))}% ${fmtCurrency(tb.taxableAmount)}</td>
       <td style="padding:4px 0;text-align:right;">${fmtCurrency(tb.taxAmount)}</td>
     </tr>
   `,
@@ -174,6 +192,7 @@ function buildUsTaxRows(
   taxBreakdown: TaxBreakdownItem[],
   labels: InvoiceLabels,
   fmtCurrency: CurrencyFmt,
+  fmtNumber: NumberFmt,
 ): string {
   const groups = new Map<string, { name: string; level: string; rate: number; taxable: number; tax: number }>();
   for (const row of taxBreakdown) {
@@ -199,7 +218,7 @@ function buildUsTaxRows(
     .map(
       (g) => `
     <tr>
-      <td style="padding:4px 0;">${escapeHtml(labels.tax)} - ${escapeHtml(g.name)} ${escapeHtml(String(g.rate))}% on ${fmtCurrency(g.taxable)}</td>
+      <td style="padding:4px 0;">${escapeHtml(labels.tax)} - ${escapeHtml(g.name)} ${escapeHtml(fmtNumber(g.rate))}% on ${fmtCurrency(g.taxable)}</td>
       <td style="padding:4px 0;text-align:right;">${fmtCurrency(g.tax)}</td>
     </tr>
   `,
@@ -239,6 +258,150 @@ function buildUsExemptNotices(
     .join('');
   return `
       <div style="margin-top:12px;font-size:12px;color:#666;">${lines}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// India GST tax invoice (CBIC Rule 46)
+// ---------------------------------------------------------------------------
+
+type GstSupply = 'intra' | 'inter' | 'export' | 'unknown';
+
+const GST_COMPONENT_LABEL: Record<string, string> = { cgst: 'CGST', sgst: 'SGST', utgst: 'UTGST', igst: 'IGST' };
+
+function gstSupplyOf(taxBreakdown: TaxBreakdownItem[]): { supply: GstSupply; stateTax: 'sgst' | 'utgst' } {
+  const components = new Set(taxBreakdown.map((row) => row.component).filter((c): c is string => Boolean(c)));
+  const stateTax = components.has('utgst') ? 'utgst' : 'sgst';
+  if (components.has('igst')) return { supply: 'inter', stateTax };
+  if (components.has('cgst')) return { supply: 'intra', stateTax };
+  if (components.has('export')) return { supply: 'export', stateTax };
+  return { supply: 'unknown', stateTax };
+}
+
+function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** "Maharashtra (27)" for a place-of-supply code. */
+function gstPlaceOfSupplyText(code: string | null | undefined): string {
+  if (!code) return '';
+  const name = gstStateName(code);
+  return name ? `${name} (${code})` : code;
+}
+
+function buildGstPlaceOfSupplyBlock(code: string | null | undefined, labels: InvoiceLabels): string {
+  const text = gstPlaceOfSupplyText(code);
+  if (!text) return '';
+  return `<div>
+      <div style="font-size:11px;text-transform:uppercase;color:#999;">${escapeHtml(labels.placeOfSupply ?? 'Place of supply')}</div>
+      <div style="font-weight:500;">${escapeHtml(text)}</div>
+    </div>`;
+}
+
+/**
+ * The line table of an Indian tax invoice: HSN/SAC, taxable value and, per
+ * line, the CGST and SGST (or UTGST) rate and amount, or the IGST rate and
+ * amount. A line's CGST is its own half of the slab rounded to the paisa and
+ * SGST takes the remainder, the same split the tax calculation stores.
+ */
+function buildGstItemsTable(
+  items: InvoiceLineItem[],
+  taxBreakdown: TaxBreakdownItem[],
+  labels: InvoiceLabels,
+  fmtCurrency: CurrencyFmt,
+  fmtNumber: NumberFmt,
+  primaryColor: string,
+): string {
+  const { supply, stateTax } = gstSupplyOf(taxBreakdown);
+  const split = supply === 'intra';
+  const stateLabel = GST_COMPONENT_LABEL[stateTax];
+  const th = (text: string, align = 'right') =>
+    `<th style="padding:8px 6px;text-align:${align};font-weight:500;font-size:11px;">${escapeHtml(text)}</th>`;
+  const td = (html: string, align = 'right', extra = '') =>
+    `<td style="padding:6px;border-bottom:1px solid #eee;text-align:${align};font-size:12px;${extra}">${html}</td>`;
+
+  const taxHeads = split
+    ? [th('CGST %'), th('CGST'), th(`${stateLabel} %`), th(stateLabel)].join('')
+    : [th(supply === 'inter' ? 'IGST %' : `${labels.tax} %`), th(supply === 'inter' ? 'IGST' : labels.tax)].join('');
+
+  const rows = items
+    .map((item) => {
+      const rate = Number.parseFloat(item.taxRate ?? '0') || 0;
+      const lineTax = Number.parseFloat(item.taxAmount ?? '0') || 0;
+      const taxable = Number.parseFloat(item.lineTotal) || 0;
+      let taxCells: string;
+      if (split) {
+        const cgst = roundCents((taxable * (rate / 2)) / 100);
+        const state = roundCents(lineTax - cgst);
+        taxCells = [
+          td(`${escapeHtml(fmtNumber(rate / 2))}%`),
+          td(fmtCurrency(cgst)),
+          td(`${escapeHtml(fmtNumber(rate / 2))}%`),
+          td(fmtCurrency(state)),
+        ].join('');
+      } else {
+        taxCells = [td(rate ? `${escapeHtml(fmtNumber(rate))}%` : '—'), td(fmtCurrency(lineTax))].join('');
+      }
+      const unit = item.unit ? ' ' + escapeHtml(item.unit) : '';
+      const quantity = escapeHtml(fmtNumber(item.quantity)) + unit;
+      return `
+    <tr>
+      ${td(escapeHtml(item.description), 'left')}
+      ${td(item.hsnSac ? escapeHtml(item.hsnSac) : '—', 'center')}
+      ${td(quantity, 'center')}
+      ${td(fmtCurrency(item.unitPrice))}
+      ${td(fmtCurrency(item.lineTotal), 'right', 'font-weight:500;')}
+      ${taxCells}
+    </tr>`;
+    })
+    .join('');
+
+  return `<table style="margin-bottom:24px;">
+    <thead>
+      <tr style="background:${primaryColor};color:white;">
+        ${th(labels.description, 'left')}
+        ${th(labels.hsnSac ?? 'HSN/SAC', 'center')}
+        ${th(labels.quantity, 'center')}
+        ${th(labels.unitPrice)}
+        ${th(labels.taxableValue ?? 'Taxable value')}
+        ${taxHeads}
+      </tr>
+    </thead>
+    <tbody>${rows}
+    </tbody>
+  </table>`;
+}
+
+/** Tax totals of an Indian invoice: one row per component and rate (CGST 9%, SGST 9%, IGST 18%), taxable value included. */
+function buildGstTaxRows(
+  taxBreakdown: TaxBreakdownItem[],
+  labels: InvoiceLabels,
+  fmtCurrency: CurrencyFmt,
+  fmtNumber: NumberFmt,
+): string {
+  const order = ['cgst', 'sgst', 'utgst', 'igst'];
+  const groups = new Map<string, { component?: string; rate: number; taxable: number; tax: number }>();
+  for (const row of taxBreakdown) {
+    if (row.component === 'export') continue;
+    const key = `${row.component ?? ''}|${row.taxRate}`;
+    const group = groups.get(key);
+    if (group) {
+      group.taxable += row.taxableAmount;
+      group.tax += row.taxAmount;
+    } else {
+      groups.set(key, { component: row.component, rate: row.taxRate, taxable: row.taxableAmount, tax: row.taxAmount });
+    }
+  }
+  return [...groups.values()]
+    .sort((a, b) => order.indexOf(a.component ?? '') - order.indexOf(b.component ?? '') || a.rate - b.rate)
+    .map((g) => {
+      const label = g.component ? (GST_COMPONENT_LABEL[g.component] ?? labels.tax) : labels.tax;
+      return `
+    <tr>
+      <td style="padding:4px 0;">${escapeHtml(label)} ${escapeHtml(fmtNumber(g.rate))}% ${fmtCurrency(g.taxable)}</td>
+      <td style="padding:4px 0;text-align:right;">${fmtCurrency(g.tax)}</td>
+    </tr>`;
+    })
+    .join('');
 }
 
 /**
@@ -415,6 +578,7 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const labels: InvoiceLabels = requirements.labels;
 
   const fmtCurrency = makeCurrencyFmt(locale, currency);
+  const fmtNumber = makeNumberFmt(locale);
   const fmtDate = makeDateFmt(locale);
 
   const branding = entity.branding ?? {};
@@ -426,13 +590,15 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
   const taxIds = entity.taxIdentifiers ?? {};
   const bankDetails = entity.bankDetails ?? {};
 
-  const itemRows = buildItemRows(invoice.items, fmtCurrency);
+  const itemRows = buildItemRows(invoice.items, fmtCurrency, fmtNumber);
   // US sales tax prints per jurisdiction, and an exempt sale prints its reason and certificate.
   const taxBreakdown = invoice.taxBreakdown || [];
   const usSalesTax = adapter.features.salesTax && taxBreakdown.some((row) => row.jurisdictionName);
-  const taxRows = usSalesTax
-    ? buildUsTaxRows(taxBreakdown, labels, fmtCurrency)
-    : buildTaxRows(taxBreakdown, labels, fmtCurrency);
+  const gstInvoice = entity.jurisdictionCode === 'IN';
+  let buildRows = buildTaxRows;
+  if (usSalesTax) buildRows = buildUsTaxRows;
+  else if (gstInvoice) buildRows = buildGstTaxRows;
+  const taxRows = buildRows(taxBreakdown, labels, fmtCurrency, fmtNumber);
   const exemptNotices = usSalesTax
     ? buildUsExemptNotices(taxBreakdown, invoice.certificateNumbers, fmtCurrency)
     : '';
@@ -504,9 +670,13 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
       <div style="font-weight:500;">${fmtDate(invoice.dueDate)}</div>
     </div>
     ${buildReferenceBlock(invoice.reference)}
+    ${gstInvoice ? buildGstPlaceOfSupplyBlock(invoice.placeOfSupply, labels) : ''}
   </div>
 
-  <table style="margin-bottom:24px;">
+  ${
+    gstInvoice
+      ? buildGstItemsTable(invoice.items, taxBreakdown, labels, fmtCurrency, fmtNumber, primaryColor)
+      : `<table style="margin-bottom:24px;">
     <thead>
       <tr style="background:${primaryColor};color:white;">
         <th style="padding:10px 12px;text-align:left;font-weight:500;">${labels.description}</th>
@@ -519,7 +689,8 @@ export function generateInvoiceHtml(invoice: InvoiceRenderData, entity: Entity):
     <tbody>
       ${itemRows}
     </tbody>
-  </table>
+  </table>`
+  }
 
   <div style="display:flex;justify-content:flex-end;">
     <div style="width:300px;">

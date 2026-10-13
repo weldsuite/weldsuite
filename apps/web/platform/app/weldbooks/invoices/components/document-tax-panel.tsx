@@ -51,7 +51,11 @@ export function DocumentTaxPanel({
   const td = useDocumentTexts();
   const { result, isCalculating, error, errorCode } = state;
 
-  const groups = useMemo(() => groupTaxBreakdown(result?.taxBreakdown), [result?.taxBreakdown]);
+  // A row that charges nothing and exempts nothing (a 0% rate, a jurisdiction without tax) says nothing.
+  const groups = useMemo(
+    () => groupTaxBreakdown(result?.taxBreakdown).filter((group) => group.taxAmount !== 0 || group.exemptAmount > 0),
+    [result?.taxBreakdown],
+  );
 
   return (
     <div className={className ?? 'space-y-3'} data-testid="document-tax-panel">

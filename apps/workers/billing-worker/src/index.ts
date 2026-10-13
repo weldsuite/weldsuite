@@ -61,8 +61,10 @@ export interface Env {
   /** app-api base URL — FALLBACK path only (through app-api's forwarder) to order
    *  Telnyx numbers while CALL_INTERNAL is unbound or the entrypoint is not deployed. */
   APP_API_URL?: string;
-  /** Platform SPA origin; links in partner emails. Defaults to production. */
+  /** Platform SPA origin. Defaults to production. */
   APP_URL?: string;
+  /** Partner portal origin (apps/web/partner); links in partner emails. Defaults to production. */
+  PARTNER_PORTAL_URL?: string;
   /** Cloudflare Email Sending binding (partner dunning and invitation emails). */
   SEND_EMAIL?: SendEmail;
   /** `resend` forces Resend (migration switch, needs RESEND_API_KEY). */

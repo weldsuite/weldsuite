@@ -29,6 +29,7 @@ import {
   uploadMailAttachments,
 } from '@/app/weldmail/lib/upload-attachments';
 import { buildComposeBodies, type ComposeBodies } from '@/app/weldmail/lib/compose-body';
+import { replaceBodyKeepingSignature, userWrittenText } from '@/app/weldmail/lib/signature';
 import type { DraftFields } from '@/app/weldmail/lib/draft-autosave';
 import { useDraftAutosave } from '@/app/weldmail/lib/use-draft-autosave';
 
@@ -38,7 +39,8 @@ function hasComposeContent(
   composeData: { to: string; subject: string; body: string },
   editorHtml: string | undefined,
 ) {
-  return composeData.to || composeData.subject || composeData.body || (editorHtml?.trim());
+  // A body holding only the signature compose put in is not content.
+  return composeData.to || composeData.subject || userWrittenText(editorHtml ?? composeData.body);
 }
 
 function parseRecipients(str: string): string[] {
@@ -56,7 +58,8 @@ interface PanelDraftForm {
 
 // `editorHtml` is the live editor content; `form.body` only follows it on blur.
 function buildPanelDraftFields(form: PanelDraftForm, editorHtml: string | undefined): DraftFields {
-  const { body, htmlBody } = buildComposeBodies(editorHtml ?? form.body);
+  const html = editorHtml ?? form.body;
+  const { body, htmlBody } = buildComposeBodies(html);
   return {
     subject: form.subject,
     to: parseRecipients(form.to),
@@ -65,6 +68,7 @@ function buildPanelDraftFields(form: PanelDraftForm, editorHtml: string | undefi
     body,
     htmlBody,
     inReplyTo: form.inReplyTo || undefined,
+    contentText: userWrittenText(html),
   };
 }
 
@@ -283,9 +287,8 @@ function FloatingComposeOpen({
 
   const applyGeneratedBody = (body: string) => {
     if (!textareaRef.current) return;
-    const html = formatAiBody(body);
-    textareaRef.current.innerHTML = html;
-    updateComposeData({ body: html });
+    replaceBodyKeepingSignature(textareaRef.current, formatAiBody(body));
+    updateComposeData({ body: textareaRef.current.innerHTML });
   };
 
   // For replies, use the reply endpoint (body only)
@@ -504,7 +507,8 @@ function FloatingComposeOpen({
   const handleSend = async () => {
     if (isSending) return;
     // Get body content directly from the ref (may not be synced to context yet)
-    const bodies = buildComposeBodies(textareaRef.current ? textareaRef.current.innerHTML : composeData.body || '');
+    const editorHtml = textareaRef.current ? textareaRef.current.innerHTML : composeData.body || '';
+    const bodies = buildComposeBodies(editorHtml);
 
     if (!toWithPending.trim()) {
       toast.error(t.mail.composePage.atLeastOneRecipient);
@@ -514,7 +518,7 @@ function FloatingComposeOpen({
       toast.error(t.mail.composePage.noAccountSelected);
       return;
     }
-    if (!bodies.body) {
+    if (!userWrittenText(editorHtml)) {
       toast.error(t.mail.composePage.enterMessage);
       return;
     }
@@ -583,6 +587,7 @@ function FloatingComposeOpen({
           )
         }
         onBodyBlur={(body) => updateComposeData({ body })}
+        signatureMode={composeData.inReplyTo ? 'reply' : 'new'}
         attachedFiles={attachedFiles}
         onAttachedFilesChange={setAttachedFiles}
         scheduledTime={scheduledTime}

@@ -163,7 +163,7 @@ export function UsEntityCreateForm({ jurisdictionPicker, entityTypes }: Readonly
               <Label htmlFor="us-entity-name">{te.displayName} *</Label>
               <Input
                 id="us-entity-name"
-                placeholder={te.displayNamePlaceholder}
+                placeholder={te.displayNamePlaceholders.US}
                 aria-invalid={errors.name ? true : undefined}
                 {...form.register('name')}
               />
@@ -171,7 +171,7 @@ export function UsEntityCreateForm({ jurisdictionPicker, entityTypes }: Readonly
             </div>
             <div className="space-y-2">
               <Label htmlFor="us-entity-legalName">{te.legalName}</Label>
-              <Input id="us-entity-legalName" placeholder={te.legalNamePlaceholder2} {...form.register('legalName')} />
+              <Input id="us-entity-legalName" placeholder={te.legalNamePlaceholders.US} {...form.register('legalName')} />
             </div>
             <div className="space-y-2">
               <Label>{te.jurisdiction}</Label>

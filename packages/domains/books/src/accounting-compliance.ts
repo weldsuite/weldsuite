@@ -15,6 +15,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { getAdapter, hasAdapter } from './jurisdictions/registry';
 import type { InvoiceRequirements } from './jurisdictions/types';
 import {
+  NL_NOTICE_ICL,
   NL_NOTICE_KOR,
   NL_NOTICE_REVERSE_CHARGE_DOMESTIC,
   NL_NOTICE_REVERSE_CHARGE_EU,
@@ -23,6 +24,7 @@ import {
   IN_NOTICE_EXPORT,
   IN_NOTICE_REVERSE_CHARGE,
 } from './jurisdictions/in/invoice-format';
+import { normalizePostalAddress } from './accounting-address';
 import { isKorActive } from './accounting-guards';
 import { checkVatNumber } from './vies';
 
@@ -68,7 +70,7 @@ export async function collectInvoiceTaxCategories(
 }
 
 export function invoiceUsesReverseCharge(categories: Set<string>): boolean {
-  return categories.has('reverse_charge') || categories.has('eu_b2b_service');
+  return categories.has('reverse_charge') || categories.has('eu_b2b_service') || categories.has('eu_b2b_goods');
 }
 
 /** Legally required statements to print on the invoice document. */
@@ -82,6 +84,8 @@ export function buildComplianceNotices(entity: Entity, categories: Set<string>):
   if (entity.jurisdictionCode !== 'NL') return [];
   const notices: string[] = [];
   if (isKorActive(entity)) notices.push(NL_NOTICE_KOR);
+  // Goods leave under art. 138 (intracommunautaire levering), services are reverse-charged to the customer.
+  if (categories.has('eu_b2b_goods')) notices.push(NL_NOTICE_ICL);
   if (categories.has('eu_b2b_service')) notices.push(NL_NOTICE_REVERSE_CHARGE_EU);
   else if (categories.has('reverse_charge')) notices.push(NL_NOTICE_REVERSE_CHARGE_DOMESTIC);
   return notices;
@@ -105,16 +109,26 @@ function missingEntityInvoiceFields(entity: Entity, requirements: InvoiceRequire
     registrationNumber: !!entity.taxIdentifiers?.registrationNumber,
     iban: !!entity.bankDetails?.iban,
     bic: !!entity.bankDetails?.bic,
+    address: entityHasInvoiceAddress(entity),
   };
   const labels: Record<string, string> = {
     vatNumber: requirements.labels.vatNumberLabel,
     registrationNumber: requirements.labels.registrationLabel,
     iban: 'IBAN',
     bic: 'BIC',
+    address: 'business address (street and city)',
   };
-  return requirements.requiredFields
-    .filter((field) => field in labels && !present[field])
-    .map((field) => labels[field]);
+  // The supplier's address is on every invoice in every jurisdiction, whatever the adapter lists.
+  const required = requirements.requiredFields.includes('address')
+    ? requirements.requiredFields
+    : [...requirements.requiredFields, 'address' as const];
+  return required.filter((field) => field in labels && !present[field]).map((field) => labels[field]);
+}
+
+/** An address an invoice can print: a street line and a city at least (the country follows the jurisdiction). */
+export function entityHasInvoiceAddress(entity: Pick<Entity, 'address'>): boolean {
+  const address = normalizePostalAddress(entity.address);
+  return Boolean(address?.line1 && address.city);
 }
 
 interface ReverseChargeCheck {
@@ -164,6 +178,20 @@ async function checkReverseChargeBuyer(
   return { errors: [], warnings: [], buyerVatNumber };
 }
 
+async function invoiceHasBuyerName(
+  db: Database,
+  invoice: { contactId: string | null; contactName?: string | null },
+): Promise<boolean> {
+  if (invoice.contactName?.trim()) return true;
+  if (!invoice.contactId) return false;
+  const [party] = await db
+    .select({ displayName: schema.parties.displayName })
+    .from(schema.parties)
+    .where(eq(schema.parties.id, invoice.contactId))
+    .limit(1);
+  return Boolean(party?.displayName?.trim());
+}
+
 /**
  * Validate an invoice against the entity jurisdiction's factuureisen before
  * it is finalized. Returns errors (block) and warnings (proceed, surface).
@@ -171,7 +199,7 @@ async function checkReverseChargeBuyer(
 export async function validateInvoiceForFinalize(
   db: Database,
   entity: Entity,
-  invoice: { contactId: string | null; taxTotal: string | null },
+  invoice: { contactId: string | null; taxTotal: string | null; contactName?: string | null },
   categories: Set<string>,
 ): Promise<ComplianceCheckResult> {
   const errors: string[] = [];
@@ -185,9 +213,16 @@ export async function validateInvoiceForFinalize(
     const missing = missingEntityInvoiceFields(entity, requirements);
     if (missing.length > 0) {
       errors.push(
-        `Entity is missing legally required invoice fields: ${missing.join(', ')}. Add them in the entity settings before finalizing.`,
+        `Entity is missing legally required invoice fields: ${missing.join(', ')}. Add them under WeldBooks > Entities > (this entity) > Edit before finalizing.`,
       );
     }
+  }
+
+  // The buyer's name is on every invoice (CBIC Rule 46, Dutch factuureisen, ...): the document's own, else the contact's.
+  if (!(await invoiceHasBuyerName(db, invoice))) {
+    errors.push(
+      'The invoice has no customer name. Choose a customer (or enter the customer name) on the invoice before finalizing.',
+    );
   }
 
   // KOR entities may not charge VAT on any invoice.

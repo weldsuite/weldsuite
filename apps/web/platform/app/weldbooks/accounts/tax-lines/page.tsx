@@ -72,7 +72,7 @@ export default function TaxLineMappingPage() {
   const isUs = jurisdictionCode === 'US';
   const canUpdateAccounts = useCan('accounts:update');
   const catalogQuery = useTaxLineCatalog(undefined, { enabled: isUs });
-  const accountsQuery = useAccountingAccounts(undefined, { enabled: isUs });
+  const accountsQuery = useAccountingAccounts({ includeInactive: true }, { enabled: isUs });
   const updateAccount = useUpdateAccount();
   const sectionLabel = useTaxSectionLabel();
   const [showEmpty, setShowEmpty] = useState(false);

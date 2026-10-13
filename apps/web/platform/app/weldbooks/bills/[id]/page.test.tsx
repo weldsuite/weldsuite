@@ -32,6 +32,7 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | string | null | undefined) => `$${Number(value ?? 0).toFixed(2)}`,
+    formatNumber: (value: number | string | null | undefined) => String(Number(value ?? 0)),
     formatDate: (value: string | null | undefined) => value ?? '-',
   }),
 }));
@@ -140,6 +141,23 @@ describe('BillDetailPage: sales tax', () => {
     expect(screen.getByText('Delivery address')).toBeInTheDocument();
     expect(screen.getByText('5 Depot Way')).toBeInTheDocument();
     expect(screen.getByText('Sales tax paid (part of cost)')).toBeInTheDocument();
+  });
+
+  it('shows translated status labels, not the raw status values', () => {
+    env.bill = bill({ status: 'draft', approvalStatus: 'pending' });
+    renderWithProviders(<BillDetailPage />);
+    expect(screen.getByText('Draft')).toBeInTheDocument();
+    expect(screen.getByText('Pending approval')).toBeInTheDocument();
+    expect(screen.queryByText('draft')).not.toBeInTheDocument();
+    expect(screen.queryByText('pending')).not.toBeInTheDocument();
+  });
+
+  it('shows quantities without trailing zeros', () => {
+    env.bill = bill({ items: [{ ...(bill().items as object[])[0], quantity: '10.0000', discountPercent: '5.0000' }] });
+    renderWithProviders(<BillDetailPage />);
+    const line = screen.getByText('Laptop').closest('tr')!;
+    expect(within(line).getByText('10')).toBeInTheDocument();
+    expect(within(line).getByText('5%')).toBeInTheDocument();
   });
 
   it('shows the tax code, the use tax flag and the 1099 box of a line', () => {

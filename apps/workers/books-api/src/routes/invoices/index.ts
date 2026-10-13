@@ -46,9 +46,13 @@ import {
   invoiceUsesReverseCharge,
 } from '@weldsuite/books-domain/accounting-compliance';
 import { calculateDocumentTax, TaxCalculationError, type DocumentTaxItem } from '../../services/accounting-tax-resolve';
-import { PostingError, postInvoiceWriteOff } from '../../services/accounting-document-posting';
+import { PostingError } from '../../services/accounting-document-posting';
+import { writeOffInvoice } from '../../services/accounting-bad-debt';
 import { assertDimensionsBelongToEntity } from '../../services/accounting-posting';
+import { draftRate } from '../../services/accounting-fx';
+import { exchangeRateSchema } from '../../lib/exchange-rate-schema';
 import { finalizeInvoice, InvoiceComplianceError } from '../../services/accounting-invoice-finalize';
+import { isGstEntity, resolveGstSupply } from '../../services/accounting-gst';
 import { recordPayment } from '../../services/accounting-payments';
 import { applyCreditNote, type CreditApplication } from '../../services/accounting-credit-notes';
 import { salesTaxErrorResponse } from '../../services/sales-tax/errors';
@@ -132,6 +136,8 @@ const lineItemSchema = z.object({
   sortOrder: z.number().optional(),
   // US sales tax: the line's tax code (else its product's), who uses it, tax-inclusive pricing, a hand-set tax.
   taxCode: z.string().max(30).nullable().optional(),
+  /** India GST: HSN (goods) or SAC (services) code, 4 to 8 digits. */
+  hsnSac: z.string().trim().regex(/^(\d{4,8})?$/, 'HSN/SAC must be 4 to 8 digits').nullable().optional(),
   taxUse: z.enum(['business', 'personal']).nullable().optional(),
   taxIncluded: z.boolean().optional(),
   taxOverrideAmount: z.union([z.string(), z.number()]).transform((v) => String(v)).nullable().optional(),
@@ -163,6 +169,8 @@ const createInvoiceSchema = z.object({
   issueDate: z.string(),
   dueDate: z.string(),
   currency: z.string().length(3).optional(),
+  /** Foreign units per base unit; typed to override the rate for the issue date (null: look it up again). */
+  exchangeRate: exchangeRateSchema.nullable().optional(),
   paymentTermsDays: z.number().optional(),
   reference: z.string().max(255).optional(),
   notes: z.string().optional(),
@@ -171,6 +179,8 @@ const createInvoiceSchema = z.object({
   shippingAddress: addressSchema.nullable().optional(),
   /** US sales tax: the origin for origin-sourced states, when it is not the entity's address. */
   shipFromAddress: addressSchema.nullable().optional(),
+  /** India GST: two-digit state code of the place of supply (96 = outside India); derived from the buyer when omitted. */
+  placeOfSupply: z.string().regex(/^\d{2}$/, 'Place of supply is a two-digit GST state code').nullable().optional(),
   /** Sold through a marketplace facilitator that collects the tax: no tax charged, the sale counts for nexus. */
   marketplaceFacilitated: z.boolean().optional(),
   revenueAccountId: z.string().max(30).optional(),
@@ -193,6 +203,8 @@ const recordPaymentSchema = z.object({
   /** US: park the money in Undeposited Funds or debit the bank. Defaults by method (checks and cash wait). */
   depositTo: z.enum(['undeposited_funds', 'bank']).optional(),
   notes: z.string().optional(),
+  /** Foreign-currency invoice: the rate of the payment (foreign units per base unit), else the rate of the payment date. */
+  exchangeRate: exchangeRateSchema.nullable().optional(),
 });
 
 /**
@@ -263,6 +275,9 @@ const TAX_INPUT_FIELDS = [
   'marketplaceFacilitated',
 ] as const;
 
+/** The invoice fields an India GST draft's CGST/SGST/IGST split depends on besides its lines. */
+const GST_INPUT_FIELDS = ['contactId', 'billingAddress', 'shippingAddress', 'placeOfSupply'] as const;
+
 /** The new line rows of an invoice, with the calculation's tax columns and the US inputs. */
 function buildItemRecords(
   entityId: string,
@@ -287,6 +302,7 @@ function buildItemRecords(
     period: item.period || null,
     sortOrder: item.sortOrder ?? idx,
     taxCode: item.taxCode || null,
+    hsnSac: item.hsnSac || null,
     taxUse: item.taxUse || null,
     taxIncluded: item.taxIncluded ?? false,
     taxOverrideAmount: item.taxOverrideAmount ?? null,
@@ -305,6 +321,183 @@ function taxAddress(
 ) {
   const address = normalizePostalAddress(shipping) ?? normalizePostalAddress(billing);
   return { buyerCountry: address?.country, billingProvince: address?.state };
+}
+
+type InvoiceRow = typeof schema.invoices.$inferSelect;
+type InvoiceItemRecords = ReturnType<typeof buildItemRecords>;
+type StoredItemTax = Array<{ id: string; columns: ReturnType<typeof itemTaxColumns> }>;
+type DraftedTax = Awaited<ReturnType<typeof calculateDraftTax>>;
+
+/**
+ * The buyer's VAT number as the invoice PDF prints it. An Indian tax invoice always names the buyer's
+ * GSTIN (as it was at finalize); other jurisdictions print the buyer's number on reverse-charge invoices.
+ */
+async function printedBuyerVatNumber(
+  db: Database,
+  jurisdictionCode: string | null | undefined,
+  invoice: InvoiceRow,
+  taxCategories: Parameters<typeof invoiceUsesReverseCharge>[0],
+) {
+  if (jurisdictionCode === 'IN') {
+    return invoice.contactTaxNumber ?? (await getContactVatNumber(db, invoice.contactId));
+  }
+  if (invoiceUsesReverseCharge(taxCategories)) return getContactVatNumber(db, invoice.contactId);
+  return null;
+}
+
+/**
+ * The exchange rate follows a typed rate, a change of currency or issue date (the rate is the one
+ * for the issue date), or a null (look it up again).
+ */
+async function applyInvoiceExchangeRate(
+  db: Database,
+  invoice: InvoiceRow,
+  data: UpdateInvoiceInput,
+  updateData: Record<string, unknown>,
+): Promise<void> {
+  const currencyChanged = data.currency !== undefined && data.currency !== invoice.currency;
+  const issueDateChanged =
+    data.issueDate !== undefined && new Date(data.issueDate).getTime() !== invoice.issueDate.getTime();
+  if (data.exchangeRate === undefined && !currencyChanged && !issueDateChanged) return;
+  const baseCurrency = await resolveEntityBaseCurrency(db, invoice.entityId);
+  updateData.exchangeRate = await draftRate(db, {
+    baseCurrency,
+    currency: (updateData.currency as string | undefined) ?? invoice.currency ?? baseCurrency,
+    date: (updateData.issueDate as Date | undefined) ?? invoice.issueDate,
+    override: data.exchangeRate,
+  });
+}
+
+/** Another customer, or a draft stored without a contact name, takes the contact's name and email. */
+async function applyInvoiceContactSnapshot(
+  db: Database,
+  invoice: InvoiceRow,
+  data: UpdateInvoiceInput,
+  updateData: Record<string, unknown>,
+  contactChanged: boolean,
+): Promise<void> {
+  if (!contactChanged && invoice.contactName) return;
+  const kept = contactChanged ? { contactName: null, contactEmail: null } : invoice;
+  Object.assign(
+    updateData,
+    await documentContactFields(db, data.contactId ?? invoice.contactId, {
+      contactName: data.contactName ?? kept.contactName,
+      contactEmail: data.contactEmail ?? kept.contactEmail,
+    }),
+  );
+}
+
+/**
+ * Tax is recalculated when the lines change, and on a US entity when anything the tax depends on does
+ * (customer, date, addresses): the stored lines are re-taxed then.
+ */
+function invoiceTaxInputsChanged(data: UpdateInvoiceInput, salesTaxEntity: boolean, gstEntity: boolean): boolean {
+  if (data.items !== undefined) return true;
+  if (salesTaxEntity && TAX_INPUT_FIELDS.some((field) => data[field] !== undefined)) return true;
+  return gstEntity && GST_INPUT_FIELDS.some((field) => data[field] !== undefined);
+}
+
+/** The lines to tax: the new ones from the body, or the stored ones when only the tax inputs changed. */
+async function loadDraftTaxLines(db: Database, invoice: InvoiceRow, items: UpdateInvoiceInput['items']) {
+  const { invoiceItems } = schema;
+  const storedItems = items
+    ? []
+    : await db
+        .select()
+        .from(invoiceItems)
+        .where(and(eq(invoiceItems.invoiceId, invoice.id), isNull(invoiceItems.deletedAt)))
+        .orderBy(invoiceItems.sortOrder);
+  const itemIds = items ? items.map(() => generateId('ili')) : storedItems.map((i) => i.id);
+  const taxItems: DocumentTaxItem[] = items
+    ? items.map((item, idx) => ({ ...item, id: itemIds[idx], sortOrder: item.sortOrder ?? idx }))
+    : storedItems.map(invoiceItemToTaxItem);
+  if (items) await assertDimensionsBelongToEntity(db, invoice.entityId, items);
+  return { storedItems, itemIds, taxItems };
+}
+
+/** India GST: a place of supply sent with the update wins; another customer re-derives it. */
+function placeOfSupplyForUpdate(data: UpdateInvoiceInput, invoice: InvoiceRow, contactChanged: boolean) {
+  if (data.placeOfSupply !== undefined) return data.placeOfSupply;
+  return contactChanged ? null : invoice.placeOfSupply;
+}
+
+/** The tax columns, warnings and balance an update takes from a draft calculation. */
+function applyDraftedTax(updateData: Record<string, unknown>, invoice: InvoiceRow, drafted: DraftedTax): void {
+  // With new lines a failed calculation leaves them untaxed and flagged; the old tax belongs to the old lines.
+  Object.assign(updateData, invoiceTaxColumns(drafted.calc));
+  if (!drafted.ok) {
+    Object.assign(updateData, {
+      taxEngine: null,
+      taxEngineRef: null,
+      taxCalculatedAt: null,
+      taxWarnings: [engineUnavailableWarning(drafted.message)],
+    });
+  }
+  updateData.balanceDue = String(Number.parseFloat(drafted.calc.total) - Number.parseFloat(invoice.amountPaid || '0'));
+}
+
+/**
+ * Recalculate the tax of a draft after an update: new lines are replaced, stored ones get their
+ * new tax columns. The header columns land in `updateData`.
+ */
+async function retaxInvoiceDraft(
+  c: AppContext,
+  db: Database,
+  invoice: InvoiceRow,
+  data: UpdateInvoiceInput,
+  updateData: Record<string, unknown>,
+  opts: { contactChanged: boolean; gstEntity: boolean },
+): Promise<{ newItems: InvoiceItemRecords | undefined; storedItemTax: StoredItemTax }> {
+  const effective = { ...invoice, ...updateData } as typeof invoice;
+  const { storedItems, itemIds, taxItems } = await loadDraftTaxLines(db, invoice, data.items);
+
+  const gst = opts.gstEntity
+    ? await resolveGstSupply(db, {
+        entityId: invoice.entityId,
+        contactId: effective.contactId,
+        placeOfSupply: placeOfSupplyForUpdate(data, invoice, opts.contactChanged),
+        shippingAddress: effective.shippingAddress,
+        billingAddress: effective.billingAddress,
+      })
+    : null;
+  if (gst) updateData.placeOfSupply = gst.placeOfSupply;
+
+  const drafted = await calculateDraftTax(db, {
+    entityId: invoice.entityId,
+    direction: 'sales',
+    items: taxItems,
+    ...taxAddress(effective.shippingAddress, effective.billingAddress),
+    ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry, buyerGstin: gst.buyerGstin ?? undefined } : {}),
+    runtime: salesTaxRuntimeFromEnv(c.env),
+    document: invoiceDocumentContext(effective),
+  });
+
+  let newItems: InvoiceItemRecords | undefined;
+  const storedItemTax: StoredItemTax = [];
+  if (drafted.ok || data.items) {
+    applyDraftedTax(updateData, invoice, drafted);
+    if (data.items) newItems = buildItemRecords(invoice.entityId, invoice.id, itemIds, data.items, drafted.calc);
+    else storedItems.forEach((item, idx) => storedItemTax.push({ id: item.id, columns: itemTaxColumns(drafted.calc, idx) }));
+  } else {
+    // Unchanged lines keep their last calculation.
+    updateData.taxWarnings = mergeSyncWarning(invoice.taxWarnings, engineUnavailableWarning(drafted.message));
+  }
+  return { newItems, storedItemTax };
+}
+
+/** Why an invoice can not move to `newStatus`, or null when it can. */
+function statusChangeRefusal(invoice: InvoiceRow, newStatus: 'cancelled' | 'uncollectible'): string | null {
+  if (newStatus === 'cancelled') {
+    return invoice.journalEntryId
+      ? 'This invoice is booked and cannot be cancelled. Create a credit note (POST /:id/credit-note) to correct it.'
+      : null;
+  }
+  if (invoice.type === 'credit_note') {
+    return 'A credit note is money owed to the customer, not by them: apply it to an invoice or refund it instead of writing it off.';
+  }
+  if (!invoice.journalEntryId) return 'Only a finalized invoice can be written off as uncollectible';
+  if (Number.parseFloat(invoice.balanceDue ?? '0') <= 0) return 'This invoice has no open balance to write off';
+  return null;
 }
 
 // GET / — list invoices (entity-scoped, filters)
@@ -510,9 +703,9 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
     // Legally required statements (BTW verlegd / KOR) + buyer VAT number
     const taxCategories = await collectInvoiceTaxCategories(db, invoiceId);
     const complianceNotices = buildComplianceNotices(entityRow, taxCategories);
-    const contactVatNumber = invoiceUsesReverseCharge(taxCategories)
-      ? await getContactVatNumber(db, invoice.contactId)
-      : null;
+    // An Indian tax invoice always names the buyer's GSTIN (as it was at finalize); other
+    // jurisdictions print the buyer's number on reverse-charge invoices.
+    const contactVatNumber = await printedBuyerVatNumber(db, entityRow.jurisdictionCode, invoice, taxCategories);
 
     // An exempt US sale prints its certificate number.
     const certificateIds = [
@@ -549,8 +742,10 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
         shippingAddress: invoice.shippingAddress,
         reference: invoice.reference,
         notes: invoice.notes,
+        placeOfSupply: invoice.placeOfSupply,
         items: items.map((i) => ({
           description: i.description || '',
+          hsnSac: i.hsnSac,
           quantity: i.quantity || '1',
           unitPrice: i.unitPrice || '0',
           unit: i.unit ?? undefined,
@@ -594,7 +789,16 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.');
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
-    const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));
+    const baseCurrency = await resolveEntityBaseCurrency(db, entityId);
+    const currency = data.currency || baseCurrency;
+    // A foreign currency stores the rate for the issue date (or the one typed); with none yet the
+    // draft is saved without one, and finalizing refuses until there is one.
+    const exchangeRate = await draftRate(db, {
+      baseCurrency,
+      currency,
+      date: new Date(data.issueDate),
+      override: data.exchangeRate,
+    });
 
     const billingAddress = normalizePostalAddress(data.billingAddress);
     const shippingAddress = normalizePostalAddress(data.shippingAddress);
@@ -604,11 +808,20 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
     // Line ids first: the tax breakdown refers to them.
     const invoiceId = generateId('inv');
     const itemIds = data.items.map(() => generateId('ili'));
+    // India GST: the place of supply decides CGST + SGST versus IGST.
+    const gst = await resolveGstSupply(db, {
+      entityId,
+      contactId: data.contactId,
+      placeOfSupply: data.placeOfSupply,
+      shippingAddress,
+      billingAddress,
+    });
     const drafted = await calculateDraftTax(db, {
       entityId,
       direction: 'sales',
       items: data.items.map((item, idx) => ({ ...item, id: itemIds[idx], sortOrder: item.sortOrder ?? idx })),
       ...taxAddress(shippingAddress, billingAddress),
+      ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry, buyerGstin: gst.buyerGstin ?? undefined } : {}),
       runtime: salesTaxRuntimeFromEnv(c.env),
       document: {
         kind: invoiceKind({ type: data.type || 'standard' }),
@@ -639,6 +852,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       issueDate: new Date(data.issueDate),
       dueDate: new Date(data.dueDate),
       currency,
+      exchangeRate,
       ...invoiceTaxColumns(totals),
       ...(drafted.ok ? {} : { taxWarnings: [engineUnavailableWarning(drafted.message)] }),
       amountPaid: '0',
@@ -650,6 +864,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       billingAddress,
       shippingAddress,
       shipFromAddress,
+      placeOfSupply: gst?.placeOfSupply ?? null,
       marketplaceFacilitated: data.marketplaceFacilitated ?? false,
       revenueAccountId: data.revenueAccountId || null,
       creditNoteForInvoiceId: data.creditNoteForInvoiceId || null,
@@ -725,71 +940,18 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
       );
     }
 
-    const updateData: Record<string, unknown> = buildInvoiceFieldUpdates(data);
+    const updateData = buildInvoiceFieldUpdates(data);
+    await applyInvoiceExchangeRate(db, invoice, data, updateData);
 
-    // Another customer, or a draft stored without a contact name, takes the contact's name and email.
     const contactChanged = !!data.contactId && data.contactId !== invoice.contactId;
-    if (contactChanged || !invoice.contactName) {
-      const kept = contactChanged ? { contactName: null, contactEmail: null } : invoice;
-      Object.assign(
-        updateData,
-        await documentContactFields(db, data.contactId ?? invoice.contactId, {
-          contactName: data.contactName ?? kept.contactName,
-          contactEmail: data.contactEmail ?? kept.contactEmail,
-        }),
-      );
-    }
+    await applyInvoiceContactSnapshot(db, invoice, data, updateData, contactChanged);
 
-    // Tax is recalculated when the lines change, and on a US entity when anything the tax depends on does
-    // (customer, date, addresses): the stored lines are re-taxed then.
     const salesTaxEntity = usesSalesTax(await loadSalesTaxEntity(db, invoice.entityId));
-    const taxInputsChanged =
-      data.items !== undefined || (salesTaxEntity && TAX_INPUT_FIELDS.some((field) => data[field] !== undefined));
-
-    let newItems: ReturnType<typeof buildItemRecords> | undefined;
-    const storedItemTax: Array<{ id: string; columns: ReturnType<typeof itemTaxColumns> }> = [];
-    if (taxInputsChanged) {
-      const effective = { ...invoice, ...updateData } as typeof invoice;
-      const storedItems = data.items
-        ? []
-        : await db
-            .select()
-            .from(invoiceItems)
-            .where(and(eq(invoiceItems.invoiceId, invoiceId), isNull(invoiceItems.deletedAt)))
-            .orderBy(invoiceItems.sortOrder);
-      const itemIds = data.items ? data.items.map(() => generateId('ili')) : storedItems.map((i) => i.id);
-      const taxItems: DocumentTaxItem[] = data.items
-        ? data.items.map((item, idx) => ({ ...item, id: itemIds[idx], sortOrder: item.sortOrder ?? idx }))
-        : storedItems.map(invoiceItemToTaxItem);
-      if (data.items) await assertDimensionsBelongToEntity(db, invoice.entityId, data.items);
-
-      const drafted = await calculateDraftTax(db, {
-        entityId: invoice.entityId,
-        direction: 'sales',
-        items: taxItems,
-        ...taxAddress(effective.shippingAddress, effective.billingAddress),
-        runtime: salesTaxRuntimeFromEnv(c.env),
-        document: invoiceDocumentContext(effective),
-      });
-
-      if (drafted.ok || data.items) {
-        // With new lines a failed calculation leaves them untaxed and flagged; the old tax belongs to the old lines.
-        Object.assign(updateData, invoiceTaxColumns(drafted.calc));
-        if (!drafted.ok) {
-          Object.assign(updateData, {
-            taxEngine: null,
-            taxEngineRef: null,
-            taxCalculatedAt: null,
-            taxWarnings: [engineUnavailableWarning(drafted.message)],
-          });
-        }
-        updateData.balanceDue = String(Number.parseFloat(drafted.calc.total) - Number.parseFloat(invoice.amountPaid || '0'));
-        if (data.items) newItems = buildItemRecords(invoice.entityId, invoiceId, itemIds, data.items, drafted.calc);
-        else storedItems.forEach((item, idx) => storedItemTax.push({ id: item.id, columns: itemTaxColumns(drafted.calc, idx) }));
-      } else {
-        // Unchanged lines keep their last calculation.
-        updateData.taxWarnings = mergeSyncWarning(invoice.taxWarnings, engineUnavailableWarning(drafted.message));
-      }
+    const gstEntity = await isGstEntity(db, invoice.entityId);
+    let newItems: InvoiceItemRecords | undefined;
+    let storedItemTax: StoredItemTax = [];
+    if (invoiceTaxInputsChanged(data, salesTaxEntity, gstEntity)) {
+      ({ newItems, storedItemTax } = await retaxInvoiceDraft(c, db, invoice, data, updateData, { contactChanged, gstEntity }));
     }
 
     // Replace the lines and update the header together (neon-http has no transactions).
@@ -888,7 +1050,9 @@ app.delete('/:id', requirePermission('invoices:delete'), async (c) => {
 });
 
 // PATCH /:id/send — mark as sent. A draft is finalized (posted) first, so
-// nothing reaches a customer without being in the ledger.
+// nothing reaches a customer without being in the ledger. A finalized invoice
+// becomes `sent`; an invoice that was sent already stays as it is (a resend
+// only moves `sentAt`).
 app.patch('/:id/send', requirePermission('invoices:update'), async (c) => {
   const db = c.get('tenantDb');
   const invoiceId = c.req.param('id');
@@ -916,10 +1080,10 @@ app.patch('/:id/send', requirePermission('invoices:update'), async (c) => {
     } else {
       await db
         .update(invoices)
-        .set({ sentAt: now, updatedAt: now })
+        .set({ sentAt: now, ...(invoice.status === 'finalized' ? { status: 'sent' } : {}), updatedAt: now })
         .where(eq(invoices.id, invoiceId));
     }
-    const status = invoice.status === 'draft' ? 'sent' : invoice.status;
+    const status = invoice.status === 'draft' || invoice.status === 'finalized' ? 'sent' : invoice.status;
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: invoice.entityId,
@@ -978,30 +1142,18 @@ app.patch('/:id/status', requirePermission('invoices:update'), zValidator('json'
     if (!invoice) return error.notFound(c, 'Invoice', invoiceId);
     if (invoice.status === newStatus) return success(c, invoice);
 
+    const refusal = statusChangeRefusal(invoice, newStatus);
+    if (refusal) return error.badRequest(c, refusal);
+
     let journalEntryId: string | null = null;
+    let vatRelief = 0;
     if (newStatus === 'cancelled') {
-      if (invoice.journalEntryId) {
-        return error.badRequest(
-          c,
-          'This invoice is booked and cannot be cancelled. Create a credit note (POST /:id/credit-note) to correct it.',
-        );
-      }
       await db.update(invoices).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(invoices.id, invoiceId));
     } else {
-      if (invoice.type === 'credit_note') {
-        return error.badRequest(
-          c,
-          'A credit note is money owed to the customer, not by them: apply it to an invoice or refund it instead of writing it off.',
-        );
-      }
-      if (!invoice.journalEntryId) {
-        return error.badRequest(c, 'Only a finalized invoice can be written off as uncollectible');
-      }
-      if (Number.parseFloat(invoice.balanceDue ?? '0') <= 0) {
-        return error.badRequest(c, 'This invoice has no open balance to write off');
-      }
-      const posted = await postInvoiceWriteOff(db, invoice, { userId: c.get('userId') ?? null });
+      // With bad debt VAT relief (NL, UK) the VAT share is not expensed: it comes back through the next return.
+      const posted = await writeOffInvoice(db, invoice, { userId: c.get('userId') ?? null });
       journalEntryId = posted.journalEntryId;
+      vatRelief = posted.vatRelief;
     }
 
     await writeAccountingAudit(c, db, {
@@ -1012,6 +1164,7 @@ app.patch('/:id/status', requirePermission('invoices:update'), zValidator('json'
       changes: {
         status: { old: invoice.status, new: newStatus },
         ...(journalEntryId ? { writeOffEntryId: { old: null, new: journalEntryId } } : {}),
+        ...(vatRelief > 0 ? { vatRelief: { old: null, new: vatRelief } } : {}),
       },
     });
     publishEntityEvent({
@@ -1032,7 +1185,7 @@ app.patch('/:id/status', requirePermission('invoices:update'), zValidator('json'
     return success(c, {
       ...invoice,
       status: newStatus,
-      ...(newStatus === 'uncollectible' ? { balanceDue: '0.00', writeOffEntryId: journalEntryId } : {}),
+      ...(newStatus === 'uncollectible' ? { balanceDue: '0.00', writeOffEntryId: journalEntryId, vatRelief } : {}),
     });
   } catch (err) {
     const handled = accountingErrorResponse(c, err);
@@ -1070,7 +1223,7 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
       entityId: invoiceId,
       action: 'finalized',
       changes: {
-        status: { old: 'draft', new: 'sent' },
+        status: { old: 'draft', new: 'finalized' },
         journalEntryId: { old: null, new: result.journalEntryId },
       },
     });
@@ -1082,7 +1235,7 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
       data: {
         id: invoiceId,
         invoiceNumber: invoice.invoiceNumber,
-        status: 'sent',
+        status: 'finalized',
         total: invoice.total || '0',
         currency: invoice.currency,
         contactId: invoice.contactId,
@@ -1104,7 +1257,7 @@ app.post('/:id/finalize', requirePermission('invoices:update'), async (c) => {
       journalEntryId: result.journalEntryId,
       entryNumber: result.entryNumber,
       creditApplied: result.creditApplied ?? null,
-      status: 'sent',
+      status: 'finalized',
       // Sales tax: engine warnings (not_registered_in_state, address_unverified, ...) and the provider sync outcome.
       warnings: result.warnings,
       taxSync: result.taxSync ?? null,
@@ -1215,8 +1368,15 @@ app.post('/:id/duplicate', requirePermission('invoices:create'), async (c) => {
       amountPaid: '0',
       balanceDue: invoice.total,
       journalEntryId: null,
+      // The copy is issued today: its rate is looked up for that day.
+      exchangeRate: await draftRate(db, {
+        baseCurrency: await resolveEntityBaseCurrency(db, invoice.entityId),
+        currency: invoice.currency ?? (await resolveEntityBaseCurrency(db, invoice.entityId)),
+        date: now,
+      }),
       originalInvoiceId: invoiceId,
       emailHistory: null,
+      contactTaxNumber: null,
       taxBreakdown: (invoice.taxBreakdown ?? []).map((row) => ({ ...row, lineId: row.lineId ? (newLineId.get(row.lineId) ?? row.lineId) : row.lineId })),
       taxEngineRef: null,
       taxCalculatedAt: null,
@@ -1401,7 +1561,7 @@ app.post('/:id/record-payment', requirePermission('banking:create'), zValidator(
       type: refund ? 'sent' : 'received',
       amount,
       currency: invoice.currency,
-      exchangeRate: invoice.exchangeRate,
+      exchangeRate: data.exchangeRate ?? null,
       date: new Date(data.date),
       paymentMethod: data.paymentMethod ?? null,
       checkNumber: data.checkNumber ?? null,
@@ -1589,6 +1749,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
         issueDate: now,
         dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
         currency,
+        exchangeRate: await draftRate(db, { baseCurrency: await resolveEntityBaseCurrency(db, entityId), currency, date: now }),
         ...invoiceTaxColumns(calc),
         ...(drafted.ok ? {} : { taxWarnings: [engineUnavailableWarning(drafted.message)] }),
         amountPaid: '0',
@@ -1690,11 +1851,13 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
 
     const billingAddress = normalizePostalAddress(order.billingAddress ?? order.shippingAddress);
     const shippingAddress = normalizePostalAddress(order.shippingAddress);
+    const gst = await resolveGstSupply(db, { entityId, contactId, shippingAddress, billingAddress });
     const totals = await calculateDocumentTax(db, {
       entityId,
       direction: 'sales',
       items: taxedLines,
       ...taxAddress(shippingAddress, billingAddress),
+      ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry, buyerGstin: gst.buyerGstin ?? undefined } : {}),
     });
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
     const currency = order.currency || (await resolveEntityBaseCurrency(db, entityId));
@@ -1714,6 +1877,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       issueDate: now,
       dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
       currency,
+      exchangeRate: await draftRate(db, { baseCurrency: await resolveEntityBaseCurrency(db, entityId), currency, date: now }),
       subtotal: totals.subtotal,
       discountTotal: totals.discountTotal,
       taxTotal: totals.taxTotal,
@@ -1723,6 +1887,7 @@ app.post('/from-order/:orderId', requirePermission('invoices:create'), async (c)
       reference: order.orderNumber,
       billingAddress,
       shippingAddress,
+      placeOfSupply: gst?.placeOfSupply ?? null,
       commerceOrderId: orderId,
       taxBreakdown: totals.taxBreakdown,
       createdBy: userId,

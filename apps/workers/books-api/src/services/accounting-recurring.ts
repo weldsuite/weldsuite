@@ -21,9 +21,11 @@ import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-addre
 import { nextEntityNumber, resolveEntityBaseCurrency } from '../lib/entity-context';
 import { type DocumentTaxItem } from './accounting-tax-resolve';
 import { finalizeInvoice } from './accounting-invoice-finalize';
+import { resolveGstSupply } from './accounting-gst';
 import { PostingError } from './accounting-posting';
 import {
   calculateDraftTax,
+  type DraftTaxResult,
   engineUnavailableWarning,
   invoiceTaxColumns,
   itemTaxColumns,
@@ -53,6 +55,8 @@ export const recurringTemplateSchema = z.object({
     taxCode: z.string().max(30).nullable().optional(),
     taxUse: z.enum(['business', 'personal']).nullable().optional(),
     taxIncluded: z.boolean().optional(),
+    /** India GST: HSN or SAC code. */
+    hsnSac: z.string().regex(/^(\d{4,8})?$/).nullable().optional(),
     classId: z.string().max(30).nullable().optional(),
     locationId: z.string().max(30).nullable().optional(),
   })).optional(),
@@ -100,6 +104,69 @@ export interface GeneratedRecurringInvoice {
   finalizeError: string | null;
 }
 
+/** Claims the period: only the request that still sees the old nextIssueDate wins. */
+async function claimPeriod(
+  db: Database,
+  rec: RecurringRow,
+  next: { nextDate: Date; status: 'active' | 'completed' },
+  now: Date,
+) {
+  const claimed = await db
+    .update(schema.recurringInvoices)
+    .set({ nextIssueDate: next.nextDate, status: next.status, updatedAt: now })
+    .where(and(eq(schema.recurringInvoices.id, rec.id), eq(schema.recurringInvoices.nextIssueDate, rec.nextIssueDate)))
+    .returning({ id: schema.recurringInvoices.id });
+  if (claimed.length === 0) throw new RecurringAlreadyGeneratedError();
+}
+
+/** The template's items as the lines the tax calculation takes. */
+function templateTaxLines(items: NonNullable<RecurringTemplateData['items']>, itemIds: string[]): DocumentTaxItem[] {
+  return items.map((item, idx) => ({
+    id: itemIds[idx],
+    description: item.description,
+    quantity: String(item.quantity || 1),
+    unitPrice: String(item.unitPrice || 0),
+    discountPercent: '0',
+    taxRateId: item.taxRateId ?? null,
+    sortOrder: idx,
+    productId: item.productId ?? null,
+    taxCode: item.taxCode ?? null,
+    taxUse: item.taxUse ?? null,
+    taxIncluded: item.taxIncluded ?? false,
+  }));
+}
+
+/**
+ * Finalizes (posts) the generated invoice of an autoFinalize schedule. A failure leaves the
+ * invoice as a draft and comes back as `finalizeError`.
+ */
+async function autoFinalizeGenerated(
+  db: Database,
+  rec: RecurringRow,
+  generated: { invoiceId: string; drafted: DraftTaxResult; hasItems: boolean; userId: string | null; tax?: SalesTaxRuntime },
+): Promise<{ journalEntryId: string | null; finalizeError: string | null }> {
+  if (!rec.autoFinalize) return { journalEntryId: null, finalizeError: null };
+  if (!generated.drafted.ok) {
+    // The draft stays for someone to finalize once the engine is back.
+    return {
+      journalEntryId: null,
+      finalizeError: `The sales tax engine could not calculate tax (${generated.drafted.message}); the invoice was left as a draft.`,
+    };
+  }
+  if (!generated.hasItems) return { journalEntryId: null, finalizeError: null };
+  try {
+    const finalized = await finalizeInvoice(db, generated.invoiceId, {
+      userId: generated.userId,
+      markSent: rec.autoSend ?? false,
+      tax: generated.tax,
+    });
+    return { journalEntryId: finalized.journalEntryId, finalizeError: null };
+  } catch (err) {
+    // The invoice exists as a draft; someone has to look at it (missing VAT number, locked period, …).
+    return { journalEntryId: null, finalizeError: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function generateRecurringInvoice(
   db: Database,
   rec: RecurringRow,
@@ -117,13 +184,7 @@ export async function generateRecurringInvoice(
   const nextDate = nextScheduleDate(rec.nextIssueDate, rec.frequency);
   const newStatus: 'active' | 'completed' = rec.endDate && nextDate > new Date(rec.endDate) ? 'completed' : 'active';
 
-  // Claim the period. Only the request that still sees the old nextIssueDate wins.
-  const claimed = await db
-    .update(schema.recurringInvoices)
-    .set({ nextIssueDate: nextDate, status: newStatus, updatedAt: now })
-    .where(and(eq(schema.recurringInvoices.id, rec.id), eq(schema.recurringInvoices.nextIssueDate, rec.nextIssueDate)))
-    .returning({ id: schema.recurringInvoices.id });
-  if (claimed.length === 0) throw new RecurringAlreadyGeneratedError();
+  await claimPeriod(db, rec, { nextDate, status: newStatus }, now);
 
   const parsed = recurringTemplateSchema.safeParse(rec.templateData ?? {});
   const template: RecurringTemplateData = parsed.success ? parsed.data : {};
@@ -144,27 +205,18 @@ export async function generateRecurringInvoice(
   const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
   const invoiceId = generateId('inv');
   const itemIds = items.map(() => generateId('ili'));
-  const lines: DocumentTaxItem[] = items.map((item, idx) => ({
-    id: itemIds[idx],
-    description: item.description,
-    quantity: String(item.quantity || 1),
-    unitPrice: String(item.unitPrice || 0),
-    discountPercent: '0',
-    taxRateId: item.taxRateId ?? null,
-    sortOrder: idx,
-    productId: item.productId ?? null,
-    taxCode: item.taxCode ?? null,
-    taxUse: item.taxUse ?? null,
-    taxIncluded: item.taxIncluded ?? false,
-  }));
+  const lines = templateTaxLines(items, itemIds);
   const issueDate = now;
   const shipFromAddress = normalizePostalAddress(template.shipFromAddress);
+  // India GST: the buyer's place of supply decides CGST + SGST versus IGST.
+  const gst = await resolveGstSupply(db, { entityId, contactId: rec.contactId, shippingAddress, billingAddress });
   const drafted = await calculateDraftTax(db, {
     entityId,
     direction: 'sales',
     items: lines,
     buyerCountry: taxAddress?.country,
     billingProvince: taxAddress?.state,
+    ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry, buyerGstin: gst.buyerGstin ?? undefined } : {}),
     runtime: opts.tax,
     document: {
       kind: 'invoice',
@@ -196,6 +248,7 @@ export async function generateRecurringInvoice(
     ...invoiceTaxColumns(totals),
     ...(drafted.ok ? {} : { taxWarnings: [engineUnavailableWarning(drafted.message)] }),
     shipFromAddress,
+    placeOfSupply: gst?.placeOfSupply ?? null,
     amountPaid: '0',
     balanceDue: totals.balanceDue,
     paymentTermsDays,
@@ -224,6 +277,7 @@ export async function generateRecurringInvoice(
     productId: item.productId || null,
     sortOrder: idx,
     taxCode: item.taxCode || null,
+    hsnSac: item.hsnSac || null,
     taxUse: item.taxUse || null,
     taxIncluded: item.taxIncluded ?? false,
     classId: item.classId || null,
@@ -246,24 +300,13 @@ export async function generateRecurringInvoice(
       .where(eq(schema.recurringInvoices.id, rec.id)),
   ]);
 
-  let journalEntryId: string | null = null;
-  let finalizeError: string | null = null;
-  if (rec.autoFinalize && !drafted.ok) {
-    // The draft stays for someone to finalize once the engine is back.
-    finalizeError = `The sales tax engine could not calculate tax (${drafted.message}); the invoice was left as a draft.`;
-  } else if (rec.autoFinalize && itemRows.length > 0) {
-    try {
-      const finalized = await finalizeInvoice(db, invoiceId, {
-        userId: opts.userId,
-        markSent: rec.autoSend ?? false,
-        tax: opts.tax,
-      });
-      journalEntryId = finalized.journalEntryId;
-    } catch (err) {
-      // The invoice exists as a draft; someone has to look at it (missing VAT number, locked period, …).
-      finalizeError = err instanceof Error ? err.message : String(err);
-    }
-  }
+  const { journalEntryId, finalizeError } = await autoFinalizeGenerated(db, rec, {
+    invoiceId,
+    drafted,
+    hasItems: itemRows.length > 0,
+    userId: opts.userId,
+    tax: opts.tax,
+  });
 
   return { invoiceId, invoiceNumber, nextIssueDate: nextDate, status: newStatus, journalEntryId, finalizeError };
 }

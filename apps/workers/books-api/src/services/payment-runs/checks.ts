@@ -193,7 +193,8 @@ export async function buildCheckPrintData(
     const amount = paymentNetAmount(payment);
     const rows = allocations.filter((a) => a.paymentId === payment.id);
     const party = partyById.get(payment.contactId);
-    const billNumbers = rows.map((r) => r.bill.billNumber ?? r.bill.reference ?? r.bill.id);
+    // The payee knows the bill by its own invoice number, so that goes on the memo; our bill number is the fallback.
+    const billNumbers = rows.map((r) => r.bill.externalReference?.trim() || r.bill.billNumber || r.bill.reference || r.bill.id);
 
     let micr: CheckPrintItem['micr'] = null;
     if (accountNumber && bank.routingNumber) {
@@ -254,7 +255,7 @@ export async function buildCheckPrintData(
           const discount = Number.parseFloat(r.bill.discountTotal ?? '0');
           return {
             date: r.bill.issueDate ? isoDay(r.bill.issueDate) : null,
-            reference: r.bill.billNumber ?? r.bill.externalReference,
+            reference: r.bill.externalReference?.trim() || r.bill.billNumber,
             description: r.bill.reference ?? r.bill.notes ?? null,
             amount: Number.parseFloat(r.amount).toFixed(2),
             billTotal: r.bill.total,

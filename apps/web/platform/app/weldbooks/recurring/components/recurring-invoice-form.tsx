@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { useAccountingCustomer, useAccountingCustomers, useAccountingTaxRates } from '@/hooks/queries/use-accounting-queries';
+import { taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
 import {
   useCreateRecurringInvoice,
   useUpdateRecurringInvoice,
@@ -122,7 +123,8 @@ export function RecurringInvoiceForm({ mode, recurring, onSaved, onCancel }: Rea
   const { data: contactsData } = useAccountingCustomers({ role: 'customer' });
   const { data: taxRatesData } = useAccountingTaxRates();
   const contacts = contactsData?.data ?? [];
-  const taxRates = taxRatesData?.data ?? [];
+  // A recurring invoice takes sales (and both) rates only.
+  const taxRates = taxRatesFor(taxRatesData?.data ?? [], 'sales');
 
   const schema = useMemo(
     () =>

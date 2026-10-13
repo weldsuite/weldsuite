@@ -312,13 +312,19 @@ export function useRevokeLockException() {
 // Accounts
 // ============================================================================
 
+/**
+ * The chart of accounts. Inactive (deactivated) accounts are left out unless
+ * `includeInactive` is set, so every account picker offers only accounts that
+ * can still be booked to; the chart page and reports pass `includeInactive`.
+ */
 export function useAccountingAccounts(
-  filters?: { type?: string; search?: string; taxLine?: string },
+  filters?: { type?: string; search?: string; taxLine?: string; includeInactive?: boolean },
   options: { enabled?: boolean } = {},
 ) {
+  const { includeInactive, ...params } = filters ?? {};
   return useQuery({
     queryKey: accountingKeys.accounts.list(filters),
-    queryFn: () => accountingApi.listAccounts(filters),
+    queryFn: () => accountingApi.listAccounts(includeInactive ? params : { ...params, isActive: 'true' }),
     enabled: options.enabled ?? true,
   });
 }
@@ -417,6 +423,7 @@ export function useAccountingCustomers(filters?: {
   search?: string;
   page?: number;
   pageSize?: number;
+  archived?: 'only' | 'include';
 }) {
   return useQuery({
     queryKey: accountingKeys.customers.list(filters),
@@ -437,6 +444,28 @@ export function useCreateAccountingCustomer() {
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => accountingApi.createCustomer(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.customers.all }); },
+  });
+}
+
+/** Deletes a contact the books never used; the API answers 409 `CONTACT_IN_USE` for any other. */
+export function useDeleteAccountingCustomer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => accountingApi.deleteCustomer(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: accountingKeys.customers.all }); },
+  });
+}
+
+/** Archives or restores a contact: hidden from lists and pickers, history untouched. */
+export function useSetAccountingCustomerArchived() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
+      archived ? accountingApi.archiveCustomer(id) : accountingApi.unarchiveCustomer(id),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: accountingKeys.customers.all });
+      qc.invalidateQueries({ queryKey: accountingKeys.customers.detail(vars.id) });
+    },
   });
 }
 

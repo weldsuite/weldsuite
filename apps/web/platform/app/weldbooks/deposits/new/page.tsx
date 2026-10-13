@@ -24,6 +24,7 @@ import {
 } from '@weldsuite/ui/components/table';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { DepositsUsOnlyGate } from '../us-only-gate';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useAccountingAccounts } from '@/hooks/queries/use-accounting-queries';
 import {
@@ -52,7 +53,16 @@ function otherLineAccounts(accounts: readonly Account[], bankLedgerAccountId: st
     .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
 }
 
-export default function MakeDepositPage() {
+/** Deposits are for US entities; any other entity gets a notice instead of the screen. */
+export default function MakeDepositPageGated() {
+  return (
+    <DepositsUsOnlyGate>
+      <MakeDepositPage />
+    </DepositsUsOnlyGate>
+  );
+}
+
+function MakeDepositPage() {
   const { t } = useI18n();
   const td = t.weldbooksUs.banking.deposits;
   const tn = td.make;

@@ -43,7 +43,15 @@ export default function AccountingSuppliersPage() {
     {
       field: 'role',
       label: tsp.filterRoleLabel,
-      options: [{ value: 'both', label: tsp.filterBoth }],
+      options: [{ value: 'both', label: tsp.filterBoth.replace('{role}', labels.customerAndSupplier) }],
+    },
+    {
+      field: 'archived',
+      label: tsp.filterArchivedLabel,
+      options: [
+        { value: 'include', label: tsp.filterArchivedInclude },
+        { value: 'only', label: tsp.filterArchivedOnly },
+      ],
     },
     ...(show1099
       ? [
@@ -61,11 +69,13 @@ export default function AccountingSuppliersPage() {
 
   const roleFilter = filters.find((f) => f.field === 'role' && f.value)?.value as 'both' | undefined;
   const form1099Filter = show1099 ? filters.find((f) => f.field === 'form1099' && f.value)?.value : undefined;
+  const archivedFilter = filters.find((f) => f.field === 'archived' && f.value)?.value as 'include' | 'only' | undefined;
 
   const { data, isLoading } = useSupplierContacts({
     search,
     role: roleFilter ?? 'supplier',
     only1099: form1099Filter !== undefined,
+    archived: archivedFilter,
   });
 
   const allSuppliers = (data?.data ?? []) as SupplierRow[];
@@ -93,7 +103,7 @@ export default function AccountingSuppliersPage() {
       width: 'w-[140px]',
       render: (c) => (
         <Badge variant="outline" className="capitalize">
-          {c.role === 'both' ? tsp.roleBoth : c.role ?? '—'}
+          {c.role === 'both' ? labels.customerAndSupplier : c.role ?? '—'}
         </Badge>
       ),
     },

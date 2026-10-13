@@ -17,6 +17,7 @@
  */
 export type InvoiceStatus =
   | 'draft'
+  | 'finalized'
   | 'sent'
   | 'viewed'
   | 'partially_paid'

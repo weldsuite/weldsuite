@@ -83,7 +83,57 @@ const createAccountSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
-const updateAccountSchema = createAccountSchema.partial();
+const updateAccountSchema = createAccountSchema.partial().extend({
+  /** false deactivates the account (hidden from pickers, no new postings); true reactivates it. */
+  isActive: z.boolean().optional(),
+});
+
+/** Ledger balances under half a cent count as zero. */
+const ZERO_BALANCE_EPSILON = 0.005;
+
+/**
+ * Net of the booked journal lines on an account, debit minus credit. The
+ * account's own `currentBalance` is kept up to date by the posting service;
+ * both are checked so a drift between them can't hide a balance.
+ */
+async function accountBalances(db: Database, account: typeof t.$inferSelect) {
+  const { journalLines, journalEntries } = schema;
+  const [row] = await db
+    .select({
+      net: sql<string>`coalesce(sum(${journalLines.debit}::numeric - ${journalLines.credit}::numeric), 0)`,
+    })
+    .from(journalLines)
+    .innerJoin(journalEntries, eq(journalLines.journalEntryId, journalEntries.id))
+    .where(
+      and(
+        eq(journalLines.accountId, account.id),
+        isNull(journalLines.deletedAt),
+        inArray(journalEntries.status, BOOKED_STATUSES),
+      ),
+    );
+  return { ledger: Number(row?.net ?? 0), current: Number(account.currentBalance ?? 0) };
+}
+
+/**
+ * Deactivating takes the account out of use: not for system accounts, and not
+ * while it still carries a balance (move or write it off first). Returns the
+ * conflict to answer with, or null when the account can be deactivated.
+ */
+async function deactivationConflict(
+  db: Database,
+  account: typeof t.$inferSelect,
+): Promise<{ message: string; details: Record<string, unknown> } | null> {
+  if (account.isSystemAccount) {
+    return { message: 'A system account can not be deactivated.', details: { code: 'ACCOUNT_IS_SYSTEM' } };
+  }
+  const { ledger, current } = await accountBalances(db, account);
+  if (Math.abs(ledger) < ZERO_BALANCE_EPSILON && Math.abs(current) < ZERO_BALANCE_EPSILON) return null;
+  const balance = Math.abs(ledger) >= ZERO_BALANCE_EPSILON ? ledger : current;
+  return {
+    message: `This account still has a balance of ${balance.toFixed(2)}. Clear the balance before deactivating it.`,
+    details: { code: 'ACCOUNT_HAS_BALANCE', balance: balance.toFixed(2) },
+  };
+}
 
 // GET /tax-lines?year= — the lines of the entity's income-tax return for a tax
 // year (default: the current one), for the account mapping screen
@@ -304,6 +354,11 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('accounts:update'), zValidato
       if (dup.length > 0) {
         return error.conflict(c, `Account code '${data.code}' already exists`);
       }
+    }
+
+    if (data.isActive === false && account.isActive !== false) {
+      const conflict = await deactivationConflict(db, account);
+      if (conflict) return error.conflict(c, conflict.message, conflict.details);
     }
 
     const invalidMapping = await mappingError(db, account.entityId, data);

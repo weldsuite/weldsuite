@@ -128,6 +128,7 @@ beforeAll(async () => {
     vatNumber: 'NL123456789B01',
     taxIdentifiers: { registrationNumber: '12345678' },
     bankDetails: { iban: 'NL91ABNA0417164300' },
+    address: { line1: 'Damrak 1', postalCode: '1012 LG', city: 'Amsterdam', country: 'NL' },
   });
   expect(created.status).toBe(201);
   entityId = created.data.id as string;
@@ -761,6 +762,7 @@ describe('an entity without an Undeposited Funds account', () => {
   it('debits the bank straight away, as before', async () => {
     const other = await call('/api/accounting-entities', accountingEntitiesRoutes, '/api/accounting-entities', 'POST', {
       name: 'Plain BV', jurisdictionCode: 'NL', vatNumber: 'NL987654321B01', taxIdentifiers: { registrationNumber: '87654321' }, bankDetails: { iban: 'NL91ABNA0417164300' },
+      address: { line1: 'Damrak 1', postalCode: '1012 LG', city: 'Amsterdam', country: 'NL' },
     });
     expect(other.status).toBe(201);
     const previous = entityId;

@@ -27,6 +27,8 @@ import type { Customer } from '@/lib/api/domains/weldbooks';
 import type { VendorTaxPayload, VendorTaxView } from '@/lib/api/domains/weldbooks-1099';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
+import { checkVatNumberFormat, isValidIban } from '@/lib/weldbooks/identifiers';
 import { useI18n } from '@/lib/i18n/provider';
 import { VendorBankSection } from './vendor-bank-section';
 import {
@@ -46,26 +48,57 @@ const addressSchema = z.object({
   country: z.string().optional(),
 });
 
-function createContactSchema(st: (key: string) => string, vendorTaxMessages: Record<VendorTaxProblem, string>) {
-  return z.object({
-    vendorTax: createVendorTaxSchema(vendorTaxMessages),
-    role: z.enum(['customer', 'supplier', 'both']),
-    name: z.string().trim().min(1, st('sweep.weldbooks.contactForm.nameRequired')),
-    companyName: z.string().optional(),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    email: z.string().trim().email(st('sweep.weldbooks.contactForm.invalidEmail')).optional().or(z.literal('')),
-    phone: z.string().optional(),
-    vatNumber: z.string().optional(),
-    registrationNumber: z.string().optional(),
-    iban: z.string().optional(),
-    bic: z.string().optional(),
-    paymentTermsDays: z.coerce.number().int().min(0).optional(),
-    notes: z.string().optional(),
-    billingAddress: addressSchema,
-    shippingSameAsBilling: z.boolean(),
-    shippingAddress: addressSchema,
-  });
+interface IdentifierMessages {
+  /** `{country}` and `{example}` are filled in. */
+  vatNumber: string;
+  iban: string;
+}
+
+function createContactSchema(
+  st: (key: string) => string,
+  vendorTaxMessages: Record<VendorTaxProblem, string>,
+  identifierMessages: IdentifierMessages,
+) {
+  return z
+    .object({
+      vendorTax: createVendorTaxSchema(vendorTaxMessages),
+      role: z.enum(['customer', 'supplier', 'both']),
+      name: z.string().trim().min(1, st('sweep.weldbooks.contactForm.nameRequired')),
+      companyName: z.string().optional(),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      email: z.string().trim().email(st('sweep.weldbooks.contactForm.invalidEmail')).optional().or(z.literal('')),
+      phone: z.string().optional(),
+      vatNumber: z.string().optional(),
+      registrationNumber: z.string().optional(),
+      iban: z.string().optional(),
+      bic: z.string().optional(),
+      paymentTermsDays: z.coerce.number().int().min(0).optional(),
+      notes: z.string().optional(),
+      billingAddress: addressSchema,
+      shippingSameAsBilling: z.boolean(),
+      shippingAddress: addressSchema,
+    })
+    .superRefine((values, ctx) => {
+      // A VAT number has to fit its country ("BE0123" is no Belgian number); an IBAN its length and check digits.
+      const vat = values.vatNumber?.trim();
+      if (vat) {
+        const check = checkVatNumberFormat(vat, values.billingAddress?.country);
+        if (!check.valid) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['vatNumber'],
+            message: identifierMessages.vatNumber
+              .replace('{country}', check.prefix ?? '')
+              .replace('{example}', check.example ?? ''),
+          });
+        }
+      }
+      const iban = values.iban?.trim();
+      if (iban && !isValidIban(iban)) {
+        ctx.addIssue({ code: 'custom', path: ['iban'], message: identifierMessages.iban });
+      }
+    });
 }
 
 export type ContactFormValues = z.infer<ReturnType<typeof createContactSchema>>;
@@ -155,7 +188,10 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
   const pendingLabel = mode === 'add' ? tc.creating : tc.saving;
   const { labels, code: jurisdictionCode, usesIban, features } = useJurisdictionLabels();
   const tvx = t.weldbooksUs.form1099.vendorTax;
-  const schema = useMemo(() => createContactSchema(st, tvx.errors), [st, tvx.errors]);
+  const schema = useMemo(
+    () => createContactSchema(st, tvx.errors, { vatNumber: tc.vatNumberInvalid, iban: tc.ibanInvalid }),
+    [st, tvx.errors, tc.vatNumberInvalid, tc.ibanInvalid],
+  );
 
   const defaults = useMemo(
     () => initialValues(contact, jurisdictionCode),
@@ -170,6 +206,11 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
 
   const sameAsBilling = form.watch('shippingSameAsBilling');
   const role = form.watch('role');
+  // The words of the tax and registration fields follow the contact's country (a Belgian customer of a
+  // Dutch company has a KBO/BCE number, not a KvK number); a US contact has no registration number here.
+  const idLabels = contactIdLabels(form.watch('billingAddress')?.country, t.accounting.terminology, labels);
+  const hasRegistrationNumber = Boolean(form.watch('registrationNumber')?.trim());
+  const showRegistration = idLabels.registrationId !== null || hasRegistrationNumber;
   const showBanking = usesIban || !!contact?.iban || !!contact?.bic;
   // US-only sections: gated on the jurisdiction's features, never on a country code.
   const isVendor = role === 'supplier' || role === 'both';
@@ -240,7 +281,7 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
                     <SelectContent>
                       <SelectItem value="customer">{tc.roles.customer}</SelectItem>
                       <SelectItem value="supplier">{labels.supplier}</SelectItem>
-                      <SelectItem value="both">{tc.roles.both}</SelectItem>
+                      <SelectItem value="both">{labels.customerAndSupplier}</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
@@ -349,13 +390,21 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
           </CardHeader>
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="vatNumber">{labels.taxId}</Label>
-              <Input id="vatNumber" placeholder={tc.taxIdPlaceholder} {...form.register('vatNumber')} />
+              <Label htmlFor="vatNumber">{idLabels.taxId}</Label>
+              <Input
+                id="vatNumber"
+                placeholder={tc.taxIdPlaceholder}
+                aria-invalid={Boolean(errors.vatNumber)}
+                {...form.register('vatNumber')}
+              />
+              {errors.vatNumber && <p className="text-sm text-destructive">{errors.vatNumber.message}</p>}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="registrationNumber">{labels.registrationId}</Label>
-              <Input id="registrationNumber" {...form.register('registrationNumber')} />
-            </div>
+            {showRegistration && (
+              <div className="space-y-2">
+                <Label htmlFor="registrationNumber">{idLabels.registrationId ?? labels.registrationId}</Label>
+                <Input id="registrationNumber" {...form.register('registrationNumber')} />
+              </div>
+            )}
             {scope.taxUse ? (
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="taxUse">{tvx.taxUse}</Label>
@@ -391,7 +440,8 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
             <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="iban">{tc.iban}</Label>
-                <Input id="iban" {...form.register('iban')} />
+                <Input id="iban" aria-invalid={Boolean(errors.iban)} {...form.register('iban')} />
+                {errors.iban && <p className="text-sm text-destructive">{errors.iban.message}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="bic">{tc.bic}</Label>

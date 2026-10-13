@@ -1,28 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useParams, useRouter } from '@/lib/router';
-import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { MoreHorizontal } from 'lucide-react';
 import { useCan } from '@weldsuite/permissions/react';
 import { PageLoader } from '@/components/page-loader';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { Badge } from '@weldsuite/ui/components/badge';
-import { Button } from '@weldsuite/ui/components/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@weldsuite/ui/components/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@weldsuite/ui/components/table';
 import {
   useAccountingEntity,
   useAccountingInvoice,
@@ -51,65 +32,37 @@ import {
 import { RecordPaymentDialog } from '../components/record-payment-dialog';
 import { SendInvoiceDialog } from '../components/send-invoice-dialog';
 import { SalesTaxErrorNotice, useDescribeError } from '../components/sales-tax-error-notice';
-import { ExemptNotice, TaxBreakdownList, TaxWarnings } from '../components/tax-breakdown';
 import { useDocumentTexts } from '@/lib/weldbooks/use-document-texts';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
-import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
+import { exemptCertificateIdsOf } from '@/lib/weldbooks/document-tax';
+import { getInvoiceCapabilities } from './invoice-capabilities';
 import {
-  exemptCertificateIdsOf,
-  exemptReasonsOf,
-  groupTaxBreakdown,
-  hasExemptRows,
-  hasProviderSyncWarning,
-} from '@/lib/weldbooks/document-tax';
-import { isWeldTaxCode } from '@/lib/weldbooks/tax-codes';
-import { formatPostalAddressLines } from '@/components/address/postal-address';
-import { countryName } from '@/components/address/countries';
-
-function getStatusBadge(status: string, labels: Record<string, string>) {
-  switch (status) {
-    case 'draft':
-      return <Badge variant="outline">{labels.draft}</Badge>;
-    case 'sent':
-      return <Badge variant="secondary">{labels.sent}</Badge>;
-    case 'paid':
-      return (
-        <Badge className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-300">
-          {labels.paid}
-        </Badge>
-      );
-    case 'overdue':
-      return <Badge variant="destructive">{labels.overdue}</Badge>;
-    case 'partial':
-      return <Badge variant="secondary">{labels.partial}</Badge>;
-    case 'cancelled':
-      return <Badge variant="outline">{labels.cancelled}</Badge>;
-    case 'finalized':
-      return <Badge variant="secondary">{labels.finalized}</Badge>;
-    case 'uncollectible':
-      return <Badge variant="outline">{labels.uncollectible}</Badge>;
-    default:
-      return <Badge variant="outline">{status}</Badge>;
-  }
-}
-
-/** Statuses after which the invoice can no longer be cancelled or written off. */
-const CLOSED_STATUSES = new Set(['cancelled', 'paid', 'uncollectible']);
-const OPEN_BALANCE_STATUSES = new Set(['sent', 'partial', 'overdue', 'finalized']);
+  AttachmentsCard,
+  ContactCard,
+  CreditMemoNotice,
+  CreditNotesCard,
+  DatesCard,
+  InvoiceHeader,
+  LineItemsCard,
+  SalesTaxCard,
+  StatusChangeDialog,
+  TotalsCard,
+  useCountryLabel,
+  type InvoiceStatusDialog,
+} from './invoice-detail-sections';
 
 export default function InvoiceDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
-  const { t, language } = useI18n();
+  const { t } = useI18n();
   const st = useTranslations();
   const ti = t.accounting.invoiceDetail;
   const td = useDocumentTexts();
-  const tsl = t.accounting.statusLabels.invoice;
-  const { formatMoney, formatDate, formatDateTime } = useWeldbooksFormat();
+  const { formatMoney, formatDate } = useWeldbooksFormat();
   const { labels } = useJurisdictionLabels();
   const canUpdate = useCan('invoices:update');
   const canCreate = useCan('invoices:create');
@@ -127,17 +80,17 @@ export default function InvoiceDetailPage() {
 
   const [sendDialogOpen, setSendDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [statusDialog, setStatusDialog] = useState<'cancelled' | 'uncollectible' | null>(null);
+  const [statusDialog, setStatusDialog] = useState<InvoiceStatusDialog>(null);
+  const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
   /** The last finalize / send that a sales tax rule refused, shown until the next attempt. */
   const [taxError, setTaxError] = useState<unknown>(null);
 
-  const country = (code: string) => countryName(code, language || 'en');
+  const country = useCountryLabel();
 
   const invoice = data?.data as unknown as InvoiceWithTax | undefined;
 
-  const taxGroups = useMemo(() => groupTaxBreakdown(invoice?.taxBreakdown), [invoice?.taxBreakdown]);
   const certificateIds = useMemo(() => exemptCertificateIdsOf(invoice?.taxBreakdown), [invoice?.taxBreakdown]);
   const certificates = useExemptionCertificates(certificateIds);
   const certificateNumbers = certificateIds
@@ -154,6 +107,10 @@ export default function InvoiceDetailPage() {
       creditNote: labels.creditNote.toUpperCase(),
       jurisdictionTax: td.pdf.jurisdictionTax,
       exempt: td.exempt,
+      // India GST tax invoice
+      placeOfSupply: t.weldbooksIn.gst.placeOfSupply,
+      hsnSac: t.weldbooksIn.gst.hsnSac,
+      outsideIndia: t.weldbooksIn.gst.placeOfSupplyOutside,
     };
   };
 
@@ -220,29 +177,8 @@ export default function InvoiceDetailPage() {
     );
   }
 
-  const isDraft = invoice.status === 'draft';
-  const isCreditMemo = invoice.type === 'credit_note';
-  const canSend = isDraft || invoice.status === 'finalized';
-  const canRecordPayment =
-    invoice.status === 'sent' ||
-    invoice.status === 'partial' ||
-    invoice.status === 'overdue';
-  const canCancel = canUpdate && !CLOSED_STATUSES.has(invoice.status);
-  // A credit note is owed to the customer: it is applied to an invoice or refunded, never written off.
-  const canWriteOff =
-    canUpdate && !isCreditMemo && OPEN_BALANCE_STATUSES.has(invoice.status) && Number(invoice.balanceDue ?? 0) > 0;
-  const canApplyCredit =
-    canUpdate && isCreditMemo && !isDraft && Boolean(invoice.creditNoteForInvoiceId) && Number(invoice.balanceDue ?? 0) > 0;
-  const canCreateCreditMemo = canCreate && !isDraft && !isCreditMemo && invoice.status !== 'cancelled';
-
-  const hasSalesTaxInfo = Boolean(invoice.taxEngine) || (invoice.taxWarnings?.length ?? 0) > 0;
-  const taxState =
-    normalizeAccountingAddress(invoice.shippingAddress)?.state ?? normalizeAccountingAddress(invoice.billingAddress)?.state ?? null;
-  const providerEngine = invoice.taxEngine === 'stripe_tax' || invoice.taxEngine === 'avalara';
-  const engineLabel = invoice.taxEngine
-    ? ((td.engines as Record<string, string>)[invoice.taxEngine] ?? invoice.taxEngine)
-    : null;
-  const canRetryCommit = canUpdate && !isDraft && providerEngine && hasProviderSyncWarning(invoice.taxWarnings);
+  const caps = getInvoiceCapabilities(invoice, canUpdate, canCreate);
+  const { isDraft, isCreditMemo } = caps;
 
   /** A sales tax refusal stays on the page as a notice with links; anything else is a toast. */
   const showFailure = (title: string, err: unknown) => {
@@ -255,6 +191,8 @@ export default function InvoiceDetailPage() {
 
   const handleFinalize = () => {
     setTaxError(null);
+    // The button shows "Finalizing..." while it runs; a refusal comes back as a notice or a toast.
+    setFinalizeDialogOpen(false);
     finalizeMutation.mutate(invoice.id, {
       onSuccess: (res) => {
         toast.success(ti.finalized);
@@ -312,8 +250,14 @@ export default function InvoiceDetailPage() {
   const handleStatusChange = async () => {
     if (!statusDialog) return;
     try {
-      await statusMutation.mutateAsync({ id: invoice.id, status: statusDialog });
-      toast.success(ti.statusUpdated);
+      const res = await statusMutation.mutateAsync({ id: invoice.id, status: statusDialog });
+      // With bad debt VAT relief the write-off says how much VAT comes back through the next return.
+      const vatRelief = Number((res?.data as { vatRelief?: number } | undefined)?.vatRelief ?? 0);
+      toast.success(
+        statusDialog === 'uncollectible' && vatRelief > 0
+          ? ti.statusUpdatedVatRelief.replace('{amount}', formatMoney(vatRelief, invoice.currency))
+          : ti.statusUpdated,
+      );
       setStatusDialog(null);
     } catch (err) {
       // The server explains why, e.g. a finalized invoice needs a credit note.
@@ -321,398 +265,65 @@ export default function InvoiceDetailPage() {
     }
   };
 
-  const billingLines = formatPostalAddressLines(normalizeAccountingAddress(invoice.billingAddress), {
-    countryName: country,
-  });
-  const shippingLines = formatPostalAddressLines(normalizeAccountingAddress(invoice.shippingAddress), {
-    countryName: country,
-  });
-
-  const renderTaxLines = () => {
-    // US: one row per jurisdiction, with the exempt amounts a certificate covers.
-    if (taxGroups.some((group) => group.isJurisdiction)) {
-      return <TaxBreakdownList groups={taxGroups} currency={invoice.currency} taxLabel={labels.tax} />;
-    }
-    if (invoice.taxBreakdown && invoice.taxBreakdown.length > 0) {
-      return invoice.taxBreakdown.map((row, idx) => (
-        <div key={`${row.taxRateName}-${idx}`} className="flex justify-between text-sm">
-          <span className="text-muted-foreground">{row.taxRateName}</span>
-          <span>{formatMoney(row.taxAmount, invoice.currency)}</span>
-        </div>
-      ));
-    }
-    if (invoice.taxTotal && Number(invoice.taxTotal) !== 0) {
-      return (
-        <div className="flex justify-between text-sm">
-          <span className="text-muted-foreground">{labels.tax}</span>
-          <span>{formatMoney(invoice.taxTotal, invoice.currency)}</span>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  /** The line's sales tax settings, when they are not the defaults. */
-  const lineFlags = (item: InvoiceWithTax['items'][number]): string[] => {
-    if (!hasSalesTaxInfo) return [];
-    const flags: string[] = [];
-    if (item.taxCode) {
-      flags.push(isWeldTaxCode(item.taxCode) ? td.taxCodes[item.taxCode] : item.taxCode);
-    }
-    if (item.taxUse === 'business') flags.push(td.detail.lineFlags.business);
-    if (item.taxUse === 'personal') flags.push(td.detail.lineFlags.personal);
-    if (item.taxIncluded) flags.push(td.detail.lineFlags.taxIncluded);
-    if (item.taxOverrideAmount !== null && item.taxOverrideAmount !== undefined) {
-      flags.push(td.detail.lineFlags.overridden.replace('{reason}', item.taxOverrideReason ?? ''));
-    }
-    return flags;
-  };
-
   return (
     <div className="p-4 sm:p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-semibold">{invoice.invoiceNumber ?? tsl.fallback}</h1>
-          {getStatusBadge(invoice.status, tsl)}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={handleDownload} disabled={downloading}>
-            {downloading ? ti.generatingPdf : ti.downloadPdf}
-          </Button>
-          {isDraft && (
-            <Button variant="outline" asChild>
-              <Link to="/weldbooks/invoices/$id/edit" params={{ id }}>{ti.edit}</Link>
-            </Button>
-          )}
-          {canSend && (
-            <Button variant="outline" onClick={() => setSendDialogOpen(true)}>
-              {ti.send}
-            </Button>
-          )}
-          {isDraft && (
-            <Button
-              variant="outline"
-              onClick={handleFinalize}
-              disabled={finalizeMutation.isPending}
-            >
-              {finalizeMutation.isPending ? ti.finalizing : ti.finalize}
-            </Button>
-          )}
-          {canApplyCredit && (
-            <Button variant="outline" onClick={handleApplyCredit} disabled={applyCreditMutation.isPending}>
-              {applyCreditMutation.isPending ? ti.applyingCredit : ti.applyCredit}
-            </Button>
-          )}
-          {canRecordPayment && (
-            <Button onClick={() => setPaymentDialogOpen(true)}>
-              {isCreditMemo ? ti.recordRefund : ti.recordPayment}
-            </Button>
-          )}
-          {(canCancel || canWriteOff || canCreateCreditMemo) && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" aria-label={ti.moreActions}>
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {canCreateCreditMemo && (
-                  <DropdownMenuItem onClick={handleCreateCreditMemo} disabled={creditMemoMutation.isPending}>
-                    {td.detail.createCreditMemo.replace('{name}', labels.creditNote.toLowerCase())}
-                  </DropdownMenuItem>
-                )}
-                {canWriteOff && (
-                  <DropdownMenuItem onClick={() => setStatusDialog('uncollectible')}>
-                    {ti.markUncollectible}
-                  </DropdownMenuItem>
-                )}
-                {canCancel && (
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => setStatusDialog('cancelled')}
-                  >
-                    {ti.cancelInvoice}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-      </div>
+      <InvoiceHeader
+        invoice={invoice}
+        routeId={id}
+        caps={caps}
+        pending={{
+          downloading,
+          finalizing: finalizeMutation.isPending,
+          applyingCredit: applyCreditMutation.isPending,
+          creatingCreditMemo: creditMemoMutation.isPending,
+        }}
+        on={{
+          onDownload: handleDownload,
+          onSend: () => setSendDialogOpen(true),
+          onFinalize: () => setFinalizeDialogOpen(true),
+          onApplyCredit: handleApplyCredit,
+          onRecordPayment: () => setPaymentDialogOpen(true),
+          onCreateCreditMemo: handleCreateCreditMemo,
+          onStatusDialog: setStatusDialog,
+        }}
+      />
 
       {taxError !== null && <SalesTaxErrorNotice error={taxError} invoiceId={invoice.id} />}
 
-      {isCreditMemo && (
-        <Card>
-          <CardContent className="flex flex-wrap items-center justify-between gap-2 pt-6 text-sm">
-            <span className="text-muted-foreground">{td.detail.creditMemoNote}</span>
-            {invoice.creditNoteForInvoiceId && (
-              <Link
-                to="/weldbooks/invoices/$id"
-                params={{ id: invoice.creditNoteForInvoiceId }}
-                className="font-medium text-primary underline-offset-4 hover:underline"
-              >
-                {td.detail.viewOriginal}
-              </Link>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {isCreditMemo && <CreditMemoNotice creditNoteForInvoiceId={invoice.creditNoteForInvoiceId} />}
 
       {/* Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{ti.contact}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <p className="font-medium">{invoice.contactName ?? '-'}</p>
-              {invoice.contactEmail && (
-                <p className="text-sm text-muted-foreground">{invoice.contactEmail}</p>
-              )}
-            </div>
-            {(billingLines.length > 0 || shippingLines.length > 0) && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                {billingLines.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">{ti.billTo}</p>
-                    {billingLines.map((line) => <p key={line}>{line}</p>)}
-                  </div>
-                )}
-                {shippingLines.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium uppercase text-muted-foreground">{ti.shipTo}</p>
-                    {shippingLines.map((line) => <p key={line}>{line}</p>)}
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{ti.dates}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-1">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{ti.issueDate}</span>
-              <span>{formatDate(invoice.issueDate, '-')}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">{ti.dueDate}</span>
-              <span>{formatDate(invoice.dueDate, '-')}</span>
-            </div>
-            {invoice.reference && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{ti.reference}</span>
-                <span>{invoice.reference}</span>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <ContactCard invoice={invoice} />
+        <DatesCard invoice={invoice} />
       </div>
 
-      {hasSalesTaxInfo && (
-        <Card data-testid="sales-tax-card">
-          <CardHeader>
-            <CardTitle>{td.detail.taxTitle}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <TaxWarnings warnings={invoice.taxWarnings} state={taxState} title={td.detail.warningsTitle} />
-
-            <div className="space-y-1 text-sm">
-              {engineLabel && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">{td.detail.engine}</span>
-                  <span>{engineLabel}</span>
-                </div>
-              )}
-              {invoice.taxCalculatedAt && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">{td.detail.calculatedAt}</span>
-                  <span>{formatDateTime(invoice.taxCalculatedAt)}</span>
-                </div>
-              )}
-              {providerEngine && !isDraft && (
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">{td.detail.providerRecord}</span>
-                  <span data-testid="provider-status">
-                    {invoice.taxCommittedAt
-                      ? td.detail.committedAt.replace('{date}', formatDateTime(invoice.taxCommittedAt))
-                      : td.detail.notCommitted}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {invoice.marketplaceFacilitated && (
-              <p className="text-sm text-muted-foreground">{td.detail.marketplaceNote}</p>
-            )}
-
-            {hasExemptRows(invoice.taxBreakdown) && (
-              <ExemptNotice
-                reasons={exemptReasonsOf(invoice.taxBreakdown)}
-                certificateNumbers={certificateNumbers}
-              />
-            )}
-
-            {canRetryCommit && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRetryCommit}
-                disabled={commitTaxMutation.isPending}
-              >
-                {commitTaxMutation.isPending ? td.detail.retrying : td.detail.retryCommit}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <SalesTaxCard
+        invoice={invoice}
+        isDraft={isDraft}
+        canUpdate={canUpdate}
+        certificateNumbers={certificateNumbers}
+        retrying={commitTaxMutation.isPending}
+        onRetryCommit={handleRetryCommit}
+      />
 
       {invoice.attachmentKeys && invoice.attachmentKeys.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{ti.originalDocuments}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            {invoice.attachmentKeys.map((key, index) => {
-              const name = key.split('/').pop() || ti.attachmentFallback.replace('{n}', String(index + 1));
-              return (
-                <Button
-                  key={`${key}-${index}`}
-                  variant="outline"
-                  size="sm"
-                  disabled={openingAttachment === index}
-                  onClick={() => handleOpenAttachment(index, name)}
-                >
-                  {openingAttachment === index ? ti.generatingPdf : `${ti.openAttachment}: ${name}`}
-                </Button>
-              );
-            })}
-          </CardContent>
-        </Card>
+        <AttachmentsCard
+          attachmentKeys={invoice.attachmentKeys}
+          openingAttachment={openingAttachment}
+          onOpen={handleOpenAttachment}
+        />
       )}
 
       {/* Line Items */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{ti.lineItems}</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[40%]">{ti.description}</TableHead>
-                <TableHead className="text-right">{ti.qty}</TableHead>
-                <TableHead className="text-right">{ti.unitPrice}</TableHead>
-                <TableHead className="text-right">{ti.discount}</TableHead>
-                <TableHead className="text-right">{labels.tax}</TableHead>
-                <TableHead className="text-right">{ti.total}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {invoice.items?.map((item) => {
-                const flags = lineFlags(item);
-                return (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      {item.description}
-                      {flags.length > 0 && (
-                        <span className="block text-xs text-muted-foreground">{flags.join(' · ')}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {item.quantity ?? '-'}
-                      {item.unit ? ` ${item.unit}` : ''}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatMoney(item.unitPrice, invoice.currency)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {item.discountPercent ? `${Number(item.discountPercent)}%` : '-'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {item.taxRate ? `${Number(item.taxRate)}%` : '-'}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatMoney(item.lineTotalWithTax ?? item.lineTotal, invoice.currency)}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {(!invoice.items || invoice.items.length === 0) && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    {ti.noLineItems}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <LineItemsCard invoice={invoice} />
 
       {/* Totals */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex justify-end">
-            <div className="w-full max-w-xs space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{ti.subtotal}</span>
-                <span>{formatMoney(invoice.subtotal, invoice.currency)}</span>
-              </div>
-              {renderTaxLines()}
-              <div className="flex justify-between font-semibold border-t pt-2">
-                <span>{ti.total}</span>
-                <span>{formatMoney(invoice.total, invoice.currency)}</span>
-              </div>
-              {invoice.amountPaid && Number(invoice.amountPaid) > 0 && (
-                <div className="flex justify-between text-sm text-green-600 dark:text-green-400">
-                  <span>{isCreditMemo ? ti.creditUsed : ti.amountPaid}</span>
-                  <span>-{formatMoney(invoice.amountPaid, invoice.currency)}</span>
-                </div>
-              )}
-              {invoice.balanceDue && Number(invoice.balanceDue) > 0 && (
-                <div className="flex justify-between font-semibold">
-                  <span>{isCreditMemo ? ti.creditRemaining : ti.balanceDue}</span>
-                  <span>{formatMoney(invoice.balanceDue, invoice.currency)}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <TotalsCard invoice={invoice} isCreditMemo={isCreditMemo} />
 
       {/* Credit notes issued against this invoice: once finalized they lower its balance */}
-      {(invoice.creditNotes?.length ?? 0) > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{ti.creditNotesTitle}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {invoice.creditNotes!.map((note) => (
-              <div key={note.id} className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Link
-                    to="/weldbooks/invoices/$id"
-                    params={{ id: note.id }}
-                    className="font-medium text-primary underline-offset-4 hover:underline"
-                  >
-                    {note.invoiceNumber ?? note.id}
-                  </Link>
-                  {getStatusBadge(note.status, tsl)}
-                  <span className="text-muted-foreground">{formatDate(note.issueDate)}</span>
-                </div>
-                <span>-{formatMoney(note.total ?? '0', invoice.currency)}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      <CreditNotesCard invoice={invoice} />
 
       {/* Dialogs */}
       <SendInvoiceDialog
@@ -725,22 +336,26 @@ export default function InvoiceDetailPage() {
       />
       <RecordPaymentDialog
         invoiceId={invoice.id}
-        balanceDue={invoice.balanceDue ?? '0'}
+        balanceDue={invoice.status === 'uncollectible' ? caps.writtenOffBalance.toFixed(2) : (invoice.balanceDue ?? '0')}
+        currency={invoice.currency}
         open={paymentDialogOpen}
         onOpenChange={setPaymentDialogOpen}
         refund={isCreditMemo}
       />
       <ConfirmDialog
-        open={statusDialog !== null}
-        onOpenChange={(open) => {
-          if (!open) setStatusDialog(null);
-        }}
-        title={statusDialog === 'uncollectible' ? ti.uncollectibleTitle : ti.cancelInvoiceTitle}
-        description={statusDialog === 'uncollectible' ? ti.uncollectibleDescription : ti.cancelInvoiceDescription}
-        confirmLabel={statusDialog === 'uncollectible' ? ti.confirmUncollectible : ti.confirmCancel}
-        cancelLabel={ti.keepInvoice}
-        variant="destructive"
+        open={finalizeDialogOpen}
+        onOpenChange={setFinalizeDialogOpen}
+        title={ti.finalizeConfirmTitle}
+        description={ti.finalizeConfirmDescription}
+        confirmLabel={ti.confirmFinalize}
+        cancelLabel={ti.keepDraft}
+        loading={finalizeMutation.isPending}
+        onConfirm={handleFinalize}
+      />
+      <StatusChangeDialog
+        status={statusDialog}
         loading={statusMutation.isPending}
+        onClose={() => setStatusDialog(null)}
         onConfirm={handleStatusChange}
       />
     </div>

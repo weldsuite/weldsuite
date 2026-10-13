@@ -11,6 +11,11 @@ const env = vi.hoisted(() => ({
   createMutate: vi.fn(),
   previewState: null as unknown,
   requests: [] as unknown[],
+  taxRates: [
+    { id: 'tax_21', name: 'BTW 21%', rate: '21', type: 'both' },
+    { id: 'tax_sales', name: 'BTW verkoop 9%', rate: '9', type: 'sales' },
+    { id: 'tax_purchase', name: 'BTW inkoop 21%', rate: '21', type: 'purchase' },
+  ] as Array<{ id: string; name: string; rate: string; type: string }>,
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -29,7 +34,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
     data: { data: { id: 'cus_1', name: 'Globex', paymentTermsDays: 30, taxUse: 'personal', billingAddress: null, shippingAddress: null } },
   }),
   useAccountingCustomers: () => ({ data: { data: [{ id: 'cus_1', name: 'Globex' }] } }),
-  useAccountingTaxRates: () => ({ data: { data: [{ id: 'tax_21', name: 'BTW 21%', rate: '21' }] } }),
+  useAccountingTaxRates: () => ({ data: { data: env.taxRates } }),
   useDimensionValues: () => ({
     data: [
       { id: 'dim_c1', entityId: 'e', dimension: 'class', name: 'Retail', code: null, parentId: null, isActive: true },
@@ -38,7 +43,7 @@ vi.mock('@/hooks/queries/use-accounting-queries', () => ({
   }),
 }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => {
-  const labels = { tax: 'Tax', taxRate: 'Tax rate', noTax: 'No tax' };
+  const labels = { tax: 'Tax', taxRate: 'Tax rate', noTax: 'No tax', creditNote: 'Credit memo' };
   return {
     useCurrentJurisdiction: () => ({ features: { salesTax: env.salesTax, form1099: false }, isResolved: true, code: 'US' }),
     useJurisdictionLabels: () => ({ labels, features: { salesTax: env.salesTax, form1099: false }, isResolved: true }),
@@ -334,7 +339,8 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(screen.queryByRole('button', { name: /Sales tax options/ })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Add Item' })).not.toBeInTheDocument();
 
-      await submit(user);
+      // A credit note saves as "Update credit memo" (the jurisdiction's name for it), not "Update Invoice".
+      await submit(user, 'Update credit memo');
       await waitFor(() => expect(env.updateMutate).toHaveBeenCalledTimes(1));
       const { data } = env.updateMutate.mock.calls[0][0];
       expect(data.items.map((item: { originalLineId: string }) => item.originalLineId)).toEqual(['ili_orig_1', 'ili_orig_2']);
@@ -366,6 +372,53 @@ describe('InvoiceForm', { timeout: 30_000 }, () => {
       expect(data.items[0]).not.toHaveProperty('taxCode');
       expect(data).not.toHaveProperty('marketplaceFacilitated');
       expect(data).not.toHaveProperty('shipFromAddress');
+    });
+
+    it('offers sales and both rates on an invoice line, never a purchase-only rate', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<InvoiceForm mode="edit" invoice={invoice({ items: [{ ...invoice().items[0], taxRateId: null, taxCode: null }] })} />);
+
+      await user.click(screen.getByLabelText('Tax rate'));
+      expect(await screen.findByRole('option', { name: 'BTW 21%' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'BTW verkoop 9%' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: 'BTW inkoop 21%' })).not.toBeInTheDocument();
+    });
+
+    it('names the remove button of a line "Remove line", not "Item 2"', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<InvoiceForm mode="edit" invoice={invoice()} />);
+
+      await user.click(screen.getByRole('button', { name: 'Add Item' }));
+      expect(screen.getAllByRole('button', { name: 'Remove line' })).toHaveLength(2);
+      expect(screen.queryByRole('button', { name: 'Item 2' })).not.toBeInTheDocument();
+    });
+
+    it('shows the exchange rate field only for a currency other than the entity base, and sends both', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<InvoiceForm mode="edit" invoice={invoice()} />);
+
+      // The entity's base is USD and so is the invoice: no rate field.
+      expect(screen.getByLabelText('Currency')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Exchange rate')).not.toBeInTheDocument();
+
+      await user.click(screen.getByLabelText('Currency'));
+      await user.click(await screen.findByRole('option', { name: 'EUR' }));
+      const rate = await screen.findByLabelText('Exchange rate');
+      await user.type(rate, '0,92');
+
+      await submit(user);
+      await waitFor(() => expect(env.updateMutate).toHaveBeenCalledTimes(1));
+      expect(env.updateMutate.mock.calls[0][0].data).toMatchObject({ currency: 'EUR', exchangeRate: '0.92' });
+    });
+
+    it('sends no exchange rate when the field is left empty', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<InvoiceForm mode="edit" invoice={invoice()} />);
+      await submit(user);
+      await waitFor(() => expect(env.updateMutate).toHaveBeenCalledTimes(1));
+      const { data } = env.updateMutate.mock.calls[0][0];
+      expect(data.currency).toBe('USD');
+      expect(data).not.toHaveProperty('exchangeRate');
     });
   });
 });

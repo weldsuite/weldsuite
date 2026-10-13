@@ -53,6 +53,8 @@ interface UsEntityCardsProps {
   state?: string | null;
   /** The member holds `tax_ids:reveal`. */
   canRevealTaxIds?: boolean;
+  /** Editing: why the fiscal year can no longer change (posted transactions, generated periods), if so. */
+  fiscalYearLockedReason?: string | null;
 }
 
 /**
@@ -70,11 +72,13 @@ export function UsEntityCards({
   entity,
   state,
   canRevealTaxIds = false,
+  fiscalYearLockedReason = null,
 }: Readonly<UsEntityCardsProps>) {
   const { t, language } = useI18n();
   const ts = t.weldbooksUs.setup;
   const te = ts.entity;
   const update = (patch: Partial<UsEntityValues>) => onChange({ ...value, ...patch });
+  const fiscalDisabled = disabled || Boolean(fiscalYearLockedReason);
   const id = (field: string) => `${idPrefix}-${field}`;
 
   const typeLabel = (type: string, fallback: string) =>
@@ -295,7 +299,7 @@ export function UsEntityCards({
             <Select
               value={value.fiscalYearKind}
               onValueChange={(kind) => update({ fiscalYearKind: kind === 'weeks' ? 'weeks' : 'month' })}
-              disabled={disabled}
+              disabled={fiscalDisabled}
             >
               <SelectTrigger id={id('fiscalYearKind')}>
                 <SelectValue />
@@ -313,7 +317,7 @@ export function UsEntityCards({
               <Select
                 value={value.fiscalYearStart}
                 onValueChange={(fiscalYearStart) => update({ fiscalYearStart })}
-                disabled={disabled}
+                disabled={fiscalDisabled}
               >
                 <SelectTrigger id={id('fiscalYearStart')}>
                   <SelectValue />
@@ -334,7 +338,7 @@ export function UsEntityCards({
                 <Select
                   value={value.fiscalEndMonth}
                   onValueChange={(fiscalEndMonth) => update({ fiscalEndMonth })}
-                  disabled={disabled}
+                  disabled={fiscalDisabled}
                 >
                   <SelectTrigger id={id('fiscalEndMonth')}>
                     <SelectValue />
@@ -353,7 +357,7 @@ export function UsEntityCards({
                 <Select
                   value={value.fiscalWeekday}
                   onValueChange={(fiscalWeekday) => update({ fiscalWeekday })}
-                  disabled={disabled}
+                  disabled={fiscalDisabled}
                 >
                   <SelectTrigger id={id('fiscalWeekday')}>
                     <SelectValue />
@@ -372,7 +376,7 @@ export function UsEntityCards({
                 <Select
                   value={value.fiscalRule}
                   onValueChange={(rule) => update({ fiscalRule: rule === 'nearest' ? 'nearest' : 'last' })}
-                  disabled={disabled}
+                  disabled={fiscalDisabled}
                 >
                   <SelectTrigger id={id('fiscalRule')}>
                     <SelectValue />
@@ -384,6 +388,12 @@ export function UsEntityCards({
                 </Select>
               </div>
             </>
+          )}
+
+          {fiscalYearLockedReason && (
+            <p className="text-sm text-amber-700 dark:text-amber-400 sm:col-span-2" data-testid="fiscal-year-locked">
+              {fiscalYearLockedReason}
+            </p>
           )}
 
           <p className="text-sm text-muted-foreground sm:col-span-2" data-testid="fiscal-year-preview">

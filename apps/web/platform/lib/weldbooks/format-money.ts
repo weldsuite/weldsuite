@@ -58,3 +58,19 @@ export function formatWeldbooksMoney(
   }
   return new Intl.NumberFormat(loc, { style: 'currency', currency: code }).format(safeAmount);
 }
+
+/**
+ * A quantity or rate without trailing zeros ("10", "21", "7,5"): the API
+ * stores 4 decimals, which should not show up on screen. Not a number → the
+ * value as it came.
+ */
+export function formatWeldbooksNumber(
+  value: number | string | null | undefined,
+  locale?: string | null,
+  maximumFractionDigits = 4,
+): string {
+  if (value === null || value === undefined || value === '') return '';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return new Intl.NumberFormat(usableLocale(locale), { maximumFractionDigits }).format(n);
+}

@@ -33,6 +33,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 - `api-docs`, Next.js public API documentation site
 - `docs`, Next.js public product help site (`help.weldsuite.org`, Markdoc / Syntax template)
 - `developer`, Vite SPA — WeldApps developer portal (`developer.weldsuite.org` / `developer-test.weldsuite.org`)
+- `partner`, Vite SPA — reseller partner portal (`partner.weldsuite.org` / `partner-test.weldsuite.org`, Vercel, port 3203); talks to app-api `/api/partner/*`
 - `helpdesk-widget`, Embeddable Vite chat widget (port 3100)
 - `weldpass-extension`, WeldPass browser extension (MV3, Chrome/Edge); built and loaded manually, not deployed by CI
 - `booking-portal`, `meeting-portal`, `parcel-tracking-portal` (3018), `parcel-return-portal` (3017), Public-facing Next.js portals
@@ -412,9 +413,17 @@ GitHub Environments `test` and `production` (see `.github/SECRETS.md`).
 | `deploy.yml` | push to `develop` → test; push to `main` → production | n/a |
 | `release-desktop.yml` | manual | n/a |
 
-`deploy.yml` runs: **Prepare** (migration + mobile + per-worker diff) → **Migrations**
-(path-gated) → **Workers** (only changed workers) → **Mobile OTA** (path-gated) →
-**Pages** (`weldsuite-test` / `weldsuite`).
+`deploy.yml` runs: **Prepare** (migration + mobile + per-worker + per-Vercel-app diff) →
+**Migrations** (path-gated) → **Workers** (only changed workers) → **Mobile OTA**
+(path-gated) → **Pages** (`weldsuite-test` / `weldsuite`) + **Vercel** (only changed
+apps: admin, api-docs, booking-portal, docs, helpcenter, helpdesk-widget, hr-portal,
+meeting-portal, partner; map in `.github/scripts/vercel-apps.mjs`).
+
+Vercel apps are built on the runner with the Vercel CLI and uploaded prebuilt.
+Each app's `vercel.json` sets `git.deploymentEnabled` off for `develop`/`main`, so
+Vercel's Git integration only builds previews for other branches. A new Vercel
+app needs an entry in `vercel-apps.mjs`, the same `vercel.json` block, and its
+folder in `deploy.yml`'s `on.push.paths`.
 
 `.github/actions/setup-monorepo/action.yml` pins pnpm 10.34.5 + Node 22 and caches the pnpm store + turbo cache.
 

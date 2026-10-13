@@ -71,6 +71,7 @@ export function useTerminologyLabels(terminology: JurisdictionTerminology) {
       supplier: tt.supplier[terminology.supplier],
       suppliers: tt.suppliers[terminology.supplier],
       supplierAddress: tt.supplierAddress[terminology.supplier],
+      customerAndSupplier: tt.customerAndSupplier[terminology.supplier],
       creditNote: tt.creditNote[terminology.creditNote],
       creditNotes: tt.creditNotes[terminology.creditNote],
     }),

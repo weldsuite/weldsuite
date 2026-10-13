@@ -23,8 +23,8 @@ const SALES_TAX_HREFS = new Set([
 /**
  * Adjusts the static WeldBooks menu (MODULE_CONFIGS.weldbooks) to the selected
  * entity's jurisdiction:
- * - the VAT item is shown only when the jurisdiction has a VAT return
- *   (`features.vatReturn`) and is labelled from the terminology
+ * - the tax-return item is shown only when the jurisdiction has a VAT return
+ *   (`features.vatReturn`) or a GST return (`features.gstReturn`) and is labelled from the terminology
  *   (VAT / GST / Sales tax);
  * - the US screens (Sales Tax Center, nexus, certificates, tax calendar,
  *   payment runs, deposits, statement reconciliation, tax worksheet) need
@@ -47,7 +47,7 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
       if (!enabled) return groups;
       const known = isResolved && !isError;
       const visible = (href: string): boolean => {
-        if (href === TAX_HREF) return known && features.vatReturn;
+        if (href === TAX_HREF) return known && (features.vatReturn || features.gstReturn);
         if (href === FORM_1099_HREF) return known && features.form1099;
         if (SALES_TAX_HREFS.has(href)) return known && features.salesTax;
         return true;
@@ -70,7 +70,7 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
         }))
         .filter((group) => group.items.length > 0);
     },
-    [enabled, isError, isResolved, features.vatReturn, features.form1099, features.salesTax, terminology, nav],
+    [enabled, isError, isResolved, features.vatReturn, features.gstReturn, features.form1099, features.salesTax, terminology, nav],
   );
 
   return { adjust };

@@ -179,6 +179,7 @@ export const weldbooksUsSalesTaxDocuments = {
     creditMemoNote:
       'De belasting van een creditfactuur volgt de factuur die je crediteert. Pas aantallen of prijzen aan om een deel van een regel te crediteren, of verwijder regels die je niet crediteert.',
     creditMemoUpdated: 'Creditfactuur bijgewerkt',
+    creditMemoSave: '{name} bijwerken',
   },
 
   bill: {

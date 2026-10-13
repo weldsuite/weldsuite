@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { VatNotAvailable } from './components/vat-not-available';
+import GstReturnPage from './gst-return-page';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
 import { useAccountingVatReturns, useCalculateVatReturn } from '@/hooks/queries/use-accounting-queries';
@@ -33,7 +34,8 @@ import {
   TableHeader,
   TableRow,
 } from '@weldsuite/ui/components/table';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
@@ -73,6 +75,7 @@ export default function VatReturnsPage() {
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
   const [periodLabel, setPeriodLabel] = useState('');
+  const [icpToDelete, setIcpToDelete] = useState<string | null>(null);
 
   const qc = useQueryClient();
 
@@ -100,7 +103,7 @@ export default function VatReturnsPage() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] });
       toast.success(
-        tv.icpCalculated
+        (res.data.recalculated ? tv.icpRecalculated : tv.icpCalculated)
           .replace('{count}', String(res.data.lineCount))
           .replace('{total}', fmt(res.data.totalAmount)),
       );
@@ -117,7 +120,20 @@ export default function VatReturnsPage() {
     onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.vat.icpFilingFailed')),
   });
 
+  const deleteIcp = useMutation({
+    mutationFn: (icpId: string) => accountingApi.deleteIcpDeclaration(icpId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounting', 'icp-declarations'] });
+      toast.success(tv.icpDeleted);
+      setIcpToDelete(null);
+    },
+    onError: (err) => toast.error(tv.icpDeleteFailed, { description: err instanceof Error ? err.message : undefined }),
+  });
+
   if (isLoading || (!isResolved && !jurisdictionError)) return <PageLoader fullScreen={false} />;
+
+  // India has no stored return: the GSTR-1 / GSTR-3B worksheet of a period instead.
+  if (features.gstReturn) return <GstReturnPage />;
 
   if (!features.vatReturn) {
     return <VatNotAvailable title={tv.notAvailableTitle} description={tv.notAvailableDescription} />;
@@ -135,6 +151,10 @@ export default function VatReturnsPage() {
 
   const handleCalculate = () => {
     if (!periodStart || !periodEnd) return;
+    if (periodEnd < periodStart) {
+      toast.error(tv.invalidPeriod);
+      return;
+    }
     if (dialogMode === 'icp' && !showIcp) {
       toast.error(st('sweep.weldbooks.vat.icpFilingFailed'));
       return;
@@ -149,7 +169,13 @@ export default function VatReturnsPage() {
     if (dialogMode === 'icp') {
       calculateIcp.mutate(payload, { onSuccess: reset });
     } else {
-      calculateMutation.mutate(payload, { onSuccess: reset });
+      calculateMutation.mutate(payload, {
+        onSuccess: (res) => {
+          if (res.data.recalculated) toast.info(tv.recalculated);
+          reset();
+        },
+        onError: (err) => toast.error(err?.message ?? st('sweep.weldbooks.common.unknownError')),
+      });
     }
   };
 
@@ -185,7 +211,7 @@ export default function VatReturnsPage() {
                 <TableHead>{tv.colType}</TableHead>
                 <TableHead className="text-right">{tv.colR5a}</TableHead>
                 <TableHead className="text-right">{tv.colR5b}</TableHead>
-                <TableHead className="text-right">{tv.colR5f}</TableHead>
+                <TableHead className="text-right">{tv.colR5g}</TableHead>
                 <TableHead>{tv.colStatus}</TableHead>
               </TableRow>
             </TableHeader>
@@ -198,7 +224,7 @@ export default function VatReturnsPage() {
                 </TableRow>
               ) : (
                 returns.map((vr) => {
-                  const r5f = vr.rubrieken?.r5f ?? 0;
+                  const r5g = vr.rubrieken?.r5g ?? 0;
                   return (
                     <TableRow
                       key={vr.id}
@@ -211,8 +237,8 @@ export default function VatReturnsPage() {
                       <TableCell>{periodTypeLabel(vr.periodType)}</TableCell>
                       <TableCell className="text-right tabular-nums">{fmt(vr.rubrieken?.r5a)}</TableCell>
                       <TableCell className="text-right tabular-nums">{fmt(vr.rubrieken?.r5b)}</TableCell>
-                      <TableCell className={`text-right tabular-nums font-medium ${r5f >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {fmt(r5f)}
+                      <TableCell className={`text-right tabular-nums font-medium ${r5g >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {fmt(r5g)}
                       </TableCell>
                       <TableCell>{statusBadge(vr.status)}</TableCell>
                     </TableRow>
@@ -268,14 +294,25 @@ export default function VatReturnsPage() {
                     <TableCell>{statusBadge(d.status)}</TableCell>
                     <TableCell className="text-right">
                       {d.status === 'calculated' || d.status === 'reviewed' ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={fileIcp.isPending}
-                          onClick={() => fileIcp.mutate(d.id)}
-                        >
-                          {tv.icpFile}
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={fileIcp.isPending}
+                            onClick={() => fileIcp.mutate(d.id)}
+                          >
+                            {tv.icpFile}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={tv.icpDelete}
+                            disabled={deleteIcp.isPending}
+                            onClick={() => setIcpToDelete(d.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       ) : null}
                     </TableCell>
                   </TableRow>
@@ -332,6 +369,21 @@ export default function VatReturnsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={icpToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setIcpToDelete(null);
+        }}
+        title={tv.icpDeleteTitle}
+        description={tv.icpDeleteDescription}
+        confirmLabel={tv.icpDelete}
+        cancelLabel={tv.cancel}
+        variant="destructive"
+        loading={deleteIcp.isPending}
+        onConfirm={async () => {
+          if (icpToDelete) await deleteIcp.mutateAsync(icpToDelete).catch(() => undefined);
+        }}
+      />
     </div>
   );
 }

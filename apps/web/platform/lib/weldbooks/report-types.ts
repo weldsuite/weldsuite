@@ -180,26 +180,74 @@ export interface CashFlowMonth {
   /** `YYYY-MM` */
   month: string;
   inflows: string;
+  /** A positive amount of money that left. */
   outflows: string;
+  /** Inflows minus outflows. */
   net: string;
 }
 
 export interface CashFlowTotals {
   inflows: string;
+  /** A positive amount of money that left. */
   outflows: string;
+  /** Inflows minus outflows. */
   net: string;
 }
 
+export type CashFlowActivityKey = 'operating' | 'investing' | 'financing';
+
+export type CashFlowCategoryKey =
+  | 'customer_receipts'
+  | 'supplier_payments'
+  | 'operating_expenses'
+  | 'taxes'
+  | 'payroll'
+  | 'other_operating'
+  | 'fixed_assets'
+  | 'equity'
+  | 'loans';
+
+export interface CashFlowCategoryRow extends CashFlowTotals {
+  category: CashFlowCategoryKey;
+}
+
+export interface CashFlowActivityBlock extends CashFlowTotals {
+  activity: CashFlowActivityKey;
+  categories: CashFlowCategoryRow[];
+}
+
+export interface CashFlowAccountBalance {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  openingBalance: string;
+  closingBalance: string;
+  net: string;
+}
+
+/**
+ * Built from the ledger: movements on the bank and cash accounts, grouped by
+ * the counterpart of each entry. `openingBalance + totals.net = closingBalance`,
+ * and the closing balance is the cash line of the balance sheet.
+ */
 export interface CashFlowReport {
   period: DateRange;
+  openingBalance: string;
+  closingBalance: string;
   monthly: CashFlowMonth[];
   totals: CashFlowTotals;
+  activities: CashFlowActivityBlock[];
+  cashAccounts: CashFlowAccountBalance[];
   /** Present with `compare`. */
   comparison?: {
     mode: ReportCompare;
     period: DateRange;
+    openingBalance: string;
+    closingBalance: string;
     monthly: CashFlowMonth[];
     totals: CashFlowTotals;
+    activities: CashFlowActivityBlock[];
+    cashAccounts: CashFlowAccountBalance[];
     delta: Record<keyof CashFlowTotals, ReportDelta>;
   };
 }
@@ -254,6 +302,7 @@ export type TaxLineSectionKey =
   | 'equity';
 
 export interface TaxWorksheetAccount {
+  /** `calculated_net_income` for the calculated row on the retained earnings line: not a chart account. */
   accountId: string;
   code: string;
   name: string;

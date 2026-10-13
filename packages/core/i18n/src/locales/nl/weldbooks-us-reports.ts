@@ -131,6 +131,7 @@ export const weldbooksUsReports = {
     collapseAll: 'Verberg rekeningen',
     beginning: 'Begin van het jaar',
     deductibleNote: '{percent}% aftrekbaar: {deductible} aftrekbaar, {nonDeductible} niet.',
+    calculatedResult: 'Nettoresultaat nog niet afgesloten naar overgedragen winst',
     nonDeductibleOn: 'De rest komt op regel {line}.',
   },
 };

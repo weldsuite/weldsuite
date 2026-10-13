@@ -32,6 +32,7 @@ import { useTerminologyLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { entityTypesFor } from '@/lib/weldbooks/entity-types';
 import { classificationsOf, isUsJurisdictionCode, type UsEntityTypeSummary } from '@/lib/weldbooks/us-entity';
 import { useI18n } from '@/lib/i18n/provider';
+import { isValidIban } from '@/lib/weldbooks/identifiers';
 import { LockDatesCard } from './components/lock-dates-card';
 import { LockExceptionsCard } from './components/lock-exceptions-card';
 import { RemapTaxLinesDialog } from './components/remap-tax-lines-dialog';
@@ -65,6 +66,7 @@ interface EntitySchemaMessages {
   einInvalidFormat: string;
   einInvalidPrefix: string;
   ssnInvalid: string;
+  ibanInvalid: string;
 }
 
 function createEntitySchema(messages: EntitySchemaMessages, isUs: boolean) {
@@ -82,7 +84,11 @@ function createEntitySchema(messages: EntitySchemaMessages, isUs: boolean) {
     phone: z.string().optional(),
     website: z.string().optional(),
     bankName: z.string().optional(),
-    iban: z.string().optional(),
+    // Length for the country and the mod-97 check digits ("NL00 BANK 1234" is no IBAN).
+    iban: z
+      .string()
+      .optional()
+      .refine((value) => !value?.trim() || isValidIban(value), messages.ibanInvalid),
     bic: z.string().optional(),
     accountNumber: z.string().optional(),
     routingNumber: z.string().optional(),
@@ -108,9 +114,15 @@ function compact<T extends Record<string, string | undefined>>(record: T): Parti
   return out;
 }
 
-/** A US entity's address is a US address: without a country the form would offer a free-text state. */
+/**
+ * An entity's address is in its own country: without one the form would offer a free-text state
+ * (US) or no GST state picker (India), so the country defaults from the jurisdiction.
+ */
+const ADDRESS_COUNTRY_BY_JURISDICTION: Record<string, string> = { US: 'US', NL: 'NL', IN: 'IN' };
+
 function usAddressDefaults(address: PostalAddress, jurisdictionCode: string): PostalAddress {
-  return isUsJurisdictionCode(jurisdictionCode) && !address.country?.trim() ? { ...address, country: 'US' } : address;
+  const country = ADDRESS_COUNTRY_BY_JURISDICTION[jurisdictionCode?.toUpperCase()];
+  return country && !address.country?.trim() ? { ...address, country } : address;
 }
 
 function toFormValues(
@@ -249,6 +261,9 @@ function EntityDetailsForm({
   const updateEntity = useUpdateAccountingEntity();
   const isUs = isUsJurisdictionCode(entity.jurisdictionCode);
   const [remap, setRemap] = useState<{ formLabel: string | null } | null>(null);
+  // The books rest on the fiscal year once there are postings or generated periods.
+  const lockedBy = entity.hasPostings ? te.fiscalYearLockedPostings : te.fiscalYearLockedPeriods;
+  const fiscalYearLockedReason = entity.fiscalYearLocked ? lockedBy : null;
 
   const schema = useMemo(
     () =>
@@ -261,10 +276,11 @@ function EntityDetailsForm({
           einInvalidFormat: tu.einInvalidFormat,
           einInvalidPrefix: tu.einInvalidPrefix,
           ssnInvalid: tu.ssnInvalid,
+          ibanInvalid: t.accounting.contacts.ibanInvalid,
         },
         isUs,
       ),
-    [te.nameRequired, te.invalidEmail, tu.entityTypeRequired, tu.classificationRequired, tu.einInvalidFormat, tu.einInvalidPrefix, tu.ssnInvalid, isUs],
+    [t.accounting.contacts.ibanInvalid, te.nameRequired, te.invalidEmail, tu.entityTypeRequired, tu.classificationRequired, tu.einInvalidFormat, tu.einInvalidPrefix, tu.ssnInvalid, isUs],
   );
   const initial = useMemo(() => toFormValues(entity, taxIdField, usEntityTypes), [entity, taxIdField, usEntityTypes]);
 
@@ -413,7 +429,7 @@ function EntityDetailsForm({
                     control={form.control}
                     name="fiscalYearStart"
                     render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange} disabled={disabled}>
+                      <Select value={field.value} onValueChange={field.onChange} disabled={disabled || Boolean(fiscalYearLockedReason)}>
                         <SelectTrigger id="entity-fiscalYearStart">
                           <SelectValue />
                         </SelectTrigger>
@@ -427,6 +443,9 @@ function EntityDetailsForm({
                       </Select>
                     )}
                   />
+                  {fiscalYearLockedReason && (
+                    <p className="text-xs text-muted-foreground" data-testid="fiscal-year-locked">{fiscalYearLockedReason}</p>
+                  )}
                 </div>
               </>
             )}
@@ -437,6 +456,7 @@ function EntityDetailsForm({
             <div className="space-y-1">
               <p className="text-sm font-medium">{te.baseCurrency}</p>
               <p className="text-sm text-muted-foreground">{entity.baseCurrency}</p>
+              {entity.baseSettingsLocked && <p className="text-xs text-muted-foreground">{te.baseSettingsLocked}</p>}
             </div>
           </CardContent>
         </Card>
@@ -456,6 +476,7 @@ function EntityDetailsForm({
                 entity={entity}
                 state={state}
                 canRevealTaxIds={canRevealTaxIds}
+                fiscalYearLockedReason={fiscalYearLockedReason}
               />
             )}
           />
@@ -536,7 +557,15 @@ function EntityDetailsForm({
               <>
                 <div className="space-y-2">
                   <Label htmlFor="entity-iban">{te.iban}</Label>
-                  <Input id="entity-iban" disabled={disabled} {...form.register('iban')} />
+                  <Input
+                    id="entity-iban"
+                    disabled={disabled}
+                    aria-invalid={Boolean(form.formState.errors.iban)}
+                    {...form.register('iban')}
+                  />
+                  {form.formState.errors.iban && (
+                    <p className="text-sm text-destructive">{form.formState.errors.iban.message}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="entity-bic">{te.bic}</Label>

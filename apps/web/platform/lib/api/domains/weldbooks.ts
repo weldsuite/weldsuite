@@ -54,6 +54,14 @@ export interface AccountingEntity extends Partial<EntityLockDates> {
   hasSsn?: boolean;
   ssnLast4?: string | null;
   hasSalesTaxCredentials?: boolean;
+  /** The entity has finalized transactions (posted entries, issued documents, payments, filed VAT returns). */
+  hasPostings?: boolean;
+  /** Fiscal periods have been generated for the entity. */
+  hasFiscalPeriods?: boolean;
+  /** Base currency and jurisdiction can no longer change (there are postings). */
+  baseSettingsLocked?: boolean;
+  /** The fiscal-year start can no longer change (postings or generated periods). */
+  fiscalYearLocked?: boolean;
   isDefault?: boolean | null;
   isActive?: boolean | null;
   address?: StoredAccountingAddress | null;
@@ -272,6 +280,8 @@ export interface RecordInvoicePaymentInput {
   paymentMethod: PaymentMethod;
   checkNumber?: string;
   reference?: string;
+  /** Foreign-currency invoice: the rate of the payment (foreign units per base unit); left out = the rate of the payment date. */
+  exchangeRate?: string;
 }
 
 export interface CreatePaymentInput {
@@ -290,11 +300,15 @@ export interface CreatePaymentInput {
 }
 
 export interface Dashboard {
+  /** The entity's base currency: every figure below is in it. */
+  currency?: string;
+  /** Ledger P&L (net of VAT, manual journals included). */
   revenue: { month: string; year: string; invoiceCount: number };
   expenses: { month: string; year: string };
   profit: { month: string; year: string };
+  /** Posted documents in base currency, credit notes subtracted; overdue leaves credit notes out. */
   receivables: { outstanding: string; outstandingCount: number; overdue: string; overdueCount: number };
-  payables: { outstanding: string; outstandingCount: number };
+  payables: { outstanding: string; outstandingCount: number; overdue?: string; overdueCount?: number };
   bankAccounts: Array<{ id: string; name: string; iban: string | null; currentBalance: string | null; currency: string | null }>;
   recentPayments: Payment[];
   upcomingDue: Array<{ id: string; invoiceNumber: string | null; contactName: string | null; dueDate: string; balanceDue: string | null }>;
@@ -381,6 +395,9 @@ export interface Customer {
   paymentTermsDays?: number | null;
   notes?: string | null;
   outstandingBalance?: string | null;
+  /** `active` or `archived`; an archived contact is hidden from lists and pickers. */
+  status?: string | null;
+  archivedAt?: string | null;
   createdAt?: string;
 }
 
@@ -395,6 +412,8 @@ export interface Invoice {
   issueDate: string;
   dueDate: string;
   currency: string | null;
+  /** Foreign units per base unit; null while a foreign-currency draft has no rate yet. */
+  exchangeRate?: string | null;
   subtotal: string | null;
   taxTotal: string | null;
   total: string | null;
@@ -452,6 +471,8 @@ export interface Bill {
   issueDate: string;
   dueDate: string;
   currency: string | null;
+  /** Foreign units per base unit; null while a foreign-currency draft has no rate yet. */
+  exchangeRate?: string | null;
   subtotal: string | null;
   taxTotal: string | null;
   total: string | null;
@@ -815,6 +836,8 @@ export const accountingApi = {
     search?: string;
     page?: number;
     pageSize?: number;
+    /** Archived contacts are left out unless asked for: `only` lists just them, `include` lists everyone. */
+    archived?: 'only' | 'include';
   }) =>
     weldbooksApi.get<PaginatedResponse<Customer>>(`/accounting-contacts${buildQuery(params || {})}`),
   getCustomer: (id: string) => weldbooksApi.get<ApiResponse<Customer>>(`/accounting-contacts/${id}`),
@@ -822,6 +845,8 @@ export const accountingApi = {
   createCustomer: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<Customer>>('/accounting-contacts', data),
   updateCustomer: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<Customer>>(`/accounting-contacts/${id}`, data),
   deleteCustomer: (id: string) => weldbooksApi.delete<ApiResponse<unknown>>(`/accounting-contacts/${id}`),
+  archiveCustomer: (id: string) => weldbooksApi.post<ApiResponse<Customer>>(`/accounting-contacts/${id}/archive`),
+  unarchiveCustomer: (id: string) => weldbooksApi.post<ApiResponse<Customer>>(`/accounting-contacts/${id}/unarchive`),
   importFromCrm: () => weldbooksApi.post<ApiResponse<{ imported: number }>>('/accounting-contacts/import-from-crm'),
 
   // Invoices
@@ -914,9 +939,11 @@ export const accountingApi = {
   // VAT Returns
   listVatReturns: () => weldbooksApi.get<ApiResponse<VatReturn[]>>('/vat-returns'),
   getVatReturn: (id: string) => weldbooksApi.get<ApiResponse<VatReturn>>(`/vat-returns/${id}`),
-  calculateVatReturn: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<{ id: string; rubrieken: Record<string, number> }>>('/vat-returns/calculate', data),
+  calculateVatReturn: (data: Record<string, unknown>) => weldbooksApi.post<ApiResponse<{ id: string; rubrieken: Record<string, number>; recalculated?: boolean }>>('/vat-returns/calculate', data),
   updateVatReturn: (id: string, data: Record<string, unknown>) => weldbooksApi.patch<ApiResponse<VatReturn>>(`/vat-returns/${id}`, data),
   fileVatReturn: (id: string) => weldbooksApi.post<ApiResponse<unknown>>(`/vat-returns/${id}/file`),
+  /** Only a return that was not filed yet can be deleted. */
+  deleteVatReturn: (id: string) => weldbooksApi.delete<unknown>(`/vat-returns/${id}`),
   getVatReturnXml: (id: string) => weldbooksApi.get<string>(`/vat-returns/${id}/xml`),
   getVatFilingStatus: (id: string) =>
     weldbooksApi.get<ApiResponse<{ id: string; kenmerk: string; status: string; statusDescription?: string; simulated?: boolean }>>(`/vat-returns/${id}/filing-status`),
@@ -927,7 +954,9 @@ export const accountingApi = {
   listIcpDeclarations: () => weldbooksApi.get<ApiResponse<IcpDeclaration[]>>('/icp-declarations'),
   getIcpDeclaration: (id: string) => weldbooksApi.get<ApiResponse<IcpDeclarationDetail>>(`/icp-declarations/${id}`),
   calculateIcpDeclaration: (data: Record<string, unknown>) =>
-    weldbooksApi.post<ApiResponse<{ id: string; totalAmount: number; lineCount: number; skippedContacts: string[] }>>('/icp-declarations/calculate', data),
+    weldbooksApi.post<ApiResponse<{ id: string; totalAmount: number; lineCount: number; skippedContacts: string[]; recalculated?: boolean }>>('/icp-declarations/calculate', data),
+  /** Only a declaration that was not filed yet can be deleted. */
+  deleteIcpDeclaration: (id: string) => weldbooksApi.delete<unknown>(`/icp-declarations/${id}`),
   fileIcpDeclaration: (id: string) => weldbooksApi.post<ApiResponse<unknown>>(`/icp-declarations/${id}/file`),
   getIcpDeclarationXml: (id: string) => weldbooksApi.get<string>(`/icp-declarations/${id}/xml`),
 

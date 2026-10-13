@@ -130,6 +130,7 @@ export const weldbooksUsReports = {
     collapseAll: 'Hide accounts',
     beginning: 'Beginning of year',
     deductibleNote: '{percent}% deductible: {deductible} deductible, {nonDeductible} not.',
+    calculatedResult: 'Net income not yet closed to retained earnings',
     nonDeductibleOn: 'The rest goes on line {line}.',
   },
 };

@@ -26,6 +26,7 @@ function statusVariant(status: string) {
     case 'paid':
       return 'default' as const;
     case 'sent':
+    case 'finalized':
       return 'secondary' as const;
     case 'overdue':
       return 'destructive' as const;
@@ -51,9 +52,10 @@ export default function InvoicesPage() {
   // Group by lifecycle status, most-urgent first. The trailing "other" group is
   // an explicit catch-all: EntityList drops items matching no group, so any
   // status outside the known set (e.g. cancelled/void) stays visible here.
-  const knownStatuses = new Set(['overdue', 'sent', 'partial', 'draft', 'paid']);
+  const knownStatuses = new Set(['overdue', 'finalized', 'sent', 'partial', 'draft', 'paid']);
   const groups: GroupConfig<InvoiceRow>[] = [
     { id: 'overdue', label: tip.groupOverdue, sortOrder: 1, filter: (i) => i.status === 'overdue' },
+    { id: 'finalized', label: tip.groupFinalized, sortOrder: 2, filter: (i) => i.status === 'finalized' },
     { id: 'sent', label: tip.groupSent, sortOrder: 2, filter: (i) => i.status === 'sent' || i.status === 'partial' },
     { id: 'draft', label: tip.groupDraft, sortOrder: 3, filter: (i) => i.status === 'draft' },
     { id: 'paid', label: tip.groupPaid, sortOrder: 4, filter: (i) => i.status === 'paid' },

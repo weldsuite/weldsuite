@@ -5,6 +5,10 @@ name: Deploy
 #   push to `main`    → production (app.weldsuite.org)
 #   workflow_dispatch → full deploy (all workers, migrations, mobile, frontends)
 #
+# Frontends: the platform, WeldMail, WeldCalendar and the developer portal go
+# to Cloudflare Pages; the Next.js apps, the helpdesk widget and the partner
+# portal go to Vercel (`vercel` job). Vercel's Git integration does not build develop/main.
+#
 # Secrets live on the GitHub Environments `test` and `production`.
 # See .github/SECRETS.md.
 
@@ -16,35 +20,28 @@ on:
       - 'apps/web/weldmail/**'
       - 'apps/web/weldcalendar/**'
       - 'apps/web/developer/**'
+      # Vercel-hosted apps (vercel job, .github/scripts/vercel-apps.mjs)
+      - 'apps/web/admin/**'
+      - 'apps/web/api-docs/**'
+      - 'apps/web/booking-portal/**'
+      - 'apps/web/docs/**'
+      - 'apps/web/helpcenter/**'
+      - 'apps/web/helpdesk-widget/**'
+      - 'apps/web/hr-portal/**'
+      - 'apps/web/meeting-portal/**'
+      - 'apps/web/partner/**'
       - 'apps/workers/**'
       - 'apps/mobile/**'
       - 'apps/tools/migrate-databases/**'
-      - 'packages/clients/**'
-      - 'packages/core/ai/**'
-      - 'packages/core/cloudflare-realtime/**'
-      - 'packages/core/cloudflare-registrar/**'
-      - 'packages/core/cloudflare-zones/**'
-      - 'packages/core/credits/**'
-      - 'packages/core/db/**'
-      - 'packages/core/email/**'
-      - 'packages/core/entity-events/**'
-      - 'packages/core/feature-flags/**'
-      - 'packages/core/connectors/**'
-      - 'packages/core/neon-provisioning/**'
-      - 'packages/core/notifications/**'
-      - 'packages/core/permissions/**'
-      - 'packages/core/realtime/**'
-      - 'packages/core/social-publishing/**'
-      - 'packages/core/transactional-email/**'
-      - 'packages/core/workflow-integrations/**'
-      - 'packages/design/mobile-ui/**'
-      - 'packages/config/typescript-config/**'
+      # Every workspace package: each job below narrows down to what it depends on.
+      - 'packages/**'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'package.json'
       - 'turbo.json'
       - '.npmrc'
       - '.github/actions/**'
+      - '.github/scripts/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
@@ -86,6 +83,7 @@ jobs:
       release_weldcalendar: ${{ steps.changes.outputs.weldcalendar }}
       workers: ${{ steps.matrix.outputs.workers }}
       module_workers: ${{ steps.modules.outputs.module_workers }}
+      vercel_apps: ${{ steps.vercel.outputs.vercel_apps }}
     steps:
       - name: Resolve deploy context
         id: ctx
@@ -520,6 +518,14 @@ jobs:
           BEFORE: ${{ steps.base.outputs.base }}
           SHA: ${{ github.sha }}
         run: node .github/scripts/module-workers.mjs
+
+      - name: Select Vercel apps
+        id: vercel
+        env:
+          FORCE_ALL: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+          BEFORE: ${{ steps.base.outputs.base }}
+          SHA: ${{ github.sha }}
+        run: node .github/scripts/vercel-apps.mjs
 
   migrations:
     name: Database Migrations
@@ -1058,3 +1064,81 @@ jobs:
             --project-name "$PROJECT" \
             --branch "$BRANCH" \
             --commit-dirty=true
+
+  # Next.js apps, the helpdesk widget and the partner portal on Vercel (one Vercel project per app,
+  # team weldsuite). Vercel's Git integration is off for develop/main
+  # (git.deploymentEnabled in each app's vercel.json), so this job is the only
+  # releaser there: it builds on the runner with the Vercel CLI and uploads the
+  # prebuilt output. Only the apps a push touched deploy, after the workers they
+  # call. Env vars, domains and Root Directory stay on the Vercel project.
+  #   production → Production target (the project's production domains)
+  #   test       → Preview target with develop's branch env vars, then the
+  #                project's `develop` branch domains (e.g. team-test.weldsuite.org)
+  #                are pointed at the new deployment.
+  vercel:
+    name: Deploy ${{ matrix.app }} (${{ needs.prepare.outputs.cf_env }} Vercel)
+    needs: [prepare, workers, module-workers]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      (needs['module-workers'].result == 'success' || needs['module-workers'].result == 'skipped') &&
+      needs.prepare.outputs.vercel_apps != '[]' &&
+      needs.prepare.outputs.vercel_apps != ''
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.prepare.outputs.vercel_apps) }}
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # Not VERCEL_ORG_ID: the CLI rejects that without VERCEL_PROJECT_ID too.
+      VERCEL_TEAM_ID: team_CmvR3M30MAIJPwioy1zvRVTb
+      VERCEL_PROJECT: ${{ matrix.project }}
+      CF_ENV: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-monorepo
+      - name: Install Vercel CLI
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error title=VERCEL_TOKEN missing::Set VERCEL_TOKEN on the '$CF_ENV' environment (Settings -> Environments -> $CF_ENV -> Secrets). Vercel no longer builds develop/main itself, so without it $VERCEL_PROJECT does not deploy."
+            exit 1
+          fi
+          npm install --global vercel@60.1.3
+      # Run from the repo root: the Vercel project's Root Directory
+      # (apps/web/<app>) is applied on top of the working directory.
+      - name: Link ${{ matrix.project }}
+        run: vercel link --yes --project "$VERCEL_PROJECT" --scope "$VERCEL_TEAM_ID" --token "$VERCEL_TOKEN"
+      - name: Build ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          if [ "$CF_ENV" = "production" ]; then
+            vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+            vercel build --prod --token "$VERCEL_TOKEN"
+          else
+            vercel pull --yes --environment=preview --git-branch=develop --token "$VERCEL_TOKEN"
+            vercel build --token "$VERCEL_TOKEN"
+          fi
+      - name: Deploy ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          if [ "$CF_ENV" = "production" ]; then
+            URL=$(vercel deploy --prebuilt --prod --archive=tgz --token "$VERCEL_TOKEN")
+            echo "Deployed $VERCEL_PROJECT to production: $URL"
+            exit 0
+          fi
+
+          URL=$(vercel deploy --prebuilt --archive=tgz --token "$VERCEL_TOKEN")
+          echo "Deployed $VERCEL_PROJECT preview: $URL"
+          # Only domains bound to the develop branch: never a production domain.
+          DOMAINS=$(curl -fsS -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects/$VERCEL_PROJECT/domains?teamId=$VERCEL_TEAM_ID&gitBranch=develop&limit=100" \
+            | jq -r '.domains[] | select(.gitBranch == "develop") | .name')
+          if [ -z "$DOMAINS" ]; then
+            echo "::warning title=No test domain::$VERCEL_PROJECT has no domain bound to the develop branch; the test deploy is only reachable at $URL"
+            exit 0
+          fi
+          for DOMAIN in $DOMAINS; do
+            vercel alias set "$URL" "$DOMAIN" --scope "$VERCEL_TEAM_ID" --token "$VERCEL_TOKEN"
+          done

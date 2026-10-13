@@ -19,7 +19,7 @@ vi.mock('@weldsuite/permissions/react', () => ({
 const jurisdiction = vi.hoisted(() => ({ salesTax: true }));
 vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
   useJurisdictionLabels: () => ({
-    labels: { supplier: 'Vendor', taxId: 'EIN', registrationId: 'State ID' },
+    labels: { supplier: 'Vendor', taxId: 'EIN', registrationId: 'State ID', customerAndSupplier: 'Customer + vendor' },
     features: { salesTax: jurisdiction.salesTax },
   }),
 }));
@@ -102,5 +102,66 @@ describe('customer detail page: Exemptions tab', () => {
     serve({ ...customer, role: 'both' });
     renderWithProviders(<ContactDetailPage />);
     expect(await screen.findByRole('tab', { name: tx.tabExemptions })).toBeInTheDocument();
+  });
+});
+
+describe('customer detail page: delete and archive', () => {
+  const tc = en.accounting.contacts;
+  const inUse = Object.assign(new Error("This contact can't be deleted because it is used by 2 invoices. Archive it instead to hide it from lists and pickers."), {
+    status: 409,
+    body: { error: { code: 'CONFLICT', message: 'in use', details: { code: 'CONTACT_IN_USE', references: { invoices: 2 }, canArchive: true } } },
+  });
+
+  beforeEach(() => {
+    api.post.mockReset().mockResolvedValue({ data: { ...customer, archivedAt: '2026-10-01T00:00:00Z' } });
+    api.delete.mockReset();
+    permissions.allowed = new Set(['customers:delete', 'customers:update']);
+  });
+
+  it('shows the reason a used contact can not be deleted and offers Archive instead', async () => {
+    const user = userEvent.setup();
+    serve(customer);
+    api.delete.mockRejectedValueOnce(inUse);
+    renderWithProviders(<ContactDetailPage />);
+
+    await user.click(await screen.findByTestId('contact-delete'));
+    await user.click(await screen.findByRole('button', { name: tc.delete, hidden: false }));
+
+    const blocked = await screen.findByTestId('contact-delete-blocked');
+    expect(within(blocked).getByText(tc.deleteBlockedTitle)).toBeInTheDocument();
+    expect(blocked).toHaveTextContent('used by 2 invoices');
+
+    await user.click(within(blocked).getByTestId('contact-archive-instead'));
+    expect(api.post).toHaveBeenCalledWith('/accounting-contacts/prt_1/archive');
+  });
+
+  it('archives after a confirmation and restores an archived contact in one click', async () => {
+    const user = userEvent.setup();
+    serve(customer);
+    renderWithProviders(<ContactDetailPage />);
+
+    await user.click(await screen.findByTestId('contact-archive'));
+    expect(api.post).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', { name: tc.archive, hidden: false }));
+    expect(api.post).toHaveBeenCalledWith('/accounting-contacts/prt_1/archive');
+  });
+
+  it('marks an archived contact and offers Restore', async () => {
+    const user = userEvent.setup();
+    serve({ ...customer, archivedAt: '2026-10-01T00:00:00Z' });
+    renderWithProviders(<ContactDetailPage />);
+
+    expect(await screen.findByText(tc.archived)).toBeInTheDocument();
+    await user.click(screen.getByTestId('contact-archive'));
+    expect(api.post).toHaveBeenCalledWith('/accounting-contacts/prt_1/unarchive');
+  });
+
+  it('hides delete and archive without the permissions', async () => {
+    permissions.allowed = new Set(['taxes:read']);
+    serve(customer);
+    renderWithProviders(<ContactDetailPage />);
+    expect(await screen.findByText('ap@acme.test')).toBeInTheDocument();
+    expect(screen.queryByTestId('contact-delete')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('contact-archive')).not.toBeInTheDocument();
   });
 });
