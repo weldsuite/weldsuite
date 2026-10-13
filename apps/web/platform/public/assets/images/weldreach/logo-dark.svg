@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- WeldReach: a folded paper plane. Corners are rounded by a matching round-join stroke. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 653.4 601.7" stroke-width="44" stroke-linejoin="round">
+  <path fill="#f5d0fe" stroke="#f5d0fe" d="M346.1,575.7 L627.4,26.0 L304.3,278.4 Z"/>
+  <path fill="#e879f9" stroke="#e879f9" d="M26.0,165.9 L627.4,26.0 L304.3,278.4 Z"/>
+</svg>
