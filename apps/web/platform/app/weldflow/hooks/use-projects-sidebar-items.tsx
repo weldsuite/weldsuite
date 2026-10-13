@@ -50,6 +50,10 @@ export function useProjectsSidebarItems(isActive: boolean): {
   const [projectPages, setProjectPages] = React.useState<MenuItemProps[]>([]);
   const [showAddProjectDialog, setShowAddProjectDialog] = React.useState(false);
   const [newProjectName, setNewProjectName] = React.useState('');
+  const [isCreatingProject, setIsCreatingProject] = React.useState(false);
+  // Set synchronously so a second click (or Enter) that lands before React
+  // re-renders with the disabled button cannot start a second create.
+  const isCreatingProjectRef = React.useRef(false);
   const [selectedColor, setSelectedColor] = React.useState(coloredSquareColors[0].value);
   const [selectedIcon, setSelectedIcon] = React.useState<LucideIcon>(coloredSquareIcons[0].value);
   const [colorPopoverOpen, setColorPopoverOpen] = React.useState(false);
@@ -383,30 +387,37 @@ export function useProjectsSidebarItems(isActive: boolean): {
   };
 
   const handleCreateProject = async () => {
-    if (!newProjectName.trim()) return;
-    const projectName = newProjectName;
-    const iconLabel = coloredSquareIcons.find((i) => i.value === selectedIcon)?.label || '';
-    const result = await projectsApi.create({
-      name: projectName,
-      status: 'Planning',
-      priority: 'medium',
-      color: selectedColor,
-      icon: iconLabel,
-    });
+    if (!newProjectName.trim() || isCreatingProjectRef.current) return;
+    isCreatingProjectRef.current = true;
+    setIsCreatingProject(true);
+    try {
+      const projectName = newProjectName;
+      const iconLabel = coloredSquareIcons.find((i) => i.value === selectedIcon)?.label || '';
+      const result = await projectsApi.create({
+        name: projectName,
+        status: 'Planning',
+        priority: 'medium',
+        color: selectedColor,
+        icon: iconLabel,
+      });
 
-    if (result.success && result.data) {
-      await reloadProjects();
-      setShowAddProjectDialog(false);
-      setNewProjectName('');
-      setSelectedColor(coloredSquareColors[0].value);
-      setSelectedIcon(coloredSquareIcons[0].value);
-      toast.success(t.projects.sidebar.projectCreated, {
-        description: t.projects.sidebar.projectCreatedDescription.replace('{name}', projectName),
-      });
-    } else {
-      toast.error(t.projects.sidebar.error, {
-        description: result.error || t.projects.sidebar.projectCreateFailed,
-      });
+      if (result.success && result.data) {
+        await reloadProjects();
+        setShowAddProjectDialog(false);
+        setNewProjectName('');
+        setSelectedColor(coloredSquareColors[0].value);
+        setSelectedIcon(coloredSquareIcons[0].value);
+        toast.success(t.projects.sidebar.projectCreated, {
+          description: t.projects.sidebar.projectCreatedDescription.replace('{name}', projectName),
+        });
+      } else {
+        toast.error(t.projects.sidebar.error, {
+          description: result.error || t.projects.sidebar.projectCreateFailed,
+        });
+      }
+    } finally {
+      isCreatingProjectRef.current = false;
+      setIsCreatingProject(false);
     }
   };
 
@@ -580,7 +591,7 @@ export function useProjectsSidebarItems(isActive: boolean): {
             >
               {t.projects.sidebar.cancel}
             </Button>
-            <Button onClick={handleCreateProject} disabled={!newProjectName.trim()}>
+            <Button onClick={handleCreateProject} disabled={!newProjectName.trim() || isCreatingProject}>
               {t.projects.sidebar.createProject}
             </Button>
           </DialogFooter>
