@@ -18,16 +18,20 @@ export const DAILY_CRON = '30 2 * * *';
 
 type WarmupBatch = MessageBatch<WarmupSendMessage> | MessageBatch<WarmupEngageMessage>;
 
+function cronTask(cron: string, env: Env): Promise<void> {
+  if (cron === PLANNER_CRON) return runPlanner(env);
+  if (cron === DAILY_CRON) return runDaily(env);
+  return runDispatch(env);
+}
+
 export default {
   async fetch(): Promise<Response> {
     return new Response('reach-warmup-worker', { status: 404 });
   },
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    const task =
-      event.cron === PLANNER_CRON ? runPlanner(env) : event.cron === DAILY_CRON ? runDaily(env) : runDispatch(env);
     ctx.waitUntil(
-      task.catch((err) => {
+      cronTask(event.cron, env).catch((err) => {
         console.error(`[reach-warmup] cron ${event.cron} failed:`, err);
       }),
     );

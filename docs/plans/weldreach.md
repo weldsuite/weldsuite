@@ -470,7 +470,12 @@ Code can't do these; run them before the first approval.
 9. **App catalog**: in the admin console → App Catalog, create `weldreach` (name WeldReach, path `/weldreach`), published, with **Requires approval** on.
 10. **app-api**: deploy after reach-api so the `REACH_API` service binding resolves; `ACCESS_REQUEST_NOTIFY_EMAIL` is gert@weldsuite.org.
 11. **Help docs**: take screenshots for `apps/web/docs/src/app/weldreach` once the screens are live (`pnpm --filter docs capture-screenshots:all`).
-12. **Legal**: lawyer review of the request-form terms (`reach.access.terms.*`, version `weldreach-2026-10`) before approving the first workspace.
+12. **Legal**: lawyer review of the request-form terms (`reach.access.terms.*`, version `weldreach-2026-10b`, which includes the warmup network term) before approving the first workspace.
+13. **Warmup network** (docs/plans/weldreach-warmup.md):
+    - generate one `WELDREACH_WARMUP_KEY` (64 hex characters) per environment and store it in Doppler; the same value goes to reach-api and reach-warmup-worker (`pnpm secrets:sync <env> reach-api reach-warmup-worker`). Losing it makes the pool logins unreadable (mailboxes then have to be re-registered).
+    - queues `reach-warmup-send-<env>`, `reach-warmup-engage-<env>` and their `-dlq-<env>`;
+    - Flagship flag `weldreach-warmup` (boolean, on);
+    - make sure Mailpool does not put new mailboxes into its own warmup (Phase W0).
 
 ## Follow-ups (not in this plan)
 
