@@ -800,6 +800,30 @@ interface CreateEventParams {
   priority?: string | null;
 }
 
+/** Where the first free-slot search for a new event looks, and in which direction. */
+function initialSchedulingWindow(
+  dueDate: Date | null,
+  now: Date,
+): { deadline: Date; direction: SearchDirection } {
+  if (!dueDate) {
+    // No-deadline path: 60-day forward window.
+    return {
+      deadline: new Date(now.getTime() + MAX_SEARCH_DAYS_NO_DEADLINE * 24 * 60 * 60 * 1000),
+      direction: 'forward',
+    };
+  }
+  // Real-deadline path: keep historical behaviour.
+  if (dueDate <= now && (now.getTime() - dueDate.getTime()) < 24 * 60 * 60 * 1000) {
+    // Timezone edge case: "today" might be just past midnight UTC even though
+    // it's still today in the user's tz. Extend to end of today so we can
+    // still place the event in remaining working hours.
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+    return { deadline: endOfToday, direction: 'auto' };
+  }
+  return { deadline: dueDate, direction: 'auto' };
+}
+
 /**
  * Returns the new event id, or `null` when nothing was placed: the user turned
  * off task auto-scheduling and the task has no explicit start date.
@@ -858,27 +882,9 @@ export async function createCalendarEventForTask(
 
   const ctx = await getUserSchedulingContext(db, params.userId);
   const hasDueDate = !!params.dueDate;
-
-  let schedulingDeadline: Date;
-  let direction: SearchDirection;
-
-  if (hasDueDate) {
-    // Real-deadline path: keep historical behaviour.
-    schedulingDeadline = params.dueDate as Date;
-    if (schedulingDeadline <= now && (now.getTime() - schedulingDeadline.getTime()) < 24 * 60 * 60 * 1000) {
-      // Timezone edge case: "today" might be just past midnight UTC even though
-      // it's still today in the user's tz. Extend to end of today so we can
-      // still place the event in remaining working hours.
-      const endOfToday = new Date(now);
-      endOfToday.setHours(23, 59, 59, 999);
-      schedulingDeadline = endOfToday;
-    }
-    direction = 'auto';
-  } else {
-    // No-deadline path: 60-day forward window.
-    schedulingDeadline = new Date(now.getTime() + MAX_SEARCH_DAYS_NO_DEADLINE * 24 * 60 * 60 * 1000);
-    direction = 'forward';
-  }
+  const searchWindow = initialSchedulingWindow(params.dueDate ?? null, now);
+  let schedulingDeadline = searchWindow.deadline;
+  const direction = searchWindow.direction;
 
   let slot = await findFreeSlot(db, {
     userId: params.userId,
