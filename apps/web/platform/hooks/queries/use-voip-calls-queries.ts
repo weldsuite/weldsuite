@@ -7,7 +7,11 @@
  * app-api.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  CONTACT_CALL_STATS_MAX_IDS,
+  type ContactCallStats,
+} from '@weldsuite/app-api-client/schemas/call-intelligence';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type {
   VoipCall,
@@ -48,6 +52,7 @@ const voipCallKeys = {
   list: (filters?: CallFilters) => [...voipCallKeys.lists(), filters] as const,
   detail: (id: string) => [...voipCallKeys.all, 'detail', id] as const,
   stats: () => [...voipCallKeys.all, 'stats'] as const,
+  contactStats: (ids: string[]) => [...voipCallKeys.all, 'contact-stats', ids] as const,
   phoneNumbers: () => [...voipCallKeys.all, 'phone-numbers'] as const,
   voipConfigured: () => [...voipCallKeys.all, 'configured'] as const,
   transcription: (callId: string) => [...voipCallKeys.all, callId, 'transcription'] as const,
@@ -97,6 +102,46 @@ export function useVoipCallStats() {
       return client.get<SingleResponse<CallStats>>('/call-intelligence/stats');
     },
   });
+}
+
+/**
+ * Per-person call stats (calls, inbound/outbound, total time, last call) for
+ * people ids — call-api `GET /api/calls/contact-stats`. Takes the ids in
+ * batches (one query each, e.g. one per loaded grid page) so loading the next
+ * page doesn't refetch the ones already shown. Returns the stats by person id.
+ */
+export function useContactCallStats(idBatches: string[][]): Map<string, ContactCallStats> {
+  const { getClient } = useAppApiClient();
+  return useQueries({
+    queries: idBatches
+      .filter((ids) => ids.length > 0)
+      .flatMap((ids) => {
+        const chunks: string[][] = [];
+        for (let i = 0; i < ids.length; i += CONTACT_CALL_STATS_MAX_IDS) {
+          chunks.push(ids.slice(i, i + CONTACT_CALL_STATS_MAX_IDS));
+        }
+        return chunks;
+      })
+      .map((ids) => ({
+        queryKey: voipCallKeys.contactStats(ids),
+        queryFn: async () => {
+          const client = await getClient();
+          const res = await client.get<SingleResponse<ContactCallStats[]>>(
+            `/calls/contact-stats?contactIds=${encodeURIComponent(ids.join(','))}`,
+          );
+          return res.data ?? [];
+        },
+        staleTime: 60_000,
+      })),
+    combine: statsById,
+  });
+}
+
+// Module-level so useQueries can reuse the combined Map while results are unchanged.
+function statsById(results: Array<{ data?: ContactCallStats[] }>): Map<string, ContactCallStats> {
+  const byId = new Map<string, ContactCallStats>();
+  for (const r of results) for (const s of r.data ?? []) byId.set(s.contactId, s);
+  return byId;
 }
 
 export function useVoipPhoneNumbers() {

@@ -1,37 +1,11 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { Search, Mic, MicOff, Video as VideoIcon, VideoOff, Check, Copy } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { cn } from '@weldsuite/ui/lib/utils';
+import { getInitials, getPeerColorSeed } from '../lib/person-theme';
+import { PersonAvatar } from './person-avatar';
 import type { MeetingClient, MeetingPeer, WaitlistedPeer } from '../types';
-
-// Same palette as ParticipantTile + AdmitGuestsPill so a guest's avatar color
-// is identical in the side panel, the admission pill, and the in-call tile.
-const PERSON_THEMES = [
-  '#578a72', '#7a67a3', '#6788ad', '#a8707e', '#5d9494',
-  '#a88a6c', '#7770ab', '#a26178', '#688a57', '#9c6857',
-] as const;
-
-function hashString(input: string): number {
-  // An Int32Array slot wraps on every write, exactly like `h |= 0` did.
-  const h = new Int32Array(1);
-  for (let i = 0; i < input.length; i++) {
-    h[0] = Math.imul(h[0]!, 31) + input.codePointAt(i)!;
-  }
-  return Math.abs(h[0]!);
-}
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0]!.charAt(0).toUpperCase();
-  return (parts[0]!.charAt(0) + parts.at(-1)!.charAt(0)).toUpperCase();
-}
-
-function getAvatarColor(seed: string): string {
-  return PERSON_THEMES[hashString(seed || 'guest') % PERSON_THEMES.length]!;
-}
 
 export interface PeoplePanelProps {
   meeting: MeetingClient | null;
@@ -174,18 +148,15 @@ function WaitlistedRow({
   onAdmit: (id: string) => void;
   onReject: (id: string) => void;
 }>) {
-  const seed = String(peer.customParticipantId ?? peer.userId ?? peer.id ?? peer.name ?? '');
   return (
     <div className="flex items-center gap-3 py-2">
-      <Avatar className="h-7 w-7 !rounded-[8px]">
-        {peer.picture && <AvatarImage src={peer.picture} className="!rounded-[8px]" />}
-        <AvatarFallback
-          className="text-[10px] font-medium !rounded-[8px] text-white"
-          style={{ backgroundColor: getAvatarColor(seed) }}
-        >
-          {getInitials(peer.name ?? '?')}
-        </AvatarFallback>
-      </Avatar>
+      <PersonAvatar
+        initials={getInitials(peer.name ?? '?')}
+        picture={peer.picture}
+        colorSeed={getPeerColorSeed(peer)}
+        className="h-7 w-7 !rounded-[8px]"
+        innerClassName="text-[10px] !rounded-[8px]"
+      />
       <span className="flex-1 text-[13px] font-medium truncate">{peer.name ?? 'Guest'}</span>
       <div className="flex items-center gap-1.5">
         <Button variant="outline" size="sm" className="text-muted-foreground" onClick={() => onReject(peer.id)}>
@@ -232,14 +203,16 @@ function ParticipantRow({
   selfIsHost: boolean;
   onClickDetails?: (participant: MeetingPeer) => void;
 }>) {
-  const initials = (p.name ?? '?').charAt(0).toUpperCase();
   const content = (
     <>
       <div className="relative">
-        <Avatar className="h-7 w-7 !rounded-[8px]">
-          {p.picture && <AvatarImage src={p.picture} className="!rounded-[8px]" />}
-          <AvatarFallback className="text-[10px] font-medium !rounded-[8px]">{initials}</AvatarFallback>
-        </Avatar>
+        <PersonAvatar
+          initials={getInitials(p.name ?? '?')}
+          picture={p.picture}
+          colorSeed={getPeerColorSeed(p)}
+          className="h-7 w-7 !rounded-[8px]"
+          innerClassName="text-[10px] !rounded-[8px]"
+        />
         {/* Presence = "is in the call". Mic / camera state has its own badges on
             the right, so muting (e.g. by the host) must not grey this out. */}
         <div

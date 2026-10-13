@@ -1131,7 +1131,7 @@ export function WorkloadView({ initialData, error, projectId }: Readonly<Workloa
               </Button>
               <div className={cn(
                 "relative transition-all duration-200 ease-out",
-                searchOpen ? "opacity-100 w-48" : "opacity-0 w-0 pointer-events-none"
+                searchOpen ? "opacity-100 w-48" : "opacity-0 w-0 overflow-hidden pointer-events-none"
               )}>
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <input

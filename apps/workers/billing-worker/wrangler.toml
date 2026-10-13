@@ -88,6 +88,12 @@ APP_URL = "https://app-test.weldsuite.org"
 PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 EMAIL_TRANSPORT = "cloudflare"
 
+# Bindings are not inherited by named environments: without this the test
+# worker has no master DB at all (every admin/partner/webhook query fails).
+[[env.test.hyperdrive]]
+binding = "HYPERDRIVE_MASTER"
+id = "f1b2e092e6b64ade8ea7e7e17a1a0d39"
+
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"

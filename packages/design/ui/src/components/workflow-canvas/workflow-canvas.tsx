@@ -23,7 +23,7 @@ import { TriggerNode } from './trigger-node';
 import { ActionNode, PlaceholderNode } from './action-node';
 import { ConditionNode, ConditionBranchNode } from './condition-node';
 import { SubAgentNode } from './sub-agent-node';
-import { workflowToFlow, autoLayoutNodes, getNodeHeight, getTotalNodeHeight, NODE_HEIGHT, NODE_WIDTH, type FlowNodeData } from './flow-utils';
+import { workflowToFlow, autoLayoutNodes, getNodeHeight, getNodeWidth, getTotalNodeHeight, toSlotPosition, NODE_HEIGHT, NODE_WIDTH, type FlowNodeData } from './flow-utils';
 import { type WorkflowStep, type TriggerConfig, type WorkflowCanvasLabels, type VariableItem, DEFAULT_CANVAS_LABELS } from './types';
 import { Plus, Minus, Maximize } from 'lucide-react';
 
@@ -45,11 +45,6 @@ function useStructurallyStable<T>(value: T): T {
   }
   return ref.current.value;
 }
-
-const getNodeWidth = (_node: Node) => {
-  // All nodes share one uniform width.
-  return NODE_WIDTH;
-};
 
 const getNodeLeftX = (node: Node) => node.position.x;
 const getNodeRightX = (node: Node) => node.position.x + getNodeWidth(node);
@@ -89,9 +84,8 @@ const getStepTypeOf = (node: Node): string => {
 };
 
 // Position directly below `above`, horizontally centred on it.
-const positionBelow = (above: Node, aboveHeight: number) => {
-  const aboveWidth = NODE_WIDTH;
-  const belowWidth = NODE_WIDTH;
+const positionBelow = (above: Node, aboveHeight: number, belowWidth: number = NODE_WIDTH) => {
+  const aboveWidth = getNodeWidth(above);
   return {
     x: above.position.x + aboveWidth / 2 - belowWidth / 2,
     y: above.position.y + aboveHeight + NODE_GAP_Y,
@@ -131,7 +125,7 @@ function positionSyncedNode(
     const prevNode = findPreviousExistingNode(index, newNodes, currentNodes);
     if (prevNode) {
       const prevNodeHeight = getTotalNodeHeight(getStepTypeOf(prevNode));
-      return { ...newNode, position: positionBelow(prevNode, prevNodeHeight), selected };
+      return { ...newNode, position: positionBelow(prevNode, prevNodeHeight, getNodeWidth(newNode)), selected };
     }
   }
 
@@ -567,7 +561,7 @@ function WorkflowCanvasInner({
         if (step.id === node.id) {
           return {
             ...step,
-            position: didSnap ? finalPosition : node.position,
+            position: toSlotPosition(node, didSnap ? finalPosition : node.position),
           };
         }
         return step;

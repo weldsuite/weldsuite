@@ -9,7 +9,7 @@
  * shows the `summary` it is handed.
  */
 
-import { isStepConfigured } from '@weldsuite/ui/components/workflow-canvas';
+import { emailBodyToText, isStepConfigured, type EmailStepPreview } from '@weldsuite/ui/components/workflow-canvas';
 import { formatDuration, getDelaySeconds, type DurationLabels } from './duration';
 
 export { formatDuration, getDelaySeconds };
@@ -189,6 +189,38 @@ function summarizeSendEmail(config: Bag, labels: NodeSummaryLabels): string {
   const to = text(config.to);
   if (!to) return '';
   return join([labels.to.replace('{to}', to), text(config.subject)], ' • ');
+}
+
+export interface EmailPreviewLabels {
+  from: string;
+  to: string;
+  subject: string;
+  /** Shown in the From row while the step sends from the workspace's default account. */
+  defaultAccount: string;
+  subjectPlaceholder: string;
+  bodyPlaceholder: string;
+}
+
+/**
+ * What a Send Email step shows on the canvas, where it is drawn as a small
+ * compose window: the From account by name, To, Subject and the body as text.
+ */
+export function previewEmailStep(
+  config: Bag | null | undefined,
+  labels: EmailPreviewLabels,
+  accounts: ReadonlyArray<{ id: string; email: string; displayName?: string }>,
+): EmailStepPreview {
+  const fields = config ?? {};
+  const account = accounts.find((a) => a.id === text(fields.from));
+  return {
+    rows: [
+      { label: labels.from, value: account ? account.displayName || account.email : '', placeholder: labels.defaultAccount },
+      { label: labels.to, value: text(fields.to) },
+      { label: labels.subject, value: text(fields.subject), placeholder: labels.subjectPlaceholder },
+    ],
+    body: emailBodyToText(text(fields.body), fields.isHtml !== false),
+    bodyPlaceholder: labels.bodyPlaceholder,
+  };
 }
 
 function summarizeSendNotification(config: Bag): string {

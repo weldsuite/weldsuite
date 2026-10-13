@@ -15,6 +15,19 @@ export type TriggerCategory =
   | 'api'
   | 'workflow_complete';
 
+/**
+ * What a Send Email step shows on the canvas, where it is drawn as a small
+ * compose window (`parts/email-step-card.tsx`). The host hands it over already
+ * translated and resolved: the From account's name rather than its id, the
+ * body as text rather than HTML.
+ */
+export interface EmailStepPreview {
+  /** From / To / Subject, top to bottom. `placeholder` shows while the value is empty. */
+  rows: Array<{ label: string; value: string; placeholder?: string }>;
+  body: string;
+  bodyPlaceholder?: string;
+}
+
 export interface WorkflowStep {
   id: string;
   type: string;
@@ -26,6 +39,8 @@ export interface WorkflowStep {
    * of the generic fallback; the user's own `description` still wins.
    */
   summary?: string;
+  /** Send Email steps only, see `EmailStepPreview`. Without it the card reads the raw config. */
+  emailPreview?: EmailStepPreview;
   order?: number;
   config: Record<string, unknown>;
   inputs: Record<string, unknown>;

@@ -92,6 +92,20 @@ export interface RecordingLabels {
   paused?: string;
 }
 
+/** Label overrides for the header's panel buttons (package has no i18n). */
+export interface HeaderLabels {
+  /** Meeting details button. Default "Details". */
+  details?: string;
+  /** People button. Default "People". */
+  people?: string;
+  /** Chat button. Default "Chat". */
+  chat?: string;
+  /** Meeting tools button. Default "Tools". */
+  tools?: string;
+  /** Heading of the call timer in the Meeting details panel. Default "Duration". */
+  duration?: string;
+}
+
 export interface MeetingRoomViewProps {
   // ── Meeting identity / metadata ────────────────────────────────────────────
   meetingId: string;
@@ -170,6 +184,8 @@ export interface MeetingRoomViewProps {
   recordingStartElapsedSeconds?: number;
   /** Copy for the recording-start feedback. English when omitted. */
   recordingLabels?: RecordingLabels;
+  /** Copy for the header's panel buttons. English when omitted. */
+  headerLabels?: HeaderLabels;
 
   // ── Background effects (omit to hide) ─────────────────────────────────────
   onToggleEffects?: () => void;

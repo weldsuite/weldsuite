@@ -155,14 +155,14 @@ function FormField({
   const fieldId = useId();
   return (
     <div className="space-y-2">
-      <Label htmlFor={fieldId} className="flex items-center gap-1">
+      <Label htmlFor={fieldId} className="flex items-center gap-1 text-xs">
         {label}
         {required && <span className="text-red-500">*</span>}
         {description && (
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" className="ml-1 text-muted-foreground hover:text-foreground">
+                <Button type="button" variant="ghost" size="icon" className="size-4 text-muted-foreground hover:text-foreground">
                   <Info className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
@@ -2200,7 +2200,7 @@ function GmailSendEmailForm({
       </FormField>
       <div className="flex items-center gap-2">
         <Switch id="gmail-is-html" checked={isHtml} onCheckedChange={(checked) => onChange({ ...config, isHtml: checked })} />
-        <Label htmlFor="gmail-is-html" className="text-sm">
+        <Label htmlFor="gmail-is-html" className="text-xs">
           {cf.isHtml}
         </Label>
       </div>
@@ -4014,7 +4014,7 @@ function CollectCustomerInfoForm({ config, onChange }: Readonly<{
             onCheckedChange={(v) => onChange({ ...config, skipIfKnown: v })}
             id="skip-if-known"
           />
-          <Label htmlFor="skip-if-known" className="text-sm">{acf.enabled}</Label>
+          <Label htmlFor="skip-if-known" className="text-xs">{acf.enabled}</Label>
         </div>
       </FormField>
     </div>
