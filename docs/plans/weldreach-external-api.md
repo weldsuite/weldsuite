@@ -121,6 +121,14 @@ Business logic moves out of reach-api so external-api and mcp-server can run it 
 - Add `tools/reach/index.ts` to `allTools`.
 - The send/reply guard test must stay green.
 
+**As built:**
+
+- **Routes.** Nine route files are byte-identical to external-api's (`cmp`). Only `index.ts` differs: it drops the `thread-reply` import and mount. `src/api/lib/reach.ts` is external-api's minus `reachReplyDeps`, and the build confirms no reply or SMTP code reaches the bundle. `middleware/error-handler.ts` is a copy (mcp-server had none), and `toApiSession` now carries `clerkOrgId`.
+- **Bindings** (dev, test and production, same ids as reach-api): `WORKSPACE_CACHE`, `SCHEDULE_INDEX`, and `FLAGSHIP` (test and production), because `GET /v1/reach/access` reports the `weldreach-sending` switch. `STORAGE` was already there (dev now too). The gate reads master over `DATABASE_URL_MASTER` like auth does, not `HYPERDRIVE_MASTER`, which this worker has only in production. No new secrets and no ops step.
+- **Permissions.** MCP derives the permission from the HTTP verb, which is wrong for several reach routes, so `lib/permissions.ts` pins them by registered route (`ROUTE_PERMISSIONS`, keyed `METHOD /v1/reach/...`, read through `routePath(c)`). The pins cover create vs update on POST, the campaign action routes, `DELETE .../enrollments/:id` (update) and the suppressions (`reach_settings` has only read and update). `tools/reach/reach.test.ts` proves each route needs exactly the app's permission, and that every pin is needed.
+- **Tools.** 38 tools in `tools/reach/index.ts`, one per mounted route. Two small changes to the shared executor: `ToolDefinition` allows `PUT`, and tools that change a record by id set `exactId`, so the 404 retry never turns a campaign name into a launch. Tool errors now carry `error.details` (a refused launch lists its problems).
+- **Tests.** `src/api/reach.test.ts` runs the gate, the permissions and the launch against pglite through `apiApp.fetch()` and `executeTool`. The vitest config aliases `cloudflare:sockets` for the smtp import the inbox module pulls in.
+
 ## Phase 4: client surfaces and docs
 
 - **API key UI** (`api-keys-section.tsx`): a WeldReach group with every scope above. `reach_inbox:reply` goes in `NAMED_ONLY_SCOPES` and is marked sensitive.

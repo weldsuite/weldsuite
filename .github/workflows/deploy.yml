@@ -322,6 +322,11 @@ jobs:
               - 'packages/core/social-publishing/**'
               - 'packages/core/credits/**'
               - 'packages/core/realtime/**'
+              # WeldReach (/v1/reach/*) runs the reach domain code reach-api runs.
+              - 'packages/domains/reach/**'
+              - 'packages/core/smtp/**'
+              - 'packages/core/worker-kit/**'
+              - 'packages/core/feature-flags/**'
             agent-runtime:
               - 'apps/workers/agent-runtime/**'
             discord-bot-worker:

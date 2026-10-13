@@ -15,8 +15,9 @@
  */
 
 import type { MiddlewareHandler } from 'hono';
+import { routePath } from 'hono/route';
 import type { HonoEnv } from '../types';
-import { canPerform, canUseScope } from '../../lib/permissions';
+import { canPerform, canUseScope, routePermission } from '../../lib/permissions';
 import { error } from './response';
 
 /** Capability check without the middleware wrapper. */
@@ -30,8 +31,10 @@ export function requireScope(required: string): MiddlewareHandler<HonoEnv> {
     if (!session) return error.unauthorized(c);
 
     const grants = { permissions: session.scopes, denies: session.permissionDenies };
-    if (!canPerform(grants, required, c.req.method)) {
-      return error.forbidden(c, `Missing required permission for: ${required}`);
+    const route = routePath(c);
+    if (!canPerform(grants, required, c.req.method, route)) {
+      // A route that pins its own permission names that one, so the refusal says what to ask for.
+      return error.forbidden(c, `Missing required permission for: ${routePermission(c.req.method, route) ?? required}`);
     }
 
     await next();
