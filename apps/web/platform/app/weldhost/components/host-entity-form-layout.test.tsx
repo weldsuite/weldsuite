@@ -72,6 +72,19 @@ describe('HostEntityFormLayout', () => {
     expect(form!.className).not.toMatch(/md:mr-\[420px\]/);
   });
 
+  it('docks the summary beside the form only when the layout itself is wide enough', () => {
+    // Container queries, not viewport ones: at a ~960px viewport the module
+    // sidebar leaves too little room for a 400px side panel next to the form.
+    renderLayout({ hideMobileSummary: false });
+    const layout = screen.getByTestId('host-entity-form-layout');
+    const summary = screen.getByTestId('host-purchase-summary');
+
+    expect(layout).toHaveClass('@container');
+    expect(summary).toHaveClass('hidden', '@4xl:flex');
+    expect(summary.className).not.toMatch(/(^|\s)md:flex/);
+    expect(screen.getAllByRole('heading', { name: 'Purchase Summary' })[0]!.closest('div.\\@4xl\\:hidden')).not.toBeNull();
+  });
+
   it('associates both submit buttons with the form via its unique id', () => {
     const { container } = renderLayout({ hideMobileSummary: false });
     const form = container.querySelector('form');

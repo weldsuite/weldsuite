@@ -697,6 +697,36 @@ export const manifest: Record<string, SecretEntry[]> = {
     "SLACK_CLIENT_ID",
     "SLACK_CLIENT_SECRET",
   ],
+
+  // reach-api: the reach module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  // reach-api: WeldReach (cold email on Mailpool, docs/plans/weldreach.md).
+  // DATABASE_ENCRYPTION_KEY also seals the Mailpool mailbox SMTP/IMAP logins.
+  "reach-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    // WeldSuite's Mailpool account and the secret it signs webhooks with.
+    "MAILPOOL_API_KEY",
+    "MAILPOOL_WEBHOOK_SECRET",
+    // Reply classification through @weldsuite/ai (same tokens as crm-api).
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+    // Seals mailbox logins for the warmup network (same value on reach-warmup-worker).
+    "WELDREACH_WARMUP_KEY",
+  ],
+  // reach-warmup-worker: the WeldReach warmup network (docs/plans/weldreach-warmup.md).
+  // Master DB only; WELDREACH_WARMUP_KEY opens the pool logins reach-api sealed.
+  "reach-warmup-worker": [
+    "DATABASE_URL_MASTER",
+    "WELDREACH_WARMUP_KEY",
+    // Monthly warmup corpus generation through @weldsuite/ai.
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

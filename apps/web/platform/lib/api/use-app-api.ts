@@ -63,6 +63,8 @@ import { createPartnersApi } from '@weldsuite/app-api-client/domains/partners';
 import { createWeldPassApi } from '@weldsuite/app-api-client/domains/weldpass';
 import { createWeldPassPasswordsApi } from '@weldsuite/app-api-client/domains/weldpass-passwords';
 import { createWeldHrApi } from '@weldsuite/app-api-client/domains/weldhr';
+import { createReachApi } from '@weldsuite/app-api-client/domains/reach';
+import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
 import { createWeldHrPayrollApi } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { createMeetingSessionsApi } from '@weldsuite/app-api-client/domains/meeting-sessions';
 import { createWeldmeetRecordingsApi } from '@weldsuite/app-api-client/domains/weldmeet-recordings';
@@ -192,6 +194,9 @@ export function useAppApi() {
       partners: createPartnersApi(lazyClient),
       weldpass: createWeldPassApi(lazyClient),
       weldpassPasswords: createWeldPassPasswordsApi(lazyClient),
+      // WeldReach (reach-api) and the on-request access flow (app-api).
+      reach: createReachApi(lazyClient),
+      appAccess: createAppAccessApi(lazyClient),
       weldhr: createWeldHrApi(lazyClient),
       weldhrPayroll: createWeldHrPayrollApi(lazyClient),
 

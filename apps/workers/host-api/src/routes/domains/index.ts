@@ -7,6 +7,10 @@
  *
  * Permissions: `domains:read | domains:create | domains:update | domains:delete`.
  * Entity events: `domain:created | updated | deleted | use_external`.
+ *
+ * A domain connected to WeldReach (a tenant `reach_domains` row) is returned with
+ * `usedByWeldReach: true`, and deleting it, issuing an auth code and changing its
+ * nameservers answer 409 DOMAIN_IN_USE_BY_WELDREACH. See lib/weldreach.ts.
  */
 
 import { Hono } from 'hono';
@@ -37,6 +41,12 @@ import { CloudflareApiError, CloudflareRegistrar } from '@weldsuite/cloudflare-r
 import { RealtimeRegistrarError } from '@weldsuite/realtime-registrar';
 import { getRealtimeRegistrar } from '../../lib/realtime-registrar';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import {
+  changesNameservers,
+  connectedWeldReachDomainIds,
+  domainInUseResponse,
+  isDomainUsedByWeldReach,
+} from '../../lib/weldreach';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -405,8 +415,16 @@ app.post(
 
 app.get('/', requirePermission('domains:read'), zValidator('query', listDomainsQuery), async (c) => {
   try {
-    const result = await domainsService.listDomains(c.get('tenantDb'), c.req.valid('query'));
-    return c.json(result);
+    const db = c.get('tenantDb');
+    const result = await domainsService.listDomains(db, c.req.valid('query'));
+    const inUse = await connectedWeldReachDomainIds(
+      db,
+      result.domains.map((domain) => domain.id),
+    );
+    return c.json({
+      ...result,
+      domains: result.domains.map((domain) => ({ ...domain, usedByWeldReach: inUse.has(domain.id) })),
+    });
   } catch (err) {
     const extra = err as { message?: string; code?: string; detail?: string; cause?: unknown; stack?: string; name?: string };
     console.error(
@@ -431,13 +449,15 @@ app.get('/', requirePermission('domains:read'), zValidator('query', listDomainsQ
 app.get('/:id', requirePermission('domains:read'), async (c) => {
   const id = c.req.param('id');
   try {
-    const got = await domainsService.getDomainWithZone(c.get('tenantDb'), id);
+    const db = c.get('tenantDb');
+    const got = await domainsService.getDomainWithZone(db, id);
     if (!got || domainsService.isHiddenUnpaidDomain(got.domain)) {
       return error.notFound(c, 'Domain', id);
     }
     return success(c, {
       ...domainsService.toPublicDomain(got.domain),
       dnsZone: got.zone ?? null,
+      usedByWeldReach: await isDomainUsedByWeldReach(db, id),
     });
   } catch (err) {
     console.error('[app-api/domains] get failed:', err);
@@ -475,6 +495,16 @@ app.patch(
     const id = c.req.param('id');
     const data = c.req.valid('json');
     try {
+      if (data.nameservers !== undefined || data.customNameservers !== undefined) {
+        const existing = await domainsService.getDomain(c.get('tenantDb'), id);
+        if (
+          existing &&
+          changesNameservers(existing, data) &&
+          (await isDomainUsedByWeldReach(c.get('tenantDb'), id))
+        ) {
+          return domainInUseResponse(c);
+        }
+      }
       const res = await domainsService.updateDomain(c.get('tenantDb'), id, data as Record<string, unknown>);
       if (!res) return error.notFound(c, 'Domain', id);
       publishEntityEvent({
@@ -495,6 +525,7 @@ app.patch(
 app.delete('/:id', requirePermission('domains:delete'), async (c) => {
   const id = c.req.param('id');
   try {
+    if (await isDomainUsedByWeldReach(c.get('tenantDb'), id)) return domainInUseResponse(c);
     const deleted = await domainsService.deleteDomain(c.get('tenantDb'), id);
     if (!deleted) return error.notFound(c, 'Domain', id);
     publishEntityEvent({
@@ -839,6 +870,8 @@ app.post('/:id/refresh-zone-status', requirePermission('domains:read'), async (c
 app.post('/:id/auth-code', requirePermission('domains:read'), async (c) => {
   const id = c.req.param('id');
   try {
+    // The auth code is what moves the domain to another registrar.
+    if (await isDomainUsedByWeldReach(c.get('tenantDb'), id)) return domainInUseResponse(c);
     const result = await domainsService.issueAuthCode(
       c.get('tenantDb'),
       registrarClients(c.env),

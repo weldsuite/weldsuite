@@ -99,7 +99,9 @@ export function useWorkspaceSettings() {
     queryKey: settingsKeys.workspace(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: { language?: string } }>('/workspace-settings');
+      return client.get<{ data: { language?: string; country?: string | null; currency?: string | null } | null }>(
+        '/workspace-settings',
+      );
     },
   });
 }
@@ -753,6 +755,13 @@ export interface AvailableApp {
   documentationUrl?: string | null;
   contactUrl?: string | null;
   screenshots?: unknown[];
+  /** On request only (WeldReach): a workspace must be approved by WeldSuite staff before it can install the app. */
+  requiresApproval?: boolean;
+  /**
+   * This workspace's access state for a `requiresApproval` app. Absent until app-api
+   * sends it, so read it defensively (`getAppAccessState` in app/appstore/app-access-state.ts).
+   */
+  accessStatus?: string | null;
 }
 
 // The legacy /settings app-store surface is split across two app-api routes:

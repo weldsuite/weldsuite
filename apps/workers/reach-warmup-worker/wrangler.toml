@@ -1,0 +1,178 @@
+# WeldSuite reach-warmup-worker — the WeldReach warmup network.
+#
+# docs/plans/weldreach-warmup.md. No public API. Every WeldReach mailbox
+# (master reach_warmup_mailboxes, registered by reach-api) sends a slowly
+# growing number of generated emails to other pool mailboxes and engages with
+# the ones it receives over IMAP; where each email landed is the
+# inbox-placement signal reach-api gates campaigns on.
+#
+# Master DB only: this worker never opens a tenant database.
+#
+#   "* * * * *"     dispatch: due sends → reach-warmup-send, due engagements → reach-warmup-engage
+#   "*/30 * * * *"  planner: today's warmup messages per mailbox (business hours, own timezone)
+#   "30 2 * * *"    daily: pool transitions + ramp, stats rollup, cleanup, corpus refresh (monthly)
+#
+# Secrets (scripts/secrets/manifest.ts → "reach-warmup-worker"):
+#   DATABASE_URL_MASTER, WELDREACH_WARMUP_KEY (same value as on reach-api),
+#   AI_GATEWAY_API_TOKEN, CLOUDFLARE_API_TOKEN (corpus generation)
+#
+# Ops before first deploy (per env): create the queues reach-warmup-send-<env>,
+# reach-warmup-engage-<env> and their -dlq-<env>; Flagship flag weldreach-warmup.
+
+name = "weldsuite-reach-warmup"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+# @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
+# crash the Workers runtime; alias them to the kit's empty shims.
+[alias]
+"@clerk/nextjs/server" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
+"next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
+"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[queues.producers]]
+binding = "WARMUP_SEND_QUEUE"
+queue = "reach-warmup-send-dev"
+
+[[queues.producers]]
+binding = "WARMUP_ENGAGE_QUEUE"
+queue = "reach-warmup-engage-dev"
+
+[[queues.consumers]]
+queue = "reach-warmup-send-dev"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-warmup-send-dlq-dev"
+
+[[queues.consumers]]
+queue = "reach-warmup-engage-dev"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-warmup-engage-dlq-dev"
+
+[triggers]
+crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-reach-warmup-test"
+
+[env.test.vars]
+ENVIRONMENT = "test"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[env.test.triggers]
+crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.queues.producers]]
+binding = "WARMUP_SEND_QUEUE"
+queue = "reach-warmup-send-test"
+
+[[env.test.queues.producers]]
+binding = "WARMUP_ENGAGE_QUEUE"
+queue = "reach-warmup-engage-test"
+
+[[env.test.queues.consumers]]
+queue = "reach-warmup-send-test"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-warmup-send-dlq-test"
+
+[[env.test.queues.consumers]]
+queue = "reach-warmup-engage-test"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-warmup-engage-dlq-test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-reach-warmup"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+
+[env.production.triggers]
+crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.queues.producers]]
+binding = "WARMUP_SEND_QUEUE"
+queue = "reach-warmup-send-production"
+
+[[env.production.queues.producers]]
+binding = "WARMUP_ENGAGE_QUEUE"
+queue = "reach-warmup-engage-production"
+
+[[env.production.queues.consumers]]
+queue = "reach-warmup-send-production"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-warmup-send-dlq-production"
+
+[[env.production.queues.consumers]]
+queue = "reach-warmup-engage-production"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 2
+dead_letter_queue = "reach-warmup-engage-dlq-production"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

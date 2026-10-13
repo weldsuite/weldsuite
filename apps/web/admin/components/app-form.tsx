@@ -42,6 +42,7 @@ export interface AppFormValues {
   isActive: boolean;
   isPublished: boolean;
   isBeta: boolean;
+  requiresApproval: boolean;
   sortOrder: number;
   version: string;
   provider: string;
@@ -65,6 +66,7 @@ export const emptyAppForm: AppFormValues = {
   isActive: true,
   isPublished: false,
   isBeta: false,
+  requiresApproval: false,
   sortOrder: 0,
   version: '1.0.0',
   provider: 'WeldSuite',
@@ -315,6 +317,12 @@ export function AppForm({
             description="Shows a BETA badge on the app icon in the platform sidebar."
             checked={values.isBeta}
             onChange={(v) => set('isBeta', v)}
+          />
+          <Toggle
+            label="Requires approval"
+            description="On request only: the App Store shows Request access, and a workspace can install it only after WeldSuite staff approve it under Access requests."
+            checked={values.requiresApproval}
+            onChange={(v) => set('requiresApproval', v)}
           />
         </div>
         <Field label="Sort order" hint="Lower = appears first.">

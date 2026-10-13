@@ -17,6 +17,10 @@ describe('billingWorkerUrl', () => {
     expect(billingWorkerUrl({ ENVIRONMENT: 'preview' })).toBe(BILLING_WORKER_PRODUCTION_URL);
   });
 
+  it('uses the test custom domain for the test environment', () => {
+    expect(billingWorkerUrl({ ENVIRONMENT: 'test' })).toBe('https://billing-worker-test.weldsuite.org');
+  });
+
   it('uses localhost for development', () => {
     expect(billingWorkerUrl({ ENVIRONMENT: 'development' })).toBe('http://localhost:8788');
   });

@@ -2,8 +2,9 @@
  * Participant Context Menu — shared right-click / "more options" menu.
  *
  * Extracted from ParticipantTile so the exact same menu can be raised from the
- * meeting tiles AND the People panel rows. Pure presentational: positioned with
- * fixed coordinates, all actions drive the RTK participant/meeting handles.
+ * meeting tiles AND the People panel rows. Pure presentational: it hangs from
+ * an anchor point and places itself by its own measured size, all actions drive
+ * the RTK participant/meeting handles.
  *
  * Local-playback controls (volume slider + "Mute for me") only render when the
  * caller wires `volume` / `localMuted` + their setters — i.e. where an actual
@@ -12,7 +13,7 @@
 
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Mic,
   MicOff,
@@ -27,10 +28,47 @@ import {
   UserX,
   UserCircle2,
 } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { getInitials, getPeerColorSeed } from '../lib/person-theme';
+import { PersonAvatar } from './person-avatar';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { enableMicrophone } from '../lib/microphone';
 import type { MeetingClient, MeetingPeer } from '../types';
+
+/** The point a participant menu hangs from, in viewport pixels. */
+export interface ParticipantMenuAnchor {
+  x: number;
+  y: number;
+  /** Hang from the top-right corner instead of the top-left: `x` is then the
+   *  menu's right edge (the right edge of the button that opened it). */
+  alignRight?: boolean;
+  /** Where the menu's bottom edge goes when there is no room below and it
+   *  opens upwards (the top of the button). Defaults to `y`. */
+  flipY?: number;
+}
+
+/** Smallest gap kept between the menu and the edge of the viewport. */
+const VIEWPORT_MARGIN = 8;
+
+/**
+ * Top-left corner for a menu of this size hanging from `anchor`: below the
+ * anchor when it fits, above it otherwise, and never outside the viewport.
+ */
+export function placeParticipantMenu(
+  anchor: ParticipantMenuAnchor,
+  width: number,
+  height: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): { left: number; top: number } {
+  const left = anchor.alignRight ? anchor.x - width : anchor.x;
+  const fitsBelow = anchor.y + height <= viewportHeight - VIEWPORT_MARGIN;
+  const top = fitsBelow ? anchor.y : (anchor.flipY ?? anchor.y) - height;
+  const clamp = (value: number, max: number) => Math.max(VIEWPORT_MARGIN, Math.min(value, max));
+  return {
+    left: clamp(left, viewportWidth - width - VIEWPORT_MARGIN),
+    top: clamp(top, viewportHeight - height - VIEWPORT_MARGIN),
+  };
+}
 
 export interface ParticipantContextMenuProps {
   participant: MeetingPeer;
@@ -50,8 +88,8 @@ export interface ParticipantContextMenuProps {
    * calling `participant.kick?.()` (meeting portal / mobile).
    */
   onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
-  /** Viewport coordinates for the top-left of the menu. */
-  position: { x: number; y: number };
+  /** Where the menu hangs from. It keeps itself inside the viewport. */
+  position: ParticipantMenuAnchor;
   onClose: () => void;
   onTogglePin?: (id: string) => void;
   onSendMessage?: (participant: MeetingPeer) => void;
@@ -90,6 +128,40 @@ export function ParticipantContextMenu({
   const showLocalPlayback =
     !isSelf && typeof volume === 'number' && !!onVolumeChange && !!onLocalMutedChange;
   const menuRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  // The menu's height depends on who it is for (self, guest, host actions), so
+  // it is measured rather than assumed: rendered once at the origin, sized,
+  // then moved into place before the browser paints.
+  const { x: anchorX, y: anchorY, alignRight, flipY } = position;
+  const [placement, setPlacement] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const shell = shellRef.current;
+      if (!shell) return;
+      // `fixed` is normally relative to the viewport, but an ancestor can turn
+      // itself into the reference box (a transform, or layout containment in
+      // some browsers). Whatever the box is, its origin is where the shell
+      // lands at left/top 0, so subtracting it keeps the anchor honest.
+      shell.style.left = '0px';
+      shell.style.top = '0px';
+      const origin = shell.getBoundingClientRect();
+      const target = placeParticipantMenu(
+        { x: anchorX, y: anchorY, alignRight, flipY },
+        shell.offsetWidth,
+        shell.offsetHeight,
+        window.innerWidth,
+        window.innerHeight,
+      );
+      const next = { left: target.left - origin.left, top: target.top - origin.top };
+      shell.style.left = `${next.left}px`;
+      shell.style.top = `${next.top}px`;
+      setPlacement((prev) => (prev?.left === next.left && prev.top === next.top ? prev : next));
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [anchorX, anchorY, alignRight, flipY]);
 
   // Keyboard: Escape closes (captured and stopped so it doesn't also exit
   // fullscreen / close a panel underneath), and focus lands on the first item
@@ -143,21 +215,36 @@ export function ParticipantContextMenu({
           onClose();
         }}
       />
+      {/* The shell carries the position; the menu inside it carries the
+          opening animation, so the scale-in never skews the measurement. */}
+      <div
+        ref={shellRef}
+        className="fixed z-40"
+        style={{ left: placement?.left ?? 0, top: placement?.top ?? 0, opacity: placement ? 1 : 0 }}
+      >
       <div
         ref={menuRef}
         role="menu"
         aria-label={name}
-        className="fixed z-40 bg-popover border border-border rounded-md shadow-md min-w-[200px] animate-in fade-in-0 zoom-in-95 duration-100 overflow-hidden"
-        style={{ top: position.y, left: position.x }}
+        className="bg-popover border border-border rounded-md shadow-md min-w-[200px] animate-in fade-in-0 zoom-in-95 duration-100 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => {
+          // A right-click inside the menu must not reach the tile underneath,
+          // which would reopen the menu at the pointer.
+          e.preventDefault();
+          e.stopPropagation();
+        }}
         onKeyDown={onMenuKeyDown}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-2 py-2.5">
-          <Avatar className="h-5 w-5 !rounded-[6px]">
-            {participant.picture && <AvatarImage src={participant.picture} className="!rounded-[6px]" />}
-            <AvatarFallback className="text-[9px] !rounded-[6px]">{name[0]?.toUpperCase() ?? '?'}</AvatarFallback>
-          </Avatar>
+          <PersonAvatar
+            initials={getInitials(name).charAt(0)}
+            picture={participant.picture}
+            colorSeed={getPeerColorSeed(participant)}
+            className="h-5 w-5 !rounded-[6px]"
+            innerClassName="text-[9px] !rounded-[6px]"
+          />
           <span className="text-sm font-semibold truncate">{isSelf ? 'You' : name}</span>
         </div>
 
@@ -313,6 +400,7 @@ export function ParticipantContextMenu({
             onRemoveParticipant={onRemoveParticipant}
           />
         )}
+      </div>
       </div>
     </>
   );

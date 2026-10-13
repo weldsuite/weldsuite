@@ -32,6 +32,15 @@ export const FLAGS = {
   // Needs the PKIoverheid certificate binding on hr-api; until then filings
   // are generated and downloaded, not sent.
   'weldhr-payroll-digipoort': { type: 'boolean', default: false },
+  // WeldReach global kill switch (docs/plans/weldreach.md). On by default;
+  // turning it off in Flagship stops every outreach SMTP send across all
+  // workspaces within a minute. Campaigns keep their state and resume when
+  // it is back on. Per-workspace suspension is done in the admin console.
+  'weldreach-sending': { type: 'boolean', default: true },
+  // WeldReach warmup network kill switch (docs/plans/weldreach-warmup.md).
+  // Off stops all warmup sends and engagements; mailboxes keep their ramp day
+  // and continue when it is back on. Separate from weldreach-sending.
+  'weldreach-warmup': { type: 'boolean', default: true },
 } as const satisfies Record<string, FlagDefinition>;
 
 export type FlagDefinition =

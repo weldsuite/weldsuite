@@ -81,6 +81,10 @@ import {
   Palmtree,
   Target,
   ChevronLeft,
+  Send,
+  Rocket,
+  Contact,
+  Mailbox,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -200,6 +204,27 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldpass.vaults, href: '/weldpass/passwords/vaults', icon: Vault, permission: 'passwords:use' },
           { title: t.navigation.moduleSidebar.weldpass.passwordHealth, href: '/weldpass/passwords/health', icon: HeartPulse, permission: 'passwords:use' },
           { title: t.navigation.moduleSidebar.weldpass.projects, href: '/weldpass', icon: KeyRound, permission: 'secrets:read' },
+        ],
+      },
+    ],
+  },
+  // WeldReach (cold email outreach, on request only). Section pages are built
+  // by the campaign/prospect/inbox pages and the mailbox/settings pages; each is
+  // gated on its own object so a VIEWER only sees what they can read.
+  weldreach: {
+    appName: 'WeldReach',
+    appIcon: Send,
+    appLogo: getAppLogoConfig('weldreach'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [
+          { title: t.reach.nav.overview, href: '/weldreach', icon: LayoutDashboard },
+          { title: t.reach.nav.campaigns, href: '/weldreach/campaigns', icon: Rocket, permission: 'reach_campaigns:read' },
+          { title: t.reach.nav.prospects, href: '/weldreach/prospects', icon: Contact, permission: 'reach_prospects:read' },
+          { title: t.reach.nav.inbox, href: '/weldreach/inbox', icon: Inbox, permission: 'reach_inbox:read' },
+          { title: t.reach.nav.mailboxes, href: '/weldreach/mailboxes', icon: Mailbox, permission: 'reach_mailboxes:read' },
+          { title: t.reach.nav.settings, href: '/weldreach/settings', icon: Settings, permission: 'reach_settings:read' },
         ],
       },
     ],

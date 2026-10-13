@@ -58,6 +58,7 @@ import { success, error } from '@weldsuite/worker-kit/response';
 import { getMasterDb, getTenantDbForWorkspace, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { listRequiresApprovalCodes } from '../../services/app-access';
 import { createWorkspaceRequest, PartnerPortalError, partnerAdminEmails } from '@weldsuite/core-domain/partners';
 import { normalizeCountryCode } from '@weldsuite/app-api-client/schemas/plan-country-pricing';
 import { partnerWorkspaceRequestSchema } from '@weldsuite/app-api-client/schemas/partners';
@@ -1081,8 +1082,13 @@ app.post('/finalize', async (c) => {
         const tenantDb = await getTenantDbForWorkspace(c.env, orgId);
         const { workspaceInstalledApps, userAppAssignments } = schema;
 
+        // Apps that are on request only need staff approval first, so org
+        // metadata can never install them (POST /api/app-catalog/:code/install
+        // enforces the same).
+        const onRequestOnly = await listRequiresApprovalCodes(masterDb);
+
         await Promise.all(
-          selectedApps.map(async (appCode) => {
+          selectedApps.filter((appCode) => !onRequestOnly.has(appCode)).map(async (appCode) => {
             try {
               // Install app at workspace level.
               await tenantDb

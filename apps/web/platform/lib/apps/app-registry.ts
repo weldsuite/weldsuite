@@ -22,6 +22,7 @@ import {
   Megaphone,
   KeyRound,
   UsersRound,
+  Send,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -129,6 +130,20 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
       iconDark: '/assets/images/weldpass/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldReach (cold email outreach, on request only). Icon-only logo like
+  // WeldPass: a folded paper plane. Hidden from onboarding: it cannot be
+  // installed until WeldSuite staff approve the workspace.
+  weldreach: {
+    lucideIcon: Send,
+    shortName: 'Outreach',
+    icon: '/assets/images/weldreach/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldreach/logo-light.svg',
+      iconDark: '/assets/images/weldreach/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+    hideFromOnboarding: true,
   },
   // WeldHR. Icon-only logo, same as WeldPass.
   // `?v=2`: same immutable /assets/* caching as WeldBooks below, the redrawn

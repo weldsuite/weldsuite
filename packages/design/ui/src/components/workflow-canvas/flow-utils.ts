@@ -132,14 +132,20 @@ const SUB_AGENT_NODE_HEIGHT = 50;
 const SUB_AGENT_OFFSET_X = 320;
 const SUB_AGENT_GAP_Y = 20;
 
-// Default node dimensions — every node is the same compact, display-only card.
+// Default node dimensions — every node but Send Email is the same compact, display-only card.
 export const NODE_WIDTH = 260; // `StepCard` takes its width and height from these
 // A 44px header, the summary strip and the card's 2px of border. The strip is
 // 42.667px so that it measures 64px on screen at the canvas's usual 150% zoom.
 export const NODE_HEIGHT = 44 + 42.667 + 2;
 const CONDITION_NODE_HEIGHT = NODE_HEIGHT; // Condition card is the same size as any action card
-const SEND_EMAIL_NODE_WIDTH = NODE_WIDTH; // No special-size email node anymore
-const SEND_EMAIL_NODE_HEIGHT = NODE_HEIGHT;
+// A Send Email step is a small compose window (`EmailStepCard`) without the
+// card header, and the one card that is larger than the rest so a useful part
+// of the mail fits on it. Height: 12px of top padding (room for the "Setup
+// required" badge on the top edge), three 24px rows (From, To, Subject), the
+// body (8px gap, its 16px lines, 12px of bottom padding) and the 2px of border.
+export const SEND_EMAIL_NODE_WIDTH = 420;
+export const SEND_EMAIL_BODY_LINES = 10;
+export const SEND_EMAIL_NODE_HEIGHT = 12 + 3 * 24 + (8 + SEND_EMAIL_BODY_LINES * 16 + 12) + 2;
 const NODE_GAP_Y = 100;
 const BRANCH_GAP = 50; // Minimum gap between adjacent branch subtrees
 const COLLISION_PADDING = 20; // Extra padding per side to account for borders, rings, shadows
@@ -178,7 +184,7 @@ export function getConditionBranchIds(step: { id: string; type?: string; config?
 // --- Post-placement collision detection helpers ---
 
 // Get the effective width of a node based on its type
-function getNodeWidth(node: Node): number {
+export function getNodeWidth(node: Node): number {
   if (node.type === 'sub_agent') return SUB_AGENT_NODE_WIDTH;
   const data = node.data as FlowNodeData;
   const stepType = data?.actionType || data?.step?.type || '';
@@ -192,11 +198,22 @@ function getStepWidth(stepType: string): number {
   return NODE_WIDTH;
 }
 
-// Calculate the X offset needed to center a node of a given width relative to the standard NODE_WIDTH
-function getCenteringOffset(stepType: string): number {
+// The X offset that centres a node of a given width on a standard-width slot.
+// A step's saved `position` is the top-left of that slot, whatever the card's
+// own width: the offset is added when the node is drawn and taken off again
+// when its position is saved, so a wider card stays on its connector line and a
+// change of width needs no migration of saved positions.
+export function getCenteringOffset(stepType: string): number {
   const width = getStepWidth(stepType);
   if (width === NODE_WIDTH) return 0;
   return -(width - NODE_WIDTH) / 2;
+}
+
+/** A node's position as it is saved on its step: the standard-width slot it is centred on. */
+export function toSlotPosition(node: Node, position: FlowPosition = node.position): FlowPosition {
+  const data = node.data as FlowNodeData;
+  const offset = getCenteringOffset(data?.actionType || data?.step?.type || '');
+  return offset === 0 ? position : { x: position.x - offset, y: position.y };
 }
 
 // Get the effective height of a node based on its type
@@ -720,9 +737,8 @@ function positionBranchChild(
     return data?.step?.parentBranchId === parentBranchId;
   });
 
-  // Use the branch node center as anchor for horizontal centering
-  const branchCenterX = branchNode.position.x + NODE_WIDTH / 2;
-  const thisWidth = getStepWidth(step.type);
+  // The slot sits under the branch node; `buildActionFlowNodes` centres a wider card on it.
+  const slotX = branchNode.position.x;
   const lastSibling = siblings.at(-1);
 
   if (lastSibling) {
@@ -731,7 +747,7 @@ function positionBranchChild(
     const lastSiblingType = lastSiblingData?.actionType || lastSiblingData?.step?.type || '';
     const lastSiblingHeight = getTotalNodeHeight(lastSiblingType);
     return {
-      x: branchCenterX - thisWidth / 2,
+      x: slotX,
       y: lastSibling.position.y + lastSiblingHeight + NODE_GAP_Y,
     };
   }
@@ -739,7 +755,7 @@ function positionBranchChild(
   // First child — position below the branch node, centered
   const branchNodeHeight = 80;
   return {
-    x: branchCenterX - thisWidth / 2,
+    x: slotX,
     y: branchNode.position.y + branchNodeHeight + NODE_GAP_Y,
   };
 }
@@ -1186,7 +1202,7 @@ export function flowToWorkflow(
         .filter((n) => n.type !== 'trigger' && n.type !== 'sub_agent')
         .map((n) => ({
           ...(n.data as unknown as ActionNodeData | ConditionNodeData).step,
-          position: n.position,
+          position: toSlotPosition(n),
         })),
     };
   }
@@ -1217,7 +1233,7 @@ export function flowToWorkflow(
     const data = node.data as unknown as ActionNodeData | ConditionNodeData;
     steps.push({
       ...data.step,
-      position: node.position,
+      position: toSlotPosition(node),
     });
   }
 
@@ -1309,7 +1325,9 @@ export function autoLayoutNodes(
   });
 
   return nodes.map((node) => {
-    const pos = positioned.get(node.id) || node.position;
+    const pos = positioned.get(node.id);
+    // A node kept where it was is already centred; one laid out here got the column's slot.
+    if (!pos || nodesWithFixedPosition.has(node.id)) return { ...node, position: pos || node.position };
     const width = getNodeWidth(node);
     const xOffset = width !== NODE_WIDTH ? -(width - NODE_WIDTH) / 2 : 0;
     return {

@@ -449,6 +449,37 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       },
     ],
   },
+  // ── WeldReach (cold email outreach) ───────────────────────────────────
+  // Mailboxes cost money (a monthly Stripe line per inbox) and domains carry
+  // the sender reputation, so `reach_mailboxes` writes are ADMIN by default.
+  // The module itself is on request only: none of this works until WeldSuite
+  // staff approve the workspace (docs/plans/weldreach.md).
+  objectPermissions('reach_campaigns', 'Outreach campaigns'),
+  objectPermissions('reach_prospects', 'Outreach prospects'),
+  {
+    key: 'reach_inbox',
+    label: 'Outreach replies',
+    permissions: [
+      { key: 'reach_inbox:read', label: 'View replies' },
+      { key: 'reach_inbox:update', label: 'Label and handle replies' },
+      { key: 'reach_inbox:reply', label: 'Answer replies', description: 'Send an answer from the outreach mailbox the prospect replied to.' },
+    ],
+  },
+  {
+    key: 'reach_mailboxes',
+    label: 'Outreach mailboxes and domains',
+    permissions: [
+      { key: 'reach_mailboxes:read', label: 'View outreach mailboxes and domains' },
+      {
+        key: 'reach_mailboxes:create',
+        label: 'Create outreach mailboxes and connect domains',
+        description: 'Each mailbox is billed monthly to the workspace.',
+      },
+      { key: 'reach_mailboxes:update', label: 'Edit, pause and resume outreach mailboxes' },
+      { key: 'reach_mailboxes:delete', label: 'Delete outreach mailboxes and disconnect domains' },
+    ],
+  },
+  objectPermissions('reach_settings', 'Outreach settings', ['read', 'update']),
   // ── WeldHR (employee operations + workforce portal) ───────────────────
   // HR data is need-to-know: by default MEMBER gets only `employees:self` (My
   // HR, their own record) and VIEWER gets nothing. Approving and the team view
@@ -602,6 +633,12 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'payroll:read', 'payroll:prepare', 'payroll:approve', 'payroll:manage',
   // WeldKnow — admins also see and fix every teamspace (knowledge:manage)
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete', 'knowledge:manage',
+  // WeldReach — admins also run mailboxes (billed) and settings
+  'reach_campaigns:read', 'reach_campaigns:create', 'reach_campaigns:update', 'reach_campaigns:delete',
+  'reach_prospects:read', 'reach_prospects:create', 'reach_prospects:update', 'reach_prospects:delete',
+  'reach_inbox:read', 'reach_inbox:update', 'reach_inbox:reply',
+  'reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:update', 'reach_mailboxes:delete',
+  'reach_settings:read', 'reach_settings:update',
 ];
 
 const LEGACY_MEMBER_PERMISSIONS: string[] = [
@@ -720,6 +757,11 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // and payslips. Nobody else's records, no approving. Still needs the WeldHR
   // app assigned and a linked employee record.
   'employees:self',
+  // WeldReach — run campaigns and answer replies; mailboxes and settings are read-only
+  'reach_campaigns:read', 'reach_campaigns:create', 'reach_campaigns:update', 'reach_campaigns:delete',
+  'reach_prospects:read', 'reach_prospects:create', 'reach_prospects:update', 'reach_prospects:delete',
+  'reach_inbox:read', 'reach_inbox:update', 'reach_inbox:reply',
+  'reach_mailboxes:read', 'reach_settings:read',
 ];
 
 const LEGACY_VIEWER_PERMISSIONS: string[] = [
@@ -739,6 +781,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'weldobjects:read', 'weldobjects:*:read',
   // WeldKnow — read-only
   'knowledge:read',
+  // WeldReach — read-only
+  'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
 ];
 
 export const SYSTEM_ROLES: Record<string, SystemRoleDefinition> = {

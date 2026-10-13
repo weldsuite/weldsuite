@@ -21,14 +21,17 @@ export const BILLING_WORKER_PRODUCTION_URL = 'https://billing-worker.weldsuite.o
 /** Bound how long app-api waits on billing-worker before aborting. */
 export const BILLING_WORKER_TIMEOUT_MS = 10_000;
 
+/** Test custom domain from apps/workers/billing-worker/wrangler.toml ([env.test] routes). */
+export const BILLING_WORKER_TEST_URL = 'https://billing-worker-test.weldsuite.org';
+
 /**
  * Resolve the billing-worker base URL for the current environment.
- * Production host matches wrangler.toml (`billing-worker.weldsuite.org`).
+ * Hosts match billing-worker's wrangler.toml routes; local dev uses wrangler's port.
  */
 export function billingWorkerUrl(env: BillingWorkerEnv): string {
-  return env.ENVIRONMENT === 'production' || env.ENVIRONMENT === 'preview'
-    ? BILLING_WORKER_PRODUCTION_URL
-    : 'http://localhost:8788';
+  if (env.ENVIRONMENT === 'production' || env.ENVIRONMENT === 'preview') return BILLING_WORKER_PRODUCTION_URL;
+  if (env.ENVIRONMENT === 'test') return BILLING_WORKER_TEST_URL;
+  return 'http://localhost:8788';
 }
 
 /**

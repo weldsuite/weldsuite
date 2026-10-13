@@ -1,0 +1,72 @@
+Return-Path: <>
+Received: from mx1.oldco.example (mx1.oldco.example [198.51.100.11])
+	by mx.example.net with ESMTPS id 2bcd3efg4
+	for <sam@getacme.com>; Tue, 13 Oct 2026 06:00:12 +0000
+Received: by mx1.oldco.example (Postfix)
+	id 3F2A21C0123; Tue, 13 Oct 2026 08:00:12 +0200 (CEST)
+Date: Tue, 13 Oct 2026 08:00:12 +0200 (CEST)
+From: MAILER-DAEMON@mx1.oldco.example (Mail Delivery System)
+Subject: Undelivered Mail Returned to Sender
+To: sam@getacme.com
+Auto-Submitted: auto-replied
+MIME-Version: 1.0
+Content-Type: multipart/report; report-type=delivery-status;
+	boundary="3F2A21C0123.1791878412/mx1.oldco.example"
+Message-Id: <20261013060012.3F2A21C0123@mx1.oldco.example>
+
+This is a MIME-encapsulated message.
+
+--3F2A21C0123.1791878412/mx1.oldco.example
+Content-Description: Notification
+Content-Type: text/plain; charset=us-ascii
+
+This is the mail system at host mx1.oldco.example.
+
+I'm sorry to have to inform you that your message could not
+be delivered to one or more recipients. It's attached below.
+
+For further assistance, please send mail to postmaster.
+
+If you do so, please include this problem report. You can
+delete your own text from the attached returned message.
+
+                   The mail system
+
+<gone@oldco.example>: host mail.oldco.example[198.51.100.20] said: 550 5.1.1
+    <gone@oldco.example>: Recipient address rejected: User unknown in virtual
+    mailbox table (in reply to RCPT TO command)
+
+--3F2A21C0123.1791878412/mx1.oldco.example
+Content-Description: Delivery report
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; mx1.oldco.example
+X-Postfix-Queue-ID: 3F2A21C0123
+X-Postfix-Sender: rfc822; sam@getacme.com
+Arrival-Date: Tue, 13 Oct 2026 08:00:11 +0200 (CEST)
+
+Final-Recipient: rfc822; gone@oldco.example
+Original-Recipient: rfc822;gone@oldco.example
+Action: failed
+Status: 5.1.1
+Remote-MTA: dns; mail.oldco.example
+Diagnostic-Code: smtp; 550 5.1.1 <gone@oldco.example>: Recipient address
+    rejected: User unknown in virtual mailbox table
+
+--3F2A21C0123.1791878412/mx1.oldco.example
+Content-Description: Undelivered Message Headers
+Content-Type: text/rfc822-headers
+
+Return-Path: <sam@getacme.com>
+Received: from smtp.getacme.com (smtp.getacme.com [203.0.113.9])
+	by mx1.oldco.example (Postfix) with ESMTPS id 3F2A21C0123
+	for <gone@oldco.example>; Tue, 13 Oct 2026 08:00:11 +0200 (CEST)
+From: Sam Jansen <sam@getacme.com>
+To: gone@oldco.example
+Subject: Quick question about Acme logistics
+Message-ID: <out-3003@getacme.com>
+Date: Tue, 13 Oct 2026 08:00:10 +0200
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+--3F2A21C0123.1791878412/mx1.oldco.example--

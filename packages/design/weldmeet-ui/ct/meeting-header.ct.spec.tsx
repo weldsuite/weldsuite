@@ -11,7 +11,6 @@ import { MeetingHeader } from '../src/components/meeting-header';
 
 const baseProps = {
   meetingTitle: 'Standup',
-  duration: 0,
   rightPanel: null,
   showChat: false,
   onToggleRightPanel: () => {},

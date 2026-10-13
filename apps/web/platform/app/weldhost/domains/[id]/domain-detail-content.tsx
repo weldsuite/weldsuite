@@ -59,6 +59,8 @@ import {
 } from '@weldsuite/core-api-client/schemas/domains';
 import type { DnsZone } from '@weldsuite/core-api-client/schemas/dns-zones';
 import { copyText } from '@/lib/clipboard';
+import { UsedByWeldReachBadge } from '@/app/weldhost/components/used-by-weldreach-badge';
+import { hostErrorMessage, isManagedByWeldReach } from '@/app/weldhost/lib/weldreach';
 import { asText } from '@weldsuite/text';
 
 type DomainContact = Partial<ContactInput>;
@@ -131,6 +133,7 @@ export function DomainDetailContent({
 }: Readonly<DomainDetailContentProps>) {
   const { t } = useI18n();
   const td = t.host.domainDetail;
+  const tw = t.host.weldReach;
 
   const domainName = domain.fullDomain || domain.name;
   const nameservers: string[] =
@@ -206,7 +209,7 @@ export function DomainDetailContent({
       setShowAddRecord(false);
       toast.success(td.dnsRecordAdded);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : td.failedToAddRecord);
+      toast.error(hostErrorMessage(err, td.failedToAddRecord, tw));
     }
   };
 
@@ -221,9 +224,9 @@ export function DomainDetailContent({
       setEditingRecordId(null);
       toast.success(td.dnsRecordUpdated);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : td.failedToUpdateRecord);
+      toast.error(hostErrorMessage(err, td.failedToUpdateRecord, tw));
     }
-  }, [td, domain.id, updateDnsRecord]);
+  }, [td, tw, domain.id, updateDnsRecord]);
 
   const handleDeleteRecord = useCallback(async (record: HostDnsRecord) => {
     if (!window.confirm(td.deleteConfirm.replace('{type}', record.type).replace('{name}', record.name))) return;
@@ -231,9 +234,9 @@ export function DomainDetailContent({
       await deleteDnsRecord.mutateAsync({ id: record.id, domainId: domain.id });
       toast.success(td.dnsRecordDeleted);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : td.failedToDeleteRecord);
+      toast.error(hostErrorMessage(err, td.failedToDeleteRecord, tw));
     }
-  }, [td, domain.id, deleteDnsRecord]);
+  }, [td, tw, domain.id, deleteDnsRecord]);
 
   const tabs: PageTab[] = [
     { id: 'dns', label: td.dnsRecords, icon: ListCollapse, count: dnsRecords.length },
@@ -276,7 +279,7 @@ export function DomainDetailContent({
           : result.filter((r) => r.type !== f.value);
       } else if (f.field === 'lock') {
         const wantLocked = f.value === 'locked';
-        result = result.filter((r) => isDnsRecordLocked(r) === wantLocked);
+        result = result.filter((r) => (isDnsRecordLocked(r) || isManagedByWeldReach(r)) === wantLocked);
       }
     }
     return result;
@@ -330,15 +333,19 @@ export function DomainDetailContent({
     }
 
     const locks = getDnsRecordLocks(record);
-    const locked = locks.length > 0;
-    const lockReasons = locks.map((l) => l.reason);
+    const managedByWeldReach = isManagedByWeldReach(record);
+    const locked = locks.length > 0 || managedByWeldReach;
+    // Mailpool's mail records of a domain connected to WeldReach are read-only like a lock.
+    const lockReasons = managedByWeldReach ? [tw.recordManagedHint] : locks.map((l) => l.reason);
     const lockTooltip = lockReasons.join('\n\n');
     // Locks are system-managed only (added when other modules depend on the
     // record). Users can never lock or unlock from the UI — they only see
     // the protection and the reason.
     const primarySystemLock = locks.find((l) => l.source !== 'user');
     let lockBadgeLabel = td.filterLocked;
-    if (primarySystemLock?.source === 'weldmail') {
+    if (managedByWeldReach) {
+      lockBadgeLabel = tw.recordBadge;
+    } else if (primarySystemLock?.source === 'weldmail') {
       lockBadgeLabel = td.usedByEmail;
     } else if (primarySystemLock) {
       lockBadgeLabel = td.usedBy.replace('{source}', primarySystemLock.source);
@@ -366,7 +373,7 @@ export function DomainDetailContent({
                   PILL,
                   'gap-1 flex-shrink-0 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950',
                 )}
-                title={lockTooltip}
+                title={managedByWeldReach ? tw.recordManaged : lockTooltip}
               >
                 <Lock className="h-3 w-3" />
                 {lockBadgeLabel}
@@ -426,6 +433,7 @@ export function DomainDetailContent({
     handleUpdateRecord,
     handleDeleteRecord,
     td,
+    tw,
   ]);
 
   return (
@@ -457,6 +465,7 @@ export function DomainDetailContent({
                 {domainName}
               </h1>
               <span className={cn(PILL, status.color, 'shrink-0')}>{status.label}</span>
+              {domain.usedByWeldReach && <UsedByWeldReachBadge />}
             </div>
           </div>
 

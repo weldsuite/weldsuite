@@ -17,7 +17,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { getInitials } from '../lib/person-theme';
+import { PersonAvatar } from './person-avatar';
 import type { ChatMessage } from './meeting-chat-panel';
 
 // How long each popup stays before auto-dismissing.
@@ -27,6 +28,7 @@ const MAX_VISIBLE = 3;
 
 interface ActiveNote {
   id: string;
+  authorId: string;
   authorName: string;
   authorAvatar?: string | null;
   content: string;
@@ -86,6 +88,7 @@ export function MeetingChatNotification({
       if (m.authorId === currentUserId) continue; // skip self
       fresh.push({
         id: m.id,
+        authorId: m.authorId,
         authorName: m.authorName,
         authorAvatar: m.authorAvatar,
         content: m.content,
@@ -157,14 +160,13 @@ export function MeetingChatNotification({
             }}
             className="absolute inset-0 cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
-          <Avatar className="h-8 w-8 flex-shrink-0 !rounded-[10px]">
-            {note.authorAvatar && (
-              <AvatarImage src={note.authorAvatar} className="!rounded-[10px]" />
-            )}
-            <AvatarFallback className="text-[10px] !rounded-[10px]">
-              {(note.authorName || '?')[0]?.toUpperCase() ?? '?'}
-            </AvatarFallback>
-          </Avatar>
+          <PersonAvatar
+            initials={getInitials(note.authorName || '?')}
+            picture={note.authorAvatar}
+            colorSeed={note.authorId}
+            className="h-8 w-8 flex-shrink-0 !rounded-[10px]"
+            innerClassName="text-[10px] !rounded-[10px]"
+          />
 
           <div className="min-w-0 flex-1">
             <div className="truncate text-[13px] font-semibold text-foreground">

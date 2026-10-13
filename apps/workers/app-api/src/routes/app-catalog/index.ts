@@ -42,6 +42,12 @@
  * Install on a partner-managed workspace is limited to its licence
  * (403 APP_NOT_LICENSED); see docs/plans/reseller-licensing.md.
  *
+ * Apps that are on request only (`requiresApproval`, WeldReach first) cannot
+ * be installed until staff approve the workspace (403 APP_ACCESS_REQUIRED with
+ * the current status). Their catalog items carry `requiresApproval` and the
+ * workspace's `accessStatus` so the store can show "Request access"; the
+ * request itself is routes/app-access (`/:code/access-request`).
+ *
  * Entity events: none — `workspace_app` is not in the packages/core/entity-events
  * catalog (see services/app-catalog.ts), so install/uninstall intentionally
  * publish nothing.
@@ -55,7 +61,9 @@ import { toDbCode, toLegacyCode } from '../../lib/legacy-app-codes';
 import { getMasterDb } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner } from '@weldsuite/mail-domain/access';
 import { appNotLicensedBody } from '@weldsuite/api-modules';
+import { appAccessRequiredBody } from '@weldsuite/worker-kit/app-access';
 import { getManagedContext } from '../../services/partner/managed';
+import { checkInstallAccess, listAccessStatuses } from '../../services/app-access';
 import {
   listCatalogApps,
   listCatalogCategories,
@@ -82,8 +90,10 @@ function emitCode(c: Context, code: string): string {
 app.get('/', async (c) => {
   const masterDb = getMasterDb(c.env);
   const tenantDb = c.get('tenantDb');
+  const orgId = c.get('orgId');
 
-  const apps = await listCatalogApps(masterDb, tenantDb);
+  const accessStatuses = orgId ? await listAccessStatuses(masterDb, orgId) : undefined;
+  const apps = await listCatalogApps(masterDb, tenantDb, accessStatuses);
   return success(
     c,
     apps.map((app) => ({ ...app, code: emitCode(c, app.code) })),
@@ -120,8 +130,10 @@ app.get('/:code', async (c) => {
   const code = toDbCode(c.req.param('code'));
   const masterDb = getMasterDb(c.env);
   const tenantDb = c.get('tenantDb');
+  const orgId = c.get('orgId');
 
-  const catalogApp = await getCatalogApp(masterDb, tenantDb, code);
+  const accessStatuses = orgId ? await listAccessStatuses(masterDb, orgId) : undefined;
+  const catalogApp = await getCatalogApp(masterDb, tenantDb, code, accessStatuses);
   if (!catalogApp) return error.notFound(c, 'App', code);
 
   return success(c, { ...catalogApp, code: emitCode(c, catalogApp.code) });
@@ -148,6 +160,12 @@ app.post('/:code/install', async (c) => {
   const managed = orgId ? await getManagedContext(masterDb, orgId) : null;
   if (managed && !managed.licence?.allowedApps.includes(appCode)) {
     return c.json(appNotLicensedBody(appCode), 403);
+  }
+
+  // An app that is on request only installs once staff approved the workspace.
+  const access = await checkInstallAccess(masterDb, orgId, appCode);
+  if (!access.ok) {
+    return c.json(appAccessRequiredBody(appCode, access.status), 403);
   }
 
   // Body is optional — `{ settings }` when present.

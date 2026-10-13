@@ -79,6 +79,8 @@ import { DomainDnsTab } from './domain-dns-tab';
 import { getDomainTabs, type DomainTab } from './domain-tabs';
 import { useDeleteDomain } from './use-domain-data';
 import { usePreviewHelpDocsUiState } from '@/app/preview/help-docs/preview-help-docs-context';
+import { UsedByWeldReachBadge } from '@/app/weldhost/components/used-by-weldreach-badge';
+import { hostErrorMessage } from '@/app/weldhost/lib/weldreach';
 
 /** Wide enough for a scannable DNS table (type · name · value · ttl). */
 const DOMAIN_PANEL_WIDTH = 480;
@@ -157,6 +159,7 @@ function DomainTitle({ domain }: Readonly<{ domain?: Domain }>) {
       <span className={cn(PILL, statusPillColor[status] ?? statusPillColor.active, 'flex-shrink-0')}>
         {statusLabel}
       </span>
+      {domain.usedByWeldReach && <UsedByWeldReachBadge />}
     </div>
   );
 }
@@ -173,6 +176,8 @@ function DomainActions({
   td: DomainDetailTranslations;
 }>) {
   const router = useRouter();
+  const { t } = useI18n();
+  const weldReachHint = t.host.weldReach.domainInUse;
   if (!domain) return null;
   const fullDomain = domain.fullDomain || `${domain.name}.${domain.tld}`;
 
@@ -212,7 +217,13 @@ function DomainActions({
           {canDelete && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={onDelete}
+                // host-api refuses it with a 409 while WeldReach uses the domain
+                disabled={domain.usedByWeldReach}
+                title={domain.usedByWeldReach ? weldReachHint : undefined}
+              >
                 <Trash2 />
                 {td.deleteDomain}
               </DropdownMenuItem>
@@ -723,9 +734,9 @@ export function DomainPanel(props: Readonly<ObjectPanelComponentProps>) {
       setConfirmDelete(false);
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : td.failedToDeleteDomain);
+      toast.error(hostErrorMessage(err, td.failedToDeleteDomain, t.host.weldReach));
     }
-  }, [domain, deleteDomain, td, onClose]);
+  }, [domain, deleteDomain, td, t.host.weldReach, onClose]);
 
   const chatSidebar = (
     <EntityChat entityType="domain" entityId={id} fallbackName={fullDomain} hideHeader />

@@ -70,6 +70,7 @@
     "./schemas/weldhr": "./src/schemas/weldhr.ts",
     "./schemas/weldhr-payroll": "./src/schemas/weldhr-payroll.ts",
     "./schemas/weldpass-passwords": "./src/schemas/weldpass-passwords.ts",
+    "./schemas/reach": "./src/schemas/reach.ts",
     "./schemas/account": "./src/schemas/account.ts",
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
     "./schemas/push-tokens": "./src/schemas/push-tokens.ts",
@@ -141,6 +142,8 @@
     "./domains/access-requests": "./src/domains/access-requests.ts",
     "./domains/weldpass": "./src/domains/weldpass.ts",
     "./domains/weldpass-passwords": "./src/domains/weldpass-passwords.ts",
+    "./domains/reach": "./src/domains/reach.ts",
+    "./domains/app-access": "./src/domains/app-access.ts",
     "./domains/weldmeet-recordings": "./src/domains/weldmeet-recordings.ts",
     "./domains/weldhr": "./src/domains/weldhr.ts",
     "./domains/weldhr-payroll": "./src/domains/weldhr-payroll.ts"

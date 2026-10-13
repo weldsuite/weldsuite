@@ -2,48 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { Hand, Pin, EllipsisVertical, Monitor, Volume2, VolumeX, ZoomIn, RotateCcw } from 'lucide-react';
 import { ParticipantNameTag } from './participant-name-tag';
-import { ParticipantAvatar } from './participant-avatar';
-import { ParticipantContextMenu } from './participant-context-menu';
+import { ParticipantAvatar, TILE_AVATAR_BOX } from './participant-avatar';
+import { ParticipantContextMenu, type ParticipantMenuAnchor } from './participant-context-menu';
+import { getInitials, getPersonTheme } from '../lib/person-theme';
 import { useSpeakerOutput } from '../hooks/use-speaker-output';
 import type { MeetingClient, MeetingPeer } from '../types';
-
-// ─── Camera-off tile palette ─────────────────────────────────────────────────
-// Deterministic colored background per participant, à la Google Meet. The
-// tile gets the darker shade; the centered avatar circle gets the lighter
-// shade so the initials stay legible.
-
-const PERSON_THEMES = [
-  { tile: '#3f6e58', avatar: '#578a72' }, // forest green
-  { tile: '#5e4d83', avatar: '#7a67a3' }, // muted purple
-  { tile: '#4d6c8f', avatar: '#6788ad' }, // slate blue
-  { tile: '#8a5060', avatar: '#a8707e' }, // coral
-  { tile: '#3f7878', avatar: '#5d9494' }, // teal
-  { tile: '#8a7050', avatar: '#a88a6c' }, // sand
-  { tile: '#5b5694', avatar: '#7770ab' }, // indigo
-  { tile: '#874660', avatar: '#a26178' }, // rose
-  { tile: '#4a6e3f', avatar: '#688a57' }, // moss
-  { tile: '#7a4a3f', avatar: '#9c6857' }, // terracotta
-] as const;
-
-function hashString(input: string): number {
-  // An Int32Array slot wraps on every write, exactly like `h |= 0` did.
-  const h = new Int32Array(1);
-  for (const char of input) {
-    h[0] = Math.imul(h[0]!, 31) + char.codePointAt(0)!;
-  }
-  return Math.abs(h[0]!);
-}
-
-export function getPersonTheme(seed: string) {
-  return PERSON_THEMES[hashString(seed || 'guest') % PERSON_THEMES.length]!;
-}
-
-export function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0]!.charAt(0).toUpperCase();
-  return (parts[0]!.charAt(0) + parts.at(-1)!.charAt(0)).toUpperCase();
-}
 
 // ─── Audio-level speaking detection ──────────────────────────────────────────
 
@@ -144,20 +107,6 @@ function tileClassName({ showColoredTile, clickable, pinned, isSpeaking, isHandR
   );
 }
 
-/** Keeps the context menu (220x340) inside the viewport when opened at the pointer. */
-// In-meeting camera-off avatar: smaller and rounder than ParticipantAvatar's
-// default (28cqmin, max 128px, 20% radius). The ringing halo shares the box.
-const TILE_AVATAR_BOX = 'h-[21cqmin] w-[21cqmin] max-h-24 max-w-24 rounded-[30%]';
-
-function getContextMenuPosition(clientX: number, clientY: number) {
-  const menuW = 220;
-  const menuH = 340;
-  return {
-    x: Math.max(0, Math.min(clientX, window.innerWidth - menuW)),
-    y: clientY + menuH > window.innerHeight ? Math.max(0, clientY - menuH) : clientY,
-  };
-}
-
 interface TileNameTagProps {
   participant: MeetingPeer;
   name: string;
@@ -185,7 +134,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
   const [volume, setVolume] = useState(100);
   const [localMuted, setLocalMuted] = useState(false);
   const [showControls, setShowControls] = useState(false);
-  const [contextPos, setContextPos] = useState({ x: 0, y: 0 });
+  const [contextPos, setContextPos] = useState<ParticipantMenuAnchor>({ x: 0, y: 0 });
   const name = participant.name || 'Participant';
   // Synthetic "ringing" placeholder for a callee who hasn't joined yet (Discord-
   // style outgoing call). The host app injects a pseudo-participant carrying
@@ -249,7 +198,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
       onContextMenu={(e) => {
         e.preventDefault();
         if (ringing) return; // placeholder — no participant actions
-        setContextPos(getContextMenuPosition(e.clientX, e.clientY));
+        setContextPos({ x: e.clientX, y: e.clientY });
         setShowControls(true);
       }}
       style={showColoredTile ? { backgroundColor: theme.tile } : undefined}
@@ -304,7 +253,9 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
             onClick={(e) => {
               e.stopPropagation();
               const rect = e.currentTarget.getBoundingClientRect();
-              setContextPos(getContextMenuPosition(rect.right - 220, rect.bottom + 4));
+              // Hang the menu under the button, right edges aligned; if there is
+              // no room below, it opens above the button instead.
+              setContextPos({ x: rect.right, y: rect.bottom + 4, alignRight: true, flipY: rect.top - 4 });
               setShowControls(true);
             }}
             className="bg-black/60 hover:bg-black/80 text-white rounded-[7.5px] p-1.5 transition-colors cursor-pointer"
@@ -318,7 +269,7 @@ export function ParticipantTile({ participant, isSelf, isHandRaised, meeting, pi
           initials={initials}
           color={theme.avatar}
           picture={participant.picture}
-          className={cn(TILE_AVATAR_BOX, 'text-[clamp(0.75rem,6cqmin,1.75rem)]')}
+          size="tile"
         />
       ) : (
         // Auto Picture-in-Picture is owned exclusively by the off-screen video

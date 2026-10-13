@@ -119,6 +119,10 @@ export const navigation = [
     links: [{ title: 'Overview', href: '/social' }],
   },
   {
+    title: 'WeldReach',
+    links: [{ title: 'Overview', href: '/weldreach' }],
+  },
+  {
     title: 'WeldDrive',
     links: [{ title: 'Overview', href: '/welddrive' }],
   },
