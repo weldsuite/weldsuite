@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   formatDuration,
   getConfigSummary,
+  previewEmailStep,
   summarizeStep,
   summarizeTrigger,
+  type EmailPreviewLabels,
   type NodeSummaryLabels,
   type TriggerSummaryContext,
 } from './node-summary';
@@ -188,6 +190,63 @@ describe('summarizeStep', () => {
   it('truncates long messages', () => {
     const summary = getConfigSummary('post_chat_message', { message: 'x'.repeat(100) }, labels);
     expect(summary).toBe(`${'x'.repeat(60)}...`);
+  });
+});
+
+describe('previewEmailStep', () => {
+  const emailLabels: EmailPreviewLabels = {
+    from: 'From',
+    to: 'To',
+    subject: 'Subject',
+    defaultAccount: 'Use default account',
+    subjectPlaceholder: 'Enter subject...',
+    bodyPlaceholder: 'Start typing your email...',
+  };
+  const accounts = [
+    { id: 'acc_1', email: 'sales@acme.test', displayName: 'Sales' },
+    { id: 'acc_2', email: 'support@acme.test' },
+  ];
+
+  it('lists From, To and Subject, with the account by name', () => {
+    const preview = previewEmailStep(
+      { from: 'acc_1', to: '{{contact.email}}', subject: 'Quick question', body: 'Hi' },
+      emailLabels,
+      accounts,
+    );
+    expect(preview.rows).toEqual([
+      { label: 'From', value: 'Sales', placeholder: 'Use default account' },
+      { label: 'To', value: '{{contact.email}}' },
+      { label: 'Subject', value: 'Quick question', placeholder: 'Enter subject...' },
+    ]);
+  });
+
+  it('names an account without a display name by its address', () => {
+    expect(previewEmailStep({ from: 'acc_2' }, emailLabels, accounts).rows[0].value).toBe('support@acme.test');
+  });
+
+  it('leaves From to its placeholder for the default account or one that is gone', () => {
+    expect(previewEmailStep({}, emailLabels, accounts).rows[0].value).toBe('');
+    expect(previewEmailStep({ from: 'acc_deleted' }, emailLabels, accounts).rows[0].value).toBe('');
+  });
+
+  it('shows an HTML body as the text a reader sees, one line per block', () => {
+    const preview = previewEmailStep(
+      { body: '<p>Hi {{contact.firstName}},</p><p>Tom &amp; I have a <strong>question</strong>.</p><ul><li>One</li><li>Two</li></ul>' },
+      emailLabels,
+      accounts,
+    );
+    expect(preview.body).toBe('Hi {{contact.firstName}},\nTom & I have a question.\nOne\nTwo');
+  });
+
+  it('keeps a plain-text body as typed, tags included', () => {
+    const preview = previewEmailStep({ body: 'Use <b> for bold\n\n\nBye', isHtml: false }, emailLabels, accounts);
+    expect(preview.body).toBe('Use <b> for bold\n\nBye');
+  });
+
+  it('is empty, with the placeholder, for a step that has no config yet', () => {
+    const preview = previewEmailStep(undefined, emailLabels, accounts);
+    expect(preview.body).toBe('');
+    expect(preview.bodyPlaceholder).toBe('Start typing your email...');
   });
 });
 

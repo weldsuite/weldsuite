@@ -10,7 +10,9 @@
  *   One-line summary
  *
  * Its size comes from the layout constants (`NODE_WIDTH` / `NODE_HEIGHT`), so
- * the card and the maths that positions it cannot drift apart.
+ * the card and the maths that positions it cannot drift apart. A card with more
+ * to show than one line (`EmailStepCard`) passes its own `children` and the
+ * `height` the layout reserves for its step type, and can go without the header.
  */
 
 import * as React from 'react';
@@ -41,6 +43,10 @@ export function StepCard({
   typeLabel,
   summary,
   monoSummary,
+  width = NODE_WIDTH,
+  height = NODE_HEIGHT,
+  hideHeader = false,
+  children,
   state = 'default',
   onClick,
 }: Readonly<{
@@ -52,6 +58,13 @@ export function StepCard({
   summary?: React.ReactNode;
   /** The summary is an expression (a condition), not a sentence. */
   monoSummary?: boolean;
+  /** `width` and `height` must match what the layout (`getNodeWidth` / `getNodeHeight`) reserves for the step type. */
+  width?: number;
+  height?: number;
+  /** The card is its `children` alone; `title` still names it for screen readers. */
+  hideHeader?: boolean;
+  /** Drawn under the header in place of the summary strip. */
+  children?: React.ReactNode;
   state?: StepCardState;
   onClick?: () => void;
 }>) {
@@ -61,16 +74,19 @@ export function StepCard({
   // its header.
   const body = (
     <>
-      <div className={cn('flex flex-shrink-0 items-center justify-between gap-2 px-3', summary ? 'h-11' : 'flex-1')}>
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex size-6 flex-shrink-0 items-center justify-center rounded-md bg-muted">
-            <Icon className="size-3.5 text-muted-foreground" />
+      {!hideHeader && (
+        <div className={cn('flex flex-shrink-0 items-center justify-between gap-2 px-3', summary || children ? 'h-11' : 'flex-1')}>
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex size-6 flex-shrink-0 items-center justify-center rounded-md bg-muted">
+              <Icon className="size-3.5 text-muted-foreground" />
+            </div>
+            <span className="truncate text-sm font-medium leading-5 text-foreground">{title}</span>
           </div>
-          <span className="truncate text-sm font-medium leading-5 text-foreground">{title}</span>
+          <span className={TYPE_LABEL}>{typeLabel}</span>
         </div>
-        <span className={TYPE_LABEL}>{typeLabel}</span>
-      </div>
-      {summary ? (
+      )}
+      {children}
+      {summary && !children ? (
         <div className="mx-3 flex min-w-0 flex-1 items-center border-t border-border">
           <p
             className={cn(
@@ -85,11 +101,17 @@ export function StepCard({
     </>
   );
   const className = cn(CARD_BASE, CARD_STATE[state]);
-  const style = { width: NODE_WIDTH, height: NODE_HEIGHT };
+  const style = { width, height };
 
   if (as === 'button') {
     return (
-      <button type="button" className={className} style={style} onClick={onClick}>
+      <button
+        type="button"
+        className={className}
+        style={style}
+        onClick={onClick}
+        aria-label={hideHeader && typeof title === 'string' ? title : undefined}
+      >
         {body}
       </button>
     );

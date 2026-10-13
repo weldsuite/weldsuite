@@ -41,6 +41,7 @@ import {
 import { cn } from '../../lib/utils';
 import type { ActionNodeData } from './flow-utils';
 import { SetupRequiredBadge, StepCard, StepCardPlaceholder, STEP_HANDLE_CLASS, type StepCardState } from './parts/step-card';
+import { EmailStepCard } from './parts/email-step-card';
 
 // Imported by the condition node from here.
 export { SetupRequiredBadge };
@@ -200,15 +201,27 @@ function ActionNodeComponent({ data, selected }: NodeProps) {
       <div className="relative">
         {needsConfig && <SetupRequiredBadge label={nodeData.setupRequiredLabel} />}
         <Handle type="target" position={Position.Top} className="!bg-transparent !border-0" style={{ top: 0, width: 0, height: 0, minWidth: 0, minHeight: 0 }} />
-        <StepCard
-          as="button"
-          icon={Icon}
-          title={nodeData.label}
-          typeLabel={categoryLabel}
-          summary={description}
-          state={cardState}
-          onClick={() => nodeData.onSelect?.()}
-        />
+        {nodeData.actionType === 'send_email' ? (
+          <EmailStepCard
+            icon={Icon}
+            title={nodeData.label}
+            typeLabel={categoryLabel}
+            preview={nodeData.step?.emailPreview}
+            config={nodeData.step?.config}
+            state={cardState}
+            onClick={() => nodeData.onSelect?.()}
+          />
+        ) : (
+          <StepCard
+            as="button"
+            icon={Icon}
+            title={nodeData.label}
+            typeLabel={categoryLabel}
+            summary={description}
+            state={cardState}
+            onClick={() => nodeData.onSelect?.()}
+          />
+        )}
 
         {nodeData.actionType === 'ai_agent' && (
           <div className="absolute top-1/2 -translate-y-1/2 left-full hidden lg:flex items-center">
