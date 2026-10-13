@@ -1,0 +1,251 @@
+# Mailboxes and domains
+
+Outreach mail goes out from dedicated mailboxes on sending domains of their own, never from your main company domain. Each mailbox warms up before it may join a [campaign](/reach-campaigns). Through the API these are **read-only**: every mailbox is billed at $5 per month, so creating, pausing and deleting mailboxes, and connecting and disconnecting domains, stays in the WeldReach app. All endpoints here require the `reach_mailboxes:read` scope. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  WeldReach is available on request only. Until WeldSuite approves the workspace, every endpoint here returns `403 APP_ACCESS_REQUIRED`. See the [WeldReach overview](/weldreach).
+</Note>
+
+---
+
+## The mailbox model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rmbx_abc123`).</Property>
+  <Property name="domainId" type="string">The [domain](#the-domain-model) the mailbox is on.</Property>
+  <Property name="domainName" type="string">That domain's name.</Property>
+  <Property name="email" type="string">The mailbox address.</Property>
+  <Property name="firstName" type="string">Sender first name. Fills `senderFirstName` in templates.</Property>
+  <Property name="lastName" type="string">Sender last name. Fills `senderLastName` in templates.</Property>
+  <Property name="signature" type="string">Plain-text signature added below every email, or `null`.</Property>
+  <Property name="type" type="string">`google` (a Google Workspace inbox) or `shared` (an inbox on shared mail servers).</Property>
+  <Property name="status" type="string">See [statuses](#mailbox-statuses).</Property>
+  <Property name="warmupDay" type="integer">Days of warmup sending so far.</Property>
+  <Property name="warmupStatus" type="string">The mailbox's state in the warmup network: `waiting`, `warming`, `maintaining`, `paused`, `error` or `removed`, or `null`.</Property>
+  <Property name="warmupInboxRate" type="number">Share of this mailbox's warmup mail that reached the inbox (not spam) over the last 3 days, from 0 to 1. `null` until there are at least 10 judged emails.</Property>
+  <Property name="warmupSent7d" type="integer">Warmup emails sent in the last 7 days.</Property>
+  <Property name="warmupSpamRescues7d" type="integer">Warmup emails to this mailbox that were moved out of spam in the last 7 days.</Property>
+  <Property name="warmupBlocker" type="string">Why a warming mailbox may not join campaigns yet, or `null`. See [warmup](#warmup).</Property>
+  <Property name="dailyCap" type="integer">Most campaign emails this mailbox sends per day, 1 to 50.</Property>
+  <Property name="rampCurrent" type="integer">Today's ramp-up limit. A new sender starts low and goes up every day until it reaches `dailyCap`.</Property>
+  <Property name="sentToday" type="integer">Campaign emails sent today.</Property>
+  <Property name="lastSentAt" type="timestamp">When the mailbox last sent, or `null`.</Property>
+  <Property name="pausedReason" type="string">Why the mailbox is paused, or `null`. For example `user`, `bounces`, `login_failed`, `low_inbox_rate` or `domain_inactive`.</Property>
+  <Property name="lastError" type="string">The last error, or `null`.</Property>
+  <Property name="createdAt" type="timestamp">When the mailbox was created.</Property>
+</Properties>
+
+Login credentials are never returned.
+
+### Mailbox statuses {{ id: 'mailbox-statuses' }}
+
+| `status` | Sends campaigns | Meaning |
+|----------|-----------------|---------|
+| `provisioning` | No | Being set up at the mail provider. |
+| `warming` | No | Building its sending reputation. Can already be assigned to a campaign and answer [replies](/reach-threads#reply-to-a-thread). |
+| `active` | Yes | Ready. Only active mailboxes send campaign email. |
+| `paused` | No | Paused by a person or by WeldReach; see `pausedReason`. |
+| `suspended` | No | Suspended; see `pausedReason` and `lastError`. |
+| `error` | No | Needs attention; see `lastError`. |
+| `deleting`, `deleted` | No | Being removed, or removed. |
+
+### Warmup {{ id: 'warmup' }}
+
+A new mailbox exchanges automatically generated emails with other WeldReach mailboxes to build its reputation. It becomes `active`, and can send campaign email, once all of these hold:
+
+- it has warmed up for at least 14 days;
+- at least 85% of its warmup mail reached the inbox over the last 3 days;
+- it has no login problem.
+
+While it is warming, `warmupBlocker` says what it is waiting for:
+
+| `warmupBlocker` | Meaning |
+|-----------------|---------|
+| `too_early` | Fewer than 14 days of warmup so far. |
+| `not_enough_data` | Too few warmup emails were judged in the last 3 days to compute an inbox rate. |
+| `low_inbox_rate` | Less than 85% of its warmup mail reached the inbox. |
+| `login_error` | The warmup network cannot log in to the mailbox. This needs action in the app. |
+| `pool_too_small` | The workspace has mailboxes on fewer than 3 domains. Warmup pairs mailboxes across domains, so it needs at least 3. |
+
+---
+
+## List mailboxes {{ tag: 'GET', label: '/v1/reach/mailboxes' }}
+
+<Row>
+  <Col>
+
+    Retrieve every mailbox of the workspace, oldest first, in one page. Deleted mailboxes are left out unless you ask for `status=deleted`.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="domainId" type="string">Only mailboxes on this domain.</Property>
+      <Property name="status" type="string">Only mailboxes with this `status`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/mailboxes">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/reach/mailboxes \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d status=warming
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "rmbx_def456",
+          "domainId": "rdom_abc123",
+          "domainName": "acme-outreach.com",
+          "email": "alex@acme-outreach.com",
+          "firstName": "Alex",
+          "lastName": "Morgan",
+          "signature": "Alex Morgan\nAcme Routing",
+          "type": "shared",
+          "status": "warming",
+          "warmupDay": 9,
+          "warmupStatus": "warming",
+          "warmupInboxRate": 0.91,
+          "warmupSent7d": 168,
+          "warmupSpamRescues7d": 4,
+          "warmupBlocker": "too_early",
+          "dailyCap": 30,
+          "rampCurrent": 10,
+          "sentToday": 0,
+          "lastSentAt": null,
+          "pausedReason": null,
+          "lastError": null,
+          "createdAt": "2026-10-04T10:00:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a mailbox {{ tag: 'GET', label: '/v1/reach/mailboxes/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single mailbox by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/mailboxes/rmbx_def456">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/mailboxes/rmbx_def456 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## The domain model
+
+A sending domain is a WeldHost domain of the workspace that is connected to WeldReach. WeldReach sets up its mail records.
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rdom_abc123`).</Property>
+  <Property name="hostDomainId" type="string">The WeldHost domain.</Property>
+  <Property name="name" type="string">The domain name.</Property>
+  <Property name="mailpoolDomainId" type="string">The domain's id at the mail provider, or `null`.</Property>
+  <Property name="status" type="string">`connecting`, `active`, `error` or `disconnecting`.</Property>
+  <Property name="dnsStatus" type="object">The last DNS check, or `null`: `spf`, `dkim`, `dmarc` and `mx` (each a boolean) and `checkedAt`.</Property>
+  <Property name="dmarcPolicy" type="string">The published DMARC policy (such as `none` or `quarantine`), or `null`.</Property>
+  <Property name="connectedAt" type="timestamp">When the domain was connected, or `null`.</Property>
+  <Property name="lastError" type="string">The last error, or `null`.</Property>
+  <Property name="mailboxCount" type="integer">Mailboxes on this domain.</Property>
+  <Property name="createdAt" type="timestamp">When the domain was added.</Property>
+</Properties>
+
+---
+
+## List domains {{ tag: 'GET', label: '/v1/reach/domains' }}
+
+<Row>
+  <Col>
+
+    Retrieve every sending domain of the workspace, oldest first, in one page.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/domains">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/domains \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "rdom_abc123",
+          "hostDomainId": "dom_abc123",
+          "name": "acme-outreach.com",
+          "mailpoolDomainId": "mp_7f3a2c",
+          "status": "active",
+          "dnsStatus": { "spf": true, "dkim": true, "dmarc": true, "mx": true, "checkedAt": "2026-10-13T06:00:00Z" },
+          "dmarcPolicy": "none",
+          "connectedAt": "2026-10-03T12:00:00Z",
+          "lastError": null,
+          "mailboxCount": 3,
+          "createdAt": "2026-10-03T11:58:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a domain {{ tag: 'GET', label: '/v1/reach/domains/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single sending domain by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/domains/rdom_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/domains/rdom_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>

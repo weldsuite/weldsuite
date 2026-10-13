@@ -1,0 +1,157 @@
+# Suppressions
+
+The suppression list holds the addresses and domains WeldReach never emails. Unsubscribes, hard bounces, complaints and negative replies are added automatically; you can add your own, such as existing customers or a competitor's domain. Every send checks the list again right before it goes out. Reads require the `reach_settings:read` scope; adding and removing entries require `reach_settings:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  WeldReach is available on request only. Until WeldSuite approves the workspace, every endpoint here returns `403 APP_ACCESS_REQUIRED`. See the [WeldReach overview](/weldreach).
+</Note>
+
+---
+
+## The suppression model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rsup_abc123`).</Property>
+  <Property name="value" type="string">The address or domain, lower-cased.</Property>
+  <Property name="type" type="string">`email` or `domain`. A domain entry covers every address at that domain.</Property>
+  <Property name="reason" type="string">One of `unsubscribed`, `bounced`, `complained`, `manual` (added by a person or an API call), `negative_reply`.</Property>
+  <Property name="source" type="string">Where the entry came from, or `null`.</Property>
+  <Property name="createdBy" type="string">User ID of the person who added it, or `null` for automatic entries.</Property>
+  <Property name="createdAt" type="timestamp">When the entry was added.</Property>
+</Properties>
+
+---
+
+## List suppressions {{ tag: 'GET', label: '/v1/reach/suppressions' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of entries, newest first.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 25, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="search" type="string">Matches the address or domain (case-insensitive).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/suppressions">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/reach/suppressions \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d search=contoso
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "rsup_abc123",
+          "value": "contoso-freight.nl",
+          "type": "domain",
+          "reason": "manual",
+          "source": "manual",
+          "createdBy": "user_abc123",
+          "createdAt": "2026-10-10T08:00:00Z"
+        },
+        {
+          "id": "rsup_def456",
+          "value": "piet@contoso.com",
+          "type": "email",
+          "reason": "unsubscribed",
+          "source": null,
+          "createdBy": null,
+          "createdAt": "2026-10-08T15:12:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 2, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Add suppressions {{ tag: 'POST', label: '/v1/reach/suppressions' }}
+
+<Row>
+  <Col>
+
+    Add addresses and domains to the list, with reason `manual`. A value with an `@` is an address; anything else (or a value starting with `@`) is a domain. Prospects that match stop at once: their queued and active enrollments end with status `unsubscribed`, and a `valid` prospect's `validation` becomes `suppressed`. Returns `201`.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="values" type="string[]">1 to 10,000 addresses or domains, each 3 to 320 characters.</Property>
+    </Properties>
+
+    ### Response
+
+    <Properties>
+      <Property name="added" type="integer">New entries.</Property>
+      <Property name="skipped" type="integer">Values that were malformed or already on the list.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/suppressions">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/suppressions \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "values": ["contoso-freight.nl", "jan@fabrikam.nl", "not an address"] }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "added": 2, "skipped": 1 } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a suppression {{ tag: 'DELETE', label: '/v1/reach/suppressions/:id' }}
+
+<Row>
+  <Col>
+
+    Remove an entry. Prospects marked `suppressed` that no other entry covers become `valid` again and can be enrolled once more; enrollments that were stopped do not restart on their own. Returns `204 No Content`.
+
+    Be careful with entries whose reason is `unsubscribed` or `complained`: the person asked not to be emailed.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/reach/suppressions/rsup_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/reach/suppressions/rsup_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

@@ -1951,6 +1951,7 @@ export const sweep = {
         "read": "Read",
         "write": "Write",
         "send": "Send",
+        "reply": "Reply",
         "name": "Name",
         "keyPrefix": "Key Prefix",
         "permissions": "Permissions",
@@ -1960,6 +1961,7 @@ export const sweep = {
       },
       "notAvailable": "Not available",
       "sendScopeHint": "Sending mail is never included in All. Tick Send for the key to send email.",
+      "replyScopeHint": "Answering prospects is never included in All. Tick Reply for the key to send WeldReach replies.",
       "selectedCount": "{count} permission(s) selected",
       "filters": {
         "usage": "Usage",

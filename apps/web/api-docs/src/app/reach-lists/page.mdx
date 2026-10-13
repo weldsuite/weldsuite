@@ -1,0 +1,294 @@
+# Prospect lists
+
+A prospect list groups [prospects](/reach-prospects), for example everyone from one import or one target market, so you can [enroll](/reach-campaigns#enroll-prospects) them in a campaign in one call. A prospect can be on any number of lists. Reads require the `reach_prospects:read` scope; changes require `reach_prospects:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  WeldReach is available on request only. Until WeldSuite approves the workspace, every endpoint here returns `403 APP_ACCESS_REQUIRED`. See the [WeldReach overview](/weldreach).
+</Note>
+
+---
+
+## The list model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rpl_abc123`).</Property>
+  <Property name="name" type="string">List name, up to 200 characters.</Property>
+  <Property name="description" type="string">Description, or `null`.</Property>
+  <Property name="source" type="string">How the list was made: `manual`, `csv` (created by an import), `crm_list` or `welddata`.</Property>
+  <Property name="sourceRef" type="string">Reference to the source, or `null`.</Property>
+  <Property name="prospectCount" type="integer">Prospects on the list.</Property>
+  <Property name="createdAt" type="timestamp">When the list was created.</Property>
+</Properties>
+
+---
+
+## List prospect lists {{ tag: 'GET', label: '/v1/reach/lists' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of prospect lists, newest first. To see a list's members, [list prospects](/reach-prospects#list-prospects) with `listId`.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 25, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/lists">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/lists \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "rpl_abc123",
+          "name": "Logistics NL, October",
+          "description": null,
+          "source": "csv",
+          "sourceRef": "hubspot-export-2026-10",
+          "prospectCount": 240,
+          "createdAt": "2026-10-02T14:25:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 3, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a list {{ tag: 'POST', label: '/v1/reach/lists' }}
+
+<Row>
+  <Col>
+
+    Create an empty list. Returns `201` with the list.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">1 to 200 characters.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="description" type="string">Up to 2,000 characters.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/lists">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/lists \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Trade fair leads", "description": "Met at LogiMAT 2026" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rpl_def456",
+        "name": "Trade fair leads",
+        "description": "Met at LogiMAT 2026",
+        "source": "manual",
+        "sourceRef": null,
+        "prospectCount": 0,
+        "createdAt": "2026-10-13T09:10:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a list {{ tag: 'GET', label: '/v1/reach/lists/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single list by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/lists/rpl_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/lists/rpl_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Update a list {{ tag: 'PATCH', label: '/v1/reach/lists/:id' }}
+
+<Row>
+  <Col>
+
+    Rename a list or change its description. Returns the list.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="name" type="string">1 to 200 characters.</Property>
+      <Property name="description" type="string">Up to 2,000 characters.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/reach/lists/rpl_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/reach/lists/rpl_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "name": "Logistics NL, Q4" }'
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Delete a list {{ tag: 'DELETE', label: '/v1/reach/lists/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a list. Its prospects are not deleted, and campaigns they were enrolled in through the list keep them. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/reach/lists/rpl_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/reach/lists/rpl_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Add members {{ tag: 'POST', label: '/v1/reach/lists/:id/members' }}
+
+<Row>
+  <Col>
+
+    Add prospects to a list. Prospects already on it are left alone.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="prospectIds" type="string[]">1 to 5,000 prospect ids.</Property>
+    </Properties>
+
+    ### Response
+
+    <Properties>
+      <Property name="added" type="integer">Prospects that were not on the list before.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/lists/rpl_abc123/members">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/lists/rpl_abc123/members \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "prospectIds": ["rpro_abc123", "rpro_def456"] }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "added": 2 } }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Remove members {{ tag: 'POST', label: '/v1/reach/lists/:id/members/remove' }}
+
+<Row>
+  <Col>
+
+    Take prospects off a list. The prospects themselves stay.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="prospectIds" type="string[]">1 to 5,000 prospect ids.</Property>
+    </Properties>
+
+    ### Response
+
+    <Properties>
+      <Property name="removed" type="integer">Prospects taken off the list.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/lists/rpl_abc123/members/remove">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/lists/rpl_abc123/members/remove \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "prospectIds": ["rpro_def456"] }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    { "data": { "removed": 1 } }
+    ```
+
+  </Col>
+</Row>

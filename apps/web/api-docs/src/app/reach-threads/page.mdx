@@ -1,0 +1,288 @@
+# Threads
+
+A thread is one conversation between an outreach mailbox and a prospect: the campaign emails WeldReach sent and everything that came back. The reply inbox lists threads by their latest incoming message, so a thread appears once something has come back. Reading requires the `reach_inbox:read` scope. Replying requires `reach_inbox:reply`, which must be granted by name. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  WeldReach is available on request only. Until WeldSuite approves the workspace, every endpoint here returns `403 APP_ACCESS_REQUIRED`. See the [WeldReach overview](/weldreach).
+</Note>
+
+---
+
+## The thread model
+
+A thread has no id of its own. It is identified by its `threadKey`, the `Message-ID` of its first email (for example `9f2c4e1a7b3d5f6e8a0b1c2d3e4f5a6b.mgk2x1a0@acme-outreach.com`). The key contains an `@`, so URL-encode it when you put it in a path.
+
+### Thread summary {{ id: 'thread-summary' }}
+
+<Properties>
+  <Property name="threadKey" type="string">The thread's key.</Property>
+  <Property name="prospect" type="object">`id`, `email`, `firstName`, `lastName`, `companyName` and `personId` of the [prospect](/reach-prospects), or `null` when the sender is not a known prospect.</Property>
+  <Property name="campaign" type="object">`id` and `name` of the [campaign](/reach-campaigns), or `null`.</Property>
+  <Property name="mailbox" type="object">`id` and `email` of the [mailbox](/reach-mailboxes) that received the reply.</Property>
+  <Property name="lastInbound" type="object">The latest incoming message: `id`, `subject`, `snippet`, `kind`, `label`, `labelSource`, `receivedAt`, `readAt` and `handledAt`. See [the message model](#the-message-model).</Property>
+  <Property name="messageCount" type="integer">Messages in the thread, both directions.</Property>
+</Properties>
+
+### The message model {{ id: 'the-message-model' }}
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rmsg_abc123`).</Property>
+  <Property name="direction" type="string">`out` (sent by WeldReach) or `in` (received).</Property>
+  <Property name="campaignId" type="string">The campaign, or `null`.</Property>
+  <Property name="stepId" type="string">The campaign step an outgoing email came from, or `null`.</Property>
+  <Property name="mailboxId" type="string">The outreach mailbox that sent or received it.</Property>
+  <Property name="prospectId" type="string">The prospect, or `null`.</Property>
+  <Property name="threadKey" type="string">The thread.</Property>
+  <Property name="fromEmail" type="string">Sender address.</Property>
+  <Property name="toEmail" type="string">Recipient address.</Property>
+  <Property name="subject" type="string">Subject, or `null`.</Property>
+  <Property name="snippet" type="string">The start of the text, or `null`.</Property>
+  <Property name="bodyText" type="string">Plain-text body, or `null`. Outgoing emails carry their stored text; incoming ones carry theirs when you [retrieve the thread](#retrieve-a-thread).</Property>
+  <Property name="status" type="string">Outgoing emails: `sending`, `sent`, `failed` or `unknown` (the mail server's answer was lost). `null` for incoming ones.</Property>
+  <Property name="kind" type="string">Incoming emails: `reply` (written by a person), `auto_reply` (out-of-office and the like) or `bounce`. `null` for outgoing ones.</Property>
+  <Property name="label" type="string">What a reply says: `interested`, `meeting_request`, `not_interested`, `not_now`, `out_of_office`, `wrong_person`, `unsubscribe`, `other` or `unclassified`.</Property>
+  <Property name="labelSource" type="string">Who set the label: `ai`, `user` or `rule`. `null` when unlabelled.</Property>
+  <Property name="readAt" type="timestamp">When someone read it, or `null`.</Property>
+  <Property name="handledAt" type="timestamp">When someone marked it handled, or `null`.</Property>
+  <Property name="sentAt" type="timestamp">When it was sent, or `null`.</Property>
+  <Property name="receivedAt" type="timestamp">When it was received, or `null`.</Property>
+</Properties>
+
+Unsubscribes and hard bounces put the address on the [suppression list](/reach-suppressions) automatically, and a reply written by a person stops the prospect's sequence.
+
+---
+
+## List threads {{ tag: 'GET', label: '/v1/reach/threads' }}
+
+<Row>
+  <Col>
+
+    The reply inbox: threads ordered by their latest incoming message, newest first. Without a `state`, only open threads (not marked handled) are returned. The number of threads with an unread latest message is in `meta.unreadCount`, whatever the filters.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 25, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor. Opaque: pass back the `cursor` you received.</Property>
+      <Property name="state" type="string">`open` (default), `unread`, `handled` or `all`.</Property>
+      <Property name="label" type="string">Only threads whose latest reply has this label.</Property>
+      <Property name="kind" type="string">`reply`, `auto_reply` or `bounce`.</Property>
+      <Property name="campaignId" type="string">Only threads of this campaign.</Property>
+      <Property name="mailboxId" type="string">Only threads of this mailbox.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/threads">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/reach/threads \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d state=unread \
+      -d label=interested
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "threadKey": "9f2c4e1a7b3d5f6e8a0b1c2d3e4f5a6b.mgk2x1a0@acme-outreach.com",
+          "prospect": {
+            "id": "rpro_abc123",
+            "email": "jane@northwind-logistics.com",
+            "firstName": "Jane",
+            "lastName": "Doe",
+            "companyName": "Northwind Logistics",
+            "personId": null
+          },
+          "campaign": { "id": "rcmp_abc123", "name": "Q4 logistics managers" },
+          "mailbox": { "id": "rmbx_abc123", "email": "sam@acme-outreach.com" },
+          "lastInbound": {
+            "id": "rmsg_def456",
+            "subject": "Re: Quick question, Jane",
+            "snippet": "Hi Sam, yes, this is a pain point for us. Could we talk Thursday?",
+            "kind": "reply",
+            "label": "interested",
+            "labelSource": "ai",
+            "receivedAt": "2026-10-09T13:42:00Z",
+            "readAt": null,
+            "handledAt": null
+          },
+          "messageCount": 2
+        }
+      ],
+      "pagination": { "totalCount": 1, "hasMore": false, "cursor": null },
+      "meta": { "unreadCount": 5 }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a thread {{ tag: 'GET', label: '/v1/reach/threads/:threadKey' }}
+
+<Row>
+  <Col>
+
+    Every message of a thread, oldest first, with its summary. Outgoing emails carry their full text. Incoming emails carry their text for the 30 most recent ones and their snippet before that. Returns `404` when no thread has this key.
+
+    ### Response
+
+    <Properties>
+      <Property name="threadKey" type="string">The thread's key.</Property>
+      <Property name="summary" type="object">The [thread summary](#thread-summary).</Property>
+      <Property name="messages" type="object[]">The [messages](#the-message-model), oldest first.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/threads/:threadKey">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/threads/9f2c4e1a7b3d5f6e8a0b1c2d3e4f5a6b.mgk2x1a0%40acme-outreach.com \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "threadKey": "9f2c4e1a7b3d5f6e8a0b1c2d3e4f5a6b.mgk2x1a0@acme-outreach.com",
+        "summary": { "threadKey": "9f2c4e1a7b3d5f6e8a0b1c2d3e4f5a6b.mgk2x1a0@acme-outreach.com", "messageCount": 2 },
+        "messages": [
+          {
+            "id": "rmsg_abc123",
+            "direction": "out",
+            "campaignId": "rcmp_abc123",
+            "stepId": "rstp_abc123",
+            "mailboxId": "rmbx_abc123",
+            "prospectId": "rpro_abc123",
+            "threadKey": "9f2c4e1a7b3d5f6e8a0b1c2d3e4f5a6b.mgk2x1a0@acme-outreach.com",
+            "fromEmail": "sam@acme-outreach.com",
+            "toEmail": "jane@northwind-logistics.com",
+            "subject": "Quick question, Jane",
+            "snippet": "Hi Jane, Do you still plan routes by hand",
+            "bodyText": "Hi Jane,\n\nDo you still plan routes by hand at Northwind Logistics?",
+            "status": "sent",
+            "kind": null,
+            "label": null,
+            "labelSource": null,
+            "readAt": null,
+            "handledAt": null,
+            "sentAt": "2026-10-08T08:14:00Z",
+            "receivedAt": null
+          },
+          {
+            "id": "rmsg_def456",
+            "direction": "in",
+            "fromEmail": "jane@northwind-logistics.com",
+            "toEmail": "sam@acme-outreach.com",
+            "subject": "Re: Quick question, Jane",
+            "bodyText": "Hi Sam, yes, this is a pain point for us. Could we talk Thursday?",
+            "status": null,
+            "kind": "reply",
+            "label": "interested",
+            "labelSource": "ai",
+            "receivedAt": "2026-10-09T13:42:00Z"
+          }
+        ]
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Reply to a thread {{ tag: 'POST', label: '/v1/reach/threads/:threadKey/reply' }}
+
+<Row>
+  <Col>
+
+    Answer the latest reply in a thread. The email goes out from the mailbox that received that reply, as a plain-text reply in the same conversation (`Re:` subject, threading headers), without the campaign footer. Afterwards the thread's incoming messages are marked read. Returns `201` with the sent [message](#the-message-model).
+
+    Requires `reach_inbox:reply`. That scope is **named only**: `*` and `reach_inbox:*` do not grant it, so a key can only send replies when someone ticked Reply on purpose.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="body" type="string">Plain-text body, 1 to 20,000 characters.</Property>
+    </Properties>
+
+    ### When a reply is refused
+
+    The checks run in this order:
+
+    | Status | `code` | Why |
+    |--------|--------|-----|
+    | 403 | `FORBIDDEN` | The key lacks `reach_inbox:reply`. |
+    | 503 | `SENDING_DISABLED` | WeldSuite has paused all WeldReach sending. Try again later. |
+    | 403 | `FORBIDDEN` | The workspace may not send: its WeldReach subscription is canceled or has been past due for more than 7 days. The reason is in the message. |
+    | 404 | `NOT_FOUND` | No thread has this key. |
+    | 409 | `CONFLICT` | `details.reason` is `NO_REPLY` when the thread only holds bounces and auto-replies, so there is nobody to answer, or `SUPPRESSED` when the address is on the [suppression list](/reach-suppressions). |
+    | 409 | `MAILBOX_NOT_SENDABLE` | The mailbox that received the reply cannot send right now. Replies go out from mailboxes that are `active`, `warming` or `paused`; not from ones that are being set up, suspended, failing or deleted. |
+    | 502 | `UPSTREAM_ERROR` | The mail server did not accept the email. Nothing was sent; you may retry. |
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/threads/:threadKey/reply">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/threads/9f2c4e1a7b3d5f6e8a0b1c2d3e4f5a6b.mgk2x1a0%40acme-outreach.com/reply \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "body": "Hi Jane,\n\nThursday works. Does 10:00 suit you?\n\nSam" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rmsg_ghi789",
+        "direction": "out",
+        "campaignId": "rcmp_abc123",
+        "stepId": null,
+        "mailboxId": "rmbx_abc123",
+        "prospectId": "rpro_abc123",
+        "threadKey": "9f2c4e1a7b3d5f6e8a0b1c2d3e4f5a6b.mgk2x1a0@acme-outreach.com",
+        "fromEmail": "sam@acme-outreach.com",
+        "toEmail": "jane@northwind-logistics.com",
+        "subject": "Re: Quick question, Jane",
+        "snippet": "Hi Jane, Thursday works.",
+        "bodyText": "Hi Jane,\n\nThursday works. Does 10:00 suit you?\n\nSam",
+        "status": "sent",
+        "kind": null,
+        "label": null,
+        "labelSource": null,
+        "readAt": null,
+        "handledAt": null,
+        "sentAt": "2026-10-09T14:05:00Z",
+        "receivedAt": null
+      }
+    }
+    ```
+
+    ```json {{ title: '409 Nobody to answer' }}
+    {
+      "error": {
+        "code": "CONFLICT",
+        "message": "This thread has no reply to answer",
+        "details": { "reason": "NO_REPLY" }
+      }
+    }
+    ```
+
+  </Col>
+</Row>

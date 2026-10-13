@@ -1951,6 +1951,7 @@ export const sweep = {
         "read": "Lezen",
         "write": "Schrijven",
         "send": "Verzenden",
+        "reply": "Beantwoorden",
         "name": "Naam",
         "keyPrefix": "Sleutelprefix",
         "permissions": "Rechten",
@@ -1960,6 +1961,7 @@ export const sweep = {
       },
       "notAvailable": "Niet beschikbaar",
       "sendScopeHint": "Mail verzenden valt nooit onder Alles. Vink Verzenden aan als de sleutel e-mail moet kunnen versturen.",
+      "replyScopeHint": "Prospects beantwoorden valt nooit onder Alles. Vink Beantwoorden aan als de sleutel antwoorden vanuit WeldReach moet kunnen versturen.",
       "selectedCount": "{count} recht(en) geselecteerd",
       "filters": {
         "usage": "Gebruik",
