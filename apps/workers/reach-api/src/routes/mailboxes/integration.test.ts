@@ -1,7 +1,8 @@
 /**
  * /api/reach/mailboxes over HTTP: permissions, the response shape (never the
- * logins), entity events, and the error mapping (402 without a payment method,
- * 502 for Mailpool, rollback).
+ * logins), entity events, the error mapping (402 without a payment method,
+ * 502 for Mailpool, 503 without the warmup key, rollback) and the warmup pool
+ * following create, pause, resume and delete.
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,7 +13,15 @@ import { masterSchema, schema, type Database, type MasterDatabase } from '@welds
 import { PaymentMethodRequiredError } from '../../lib/billing';
 import { MailpoolError, MailpoolNotConfiguredError } from '../../lib/mailpool/errors';
 import { createFakeBilling, createFakeMailpool, type FakeBilling, type FakeMailpool } from '../../lib/mailpool/testing';
-import { resetReachMaster, resetReachTenant, seedMailbox, seedReachDomain } from '../../lib/mailpool/testing-db';
+import {
+  WARMUP_TEST_KEY,
+  poolStats,
+  resetReachMaster,
+  resetReachTenant,
+  seedMailbox,
+  seedPoolMailbox,
+  seedReachDomain,
+} from '../../lib/mailpool/testing-db';
 import { approvedAccess, withAppAccess } from '../../lib/mailpool/testing-routes';
 
 vi.mock('@weldsuite/entity-events', async () => {
@@ -47,11 +56,21 @@ let db: Database;
 
 const ALL = ['reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:update', 'reach_mailboxes:delete'];
 
-function api(keys: string[] = ALL, access = approvedAccess()) {
+function api(keys: string[] = ALL, access = approvedAccess(), env: Record<string, string> = {}) {
   return createTestApp('/api/reach/mailboxes', withAppAccess(mailboxRoutes, access), {
     context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'org_acme' },
-    env: { REACH_INBOUND_DOMAIN: 'reply-test.weldreach.com', DATABASE_ENCRYPTION_KEY: 'ab'.repeat(32) } as never,
+    env: {
+      REACH_INBOUND_DOMAIN: 'reply-test.weldreach.com',
+      DATABASE_ENCRYPTION_KEY: 'ab'.repeat(32),
+      WELDREACH_WARMUP_KEY: WARMUP_TEST_KEY,
+      ...env,
+    } as never,
   }).request;
+}
+
+async function poolRowOf(tenantMailboxId: string) {
+  const rows = await masterDb.select().from(masterSchema.reachWarmupMailboxes);
+  return rows.find((r) => r.tenantMailboxId === tenantMailboxId);
 }
 const json = (method: string, body?: unknown): RequestInit => ({
   method,
@@ -122,10 +141,39 @@ describe('POST /', () => {
     expect(event.data.email).toBe('jane@getacme.com');
   });
 
-  it('uses the default daily cap from the workspace settings', async () => {
-    await db.insert(schema.reachSettings).values({ id: 'rset_default', defaultMailboxDailyCap: 20 });
+  it('uses the default daily cap and timezone from the workspace settings', async () => {
+    await db.insert(schema.reachSettings).values({ id: 'rset_default', defaultMailboxDailyCap: 20, defaultTimezone: 'America/Chicago' });
     const res = await api()('/api/reach/mailboxes', json('POST', createBody));
-    expect(((await res.json()) as { data: { dailyCap: number } }).data.dailyCap).toBe(20);
+    const { data } = (await res.json()) as { data: { id: string; dailyCap: number } };
+
+    expect(data.dailyCap).toBe(20);
+    expect((await poolRowOf(data.id))?.timezone).toBe('America/Chicago');
+  });
+
+  it('enters the mailbox in the warmup pool and shows its warmup fields', async () => {
+    const res = await api()('/api/reach/mailboxes', json('POST', createBody));
+    const { data } = (await res.json()) as { data: Record<string, unknown> & { id: string } };
+
+    expect(await poolRowOf(data.id)).toMatchObject({ status: 'waiting', email: 'jane@getacme.com', workspaceId: 'ws_acme', clerkOrgId: 'org_acme' });
+    expect(data).toMatchObject({
+      warmupDay: 0,
+      warmupStatus: 'waiting',
+      warmupInboxRate: null,
+      warmupSent7d: 0,
+      warmupSpamRescues7d: 0,
+      // One domain in the pool: the planner has nobody to pair with yet.
+      warmupBlocker: 'pool_too_small',
+    });
+  });
+
+  it('answers 503 WARMUP_NOT_CONFIGURED before billing or Mailpool when the warmup key is missing', async () => {
+    const res = await api(ALL, approvedAccess(), { WELDREACH_WARMUP_KEY: '' })('/api/reach/mailboxes', json('POST', createBody));
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: { code: 'WARMUP_NOT_CONFIGURED' } });
+    expect(billing.adjustInboxes).not.toHaveBeenCalled();
+    expect(mailpool.createMailbox).not.toHaveBeenCalled();
+    expect(published).not.toHaveBeenCalled();
   });
 
   it('answers 402 PAYMENT_METHOD_REQUIRED without calling Mailpool or publishing', async () => {
@@ -157,6 +205,7 @@ describe('POST /', () => {
     expect(billing.adjustInboxes.mock.calls.map((c) => c[0])).toEqual([1, -1]);
     expect(published).not.toHaveBeenCalled();
     expect(await db.select().from(schema.reachMailboxes)).toHaveLength(0);
+    expect(await masterDb.select().from(masterSchema.reachWarmupMailboxes)).toHaveLength(0);
   });
 
   it('answers 503 when Mailpool is not configured', async () => {
@@ -196,6 +245,15 @@ describe('reads', () => {
     expect((await api(['reach_mailboxes:read'])('/api/reach/mailboxes?status=bogus')).status).toBe(400);
   });
 
+  it("lists the pool's numbers per mailbox, from this workspace's pool rows only", async () => {
+    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'active', warmupInboxRate: 0.91 });
+    await seedPoolMailbox(masterDb, { tenantMailboxId: 'rmbx_1', status: 'maintaining', stats: poolStats({ sent7d: 77, spamRescues7d: 3 }) });
+
+    const res = await api(['reach_mailboxes:read'])('/api/reach/mailboxes');
+    const { data } = (await res.json()) as { data: Array<Record<string, unknown>> };
+    expect(data[0]).toMatchObject({ warmupInboxRate: 0.91, warmupSent7d: 77, warmupSpamRescues7d: 3, warmupBlocker: null });
+  });
+
   it('gets one mailbox, and 404s for a deleted or unknown one', async () => {
     await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1' });
     await seedMailbox(db, { id: 'rmbx_2', domainId: 'rdom_1', status: 'deleted', deletedAt: new Date() });
@@ -223,15 +281,37 @@ describe('writes on an existing mailbox', () => {
     expect((await api()('/api/reach/mailboxes/rmbx_1', json('PATCH', { dailyCap: 51 }))).status).toBe(400);
   });
 
-  it('pause then resume, each publishing an update', async () => {
+  it('PATCH keeps the warmup pool\'s sender name in step', async () => {
+    await seedPoolMailbox(masterDb, { tenantMailboxId: 'rmbx_1', status: 'maintaining', firstName: 'Jane' });
+
+    const res = await api()('/api/reach/mailboxes/rmbx_1', json('PATCH', { firstName: 'Janet' }));
+    expect(res.status).toBe(200);
+    expect(await poolRowOf('rmbx_1')).toMatchObject({ firstName: 'Janet' });
+  });
+
+  it('pause then resume, each publishing an update, and the warmup pool follows', async () => {
+    await seedPoolMailbox(masterDb, { tenantMailboxId: 'rmbx_1', status: 'maintaining', startedAt: new Date('2026-09-01T00:00:00Z'), rampDay: 30 });
+
     const paused = await api()('/api/reach/mailboxes/rmbx_1/pause', json('POST', {}));
     expect(paused.status).toBe(200);
     expect(((await paused.json()) as { data: { status: string; pausedReason: string } }).data).toMatchObject({ status: 'paused', pausedReason: 'user' });
+    expect(await poolRowOf('rmbx_1')).toMatchObject({ status: 'paused', pausedReason: 'paused_by_user' });
 
     const resumed = await api()('/api/reach/mailboxes/rmbx_1/resume', json('POST', {}));
-    expect(((await resumed.json()) as { data: { status: string } }).data.status).toBe('warming'); // warmupDay 0
+    expect(((await resumed.json()) as { data: { status: string } }).data.status).toBe('warming'); // warmupDay 0: the gate decides
+    expect(await poolRowOf('rmbx_1')).toMatchObject({ status: 'maintaining', pausedReason: null });
 
     expect(published.mock.calls.map((c) => (c[0] as { action: string }).action)).toEqual(['updated', 'updated']);
+  });
+
+  it('pause and resume need no Mailpool or warmup key (they only touch our own rows)', async () => {
+    mailpoolFactory = () => {
+      throw new MailpoolNotConfiguredError();
+    };
+    const env = { WELDREACH_WARMUP_KEY: '' };
+
+    expect((await api(ALL, approvedAccess(), env)('/api/reach/mailboxes/rmbx_1/pause', json('POST', {}))).status).toBe(200);
+    expect((await api(ALL, approvedAccess(), env)('/api/reach/mailboxes/rmbx_1/resume', json('POST', {}))).status).toBe(200);
   });
 
   it('resume of a suspended mailbox is a 409', async () => {
@@ -241,7 +321,8 @@ describe('writes on an existing mailbox', () => {
     expect(published).not.toHaveBeenCalled();
   });
 
-  it('DELETE answers 204, releases the inbox, closes the routes and publishes reach_mailbox:deleted', async () => {
+  it('DELETE answers 204, releases the inbox, closes the routes, leaves the warmup pool and publishes reach_mailbox:deleted', async () => {
+    await seedPoolMailbox(masterDb, { tenantMailboxId: 'rmbx_1', status: 'maintaining' });
     await masterDb.insert(masterSchema.reachRoutes).values({
       id: 'rrt_1',
       kind: 'mailpool_mailbox',
@@ -260,6 +341,7 @@ describe('writes on an existing mailbox', () => {
     expect(mailpool.deleteMailbox).toHaveBeenCalledWith('341');
     const [route] = await masterDb.select().from(masterSchema.reachRoutes).where(eq(masterSchema.reachRoutes.id, 'rrt_1'));
     expect(route?.status).toBe('deleted');
+    expect(await poolRowOf('rmbx_1')).toMatchObject({ status: 'removed', smtpCredentials: '', imapCredentials: '' });
     const event = published.mock.calls[0]![0] as { action: string; entityId: string; data: Record<string, unknown> };
     expect(event).toMatchObject({ action: 'deleted', entityId: 'rmbx_1' });
     expect(event.data).not.toHaveProperty('smtpCredentials');

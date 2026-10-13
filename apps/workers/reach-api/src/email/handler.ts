@@ -7,6 +7,14 @@
  * address resolves through master `reach_routes` to the workspace and the
  * mailbox row; `services/inbound.ts` does the rest.
  *
+ * Mailpool forwards *all* incoming mail of a mailbox, and that includes the
+ * warmup mail the WeldSuite warmup network sends it. Before the tenant is
+ * opened, the message's Message-ID, In-Reply-To and References are looked up in
+ * the master `reach_warmup_messages`; a hit is dropped without a trace (no R2
+ * copy, no row, no events), so warmup never reaches the reply inbox or stops a
+ * campaign. That lookup is best effort: if it fails the message is processed as
+ * usual.
+ *
  * This handler never rejects or bounces a message. Mail for an unknown token
  * is dropped silently (a bounce would go back to the forwarder and from there
  * to whoever wrote to the prospect's mailbox), and a failure while processing
@@ -18,8 +26,11 @@ import { and, eq } from 'drizzle-orm';
 import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit';
 import { reachMailboxes } from '@weldsuite/db/schema';
+import { findWarmupMessageIds } from '@weldsuite/reach-domain/warmup-pool';
 import { parseInboundToken } from '../lib/inbound/token';
 import { sha256Hex } from '../lib/inbound/message-id';
+import { parseInbound } from '../lib/inbound/mime';
+import type { ParsedInbound } from '../lib/inbound/types';
 import { openTenantDb } from '../lib/tenant';
 import { deliverInbound, type DeliverInboundResult, type InboundMailbox } from '../services/inbound';
 import type { Env } from '../types';
@@ -35,6 +46,8 @@ export interface InboundRoute {
 /** The seams of the handler, replaced in tests. */
 export interface InboundHandlerDeps {
   resolveRoute: (env: Env, token: string) => Promise<InboundRoute | null>;
+  /** Which of these Message-IDs (no angle brackets) belong to warmup mail. */
+  findWarmupIds: (env: Env, messageIds: string[]) => Promise<Set<string>>;
   openDb: (env: Env, clerkOrgId: string) => Promise<Database>;
   deliver: typeof deliverInbound;
 }
@@ -56,8 +69,14 @@ export async function resolveInboundRoute(env: Env, token: string): Promise<Inbo
   return route ?? null;
 }
 
+/** Master lookup in `reach_warmup_messages`. */
+export async function findInboundWarmupIds(env: Env, messageIds: string[]): Promise<Set<string>> {
+  return findWarmupMessageIds(getMasterDb(env), messageIds);
+}
+
 const defaultDeps: InboundHandlerDeps = {
   resolveRoute: resolveInboundRoute,
+  findWarmupIds: findInboundWarmupIds,
   openDb: openTenantDb,
   deliver: deliverInbound,
 };
@@ -107,6 +126,44 @@ async function parkFailed(env: Env, clerkOrgId: string, raw: Uint8Array): Promis
   }
 }
 
+/** References beyond this many (newest first) are not looked up: a long list thread is not warmup. */
+const MAX_REFERENCE_LOOKUPS = 20;
+
+/** The ids a warmup message can be recognised by: its own, what it answers, and its thread. */
+export function threadingIdsOf(parsed: ParsedInbound): string[] {
+  const ids = [parsed.messageId, parsed.inReplyTo, ...parsed.references.slice(-MAX_REFERENCE_LOOKUPS)];
+  return [...new Set(ids.filter((id): id is string => id !== null && id !== ''))];
+}
+
+/**
+ * Parse the message once and ask master whether it is warmup mail. Best effort:
+ * a message that cannot be parsed here, or a master that cannot answer, is not
+ * a reason to lose a real reply, so the result is then "not warmup" and the
+ * normal pipeline (which parks what it cannot process) takes over.
+ */
+async function screenForWarmup(
+  raw: Uint8Array,
+  env: Env,
+  deps: InboundHandlerDeps,
+): Promise<{ warmup: boolean; parsed: ParsedInbound | null }> {
+  let parsed: ParsedInbound;
+  try {
+    parsed = await parseInbound(raw);
+  } catch (err) {
+    console.error('[reach-inbound] warmup screening could not parse the message:', err instanceof Error ? err.message : err);
+    return { warmup: false, parsed: null };
+  }
+
+  const ids = threadingIdsOf(parsed);
+  if (ids.length === 0) return { warmup: false, parsed };
+  try {
+    return { warmup: (await deps.findWarmupIds(env, ids)).size > 0, parsed };
+  } catch (err) {
+    console.error('[reach-inbound] warmup lookup failed, processing the message normally:', err instanceof Error ? err.message : err);
+    return { warmup: false, parsed };
+  }
+}
+
 /** Process one forwarded message; the result says what was done (tests and logs). Never throws. */
 export async function processInboundEmail(
   message: ForwardableEmailMessage,
@@ -142,6 +199,13 @@ export async function processInboundEmail(
     return null;
   }
 
+  // Warmup mail is dropped before the tenant is opened: no R2 write, no row, no events.
+  const screened = await screenForWarmup(raw, env, deps);
+  if (screened.warmup) {
+    console.warn('[reach-inbound] dropped: warmup network mail');
+    return null;
+  }
+
   try {
     const db = await deps.openDb(env, route.clerkOrgId);
     const mailbox = await loadMailbox(db, route.mailboxId, token);
@@ -155,6 +219,7 @@ export async function processInboundEmail(
       clerkOrgId: route.clerkOrgId,
       mailbox,
       raw,
+      parsed: screened.parsed ?? undefined,
       waitUntil: (promise) => ctx.waitUntil(promise.catch(() => undefined)),
     });
   } catch (err) {

@@ -6,12 +6,7 @@
 import { vi } from 'vitest';
 import type { ReachBilling } from '../billing';
 import type { MailpoolClient } from './client';
-import type {
-  CreateMailpoolMailboxInput,
-  MailpoolMailbox,
-  MailpoolWarmupDetail,
-  MailpoolWarmupInbox,
-} from './types';
+import type { CreateMailpoolMailboxInput, MailpoolMailbox } from './types';
 
 export type FakeMailpool = { [K in keyof MailpoolClient]: ReturnType<typeof vi.fn> & MailpoolClient[K] };
 
@@ -43,52 +38,9 @@ export function mailpoolMailbox(input: CreateMailpoolMailboxInput, overrides: Pa
   };
 }
 
-export function warmupInbox(mailboxId: number, overrides: Partial<MailpoolWarmupInbox> = {}): MailpoolWarmupInbox {
-  return {
-    id: 7000 + mailboxId,
-    mailboxId,
-    email: `m${mailboxId}@example.test`,
-    status: 'Started',
-    warmboxId: 'wbx_test',
-    createdAt: '2026-10-01T00:00:00Z',
-    ...overrides,
-  };
-}
-
-/** Counters for `days` days with warmup mail sent (spam/bounce counts per day are configurable). */
-export function warmupDetail(
-  inbox: MailpoolWarmupInbox,
-  days: number,
-  perDay: { sent?: number; landed_in_spam?: number; bounced?: number } = {},
-): MailpoolWarmupDetail {
-  const counters: MailpoolWarmupDetail['counters'] = {};
-  for (let i = 0; i < days; i++) {
-    const date = new Date(Date.UTC(2026, 8, 1 + i)).toISOString().slice(0, 10);
-    counters[date] = {
-      sent: perDay.sent ?? 10,
-      delivered: perDay.sent ?? 10,
-      replied: 3,
-      landed_in_spam: perDay.landed_in_spam ?? 0,
-      bounced: perDay.bounced ?? 0,
-      lost: 0,
-    };
-  }
-  return {
-    id: inbox.id,
-    mailboxId: inbox.mailboxId,
-    email: inbox.email,
-    status: inbox.status,
-    dailyTarget: 40,
-    replyRate: 30,
-    duration: 45,
-    counters,
-    createdAt: inbox.createdAt,
-  };
-}
-
 /**
  * A Mailpool client whose every method is a `vi.fn` with a sensible default
- * (an account with free google slots, nothing in warmup yet). Override per test.
+ * (an account with free google slots). Override per test.
  */
 export function createFakeMailpool(overrides: Partial<Record<keyof MailpoolClient, unknown>> = {}): FakeMailpool {
   const fake = {
@@ -129,12 +81,6 @@ export function createFakeMailpool(overrides: Partial<Record<keyof MailpoolClien
       email: 'x@example.test',
       status: 'active' as const,
     })),
-    addToWarmup: vi.fn(async (mailboxIds: number[]) => mailboxIds.map((id) => warmupInbox(id, { status: 'Pending', warmboxId: null }))),
-    listWarmup: vi.fn(async () => ({ data: [] as MailpoolWarmupInbox[], total: 0 })),
-    getWarmup: vi.fn(async (id: number) => warmupDetail(warmupInbox(id - 7000), 0)),
-    startWarmup: vi.fn(async (id: number) => warmupInbox(id - 7000, { status: 'Started' })),
-    pauseWarmup: vi.fn(async (id: number) => warmupInbox(id - 7000, { status: 'Paused' })),
-    removeFromWarmup: vi.fn(async (id: number) => warmupInbox(id - 7000)),
     getSlots: vi.fn(async () => ({ mailboxes: { google: 0, private: 0, outlook: 0 }, slots: { google: 50, private: 0, outlook: 0 } })),
     increaseSlots: vi.fn(async () => undefined),
     decreaseSlots: vi.fn(async () => undefined),

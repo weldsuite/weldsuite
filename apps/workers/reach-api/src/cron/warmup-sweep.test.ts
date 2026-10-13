@@ -1,7 +1,8 @@
 /**
  * The warmup sweep on the real due-index helpers (in-memory SQLite D1), a
- * pglite tenant and a fake Mailpool: it visits only due workspaces, stores when
- * each next needs a visit, and never opens a tenant that lost access.
+ * pglite tenant, a pglite master holding the warmup pool and a fake Mailpool:
+ * it visits only due workspaces, stores when each next needs a visit, and
+ * never opens a tenant that lost access.
  */
 
 import { readFileSync } from 'node:fs';
@@ -9,11 +10,20 @@ import { resolve } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createMemoryKv, createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { createFakeMailpool, warmupDetail, warmupInbox } from '../lib/mailpool/testing';
-import { resetReachTenant, seedHostDomain, seedMailbox, seedReachDomain } from '../lib/mailpool/testing-db';
+import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { createFakeMailpool, mailpoolMailbox } from '../lib/mailpool/testing';
+import {
+  WARMUP_TEST_KEY,
+  poolStats,
+  resetReachMaster,
+  resetReachTenant,
+  seedHostDomain,
+  seedMailbox,
+  seedPoolMailbox,
+  seedReachDomain,
+} from '../lib/mailpool/testing-db';
 import { approvedAccess } from '../lib/mailpool/testing-routes';
 import type { Env } from '../types';
 import { MAX_WORKSPACES_PER_RUN, runWarmupSweep, WARMUP_INDEX_SEED_KEY } from './warmup-sweep';
@@ -31,6 +41,7 @@ const CRON = new Date('2026-10-13T03:15:00Z');
 const TOMORROW = Date.UTC(2026, 9, 14);
 
 let db: Database;
+let master: MasterDatabase;
 let d1: D1Database;
 let env: Env;
 
@@ -43,20 +54,29 @@ async function dueAt(workspaceId: string): Promise<number | null> {
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db as MasterDatabase;
 }, 120_000);
 
 beforeEach(async () => {
   published.mockClear();
   await resetReachTenant(db);
+  await resetReachMaster(master);
   await seedHostDomain(db, { id: 'dom_1', fullDomain: 'getacme.com' });
   await seedReachDomain(db, { id: 'rdom_1', hostDomainId: 'dom_1', name: 'getacme.com' });
   d1 = createSqliteD1(MIGRATION);
-  env = { SCHEDULE_INDEX: d1, WORKSPACE_CACHE: createMemoryKv(), MAILPOOL_API_KEY: 'k', DATABASE_ENCRYPTION_KEY: 'ab'.repeat(32) } as unknown as Env;
+  env = {
+    SCHEDULE_INDEX: d1,
+    WORKSPACE_CACHE: createMemoryKv(),
+    MAILPOOL_API_KEY: 'k',
+    DATABASE_ENCRYPTION_KEY: 'ab'.repeat(32),
+    WELDREACH_WARMUP_KEY: WARMUP_TEST_KEY,
+  } as unknown as Env;
 });
 
 function sweepDeps(overrides: { openTenant?: ReturnType<typeof vi.fn>; readAccess?: ReturnType<typeof vi.fn> } = {}) {
   return {
     mailpool: createFakeMailpool(),
+    master,
     openTenant: overrides.openTenant ?? vi.fn(async () => db),
     readAccess: overrides.readAccess ?? vi.fn(async () => approvedAccess()),
     now: CRON,
@@ -64,20 +84,18 @@ function sweepDeps(overrides: { openTenant?: ReturnType<typeof vi.fn>; readAcces
 }
 
 describe('runWarmupSweep', () => {
-  it('visits a due workspace, advances its mailboxes and stores tomorrow as the next visit', async () => {
+  it('visits a due workspace, advances its mailboxes from the pool and stores tomorrow as the next visit', async () => {
     await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'warming', mailpoolMailboxId: '341', email: 'jane@getacme.com' });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'maintaining', rampDay: 14, stats: poolStats({ inboxRate3d: 0.9 }) });
     await markWorkspaceDue(d1, 'reach_warmup', 'org_acme', CRON.getTime() - 3_600_000);
     const deps = sweepDeps();
-    const inbox = warmupInbox(341);
-    deps.mailpool.listWarmup.mockResolvedValue({ data: [inbox], total: 1 });
-    deps.mailpool.getWarmup.mockResolvedValue(warmupDetail(inbox, 14));
 
     const result = await runWarmupSweep(env, deps);
 
     expect(result).toMatchObject({ due: 1, processed: 1, failed: 0 });
     expect(deps.openTenant).toHaveBeenCalledExactlyOnceWith(env, 'org_acme');
     const [row] = await db.select().from(schema.reachMailboxes).where(eq(schema.reachMailboxes.id, 'rmbx_1'));
-    expect(row).toMatchObject({ status: 'active', warmupDay: 14, rampCurrent: 10 });
+    expect(row).toMatchObject({ status: 'active', warmupDay: 14, warmupInboxRate: 0.9, rampCurrent: 10 });
     // Still ramping from 10 to 30: back tomorrow, after the next 03:15 run is due.
     expect(await dueAt('org_acme')).toBe(TOMORROW);
     expect(published).toHaveBeenCalledOnce();
@@ -159,26 +177,72 @@ describe('runWarmupSweep', () => {
     expect(await d1.prepare('SELECT COUNT(*) AS n FROM workspace_due_index').first<number>('n')).toBe(5);
   });
 
-  it('does nothing without a Mailpool key', async () => {
+  it('still follows the pool without a Mailpool key (only mailboxes still provisioning wait for it)', async () => {
+    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'warming' });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'warming', rampDay: 9, stats: poolStats({ inboxRate3d: 0.9 }) });
     await markWorkspaceDue(d1, 'reach_warmup', 'org_acme', CRON.getTime() - 1000);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const result = await runWarmupSweep({ ...env, MAILPOOL_API_KEY: undefined } as Env, { now: CRON, openTenant: vi.fn(async () => db), readAccess: vi.fn(async () => approvedAccess()) });
 
-    expect(result).toEqual({ due: 0, processed: 0, failed: 0, seeded: 0 });
-    expect(await dueAt('org_acme')).not.toBeNull(); // untouched: the next run with a key visits it
+    const result = await runWarmupSweep({ ...env, MAILPOOL_API_KEY: undefined } as Env, {
+      now: CRON,
+      master,
+      openTenant: vi.fn(async () => db),
+      readAccess: vi.fn(async () => approvedAccess()),
+    });
+
+    expect(result).toMatchObject({ due: 1, processed: 1, failed: 0 });
+    const [row] = await db.select().from(schema.reachMailboxes).where(eq(schema.reachMailboxes.id, 'rmbx_1'));
+    expect(row).toMatchObject({ status: 'warming', warmupDay: 9 });
+    expect(await dueAt('org_acme')).toBe(TOMORROW);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('MAILPOOL_API_KEY is not set'));
     warn.mockRestore();
   });
 
-  it('shares one Mailpool warmup list across the workspaces of a run', async () => {
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'warming', mailpoolMailboxId: '341' });
-    await markWorkspaceDue(d1, 'reach_warmup', 'org_a', CRON.getTime() - 2000);
-    await markWorkspaceDue(d1, 'reach_warmup', 'org_b', CRON.getTime() - 1000);
-    const deps = sweepDeps();
-    const inbox = warmupInbox(341);
-    deps.mailpool.listWarmup.mockResolvedValue({ data: [inbox], total: 1 });
-    deps.mailpool.getWarmup.mockResolvedValue(warmupDetail(inbox, 3));
+  it('files a mailbox that finishes provisioning in the pool under the workspace the access row names, and reports a failed login as a suspension', async () => {
+    await seedMailbox(db, { id: 'rmbx_new', domainId: 'rdom_1', status: 'provisioning', mailpoolMailboxId: '341', email: 'jane@getacme.com' });
+    await seedMailbox(db, { id: 'rmbx_bad', domainId: 'rdom_1', status: 'active', dailyCap: 30, rampCurrent: 30 });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_bad', status: 'error', pausedReason: 'login_failed', lastLoginError: 'bad' });
+    await markWorkspaceDue(d1, 'reach_warmup', 'org_acme', CRON.getTime() - 1000);
+    const deps = sweepDeps({ readAccess: vi.fn(async () => approvedAccess({ workspaceId: 'ws_other' })) });
+    deps.mailpool.getMailbox.mockResolvedValue(mailpoolMailbox({ email: 'jane@getacme.com', firstName: 'Jane', lastName: 'Doe', type: 'google' }, { id: '341' }));
 
     await runWarmupSweep(env, deps);
-    expect(deps.mailpool.listWarmup).toHaveBeenCalledTimes(1);
+
+    const [pool] = await master.select().from(masterSchema.reachWarmupMailboxes).where(eq(masterSchema.reachWarmupMailboxes.tenantMailboxId, 'rmbx_new'));
+    expect(pool).toMatchObject({ workspaceId: 'ws_other', clerkOrgId: 'org_acme', status: 'waiting' });
+    const events = published.mock.calls.map((c) => c[0] as { entityId: string; action: string; entityType: string });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ entityType: 'reach_mailbox', entityId: 'rmbx_new', action: 'updated' }),
+        expect.objectContaining({ entityType: 'reach_mailbox', entityId: 'rmbx_bad', action: 'suspended' }),
+      ]),
+    );
+  });
+
+  it('forgets a workspace whose access row has no workspace (nothing to file pool rows under)', async () => {
+    await markWorkspaceDue(d1, 'reach_warmup', 'org_acme', CRON.getTime() - 1000);
+    const deps = sweepDeps({ readAccess: vi.fn(async () => approvedAccess({ workspaceId: null })) });
+
+    await runWarmupSweep(env, deps);
+    expect(deps.openTenant).not.toHaveBeenCalled();
+    expect(await dueAt('org_acme')).toBeNull();
+  });
+
+  it('retries a workspace whose pool could not be read, later', async () => {
+    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'warming' });
+    await markWorkspaceDue(d1, 'reach_warmup', 'org_acme', CRON.getTime() - 1000);
+    const brokenMaster = new Proxy(master, {
+      get(target, prop, receiver) {
+        if (prop === 'select') return () => { throw new Error('master down'); };
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await runWarmupSweep(env, { ...sweepDeps(), master: brokenMaster });
+
+    expect(result).toMatchObject({ due: 1, processed: 0, failed: 1 });
+    expect(await dueAt('org_acme')).toBe(CRON.getTime() + 6 * 3_600_000);
+    error.mockRestore();
   });
 });

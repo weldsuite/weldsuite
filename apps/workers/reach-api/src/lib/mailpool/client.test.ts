@@ -203,21 +203,7 @@ describe('createMailpoolClient', () => {
     });
   });
 
-  describe('warmup and slots', () => {
-    it('adds mailboxes by id, lists with a search filter and reads detail', async () => {
-      const inbox = { id: 12, mailboxId: 341, email: 'j@getacme.com', status: 'Pending', warmboxId: null, createdAt: '2026-10-01T00:00:00Z' };
-      const { client, fetchMock } = setup([json([inbox], 201), json({ data: [inbox], total: 1 }), json({ id: 12, counters: {} })]);
-
-      expect(await client.addToWarmup([341])).toEqual([inbox]);
-      expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({ mailboxIds: [341] });
-
-      expect((await client.listWarmup({ search: 'j@getacme.com', limit: 20 })).total).toBe(1);
-      expect(String(fetchMock.mock.calls[1]![0])).toContain('/warmup?limit=20&offset=0&search=j%40getacme.com');
-
-      await client.getWarmup(12);
-      expect(fetchMock.mock.calls[2]![0]).toBe(`${MAILPOOL_DEFAULT_BASE_URL}/warmup/12`);
-    });
-
+  describe('slots', () => {
     it('reads, increases and decreases subscription slots', async () => {
       const { client, fetchMock } = setup([json({ slots: { google: 5 }, mailboxes: { google: 4 } }), new Response(null, { status: 200 }), new Response(null, { status: 200 })]);
 

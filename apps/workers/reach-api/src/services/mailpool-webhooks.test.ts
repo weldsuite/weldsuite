@@ -1,6 +1,7 @@
 /**
  * Mailpool webhooks: signature verification, payload parsing and the effect of
- * each event on the tenant rows (pglite tenant + master, fake Mailpool).
+ * each event on the tenant rows and on the mailbox's row in the warmup pool
+ * (pglite tenant + master, fake Mailpool).
  */
 
 import { createHmac } from 'node:crypto';
@@ -8,9 +9,17 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { openWarmupCredentials } from '@weldsuite/reach-domain/warmup-pool';
 import { openMailServerCredentials } from '../lib/credentials';
 import { createFakeMailpool, mailpoolMailbox } from '../lib/mailpool/testing';
-import { resetReachMaster, resetReachTenant, seedMailbox, seedReachDomain } from '../lib/mailpool/testing-db';
+import {
+  WARMUP_TEST_KEY,
+  resetReachMaster,
+  resetReachTenant,
+  seedMailbox,
+  seedPoolMailbox,
+  seedReachDomain,
+} from '../lib/mailpool/testing-db';
 import {
   handleMailpoolWebhook,
   parseMailpoolWebhook,
@@ -69,12 +78,14 @@ async function liveMailbox(overrides: Record<string, unknown> = {}) {
   });
   return row;
 }
+const pool = async (id = 'rmbx_1') =>
+  (await master.select().from(masterSchema.reachWarmupMailboxes).where(eq(masterSchema.reachWarmupMailboxes.tenantMailboxId, id)))[0];
 const mailbox = async (id = 'rmbx_1') => (await db.select().from(schema.reachMailboxes).where(eq(schema.reachMailboxes.id, id)))[0]!;
 const domain = async () => (await db.select().from(schema.reachDomains).where(eq(schema.reachDomains.id, 'rdom_1')))[0]!;
 
 function deps(overrides: Partial<WebhookDeps> = {}): WebhookDeps {
   return {
-    env: { DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY },
+    env: { DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY, WELDREACH_WARMUP_KEY: WARMUP_TEST_KEY },
     master,
     openTenant: async () => db,
     mailpool: createFakeMailpool(),
@@ -136,8 +147,9 @@ describe('parseMailpoolWebhook', () => {
 });
 
 describe('mailbox events', () => {
-  it('marks a mailbox Mailpool disabled for spam as suspended, with the reason, and publishes it', async () => {
+  it('marks a mailbox Mailpool disabled for spam as suspended, with the reason, pauses it in the warmup pool, and publishes it', async () => {
     await liveMailbox();
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'warming' });
     const outcome = await handleMailpoolWebhook(
       deps(),
       event('mailboxes.updated', { id: 341, status: 'inactive', error: { code: 401, message: 'Account disabled for sending spam.' } }),
@@ -149,6 +161,7 @@ describe('mailbox events', () => {
       pausedReason: 'Account disabled for sending spam.',
       lastError: 'Account disabled for sending spam.',
     });
+    expect(await pool()).toMatchObject({ status: 'paused', pausedReason: 'mailbox_suspended' });
     expect(published).toHaveBeenCalledOnce();
     expect(published.mock.calls[0]![0]).toMatchObject({
       workspaceId: 'org_acme',
@@ -159,10 +172,33 @@ describe('mailbox events', () => {
     expect(JSON.stringify(published.mock.calls[0]![0])).not.toMatch(/smtpCredentials|imapCredentials/);
   });
 
-  it('maps account-configuration errors to error rather than suspended', async () => {
+  it('maps account-configuration errors to error rather than suspended, and the pool pauses too', async () => {
     await liveMailbox();
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'maintaining' });
     await handleMailpoolWebhook(deps(), event('mailboxes.updated', { id: '341', status: 'inactive', error: { code: 202, message: 'Admin password changed.' } }));
     expect(await mailbox()).toMatchObject({ status: 'error', lastError: 'Admin password changed.', pausedReason: null });
+    expect(await pool()).toMatchObject({ status: 'paused', pausedReason: 'mailbox_suspended' });
+  });
+
+  it('pauses the pool before it touches the tenant, so a failed delivery is retried whole', async () => {
+    await liveMailbox();
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'warming' });
+    const failing = new Proxy(master, {
+      get(target, prop, receiver) {
+        if (prop === 'update') return () => { throw new Error('master down'); };
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+
+    await expect(
+      handleMailpoolWebhook(deps({ master: failing }), event('mailboxes.updated', { id: 341, status: 'inactive', error: { code: 401, message: 'Spam.' } })),
+    ).rejects.toThrow('master down');
+    expect((await mailbox()).status).toBe('warming');
+
+    // Mailpool retries the delivery, and now everything lands.
+    await handleMailpoolWebhook(deps(), event('mailboxes.updated', { id: 341, status: 'inactive', error: { code: 401, message: 'Spam.' } }));
+    expect((await mailbox()).status).toBe('suspended');
+    expect((await pool())?.status).toBe('paused');
   });
 
   it('suspends an inactive mailbox that has no error details', async () => {
@@ -181,14 +217,28 @@ describe('mailbox events', () => {
     expect(published).not.toHaveBeenCalled();
   });
 
-  it('restores a suspended mailbox when Mailpool reports it active again (warming or active by its warmup)', async () => {
-    await liveMailbox({ status: 'suspended', pausedReason: 'Spam.', lastError: 'Spam.', warmupDay: 20 });
+  it('restores a suspended mailbox when Mailpool reports it active again (warming or active by the health gate), and resumes it in the pool', async () => {
+    await liveMailbox({ status: 'suspended', pausedReason: 'Spam.', lastError: 'Spam.', warmupDay: 20, warmupInboxRate: 0.9 });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'paused', pausedReason: 'mailbox_suspended', startedAt: new Date('2026-09-01T00:00:00Z'), rampDay: 20 });
     await handleMailpoolWebhook(deps(), event('mailboxes.updated', { id: 341, status: 'active' }));
     expect(await mailbox()).toMatchObject({ status: 'active', pausedReason: null, lastError: null });
+    expect(await pool()).toMatchObject({ status: 'maintaining', pausedReason: null });
 
     await db.update(schema.reachMailboxes).set({ status: 'error', warmupDay: 4 }).where(eq(schema.reachMailboxes.id, 'rmbx_1'));
     await handleMailpoolWebhook(deps(), event('mailboxes.updated', { id: 341, status: 'active' }));
     expect((await mailbox()).status).toBe('warming');
+  });
+
+  it('leaves a mailbox the warmup network took out of use (failed login) to the daily pass', async () => {
+    await liveMailbox({ status: 'error', pausedReason: 'login_failed', lastError: 'The warmup network could not sign in to this mailbox.' });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'error', pausedReason: 'login_failed', lastLoginError: 'bad' });
+
+    const outcome = await handleMailpoolWebhook(deps(), event('mailboxes.updated', { id: 341, status: 'active' }));
+
+    expect(outcome).toEqual({ handled: true, changed: false });
+    expect(await mailbox()).toMatchObject({ status: 'error', pausedReason: 'login_failed' });
+    expect((await pool())?.status).toBe('error');
+    expect(published).not.toHaveBeenCalled();
   });
 
   it('does not override a mailbox the user paused', async () => {
@@ -198,28 +248,64 @@ describe('mailbox events', () => {
     expect((await mailbox()).status).toBe('paused');
   });
 
-  it('starts warming a mailbox that finished provisioning, and stores the logins it brings', async () => {
+  it('starts warming a mailbox that finished provisioning: stores its logins and enters the warmup pool', async () => {
     await liveMailbox({ status: 'provisioning', smtpCredentials: null, email: 'jane@getacme.com' });
-    const mailpool = createFakeMailpool();
     const remote = mailpoolMailbox({ email: 'jane@getacme.com', firstName: 'Jane', lastName: 'Doe', type: 'google' }, { id: '341' });
 
-    await handleMailpoolWebhook(deps({ mailpool }), event('mailboxes.updated', remote as unknown as Record<string, unknown>));
+    await handleMailpoolWebhook(deps(), event('mailboxes.updated', remote as unknown as Record<string, unknown>));
 
     const row = await mailbox();
-    expect(row.status).toBe('warming');
+    expect(row).toMatchObject({ status: 'warming', warmupStatus: 'waiting' });
     expect(row.warmupStartedAt).toEqual(NOW);
     expect(await openMailServerCredentials({ DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY }, row.smtpCredentials)).toMatchObject({ password: 'smtp-secret-password' });
-    expect(mailpool.addToWarmup).toHaveBeenCalledWith([341]);
+
+    const registered = (await pool())!;
+    expect(registered).toMatchObject({
+      status: 'waiting',
+      workspaceId: 'ws_acme',
+      clerkOrgId: 'org_acme',
+      email: 'jane@getacme.com',
+      domain: 'getacme.com',
+      mailboxType: 'google',
+    });
+    expect(await openWarmupCredentials({ WELDREACH_WARMUP_KEY: WARMUP_TEST_KEY }, registered.imapCredentials)).toMatchObject({ host: 'imap.mailpool.test', password: 'imap-secret-password' });
     expect(published.mock.calls[0]![0]).toMatchObject({ action: 'updated' });
   });
 
-  it('still moves a provisioned mailbox to warming without a Mailpool key (the daily pass starts the warmup)', async () => {
-    await liveMailbox({ status: 'provisioning', smtpCredentials: null });
-    await handleMailpoolWebhook(deps({ mailpool: null }), event('mailboxes.updated', { id: 341, status: 'active' }));
+  it('reads the logins from Mailpool when the payload leaves them out', async () => {
+    await liveMailbox({ status: 'provisioning', smtpCredentials: null, email: 'jane@getacme.com' });
+    const mailpool = createFakeMailpool();
+    mailpool.getMailbox.mockResolvedValueOnce(mailpoolMailbox({ email: 'jane@getacme.com', firstName: 'Jane', lastName: 'Doe', type: 'google' }, { id: '341' }));
+
+    await handleMailpoolWebhook(deps({ mailpool }), event('mailboxes.updated', { id: 341, status: 'active' }));
+
+    expect(mailpool.getMailbox).toHaveBeenCalledWith(341);
     expect((await mailbox()).status).toBe('warming');
+    expect((await pool())?.status).toBe('waiting');
   });
 
-  it('fills logins that were not ready at create time', async () => {
+  it('keeps a mailbox in provisioning while no logins are available (payload without them, Mailpool cannot be asked), and says nothing', async () => {
+    await liveMailbox({ status: 'provisioning', smtpCredentials: null });
+
+    const outcome = await handleMailpoolWebhook(deps({ mailpool: null }), event('mailboxes.updated', { id: 341, status: 'active' }));
+
+    expect(outcome).toEqual({ handled: true, changed: false });
+    expect((await mailbox()).status).toBe('provisioning');
+    expect(await pool()).toBeUndefined();
+    expect(published).not.toHaveBeenCalled();
+  });
+
+  it('answers with an error, leaving the mailbox provisioning, when the warmup pool cannot be written (Mailpool retries)', async () => {
+    await liveMailbox({ status: 'provisioning', smtpCredentials: null, email: 'jane@getacme.com' });
+    const remote = mailpoolMailbox({ email: 'jane@getacme.com', firstName: 'Jane', lastName: 'Doe', type: 'google' }, { id: '341' });
+
+    await expect(
+      handleMailpoolWebhook(deps({ env: { DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY } }), event('mailboxes.updated', remote as unknown as Record<string, unknown>)),
+    ).rejects.toThrow('WELDREACH_WARMUP_KEY');
+    expect((await mailbox()).status).toBe('provisioning');
+  });
+
+  it('fills logins that were not ready at create time, in the pool too', async () => {
     await liveMailbox({ status: 'warming', smtpCredentials: null });
     const remote = mailpoolMailbox({ email: 'jane@getacme.com', firstName: 'Jane', lastName: 'Doe', type: 'google' }, { id: '341' });
 
@@ -228,13 +314,16 @@ describe('mailbox events', () => {
     expect(outcome).toEqual({ handled: true, changed: true });
     expect((await mailbox()).smtpCredentials).not.toBeNull();
     expect((await mailbox()).status).toBe('warming');
+    expect(await openWarmupCredentials({ WELDREACH_WARMUP_KEY: WARMUP_TEST_KEY }, (await pool())!.smtpCredentials)).toMatchObject({ password: 'smtp-secret-password' });
   });
 
-  it('marks a mailbox deleted at Mailpool behind our back as error (it is removed, and un-billed, through the normal delete)', async () => {
+  it('marks a mailbox deleted at Mailpool behind our back as error and pauses it in the pool (it is removed, and un-billed, through the normal delete)', async () => {
     await liveMailbox({ status: 'active' });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'maintaining' });
     const outcome = await handleMailpoolWebhook(deps(), event('mailboxes.deleted', { id: 341 }));
 
     expect(outcome).toEqual({ handled: true, changed: true });
+    expect(await pool()).toMatchObject({ status: 'paused', pausedReason: 'mailbox_suspended' });
     expect(await mailbox()).toMatchObject({ status: 'error' });
     expect((await mailbox()).lastError).toContain('deleted at the mailbox provider');
     expect(published.mock.calls[0]![0]).toMatchObject({ action: 'suspended' });
@@ -269,10 +358,13 @@ describe('mailbox events', () => {
 });
 
 describe('domain events', () => {
-  it('records a disabled domain as error and parks its running mailboxes', async () => {
+  it('records a disabled domain as error and parks its running mailboxes, in the pool too', async () => {
     await seedMailbox(db, { id: 'rmbx_a', domainId: 'rdom_1', status: 'active' });
     await seedMailbox(db, { id: 'rmbx_w', domainId: 'rdom_1', status: 'warming' });
     await seedMailbox(db, { id: 'rmbx_u', domainId: 'rdom_1', status: 'paused', pausedReason: 'user' });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_a', status: 'maintaining' });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_w', status: 'warming' });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_u', status: 'paused', pausedReason: 'paused_by_user' });
 
     const outcome = await handleMailpoolWebhook(
       deps(),
@@ -284,20 +376,27 @@ describe('domain events', () => {
     expect(await mailbox('rmbx_a')).toMatchObject({ status: 'paused', pausedReason: 'domain_error' });
     expect(await mailbox('rmbx_w')).toMatchObject({ status: 'paused', pausedReason: 'domain_error' });
     expect(await mailbox('rmbx_u')).toMatchObject({ status: 'paused', pausedReason: 'user' });
+    expect(await pool('rmbx_a')).toMatchObject({ status: 'paused', pausedReason: 'domain_error' });
+    expect(await pool('rmbx_w')).toMatchObject({ status: 'paused', pausedReason: 'domain_error' });
+    expect(await pool('rmbx_u')).toMatchObject({ status: 'paused', pausedReason: 'paused_by_user' });
     const actions = published.mock.calls.map((c) => `${(c[0] as { entityType: string }).entityType}:${(c[0] as { action: string }).action}`);
     expect(actions).toEqual(['reach_domain:updated', 'reach_mailbox:updated', 'reach_mailbox:updated']);
   });
 
   it('brings back the mailboxes it parked when the domain is active again', async () => {
     await db.update(schema.reachDomains).set({ status: 'error', lastError: 'Disabled.' }).where(eq(schema.reachDomains.id, 'rdom_1'));
-    await seedMailbox(db, { id: 'rmbx_a', domainId: 'rdom_1', status: 'paused', pausedReason: 'domain_error', warmupDay: 30 });
+    await seedMailbox(db, { id: 'rmbx_a', domainId: 'rdom_1', status: 'paused', pausedReason: 'domain_error', warmupDay: 30, warmupInboxRate: 0.9 });
     await seedMailbox(db, { id: 'rmbx_u', domainId: 'rdom_1', status: 'paused', pausedReason: 'user' });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_a', status: 'paused', pausedReason: 'domain_error', startedAt: new Date('2026-09-01T00:00:00Z'), rampDay: 30 });
+    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_u', status: 'paused', pausedReason: 'paused_by_user' });
 
     await handleMailpoolWebhook(deps(), event('domains.updated', { id: '5001', status: 'active' }));
 
     expect(await domain()).toMatchObject({ status: 'active', lastError: null });
     expect(await mailbox('rmbx_a')).toMatchObject({ status: 'active', pausedReason: null });
+    expect(await pool('rmbx_a')).toMatchObject({ status: 'maintaining', pausedReason: null });
     expect((await mailbox('rmbx_u')).status).toBe('paused');
+    expect(await pool('rmbx_u')).toMatchObject({ status: 'paused', pausedReason: 'paused_by_user' });
   });
 
   it('moves a connecting domain to active, and is a no-op when nothing changed', async () => {

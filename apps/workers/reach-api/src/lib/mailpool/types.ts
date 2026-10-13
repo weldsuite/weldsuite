@@ -2,10 +2,11 @@
  * Hand-written types for the slice of the Mailpool public API WeldReach uses
  * (spec: `https://app.mailpool.io/v1/api`, OpenAPI export `Mailpool-API.yaml`).
  *
- * Only the endpoints reach-api calls are modelled. The API is loose about
- * ids (domain ids are numbers, mailbox ids are strings in the schema, warmup
- * ids are numbers) and about ports (strings for `shared` mailboxes), so the
- * response types accept both and the client normalises where it matters.
+ * Only the endpoints reach-api calls are modelled (domains, mailboxes, slots;
+ * warmup is WeldSuite's own network, not Mailpool's). The API is loose about
+ * ids (domain ids are numbers, mailbox ids are strings in the schema) and about
+ * ports (strings for `shared` mailboxes), so the response types accept both and
+ * the client normalises where it matters.
  */
 
 // ---------------------------------------------------------------------------
@@ -174,45 +175,6 @@ export interface MailpoolSubscriptionSlots {
   mailboxes: Partial<Record<string, number>>;
   /** Slots paid for per type. */
   slots: Partial<Record<string, number>>;
-}
-
-// ---------------------------------------------------------------------------
-// Warmup
-// ---------------------------------------------------------------------------
-
-/** `Pending` until connected to the warmup network, then `Started`; `Stopped` = connection failed. */
-export type MailpoolWarmupStatus = 'Pending' | 'Started' | 'Paused' | 'Stopped';
-
-export interface MailpoolWarmupInbox {
-  /** Warmup inbox id; used by every `/warmup/{id}` call. */
-  id: number;
-  mailboxId: number;
-  email: string;
-  status: MailpoolWarmupStatus;
-  warmboxId: string | null;
-  createdAt: string;
-}
-
-export interface MailpoolWarmupDayCounter {
-  sent: number;
-  delivered: number;
-  replied: number;
-  landed_in_spam: number;
-  bounced: number;
-  lost: number;
-}
-
-export interface MailpoolWarmupDetail {
-  id: number;
-  mailboxId: number;
-  email: string;
-  status: MailpoolWarmupStatus;
-  dailyTarget: number;
-  replyRate: number;
-  duration: number | null;
-  /** Per-day statistics keyed by `YYYY-MM-DD`. */
-  counters: Record<string, MailpoolWarmupDayCounter>;
-  createdAt: string;
 }
 
 // ---------------------------------------------------------------------------

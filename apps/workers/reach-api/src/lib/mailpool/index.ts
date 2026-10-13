@@ -44,7 +44,7 @@ export function smtpCredentialsOf(mailbox: MailpoolMailbox): ReachMailServerCred
   };
 }
 
-/** IMAP login (kept for a later IMAP fallback), same rules as `smtpCredentialsOf`. */
+/** IMAP login (the warmup network engages with received warmup mail over it), same rules as `smtpCredentialsOf`. */
 export function imapCredentialsOf(mailbox: MailpoolMailbox): ReachMailServerCredentials | null {
   const port = toPort(mailbox.imapPort);
   if (!mailbox.imapHost || port === null || !mailbox.imapUsername || !mailbox.imapPassword) return null;

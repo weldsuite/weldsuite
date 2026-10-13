@@ -7,9 +7,10 @@
  * master `reach_routes` table to the workspace's tenant DB, where the mailbox
  * or domain row is updated:
  *
- *   mailboxes.created / .updated   status + error -> active (start warming),
- *                                  suspended / error (needs attention), stored logins
- *   mailboxes.deleted              deleted at Mailpool behind our back -> error
+ *   mailboxes.created / .updated   status + error -> active (enter the warmup pool and
+ *                                  start warming), suspended / error (needs attention;
+ *                                  the pool row is paused too), stored logins
+ *   mailboxes.deleted              deleted at Mailpool behind our back -> error (pool paused)
  *   domains.registered / .updated  status + error -> connecting / active / error
  *
  * Everything else (spam checks, blacklist checks, inbox placements) and ids we
@@ -26,11 +27,12 @@ import { publishEntityEventRaw, type EntityEventPublisherEnv } from '@weldsuite/
 import type { EntityType } from '@weldsuite/entity-events/events';
 import { omitSensitive } from '@weldsuite/db/lib/sensitive-columns';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { pausePoolMailbox, resumePoolMailbox, type WarmupKeyEnv } from '@weldsuite/reach-domain/warmup-pool';
 import { sealMailServerCredentials } from '../lib/credentials';
 import { imapCredentialsOf, smtpCredentialsOf } from '../lib/mailpool';
 import type { MailpoolClient } from '../lib/mailpool/client';
 import type { MailpoolMailbox } from '../lib/mailpool/types';
-import { beginWarming, resumeStatusFor, searchWarmupLookup } from './warmup';
+import { POOL_PAUSE_REASONS, beginWarming, registerMailboxInPool, resumeStatusFor } from './warmup';
 
 type MailboxRow = typeof schema.reachMailboxes.$inferSelect;
 type DomainRow = typeof schema.reachDomains.$inferSelect;
@@ -124,10 +126,10 @@ const CONFIGURATION_ERROR_CODES = new Set([101, 201, 202, 301]);
 // ---------------------------------------------------------------------------
 
 export interface WebhookDeps {
-  env: EntityEventPublisherEnv & { DATABASE_ENCRYPTION_KEY?: string; DATABASE_ENCRYPTION_KEY_V2?: string };
+  env: EntityEventPublisherEnv & WarmupKeyEnv & { DATABASE_ENCRYPTION_KEY?: string; DATABASE_ENCRYPTION_KEY_V2?: string };
   master: MasterDatabase;
   openTenant: (clerkOrgId: string) => Promise<Database>;
-  /** Null when MAILPOOL_API_KEY is not set: warmup is then left to the daily pass. */
+  /** Null when MAILPOOL_API_KEY is not set: a mailbox whose payload carries no logins then waits for the daily pass. */
   mailpool: MailpoolClient | null;
   now?: () => Date;
 }
@@ -213,7 +215,10 @@ async function onMailboxUpdated(deps: WebhookDeps, data: Record<string, unknown>
   const remote = remoteStatusOf(data);
 
   if (remote === 'inactive') return suspendInactiveMailbox(deps, db, route.clerkOrgId, mailbox, data, now);
-  if (remote === 'active') return applyActiveMailbox(deps, db, route.clerkOrgId, mailbox, data as unknown as MailpoolMailbox, now);
+  if (remote === 'active') {
+    const owner = { clerkOrgId: route.clerkOrgId, workspaceId: route.workspaceId };
+    return applyActiveMailbox(deps, db, owner, mailbox, data as unknown as MailpoolMailbox, now);
+  }
   return { handled: true, changed: false };
 }
 
@@ -231,58 +236,93 @@ async function suspendInactiveMailbox(
   const reason = message ?? (status === 'error' ? 'The mailbox provider reported a problem with this mailbox.' : 'Suspended by the mailbox provider.');
   if (mailbox.status === status && mailbox.lastError === reason) return { handled: true, changed: false };
 
+  // Out of the warmup pool first: a suspended mailbox must neither send nor receive warmup mail.
+  await pausePoolMailbox(deps.master, clerkOrgId, mailbox.id, POOL_PAUSE_REASONS.suspended);
   const updated = await updateMailbox(db, mailbox.id, { status, pausedReason: status === 'suspended' ? reason : null, lastError: reason }, now);
   // Both mean "needs attention": the platform and workflows hear it as a suspension.
   if (updated) await emit(deps, clerkOrgId, 'reach_mailbox', 'suspended', updated.id, omitSensitive('reach_mailboxes', updated));
   return { handled: true, changed: true };
 }
 
-/** Mailpool reports the mailbox active: start warming, clear a suspension, or fill in late logins. */
+interface MailboxOwner {
+  clerkOrgId: string;
+  /** Master `workspaces.id`. */
+  workspaceId: string;
+}
+
+/** The payload of an update may leave the logins out; Mailpool's mailbox read has them. */
+async function withLogins(deps: WebhookDeps, remote: MailpoolMailbox): Promise<MailpoolMailbox> {
+  if (smtpCredentialsOf(remote) && imapCredentialsOf(remote)) return remote;
+  if (!deps.mailpool) return remote;
+  try {
+    return await deps.mailpool.getMailbox(remote.id);
+  } catch (err) {
+    console.warn('[reach-webhook] could not read the mailbox for its logins; the daily pass retries:', err);
+    return remote;
+  }
+}
+
+/**
+ * Mailpool reports the mailbox active: enter the warmup network, clear a
+ * suspension, or fill in late logins. A suspension that came from the warmup
+ * network itself (a failed login) is not Mailpool's to clear: the daily pass
+ * brings that mailbox back when the login works.
+ */
 async function applyActiveMailbox(
   deps: WebhookDeps,
   db: Database,
-  clerkOrgId: string,
+  owner: MailboxOwner,
   mailbox: MailboxRow,
   remoteMailbox: MailpoolMailbox,
   now: Date,
 ): Promise<WebhookOutcome> {
+  const { clerkOrgId } = owner;
   if (mailbox.status === 'provisioning') {
     const warmed = await beginWarming(
-      {
-        db,
-        mailpool: deps.mailpool,
-        env: deps.env,
-        now,
-        lookup: deps.mailpool ? searchWarmupLookup(deps.mailpool) : { find: async () => null },
-      },
+      { db, master: deps.master, env: deps.env, now, clerkOrgId, masterWorkspaceId: owner.workspaceId },
       mailbox,
-      remoteMailbox,
+      await withLogins(deps, remoteMailbox),
     );
+    // Without usable logins it stays provisioning: nothing changed, nothing to announce.
+    if (warmed.status === mailbox.status) return { handled: true, changed: false };
     await emit(deps, clerkOrgId, 'reach_mailbox', 'updated', warmed.id, omitSensitive('reach_mailboxes', warmed));
     return { handled: true, changed: true };
   }
 
+  if (mailbox.status === 'error' && mailbox.pausedReason === 'login_failed') return { handled: true, changed: false };
+
   if (mailbox.status === 'suspended' || mailbox.status === 'error') {
+    // Pool first (see pauseMailbox): a retry then still finds the mailbox suspended.
+    await resumePoolMailbox(deps.master, clerkOrgId, mailbox.id);
     const restored = await updateMailbox(db, mailbox.id, { status: resumeStatusFor(mailbox), pausedReason: null, lastError: null }, now);
     if (restored) await emit(deps, clerkOrgId, 'reach_mailbox', 'updated', restored.id, omitSensitive('reach_mailboxes', restored));
     return { handled: true, changed: true };
   }
 
   // Logins that were not ready at create time arrive with a later update.
-  if (!mailbox.smtpCredentials) return fillCredentials(deps, db, mailbox, remoteMailbox, now);
+  if (!mailbox.smtpCredentials) return fillCredentials(deps, db, owner, mailbox, remoteMailbox, now);
   return { handled: true, changed: false };
 }
 
+/** Late logins: store them, and give the pool the same ones. */
 async function fillCredentials(
   deps: WebhookDeps,
   db: Database,
+  owner: MailboxOwner,
   mailbox: MailboxRow,
   remote: MailpoolMailbox,
   now: Date,
 ): Promise<WebhookOutcome> {
   const smtp = smtpCredentialsOf(remote);
-  if (!smtp) return { handled: true, changed: false };
   const imap = imapCredentialsOf(remote);
+  if (!smtp) return { handled: true, changed: false };
+  if (imap) {
+    await registerMailboxInPool(
+      { db, master: deps.master, env: deps.env, clerkOrgId: owner.clerkOrgId, masterWorkspaceId: owner.workspaceId },
+      mailbox,
+      { smtp, imap },
+    );
+  }
   await updateMailbox(
     db,
     mailbox.id,
@@ -307,6 +347,8 @@ async function onMailboxDeleted(deps: WebhookDeps, data: Record<string, unknown>
   if (!mailbox || mailbox.status === 'deleting' || mailbox.status === 'deleted') return ignored('mailbox_gone');
 
   const now = deps.now ? deps.now() : new Date();
+  // Its logins are dead: the warmup network must stop mailing it.
+  await pausePoolMailbox(deps.master, route.clerkOrgId, mailbox.id, POOL_PAUSE_REASONS.suspended);
   const updated = await updateMailbox(
     db,
     mailbox.id,
@@ -370,6 +412,7 @@ async function pauseDomainMailboxes(deps: WebhookDeps, db: Database, clerkOrgId:
       ),
     );
   for (const { id } of live) {
+    await pausePoolMailbox(deps.master, clerkOrgId, id, POOL_PAUSE_REASONS.domainError);
     const paused = await updateMailbox(db, id, { status: 'paused', pausedReason: DOMAIN_PAUSE_REASON }, now);
     if (paused) await emit(deps, clerkOrgId, 'reach_mailbox', 'updated', id, omitSensitive('reach_mailboxes', paused));
   }
@@ -387,6 +430,7 @@ async function resumeDomainMailboxes(deps: WebhookDeps, db: Database, clerkOrgId
       ),
     );
   for (const mailbox of parked) {
+    await resumePoolMailbox(deps.master, clerkOrgId, mailbox.id);
     const resumed = await updateMailbox(db, mailbox.id, { status: resumeStatusFor(mailbox), pausedReason: null }, now);
     if (resumed) await emit(deps, clerkOrgId, 'reach_mailbox', 'updated', mailbox.id, omitSensitive('reach_mailboxes', resumed));
   }

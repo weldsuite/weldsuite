@@ -72,6 +72,8 @@ export interface DeliverInboundInput {
   clerkOrgId: string;
   mailbox: InboundMailbox;
   raw: Uint8Array;
+  /** `raw` already parsed (the handler parses it once to screen out warmup mail); parsed here when absent. */
+  parsed?: ParsedInbound;
   waitUntil: (promise: Promise<unknown>) => void;
   now?: () => Date;
   /** Injected in tests; defaults to the metered model call. */
@@ -379,7 +381,7 @@ function effectiveKind(kind: ReachInboundKind, match: InboundMatch, parsed: Pars
 /** Parse, de-duplicate, classify and match: no writes. */
 async function analyze(input: DeliverInboundInput): Promise<Analyzed> {
   const { db, mailbox, raw } = input;
-  const parsed = await parseInbound(raw);
+  const parsed = input.parsed ?? (await parseInbound(raw));
   const messageIdHeader = parsed.messageId ?? (await syntheticMessageId(raw));
   if (await messageIdTaken(db, messageIdHeader)) return { skip: { status: 'duplicate', messageIdHeader } };
 

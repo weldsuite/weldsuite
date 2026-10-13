@@ -1,13 +1,15 @@
 /**
  * The `email()` pipeline end to end against pglite and `.eml` fixtures:
- * token routing, parsing, matching, storage, stop-on-reply, suppression,
- * bounces, auto-replies, the CRM hand-off, events and the AI classification.
+ * token routing, the warmup-mail filter, parsing, matching, storage,
+ * stop-on-reply, suppression, bounces, auto-replies, the CRM hand-off, events
+ * and the AI classification.
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { findWarmupMessageIds } from '@weldsuite/reach-domain/warmup-pool';
 import {
   reachCampaigns,
   reachEnrollments,
@@ -32,7 +34,9 @@ import {
   seedOutbound,
   seedProspect,
 } from './test-support';
-import { MAX_INBOUND_BYTES, processInboundEmail, readCapped, type InboundHandlerDeps } from './handler';
+import { MAX_INBOUND_BYTES, processInboundEmail, readCapped, threadingIdsOf, type InboundHandlerDeps } from './handler';
+import { resetReachMaster, seedWarmupMessage } from '../lib/mailpool/testing-db';
+import { parseInbound } from '../lib/inbound/mime';
 import { deliverInbound, type DeliverInboundInput } from '../services/inbound';
 import type { ClassifyReplyFn } from '../services/classify';
 import type { SinkEvent } from '../services/realtime';
@@ -50,6 +54,7 @@ const ORG = 'org_reach_test';
 const NOW = new Date('2026-10-12T14:41:00Z');
 
 let db: Database;
+let master: MasterDatabase;
 let bucket: FakeR2Bucket;
 let events: SinkEvent[];
 let classifyCalls: Array<{ subject: string; text: string }>;
@@ -68,6 +73,7 @@ function env(): Env {
 function deps(overrides: Partial<InboundHandlerDeps> = {}): InboundHandlerDeps {
   return {
     resolveRoute: async (_env, token) => (token === TOKEN ? { clerkOrgId: ORG, mailboxId: mailbox.id } : null),
+    findWarmupIds: async (_env, ids) => findWarmupMessageIds(master, ids),
     openDb: async () => db,
     deliver: (input: DeliverInboundInput) =>
       deliverInbound({
@@ -133,6 +139,7 @@ async function seedSent(email: string, messageId: string, extra: { firstName?: s
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
+  master = (await createMasterPgliteDb()).db as MasterDatabase;
 }, 120_000);
 
 afterAll(() => {
@@ -141,6 +148,7 @@ afterAll(() => {
 
 beforeEach(async () => {
   await resetTables(db);
+  await resetReachMaster(master);
   bucket = new FakeR2Bucket();
   events = [];
   classifyCalls = [];
@@ -197,6 +205,151 @@ describe('routing', () => {
     expect(await receive('gmail-reply.eml', ADDRESS, failing)).toBeNull();
     const parked = [...bucket.objects.keys()].filter((k) => k.startsWith(`reach/${ORG}/_failed/`));
     expect(parked).toHaveLength(1);
+  });
+});
+
+/** A minimal plain-text message with the headers a test cares about. */
+function rawMail(headers: Record<string, string>, text = 'Hi, are you free for a quick call tomorrow afternoon?'): Uint8Array {
+  const lines = [
+    ...Object.entries(headers).map(([key, value]) => `${key}: ${value}`),
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    '',
+    text,
+    '',
+  ];
+  return new TextEncoder().encode(lines.join('\r\n'));
+}
+
+async function receiveRaw(raw: Uint8Array, handlerDeps = deps()) {
+  const ctx = executionContext();
+  const result = await processInboundEmail(forwardable(raw, { to: ADDRESS }), env(), ctx, handlerDeps);
+  await ctx.settled();
+  return result;
+}
+
+describe('warmup network mail', () => {
+  const warmupMail = (headers: Record<string, string> = {}) =>
+    rawMail({
+      From: 'Tom Peters <tom@peerco.io>',
+      To: 'sam@getacme.com',
+      Subject: 'Quick question about the Q3 numbers',
+      Date: 'Mon, 12 Oct 2026 16:40:48 +0200',
+      'Message-ID': '<warm-root-1@peerco.io>',
+      ...headers,
+    });
+
+  it('drops a message whose Message-ID is a warmup message: no tenant opened, nothing stored, nothing announced', async () => {
+    await seedWarmupMessage(master, { messageIdHeader: 'warm-root-1@peerco.io' });
+    const openDb = vi.fn(async () => db);
+
+    const result = await receiveRaw(warmupMail(), deps({ openDb }));
+
+    expect(result).toBeNull();
+    expect(openDb).not.toHaveBeenCalled();
+    expect(await inboundRows()).toHaveLength(0);
+    expect(bucket.objects.size).toBe(0);
+    expect(events).toEqual([]);
+    expect(classifyCalls).toEqual([]);
+  });
+
+  it('drops the reply to a warmup message, found by its In-Reply-To', async () => {
+    await seedWarmupMessage(master, { messageIdHeader: 'warm-root-1@peerco.io' });
+    const openDb = vi.fn(async () => db);
+
+    const result = await receiveRaw(
+      warmupMail({ 'Message-ID': '<unrelated-reply-id@peerco.io>', 'In-Reply-To': '<warm-root-1@peerco.io>', Subject: 'Re: Quick question about the Q3 numbers' }),
+      deps({ openDb }),
+    );
+
+    expect(result).toBeNull();
+    expect(openDb).not.toHaveBeenCalled();
+    expect(await inboundRows()).toHaveLength(0);
+    expect(bucket.objects.size).toBe(0);
+    expect(events).toEqual([]);
+  });
+
+  it('drops a message that only carries a warmup message in its References', async () => {
+    await seedWarmupMessage(master, { messageIdHeader: 'warm-root-1@peerco.io' });
+
+    const result = await receiveRaw(
+      warmupMail({ 'Message-ID': '<warm-step-3@peerco.io>', 'In-Reply-To': '<warm-step-2@peerco.io>', References: '<warm-root-1@peerco.io> <warm-step-2@peerco.io>' }),
+    );
+
+    expect(result).toBeNull();
+    expect(await inboundRows()).toHaveLength(0);
+  });
+
+  it('does not touch a campaign: the enrollment keeps going and no reply is counted', async () => {
+    const { enrollment } = await seedSent('tom@peerco.io', 'out-2002@getacme.com');
+    await seedWarmupMessage(master, { messageIdHeader: 'warm-root-1@peerco.io' });
+
+    await receiveRaw(warmupMail());
+
+    expect((await enrollmentStatus(enrollment.id)).status).toBe('active');
+    expect((await campaignStats(campaign.id)).replied ?? 0).toBe(0);
+  });
+
+  it('lets a real reply through, even with warmup mail in the pool', async () => {
+    await seedWarmupMessage(master, { messageIdHeader: 'warm-root-1@peerco.io' });
+    await seedWarmupMessage(master, { messageIdHeader: 'warm-other@peerco.io' });
+    await seedSent('jane@acme.nl', 'out-1001@getacme.com');
+
+    const result = await receive('gmail-reply.eml');
+
+    expect(result).toMatchObject({ status: 'stored', kind: 'reply', matched: true });
+    expect(await inboundRows()).toHaveLength(1);
+    expect(bucket.objects.size).toBe(1);
+  });
+
+  it('asks master about the message\'s own id, what it answers and its references, without angle brackets', async () => {
+    await seedSent('jane@acme.nl', 'out-1001@getacme.com');
+    const findWarmupIds = vi.fn(async (_env: Env, _ids: string[]) => new Set<string>());
+
+    await receive('gmail-reply.eml', ADDRESS, deps({ findWarmupIds }));
+
+    expect(findWarmupIds).toHaveBeenCalledOnce();
+    expect(findWarmupIds.mock.calls[0]![1]).toEqual(['CAKx9Qm7vJ1-gmail-reply-1@mail.gmail.com', 'out-1001@getacme.com']);
+  });
+
+  it('processes the message as usual when master cannot answer (a real reply is never lost to the filter)', async () => {
+    await seedSent('jane@acme.nl', 'out-1001@getacme.com');
+    const findWarmupIds = vi.fn(async () => {
+      throw new Error('master down');
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await receive('gmail-reply.eml', ADDRESS, deps({ findWarmupIds }));
+
+    expect(result).toMatchObject({ status: 'stored', kind: 'reply', matched: true });
+    expect(await inboundRows()).toHaveLength(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('warmup lookup failed'), 'master down');
+    error.mockRestore();
+  });
+
+  it('skips the lookup for a message without any ids', async () => {
+    const findWarmupIds = vi.fn(async () => new Set<string>());
+
+    await receiveRaw(rawMail({ From: 'jane@acme.nl', To: 'sam@getacme.com', Subject: 'hello' }), deps({ findWarmupIds }));
+
+    expect(findWarmupIds).not.toHaveBeenCalled();
+  });
+
+  it('collects its own id, the id it answers and its references, without duplicates', async () => {
+    const parsed = await parseInbound(
+      warmupMail({ 'In-Reply-To': '<a@x.io>', References: '<a@x.io> <b@x.io>' }),
+    );
+    expect(threadingIdsOf(parsed)).toEqual(['warm-root-1@peerco.io', 'a@x.io', 'b@x.io']);
+  });
+
+  it('looks up only the newest 20 references of a long thread', async () => {
+    const references = Array.from({ length: 30 }, (_, i) => `<r${i}@x.io>`).join(' ');
+    const parsed = await parseInbound(warmupMail({ References: references }));
+    const ids = threadingIdsOf(parsed);
+
+    expect(ids).toHaveLength(21); // its own id + 20 references
+    expect(ids).toContain('r29@x.io');
+    expect(ids).not.toContain('r0@x.io');
   });
 });
 

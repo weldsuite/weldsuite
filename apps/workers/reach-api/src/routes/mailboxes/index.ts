@@ -4,8 +4,8 @@
  * ADMIN by default (permission catalog).
  *
  *   reach_mailboxes:read    GET /, GET /:id
- *   reach_mailboxes:create  POST /                 billed, provisioned, warmed (services/mailboxes.ts)
- *   reach_mailboxes:update  PATCH /:id, POST /:id/pause, POST /:id/resume
+ *   reach_mailboxes:create  POST /                 billed, provisioned, entered in the warmup network (services/mailboxes.ts)
+ *   reach_mailboxes:update  PATCH /:id, POST /:id/pause, POST /:id/resume   (pause and resume also stop / restart its warmup)
  *   reach_mailboxes:delete  DELETE /:id
  *
  * Responses never include the mailbox logins or the inbound token; entity
@@ -17,6 +17,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
+import { getMasterDb } from '@weldsuite/worker-kit/db';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import {
   createReachMailboxSchema,
@@ -33,9 +34,11 @@ import {
   getMailboxDto,
   listMailboxes,
   pauseMailbox,
+  readDepsOf,
   resumeMailbox,
   updateMailbox,
   withoutCredentials,
+  type MailboxReadDeps,
 } from '../../services/mailboxes';
 import { reachErrorHandler } from '../../services/reach-errors';
 import { getOrCreateReachSettings } from '../../services/settings';
@@ -60,13 +63,18 @@ function writeDeps(c: Parameters<typeof accountContextOf>[0]) {
   };
 }
 
+/** Reads show the warmup pool's numbers; master is opened only when there is a mailbox to show them for. */
+function readDeps(c: Parameters<typeof accountContextOf>[0]): MailboxReadDeps {
+  return { db: c.get('tenantDb'), warmup: { clerkOrgId: c.get('workspaceId'), master: () => getMasterDb(c.env) } };
+}
+
 app.get('/', requirePermission('reach_mailboxes:read'), zValidator('query', listQuerySchema), async (c) => {
-  const mailboxes = await listMailboxes(c.get('tenantDb'), c.req.valid('query'));
+  const mailboxes = await listMailboxes(readDeps(c), c.req.valid('query'));
   return list(c, mailboxes, cursorPagination(mailboxes.length, false, null));
 });
 
 app.get('/:id', requirePermission('reach_mailboxes:read'), async (c) => {
-  const mailbox = await getMailboxDto(c.get('tenantDb'), c.req.param('id'));
+  const mailbox = await getMailboxDto(readDeps(c), c.req.param('id'));
   if (!mailbox) return error.notFound(c, 'Mailbox', c.req.param('id'));
   return success(c, mailbox);
 });
@@ -79,10 +87,11 @@ app.post('/', requirePermission('reach_mailboxes:create'), zValidator('json', cr
     limits: deps.limits,
     defaultDailyCap: settings.defaultMailboxDailyCap,
     billingStatus: c.get('appAccess').billingStatus,
+    timezone: settings.defaultTimezone,
   });
 
   publishEntityEvent({ c, entityType: 'reach_mailbox', action: 'created', entityId: row.id, data: withoutCredentials(row) });
-  const mailbox = await getMailboxDto(deps.db, row.id);
+  const mailbox = await getMailboxDto(readDepsOf(deps), row.id);
   return success(c, mailbox, 201);
 });
 
@@ -91,23 +100,23 @@ app.patch('/:id', requirePermission('reach_mailboxes:update'), zValidator('json'
   const row = await updateMailbox(deps, c.req.param('id'), c.req.valid('json'));
 
   publishEntityEvent({ c, entityType: 'reach_mailbox', action: 'updated', entityId: row.id, data: withoutCredentials(row) });
-  return success(c, await getMailboxDto(deps.db, row.id));
+  return success(c, await getMailboxDto(readDepsOf(deps), row.id));
 });
 
 app.post('/:id/pause', requirePermission('reach_mailboxes:update'), async (c) => {
-  const db = c.get('tenantDb');
-  const row = await pauseMailbox(db, c.req.param('id'));
+  const ctx = accountContextOf(c);
+  const row = await pauseMailbox(ctx, c.req.param('id'));
 
   publishEntityEvent({ c, entityType: 'reach_mailbox', action: 'updated', entityId: row.id, data: withoutCredentials(row) });
-  return success(c, await getMailboxDto(db, row.id));
+  return success(c, await getMailboxDto(readDepsOf(ctx), row.id));
 });
 
 app.post('/:id/resume', requirePermission('reach_mailboxes:update'), async (c) => {
-  const db = c.get('tenantDb');
-  const row = await resumeMailbox(db, c.req.param('id'));
+  const ctx = accountContextOf(c);
+  const row = await resumeMailbox(ctx, c.req.param('id'));
 
   publishEntityEvent({ c, entityType: 'reach_mailbox', action: 'updated', entityId: row.id, data: withoutCredentials(row) });
-  return success(c, await getMailboxDto(db, row.id));
+  return success(c, await getMailboxDto(readDepsOf(ctx), row.id));
 });
 
 app.delete('/:id', requirePermission('reach_mailboxes:delete'), async (c) => {

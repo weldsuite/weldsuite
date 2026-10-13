@@ -29,9 +29,6 @@ import type {
   MailpoolMailbox,
   MailpoolSlotType,
   MailpoolSubscriptionSlots,
-  MailpoolWarmupDetail,
-  MailpoolWarmupInbox,
-  MailpoolWarmupStatus,
   UpdateMailpoolMailboxInput,
 } from './types';
 
@@ -247,21 +244,6 @@ export function createMailpoolClient(env: MailpoolEnv, options: MailpoolClientOp
     deleteMailbox: (id: string | number) => request<MailpoolMailbox>('DELETE', `/mailboxes/${segment(id)}`),
     cancelMailboxDeletion: (id: string | number) =>
       request<MailpoolMailbox>('POST', `/mailboxes/${segment(id)}/cancel-deletion`),
-
-    // ── Warmup ───────────────────────────────────────────────────────────
-    addToWarmup: (mailboxIds: number[]) => request<MailpoolWarmupInbox[]>('POST', '/warmup', { body: { mailboxIds } }),
-    async listWarmup(
-      params: { limit?: number; offset?: number; search?: string; status?: MailpoolWarmupStatus } = {},
-    ): Promise<{ data: MailpoolWarmupInbox[]; total: number }> {
-      const res = await request<{ data?: MailpoolWarmupInbox[]; total?: number } | undefined>('GET', '/warmup', {
-        query: { limit: params.limit ?? 100, offset: params.offset ?? 0, search: params.search, status: params.status },
-      });
-      return { data: res?.data ?? [], total: res?.total ?? 0 };
-    },
-    getWarmup: (warmupId: number) => request<MailpoolWarmupDetail>('GET', `/warmup/${segment(warmupId)}`),
-    startWarmup: (warmupId: number) => request<MailpoolWarmupInbox>('POST', `/warmup/${segment(warmupId)}/start`),
-    pauseWarmup: (warmupId: number) => request<MailpoolWarmupInbox>('POST', `/warmup/${segment(warmupId)}/pause`),
-    removeFromWarmup: (warmupId: number) => request<MailpoolWarmupInbox>('DELETE', `/warmup/${segment(warmupId)}`),
 
     // ── Subscription slots ───────────────────────────────────────────────
     async getSlots(): Promise<MailpoolSubscriptionSlots> {
