@@ -41,7 +41,6 @@ import {
   GitMerge,
   Webhook,
   MousePointerClick,
-  XCircle,
   Copy,
   Eye,
   EyeOff,
@@ -62,7 +61,6 @@ import {
   MessageSquareText,
   ListChecks,
   ClipboardList,
-  ArrowUpRight,
   Sparkles,
   Tags,
   Plug,
@@ -111,7 +109,7 @@ import { findUnknownVariables, getStepFormatIssues, isInsideLoop, isNestedWaitin
 import { TriggerRecordFieldsProvider } from './lib/editor-field-context';
 import { withActionDefaults } from './lib/action-defaults';
 import { getLegacyEntityOption, getLegacyEventOption } from './lib/legacy-entity-options';
-import { getConfigSummary, summarizeStep, summarizeTrigger, type NodeSummaryLabels } from './lib/node-summary';
+import { getConfigSummary, previewEmailStep, summarizeStep, summarizeTrigger, type EmailPreviewLabels, type NodeSummaryLabels } from './lib/node-summary';
 import { Label } from '@weldsuite/ui/components/label';
 import { cn } from '@/lib/utils';
 import { asText } from '@weldsuite/text';
@@ -164,6 +162,8 @@ function asWorkflowStep(s: WorkflowStepBag): WorkflowStep {
 
 /** Stable default so `canvasVariableItems` isn't rebuilt on every render. */
 const NO_WORKFLOW_VARIABLES: Array<{ name: string; type?: string }> = [];
+/** Stable default so the steps handed to the canvas aren't rebuilt on every render. */
+const NO_EMAIL_ACCOUNTS: NonNullable<WorkflowEditorClientProps['emailAccounts']> = [];
 
 /**
  * Fill in `TriggerConfig`'s required fields for `<WorkflowCanvas trigger={...} />`.
@@ -639,6 +639,20 @@ function PanelCloseButton({ onClick }: Readonly<{ onClick: () => void }>) {
   );
 }
 
+/** Header of a sidebar panel: its title and the close button, 52px tall like the editor's tab bar. */
+function PanelHeader({
+  title,
+  onClose,
+  className,
+}: Readonly<{ title: React.ReactNode; onClose: () => void; className?: string }>) {
+  return (
+    <div className={cn('h-[52px] shrink-0 px-3 border-b flex items-center justify-between', className)}>
+      <h3 className="font-semibold text-sm">{title}</h3>
+      <PanelCloseButton onClick={onClose} />
+    </div>
+  );
+}
+
 const STATUS_DOT: Record<string, string> = {
   active: 'bg-emerald-500',
   paused: 'bg-amber-500',
@@ -1041,7 +1055,7 @@ function HelpdeskTriggerList({ form, applyTriggerData }: Readonly<{ form: Trigge
 
   return (
     <div className="p-4 space-y-1">
-      <Label className="text-xs font-medium mb-2 block">{tec.triggerPanel.whenThisHappens}</Label>
+      <Label className="mb-2 text-xs">{tec.triggerPanel.whenThisHappens}</Label>
       {HELPDESK_ROUTING_TRIGGERS.map((rt) => {
         const isSelected = form.triggerEntityType === rt.entityType && form.triggerEventType === rt.eventType;
         const Icon = rt.icon;
@@ -1079,7 +1093,7 @@ function TriggerTypeList({ types, selectedType, onSelect }: Readonly<TriggerType
 
   return (
     <div className="space-y-2">
-      <Label className="text-xs font-medium">{tcd.triggerTypeLabel}</Label>
+      <Label className="text-xs">{tcd.triggerTypeLabel}</Label>
       <div className="space-y-1">
         {types.map((type) => {
           const Icon = type.icon;
@@ -1158,7 +1172,7 @@ function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, ap
   return (
     <div className="space-y-3 pt-3 border-t">
       <div className="space-y-2">
-        <Label className="text-xs font-medium">{tcd.entityEvent.entityTypeLabel}</Label>
+        <Label className="text-xs">{tcd.entityEvent.entityTypeLabel}</Label>
         <Select value={form.triggerEntityType} onValueChange={handleEntityTypeChange}>
           <SelectTrigger>
             <SelectValue placeholder={tec.triggerPanel.selectEntityPlaceholder} />
@@ -1184,7 +1198,7 @@ function EntityEventFields({ form, groupedEntityEvents, filteredEntityEvents, ap
       </div>
       {form.triggerEntityType && (
         <div className="space-y-2">
-          <Label className="text-xs font-medium">{tcd.entityEvent.eventLabel}</Label>
+          <Label className="text-xs">{tcd.entityEvent.eventLabel}</Label>
           <Select value={form.triggerEventType} onValueChange={handleEventTypeChange}>
             <SelectTrigger>
               <SelectValue placeholder={tec.triggerPanel.selectEventPlaceholder} />
@@ -1299,7 +1313,7 @@ function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTrigge
     <div className="space-y-4 pt-3 border-t">
       {/* Schedule Type */}
       <div className={cn('space-y-2', !oneTimeScheduleAllowed && scheduleType !== 'one_time' && 'hidden')}>
-        <Label className="text-xs font-medium">{tcd.schedule.scheduleTypeLabel}</Label>
+        <Label className="text-xs">{tcd.schedule.scheduleTypeLabel}</Label>
         <RadioGroup
           value={scheduleType}
           onValueChange={handleScheduleTypeChange}
@@ -1325,7 +1339,7 @@ function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTrigge
       {/* One-time: Date/Time Picker */}
       {scheduleType === 'one_time' && (
         <div className="space-y-2">
-          <Label className="text-xs font-medium">{tcd.schedule.executeAtLabel}</Label>
+          <Label className="text-xs">{tcd.schedule.executeAtLabel}</Label>
           <Input
             type="datetime-local"
             value={scheduleExecuteAt}
@@ -1342,7 +1356,7 @@ function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTrigge
       {scheduleType === 'recurring' && (
         <>
           <div className="space-y-2">
-            <Label className="text-xs font-medium">{tcd.schedule.scheduleLabel}</Label>
+            <Label className="text-xs">{tcd.schedule.scheduleLabel}</Label>
             <Select value={scheduleCronPreset} onValueChange={handleCronPresetChange}>
               <SelectTrigger>
                 <SelectValue />
@@ -1360,7 +1374,7 @@ function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTrigge
           {/* Custom Cron Expression */}
           {scheduleCronPreset === 'custom' && (
             <div className="space-y-2">
-              <Label htmlFor={cronFieldId} className="text-xs font-medium">{tcd.schedule.cronExpressionLabel}</Label>
+              <Label htmlFor={cronFieldId} className="text-xs">{tcd.schedule.cronExpressionLabel}</Label>
               <Input
                 id={cronFieldId}
                 value={scheduleCustomCron}
@@ -1389,7 +1403,7 @@ function ScheduleFields({ form, cronPresets, oneTimeScheduleAllowed, applyTrigge
 
       {/* Timezone */}
       <div className="space-y-2">
-        <Label className="text-xs font-medium">{tcd.schedule.timezoneLabel}</Label>
+        <Label className="text-xs">{tcd.schedule.timezoneLabel}</Label>
         <Select value={scheduleTimezone} onValueChange={handleTimezoneChange}>
           <SelectTrigger>
             <SelectValue />
@@ -1433,7 +1447,7 @@ function IntegrationEventFields({ form, integrationTriggers, applyTriggerData }:
   return (
     <div className="space-y-3 pt-3 border-t">
       <div className="space-y-2">
-        <Label className="text-xs font-medium">{tcd.integrationEvent.eventLabel}</Label>
+        <Label className="text-xs">{tcd.integrationEvent.eventLabel}</Label>
         <Select value={form.integrationTriggerEventId} onValueChange={handleEventChange}>
           <SelectTrigger>
             <SelectValue placeholder={tcd.integrationEvent.eventPlaceholder} />
@@ -1503,7 +1517,7 @@ function WorkflowCompleteFields({ form, workflowsForChaining, applyTriggerData }
   return (
     <div className="space-y-4 pt-3 border-t">
       <div className="space-y-2">
-        <Label className="text-xs font-medium">{tcd.workflowComplete.sourceWorkflowLabel}</Label>
+        <Label className="text-xs">{tcd.workflowComplete.sourceWorkflowLabel}</Label>
         <Select value={form.sourceWorkflowId} onValueChange={handleSourceWorkflowChange}>
           <SelectTrigger>
             <SelectValue placeholder={tcd.workflowComplete.sourceWorkflowPlaceholder} />
@@ -1522,7 +1536,7 @@ function WorkflowCompleteFields({ form, workflowsForChaining, applyTriggerData }
         <p className="text-xs text-muted-foreground">{tcd.workflowComplete.sourceWorkflowHint}</p>
       </div>
       <div className="space-y-2">
-        <Label className="text-xs font-medium">{tcd.workflowComplete.triggerOnLabel}</Label>
+        <Label className="text-xs">{tcd.workflowComplete.triggerOnLabel}</Label>
         <RadioGroup
           value={form.workflowCompleteTriggerOn}
           onValueChange={handleTriggerOnChange}
@@ -1562,7 +1576,7 @@ function WebhookSecretField({ webhookSecret, form }: Readonly<{ webhookSecret: s
 
   return (
     <div className="space-y-2">
-      <Label className="text-xs font-medium">{tec.triggerPanel.webhookSecretLabel}</Label>
+      <Label className="text-xs">{tec.triggerPanel.webhookSecretLabel}</Label>
       <div className="flex gap-2">
         <Input
           type={form.showWebhookSecret ? 'text' : 'password'}
@@ -1647,7 +1661,7 @@ function WebhookDetails({
     <>
       {/* Webhook URL */}
       <div className="space-y-2">
-        <Label className="text-xs font-medium">{tec.triggerPanel.webhookUrlLabel}</Label>
+        <Label className="text-xs">{tec.triggerPanel.webhookUrlLabel}</Label>
         <div className="flex gap-2">
           <Input
             value={webhookData.externalUrl || webhookData.url}
@@ -1831,17 +1845,7 @@ function TriggerPanel({
 
   return (
     <>
-      <div className="p-3 border-b">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-md bg-purple-100 dark:bg-purple-900/30">
-              <Zap className="h-4 w-4 text-purple-600" />
-            </div>
-            <h3 className="font-semibold text-sm">{hasTrigger ? tec.triggerPanel.editTrigger : tec.triggerPanel.addTrigger}</h3>
-          </div>
-          <PanelCloseButton onClick={onClose} />
-        </div>
-      </div>
+      <PanelHeader title={hasTrigger ? tec.triggerPanel.editTrigger : tec.triggerPanel.addTrigger} onClose={onClose} />
       {warning && (
         <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-50 dark:bg-muted border border-amber-200 dark:border-border">
           <div className="flex items-center gap-2 text-amber-700 dark:text-muted-foreground">
@@ -1897,9 +1901,9 @@ function ActionCategoryGroup({ label, actions, onSelect }: Readonly<ActionCatego
               variant="ghost"
               onClick={() => onSelect(action.id)}
               // `h-auto`: the stock 36px button height squeezed these two-line
-              // rows until their icons touched. Inset by 8px so the hover
-              // background is a rounded row rather than an edge-to-edge band.
-              className="h-auto w-[calc(100%+1rem)] -mx-2 justify-start gap-3 px-2 py-2 rounded-md text-left whitespace-normal hover:bg-muted"
+              // rows until their icons touched. Bleeds through the panel's 16px
+              // padding so the hover background is an edge-to-edge row.
+              className="h-auto w-[calc(100%+2rem)] -mx-4 justify-start gap-3 px-4 py-2 rounded-none text-left whitespace-normal hover:bg-muted"
             >
               <div className="w-8 h-8 rounded-md border border-border/70 flex items-center justify-center flex-shrink-0">
                 <Icon className="w-4 h-4 text-muted-foreground" />
@@ -1930,19 +1934,7 @@ function AddActionPanel({ module, actions, categoryLabels, onSelectAction, onClo
 
   return (
     <>
-      {/* Same header as the editor's other panels (trigger, step, branch):
-          an icon chip, the title at 14px, the close button. */}
-      <div className="p-3 border-b">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-md bg-teal-100 dark:bg-teal-900/30">
-              <Plus className="h-4 w-4 text-teal-600" />
-            </div>
-            <h3 className="font-semibold text-sm">{module === 'helpdesk' ? tec.addActionPanel.addAction : tec.addActionPanel.addStep}</h3>
-          </div>
-          <PanelCloseButton onClick={onClose} />
-        </div>
-      </div>
+      <PanelHeader title={module === 'helpdesk' ? tec.addActionPanel.addAction : tec.addActionPanel.addStep} onClose={onClose} />
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           {ACTION_CATEGORY_ORDER.map((category) => (
@@ -1971,9 +1963,6 @@ interface EditingBranch {
 }
 
 interface BranchStyle {
-  bg: string;
-  icon: LucideIcon;
-  iconColor: string;
   label: string;
   borderColor: string;
   description: string;
@@ -1987,19 +1976,16 @@ const ADD_STEP_AFTER_SUFFIX = '::after';
 
 // Branch display styling
 const BRANCH_STYLE_MAP: Record<string, BranchStyle> = {
-  each: { bg: 'bg-blue-100 dark:bg-blue-900/30', icon: Repeat, iconColor: 'text-blue-600', label: 'For each item', borderColor: 'border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900', description: 'Runs once for every item in the list' },
-  if: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'If True', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the condition is true' },
-  if_not: { bg: 'bg-gray-100 dark:bg-secondary', icon: X, iconColor: 'text-gray-500 dark:text-muted-foreground', label: 'If False', borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: 'Executes when the condition is false' },
-  escalated: { bg: 'bg-amber-100 dark:bg-amber-900/30', icon: ArrowUpRight, iconColor: 'text-amber-600', label: 'Escalated', borderColor: 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900', description: 'Executes when the agent escalates to a human' },
-  completed: { bg: 'bg-green-100 dark:bg-green-900/30', icon: CheckCircle2, iconColor: 'text-green-600', label: 'Completed', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the agent resolves the issue' },
-  failed: { bg: 'bg-red-100 dark:bg-red-900/30', icon: XCircle, iconColor: 'text-red-600', label: 'Failed', borderColor: 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900', description: 'Executes when the agent encounters an error' },
+  each: { label: 'For each item', borderColor: 'border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-900', description: 'Runs once for every item in the list' },
+  if: { label: 'If True', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the condition is true' },
+  if_not: { label: 'If False', borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border', description: 'Executes when the condition is false' },
+  escalated: { label: 'Escalated', borderColor: 'border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900', description: 'Executes when the agent escalates to a human' },
+  completed: { label: 'Completed', borderColor: 'border-green-200 bg-green-50 dark:bg-green-950/20 dark:border-green-900', description: 'Executes when the agent resolves the issue' },
+  failed: { label: 'Failed', borderColor: 'border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900', description: 'Executes when the agent encounters an error' },
 };
 
 function getBranchStyle(branchType: string): BranchStyle {
   return BRANCH_STYLE_MAP[branchType] || {
-    bg: 'bg-gray-100 dark:bg-secondary',
-    icon: GitBranch,
-    iconColor: 'text-gray-500',
     label: branchType,
     borderColor: 'border-gray-200 bg-gray-50 dark:bg-background/20 dark:border-border',
     description: `Executes for "${branchType}" outcome`,
@@ -2131,22 +2117,11 @@ function BranchEditPanel({ branch, steps, onSelectStep, onAddStep, onClose }: Re
   };
   const baseStyle = getBranchStyle(branch.branchType);
   const branchStyle = { ...baseStyle, ...translatedBranch[branch.branchType] };
-  const BranchIcon = branchStyle.icon;
   const ParentIcon = isLoop ? Repeat : GitBranch;
 
   return (
     <>
-      <div className="p-3 border-b">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={cn('p-1.5 rounded-md', branchStyle.bg)}>
-              <BranchIcon className={cn('h-4 w-4', branchStyle.iconColor)} />
-            </div>
-            <h3 className="font-semibold text-sm">{branchStyle.label}</h3>
-          </div>
-          <PanelCloseButton onClick={onClose} />
-        </div>
-      </div>
+      <PanelHeader title={branchStyle.label} onClose={onClose} />
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           {/* Condition Info */}
@@ -2340,30 +2315,18 @@ function EditStepPanel({
 }: Readonly<EditStepPanelProps>) {
   const { t } = useI18n();
   const tec = t.weldconnect.workflowEditorClient;
-  const meta = getActionMeta(step.type || '');
-  const Icon = meta.icon;
   const nameFieldId = useId();
   const descriptionFieldId = useId();
 
   return (
     <>
-      <div className="p-3 border-b">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={cn('p-1.5 rounded-md', meta.bgColor)}>
-              <Icon className={cn('h-4 w-4', meta.color)} />
-            </div>
-            <h3 className="font-semibold text-sm">{tec.editStepPanel.editStep}</h3>
-          </div>
-          <PanelCloseButton onClick={onClose} />
-        </div>
-      </div>
+      <PanelHeader title={tec.editStepPanel.editStep} onClose={onClose} />
       <StepStatusBanner step={step} unsupported={unsupported} />
       {!unsupported && <UnknownVariablesNote variables={unknownVariables} />}
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           <div className="space-y-2">
-            <Label htmlFor={nameFieldId} className="text-xs font-medium">{tec.editStepPanel.actionNameLabel}</Label>
+            <Label htmlFor={nameFieldId} className="text-xs">{tec.editStepPanel.actionNameLabel}</Label>
             <Input
               id={nameFieldId}
               value={step.name || ''}
@@ -2377,7 +2340,7 @@ function EditStepPanel({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor={descriptionFieldId} className="text-xs font-medium">{tec.editStepPanel.descriptionLabel}</Label>
+            <Label htmlFor={descriptionFieldId} className="text-xs">{tec.editStepPanel.descriptionLabel}</Label>
             <Textarea
               id={descriptionFieldId}
               value={step.description || ''}
@@ -2568,10 +2531,7 @@ function OverviewPanel({
   return (
     <>
       {/* Mobile header for overview panel */}
-      <div className="p-3 border-b lg:hidden flex items-center justify-between">
-        <h3 className="font-semibold text-sm">{tec.overviewPanel.workflowDetails}</h3>
-        <PanelCloseButton onClick={onCloseMobile} />
-      </div>
+      <PanelHeader title={tec.overviewPanel.workflowDetails} onClose={onCloseMobile} className="lg:hidden" />
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           {/* Checklist Section */}
@@ -3100,7 +3060,7 @@ export function WorkflowEditorClient({
   actionTypes,
   triggerTypes,
   entityEvents,
-  emailAccounts = [],
+  emailAccounts = NO_EMAIL_ACCOUNTS,
   workspaceMembers = [],
   workflowVariables = NO_WORKFLOW_VARIABLES,
   workflowsForChaining = [],
@@ -4034,14 +3994,28 @@ export function WorkflowEditorClient({
   // Memoised: WorkflowCanvas re-syncs its nodes whenever `steps`/`trigger` change,
   // so fresh objects on every render would loop (React #185).
   const nodeSummaryLabels = useNodeSummaryLabels();
+  // A Send Email step is drawn as a small compose window, in the mail app's own words.
+  const emailPreviewLabels = useMemo<EmailPreviewLabels>(
+    () => ({
+      from: t.mail.floatingCompose.from,
+      to: t.mail.compose.to,
+      subject: t.mail.compose.subject,
+      defaultAccount: t.weldconnect.actionConfigForm.useDefaultAccount,
+      subjectPlaceholder: t.mail.floatingCompose.subjectPlaceholder,
+      bodyPlaceholder: t.mail.floatingCompose.writePlaceholder,
+    }),
+    [t],
+  );
   const sortedSteps: WorkflowStep[] = useMemo(
     () => [...workflow.steps]
       .sort((a, b) => ((a.order as number | undefined) || 0) - ((b.order as number | undefined) || 0))
       .map((step) => ({
         ...asWorkflowStep(step),
         summary: summarizeStep({ type: step.type || '', config: step.config }, nodeSummaryLabels),
+        emailPreview:
+          step.type === 'send_email' ? previewEmailStep(step.config, emailPreviewLabels, emailAccounts) : undefined,
       })),
-    [workflow.steps, nodeSummaryLabels],
+    [workflow.steps, nodeSummaryLabels, emailPreviewLabels, emailAccounts],
   );
   // A string, so the memoised trigger below only changes when the text does.
   const triggerSummary = useMemo(

@@ -19,6 +19,7 @@ export { ConditionNode, ConditionBranchNode } from './condition-node';
 export { SubAgentNode } from './sub-agent-node';
 export { AddNodePanel } from './add-node-panel';
 export type { AddNodePanelLabels } from './add-node-panel';
+export { emailBodyToText } from './parts/email-step-card';
 
 // flow-utils
 export {
@@ -57,6 +58,7 @@ export type { MissingField } from './validation';
 // Types
 export type {
   WorkflowStep,
+  EmailStepPreview,
   TriggerConfig,
   TriggerCategory,
   VariableItem,
