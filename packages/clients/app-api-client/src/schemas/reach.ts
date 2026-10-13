@@ -278,6 +278,19 @@ export type ConnectReachDomainInput = z.infer<typeof connectReachDomainSchema>;
 // Mailboxes
 // ---------------------------------------------------------------------------
 
+/**
+ * Why a mailbox is still warming: too few days, too little data, low inbox
+ * placement, a login problem, or a pool with mailboxes on fewer than 3 domains.
+ */
+export const reachWarmupBlockerSchema = z.enum([
+  'too_early',
+  'not_enough_data',
+  'low_inbox_rate',
+  'login_error',
+  'pool_too_small',
+]);
+export type ReachWarmupBlocker = z.infer<typeof reachWarmupBlockerSchema>;
+
 export interface ReachMailbox {
   id: string;
   domainId: string;
@@ -288,8 +301,18 @@ export interface ReachMailbox {
   signature: string | null;
   type: ReachMailboxType;
   status: ReachMailboxStatus;
+  /** Days of warmup sending so far (WeldSuite warmup network). */
   warmupDay: number;
+  /** Pool state: waiting | warming | maintaining | paused | error | removed. */
   warmupStatus: string | null;
+  /** Inbox placement of this mailbox's warmup mail over 3 days (0..1); null below the minimum sample. */
+  warmupInboxRate: number | null;
+  /** Warmup emails sent in the last 7 days. */
+  warmupSent7d: number;
+  /** Warmup emails to this mailbox rescued from spam in the last 7 days. */
+  warmupSpamRescues7d: number;
+  /** Why a warming mailbox may not join campaigns yet; null when ready or not warming. */
+  warmupBlocker: ReachWarmupBlocker | null;
   dailyCap: number;
   rampCurrent: number;
   sentToday: number;
