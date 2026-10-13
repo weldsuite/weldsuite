@@ -850,7 +850,11 @@ export async function createCalendarEventForTask(
     return id;
   }
 
-  if (!(await isTaskAutoScheduleEnabled(db, params.userId))) return null;
+  // The opt-out covers tasks only; other sources (activities, …) still auto-place.
+  const honoursTaskOptOut = resolvedSourceType === 'task';
+  if (honoursTaskOptOut && !(await isTaskAutoScheduleEnabled(db, params.userId))) return null;
+  const placed = (eventId: string) =>
+    honoursTaskOptOut ? keepUnlessTaskAutoScheduleOff(db, params.userId, eventId) : eventId;
 
   const ctx = await getUserSchedulingContext(db, params.userId);
   const hasDueDate = !!params.dueDate;
@@ -919,7 +923,7 @@ export async function createCalendarEventForTask(
       createdAt: now,
       updatedAt: now,
     });
-    return id;
+    return placed(id);
   }
 
   // No free slot — try cascading bumps for medium+ priority tasks
@@ -957,7 +961,7 @@ export async function createCalendarEventForTask(
       const nextVisited = new Set([id]);
       await rescheduleBumpedEvent(db, candidate, ctx, nextVisited, 1);
 
-      return id;
+      return placed(id);
     }
   }
 
@@ -993,7 +997,23 @@ export async function createCalendarEventForTask(
     console.warn('[calendar-sync] No slot found within 90 days for new no-dueDate event', id);
   }
 
-  return id;
+  return placed(id);
+}
+
+/**
+ * Closes the race with turning auto-scheduling off. The opt-out saves the
+ * preference before it clears the user's events, so a placement that read the
+ * old preference but inserted after that clear sees the new one here and
+ * removes its event again.
+ */
+async function keepUnlessTaskAutoScheduleOff(
+  db: Database,
+  userId: string,
+  eventId: string,
+): Promise<string | null> {
+  if (await isTaskAutoScheduleEnabled(db, userId)) return eventId;
+  await deleteCalendarEvent(db, eventId);
+  return null;
 }
 
 // ── Update calendar event for a task ────────────────────────────────────
@@ -1178,33 +1198,36 @@ export async function deleteCalendarEvent(db: Database, calendarEventId: string)
 /**
  * Soft-delete every auto-scheduled task event this user organises and unlink
  * it from its task. Pinned events (a start the user chose) stay. Called when
- * the user turns off `uiPreferences.autoScheduleTasks`.
+ * the user turns off `uiPreferences.autoScheduleTasks`; safe to repeat.
+ *
+ * One statement (data-modifying CTEs), so it is atomic without a transaction,
+ * which the tenant DB's neon-http driver cannot open.
  */
 export async function removeAutoScheduledTaskEvents(db: Database, userId: string): Promise<number> {
   const { calendarEvents, tasks } = schema;
-  const now = new Date();
-
-  const removed = await db
-    .update(calendarEvents)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(
-      and(
-        eq(calendarEvents.organizerId, userId),
-        eq(calendarEvents.sourceType, 'task'),
-        eq(calendarEvents.autoScheduled, true),
-        isNull(calendarEvents.deletedAt),
-      ),
+  // UTC wall time, as drizzle writes these timestamp-without-zone columns.
+  const now = new Date().toISOString();
+  const result = await db.execute(sql`
+    WITH removed AS (
+      UPDATE ${calendarEvents}
+      SET deleted_at = ${now}::timestamp, updated_at = ${now}::timestamp
+      WHERE organizer_id = ${userId}
+        AND source_type = 'task'
+        AND auto_scheduled = true
+        AND deleted_at IS NULL
+      RETURNING id
+    ), unlinked AS (
+      UPDATE ${tasks}
+      SET calendar_event_id = NULL
+      WHERE calendar_event_id IN (SELECT id FROM removed)
     )
-    .returning({ id: calendarEvents.id });
-
-  if (removed.length > 0) {
-    await db
-      .update(tasks)
-      .set({ calendarEventId: null })
-      .where(inArray(tasks.calendarEventId, removed.map((r) => r.id)));
-  }
-
-  return removed.length;
+    SELECT count(*)::int AS removed FROM removed
+  `);
+  // neon-http and pglite return { rows }, postgres-js the rows themselves.
+  const rows = (Array.isArray(result) ? result : (result as { rows: unknown[] }).rows) as {
+    removed: number;
+  }[];
+  return rows[0]?.removed ?? 0;
 }
 
 // ── Nightly re-plan: catch up stale auto-scheduled events ───────────────

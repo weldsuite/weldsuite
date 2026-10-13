@@ -147,6 +147,18 @@ describe('task auto-scheduling turned off', () => {
     expect(await db.select().from(schema.calendarEvents)).toHaveLength(0);
   });
 
+  it('still auto-places events of other sources', async () => {
+    await optOutOfAutoSchedule('user_noauto');
+    const eventId = await createCalendarEventForTask(db, {
+      userId: 'user_noauto',
+      sourceId: 'act_noauto',
+      sourceType: 'activity',
+      title: 'Follow-up call',
+      dueDate: new Date(Date.now() + 48 * HOUR),
+    });
+    expect(eventId).not.toBeNull();
+  });
+
   it('still pins a task that has a start date', async () => {
     await optOutOfAutoSchedule('user_noauto');
     const start = new Date(Date.now() + 24 * HOUR);
@@ -171,6 +183,7 @@ describe('task auto-scheduling turned off', () => {
     const otherUser = await seedTaskEvent({ start: new Date(Date.now() + HOUR), organizerId: 'user_other' });
 
     expect(await removeAutoScheduledTaskEvents(db, 'user_noauto')).toBe(1);
+    expect(await removeAutoScheduledTaskEvents(db, 'user_noauto')).toBe(0);
 
     const events = await db.select().from(schema.calendarEvents);
     const deleted = new Set(events.filter((e) => e.deletedAt).map((e) => e.id));
