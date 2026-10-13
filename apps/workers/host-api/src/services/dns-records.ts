@@ -24,6 +24,11 @@ import {
   removeUserLock,
   type SyncResult,
 } from '../lib/host-dns-sync';
+import {
+  duplicatesWeldReachRecord,
+  isWeldReachManagedRecord,
+  weldReachDomainNameForZone,
+} from '../lib/weldreach';
 
 export {
   type DnsRecordLock,
@@ -223,6 +228,7 @@ export type UpdateOrDeleteResult =
   | { reason: 'not_found' }
   | { reason: 'no_cf_zone' }
   | { reason: 'locked'; reasons: string[] }
+  | { reason: 'managed_by_weldreach' }
   | { reason: 'no_external_id' };
 
 export async function updateDnsRecord(
@@ -234,6 +240,15 @@ export async function updateDnsRecord(
   const { record, zone } = await loadDnsRecordWithZone(db, recordId);
   if (!record || !zone) return { reason: 'not_found' };
   if (zone.provider !== 'cloudflare' || !zone.externalZoneId) return { reason: 'no_cf_zone' };
+  // Mailpool owns the mail records of a domain connected to WeldReach; neither
+  // editing them nor turning another record into a second SPF / DMARC is allowed.
+  const reachDomainName = await weldReachDomainNameForZone(db, zone.id);
+  if (
+    reachDomainName &&
+    (isWeldReachManagedRecord(reachDomainName, record) || duplicatesWeldReachRecord(reachDomainName, input))
+  ) {
+    return { reason: 'managed_by_weldreach' };
+  }
   if (isRecordLocked(record)) {
     return { reason: 'locked', reasons: getRecordLocks(record).map((l) => l.reason) };
   }
@@ -265,6 +280,10 @@ export async function deleteDnsRecord(
   const { record, zone } = await loadDnsRecordWithZone(db, recordId);
   if (!record || !zone) return { reason: 'not_found' };
   if (zone.provider !== 'cloudflare' || !zone.externalZoneId) return { reason: 'no_cf_zone' };
+  const reachDomainName = await weldReachDomainNameForZone(db, zone.id);
+  if (reachDomainName && isWeldReachManagedRecord(reachDomainName, record)) {
+    return { reason: 'managed_by_weldreach' };
+  }
   if (isRecordLocked(record)) {
     return { reason: 'locked', reasons: getRecordLocks(record).map((l) => l.reason) };
   }
@@ -365,9 +384,15 @@ export async function importDnsRecords(
   let imported = 0;
   let skipped = 0;
   const failed: Array<{ record: PublicDnsRecord; error: string }> = [];
+  const reachDomainName = await weldReachDomainNameForZone(db, ready.zone.id);
 
   for (const record of records) {
     if (!isImportable(ready.domain.fullDomain, record)) {
+      skipped++;
+      continue;
+    }
+    // A second SPF / DMARC next to the ones WeldReach's mailboxes rely on would break them.
+    if (reachDomainName && duplicatesWeldReachRecord(reachDomainName, record)) {
       skipped++;
       continue;
     }

@@ -560,6 +560,17 @@ export const platformSyncMap: EntitySyncMap = {
   hr_payroll_filing: inv(['weldhr']),
 
   // =========================================================================
+  // WeldReach — reachKeys.all in use-reach-queries.ts (the campaign, prospect
+  // and inbox hooks build on the same root). Payloads carry ids only, so every
+  // reach_* topic refetches the mounted WeldReach queries.
+  // =========================================================================
+  reach_campaign: inv(['reach']),
+  reach_mailbox: inv(['reach']),
+  reach_domain: inv(['reach']),
+  reach_prospect: inv(['reach']),
+  reach_reply: inv(['reach']),
+
+  // =========================================================================
   // WeldData — welddataKeys.all in use-welddata-queries.ts
   // =========================================================================
   welddata_list: inv(['welddata']),

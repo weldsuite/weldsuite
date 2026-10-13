@@ -902,4 +902,15 @@ export const host = {
       yes: 'Ja',
       goToDomain: 'Naar domein',
     },
+
+    // WeldReach (cold email) gebruikt WeldHost-domeinen: badge, alleen-lezen mailrecords, 409-meldingen.
+    weldReach: {
+      usedByBadge: 'Gebruikt door WeldReach',
+      usedByHint: 'Dit domein is gekoppeld aan WeldReach. Ontkoppel het daar voordat je het verwijdert, wegzet of de nameservers wijzigt.',
+      recordBadge: 'WeldReach',
+      recordManaged: 'Beheerd door WeldReach',
+      recordManagedHint: 'Dit record wordt beheerd door WeldReach en kan hier niet worden gewijzigd. Ontkoppel eerst het domein in WeldReach.',
+      domainInUse: 'Ontkoppel dit domein eerst in WeldReach.',
+      recordManagedError: 'Dit record wordt beheerd door WeldReach. Ontkoppel eerst het domein in WeldReach.',
+    },
   };

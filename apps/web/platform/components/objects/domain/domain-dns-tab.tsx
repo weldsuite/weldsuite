@@ -11,6 +11,10 @@
  * and their edit/delete buttons are disabled — the server enforces the same
  * rule with a 423, so this is an affordance, not the guard.
  *
+ * The mail records Mailpool writes for a domain connected to WeldReach arrive
+ * with `managedBy: 'weldreach'`. They render read-only the same way (badge,
+ * disabled edit/delete); the server answers 409 if one is changed anyway.
+ *
  * Layout is a compact table (column header + dense rows) so many records
  * stay scannable at panel width. Type filter chips narrow the list without
  * burying content behind card chrome.
@@ -50,6 +54,7 @@ import {
   type DnsRecordInput,
   type HostDnsRecord,
 } from '@/hooks/queries/use-host-queries';
+import { hostErrorMessage, isManagedByWeldReach } from '@/app/weldhost/lib/weldreach';
 
 /**
  * Types the panel offers for creation. PTR and SOA are accepted by the API
@@ -450,6 +455,7 @@ export function DomainDnsTab({
 }: Readonly<DomainDnsTabProps>) {
   const { t } = useI18n();
   const td = t.host.domainDetail;
+  const tw = t.host.weldReach;
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
@@ -495,10 +501,10 @@ export function DomainDnsTab({
         setIsAdding(false);
         toast.success(td.dnsRecordAdded);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : td.failedToAddRecord);
+        toast.error(hostErrorMessage(err, td.failedToAddRecord, tw));
       }
     },
-    [createRecord, domainId, td],
+    [createRecord, domainId, td, tw],
   );
 
   const handleUpdate = useCallback(
@@ -508,10 +514,10 @@ export function DomainDnsTab({
         setEditingId(null);
         toast.success(td.dnsRecordUpdated);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : td.failedToUpdateRecord);
+        toast.error(hostErrorMessage(err, td.failedToUpdateRecord, tw));
       }
     },
-    [updateRecord, domainId, td],
+    [updateRecord, domainId, td, tw],
   );
 
   const handleDelete = useCallback(async () => {
@@ -521,9 +527,9 @@ export function DomainDnsTab({
       toast.success(td.dnsRecordDeleted);
       setPendingDelete(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : td.failedToDeleteRecord);
+      toast.error(hostErrorMessage(err, td.failedToDeleteRecord, tw));
     }
-  }, [pendingDelete, deleteRecord, domainId, td]);
+  }, [pendingDelete, deleteRecord, domainId, td, tw]);
 
   let emptyDescription = td.noMatchingRecordsDescription;
   if (records.length === 0) {
@@ -587,12 +593,15 @@ export function DomainDnsTab({
             }
 
             const locks = getDnsRecordLocks(record);
-            const locked = locks.length > 0;
+            const managedByWeldReach = isManagedByWeldReach(record);
+            const locked = locks.length > 0 || managedByWeldReach;
             // Locks are system-managed — users never lock/unlock from the UI,
             // they only see the protection and which module owns the record.
             const systemLock = locks.find((l) => l.source !== 'user');
-            const lockLabel = getLockLabel(systemLock, td);
-            const lockTooltip = locks.map((l) => l.reason).join('\n\n') || td.recordLocked;
+            const lockLabel = managedByWeldReach ? tw.recordBadge : getLockLabel(systemLock, td);
+            const lockTooltip = managedByWeldReach
+              ? tw.recordManagedHint
+              : locks.map((l) => l.reason).join('\n\n') || td.recordLocked;
             const hasPriority =
               record.priority !== null && record.priority !== undefined;
             const valueLabel = hasPriority
@@ -620,8 +629,9 @@ export function DomainDnsTab({
                   </span>
                   {locked && (
                     <span
+                      data-testid={managedByWeldReach ? 'weldreach-managed-badge' : undefined}
                       className="inline-flex h-[18px] flex-shrink-0 items-center gap-0.5 rounded bg-blue-50 px-1 text-[10px] font-medium leading-none text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-                      title={lockTooltip}
+                      title={managedByWeldReach ? tw.recordManaged : lockTooltip}
                     >
                       <Lock className="h-2.5 w-2.5" />
                       <span className="max-w-[72px] truncate">{lockLabel}</span>

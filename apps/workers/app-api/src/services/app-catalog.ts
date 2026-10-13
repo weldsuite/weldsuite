@@ -19,6 +19,7 @@
 import { and, eq, isNull, max } from 'drizzle-orm';
 import { schema, masterSchema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import type { AppAccessStatus } from '@weldsuite/app-api-client/schemas/reach';
 
 const { workspaceInstalledApps } = schema;
 const { appCatalog } = masterSchema;
@@ -62,6 +63,17 @@ export interface CatalogAppItem {
   websiteUrl: string | null;
   documentationUrl: string | null;
   contactUrl: string | null;
+  /**
+   * On request only: the store shows "Request access" instead of Install and
+   * the install endpoint refuses the app until the workspace is approved
+   * (services/app-access.ts).
+   */
+  requiresApproval: boolean;
+  /**
+   * This workspace's access to the app, set only when `requiresApproval`:
+   * `'none'` before it ever asked, otherwise the `workspace_app_access` status.
+   */
+  accessStatus?: AppAccessStatus | 'none';
 }
 
 export interface InstalledCatalogApp {
@@ -73,9 +85,13 @@ export interface InstalledCatalogApp {
   installedAt: Date | null;
 }
 
+/** The workspace's access status per app code (`listAccessStatuses`); apps it never asked for are absent. */
+export type AccessStatuses = ReadonlyMap<string, AppAccessStatus>;
+
 function toCatalogItem(
   app: typeof appCatalog.$inferSelect,
   installedCodes: Set<string>,
+  accessStatuses?: AccessStatuses,
 ): CatalogAppItem {
   return {
     id: app.id,
@@ -96,6 +112,8 @@ function toCatalogItem(
     websiteUrl: app.websiteUrl,
     documentationUrl: app.documentationUrl,
     contactUrl: app.contactUrl,
+    requiresApproval: app.requiresApproval,
+    ...(app.requiresApproval ? { accessStatus: accessStatuses?.get(app.code) ?? 'none' } : {}),
   };
 }
 
@@ -116,6 +134,7 @@ async function getInstalledCodes(tenantDb: Database): Promise<Set<string>> {
 export async function listCatalogApps(
   masterDb: MasterDatabase,
   tenantDb: Database,
+  accessStatuses?: AccessStatuses,
 ): Promise<CatalogAppItem[]> {
   const catalogApps = await masterDb
     .select()
@@ -124,7 +143,7 @@ export async function listCatalogApps(
     .orderBy(appCatalog.sortOrder);
 
   const installedCodes = await getInstalledCodes(tenantDb);
-  return catalogApps.map((app) => toCatalogItem(app, installedCodes));
+  return catalogApps.map((app) => toCatalogItem(app, installedCodes, accessStatuses));
 }
 
 /**
@@ -155,6 +174,7 @@ export async function getCatalogApp(
   masterDb: MasterDatabase,
   tenantDb: Database,
   code: string,
+  accessStatuses?: AccessStatuses,
 ): Promise<
   | (CatalogAppItem & {
       installation: { id: string; installedAt: Date | null; settings: Record<string, unknown> | null } | null;
@@ -194,7 +214,7 @@ export async function getCatalogApp(
 
   const installation = installedApps[0];
   return {
-    ...toCatalogItem(app, new Set(installation ? [code] : [])),
+    ...toCatalogItem(app, new Set(installation ? [code] : []), accessStatuses),
     installation: installation
       ? {
           id: installation.id,

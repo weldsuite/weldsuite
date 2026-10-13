@@ -1,0 +1,660 @@
+/**
+ * WeldReach engagepagina's: campagnes (lijst, sequentie-editor, deelnemers,
+ * mailboxen, planning, statistieken), prospects (tabel, lijsten, importen) en
+ * de inbox met reacties. Shell, setup, mailboxen en toegang staan in `reach.ts`.
+ * Zie docs/plans/weldreach.md.
+ *
+ * Teksten met `{example}` krijgen een letterlijk sjabloonteken zoals
+ * `{{firstName|there}}` mee, zodat de dubbele accolades hier niet voorkomen.
+ */
+export const reachEngage = {
+  common: {
+    back: 'Terug',
+    cancel: 'Annuleren',
+    create: 'Aanmaken',
+    delete: 'Verwijderen',
+    discard: 'Wijzigingen verwerpen',
+    dismiss: 'Sluiten',
+    done: 'Klaar',
+    loadMore: 'Meer laden',
+    remove: 'Verwijderen',
+    save: 'Opslaan',
+  },
+
+  status: {
+    campaign: {
+      draft: 'Concept',
+      active: 'Actief',
+      paused: 'Gepauzeerd',
+      completed: 'Afgerond',
+      archived: 'Gearchiveerd',
+    },
+    enrollment: {
+      queued: 'In de wachtrij',
+      active: 'Actief',
+      replied: 'Gereageerd',
+      bounced: 'Gebounced',
+      unsubscribed: 'Uitgeschreven',
+      completed: 'Afgerond',
+      paused: 'Gepauzeerd',
+      failed: 'Mislukt',
+    },
+    mailbox: {
+      provisioning: 'Wordt ingericht',
+      warming: 'Warmt op',
+      active: 'Actief',
+      paused: 'Gepauzeerd',
+      suspended: 'Opgeschort',
+      error: 'Fout',
+      deleting: 'Wordt verwijderd',
+      deleted: 'Verwijderd',
+    },
+  },
+
+  validation: {
+    valid: {
+      label: 'Geldig',
+      hint: 'Een zakelijk adres dat campagne-e-mails kan ontvangen.',
+    },
+    role: {
+      label: 'Functieadres',
+      hint: 'Een gedeelde mailbox zoals info@ of sales@. Niemand leest die persoonlijk, dus standaard laten we ze buiten campagnes.',
+    },
+    consumer: {
+      label: 'Consument',
+      hint: 'Een gratis of consumentenadres (gmail.com, outlook.com, …). WeldReach is voor zakelijke adressen en slaat deze over, tenzij WeldSuite consumentenontvangers voor je workspace heeft ingeschakeld.',
+    },
+    no_mx: {
+      label: 'Geen mailserver',
+      hint: 'Het domein heeft geen mailserver, dus een e-mail ernaartoe zou bouncen.',
+    },
+    invalid: {
+      label: 'Ongeldig',
+      hint: 'Dit lijkt geen werkend e-mailadres.',
+    },
+    suppressed: {
+      label: 'Geblokkeerd',
+      hint: 'Dit adres heeft zich uitgeschreven, is gebounced of is geblokkeerd. Het wordt nooit meer gemaild.',
+    },
+  },
+
+  labels: {
+    interested: 'Geïnteresseerd',
+    meeting_request: 'Afspraakverzoek',
+    not_interested: 'Niet geïnteresseerd',
+    not_now: 'Nu niet',
+    out_of_office: 'Afwezig',
+    wrong_person: 'Verkeerde persoon',
+    unsubscribe: 'Uitschrijven',
+    other: 'Overig',
+    unclassified: 'Zonder label',
+    aiLabelled: 'Label door AI',
+  },
+
+  kinds: {
+    reply: 'Reactie',
+    auto_reply: 'Automatische reactie',
+    bounce: 'Bounce',
+  },
+
+  // ---------------------------------------------------------------------------
+  // Campagnes
+  // ---------------------------------------------------------------------------
+  campaigns: {
+    title: 'Campagnes',
+    searchPlaceholder: 'Campagnes zoeken',
+    statusFilter: 'Filteren op status',
+    allStatuses: 'Alle statussen',
+    newCampaign: 'Nieuwe campagne',
+    emptyTitle: 'Nog geen campagnes',
+    emptyDescription:
+      'Een campagne stuurt een reeks e-mails naar een lijst prospects vanuit je mailboxen, en stopt voor elke prospect zodra die reageert.',
+    emptyAction: 'Maak je eerste campagne',
+    noResultsTitle: 'Geen campagnes gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht of status.',
+    table: {
+      name: 'Naam',
+      status: 'Status',
+      prospects: 'Prospects',
+      sent: 'Verzonden',
+      replied: 'Gereageerd',
+      interested: 'Geïnteresseerd',
+      bounced: 'Gebounced',
+      updated: 'Bijgewerkt',
+    },
+    create: {
+      title: 'Nieuwe campagne',
+      description: 'Geef de campagne een naam. Daarna voeg je e-mails, prospects en mailboxen toe.',
+      name: 'Naam',
+      namePlaceholder: 'Q4-outreach: logistieke bedrijven',
+      nameRequired: 'Vul een naam voor de campagne in.',
+      submit: 'Campagne aanmaken',
+      failed: 'De campagne kon niet worden aangemaakt.',
+    },
+    delete: {
+      title: 'Campagne verwijderen?',
+      description:
+        'Verwijder “{name}” en de bijbehorende sequentie. E-mails die al zijn verstuurd blijven in de inbox staan. Dit kan niet ongedaan worden gemaakt.',
+      done: '“{name}” is verwijderd.',
+      failed: 'De campagne kon niet worden verwijderd.',
+    },
+  },
+
+  campaign: {
+    loadFailed: 'Deze campagne kon niet worden geladen.',
+    backToCampaigns: 'Terug naar campagnes',
+    summary: 'Prospects: {prospects} · Stappen: {steps} · Mailboxen: {mailboxes}',
+    tabs: {
+      sequence: 'Sequentie',
+      prospects: 'Prospects',
+      mailboxes: 'Mailboxen',
+      settings: 'Planning en instellingen',
+      stats: 'Statistieken',
+    },
+    actions: {
+      launch: 'Starten',
+      pause: 'Pauzeren',
+      resume: 'Hervatten',
+      launchFailed: 'De campagne kon niet worden gestart.',
+      pauseFailed: 'De campagne kon niet worden gepauzeerd.',
+      resumeFailed: 'De campagne kon niet worden hervat.',
+    },
+    launchConfirm: {
+      title: 'Deze campagne starten?',
+      description:
+        'E-mails worden binnen het verzendvenster verstuurd vanuit je actieve mailboxen. Prospects: {prospects}, stappen: {steps}. Je kunt de campagne op elk moment pauzeren.',
+    },
+    pausedTitle: 'Deze campagne is automatisch gepauzeerd',
+    pausedOther: 'Reden: {reason}. Hervat de campagne zodra dit is opgelost.',
+    pausedReasons: {
+      bounce_rate:
+        'Te veel e-mails zijn gebounced. Controleer de kwaliteit van je prospectlijst en hervat de campagne daarna.',
+      mailbox_unhealthy:
+        'Een verzendende mailbox meldde problemen. Controleer de mailboxen en hervat daarna.',
+      no_active_mailbox:
+        'Er is geen actieve mailbox meer in deze campagne. Voeg een mailbox toe of wacht tot de opwarming klaar is en hervat daarna.',
+      billing:
+        'Een betaling voor je mailboxen is mislukt. Werk je betaalmethode bij en hervat daarna.',
+      access_suspended: 'WeldReach is voor deze workspace opgeschort. Neem contact op met support.',
+      kill_switch:
+        'Verzenden is voor het hele platform uitgeschakeld. De campagne gaat verder zodra verzenden weer aan staat.',
+      domain_expired:
+        'Het domein van een verzendende mailbox is verlopen. Verleng het domein en hervat daarna.',
+    },
+  },
+
+  sequence: {
+    firstEmail: 'Eerste e-mail',
+    followUp: 'Follow-up {number}',
+    firstEmailHint:
+      'Wordt verstuurd zodra de prospect in de campagne start, binnen het verzendvenster.',
+    waitPrefix: 'Versturen na',
+    waitSuffix: 'zonder reactie',
+    days: 'Dagen',
+    hours: 'Uren',
+    delayInvalid: 'Vul 0 tot 90 dagen en 0 tot 23 uur in.',
+    subject: 'Onderwerp',
+    subjectPlaceholder: 'Korte vraag over {{companyName}}',
+    subjectRequired: 'Vul een onderwerp in.',
+    body: 'E-mail',
+    bodyPlaceholder: 'Hoi {{firstName|daar}},\n\n…',
+    bodyRequired: 'Schrijf de e-mail.',
+    insertVariable: 'Variabele invoegen',
+    standardVariables: 'Prospect en afzender',
+    customVariables: 'Eigen velden',
+    fallbackHelp:
+      'Voeg na een streepje een terugvalwaarde toe, zoals {example}, voor prospects waarbij de waarde leeg is. Zonder terugvalwaarde wordt een prospect met een lege waarde overgeslagen en krijgt nooit een e-mail met accolades erin.',
+    unknownVariables:
+      'Geen enkele prospect heeft deze velden al, dus ze zijn leeg: {names}. Geef ze een terugvalwaarde of voeg het veld toe aan je prospects.',
+    replyInThread: 'Antwoorden in dezelfde thread',
+    replyInThreadHint:
+      'Wordt verstuurd als antwoord (Re:) op de vorige e-mail, zodat die in hetzelfde gesprek verschijnt.',
+    moveUp: 'Stap omhoog verplaatsen',
+    moveDown: 'Stap omlaag verplaatsen',
+    removeStep: 'Stap verwijderen',
+    addStep: 'Follow-up toevoegen',
+    maxSteps: 'Een sequentie heeft maximaal {count} stappen.',
+    needsStep: 'Een sequentie heeft minstens één stap nodig.',
+    save: 'Sequentie opslaan',
+    saved: 'Sequentie opgeslagen.',
+    saveFailed: 'De sequentie kon niet worden opgeslagen.',
+    unsaved: 'Niet-opgeslagen wijzigingen',
+    lockedTitle: 'Pauzeer de campagne om de sequentie te bewerken',
+    lockedHint:
+      'Stappen kunnen niet veranderen terwijl de campagne verzendt. Pauzeer haar, pas je wijzigingen toe en hervat daarna.',
+    variables: {
+      firstName: 'Voornaam',
+      lastName: 'Achternaam',
+      fullName: 'Volledige naam',
+      email: 'E-mailadres',
+      companyName: 'Bedrijf',
+      title: 'Functie',
+      senderFirstName: 'Voornaam afzender',
+      senderLastName: 'Achternaam afzender',
+      senderFullName: 'Volledige naam afzender',
+    },
+  },
+
+  preview: {
+    title: 'Voorbeeld van stap {number}',
+    prospect: 'Voorbeeld voor',
+    sample: 'Voorbeeldprospect',
+    empty: 'Schrijf een onderwerp of e-mail om het voorbeeld te zien.',
+    failed: 'Het voorbeeld kon niet worden geladen.',
+    subject: 'Onderwerp',
+    missingTitle: 'Sommige prospects worden overgeslagen',
+    missingDescription:
+      'Deze variabelen zijn leeg voor deze prospect en hebben geen terugvalwaarde: {names}. Zo’n prospect wordt overgeslagen zodra de e-mail aan de beurt is.',
+    footerNote:
+      'WeldReach voegt je afmeldregel en afzendergegevens onder de e-mail toe bij het verzenden.',
+  },
+
+  enrollments: {
+    addProspects: 'Prospects toevoegen',
+    statusFilter: 'Filteren op status',
+    allStatuses: 'Alle statussen',
+    emptyTitle: 'Geen prospects in deze campagne',
+    emptyDescription:
+      'Voeg een lijst toe of kies prospects. Iedereen start met de sequentie vanaf de eerste stap.',
+    noResultsTitle: 'Geen prospects met deze status',
+    noResultsDescription: 'Probeer een andere status.',
+    mailboxPending: 'Wordt bij de eerste verzending gekozen',
+    table: {
+      prospect: 'Prospect',
+      status: 'Status',
+      mailbox: 'Verzendende mailbox',
+      stepsSent: 'Stappen verzonden',
+      nextSend: 'Volgende e-mail',
+      stoppedReason: 'Gestopt omdat',
+    },
+    stopped: {
+      reply: 'Heeft gereageerd',
+      company_replied: 'Iemand van het bedrijf heeft gereageerd',
+      replied_elsewhere: 'Heeft op een andere campagne gereageerd',
+      bounce: 'De e-mail is gebounced',
+      unsubscribe: 'Heeft zich uitgeschreven',
+      suppressed: 'Op de blokkeerlijst',
+      consumer: 'Consumentenadres',
+      missing_variable: 'Een sjabloonvariabele was leeg',
+      auto_reply: 'Automatische reactie',
+      send_failed: 'Versturen bleef mislukken',
+      prospect_deleted: 'De prospect is verwijderd',
+      manual: 'Handmatig gestopt',
+    },
+    removeTitle: 'Uit de campagne halen?',
+    removeDescription:
+      '{prospect} ontvangt deze sequentie niet meer. De prospect zelf blijft in je prospectlijst staan.',
+    removed: 'Uit de campagne gehaald.',
+    removeFailed: 'De prospect kon niet worden verwijderd.',
+  },
+
+  addProspects: {
+    title: 'Prospects toevoegen',
+    description:
+      'Voeg een opgeslagen lijst toe, of kies prospects één voor één. Wie al in een campagne zit, zich heeft uitgeschreven of een consumentenadres heeft, wordt overgeslagen.',
+    fromList: 'Uit een lijst',
+    fromSelection: 'Prospects kiezen',
+    list: 'Lijst',
+    listPlaceholder: 'Kies een lijst',
+    noLists:
+      'Je hebt nog geen lijsten. Maak er een op de pagina Prospects, of kies prospects.',
+    searchPlaceholder: 'Zoeken op naam, bedrijf of e-mail',
+    noProspects: 'Geen prospects gevonden.',
+    selectVisible: 'Alles op deze pagina selecteren',
+    submit: 'Toevoegen aan campagne',
+    submitCount: '{count} geselecteerde toevoegen',
+    nothingSelected: 'Kies een lijst of selecteer minstens één prospect.',
+    failed: 'De prospects konden niet worden toegevoegd.',
+    added: 'Toegevoegd aan de campagne: {count}',
+    skippedTitle: 'Overgeslagen',
+    skipped: {
+      already_enrolled: 'Zit al in deze campagne',
+      suppressed: 'Uitgeschreven, gebounced of geblokkeerd',
+      consumer: 'Consumentenadres',
+      invalid: 'Geen geldig adres',
+      enrolled_elsewhere: 'Zit al in een andere actieve campagne',
+    },
+  },
+
+  mailboxes: {
+    title: 'Verzendende mailboxen',
+    description:
+      'De campagne wisselt tussen de mailboxen die je kiest: elke prospect houdt de mailbox die de eerste e-mail verstuurde. Alleen actieve mailboxen verzenden; een mailbox die nog opwarmt doet mee zodra de opwarming klaar is.',
+    loadFailed: 'De mailboxen konden niet worden geladen.',
+    empty: 'Je hebt nog geen mailboxen. Richt er eerst een in.',
+    manage: 'Naar mailboxen',
+    selectedCount: 'Geselecteerde mailboxen: {count}',
+    sentToday: 'Vandaag verzonden: {sent} van {cap}',
+    warmingNote: 'Start na de opwarming (dag {day} van {days})',
+    notSending: 'Verzendt nu niet',
+    noActiveTitle: 'Geen van de geselecteerde mailboxen kan al verzenden',
+    noActiveHint:
+      'Een campagne heeft minstens één actieve mailbox nodig om te starten. Mailboxen die opwarmen gaan verzenden zodra hun opwarming klaar is.',
+    saved: 'Mailboxen opgeslagen.',
+    saveFailed: 'De mailboxen konden niet worden opgeslagen.',
+  },
+
+  settings: {
+    generalTitle: 'Algemeen',
+    name: 'Naam van de campagne',
+    nameRequired: 'Vul een naam voor de campagne in.',
+    owner: 'Eigenaar',
+    noOwner: 'Geen eigenaar',
+    ownerHint: 'De teamgenoot die verantwoordelijk is voor deze campagne en de reacties.',
+    scheduleTitle: 'Planning',
+    scheduleDescription: 'E-mails gaan alleen op deze dagen en tussen deze tijden de deur uit.',
+    timezone: 'Tijdzone',
+    timezoneHint: 'Het verzendvenster volgt deze tijdzone.',
+    sendDays: 'Verzenden op',
+    sendDaysRequired: 'Kies minstens één dag.',
+    windowStart: 'Venster begint',
+    windowEnd: 'Venster eindigt',
+    windowInvalid: 'Het venster moet eindigen na het begin.',
+    limitsTitle: 'Limieten',
+    limitsDescription:
+      'Je mailboxen en de limiet van je workspace kunnen deze aantallen verlagen, nooit verhogen.',
+    dailyLimit: 'E-mails per dag',
+    dailyLimitHint: 'Het maximum dat deze campagne per dag verstuurt, over al haar mailboxen samen.',
+    dailyLimitInvalid: 'Vul een getal van 1 tot 10.000 in.',
+    minGap: 'Minuten tussen e-mails',
+    minGapHint:
+      'De kortste tijd tussen twee e-mails vanuit dezelfde mailbox. Er komt een beetje willekeurige tijd bij.',
+    minGapInvalid: 'Vul een getal van 1 tot 240 in.',
+    stopOnAutoReply: 'Stoppen bij automatische reacties',
+    stopOnAutoReplyHint:
+      'Afwezigheidsberichten en andere automatische reacties stoppen de sequentie voor die prospect. Staat dit uit, dan stoppen alleen echte reacties.',
+    unsaved: 'Niet-opgeslagen wijzigingen',
+    saved: 'Instellingen opgeslagen.',
+    saveFailed: 'De instellingen konden niet worden opgeslagen.',
+  },
+
+  stats: {
+    prospects: 'Prospects',
+    sent: 'Verzonden',
+    replied: 'Gereageerd',
+    interested: 'Geïnteresseerd',
+    bounced: 'Gebounced',
+    unsubscribed: 'Uitgeschreven',
+    ofSent: '{rate} van de verzonden e-mails',
+    perStepTitle: 'Per stap',
+    perStepDescription:
+      'Wat elke e-mail van de sequentie verstuurde, aan reacties opleverde en aan bounces gaf.',
+    step: 'Stap',
+    stepName: 'Stap {number}',
+    replyRate: 'Reactiepercentage',
+    empty: 'Er is nog niets verzonden.',
+    loadFailed: 'De statistieken konden niet worden geladen.',
+  },
+
+  // ---------------------------------------------------------------------------
+  // Prospects
+  // ---------------------------------------------------------------------------
+  prospects: {
+    title: 'Prospects',
+    searchPlaceholder: 'Prospects zoeken',
+    addProspect: 'Prospect toevoegen',
+    import: 'Importeren',
+    validationFilter: 'Filteren op validatie',
+    allValidations: 'Alle adressen',
+    selectAll: 'Alles op deze pagina selecteren',
+    selectRow: '{email} selecteren',
+    emptyTitle: 'Nog geen prospects',
+    emptyDescription:
+      'Importeer een CSV-bestand, een WeldCRM-lijst of een WeldData-lijst, of voeg prospects één voor één toe. WeldReach is alleen voor zakelijke adressen.',
+    noResultsTitle: 'Geen prospects gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht, lijst of filter.',
+    footer: '{count} in totaal',
+    footerInList: '{count} in “{list}”',
+    deleteTitle: 'Prospect verwijderen?',
+    deleteDescription:
+      'Verwijder {prospect} uit je prospects. De prospect verdwijnt uit elke lijst en campagne. Dit kan niet ongedaan worden gemaakt.',
+    deleted: 'Prospect verwijderd.',
+    deleteFailed: 'De prospect kon niet worden verwijderd.',
+    table: {
+      prospect: 'Prospect',
+      company: 'Bedrijf',
+      validation: 'Validatie',
+      source: 'Bron',
+      added: 'Toegevoegd',
+    },
+    sources: {
+      csv: 'CSV-bestand',
+      crm_list: 'WeldCRM-lijst',
+      welddata: 'WeldData',
+      manual: 'Handmatig toegevoegd',
+    },
+    selection: {
+      count: '{count} geselecteerd',
+      addToList: 'Aan lijst toevoegen',
+      clear: 'Selectie wissen',
+    },
+    dialog: {
+      addTitle: 'Prospect toevoegen',
+      editTitle: 'Prospect bewerken',
+      description: 'Een prospect is één persoon bij een bedrijf dat je wilt mailen.',
+      email: 'E-mailadres',
+      emailHint: 'Alleen zakelijke adressen. Gratis mailadressen worden overgeslagen.',
+      emailInvalid: 'Vul een geldig e-mailadres in.',
+      firstName: 'Voornaam',
+      lastName: 'Achternaam',
+      companyName: 'Bedrijf',
+      title: 'Functie',
+      timezone: 'Tijdzone',
+      noTimezone: 'Niet ingesteld',
+      customFields: 'Eigen velden',
+      customFieldsHint: 'Extra gegevens die je in e-mails kunt gebruiken als {example}.',
+      customKey: 'Veldnaam',
+      customValue: 'Waarde',
+      customKeyInvalid:
+        'Veldnamen mogen alleen letters, cijfers, punten, streepjes en underscores bevatten.',
+      addCustomField: 'Veld toevoegen',
+      add: 'Prospect toevoegen',
+      failed: 'De prospect kon niet worden opgeslagen.',
+    },
+    lists: {
+      title: 'Lijsten',
+      all: 'Alle prospects',
+      create: 'Nieuwe lijst',
+      createTitle: 'Nieuwe lijst',
+      renameTitle: 'Lijst bewerken',
+      name: 'Naam',
+      nameRequired: 'Vul een naam voor de lijst in.',
+      description: 'Omschrijving',
+      descriptionPlaceholder: 'Optioneel',
+      rename: 'Bewerken',
+      menu: 'Opties voor {name}',
+      empty: 'Nog geen lijsten. Een import maakt er automatisch een aan.',
+      loadFailed: 'De lijsten konden niet worden geladen.',
+      saveFailed: 'De lijst kon niet worden opgeslagen.',
+      deleteTitle: 'Lijst verwijderen?',
+      deleteDescription:
+        'Verwijder de lijst “{name}”. De prospects erin blijven in je prospecttabel en in elke campagne staan.',
+      deleted: '“{name}” is verwijderd.',
+      deleteFailed: 'De lijst kon niet worden verwijderd.',
+    },
+    addToList: {
+      title: 'Aan lijst toevoegen',
+      description: 'Kies de lijst voor de geselecteerde prospects ({count}).',
+      list: 'Lijst',
+      placeholder: 'Kies een lijst',
+      newList: 'Nieuwe lijst…',
+      submit: 'Aan lijst toevoegen',
+      done: 'Prospects aan de lijst toegevoegd.',
+      failed: 'De prospects konden niet aan de lijst worden toegevoegd.',
+    },
+  },
+
+  import: {
+    title: 'Prospects importeren',
+    description:
+      'Haal de mensen binnen die je wilt mailen. Elk adres wordt opnieuw gecontroleerd voordat er een e-mail naartoe gaat.',
+    b2bNote:
+      'WeldReach is voor zakelijke adressen. Gratis en consumentenadressen (gmail.com, outlook.com, …) worden overgeslagen, tenzij WeldSuite ze voor je workspace heeft ingeschakeld, en functieadressen (info@, sales@, …) laten we standaard weg.',
+    sources: {
+      csv: 'CSV-bestand',
+      crm: 'WeldCRM-lijst',
+      welddata: 'WeldData-lijst',
+    },
+    csv: {
+      dropTitle: 'Sleep een CSV-bestand hierheen, of klik om er een te kiezen',
+      dropHint:
+        'De eerste rij bevat de kolomnamen. Bestanden gescheiden door komma, puntkomma of tab werken.',
+      tooLarge: 'Dit bestand is te groot. Splits het in kleinere bestanden.',
+      tooManyRows:
+        'Dit bestand heeft te veel rijen. Splits het in bestanden van maximaal {count} rijen.',
+      empty:
+        'In dit bestand zijn geen rijen gevonden. Controleer of de eerste rij de kolomnamen bevat.',
+      readFailed: 'Het bestand kon niet worden gelezen.',
+      fileSummary: '{rows} rijen, {columns} kolommen',
+      chooseAnother: 'Ander bestand kiezen',
+      mapTitle: 'Koppel de kolommen',
+      fields: {
+        email: 'E-mailadres',
+        firstName: 'Voornaam',
+        lastName: 'Achternaam',
+        companyName: 'Bedrijf',
+        title: 'Functie',
+        timezone: 'Tijdzone',
+      },
+      noColumn: 'Niet importeren',
+      unnamedColumn: 'Kolom {number}',
+      emailRequired: 'Kies de kolom met de e-mailadressen.',
+      customTitle: 'Overige kolommen',
+      customHint:
+        'Vink de kolommen aan die je als eigen velden wilt bewaren. Je kunt ze in e-mails gebruiken als {example}.',
+      checksTitle: 'Voordat je importeert',
+      ready: 'Klaar om te importeren: {count} van {total} rijen.',
+      checkInvalid: 'Rijen zonder geldig e-mailadres (niet geïmporteerd): {count}',
+      checkDuplicate: 'Dubbele adressen in het bestand (eenmaal geïmporteerd): {count}',
+      checkConsumer:
+        'Gratis en consumentenadressen in het bestand: {count}. Ze worden overgeslagen, tenzij WeldSuite consumentenontvangers voor je workspace heeft ingeschakeld.',
+      checkRole:
+        'Functieadressen (info@, sales@, …) in het bestand: {count}. Ze laten we standaard weg.',
+      destinationTitle: 'Opslaan in een lijst',
+      destNew: 'Een nieuwe lijst',
+      destExisting: 'Een bestaande lijst',
+      destNone: 'Geen lijst',
+      listName: 'Naam van de lijst',
+      pickList: 'Kies een lijst',
+      start: '{count} rijen importeren',
+      progress: '{done} van {total} geïmporteerd',
+      stopped:
+        'De import stopte na {sent} van {total} rijen ({message}). Het bestand opnieuw importeren is veilig; rijen die al in WeldReach staan worden bijgewerkt, niet dubbel aangemaakt.',
+      failed: 'De import is mislukt.',
+    },
+    list: {
+      crmDescription:
+        'Importeert de mensen met een e-mailadres uit een WeldCRM-lijst. Een CRM-persoon wordt aan de prospect gekoppeld.',
+      welddataDescription: 'Importeert de mensen met een e-mailadres uit een WeldData-lijst.',
+      crmList: 'WeldCRM-lijst',
+      welddataList: 'WeldData-lijst',
+      pick: 'Kies een lijst',
+      noCrmLists: 'Je hebt geen WeldCRM-lijsten met personen.',
+      noWelddataLists: 'Je hebt geen WeldData-lijsten met personen.',
+      loadFailed: 'De lijsten konden niet worden geladen.',
+      listName: 'Naam van de nieuwe lijst',
+      listNameHint: 'De geïmporteerde prospects worden in een lijst met deze naam opgeslagen.',
+      start: 'Importeren',
+      failed: 'De import is mislukt.',
+    },
+    report: {
+      summary: 'Import klaar. Aangemaakt {created}, bijgewerkt {updated}.',
+      skippedTotal: 'Overgeslagen: {count}',
+      skippedTitle: 'Waarom rijen zijn overgeslagen',
+      viewList: 'Lijst bekijken',
+    },
+    skipped: {
+      valid: 'Geldig',
+      role: 'Functieadressen (info@, sales@, …)',
+      consumer: 'Gratis en consumentenadressen',
+      no_mx: 'Domeinen zonder mailserver',
+      invalid: 'Geen geldig adres',
+      suppressed: 'Uitgeschreven, gebounced of geblokkeerd',
+      duplicate: 'Dubbel in het bestand',
+      invalid_row: 'Rijen zonder e-mailadres',
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Inbox
+  // ---------------------------------------------------------------------------
+  inbox: {
+    title: 'Inbox',
+    conversations: 'Gesprekken',
+    conversation: 'Gesprek',
+    states: {
+      open: 'Open',
+      unread: 'Ongelezen',
+      handled: 'Afgehandeld',
+      all: 'Alles',
+    },
+    labelFilter: 'Filteren op label',
+    allLabels: 'Alle labels',
+    campaignFilter: 'Filteren op campagne',
+    allCampaigns: 'Alle campagnes',
+    mailboxFilter: 'Filteren op mailbox',
+    allMailboxes: 'Alle mailboxen',
+    refresh: 'Verversen',
+    loadFailed: 'De inbox kon niet worden geladen.',
+    emptyTitle: 'Geen reacties om af te handelen',
+    emptyDescription:
+      'Reacties op je campagnes verschijnen hier, voorzien van een label en klaar om te beantwoorden.',
+    noResultsTitle: 'Geen gesprekken gevonden',
+    noResultsDescription: 'Probeer een andere status of een ander filter.',
+    selectPrompt: 'Selecteer een gesprek om het te lezen.',
+    unknownSender: 'Onbekende afzender',
+    noSubject: '(geen onderwerp)',
+    unread: 'Ongelezen',
+    handled: 'Afgehandeld',
+    thread: {
+      loadFailed: 'Dit gesprek kon niet worden geladen.',
+      empty: 'Dit gesprek bevat geen berichten.',
+      viaMailbox: 'Aan {mailbox}',
+      sentBy: 'Verzonden vanaf {mailbox}',
+      noBody: 'De tekst van dit bericht is niet beschikbaar.',
+      changeLabel: 'Label wijzigen',
+      markHandled: 'Markeren als afgehandeld',
+      markedHandled: 'Gemarkeerd als afgehandeld.',
+      reopen: 'Heropenen',
+      reopened: 'Heropend.',
+      addToCrm: 'Aan CRM toevoegen',
+      openInCrm: 'Openen in CRM',
+      updateFailed: 'Het gesprek kon niet worden bijgewerkt.',
+      status: {
+        sending: 'Wordt verzonden',
+        sent: 'Verzonden',
+        failed: 'Niet verzonden',
+        unknown: 'Aflevering onbekend',
+      },
+    },
+    composer: {
+      label: 'Je antwoord',
+      placeholder: 'Schrijf je antwoord…',
+      hint: 'Verzonden vanaf {mailbox}, in hetzelfde gesprek.',
+      send: 'Antwoord versturen',
+      shortcut: 'Ctrl/⌘ + Enter',
+      sent: 'Antwoord verzonden.',
+      failed: 'Het antwoord kon niet worden verzonden.',
+      bounced: 'Deze e-mail is gebounced, dus er is niemand om te antwoorden.',
+    },
+    crm: {
+      title: 'Aan CRM toevoegen',
+      description:
+        'Maakt een CRM-persoon aan voor {prospect}, of koppelt de bestaande, en legt dit gesprek erbij vast.',
+      createOpportunity: 'Ook een kans aanmaken',
+      createOpportunityHint: 'Start een deal voor deze persoon in een pipeline naar keuze.',
+      pipeline: 'Pipeline',
+      pipelinePlaceholder: 'Kies een pipeline',
+      pipelineRequired: 'Kies een pipeline.',
+      stage: 'Fase',
+      stagePlaceholder: 'Kies een fase',
+      stageRequired: 'Kies een fase.',
+      opportunityName: 'Naam van de kans',
+      opportunityNamePlaceholder: 'Optioneel, het CRM kiest een naam',
+      submit: 'Aan CRM toevoegen',
+      added: 'Aan het CRM toegevoegd.',
+      addedWithOpportunity: 'Aan het CRM toegevoegd met een kans.',
+      failed: 'Dit kon niet aan het CRM worden toegevoegd.',
+    },
+  },
+};

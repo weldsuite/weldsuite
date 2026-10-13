@@ -31,6 +31,9 @@ export const appCatalog = pgTable('app_catalog', {
   isPublished: boolean('is_published').notNull().default(false),
   // Shows a BETA badge on the app's icon in the platform sidebar
   isBeta: boolean('is_beta').notNull().default(false),
+  // On request only: the app store shows "Request access" and the install
+  // endpoint refuses the app until `workspace_app_access.status = 'approved'`.
+  requiresApproval: boolean('requires_approval').notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
 
   // Metadata

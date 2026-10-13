@@ -1,0 +1,79 @@
+Delivered-To: sam@getacme.com
+Received: by 2002:a05:6a20:1234:b0:12:34 with SMTP id abc123csp7654321pzb;
+        Mon, 12 Oct 2026 07:14:21 -0700 (PDT)
+Return-Path: <>
+Received: from mail-sor-f43.google.com (mail-sor-f43.google.com. [209.85.220.43])
+        by mx.google.com with SMTPS id z1sor123456pfa.7.2026.10.12.07.14.21
+        for <sam@getacme.com>
+        (Google Transport Security);
+        Mon, 12 Oct 2026 07:14:21 -0700 (PDT)
+X-Google-Smtp-Source: AGHT+IHbouncesource
+MIME-Version: 1.0
+Auto-Submitted: auto-replied
+From: Mail Delivery Subsystem <mailer-daemon@googlemail.com>
+To: sam@getacme.com
+Message-ID: <68f9d1ad.170a0220.2e5a1c.0a3bGMR@mx.google.com>
+Date: Mon, 12 Oct 2026 07:14:21 -0700 (PDT)
+Subject: Delivery Status Notification (Failure)
+Content-Type: multipart/report; boundary="0000000000007c3a5f06411c9a3d"; report-type=delivery-status
+
+--0000000000007c3a5f06411c9a3d
+Content-Type: multipart/related; boundary="0000000000007c3a5e06411c9a3c"
+
+--0000000000007c3a5e06411c9a3c
+Content-Type: multipart/alternative; boundary="0000000000007c3a5d06411c9a3b"
+
+--0000000000007c3a5d06411c9a3b
+Content-Type: text/plain; charset="UTF-8"
+
+** Address not found **
+
+Your message wasn't delivered to nobody@acme.nl because the address couldn't be found, or is unable to receive mail.
+
+The response from the remote server was:
+550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos or unnecessary spaces.
+
+--0000000000007c3a5d06411c9a3b
+Content-Type: text/html; charset="UTF-8"
+
+<html><body><h2>Address not found</h2><p>Your message wasn't delivered to <b>nobody@acme.nl</b> because the address couldn't be found, or is unable to receive mail.</p></body></html>
+
+--0000000000007c3a5d06411c9a3b--
+
+--0000000000007c3a5e06411c9a3c--
+
+--0000000000007c3a5f06411c9a3d
+Content-Type: message/delivery-status
+
+Reporting-MTA: dns; googlemail.com
+Received-From-MTA: dns; mail-sor-f43.google.com
+Arrival-Date: Mon, 12 Oct 2026 07:14:20 -0700 (PDT)
+X-Original-Message-ID: <out-3001@getacme.com>
+
+Final-Recipient: rfc822; nobody@acme.nl
+Action: failed
+Status: 5.1.1
+Remote-MTA: dns; mx1.acme.nl. (192.0.2.25, the server for the domain acme.nl.)
+Diagnostic-Code: smtp; 550 5.1.1 The email account that you tried to reach does not exist.
+Last-Attempt-Date: Mon, 12 Oct 2026 07:14:21 -0700 (PDT)
+
+--0000000000007c3a5f06411c9a3d
+Content-Type: message/rfc822
+
+Received: from sam-pc ([203.0.113.9]) by smtp.getacme.com with ESMTPSA
+        for <nobody@acme.nl>; Mon, 12 Oct 2026 07:14:19 -0700 (PDT)
+From: Sam Jansen <sam@getacme.com>
+To: nobody@acme.nl
+Subject: Quick question about Acme logistics
+Message-ID: <out-3001@getacme.com>
+Date: Mon, 12 Oct 2026 16:14:18 +0200
+MIME-Version: 1.0
+Content-Type: text/plain; charset="UTF-8"
+
+Hi,
+
+I noticed Acme is expanding its warehouse network.
+
+Sam
+
+--0000000000007c3a5f06411c9a3d--

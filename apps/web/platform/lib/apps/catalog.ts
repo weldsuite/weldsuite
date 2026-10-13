@@ -17,6 +17,8 @@ export interface AppDefinition {
   howItWorks?: { title: string; description: string }[];
   version?: string;
   provider?: string | null;
+  /** On request only: a workspace must be approved by WeldSuite staff before it can install the app. */
+  requiresApproval?: boolean;
 }
 
 // Fallback static catalog for when database is unavailable
@@ -127,6 +129,16 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     category: 'Productivity',
     path: '/weldknow',
   },
+  weldreach: {
+    code: 'weldreach',
+    name: 'WeldReach',
+    description:
+      'Cold email outreach from dedicated, warmed-up mailboxes — sequences, mailbox rotation, daily limits, reply detection, and a unified reply inbox. Available on request.',
+    icon: 'Send',
+    category: 'Sales & Marketing',
+    path: '/weldreach',
+    requiresApproval: true,
+  },
   social: {
     code: 'social',
     name: 'WeldSocial',
@@ -165,6 +177,7 @@ async function getAppCatalog(): Promise<AppDefinition[]> {
       howItWorks: app.howItWorks as { title: string; description: string }[] | undefined,
       version: app.version || '1.0.0',
       provider: app.provider,
+      requiresApproval: app.requiresApproval,
     }));
   } catch (error) {
     console.error('Error fetching app catalog from database:', error);

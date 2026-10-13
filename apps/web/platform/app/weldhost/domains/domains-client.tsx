@@ -23,6 +23,7 @@ import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useObjectPanel, useObjectPanelStack, useObjectPanelUrlSync } from '@/components/object-panel';
 import { useI18n } from '@/lib/i18n/provider';
 import { publicDomainRegistrar } from '@weldsuite/core-api-client/schemas/domains';
+import { UsedByWeldReachBadge } from '../components/used-by-weldreach-badge';
 
 interface DomainsClientProps {
   domains: HostDomain[];
@@ -161,6 +162,7 @@ export function DomainsClient({ domains }: Readonly<DomainsClientProps>) {
           <span className="text-sm font-medium text-gray-900 dark:text-foreground">
             {domain.fullDomain || `${domain.name}.${domain.tld}`}
           </span>
+          {domain.usedByWeldReach && <UsedByWeldReachBadge />}
         </div>
 
         {/* TLD */}

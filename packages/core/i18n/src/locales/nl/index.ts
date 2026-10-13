@@ -52,6 +52,8 @@ import { weldbooksUs } from './weldbooks-us';
 import { weldbooksIn } from './weldbooks-in';
 import { admin } from './admin';
 import { partner } from './partner';
+import { reach } from './reach';
+import { reachEngage } from './reach-engage';
 
 export const nl = {
   common,
@@ -107,4 +109,6 @@ export const nl = {
   weldbooksIn,
   admin,
   partner,
+  reach,
+  reachEngage,
 };

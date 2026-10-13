@@ -338,6 +338,34 @@ export async function createCheckoutSession(
 }
 
 /**
+ * Create a Stripe Checkout session in setup mode: collects a card for the
+ * customer without charging anything (WeldReach inbox billing).
+ */
+export async function createSetupCheckoutSession(
+  key: string,
+  params: {
+    customerId: string;
+    successUrl: string;
+    cancelUrl: string;
+    metadata?: Record<string, string>;
+  }
+): Promise<any> {
+  const body: Record<string, string> = {
+    customer: params.customerId,
+    mode: 'setup',
+    // Subscriptions bill off-session; cards are the method the lookup in
+    // findOffSessionPaymentMethod understands.
+    'payment_method_types[0]': 'card',
+    success_url: params.successUrl,
+    cancel_url: params.cancelUrl,
+  };
+  addPrefixedFields(body, 'metadata', params.metadata);
+  addPrefixedFields(body, 'setup_intent_data[metadata]', params.metadata);
+
+  return stripeApiRequest(key, 'POST', '/v1/checkout/sessions', body);
+}
+
+/**
  * Update subscription quantity (seat count).
  */
 export async function updateSubscriptionQuantity(

@@ -8,9 +8,14 @@
  *
  * Permissions: `dns:read | dns:create | dns:update | dns:delete`.
  * Entity events: `dns_record:created | updated | deleted`.
+ *
+ * Records of a domain connected to WeldReach: the ones Mailpool writes (apex MX,
+ * apex SPF, DKIM, DMARC) come back as `managedBy: 'weldreach'`, cannot be
+ * updated or deleted, and a second SPF / DMARC cannot be added
+ * (409 DNS_RECORD_MANAGED_BY_WELDREACH). See lib/weldreach.ts.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -24,8 +29,22 @@ import {
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import * as dnsRecordsService from '../../services/dns-records';
+import {
+  duplicatesWeldReachRecord,
+  markWeldReachRecords,
+  recordManagedResponse,
+  weldReachDomainNameForZone,
+} from '../../lib/weldreach';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/** Records for a response, with `managedBy` set for the ones WeldReach manages. */
+async function withManagedBy(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  records: Parameters<typeof markWeldReachRecords>[1],
+) {
+  return markWeldReachRecords(c.get('tenantDb'), records);
+}
 
 // ============================================================================
 // Listing surfaces (must come before `/:id`)
@@ -43,7 +62,7 @@ app.get(
         c.env.CLOUDFLARE_API_TOKEN,
       );
       if (!result) return error.notFound(c, 'DNS zone', zoneId);
-      return success(c, result);
+      return success(c, { ...result, records: await withManagedBy(c, result.records) });
     } catch (err) {
       console.error('[app-api/dns-records] list-by-zone failed:', err);
       return error.internal(c, 'Failed to list DNS records');
@@ -60,7 +79,7 @@ app.get('/by-domain/:domainId', requirePermission('dns:read'), async (c) => {
       c.env.CLOUDFLARE_API_TOKEN,
     );
     if (!result) return error.notFound(c, 'Domain', domainId);
-    return success(c, result);
+    return success(c, { ...result, records: await withManagedBy(c, result.records) });
   } catch (err) {
     console.error('[app-api/dns-records] list-by-domain failed:', err);
     return error.internal(c, 'Failed to list DNS records');
@@ -88,14 +107,19 @@ app.post('/by-zone/:zoneId/sync', requirePermission('dns:read'), async (c) => {
     return c.json(
       {
         success: false,
-        data: { records: sync.records, added: sync.added, updated: sync.updated, removed: sync.removed },
+        data: {
+          records: await withManagedBy(c, sync.records),
+          added: sync.added,
+          updated: sync.updated,
+          removed: sync.removed,
+        },
         error: { code: 'CLOUDFLARE_ERROR', message: sync.error ?? 'Cloudflare sync failed' },
       },
       502,
     );
   }
   return success(c, {
-    records: sync.records,
+    records: await withManagedBy(c, sync.records),
     added: sync.added,
     updated: sync.updated,
     removed: sync.removed,
@@ -153,7 +177,7 @@ app.get('/', requirePermission('dns:read'), zValidator('query', listDnsRecordsQu
       c.env.CLOUDFLARE_API_TOKEN,
     );
     if (!result) return error.notFound(c, 'DNS zone', q.zoneId);
-    return success(c, result);
+    return success(c, { ...result, records: await withManagedBy(c, result.records) });
   } catch (err) {
     console.error('[app-api/dns-records] flat list failed:', err);
     return error.internal(c, 'Failed to list DNS records');
@@ -181,6 +205,10 @@ app.post(
       return error.internal(c, 'Cloudflare integration is not configured.');
     }
     const input = c.req.valid('json');
+    const reachDomainName = await weldReachDomainNameForZone(c.get('tenantDb'), ready.zone.id);
+    if (reachDomainName && duplicatesWeldReachRecord(reachDomainName, input)) {
+      return recordManagedResponse(c);
+    }
     const { cfError, sync } = await dnsRecordsService.createDnsRecord(
       c.get('tenantDb'),
       c.env.CLOUDFLARE_API_TOKEN!,
@@ -191,7 +219,7 @@ app.post(
       return c.json(
         {
           success: false,
-          data: { records: sync.records },
+          data: { records: await withManagedBy(c, sync.records) },
           error: { code: 'CLOUDFLARE_ERROR', message: cfError },
         },
         422,
@@ -204,7 +232,7 @@ app.post(
       action: 'created',
       data: { id: ready.zone.id, zoneId: ready.zone.id, name: input.name, type: input.type, value: input.value },
     });
-    return success(c, { records: sync.records }, 201);
+    return success(c, { records: await withManagedBy(c, sync.records) }, 201);
   },
 );
 
@@ -225,6 +253,7 @@ app.patch(
       if (result.reason === 'not_found') return error.notFound(c, 'DNS record', id);
       if (result.reason === 'no_cf_zone') return error.badRequest(c, 'This zone is not managed by Cloudflare.');
       if (result.reason === 'no_external_id') return error.badRequest(c, 'Record has no Cloudflare id — run a sync first.');
+      if (result.reason === 'managed_by_weldreach') return recordManagedResponse(c);
       if (result.reason === 'locked') {
         return c.json(
           {
@@ -243,7 +272,7 @@ app.patch(
       return c.json(
         {
           success: false,
-          data: { records: result.sync.records },
+          data: { records: await withManagedBy(c, result.sync.records) },
           error: { code: 'CLOUDFLARE_ERROR', message: result.cfError },
         },
         422,
@@ -258,7 +287,7 @@ app.patch(
         action: 'updated',
         data: { id, zoneId: id, name: input.name, type: input.type, value: input.value },
       });
-      return success(c, { records: result.sync.records });
+      return success(c, { records: await withManagedBy(c, result.sync.records) });
     }
     return error.internal(c, 'Failed to update DNS record');
   },
@@ -275,6 +304,7 @@ app.delete('/:id', requirePermission('dns:delete'), async (c) => {
   if ('reason' in result) {
     if (result.reason === 'not_found') return error.notFound(c, 'DNS record', id);
     if (result.reason === 'no_cf_zone') return error.badRequest(c, 'This zone is not managed by Cloudflare.');
+    if (result.reason === 'managed_by_weldreach') return recordManagedResponse(c);
     if (result.reason === 'locked') {
       return c.json(
         {
@@ -293,7 +323,7 @@ app.delete('/:id', requirePermission('dns:delete'), async (c) => {
     return c.json(
       {
         success: false,
-        data: { records: result.sync.records },
+        data: { records: await withManagedBy(c, result.sync.records) },
         error: { code: 'CLOUDFLARE_ERROR', message: result.cfError },
       },
       422,
@@ -307,7 +337,7 @@ app.delete('/:id', requirePermission('dns:delete'), async (c) => {
       action: 'deleted',
       data: { id, zoneId: id },
     });
-    return success(c, { records: result.sync.records });
+    return success(c, { records: await withManagedBy(c, result.sync.records) });
   }
   return error.internal(c, 'Failed to delete DNS record');
 });
@@ -332,7 +362,7 @@ app.post(
       action: 'updated',
       data: { id, zoneId: result.zoneId },
     });
-    return success(c, { records: result.records });
+    return success(c, { records: await withManagedBy(c, result.records) });
   },
 );
 

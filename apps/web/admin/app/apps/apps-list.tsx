@@ -257,7 +257,14 @@ export function AppsList({
                       </div>
                     </TableCell>
                     <TableCell className="min-w-0 py-2">
-                      <div className="truncate text-sm font-medium">{app.name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium">{app.name}</span>
+                        {app.requiresApproval && (
+                          <Badge variant="outline" className="shrink-0 text-[10px]">
+                            On request
+                          </Badge>
+                        )}
+                      </div>
                       <div className="max-w-md truncate text-xs text-muted-foreground">
                         {app.description}
                       </div>

@@ -1,0 +1,18 @@
+Return-Path: <lisa@bluesky.io>
+Received: from mail.bluesky.io (mail.bluesky.io [203.0.113.7])
+	by mx.example.net with ESMTPS id 1abc2def3
+	for <sam@getacme.com>; Tue, 13 Oct 2026 08:12:00 +0000
+From: "Lisa Bakker" <lisa@bluesky.io>
+To: sam@getacme.com
+Subject: Your email
+Date: Tue, 13 Oct 2026 10:11:58 +0200
+Message-ID: <20261013101158.7f3a2b@bluesky.io>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 7bit
+
+Hello Sam,
+
+Thanks for reaching out. Wednesday afternoon works for a call, shall we say 14:00?
+
+Lisa

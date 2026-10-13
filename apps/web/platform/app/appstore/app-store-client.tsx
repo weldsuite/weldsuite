@@ -15,6 +15,9 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useAppLicence } from '@/components/partner/use-app-licence';
 import { isNotLicensedError } from '@/lib/partner/api-errors';
 import { CustomAppsSection, OfficialHostedAppsSection } from './custom-apps-section';
+import { AppAccessRequestDialog } from './app-access-request-dialog';
+import { SoftBadge } from '@/components/shared/soft-badge';
+import { accessBadgeTone, canRequestAccess, getAppAccessInfo, type AppAccessState } from './app-access-state';
 
 interface AppStoreClientProps {
   initialApps: AvailableApp[];
@@ -73,6 +76,8 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
   const [hoveredApp, setHoveredApp] = useState<string | null>(null);
   const [loadingApp, setLoadingApp] = useState<string | null>(null);
   const [appToUninstall, setAppToUninstall] = useState<AvailableApp | null>(null);
+  // On-request apps (WeldReach): the app whose access request form is open.
+  const [appToRequest, setAppToRequest] = useState<AvailableApp | null>(null);
 
   const installApp = useInstallApp();
   const uninstallApp = useUninstallApp();
@@ -138,6 +143,16 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
       setLoadingApp(null);
     }
   }
+
+  // An app that is on request only cannot be installed before staff approve the workspace.
+  const accessStatusOf = (app: AvailableApp) => getAppAccessInfo(app).status;
+  const needsAccess = (app: AvailableApp) =>
+    getAppAccessInfo(app).requiresApproval &&
+    !app.isInstalled &&
+    accessStatusOf(app) !== 'approved' &&
+    !licence.isUnlicensed(app.code);
+  const accessStatusLabel = (status: AppAccessState) =>
+    status === 'none' ? allT.reach.accessUi.onRequestBadge : allT.reach.access.status[status];
 
   // Map internal category keys to translated display labels
   const categoryLabel: Record<string, string> = {
@@ -251,7 +266,25 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
                           {format(allT.partner.appStore.askPartnerShort, { partner: licence.managed.partner.name })}
                         </Button>
                       )}
-                      {hoveredApp === app.code && canManage && !(!app.isInstalled && licence.isUnlicensed(app.code)) && (
+                      {needsAccess(app) && hoveredApp !== app.code && (
+                        <SoftBadge tone={accessBadgeTone(accessStatusOf(app))} className="absolute top-3 right-3 rounded">
+                          {accessStatusLabel(accessStatusOf(app))}
+                        </SoftBadge>
+                      )}
+                      {needsAccess(app) && hoveredApp === app.code && canManage && canRequestAccess(accessStatusOf(app)) && (
+                        <Button
+                          size="sm"
+                          className="absolute top-3 right-3 z-10 h-7 text-xs px-2.5"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setAppToRequest(app);
+                          }}
+                        >
+                          {accessStatusOf(app) === 'rejected' ? allT.reach.access.requestAgain : allT.reach.access.requestAccess}
+                        </Button>
+                      )}
+                      {hoveredApp === app.code && canManage && !needsAccess(app) && !(!app.isInstalled && licence.isUnlicensed(app.code)) && (
                         <Button
                           variant={app.isInstalled ? 'outline' : 'default'}
                           size="sm"
@@ -307,6 +340,19 @@ export function AppStoreClient({ initialApps, canManage = false }: Readonly<AppS
           </div>
         </div>
       </div>
+
+      {appToRequest && (
+        <AppAccessRequestDialog
+          app={appToRequest}
+          open
+          onOpenChange={(open) => !open && setAppToRequest(null)}
+          onSubmitted={() =>
+            setApps((prevApps) =>
+              prevApps.map((a) => (a.code === appToRequest.code ? { ...a, accessStatus: 'requested' } : a)),
+            )
+          }
+        />
+      )}
 
       {/* Uninstall Confirmation Dialog */}
       <ConfirmDialog

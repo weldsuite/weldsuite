@@ -19,6 +19,7 @@ import { pricingSyncRoutes } from './routes/pricing-sync';
 import { backfillRoutes } from './routes/backfill';
 import { appSubscriptionsRoutes } from './routes/app-subscriptions';
 import { appDeveloperAccountsRoutes } from './routes/app-developer-accounts';
+import { reachBillingRoutes } from './routes/reach-billing';
 import { adminRoutes } from './routes/admin';
 import { runCompSweep } from './services/comp-sweep';
 import { runPartnerSweeps } from './services/partner-sweep';
@@ -37,6 +38,9 @@ export interface Env {
   // application_fee_percent/transfer_data don't require a separate secret)
   STRIPE_SECRET_KEY: string;
   STRIPE_BILLING_WEBHOOK_SECRET: string;
+  /** WeldReach inbox price ($5 per inbox per month). When unset the price is created
+   *  lazily in Stripe and found again through its lookup key (services/reach-billing.ts). */
+  STRIPE_PRICE_WELDREACH_INBOX?: string;
   // Clerk (for JWT verification on API routes)
   CLERK_SECRET_KEY: string;
   CLERK_JWT_KEY: string;
@@ -153,6 +157,10 @@ app.route('/api/webhooks/stripe', webhookRoutes);
 
 // Phone billing API routes (Clerk JWT auth) — mount before general billing routes
 app.route('/api/billing/phone', phoneBillingRoutes);
+
+// WeldReach inbox subscription (Clerk JWT auth; reach-api forwards the user's JWT)
+// — mounted before general billing routes, same as phone above
+app.route('/api/billing/reach', reachBillingRoutes);
 
 // Agent-package billing (Clerk JWT + admin-only)
 app.route('/api/billing/agents', agentBillingRoutes);

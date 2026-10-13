@@ -1,0 +1,1 @@
+ALTER TABLE "reach_mailboxes" ADD COLUMN "warmup_inbox_rate" numeric(5, 4);

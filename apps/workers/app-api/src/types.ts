@@ -125,6 +125,8 @@ export interface Env {
   HOST_API?: Fetcher;
   /** know-api. Target of the forwarder for the know module's paths. */
   KNOW_API?: Fetcher;
+  /** reach-api (WeldReach). Target of the forwarder for /api/reach and /public/reach. */
+  REACH_API?: Fetcher;
 
   CF_ACCOUNT_ID?: string;
 
@@ -251,6 +253,14 @@ export interface Env {
   PUBLIC_APP_URL?: string;
   /** Partner portal origin (apps/web/partner), for links in partner emails. */
   PARTNER_PORTAL_URL?: string;
+
+  // --- App access requests (apps that are on request only) ---------------
+  /** Where WeldSuite staff are told about a new access request (WeldReach
+   *  first). Unset: the request is stored and nobody is emailed. */
+  ACCESS_REQUEST_NOTIFY_EMAIL?: string;
+  /** Base URL of the admin console, for the link in that email. Defaults to
+   *  https://admin.weldsuite.org. */
+  ADMIN_CONSOLE_URL?: string;
 
   // --- E2E test fixtures -------------------------------------------------
   /** Secret that authorizes /test-fixtures/* requests. Set ONLY in

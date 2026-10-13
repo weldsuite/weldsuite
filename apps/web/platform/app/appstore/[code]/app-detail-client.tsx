@@ -15,6 +15,8 @@ import { getTranslations } from '@/lib/i18n';
 import { useI18n } from '@/lib/i18n/provider';
 import { useAppLicence } from '@/components/partner/use-app-licence';
 import { isNotLicensedError } from '@/lib/partner/api-errors';
+import { AppAccessControls } from '../app-access-controls';
+import { useAppAccessGate } from '../use-app-access-gate';
 
 function AppLogo({ code, className = 'h-7 w-7' }: Readonly<{ code: string; className?: string }>) {
   const logoPath = getAppLogo(code, 'light');
@@ -63,6 +65,9 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
 
   const installApp = useInstallApp();
   const uninstallApp = useUninstallApp();
+
+  // Apps that are on request only: the catalog says so, the access request has the live state.
+  const { status: accessStatus, view: accessView, needsAccess } = useAppAccessGate(app);
 
   const overview = content.overview || t.appstore.defaultOverview;
   const installLabel = app.isInstalled ? t.appstore.uninstall : t.appstore.install;
@@ -122,6 +127,16 @@ export function AppDetailClient({ app: initialApp, canManage = false, content }:
           {format(allT.partner.appStore.askPartner, { partner: licence.managed.partner.name })}
         </Button>
       </div>
+    );
+  } else if (needsAccess) {
+    installControls = (
+      <AppAccessControls
+        app={app}
+        status={accessStatus}
+        view={accessView}
+        canManage={canManage}
+        onRequested={() => setApp((prev) => ({ ...prev, accessStatus: 'requested' }))}
+      />
     );
   } else if (canManage) {
     installControls = (

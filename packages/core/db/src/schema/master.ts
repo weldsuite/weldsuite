@@ -1273,6 +1273,45 @@ export {
 export { systemSettings, type SystemSetting, type NewSystemSetting, SETTING_CATEGORIES, type SettingCategory } from './system-settings';
 export { enterpriseInquiries, inquiryStatusEnum, type EnterpriseInquiry, type NewEnterpriseInquiry } from './enterprise-inquiries';
 export { featureRequests, featureTypeEnum, featureStatusEnum, type FeatureRequest, type NewFeatureRequest, type FeatureType, type FeatureStatus } from './feature-requests';
+// Per-workspace access to apps that are on request only (WeldReach first).
+export {
+  workspaceAppAccess,
+  APP_ACCESS_STATUSES,
+  APP_ACCESS_BILLING_STATUSES,
+  type AppAccessStatus,
+  type AppAccessBillingStatus,
+  type AppAccessRequestDetails,
+  type AppAccessLimits,
+  type WorkspaceAppAccess,
+  type NewWorkspaceAppAccess,
+} from './app-access';
+// WeldReach: Mailpool ids and inbound tokens -> workspace.
+export {
+  reachRoutes,
+  REACH_ROUTE_KINDS,
+  REACH_ROUTE_STATUSES,
+  type ReachRouteKind,
+  type ReachRouteStatus,
+  type ReachRoute,
+  type NewReachRoute,
+} from './reach-routes';
+// WeldReach warmup network: the cross-workspace mailbox pool and its messages.
+export {
+  reachWarmupMailboxes,
+  reachWarmupMessages,
+  REACH_WARMUP_STATUSES,
+  REACH_WARMUP_MESSAGE_STATUSES,
+  REACH_WARMUP_PLACEMENTS,
+  type ReachWarmupStatus,
+  type ReachWarmupMessageStatus,
+  type ReachWarmupPlacement,
+  type ReachWarmupStats,
+  type ReachWarmupActions,
+  type ReachWarmupMailbox,
+  type NewReachWarmupMailbox,
+  type ReachWarmupMessage,
+  type NewReachWarmupMessage,
+} from './reach-warmup';
 export { appCatalog, appScreenshots, APP_CATEGORIES, type AppCatalogEntry, type NewAppCatalogEntry, type AppScreenshot, type NewAppScreenshot, type AppCategory } from './app-catalog';
 export {
   userApps,

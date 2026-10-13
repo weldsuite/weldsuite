@@ -95,7 +95,8 @@ describe('GET /api/billing/phone-subscription', () => {
     mockUpstream(200, { exists: false });
     const { request } = createTestApp('/api/billing', billingRoutes, {
       context: { permissions: permissions('billing:read') },
-      // harness default ENVIRONMENT is 'test' → http://localhost:8788
+      // local dev → http://localhost:8788 (test and production use HTTPS custom domains)
+      env: { ENVIRONMENT: 'development' },
     });
 
     const res = await request('/api/billing/phone-subscription', {

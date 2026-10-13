@@ -330,6 +330,14 @@ jobs:
               - 'packages/core/db/**'
               - 'packages/core/realtime/**'
               - 'packages/core/entity-events/**'
+            reach-warmup-worker:
+              - 'apps/workers/reach-warmup-worker/**'
+              - 'packages/domains/reach/**'
+              - 'packages/core/smtp/**'
+              - 'packages/core/imap/**'
+              - 'packages/core/worker-kit/**'
+              - 'packages/core/feature-flags/**'
+              - 'packages/core/ai/**'
 
       - name: Resolve change flags
         id: changes
@@ -365,6 +373,7 @@ jobs:
           W_DISCORD_BOT: ${{ steps.filter.outputs.discord-bot-worker }}
           W_HELPDESK_WIDGET: ${{ steps.filter.outputs.helpdesk-widget-api }}
           W_HELPDESK_WORKFLOW: ${{ steps.filter.outputs.helpdesk-workflow-worker }}
+          W_REACH_WARMUP: ${{ steps.filter.outputs.reach-warmup-worker }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
@@ -400,6 +409,7 @@ jobs:
               echo "discord-bot-worker=true"
               echo "helpdesk-widget-api=true"
               echo "helpdesk-workflow-worker=true"
+              echo "reach-warmup-worker=true"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -434,6 +444,7 @@ jobs:
             echo "discord-bot-worker=$W_DISCORD_BOT"
             echo "helpdesk-widget-api=$W_HELPDESK_WIDGET"
             echo "helpdesk-workflow-worker=$W_HELPDESK_WORKFLOW"
+            echo "reach-warmup-worker=$W_REACH_WARMUP"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build worker matrix
@@ -457,12 +468,13 @@ jobs:
           W_DISCORD_BOT: ${{ steps.changes.outputs.discord-bot-worker }}
           W_HELPDESK_WIDGET: ${{ steps.changes.outputs.helpdesk-widget-api }}
           W_HELPDESK_WORKFLOW: ${{ steps.changes.outputs.helpdesk-workflow-worker }}
+          W_REACH_WARMUP: ${{ steps.changes.outputs.reach-warmup-worker }}
         run: |
           set -euo pipefail
-          ALL='["app-api","billing-worker","audit-log-worker","entity-events-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker"]'
+          ALL='["app-api","billing-worker","audit-log-worker","entity-events-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker","reach-warmup-worker"]'
           if [ "$ALL_WORKERS" = "true" ]; then
             echo "workers=$ALL" >> "$GITHUB_OUTPUT"
-            echo "Deploying all 17 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
+            echo "Deploying all 18 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
             exit 0
           fi
 
@@ -485,6 +497,7 @@ jobs:
           add discord-bot-worker "$W_DISCORD_BOT"
           add helpdesk-widget-api "$W_HELPDESK_WIDGET"
           add helpdesk-workflow-worker "$W_HELPDESK_WORKFLOW"
+          add reach-warmup-worker "$W_REACH_WARMUP"
 
           if [ ${#selected[@]} -eq 0 ]; then
             echo 'workers=[]' >> "$GITHUB_OUTPUT"

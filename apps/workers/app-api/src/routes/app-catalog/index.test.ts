@@ -13,6 +13,16 @@ vi.mock('../../services/app-catalog', async () => {
   );
   return { ...actual, listBetaAppCodes: vi.fn(), getCatalogApp: vi.fn(), installCatalogApp: vi.fn() };
 });
+// The install guard and the access-status lookup read the master DB, which the
+// service mocks above never reach: stub them as "approved / no statuses".
+vi.mock('../../services/app-access', async (orig) => {
+  const actual = await orig<typeof import('../../services/app-access')>();
+  return {
+    ...actual,
+    checkInstallAccess: vi.fn(async () => ({ ok: true })),
+    listAccessStatuses: vi.fn(async () => new Map()),
+  };
+});
 vi.mock('@weldsuite/mail-domain/access', () => ({ isAdminOrOwner: vi.fn(async () => true) }));
 vi.mock('../../services/partner/managed', async (orig) => {
   const actual = await orig<typeof import('../../services/partner/managed')>();

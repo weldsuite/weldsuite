@@ -254,6 +254,14 @@ export interface Domain {
   updatedAt: string;
 
   dnsZone?: DomainDnsZone | null;
+
+  /**
+   * True while the domain is connected to WeldReach (a tenant `reach_domains`
+   * row that is not disconnecting). Set on the list and detail responses. While
+   * true, delete, auth-code and nameserver changes answer 409
+   * DOMAIN_IN_USE_BY_WELDREACH.
+   */
+  usedByWeldReach?: boolean;
 }
 
 export interface CheckoutResponse {
