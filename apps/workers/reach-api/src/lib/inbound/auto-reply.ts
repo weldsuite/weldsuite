@@ -7,7 +7,7 @@
  * in English, Dutch, German and French for responders that set no header.
  */
 
-import { normalizeSubject } from './text';
+import { normalizeSubject } from '@weldsuite/reach-domain/inbound/text';
 
 export interface AutoReplyDetection {
   auto: boolean;

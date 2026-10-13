@@ -7,14 +7,19 @@
  * can be enrolled in a campaign.
  */
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import type { Database } from '@weldsuite/worker-kit';
+import { and, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
   emailDomain,
+  reachProspectValidationSchema,
+  type ImportReachProspectsInput,
   type ReachImportReport,
   type ReachProspect,
+  type ReachProspectInput,
   type ReachProspectValidation,
+  type UpdateReachProspectInput,
+  type WeldReachLimits,
 } from '@weldsuite/app-api-client/schemas/reach';
 import {
   companies,
@@ -24,12 +29,16 @@ import {
   personCompanies,
   reachEnrollments,
   reachProspectListMembers,
-  reachProspectLists,
   reachProspects,
   welddataLeads,
   welddataLists,
   type ReachProspect as ReachProspectRow,
 } from '@weldsuite/db/schema';
+import { completeAndPublishCampaigns } from './campaign-completion';
+import { reachError } from './errors';
+import type { ReachEventSink } from './events';
+import { addProspectsToList, createList, findList, recountList } from './lists';
+import { cursorCondition, likePattern, pageResult, parseLimit, type Page, type PageQuery } from './list-query';
 import { loadSuppressionIndex } from './suppressions';
 import { validateEmails, type MxLookup } from './validation';
 
@@ -192,60 +201,6 @@ export async function importProspects(
 
 function reportSkipped(counts: Map<ReachImportReport['skipped'][number]['reason'], number>): ReachImportReport['skipped'] {
   return [...counts.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count);
-}
-
-// ---------------------------------------------------------------------------
-// Lists
-// ---------------------------------------------------------------------------
-
-/** Recount `prospect_count` from the live (not deleted) members. */
-export async function recountList(db: Database, listId: string): Promise<number> {
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(reachProspectListMembers)
-    .innerJoin(reachProspects, eq(reachProspects.id, reachProspectListMembers.prospectId))
-    .where(and(eq(reachProspectListMembers.listId, listId), isNull(reachProspects.deletedAt)));
-  const n = Number(row?.n ?? 0);
-  await db.update(reachProspectLists).set({ prospectCount: n, updatedAt: new Date() }).where(eq(reachProspectLists.id, listId));
-  return n;
-}
-
-export async function addProspectsToList(db: Database, listId: string, prospectIds: readonly string[]): Promise<number> {
-  const unique = [...new Set(prospectIds)];
-  let added = 0;
-  for (let i = 0; i < unique.length; i += CHUNK) {
-    const chunk = unique.slice(i, i + CHUNK);
-    // Only prospects that exist and are not deleted can join a list.
-    const live = await db
-      .select({ id: reachProspects.id })
-      .from(reachProspects)
-      .where(and(inArray(reachProspects.id, chunk), isNull(reachProspects.deletedAt)));
-    if (live.length === 0) continue;
-    const inserted = await db
-      .insert(reachProspectListMembers)
-      .values(live.map((p) => ({ id: generateId('rplm'), listId, prospectId: p.id })))
-      .onConflictDoNothing()
-      .returning({ id: reachProspectListMembers.id });
-    added += inserted.length;
-  }
-  await recountList(db, listId);
-  return added;
-}
-
-export async function removeProspectsFromList(db: Database, listId: string, prospectIds: readonly string[]): Promise<number> {
-  let removed = 0;
-  const unique = [...new Set(prospectIds)];
-  for (let i = 0; i < unique.length; i += CHUNK) {
-    const gone = await db
-      .delete(reachProspectListMembers)
-      .where(
-        and(eq(reachProspectListMembers.listId, listId), inArray(reachProspectListMembers.prospectId, unique.slice(i, i + CHUNK))),
-      )
-      .returning({ id: reachProspectListMembers.id });
-    removed += gone.length;
-  }
-  await recountList(db, listId);
-  return removed;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,4 +373,267 @@ export async function loadWeldDataListRows(db: Database, listId: string): Promis
     rows.push({ email: lead.email, firstName, lastName, title: lead.title, companyName: lead.companyName, customFields });
   }
   return { ok: true, name: list.name, rows };
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+/** Per-prospect events published by one import (a 5 000-row import must not become 5 000 queue messages). */
+export const MAX_IMPORT_EVENTS = 100;
+
+export interface ProspectDeps {
+  db: Database;
+  emit: ReachEventSink;
+  /** Recorded as the creator of new prospects and lists. */
+  userId: string;
+  /** The workspace's resolved limits (`resolveWeldReachLimits`): consumer addresses are refused unless allowed. */
+  limits: Pick<WeldReachLimits, 'allowConsumerRecipients'>;
+  /** Tests inject a stub; defaults to DNS-over-HTTPS. */
+  mxLookup?: MxLookup;
+}
+
+async function emitProspect(
+  emit: ReachEventSink,
+  action: 'created' | 'updated' | 'deleted',
+  row: Pick<ReachProspectRow, 'id'> & Partial<ReachProspectRow>,
+): Promise<void> {
+  await emit({ entityType: 'reach_prospect', action, entityId: row.id, data: row });
+}
+
+export interface ListProspectsQuery extends PageQuery {
+  search?: string;
+  validation?: string;
+  listId?: string;
+}
+
+export async function listProspects(db: Database, q: ListProspectsQuery = {}): Promise<Page<ReachProspect>> {
+  const limit = parseLimit(q.limit);
+
+  const conditions: SQL[] = [isNull(reachProspects.deletedAt)];
+  if (q.search?.trim()) {
+    const pattern = likePattern(q.search);
+    const match = or(
+      ilike(reachProspects.email, pattern),
+      ilike(reachProspects.firstName, pattern),
+      ilike(reachProspects.lastName, pattern),
+      ilike(reachProspects.companyName, pattern),
+    );
+    if (match) conditions.push(match);
+  }
+  if (q.validation) {
+    const parsed = reachProspectValidationSchema.safeParse(q.validation);
+    if (!parsed.success) throw reachError.badRequest('Unknown validation filter');
+    conditions.push(eq(reachProspects.validation, parsed.data));
+  }
+  if (q.listId) {
+    conditions.push(
+      inArray(
+        reachProspects.id,
+        db.select({ id: reachProspectListMembers.prospectId }).from(reachProspectListMembers).where(eq(reachProspectListMembers.listId, q.listId)),
+      ),
+    );
+  }
+
+  const after = await cursorCondition(db, reachProspects, q.cursor);
+  const [rows, total] = await Promise.all([
+    db
+      .select()
+      .from(reachProspects)
+      .where(and(...conditions, after))
+      .orderBy(desc(reachProspects.createdAt), desc(reachProspects.id))
+      .limit(limit + 1),
+    db.$count(reachProspects, and(...conditions)),
+  ]);
+  return pageResult(rows, limit, total, toProspect);
+}
+
+export async function getProspect(db: Database, id: string): Promise<ReachProspect> {
+  const [row] = await db
+    .select()
+    .from(reachProspects)
+    .where(and(eq(reachProspects.id, id), isNull(reachProspects.deletedAt)))
+    .limit(1);
+  if (!row) throw reachError.notFound('Prospect', id);
+  return toProspect(row);
+}
+
+/** Add one prospect (validated like an import row), optionally onto a list. */
+export async function createProspect(
+  deps: ProspectDeps,
+  input: ReachProspectInput & { listId?: string },
+): Promise<ReachProspect> {
+  const { db } = deps;
+  const { listId, ...fields } = input;
+
+  const [existing] = await db.select().from(reachProspects).where(eq(reachProspects.email, fields.email)).limit(1);
+  if (existing && !existing.deletedAt) throw reachError.conflict('A prospect with this email already exists');
+  if (listId && !(await findList(db, listId))) throw reachError.notFound('List', listId);
+
+  const outcome = await importProspects(db, [fields], {
+    source: 'manual',
+    createdBy: deps.userId,
+    allowConsumer: deps.limits.allowConsumerRecipients,
+    mxLookup: deps.mxLookup,
+  });
+  const stored = outcome.stored[0];
+  if (!stored) throw reachError.badRequest('The email address is not valid');
+  if (listId) await addProspectsToList(db, listId, [stored.id]);
+
+  const [row] = await db.select().from(reachProspects).where(eq(reachProspects.id, stored.id)).limit(1);
+  if (!row) throw reachError.internal('Failed to create the prospect');
+  await emitProspect(deps.emit, 'created', row);
+  return toProspect(row);
+}
+
+export async function updateProspect(
+  deps: Pick<ProspectDeps, 'db' | 'emit'>,
+  id: string,
+  input: UpdateReachProspectInput,
+): Promise<ReachProspect> {
+  const { db } = deps;
+  const [row] = await db
+    .update(reachProspects)
+    .set({
+      ...(input.firstName !== undefined ? { firstName: blankToNull(input.firstName) } : {}),
+      ...(input.lastName !== undefined ? { lastName: blankToNull(input.lastName) } : {}),
+      ...(input.companyName !== undefined ? { companyName: blankToNull(input.companyName) } : {}),
+      ...(input.title !== undefined ? { title: blankToNull(input.title) } : {}),
+      ...(input.timezone !== undefined ? { timezone: blankToNull(input.timezone) } : {}),
+      ...(input.customFields !== undefined ? { customFields: input.customFields } : {}),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(reachProspects.id, id), isNull(reachProspects.deletedAt)))
+    .returning();
+  if (!row) throw reachError.notFound('Prospect', id);
+  await emitProspect(deps.emit, 'updated', row);
+  return toProspect(row);
+}
+
+/** Soft-delete a prospect; campaigns that had it as their last live enrollment are completed. */
+export async function deleteProspect(deps: Pick<ProspectDeps, 'db' | 'emit'>, id: string): Promise<void> {
+  const { db } = deps;
+  const removed = await softDeleteProspect(db, id);
+  if (!removed) throw reachError.notFound('Prospect', id);
+  await completeAndPublishCampaigns(db, deps.emit, removed.campaignIds);
+  await emitProspect(deps.emit, 'deleted', { id });
+}
+
+// ---------------------------------------------------------------------------
+// Imports
+// ---------------------------------------------------------------------------
+
+interface ImportTarget {
+  /** An existing list to add to. */
+  listId?: string;
+  /** Or a list to create. */
+  listName?: string;
+}
+
+/** Resolve (or create) the list an import adds to; throws 404 when the named list does not exist. */
+async function resolveImportList(
+  deps: Pick<ProspectDeps, 'db' | 'userId'>,
+  target: ImportTarget,
+  list: { source: 'csv' | 'crm_list' | 'welddata'; sourceRef: string | null },
+): Promise<string | null> {
+  const { db } = deps;
+  if (target.listId) {
+    if (!(await findList(db, target.listId))) throw reachError.notFound('List', target.listId);
+    return target.listId;
+  }
+  if (target.listName) {
+    const created = await createList(db, {
+      name: target.listName,
+      source: list.source,
+      sourceRef: list.sourceRef,
+      createdBy: deps.userId,
+    });
+    return created.id;
+  }
+  return null;
+}
+
+async function finishImport(deps: ProspectDeps, outcome: ImportOutcome, listId: string | null): Promise<ReachImportReport> {
+  const { db } = deps;
+  if (listId) await addProspectsToList(db, listId, outcome.stored.map((s) => s.id));
+
+  const fresh = outcome.stored.filter((s) => s.isNew).slice(0, MAX_IMPORT_EVENTS);
+  if (fresh.length > 0) {
+    const rows = await db
+      .select()
+      .from(reachProspects)
+      .where(inArray(reachProspects.id, fresh.map((s) => s.id)));
+    for (const row of rows) await emitProspect(deps.emit, 'created', row);
+  }
+  return { listId, created: outcome.created, updated: outcome.updated, skipped: outcome.skipped };
+}
+
+const SOURCE_ERRORS: Record<SourceListError, string> = {
+  not_found: 'List not found',
+  wrong_kind: 'Only lists of people can be imported',
+  smart_list: 'Smart lists cannot be imported; use a static list',
+  too_large: 'This list is too large to import at once',
+};
+
+/** Import parsed rows (a CSV, or a JSON array from an API): stored with a verdict, optionally onto a list. */
+export async function importProspectRows(deps: ProspectDeps, input: ImportReachProspectsInput): Promise<ReachImportReport> {
+  const listId = await resolveImportList(deps, input, { source: 'csv', sourceRef: input.sourceRef ?? null });
+
+  const rows: ImportRow[] = input.rows;
+  const outcome = await importProspects(deps.db, rows, {
+    source: 'csv',
+    sourceRef: input.sourceRef ?? null,
+    createdBy: deps.userId,
+    allowConsumer: deps.limits.allowConsumerRecipients,
+    mxLookup: deps.mxLookup,
+  });
+  return finishImport(deps, outcome, listId);
+}
+
+/** Import the people of a static CRM list into a new prospect list. The caller has checked read access to CRM lists and people. */
+export async function importProspectsFromCrmList(
+  deps: ProspectDeps,
+  input: { crmListId: string; listName?: string },
+): Promise<ReachImportReport> {
+  const source = await loadCrmListRows(deps.db, input.crmListId);
+  if (!source.ok) {
+    throw source.error === 'not_found' ? reachError.notFound('CRM list', input.crmListId) : reachError.badRequest(SOURCE_ERRORS[source.error]);
+  }
+  const listId = await resolveImportList(deps, { listName: input.listName ?? source.name }, { source: 'crm_list', sourceRef: input.crmListId });
+
+  const outcome = await importProspects(deps.db, source.rows, {
+    source: 'crm_list',
+    sourceRef: input.crmListId,
+    createdBy: deps.userId,
+    allowConsumer: deps.limits.allowConsumerRecipients,
+    mxLookup: deps.mxLookup,
+  });
+  return finishImport(deps, outcome, listId);
+}
+
+/** Import the person leads of a WeldData list into a new prospect list. The caller has checked read access to the lists. */
+export async function importProspectsFromWeldDataList(
+  deps: ProspectDeps,
+  input: { welddataListId: string; listName?: string },
+): Promise<ReachImportReport> {
+  const source = await loadWeldDataListRows(deps.db, input.welddataListId);
+  if (!source.ok) {
+    throw source.error === 'not_found'
+      ? reachError.notFound('WeldData list', input.welddataListId)
+      : reachError.badRequest(SOURCE_ERRORS[source.error]);
+  }
+  const listId = await resolveImportList(
+    deps,
+    { listName: input.listName ?? source.name },
+    { source: 'welddata', sourceRef: input.welddataListId },
+  );
+
+  const outcome = await importProspects(deps.db, source.rows, {
+    source: 'welddata',
+    sourceRef: input.welddataListId,
+    createdBy: deps.userId,
+    allowConsumer: deps.limits.allowConsumerRecipients,
+    mxLookup: deps.mxLookup,
+  });
+  return finishImport(deps, outcome, listId);
 }

@@ -8,10 +8,10 @@
  */
 
 import { and, eq, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
-import type { Database } from '@weldsuite/worker-kit';
+import type { Database } from '@weldsuite/worker-kit/db';
 import type { ReachOverview } from '@weldsuite/app-api-client/schemas/reach';
 import { reachCampaigns, reachEnrollments, reachMailboxes, reachMessages } from '@weldsuite/db/schema';
-import { addMinutes, getZonedParts, startOfZonedDay, zonedTimeToUtc } from '../lib/send-window';
+import { addMinutes, getZonedParts, startOfZonedDay, zonedTimeToUtc } from './send-window';
 import { loadReachSettings } from './campaigns';
 
 export const DEFAULT_DAY_TIMEZONE = 'Europe/Amsterdam';

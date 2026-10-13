@@ -6,16 +6,24 @@
  * `mail.example.com`). Entries are never removed automatically.
  */
 
-import { and, eq, inArray, isNull, like, or } from 'drizzle-orm';
-import type { Database } from '@weldsuite/worker-kit';
+import { and, desc, eq, ilike, inArray, isNull, like, or } from 'drizzle-orm';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { emailDomain, type ReachSuppressionReason } from '@weldsuite/app-api-client/schemas/reach';
+import {
+  emailDomain,
+  type ReachSuppression as ReachSuppressionDto,
+  type ReachSuppressionReason,
+} from '@weldsuite/app-api-client/schemas/reach';
 import {
   reachEnrollments,
   reachProspects,
   reachSuppressions,
   type ReachSuppression,
 } from '@weldsuite/db/schema';
+import { completeAndPublishCampaigns } from './campaign-completion';
+import { reachError } from './errors';
+import type { ReachEventSink } from './events';
+import { cursorCondition, likePattern, pageResult, parseLimit, type Page, type PageQuery } from './list-query';
 import { isValidEmailSyntax } from './validation';
 
 export interface SuppressionHit {
@@ -162,7 +170,7 @@ export async function suppressEmail(
     .onConflictDoNothing({ target: reachSuppressions.value });
 }
 
-export function toSuppressionDto(row: ReachSuppression) {
+export function toSuppressionDto(row: ReachSuppression): ReachSuppressionDto {
   return {
     id: row.id,
     value: row.value,
@@ -248,4 +256,59 @@ export async function releaseSuppressedProspects(
       .set({ validation: 'valid', updatedAt: new Date() })
       .where(inArray(reachProspects.id, free.slice(i, i + LOOKUP_CHUNK)));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+export interface ListSuppressionsQuery extends PageQuery {
+  search?: string;
+}
+
+export async function listSuppressions(db: Database, q: ListSuppressionsQuery = {}): Promise<Page<ReachSuppressionDto>> {
+  const limit = parseLimit(q.limit);
+  const search = q.search?.trim() ? ilike(reachSuppressions.value, likePattern(q.search)) : undefined;
+  const after = await cursorCondition(db, reachSuppressions, q.cursor);
+  const [rows, total] = await Promise.all([
+    db
+      .select()
+      .from(reachSuppressions)
+      .where(and(search, after))
+      .orderBy(desc(reachSuppressions.createdAt), desc(reachSuppressions.id))
+      .limit(limit + 1),
+    db.$count(reachSuppressions, search),
+  ]);
+  return pageResult(rows, limit, total, toSuppressionDto);
+}
+
+export interface SuppressionDeps {
+  db: Database;
+  /** Campaigns that run out of prospects because of a suppression are completed and announced. */
+  emit: ReachEventSink;
+  userId: string;
+}
+
+/**
+ * Add addresses and domains by hand. The matching prospects are flagged and
+ * their queued / active enrollments stop; campaigns left with nothing to send
+ * are completed. No entity event for the entries themselves: the list is a
+ * compliance record, not a catalogued entity.
+ */
+export async function addManualSuppressions(
+  deps: SuppressionDeps,
+  values: readonly string[],
+): Promise<{ added: number; skipped: number }> {
+  const { db } = deps;
+  const result = await addSuppressions(db, values, { reason: 'manual', source: 'manual', createdBy: deps.userId });
+  const { campaignIds } = await applySuppressionsToProspects(db, result.entries, 'manual');
+  await completeAndPublishCampaigns(db, deps.emit, campaignIds);
+  return { added: result.added, skipped: result.skipped };
+}
+
+/** Remove one entry; prospects it was holding back become enrollable again. */
+export async function removeSuppression(db: Database, id: string): Promise<void> {
+  const [row] = await db.delete(reachSuppressions).where(eq(reachSuppressions.id, id)).returning();
+  if (!row) throw reachError.notFound('Suppression', id);
+  await releaseSuppressedProspects(db, { value: row.value, type: row.type });
 }

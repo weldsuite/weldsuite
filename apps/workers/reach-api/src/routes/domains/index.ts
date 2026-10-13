@@ -20,15 +20,8 @@ import { connectReachDomainSchema } from '@weldsuite/app-api-client/schemas/reac
 import type { Env, Variables } from '../../types';
 import { createMailpoolClient } from '../../lib/mailpool/client';
 import { accountContextOf } from '../../services/access';
-import {
-  connectDomain,
-  disconnectDomain,
-  getDomainDto,
-  listCandidates,
-  listDomains,
-  refreshDomainDns,
-  toDomainDto,
-} from '../../services/domains';
+import { getDomainDto, listDomains, toDomainDto } from '@weldsuite/reach-domain/domains';
+import { connectDomain, disconnectDomain, listCandidates, refreshDomainDns } from '../../services/domains';
 import { reachErrorHandler } from '../../services/reach-errors';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

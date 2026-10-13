@@ -4,8 +4,8 @@
  * wallet or an AI outage; an opt-out is honoured at once.
  */
 
-import { trimEnd } from './strings';
-import { normalizeSubject } from './text';
+import { trimEnd } from '@weldsuite/reach-domain/inbound/strings';
+import { normalizeSubject } from '@weldsuite/reach-domain/inbound/text';
 
 /** Words that may surround an opt-out request without changing it ("please unsubscribe me now"). */
 const FILLER_WORDS = new Set([

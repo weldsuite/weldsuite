@@ -4,7 +4,7 @@
  */
 
 import { and, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
-import type { Database } from '@weldsuite/worker-kit';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
   isConsumerEmail,

@@ -19,13 +19,12 @@
  */
 
 import { and, eq, isNull } from 'drizzle-orm';
-import type { Database } from '@weldsuite/worker-kit';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { emailDomain } from '@weldsuite/app-api-client/schemas/reach';
 import { reachMailboxes, reachMessages, reachSettings, type ReachMessage } from '@weldsuite/db/schema';
 import { buildMimeMessage, generateMessageId, sendMail, type SmtpSocketFactory } from '@weldsuite/smtp';
-import type { Env } from '../types';
-import { openMailServerCredentials } from '../lib/credentials';
+import { openMailServerCredentials, type CredentialKeyEnv } from './credentials';
 import { buildEmailFooter, snippetOf } from './render';
 
 export interface SendFromMailboxInput {
@@ -61,7 +60,8 @@ export type SendFromMailboxResult =
     };
 
 export interface OutboundDeps {
-  env: Env;
+  /** The tenant encryption keys that open the mailbox logins (a worker's env satisfies it). */
+  env: CredentialKeyEnv;
   db: Database;
   /** Injected in tests; defaults to cloudflare:sockets. */
   connect?: SmtpSocketFactory;

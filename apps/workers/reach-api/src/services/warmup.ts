@@ -21,8 +21,11 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { omitSensitive } from '@weldsuite/db/lib/sensitive-columns';
 import type { ReachMailServerCredentials } from '@weldsuite/db/schema';
 import { schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
-import { WELDREACH_SENDING_DEFAULTS, type ReachWarmupBlocker } from '@weldsuite/app-api-client/schemas/reach';
-import { WARMUP_MIN_POOL_DOMAINS, warmupGate } from '@weldsuite/reach-domain/warmup';
+import { WELDREACH_SENDING_DEFAULTS } from '@weldsuite/app-api-client/schemas/reach';
+import { utcDayStart, utcTomorrow } from '@weldsuite/reach-domain/access';
+import { openMailServerCredentials, sealMailServerCredentials } from '@weldsuite/reach-domain/credentials';
+import { hasLoginError } from '@weldsuite/reach-domain/mailboxes';
+import { warmupGate } from '@weldsuite/reach-domain/warmup';
 import {
   pausePoolMailbox,
   readPoolMailboxes,
@@ -31,11 +34,9 @@ import {
   type PoolMailboxView,
   type WarmupKeyEnv,
 } from '@weldsuite/reach-domain/warmup-pool';
-import { openMailServerCredentials, sealMailServerCredentials } from '../lib/credentials';
 import { imapCredentialsOf, smtpCredentialsOf } from '../lib/mailpool';
 import type { MailpoolClient } from '../lib/mailpool/client';
 import type { MailpoolMailbox } from '../lib/mailpool/types';
-import { utcDayStart, utcTomorrow } from './access';
 import { getOrCreateReachSettings } from './settings';
 
 type MailboxRow = typeof schema.reachMailboxes.$inferSelect;
@@ -61,41 +62,10 @@ const LOGIN_FAILED_MESSAGE =
 // What the pool says
 // ---------------------------------------------------------------------------
 
-/**
- * A login failed and has not been cleared. The warmup worker clears
- * `lastLoginError` (and its timestamp) when a login works again, so a set error
- * is a current one.
- */
-export function hasLoginError(pool: Pick<PoolMailboxView, 'lastLoginError'>): boolean {
-  return pool.lastLoginError !== null && pool.lastLoginError !== '';
-}
-
 /** Where a paused mailbox goes on resume: straight to `active` only if it still passes the health gate. */
 export function resumeStatusFor(mailbox: Pick<MailboxRow, 'warmupDay' | 'warmupInboxRate'>): 'active' | 'warming' {
   const gate = warmupGate({ rampDay: mailbox.warmupDay, inboxRate3d: mailbox.warmupInboxRate, hasLoginError: false });
   return gate.ready ? 'active' : 'warming';
-}
-
-/**
- * Why a warming mailbox may not join campaigns yet; null when it may (or is not
- * warming). `poolDomains` is the number of domains in the pool (null when
- * unknown): below WARMUP_MIN_POOL_DOMAINS the planner has nobody to pair with.
- */
-export function warmupBlockerOf(
-  mailbox: Pick<MailboxRow, 'status' | 'warmupDay' | 'warmupInboxRate'>,
-  pool: PoolMailboxView | undefined,
-  poolDomains: number | null,
-): ReachWarmupBlocker | null {
-  if (mailbox.status !== 'warming') return null;
-  const gate = warmupGate({
-    rampDay: pool ? pool.rampDay : mailbox.warmupDay,
-    inboxRate3d: pool ? (pool.stats?.inboxRate3d ?? null) : mailbox.warmupInboxRate,
-    hasLoginError: pool ? hasLoginError(pool) : false,
-  });
-  if (gate.ready) return null;
-  // A login problem needs the customer; a small pool is the more useful news for everything else.
-  if (gate.reason !== 'login_error' && poolDomains !== null && poolDomains < WARMUP_MIN_POOL_DOMAINS) return 'pool_too_small';
-  return gate.reason;
 }
 
 /** The pool's verdict that takes a warming or active mailbox out of use, if any. */

@@ -5,6 +5,30 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./access": "./src/access.ts",
+    "./campaign-completion": "./src/campaign-completion.ts",
+    "./campaigns": "./src/campaigns.ts",
+    "./credentials": "./src/credentials.ts",
+    "./domains": "./src/domains.ts",
+    "./enrollments": "./src/enrollments.ts",
+    "./errors": "./src/errors.ts",
+    "./events": "./src/events.ts",
+    "./inbound/mime": "./src/inbound/mime.ts",
+    "./inbound/strings": "./src/inbound/strings.ts",
+    "./inbound/text": "./src/inbound/text.ts",
+    "./inbox": "./src/inbox.ts",
+    "./list-query": "./src/list-query.ts",
+    "./lists": "./src/lists.ts",
+    "./mailboxes": "./src/mailboxes.ts",
+    "./outbound": "./src/outbound.ts",
+    "./overview": "./src/overview.ts",
+    "./prospects": "./src/prospects.ts",
+    "./render": "./src/render.ts",
+    "./send-window": "./src/send-window.ts",
+    "./suppressions": "./src/suppressions.ts",
+    "./testing/account": "./src/testing/account.ts",
+    "./testing/reach": "./src/testing/reach.ts",
+    "./validation": "./src/validation.ts",
     "./warmup": "./src/warmup.ts",
     "./warmup-pool": "./src/warmup-pool.ts"
   },
@@ -15,9 +39,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/smtp": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "postal-mime": "^2.7.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",

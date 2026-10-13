@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SendSchedule } from '../lib/send-window';
+import type { SendSchedule } from '@weldsuite/reach-domain/send-window';
 import {
   assessMailboxes,
   evaluateCampaignGate,

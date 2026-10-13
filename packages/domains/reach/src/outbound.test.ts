@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
-import type { Database } from '@weldsuite/worker-kit';
+import type { Database } from '@weldsuite/worker-kit/db';
 import { reachMailboxes, reachMessages } from '@weldsuite/db/schema';
 
 const smtp = vi.hoisted(() => ({
@@ -20,10 +20,10 @@ vi.mock('@weldsuite/smtp', () => ({
 }));
 
 import { sendFromMailbox, type SendFromMailboxInput } from './outbound';
-import { resetReach, seedMailbox, seedSettings, testEnv } from '../test-support/reach';
+import { resetReach, seedMailbox, seedSettings, TEST_ENCRYPTION_KEY } from './testing/reach';
 
 let db: Database;
-const env = testEnv();
+const env = { DATABASE_ENCRYPTION_KEY: TEST_ENCRYPTION_KEY };
 const T0 = new Date('2026-10-12T10:00:00Z');
 const deps = () => ({ env, db, now: () => T0 });
 

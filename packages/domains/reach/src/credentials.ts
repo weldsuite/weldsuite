@@ -8,15 +8,16 @@
 import { decryptField, encryptField, keyringFromEnv } from '@weldsuite/db/lib/crypto';
 import type { ReachMailServerCredentials } from '@weldsuite/db/schema';
 
-type KeyEnv = { DATABASE_ENCRYPTION_KEY?: string; DATABASE_ENCRYPTION_KEY_V2?: string };
+/** The tenant encryption keys (worker secrets) the mailbox logins are sealed with. */
+export type CredentialKeyEnv = { DATABASE_ENCRYPTION_KEY?: string; DATABASE_ENCRYPTION_KEY_V2?: string };
 
-export async function sealMailServerCredentials(env: KeyEnv, credentials: ReachMailServerCredentials): Promise<string> {
+export async function sealMailServerCredentials(env: CredentialKeyEnv, credentials: ReachMailServerCredentials): Promise<string> {
   return encryptField(JSON.stringify(credentials), keyringFromEnv(env));
 }
 
 /** null when missing, undecryptable or malformed: the mailbox cannot send until it is re-provisioned. */
 export async function openMailServerCredentials(
-  env: KeyEnv,
+  env: CredentialKeyEnv,
   blob: string | null | undefined,
 ): Promise<ReachMailServerCredentials | null> {
   if (!blob) return null;
