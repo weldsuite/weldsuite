@@ -62,7 +62,7 @@ export interface HostEntityFormLayoutProps {
   backLink?: string;
   /** Back button text */
   backButtonText?: string;
-  /** Hide mobile summary panel (use when rendering it elsewhere) */
+  /** Hide the stacked summary panel shown when the side panel doesn't fit (use when rendering it elsewhere) */
   hideMobileSummary?: boolean;
   /** Optional action element rendered at the right side of the summary header */
   summaryHeaderAction?: ReactNode;
@@ -181,9 +181,12 @@ export function HostEntityFormLayout({
   const keyedSections = withStableKeys(sections, formSectionBaseKey);
 
   return (
+    // Breakpoints are container queries on this layout, not viewport ones: the
+    // module sidebar and WeldAgent drawer eat into the width, so at a ~960px
+    // viewport a 400px side panel left the form too narrow to use.
     <div
       data-testid="host-entity-form-layout"
-      className="h-full min-h-0 flex-1 flex overflow-hidden"
+      className="@container h-full min-h-0 flex-1 flex overflow-hidden"
     >
       {/* Main column scrolls independently inside the module content card. */}
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto custom-scrollbar bg-muted/30">
@@ -234,9 +237,9 @@ export function HostEntityFormLayout({
             </div>
           </form>
 
-          {/* Mobile Summary Panel - shown at bottom on mobile (unless hideMobileSummary is true) */}
+          {/* Stacked summary panel - below the form while the side panel doesn't fit (unless hideMobileSummary is true) */}
           {!hideMobileSummary && (
-          <div className="md:hidden mt-6 bg-background rounded-lg border border-border">
+          <div className="@4xl:hidden mt-6 bg-background rounded-lg border border-border">
             <div className="p-4 border-b border-border flex items-center gap-2">
               <SummaryIcon className="h-4 w-4 text-muted-foreground shrink-0" />
               <h3 className="text-base font-semibold">
@@ -302,7 +305,7 @@ export function HostEntityFormLayout({
       */}
       <aside
         data-testid="host-purchase-summary"
-        className="hidden md:flex w-[400px] shrink-0 min-h-0 h-full bg-background border-l border-border flex-col"
+        className="hidden @4xl:flex w-[340px] @6xl:w-[400px] shrink-0 min-h-0 h-full bg-background border-l border-border flex-col"
       >
         <div className="flex-1 overflow-y-auto">
           <div className="mb-6">

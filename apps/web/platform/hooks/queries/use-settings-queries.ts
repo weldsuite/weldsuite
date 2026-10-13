@@ -99,7 +99,9 @@ export function useWorkspaceSettings() {
     queryKey: settingsKeys.workspace(),
     queryFn: async () => {
       const client = await getClient();
-      return client.get<{ data: { language?: string } }>('/workspace-settings');
+      return client.get<{ data: { language?: string; country?: string | null; currency?: string | null } | null }>(
+        '/workspace-settings',
+      );
     },
   });
 }
