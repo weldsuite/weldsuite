@@ -32,6 +32,12 @@ export interface SeedAppEntry {
    * can toggle flags such as Beta on them, never in the App Store.
    */
   isPublished?: boolean;
+  /**
+   * On request only: workspaces ask for access and staff approve them before
+   * the app can be installed (WeldReach). Left out, a re-seed keeps whatever
+   * staff set on the row.
+   */
+  requiresApproval?: boolean;
 }
 
 const HELP_BASE = 'https://help.weldsuite.org';
@@ -631,6 +637,40 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     websiteUrl: 'https://weldsuite.com/weldhr',
     documentationUrl: `${HELP_BASE}/weldhr`,
     contactUrl: SUPPORT_EMAIL,
+  },
+  {
+    code: 'weldreach',
+    name: 'WeldReach',
+    description: 'Cold email outreach from dedicated, warmed-up mailboxes. Available on request.',
+    icon: 'Send',
+    category: 'Sales & Marketing',
+    path: '/weldreach',
+    overview:
+      'WeldReach sends your B2B outreach from mailboxes set up only for it, on their own sending domains, so your main domain and inbox stay out of it. Every new mailbox is warmed up first and only joins a campaign once its email reliably lands in the inbox. Write a sequence, add prospects from a CSV, WeldCRM or WeldData, and WeldReach spreads the sending over your mailboxes within daily limits, sending windows and each prospect\'s timezone. Replies stop the sequence, land in one shared inbox with a label such as interested or out of office, and are linked to the person and company in WeldCRM. WeldReach is available on request: WeldSuite reviews each workspace before it can send.',
+    features: [
+      'Dedicated mailboxes on sending domains you register or bring in through WeldHost',
+      'Built-in warmup: a mailbox starts sending campaigns only after it passes the inbox-placement check',
+      'Multi-step sequences with personalisation, preview and stop-on-reply',
+      'Sending spread over mailboxes within daily limits, sending windows and prospect timezones',
+      'Prospects from CSV, WeldCRM and WeldData, with suppression and opt-out handling',
+      'One reply inbox with AI reply labels, linked to WeldCRM people and companies',
+      'Bounce guardrails that pause a mailbox or campaign before your domains get hurt',
+    ],
+    howItWorks: [
+      { title: 'Request access', description: 'Tell us what you will send and to whom; WeldSuite reviews the request.' },
+      { title: 'Set up mailboxes', description: 'Connect sending domains and create mailboxes; warmup starts on its own.' },
+      { title: 'Build a campaign', description: 'Write the sequence, add prospects and choose which mailboxes send it.' },
+      { title: 'Work the replies', description: 'Answer interested prospects from the reply inbox and follow up in WeldCRM.' },
+    ],
+    sortOrder: 165,
+    version: '1.0.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-10-13',
+    websiteUrl: null,
+    documentationUrl: null,
+    contactUrl: SUPPORT_EMAIL,
+    requiresApproval: true,
   },
   {
     code: 'weldagent',

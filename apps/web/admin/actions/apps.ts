@@ -150,6 +150,7 @@ export async function seedApps(
         howItWorks: seed.howItWorks,
         isActive: true,
         isPublished: seed.isPublished ?? true,
+        requiresApproval: seed.requiresApproval ?? false,
         sortOrder: seed.sortOrder,
         version: seed.version,
         provider: seed.provider,
@@ -187,6 +188,7 @@ export async function seedApps(
         websiteUrl: seed.websiteUrl,
         documentationUrl: seed.documentationUrl,
         contactUrl: seed.contactUrl,
+        ...(seed.requiresApproval === undefined ? {} : { requiresApproval: seed.requiresApproval }),
         updatedAt: now,
       })
       .where(eq(appCatalog.id, current.id));
