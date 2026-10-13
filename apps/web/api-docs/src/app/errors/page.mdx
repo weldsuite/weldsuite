@@ -52,6 +52,8 @@ Every error response has the same shape: a single `error` object with a machine-
 | 409 | `CONFLICT` | The request conflicts with the current state of the resource. |
 | 429 | `RATE_LIMITED` | You exceeded your plan's rate limit. A `Retry-After` header indicates when to retry. |
 | 500 | `INTERNAL_ERROR` | An unexpected server error occurred. Retry with backoff. |
+| 502 | `UPSTREAM_ERROR` | A service behind the endpoint did not accept the request, such as the mail server of a [WeldReach reply](/reach-threads#reply-to-a-thread). The message says why. |
+| 503 | `SERVICE_UNAVAILABLE` | The endpoint is switched off for the moment, such as [WeldReach sending](/weldreach#same-rules-as-the-app) while WeldSuite has paused it. Retry later. |
 
 ---
 

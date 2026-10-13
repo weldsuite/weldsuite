@@ -171,7 +171,6 @@ A sending domain is a WeldHost domain of the workspace that is connected to Weld
   <Property name="id" type="string">Unique identifier (e.g. `rdom_abc123`).</Property>
   <Property name="hostDomainId" type="string">The WeldHost domain.</Property>
   <Property name="name" type="string">The domain name.</Property>
-  <Property name="mailpoolDomainId" type="string">The domain's id at the mail provider, or `null`.</Property>
   <Property name="status" type="string">`connecting`, `active`, `error` or `disconnecting`.</Property>
   <Property name="dnsStatus" type="object">The last DNS check, or `null`: `spf`, `dkim`, `dmarc` and `mx` (each a boolean) and `checkedAt`.</Property>
   <Property name="dmarcPolicy" type="string">The published DMARC policy (such as `none` or `quarantine`), or `null`.</Property>
@@ -209,7 +208,6 @@ A sending domain is a WeldHost domain of the workspace that is connected to Weld
           "id": "rdom_abc123",
           "hostDomainId": "dom_abc123",
           "name": "acme-outreach.com",
-          "mailpoolDomainId": "mp_7f3a2c",
           "status": "active",
           "dnsStatus": { "spf": true, "dkim": true, "dmarc": true, "mx": true, "checkedAt": "2026-10-13T06:00:00Z" },
           "dmarcPolicy": "none",

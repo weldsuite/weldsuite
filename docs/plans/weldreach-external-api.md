@@ -93,10 +93,10 @@ Business logic moves out of reach-api so external-api and mcp-server can run it 
   - Add a `reachAccess` middleware for the gate. It reads by `session.clerkOrgId`, falling back to `resolveClerkOrgId`.
   - Add the endpoints to the `GET /v1` list.
 - **Bindings** (all three envs, in `wrangler.toml`):
-  - `SCHEDULE_INDEX`, the D1 schedule index, so launch, resume and enrol wake the send sweep for the Clerk org id.
-  - `REACH_INBOUND_DOMAIN`.
-  - `FLAGSHIP`, for the `weldreach-sending` kill switch, if external-api doesn't already have it.
-  - `DATABASE_ENCRYPTION_KEY` and `STORAGE` are already there.
+  - `SCHEDULE_INDEX`, reach-api's D1 schedule index, so launch, resume and enrol wake the send sweep for the Clerk org id.
+  - `FLAGSHIP`, the same Flagship apps as reach-api, for the `weldreach-sending` kill switch.
+  - `WORKSPACE_CACHE` (reach-api's KV, for the shared access cache), `DATABASE_ENCRYPTION_KEY` (opens the mailbox logins), `STORAGE` and `HYPERDRIVE_MASTER` are already there.
+  - `REACH_INBOUND_DOMAIN` is not needed: only reach-api's `email()` handler reads it. No new secrets.
 - **Tests:** pglite with the harness `createExternalTestApp` and a `WORKSPACE_CACHE` stub. Cover:
   - each scope returning 403 without it;
   - the gate returning 403 when access isn't approved;
@@ -106,17 +106,17 @@ Business logic moves out of reach-api so external-api and mcp-server can run it 
 
 ## Phase 2: reply sending
 
-- `POST /v1/reach/threads/:threadKey/reply`, behind `reach_inbox:reply`. The check order is the same as the app route:
-  1. the kill switch;
-  2. the billing status (`maySend`);
-  3. the mailbox state;
-  4. the SMTP send;
-  5. stop-on-reply effects.
-- Responses: 201 with the sent message. Errors use the domain codes (`MAILBOX_NOT_SENDABLE`, `SENDING_DISABLED`, …).
+- `POST /v1/reach/threads/:threadKey/reply`, behind `reach_inbox:reply`, in its own route file (`thread-reply.ts`) so mcp-server can copy the other reach routes without it. It runs the app's own `sendReply`, so the check order is the app's:
+  1. the key's scope, then the workspace's billing status (`maySend`): 403 `FORBIDDEN`;
+  2. the kill switch (Flagship `weldreach-sending`, default on): 503 `SERVICE_UNAVAILABLE`;
+  3. the thread: 404 `NOT_FOUND`;
+  4. a reply to answer, and the suppression list: 409 `CONFLICT` with `details.reason` `NO_REPLY` or `SUPPRESSED`;
+  5. the mailbox state and the SMTP send: 502 `UPSTREAM_ERROR` (the failed attempt is kept on the thread).
+- Responses: 201 with the sent message. Errors use the domain's own codes and the API invents none (there is no `SENDING_DISABLED` or `MAILBOX_NOT_SENDABLE`).
 
 ## Phase 3: mcp-server parity
 
-- Copy every route except reply into `mcp-server/src/api/routes/v1/reach/`, keeping the files byte-identical where possible.
+- Copy every route file except `thread-reply.ts` into `mcp-server/src/api/routes/v1/reach/`, keeping the files byte-identical. They reach the worker only through `lib/reach.ts` (gate, deps, error handler), which mcp-server writes its own version of.
 - Add the bindings mcp-server lacks: `SCHEDULE_INDEX` and `WORKSPACE_CACHE`, or a direct master read without the cache.
 - Add `tools/reach/index.ts` to `allTools`.
 - The send/reply guard test must stay green.

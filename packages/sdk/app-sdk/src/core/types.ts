@@ -795,7 +795,6 @@ export interface ReachDomain {
   id: string;
   hostDomainId: string;
   name: string;
-  mailpoolDomainId: string | null;
   status: 'connecting' | 'active' | 'error' | 'disconnecting';
   dnsStatus: { spf: boolean; dkim: boolean; dmarc: boolean; mx: boolean; checkedAt: string } | null;
   dmarcPolicy: string | null;

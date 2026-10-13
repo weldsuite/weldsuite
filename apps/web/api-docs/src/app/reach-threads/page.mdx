@@ -226,12 +226,11 @@ Unsubscribes and hard bounces put the address on the [suppression list](/reach-s
     | Status | `code` | Why |
     |--------|--------|-----|
     | 403 | `FORBIDDEN` | The key lacks `reach_inbox:reply`. |
-    | 503 | `SENDING_DISABLED` | WeldSuite has paused all WeldReach sending. Try again later. |
     | 403 | `FORBIDDEN` | The workspace may not send: its WeldReach subscription is canceled or has been past due for more than 7 days. The reason is in the message. |
+    | 503 | `SERVICE_UNAVAILABLE` | WeldSuite has paused all WeldReach sending. Try again later. |
     | 404 | `NOT_FOUND` | No thread has this key. |
     | 409 | `CONFLICT` | `details.reason` is `NO_REPLY` when the thread only holds bounces and auto-replies, so there is nobody to answer, or `SUPPRESSED` when the address is on the [suppression list](/reach-suppressions). |
-    | 409 | `MAILBOX_NOT_SENDABLE` | The mailbox that received the reply cannot send right now. Replies go out from mailboxes that are `active`, `warming` or `paused`; not from ones that are being set up, suspended, failing or deleted. |
-    | 502 | `UPSTREAM_ERROR` | The mail server did not accept the email. Nothing was sent; you may retry. |
+    | 502 | `UPSTREAM_ERROR` | The email could not be sent, and the message says why: the mailbox that received the reply cannot send right now (replies go out from mailboxes that are `active`, `warming` or `paused`, not from ones that are being set up, suspended, failing or deleted), or the mail server did not accept the email. When the mail server refused or dropped the email, the attempt stays on the thread as an outgoing message with status `failed`, or `unknown` when the server's answer was lost; an `unknown` email may still have been delivered, so check the thread before you send it again. |
 
   </Col>
   <Col sticky>
