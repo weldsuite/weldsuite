@@ -13,7 +13,6 @@ import {
   MeetingRoomView,
   MeetingToaster,
   PeopleEntityListPanel,
-  useBreakoutParticipants,
   type RecordingState,
   type ViewMode,
   type MeetingPeer,
@@ -23,7 +22,6 @@ import type { GuestHostControls } from '@/lib/schemas';
 import { playHandRaiseSound, playHandLowerSound, playMuteSound, playUnmuteSound, playCameraToggleSound } from '@/lib/call-sounds';
 
 import { GuestChatPanel } from '../guest-chat-panel';
-import { useGuestPiP, type PiPFocused } from './guest-pip';
 import { randomToken } from '@/lib/random-id';
 
 /** A transcript frame from RTK's AI channel. */
@@ -462,18 +460,6 @@ export function GuestMeetingRoom({
     [participants, selfId],
   );
 
-  // Out-of-browser Picture-in-Picture: focus the first remote (active-speaker
-  // proxy) or fall back to self, mirroring the platform PiP widget. While
-  // breakout rooms are open, only someone from the guest's own room qualifies.
-  const roomParticipants = useBreakoutParticipants(rtkClient, participants);
-  const pipParts = roomParticipants as Array<{ id?: string; name?: string; videoEnabled?: boolean; videoTrack?: MediaStreamTrack | null }>;
-  const focusedRemote = pipParts.find((p) => p?.id && p.id !== selfId);
-  const focusedP = focusedRemote ?? pipParts.find((p) => p?.id === selfId) ?? pipParts[0] ?? null;
-  const pipFocused: PiPFocused = {
-    name: focusedP?.name || 'Guest',
-    videoTrack: focusedP?.videoEnabled ? (focusedP?.videoTrack ?? null) : null,
-    isSelf: !focusedRemote,
-  };
   // Play the same mic/camera cues a platform participant hears. isMuted /
   // isVideoOff reflect the CURRENT state, so toggling flips to !current.
   const handleToggleMute = useCallback(() => {
@@ -484,15 +470,6 @@ export function GuestMeetingRoom({
     playCameraToggleSound();
     toggleVideo();
   }, [toggleVideo]);
-
-  const { openPiP, pipNode } = useGuestPiP({
-    focused: pipFocused,
-    isMuted,
-    isVideoOff,
-    onToggleMute: handleToggleMute,
-    onToggleVideo: handleToggleVideo,
-    onLeave: handleLeave,
-  });
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background">
@@ -524,7 +501,6 @@ export function GuestMeetingRoom({
         setViewMode={setViewMode}
         onLeave={handleLeave}
         onToggleFullscreen={toggleFullscreen}
-        onPictureInPicture={openPiP}
         showHostControlsButton={false}
         selfColorSeed={colorSeed}
         peoplePanelSlot={
@@ -550,7 +526,6 @@ export function GuestMeetingRoom({
       {recording.isRecording && recording.notice > dismissedNotice && (
         <RecordingNotice onDismiss={() => setDismissedNotice(recording.notice)} />
       )}
-      {pipNode}
       {/* The meeting tools (polls, Q&A, timer, breakout rooms) notify with toasts. */}
       <MeetingToaster position="top-center" theme="system" />
     </div>

@@ -3,39 +3,28 @@
 import type RealtimeKitClient from '@cloudflare/realtimekit';
 import type { Ref } from 'react';
 
-import { Button } from '@weldsuite/ui/components/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
-import { cn } from '@weldsuite/ui/lib/utils';
 import {
   BackgroundEffectsPanel,
+  CallControlsBar,
   ParticipantAvatar,
   ParticipantNameTag,
   type ViewMode,
 } from '@weldsuite/weldmeet-ui';
-import {
-  Check,
-  EllipsisVertical,
-  GalleryHorizontalEnd,
-  Image as ImageIcon,
-  LayoutGrid,
-  Loader2,
-  Maximize,
-  Minimize,
-  PanelRight,
-  Phone,
-  User,
-} from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 import { PREVIEW_DARK_BG, type PersonTheme } from '@/lib/constants';
 
-import { PrejoinMediaControls, type PermState } from './prejoin-media-controls';
+import type { PermState } from './prejoin-media-controls';
+
+// Shown, but not usable until the host lets the guest in: nobody in the
+// meeting would see a shared screen or a raised hand from the waiting room.
+const WAITING_ROOM_DISABLED_CONTROLS = {
+  screenShare: "You can share your screen once you're in the meeting",
+  handRaise: "You can raise your hand once you're in the meeting",
+};
+
+const noop = () => {};
+const noopAsync = async () => {};
 
 interface WaitlistedScreenProps {
   guestName: string;
@@ -136,7 +125,7 @@ export function WaitlistedScreen({
               {showingVideo ? (
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover -scale-x-100" />
               ) : (
-                <ParticipantAvatar initials={waitInitials} color={personTheme.avatar} />
+                <ParticipantAvatar initials={waitInitials} color={personTheme.avatar} size="tile" />
               )}
               <ParticipantNameTag name={guestName || 'You'} audioEnabled={audioOn} />
             </div>
@@ -148,87 +137,38 @@ export function WaitlistedScreen({
           </div>
         </div>
 
-        <div className="flex items-center justify-center gap-3 pb-6 pt-4">
-          <PrejoinMediaControls
-            previewAudioEnabled={previewAudioEnabled}
-            previewVideoEnabled={previewVideoEnabled}
-            audioPermission={audioPermission}
-            videoPermission={videoPermission}
-            audioInputs={audioInputs}
-            videoInputs={videoInputs}
-            selectedAudioInput={selectedAudioInput}
-            selectedVideoInput={selectedVideoInput}
-            togglePreviewAudio={togglePreviewAudio}
-            togglePreviewVideo={togglePreviewVideo}
-            changeAudioDevice={changeAudioDevice}
-            changeVideoDevice={changeVideoDevice}
-          />
-
-          <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  aria-label="More options"
-                  className="h-12 w-12 rounded-[18px] border-0 transition-all [&]:hover:brightness-95 dark:[&]:hover:brightness-110 data-[state=open]:brightness-95 dark:data-[state=open]:brightness-110 focus-visible:ring-0 focus-visible:border-transparent"
-                >
-                  <EllipsisVertical className="!h-[20px] !w-[20px]" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-56">
-                <DropdownMenuItem onClick={() => setEffectsOpen(!effectsOpen)}>
-                  <ImageIcon className="h-4 w-4 mr-0.5" />
-                  Background effects
-                  {effectsOpen && <Check className="h-4 w-4 ml-auto" />}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-
-                <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Layout</DropdownMenuLabel>
-                {([
-                  { value: 'grid' as const, label: 'Grid', icon: LayoutGrid },
-                  { value: 'spotlight' as const, label: 'Spotlight', icon: User },
-                  { value: 'speaker' as const, label: 'Speaker', icon: GalleryHorizontalEnd },
-                  { value: 'sidebar' as const, label: 'Sidebar', icon: PanelRight },
-                ]).map(({ value, label, icon: Icon }) => {
-                  const selected = preferredViewMode === value;
-                  return (
-                    <DropdownMenuItem
-                      key={value}
-                      onClick={() => setPreferredViewMode(value)}
-                      className={cn(
-                        'flex items-center justify-between',
-                        selected && 'bg-accent text-accent-foreground',
-                      )}
-                    >
-                      <span className="flex items-center gap-2">
-                        <Icon className="h-4 w-4" />
-                        {label}
-                      </span>
-                      {selected && <Check className="h-4 w-4 text-primary" />}
-                    </DropdownMenuItem>
-                  );
-                })}
-
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={toggleFullscreen}>
-                  {isFullscreen ? <Minimize className="h-4 w-4 mr-0.5" /> : <Maximize className="h-4 w-4 mr-0.5" />}
-                  {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          <Button
-            variant="destructive"
-            size="icon"
-            aria-label="Leave call"
-            className="h-12 w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
-            onClick={onLeave}
-          >
-            <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
-          </Button>
-        </div>
+        {/* The in-meeting bar, so the guest sets up exactly what they will
+            have once admitted. Devices come from the preview stream here. */}
+        <CallControlsBar
+          meeting={null}
+          isMuted={!previewAudioEnabled}
+          isVideoOff={!previewVideoEnabled}
+          isScreenSharing={false}
+          handRaised={false}
+          viewMode={preferredViewMode}
+          toggleMute={togglePreviewAudio}
+          toggleVideo={togglePreviewVideo}
+          startScreenShare={noopAsync}
+          stopScreenShare={noop}
+          toggleHandRaise={noop}
+          setViewMode={setPreferredViewMode}
+          onLeave={onLeave}
+          micBlocked={audioPermission === 'denied'}
+          cameraBlocked={videoPermission === 'denied'}
+          onToggleEffects={() => setEffectsOpen(!effectsOpen)}
+          effectsOpen={effectsOpen}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          deviceSource={{
+            audioDevices: audioInputs,
+            videoDevices: videoInputs,
+            activeDeviceId: selectedAudioInput,
+            activeVideoDeviceId: selectedVideoInput,
+            handleDeviceChange: changeAudioDevice,
+            handleVideoDeviceChange: changeVideoDevice,
+          }}
+          disabledControls={WAITING_ROOM_DISABLED_CONTROLS}
+        />
       </div>
       <BackgroundEffectsPanel
         backgroundType={backgroundType}

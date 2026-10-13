@@ -7,7 +7,8 @@ import {
   Check,
   Users,
 } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { getInitials, getPeerColorSeed } from '../lib/person-theme';
+import { PersonAvatar } from './person-avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { ParticipantContextMenu } from './participant-context-menu';
 import {
@@ -56,16 +57,6 @@ export interface PeopleEntityListPanelProps {
   onRemoveParticipant?: (participant: MeetingPeer) => void | Promise<void>;
 }
 
-/** Keeps the context menu (220x340) inside the viewport when opened at the pointer. */
-function getContextMenuPosition(clientX: number, clientY: number) {
-  const menuW = 220;
-  const menuH = 340;
-  return {
-    x: Math.min(clientX, window.innerWidth - menuW),
-    y: clientY + menuH > window.innerHeight ? Math.max(0, clientY - menuH) : clientY,
-  };
-}
-
 /** Mic / camera state badge on the right of an in-call row. */
 function MediaStateBadge({
   enabled,
@@ -112,7 +103,6 @@ interface PersonListRowProps {
 }
 
 function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: Readonly<PersonListRowProps>) {
-  const initials = (row.name || '?').charAt(0).toUpperCase();
   const isWaiting = row.status === 'waiting';
   const clickable = !!onClickPerson && !isWaiting && !row.isSelf;
   // The context menu is enabled for any in-call row (incl. self) on platform.
@@ -130,12 +120,13 @@ function PersonListRow({ row, onClickPerson, onOpenMenu, onAdmit, onReject }: Re
   const content = (
     <>
       <div className="relative flex-shrink-0">
-        <Avatar className="h-7 w-7 !rounded-[8px]">
-          {row.picture && <AvatarImage src={row.picture} className="!rounded-[8px]" />}
-          <AvatarFallback className="text-[10px] font-medium !rounded-[8px]">
-            {initials}
-          </AvatarFallback>
-        </Avatar>
+        <PersonAvatar
+          initials={getInitials(row.raw.name ?? row.name)}
+          picture={row.picture}
+          colorSeed={getPeerColorSeed(row.raw)}
+          className="h-7 w-7 !rounded-[8px]"
+          innerClassName="text-[10px] !rounded-[8px]"
+        />
         {!isWaiting && <PresenceDot />}
       </div>
       <div className="flex-1 min-w-0">
@@ -402,7 +393,7 @@ export function PeopleEntityListPanel({
   );
 
   const openRowMenu = useCallback((row: PersonRow, clientX: number, clientY: number) => {
-    setMenuPos(getContextMenuPosition(clientX, clientY));
+    setMenuPos({ x: clientX, y: clientY });
     setMenuRow(row);
   }, []);
 

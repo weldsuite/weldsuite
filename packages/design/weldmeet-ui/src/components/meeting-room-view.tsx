@@ -106,11 +106,6 @@ function ScreenTile({
 const STRIP_CLASS = 'flex gap-2 h-[96px] md:h-[160px] flex-shrink-0 overflow-x-auto overflow-y-hidden p-1';
 const STRIP_TILE_CLASS = 'w-[128px] md:w-[240px] flex-shrink-0';
 
-function gridColsClass(totalTiles: number): string {
-  if (totalTiles <= 1) return 'grid-cols-1';
-  if (totalTiles <= 4) return 'grid-cols-2';
-  return 'grid-cols-3';
-}
 
 /**
  * Resolve effective gating: when host management is on AND the viewer is not
@@ -405,8 +400,37 @@ function SpotlightShareLayout({ ctx, allParticipants, screenShareEntries }: Read
   );
 }
 
+/** The local tile floating over the stage on phones, bottom-right. Square, like every phone tile. */
+const MOBILE_SELF_THUMBNAIL_CLASS =
+  'absolute bottom-4 right-4 z-10 h-[104px] w-[104px] rounded-lg shadow-lg ring-1 ring-white/20';
+
+/** Gap between phone tiles and around the grid, in px (Tailwind's `2`). */
+const MOBILE_GRID_GAP = 8;
+
 /**
- * Mobile one-to-one layout, as phone call apps do it: one person fills the
+ * Phone stage where every tile is a square. The tiles take the largest side
+ * that fits both ways (the stage is a size container, so `cqw` / `cqh` are its
+ * width and height) and the block of tiles is centred in what is left over.
+ */
+function MobileSquareGrid({ cols, count, children }: Readonly<{ cols: number; count: number; children: ReactNode }>) {
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const across = `(100cqw - ${MOBILE_GRID_GAP * (cols + 1)}px) / ${cols}`;
+  const down = `(100cqh - ${MOBILE_GRID_GAP * (rows + 1)}px) / ${rows}`;
+  const side = `min(${across}, ${down})`;
+  return (
+    <div className="relative h-full w-full [container-type:size]">
+      <div
+        className="grid h-full w-full place-content-center"
+        style={{ gap: MOBILE_GRID_GAP, gridTemplateColumns: `repeat(${cols}, ${side})`, gridAutoRows: side }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mobile one-to-one layout, as phone call apps do it: one person takes the
  * stage and the other floats as a thumbnail in the corner. Tapping the
  * thumbnail pins that tile, which swaps the two.
  */
@@ -417,9 +441,11 @@ function MobileDuoLayout({
   pinned,
 }: Readonly<{ ctx: TileContext; main: Entry; thumbnail: Entry; pinned: boolean }>) {
   return (
-    <div className="relative h-full w-full p-2">
-      <CameraTile ctx={ctx} entry={main} pinned={pinned} />
-      <div className="absolute bottom-4 right-4 z-10 h-[132px] w-[99px] rounded-lg shadow-lg ring-1 ring-white/20">
+    <div className="relative h-full w-full">
+      <MobileSquareGrid cols={1} count={1}>
+        <CameraTile ctx={ctx} entry={main} pinned={pinned} />
+      </MobileSquareGrid>
+      <div className={MOBILE_SELF_THUMBNAIL_CLASS}>
         <CameraTile ctx={ctx} entry={thumbnail} />
       </div>
     </div>
@@ -427,14 +453,136 @@ function MobileDuoLayout({
 }
 
 /**
- * Mobile in-call grid — mirrors the Google Meet phone layout:
- *   • 1–4 tiles  → single stacked column (one under another)
- *   • 5–8 tiles  → 2 columns (max 4 rows)
+ * Mobile in-call grid, laid out like the Google Meet phone app, with every
+ * tile a square:
+ *   • your own tile floats in the bottom-right corner, over the grid
+ *   • everyone else fills the stage: 1–3 tiles stacked in one column,
+ *     4–8 tiles in two columns (2 × 4 at most)
  *   • > 8 tiles  → only the first 8 are shown; the 8th carries an "N others"
  *                  badge so the user knows more participants are present.
+ * Alone in the call, your own tile takes the stage instead of floating.
  */
 const MOBILE_MAX_TILES = 8;
 function MobileGridLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
+  const self = allParticipants.find((entry) => entry.isSelf);
+  const others = allParticipants.filter((entry) => !entry.isSelf);
+  const tiles: Array<{ key: string; node: ReactNode }> = [
+    ...screenShareEntries.map((entry) => ({
+      key: `${entry.p.id}-screen`,
+      node: (
+        <div className="rounded-xl overflow-hidden bg-[#1a1a1a] h-full w-full">
+          <ScreenTile ctx={ctx} entry={entry} interactive />
+        </div>
+      ),
+    })),
+    ...others.map((entry) => ({
+      key: entry.p.id,
+      node: <CameraTile ctx={ctx} entry={entry} />,
+    })),
+  ];
+  // Nothing else to show: the local tile is the stage, not a thumbnail.
+  const selfFloats = !!self && tiles.length > 0;
+  if (self && !selfFloats) tiles.push({ key: self.p.id, node: <CameraTile ctx={ctx} entry={self} /> });
+
+  const overflow = tiles.length - MOBILE_MAX_TILES;
+  const shown = overflow > 0 ? tiles.slice(0, MOBILE_MAX_TILES) : tiles;
+  const cols = shown.length <= 3 ? 1 : 2;
+
+  return (
+    <div className="relative h-full w-full">
+      <MobileSquareGrid cols={cols} count={shown.length}>
+        {shown.map((t, i) => {
+          const showBadge = overflow > 0 && i === shown.length - 1;
+          return (
+            <div key={t.key} className="relative min-h-0 h-full w-full">
+              {t.node}
+              {showBadge && (
+                <div className="absolute top-2 right-2 z-10 rounded-[7px] bg-black/70 px-3 py-1 text-[13px] font-medium text-white backdrop-blur pointer-events-none">
+                  {overflow} {overflow === 1 ? 'other' : 'others'}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </MobileSquareGrid>
+      {selfFloats && (
+        <div className={MOBILE_SELF_THUMBNAIL_CLASS}>
+          <CameraTile ctx={ctx} entry={self} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Desktop tiled grid ──────────────────────────────────────────────────────
+
+/** Gap between desktop tiles, in px (Tailwind's `2`). */
+const GRID_GAP = 8;
+/** Padding around the desktop grid, in px (Tailwind's `4`). */
+const GRID_PADDING = 16;
+/** The shape a tile is laid out for. Tiles then stretch to fill the stage. */
+const GRID_TILE_ASPECT = 16 / 9;
+/** Google Meet's own ceiling for one screen of tiles. */
+const GRID_MAX_TILES = 49;
+
+/** Column count used until the stage has been measured. */
+function fallbackGridCols(count: number): number {
+  if (count <= 1) return 1;
+  if (count <= 4) return 2;
+  return 3;
+}
+
+/**
+ * How many columns show `count` tiles largest on a `width` × `height` stage,
+ * the way Google Meet picks its grid: for each possible column count, take the
+ * biggest 16:9 tile that still fits both ways, and keep the count that gives
+ * the widest one. A wide stage therefore gets more columns as people join
+ * (10 people: 4 × 3, 20 people: 5 × 4) instead of ever-flatter rows.
+ */
+export function pickGridColumns(count: number, width: number, height: number): number {
+  if (count <= 1) return 1;
+  if (width <= 0 || height <= 0) return fallbackGridCols(count);
+  let best = 1;
+  let bestTileWidth = 0;
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols);
+    const widthFromColumns = (width - GRID_GAP * (cols - 1)) / cols;
+    const widthFromRows = ((height - GRID_GAP * (rows - 1)) / rows) * GRID_TILE_ASPECT;
+    const tileWidth = Math.min(widthFromColumns, widthFromRows);
+    if (tileWidth > bestTileWidth) {
+      bestTileWidth = tileWidth;
+      best = cols;
+    }
+  }
+  return best;
+}
+
+/** Content-box size of an element, kept current as it is resized. */
+function useElementSize<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, size] as const;
+}
+
+/**
+ * Plain tiled grid: screen shares first, then every camera tile. The column
+ * count follows the stage size and head-count (see `pickGridColumns`); the
+ * rows share the height, and a short last row is centred, as in Google Meet.
+ * Past 49 tiles the last one carries an "N others" badge.
+ */
+function TiledGridLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
+  const [stageRef, stage] = useElementSize<HTMLDivElement>();
   const tiles: Array<{ key: string; node: ReactNode }> = [
     ...screenShareEntries.map((entry) => ({
       key: `${entry.p.id}-screen`,
@@ -449,44 +597,34 @@ function MobileGridLayout({ ctx, allParticipants, screenShareEntries }: Readonly
       node: <CameraTile ctx={ctx} entry={entry} />,
     })),
   ];
-
-  const overflow = tiles.length - MOBILE_MAX_TILES;
-  const shown = overflow > 0 ? tiles.slice(0, MOBILE_MAX_TILES) : tiles;
-  const cols = shown.length <= 4 ? 'grid-cols-1' : 'grid-cols-2';
+  const overflow = tiles.length - GRID_MAX_TILES;
+  const shown = overflow > 0 ? tiles.slice(0, GRID_MAX_TILES) : tiles;
+  const cols = pickGridColumns(shown.length, stage.width, stage.height);
+  const rows: Array<typeof shown> = [];
+  for (let i = 0; i < shown.length; i += cols) rows.push(shown.slice(i, i + cols));
+  const tileWidth = `calc((100% - ${GRID_GAP * (cols - 1)}px) / ${cols})`;
 
   return (
-    <div className={`grid ${cols} gap-2 p-2 h-full auto-rows-fr`}>
-      {shown.map((t, i) => {
-        const showBadge = overflow > 0 && i === shown.length - 1;
-        return (
-          <div key={t.key} className="relative min-h-0 h-full w-full">
-            {t.node}
-            {showBadge && (
-              <div className="absolute top-2 right-2 z-10 rounded-[7px] bg-black/70 px-3 py-1 text-[13px] font-medium text-white backdrop-blur pointer-events-none">
-                {overflow} {overflow === 1 ? 'other' : 'others'}
-              </div>
-            )}
+    <div className="h-full w-full" style={{ padding: GRID_PADDING }}>
+      <div ref={stageRef} className="flex h-full w-full flex-col" style={{ gap: GRID_GAP }}>
+        {rows.map((row, rowIndex) => (
+          <div key={row[0]!.key} className="flex min-h-0 flex-1 justify-center" style={{ gap: GRID_GAP }}>
+            {row.map((t, i) => {
+              const showBadge = overflow > 0 && rowIndex === rows.length - 1 && i === row.length - 1;
+              return (
+                <div key={t.key} className="relative h-full min-w-0" style={{ width: tileWidth }}>
+                  {t.node}
+                  {showBadge && (
+                    <div className="absolute top-2 right-2 z-10 rounded-[7px] bg-black/70 px-3 py-1 text-[13px] font-medium text-white backdrop-blur pointer-events-none">
+                      {overflow} {overflow === 1 ? 'other' : 'others'}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/** Plain tiled grid: screen shares first, then every camera tile. */
-function TiledGridLayout({ ctx, allParticipants, screenShareEntries }: Readonly<LayoutProps>) {
-  // Total grid cells = normal participant tiles + screen-share tiles.
-  const gridCols = gridColsClass(allParticipants.length + screenShareEntries.length);
-  return (
-    <div className={`grid ${gridCols} gap-2 p-4 h-full auto-rows-fr`}>
-      {screenShareEntries.map((entry) => (
-        <div key={`${entry.p.id}-screen`} className="rounded-xl overflow-hidden bg-[#1a1a1a]">
-          <ScreenTile ctx={ctx} entry={entry} interactive />
-        </div>
-      ))}
-      {allParticipants.map((entry) => (
-        <CameraTile key={entry.p.id} ctx={ctx} entry={entry} />
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -659,6 +797,7 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
     showControlBarRecording = true,
     recordingStartElapsedSeconds,
     recordingLabels,
+    headerLabels,
     onToggleEffects,
     effectsOpen,
     backgroundEffectsSlot,
@@ -861,11 +1000,11 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
       <div className="flex-1 flex flex-col min-w-0">
         <MeetingHeader
           meetingTitle={meetingTitle}
-          duration={duration}
           isRecording={isRecording}
           recordingState={recordingState}
           recordingStartElapsedSeconds={recordingStartElapsedSeconds}
           recordingLabels={recordingLabels}
+          headerLabels={headerLabels}
           waitlistedCount={waitlistedCount}
           participantsCount={participants.length}
           rightPanel={rightPanel}
@@ -962,6 +1101,8 @@ export function MeetingRoomView(props: Readonly<MeetingRoomViewProps>) {
         shareUrl={shareUrl}
         description={description}
         scheduledStart={scheduledStart}
+        duration={duration}
+        durationLabel={headerLabels?.duration}
         participants={participants}
         meeting={meeting}
         peoplePanelSlot={peoplePanelSlot}

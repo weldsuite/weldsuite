@@ -162,8 +162,35 @@ export interface CallControlsBarProps {
     virtualBackgrounds?: boolean;
   };
 
+  /**
+   * Microphone / camera lists supplied by the host screen instead of read from
+   * `meeting`. For a screen that shows the bar before the meeting client
+   * exists (the guest waiting room), where devices come from the preview stream.
+   */
+  deviceSource?: CallControlsDeviceSource;
+
+  /**
+   * Controls that are shown but cannot be used yet (the guest waiting room:
+   * nobody would see a shared screen or a raised hand). The string is the
+   * tooltip that says why.
+   */
+  disabledControls?: {
+    screenShare?: string;
+    handRaise?: string;
+  };
+
   // Extra controls to render (slot)
   extraControls?: React.ReactNode;
+}
+
+/** Same shape `useMeetingDevices` returns, so either can feed the device menus. */
+export interface CallControlsDeviceSource {
+  audioDevices: MediaDeviceInfo[];
+  videoDevices: MediaDeviceInfo[];
+  activeDeviceId: string;
+  activeVideoDeviceId: string;
+  handleDeviceChange: (deviceId: string) => void;
+  handleVideoDeviceChange: (deviceId: string) => void;
 }
 
 // ─── Resolutions ─────────────────────────────────────────────────────────────
@@ -182,6 +209,21 @@ const SCREEN_RESOLUTIONS = [
   { label: '1080p · 60 fps (high motion)', width: 1920, height: 1080, frameRate: 60 },
   { label: '720p · 30 fps (low bandwidth)', width: 1280, height: 720, frameRate: 30 },
 ] as const;
+
+/** Starts a share at the picked quality preset, with or without system audio. */
+function startShareAtQuality(
+  startScreenShare: (constraints?: DisplayMediaStreamOptions) => Promise<void>,
+  resolutionIdx: number,
+  audio: boolean,
+): void {
+  const res = SCREEN_RESOLUTIONS[resolutionIdx]!;
+  void startScreenShare({
+    video: { width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: res.frameRate } },
+    audio,
+  }).catch((err: unknown) => {
+    console.warn('[CallControlsBar] startScreenShare failed:', err);
+  });
+}
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 
@@ -348,6 +390,10 @@ function useCanShareScreen(): boolean {
 // the icon (also shown while the button's menu / popover is open) instead.
 const OFF_STATE_CLASSES =
   'bg-red-100 hover:bg-red-100 text-red-500 dark:bg-red-500/20 dark:hover:bg-red-500/20 dark:text-red-400';
+
+/** A control that is shown but not usable: it keeps its tooltip, so it is
+ *  `aria-disabled` rather than `disabled`. */
+const DISABLED_CONTROL_CLASSES = 'opacity-50 cursor-not-allowed hover:bg-secondary';
 
 type HighlightTone = 'default' | 'off' | 'active';
 
@@ -521,6 +567,7 @@ function ScreenShareControl({
   setSelectedResolutionIdx,
   shareScreenAudio,
   toggleShareScreenAudio,
+  disabledReason,
 }: Readonly<{
   meeting: MeetingClient | null;
   isScreenSharing: boolean;
@@ -530,6 +577,8 @@ function ScreenShareControl({
   setSelectedResolutionIdx: (idx: number) => void;
   shareScreenAudio: boolean;
   toggleShareScreenAudio: () => void;
+  /** Set when sharing is not possible yet: the button is shown, not clickable. */
+  disabledReason?: string;
 }>) {
   async function selectResolution(idx: number) {
     const res = SCREEN_RESOLUTIONS[idx]!;
@@ -549,6 +598,35 @@ function ScreenShareControl({
     }
   }
 
+  if (disabledReason) {
+    return (
+      <div className="flex items-center rounded-[18px] overflow-hidden ring-1 ring-border">
+        <CallTooltip label={disabledReason}>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label="Share screen"
+            aria-disabled="true"
+            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", DISABLED_CONTROL_CLASSES)}
+          >
+            <IconHighlight tone="default">
+              <MonitorUp className="!h-[20px] !w-[20px]" />
+            </IconHighlight>
+          </Button>
+        </CallTooltip>
+        <Button
+          variant="secondary"
+          size="icon"
+          aria-label="Screen share options"
+          disabled
+          className="relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center"
+        >
+          <ArrowChevron tone="default" />
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center rounded-[18px] overflow-hidden ring-1 ring-border">
       <CallTooltip label={isScreenSharing ? 'Stop sharing screen' : 'Share screen'}>
@@ -557,15 +635,9 @@ function ScreenShareControl({
           size="icon"
           aria-label={isScreenSharing ? 'Stop sharing screen' : 'Share screen'}
           className={cn("group/icon h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", isScreenSharing ? "hover:bg-primary" : "hover:bg-secondary")}
-          onClick={isScreenSharing ? stopScreenShare : () => {
-            const res = SCREEN_RESOLUTIONS[selectedResolutionIdx]!;
-            void startScreenShare({
-              video: { width: { ideal: res.width }, height: { ideal: res.height }, frameRate: { ideal: res.frameRate } },
-              audio: shareScreenAudio,
-            }).catch((err: unknown) => {
-              console.warn('[CallControlsBar] startScreenShare failed:', err);
-            });
-          }}
+          onClick={isScreenSharing
+            ? stopScreenShare
+            : () => startShareAtQuality(startScreenShare, selectedResolutionIdx, shareScreenAudio)}
         >
           <IconHighlight tone={isScreenSharing ? 'active' : 'default'}>
             {isScreenSharing ? <MonitorX className="!h-[20px] !w-[20px]" /> : <MonitorUp className="!h-[20px] !w-[20px]" />}
@@ -581,7 +653,7 @@ function ScreenShareControl({
             className={cn(
               "group/arrow relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 px-0 hidden md:flex items-center justify-center transition-colors",
               isScreenSharing
-                ? "border-l border-primary-foreground/20 text-primary-foreground/80 hover:bg-primary"
+                ? "text-primary-foreground/80 hover:bg-primary"
                 : "border-l border-border/30 hover:bg-secondary",
             )}
           >
@@ -886,6 +958,8 @@ export function CallControlsBar({
   onOpenInfo,
   onOpenTools,
   gates,
+  deviceSource,
+  disabledControls,
   extraControls,
 }: Readonly<CallControlsBarProps>) {
   const isMobile = useIsMobile();
@@ -893,6 +967,7 @@ export function CallControlsBar({
   const showScreenShare = gates?.screenShare !== false && canShareScreen;
   const showHandRaise = gates?.handRaise !== false;
   const showVirtualBackgrounds = gates?.virtualBackgrounds !== false;
+  const meetingDevices = useMeetingDevices(deviceSource ? null : meeting);
   const {
     audioDevices,
     videoDevices,
@@ -900,7 +975,8 @@ export function CallControlsBar({
     activeVideoDeviceId,
     handleDeviceChange,
     handleVideoDeviceChange,
-  } = useMeetingDevices(meeting);
+  } = deviceSource ?? meetingDevices;
+  const handRaiseDisabledReason = disabledControls?.handRaise;
   const speaker = useSpeakerDevices();
   const [selectedResolutionIdx, setSelectedResolutionIdx] = useState(
     SCREEN_RESOLUTIONS.findIndex((r) => r.width === 1920 && r.height === 1080 && r.frameRate === 60),
@@ -942,8 +1018,8 @@ export function CallControlsBar({
         handleVideoDeviceChange={handleVideoDeviceChange}
       />
 
-      {/* Screen share + resolution */}
-      {showScreenShare && (
+      {/* Screen share + resolution. On phones it lives in the More sheet. */}
+      {showScreenShare && !isMobile && (
         <ScreenShareControl
           meeting={meeting}
           isScreenSharing={isScreenSharing}
@@ -953,11 +1029,29 @@ export function CallControlsBar({
           setSelectedResolutionIdx={setSelectedResolutionIdx}
           shareScreenAudio={shareScreenAudio}
           toggleShareScreenAudio={toggleShareScreenAudio}
+          disabledReason={disabledControls?.screenShare}
         />
       )}
 
-      {/* Hand raise */}
-      {showHandRaise && (
+      {/* Hand raise. On phones it lives in the More sheet. */}
+      {showHandRaise && !isMobile && handRaiseDisabledReason && (
+        <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
+          <CallTooltip label={handRaiseDisabledReason}>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="Raise hand"
+              aria-disabled="true"
+              className={cn("h-12 w-12 rounded-[18px] border-0 transition-all", DISABLED_CONTROL_CLASSES)}
+            >
+              <IconHighlight tone="default" fill>
+                <Hand className="!h-[20px] !w-[20px]" />
+              </IconHighlight>
+            </Button>
+          </CallTooltip>
+        </div>
+      )}
+      {showHandRaise && !isMobile && !handRaiseDisabledReason && (
         <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
           <CallTooltip label={handRaised ? 'Lower hand' : 'Raise hand'}>
             <Button
@@ -997,6 +1091,18 @@ export function CallControlsBar({
             runAfterClose={runAfterClose}
             viewMode={viewMode}
             setViewMode={setViewMode}
+            screenShare={showScreenShare ? {
+              active: isScreenSharing,
+              disabled: !!disabledControls?.screenShare,
+              onToggle: isScreenSharing
+                ? stopScreenShare
+                : () => startShareAtQuality(startScreenShare, selectedResolutionIdx, shareScreenAudio),
+            } : undefined}
+            handRaise={showHandRaise ? {
+              raised: handRaised,
+              disabled: !!handRaiseDisabledReason,
+              onToggle: toggleHandRaise,
+            } : undefined}
             onOpenInfo={onOpenInfo}
             onOpenTools={onOpenTools}
             onToggleEffects={showVirtualBackgrounds ? onToggleEffects : undefined}
@@ -1090,7 +1196,7 @@ export function CallControlsBar({
                 variant="destructive"
                 size="icon"
                 aria-label={leaveLabels?.leave ?? 'Leave call'}
-                className="h-12 w-14 md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+                className="h-12 w-[60px] md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
               >
                 <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
               </Button>
@@ -1113,7 +1219,7 @@ export function CallControlsBar({
             variant="destructive"
             size="icon"
             aria-label={leaveLabels?.leave ?? 'Leave call'}
-            className="h-12 w-14 md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+            className="h-12 w-[60px] md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
             onClick={onLeave}
           >
             <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />

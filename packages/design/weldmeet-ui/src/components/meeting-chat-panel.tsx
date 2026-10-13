@@ -44,7 +44,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
+import { getInitials } from '../lib/person-theme';
+import { PersonAvatar } from './person-avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
 import { cn } from '@weldsuite/ui/lib/utils';
@@ -173,7 +174,7 @@ export interface SharedMeetingChatPanelProps {
    */
   onClickAuthor?: (author: { id: string; name: string; avatar?: string | null }) => void;
 
-  /** Panel width override — defaults to 480. */
+  /** Panel width override — defaults to 400, the width of the other side panels. */
   width?: number;
 }
 
@@ -182,8 +183,15 @@ export interface SharedMeetingChatPanelProps {
 // ============================================================================
 
 export function SharedMeetingChatPanel(props: Readonly<SharedMeetingChatPanelProps>) {
-  const { isOpen, onClose, width = 480 } = props;
+  const { isOpen, onClose, width = 400 } = props;
   const isMobile = useIsMobile();
+  // True once the panel has been closed while mounted, so the composer takes
+  // focus when the panel is *opened* (the Chat button), not when a host
+  // renders it open from the start (inline embeds).
+  const [wasClosed, setWasClosed] = useState(!isOpen);
+  useEffect(() => {
+    if (!isOpen) setWasClosed(true);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -229,7 +237,8 @@ export function SharedMeetingChatPanel(props: Readonly<SharedMeetingChatPanelPro
             onUnpin={props.onUnpinMessage}
           />
           <MessageList {...props} />
-          <MessageInput {...props} />
+          {/* Not on phones: focusing would raise the keyboard over the conversation. */}
+          <MessageInput {...props} autoFocus={wasClosed && !isMobile} />
         </div>
       </div>
     </div>
@@ -715,20 +724,17 @@ function MessageItem({
             </span>
           </div>
         ) : (
-          <Avatar
+          <PersonAvatar
+            initials={getInitials(message.authorName || '?')}
+            picture={message.authorAvatar}
+            colorSeed={message.authorId}
             className={cn(
               'h-7 w-7 flex-shrink-0 mt-0.5 !rounded-[9px]',
               authorClickable && 'cursor-pointer',
             )}
+            innerClassName="text-[9px] !rounded-[9px]"
             {...authorHoverProps}
-          >
-            {message.authorAvatar && (
-              <AvatarImage src={message.authorAvatar} className="!rounded-[9px]" />
-            )}
-            <AvatarFallback className="text-[9px] !rounded-[9px]">
-              {(message.authorName || '?')[0]?.toUpperCase() ?? '?'}
-            </AvatarFallback>
-          </Avatar>
+          />
         )}
 
         <div className="flex-1 min-w-0">
@@ -796,7 +802,8 @@ function MessageInput({
   currentUserName,
   currentUserId,
   participants,
-}: Readonly<SharedMeetingChatPanelProps>) {
+  autoFocus = false,
+}: Readonly<SharedMeetingChatPanelProps & { autoFocus?: boolean }>) {
   const [content, setContent] = useState('');
   const [showToolbar, setShowToolbar] = useState(false);
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
@@ -808,6 +815,12 @@ function MessageInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isUploading = uploadCount > 0;
+
+  // The panel unmounts while closed, so mounting is opening: put the cursor in
+  // the composer so the user can type straight away.
+  useEffect(() => {
+    if (autoFocus) editorRef.current?.focus();
+  }, [autoFocus]);
 
   const handleSend = useCallback(async () => {
     const raw = editorRef.current?.innerText ?? content;
@@ -1257,12 +1270,13 @@ function MentionPicker({
               onClick={() => onSelect(p)}
               className="flex items-center gap-2 w-full px-2 py-1.5 rounded-sm text-left text-sm hover:bg-accent transition-colors"
             >
-              <Avatar className="h-6 w-6 !rounded-[7px] flex-shrink-0">
-                {p.avatar && <AvatarImage src={p.avatar} className="!rounded-[7px]" />}
-                <AvatarFallback className="text-[10px] !rounded-[7px]">
-                  {(p.name || '?')[0]?.toUpperCase() ?? '?'}
-                </AvatarFallback>
-              </Avatar>
+              <PersonAvatar
+                initials={getInitials(p.name || '?')}
+                picture={p.avatar}
+                colorSeed={p.id}
+                className="h-6 w-6 !rounded-[7px] flex-shrink-0"
+                innerClassName="text-[9px] !rounded-[7px]"
+              />
               <span className="truncate flex-1">{p.name}</span>
               {p.isGuest && (
                 <span className="ml-1 text-[10px] text-muted-foreground flex-shrink-0">Guest</span>

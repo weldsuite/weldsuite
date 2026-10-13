@@ -79,6 +79,13 @@ export const weldmeet = {
       active: 'Opname',
       paused: 'Opname gepauzeerd',
     },
+    header: {
+      details: 'Details',
+      people: 'Personen',
+      chat: 'Chat',
+      tools: 'Tools',
+      duration: 'Duur',
+    },
     preview: {
       defaultTitle: 'Vergadering deelnemen',
       subtitle: 'Controleer je geluid en beeld voordat je deelneemt',
