@@ -19,6 +19,8 @@ export interface DocumentTaxPreviewArgs {
   deliveryAddress?: PostalAddress | null;
   marketplaceFacilitated?: boolean;
   originalInvoiceId?: string | null;
+  /** India GST: the place of supply the user chose ('' = derive it from the customer). */
+  placeOfSupply?: string | null;
   lines: TaxFormLine[];
 }
 
@@ -62,6 +64,7 @@ export function useDocumentTaxPreview(args: Readonly<DocumentTaxPreviewArgs>): D
     deliveryAddress: args.deliveryAddress,
     marketplaceFacilitated: args.marketplaceFacilitated,
     originalInvoiceId: args.originalInvoiceId,
+    placeOfSupply: args.placeOfSupply,
     lines: args.lines,
   });
   const preview = useTaxPreview(request, { enabled: isResolved });

@@ -47,6 +47,9 @@ import {
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { calculateDocumentTax, TaxCalculationError, type DocumentTaxItem } from '../../services/accounting-tax-resolve';
 import { postBill, PostingError } from '../../services/accounting-document-posting';
+import { draftRate } from '../../services/accounting-fx';
+import { exchangeRateSchema } from '../../lib/exchange-rate-schema';
+import { isGstEntity, resolveGstBillSupply } from '../../services/accounting-gst';
 import { assertDimensionsBelongToEntity, reverseJournalEntry } from '../../services/accounting-posting';
 import { salesTaxErrorResponse } from '../../services/sales-tax/errors';
 import { loadSalesTaxEntity, usesSalesTax } from '../../services/sales-tax/document-tax';
@@ -165,6 +168,8 @@ const createBillSchema = z.object({
   issueDate: z.string(),
   dueDate: z.string(),
   currency: z.string().length(3).optional(),
+  /** Foreign units per base unit; typed to override the rate for the issue date (null: look it up again). */
+  exchangeRate: exchangeRateSchema.nullable().optional(),
   externalReference: z.string().max(255).optional(),
   reference: z.string().max(255).optional(),
   notes: z.string().optional(),
@@ -343,17 +348,29 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       );
     }
     const billNumber = data.billNumber ?? (await nextEntityNumber(db, entityId, 'bill')).formatted;
-    const currency = data.currency || (await resolveEntityBaseCurrency(db, entityId));
+    const baseCurrency = await resolveEntityBaseCurrency(db, entityId);
+    const currency = data.currency || baseCurrency;
+    // A foreign currency stores the rate for the issue date (or the one typed); with none yet the
+    // draft is saved without one, and approving refuses until there is one.
+    const exchangeRate = await draftRate(db, {
+      baseCurrency,
+      currency,
+      date: new Date(data.issueDate),
+      override: data.exchangeRate,
+    });
 
     const billId = generateId('bil');
     const { itemIds, taxItems } = withLineIds(data.items);
     await assertDimensionsBelongToEntity(db, entityId, data.items);
     const deliveryAddress = normalizePostalAddress(data.deliveryAddress);
     const vendorAddress = normalizePostalAddress(data.vendorAddress);
+    // India GST: the supplier's state against the entity's decides CGST + SGST versus IGST input tax.
+    const gst = await resolveGstBillSupply(db, { entityId, contactId: data.contactId, vendorAddress });
     const totals = await calculateDocumentTax(db, {
       entityId,
       direction: 'purchase',
       items: taxItems,
+      ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry } : {}),
       runtime: salesTaxRuntimeFromEnv(c.env),
       document: {
         kind: 'bill',
@@ -380,6 +397,7 @@ app.post('/', requirePermission('bills:create'), zValidator('json', createBillSc
       issueDate: new Date(data.issueDate),
       dueDate: new Date(data.dueDate),
       currency,
+      exchangeRate,
       ...billTotals,
       taxBreakdown,
       amountPaid: '0',
@@ -665,6 +683,19 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
     if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
     if (data.dueDate) updateData.dueDate = new Date(data.dueDate);
     if (data.currency) updateData.currency = data.currency;
+    // The exchange rate follows a typed rate, a change of currency or issue date, or a null (look it up again).
+    const currencyChanged = data.currency !== undefined && data.currency !== bill.currency;
+    const issueDateChanged =
+      data.issueDate !== undefined && new Date(data.issueDate).getTime() !== bill.issueDate.getTime();
+    if (data.exchangeRate !== undefined || currencyChanged || issueDateChanged) {
+      const baseCurrency = await resolveEntityBaseCurrency(db, bill.entityId);
+      updateData.exchangeRate = await draftRate(db, {
+        baseCurrency,
+        currency: (updateData.currency as string | undefined) ?? bill.currency ?? baseCurrency,
+        date: (updateData.issueDate as Date | undefined) ?? bill.issueDate,
+        override: data.exchangeRate,
+      });
+    }
     if (data.externalReference !== undefined) updateData.externalReference = data.externalReference;
     if (data.reference !== undefined) updateData.reference = data.reference;
     if (data.notes !== undefined) updateData.notes = data.notes;
@@ -678,10 +709,16 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
       const { itemIds, taxItems } = withLineIds(data.items);
       await assertDimensionsBelongToEntity(db, bill.entityId, data.items);
       const effective = { ...bill, ...updateData } as typeof bill;
+      const gst = await resolveGstBillSupply(db, {
+        entityId: bill.entityId,
+        contactId: effective.contactId,
+        vendorAddress: effective.vendorAddress,
+      });
       const { processedItems, taxBreakdown, salesTax: _salesTax, ...billTotals } = await calculateDocumentTax(db, {
         entityId: bill.entityId,
         direction: 'purchase',
         items: taxItems,
+        ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry } : {}),
         runtime: salesTaxRuntimeFromEnv(c.env),
         document: billDocumentContext(effective),
       });
@@ -707,6 +744,30 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('bills:update'), zValidator('
           items: stored.map(billItemToTaxItem),
           runtime: salesTaxRuntimeFromEnv(c.env),
           document: billDocumentContext(effective),
+        });
+        updateData.taxBreakdown = calc.taxBreakdown;
+      }
+    } else if (
+      (data.vendorAddress !== undefined || data.contactId !== undefined) &&
+      (await isGstEntity(db, bill.entityId))
+    ) {
+      // India GST: another supplier (or supplier state) can turn CGST + SGST into IGST: re-split the saved lines.
+      const stored = await db
+        .select()
+        .from(billItems)
+        .where(and(eq(billItems.billId, billId), isNull(billItems.deletedAt)));
+      if (stored.length > 0) {
+        const effective = { ...bill, ...updateData } as typeof bill;
+        const gst = await resolveGstBillSupply(db, {
+          entityId: bill.entityId,
+          contactId: effective.contactId,
+          vendorAddress: effective.vendorAddress,
+        });
+        const calc = await calculateDocumentTax(db, {
+          entityId: bill.entityId,
+          direction: 'purchase',
+          items: stored.map(billItemToTaxItem),
+          ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry } : {}),
         });
         updateData.taxBreakdown = calc.taxBreakdown;
       }

@@ -12,7 +12,10 @@
  *
  * Profit and loss accounts use the fiscal year's activity; balance sheet
  * accounts (Schedule L) their balance at the end of the year, and at the start
- * of it for the beginning-of-year column.
+ * of it for the beginning-of-year column. Nothing closes the year's profit or
+ * loss into equity, so the retained earnings line of Schedule L also carries
+ * the result of every year up to that date (a calculated row); without it the
+ * balance sheet lines would not balance.
  */
 
 import { addDays, parseIso } from '@weldsuite/books-domain/us-compliance/dates';
@@ -34,6 +37,9 @@ import type { DateRange } from './accounting-report-periods';
 import type { ReportTable, ReportTableColumn, ReportTableRow } from './accounting-report-export';
 
 const BALANCE_SHEET_TYPES = ['asset', 'liability', 'equity'];
+
+/** Id of the calculated row on the retained earnings line; not a chart account. */
+export const CALCULATED_RESULT_ID = 'calculated_net_income';
 
 const SECTION_ORDER: TaxLineSection[] = [
   'income',
@@ -276,6 +282,34 @@ export async function buildTaxWorksheet(
     }
     return line;
   });
+
+  // The result of the years up to each date is not in any equity account (no closing entries), so the
+  // retained earnings line carries it as a calculated row: end of year = through the last day, beginning = through the day before.
+  const retainedDef = form === 'sch_c' ? undefined : resolveTaxLine('bs_retained_earnings', form, taxYear);
+  const retainedLine = retainedDef ? lines.find((l) => l.code === retainedDef.code) : undefined;
+  if (retainedLine) {
+    const [resultToEnd, resultToStart] = await Promise.all([
+      ledger.aggregate({ from: null, to: periodRange.to }, { accountTypes: ['revenue', 'expense'] }),
+      ledger.aggregate({ from: null, to: new Date(periodRange.from.getTime() - 1) }, { accountTypes: ['revenue', 'expense'] }),
+    ]);
+    // Credit minus debit: profit is positive.
+    const result = (rows: Array<{ debit: number; credit: number }>) => rows.reduce((sum, r) => sum + r.credit - r.debit, 0);
+    const toEnd = result(resultToEnd);
+    const toStart = result(resultToStart);
+    if (Math.abs(toEnd) >= 0.005 || Math.abs(toStart) >= 0.005) {
+      const orient = (credit: number) => (retainedLine.side === 'credit' ? credit : -credit);
+      retainedLine.amount = money(Number(retainedLine.amount) + orient(toEnd));
+      retainedLine.beginningAmount = money(Number(retainedLine.beginningAmount ?? 0) + orient(toStart));
+      retainedLine.accounts.push({
+        accountId: CALCULATED_RESULT_ID,
+        code: '',
+        name: 'Net income not yet closed to retained earnings',
+        type: 'equity',
+        amount: money(orient(toEnd)),
+        beginningAmount: money(orient(toStart)),
+      });
+    }
+  }
 
   // Section totals: a line on the other side of its section (returns in income) subtracts.
   const sections: TaxWorksheetSection[] = [];

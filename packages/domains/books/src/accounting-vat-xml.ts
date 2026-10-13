@@ -1,9 +1,55 @@
 /**
- * Generate SBR/XBRL XML for Dutch BTW-aangifte (OB aangifte).
+ * Generate SBR/XBRL XML for the Dutch BTW-aangifte (aangifte omzetbelasting).
  *
- * Produces a valid XBRL 2.1 instance document conforming to the
- * Dutch Belastingdienst SBR specification for omzetbelasting.
+ * Produces an XBRL 2.1 instance for the Belastingdienst's `bd-rpt-ob-aangifte`
+ * entrypoint of the period's year (see `jurisdictions/nl/taxonomy.ts`). Element
+ * names are those of the `bd-data` dictionary (prefix `bd-i`), checked against
+ * the presentation linkbase `bd-ob-aangifte-pre.xml` of NT20:
+ *
+ *   box  turnover element                                         BTW element
+ *   1a   TaxedTurnoverSuppliesServicesGeneralTariff               ValueAddedTaxSuppliesServicesGeneralTariff
+ *   1b   TaxedTurnoverSuppliesServicesReducedTariff               ValueAddedTaxSuppliesServicesReducedTariff
+ *   1c   TaxedTurnoverSuppliesServicesOtherRates                  ValueAddedTaxSuppliesServicesOtherRates
+ *   1d   TaxedTurnoverPrivateUse                                  ValueAddedTaxPrivateUse
+ *   1e   SuppliesServicesNotTaxed                                 -
+ *   2a   TurnoverSuppliesServicesByWhichVATTaxationIsTransferred  ValueAddedTaxSuppliesServicesByWhichVATTaxationIsTransferred
+ *   3a   SuppliesToCountriesOutsideTheEC                          -
+ *   3b   SuppliesToCountriesWithinTheEC                           -
+ *   3c   InstallationDistanceSalesWithinTheEC                     -
+ *   4a   TurnoverFromTaxedSuppliesFromCountriesOutsideTheEC       ValueAddedTaxOnSuppliesFromCountriesOutsideTheEC
+ *   4b   TurnoverFromTaxedSuppliesFromCountriesWithinTheEC        ValueAddedTaxOnSuppliesFromCountriesWithinTheEC
+ *   5a   ValueAddedTaxOwed
+ *   5b   ValueAddedTaxOnInput
+ *   5c   ValueAddedTaxOwedToBePaidBack
+ *
+ * 5d (KOR reduction), 5e / 5f (estimates) and 5g (total) are not part of the
+ * electronic message: the Belastingdienst derives them.
  */
+
+import { nlTaxonomyUris } from './jurisdictions/nl/taxonomy';
+
+export interface VatXmlRubrieken {
+  r1a: number;
+  r1aBtw: number;
+  r1b: number;
+  r1bBtw: number;
+  r1c: number;
+  r1cBtw: number;
+  r1d: number;
+  r1dBtw: number;
+  r1e: number;
+  r2a: number;
+  r2aBtw: number;
+  r3a: number;
+  r3b: number;
+  r3c: number;
+  r4a: number;
+  r4aBtw: number;
+  r4b: number;
+  r4bBtw: number;
+  r5a: number;
+  r5b: number;
+}
 
 export interface VatXmlInput {
   btwNumber: string; // e.g. "NL123456789B01"
@@ -12,26 +58,9 @@ export interface VatXmlInput {
   contactPhone: string;
   periodStart: string; // ISO date
   periodEnd: string; // ISO date
-  rubrieken: {
-    r1a: number;
-    r1b: number;
-    r1c: number;
-    r1d: number;
-    r1e: number;
-    r1f: number;
-    r2a: number;
-    r3a: number;
-    r3b: number;
-    r3c: number;
-    r4a: number;
-    r4b: number;
-    r5a: number;
-    r5b: number;
-    r5c: number;
-    r5d: number;
-    r5e: number;
-    r5f: number;
-  };
+  rubrieken: VatXmlRubrieken;
+  /** Unique reference of this message (MessageReferenceSupplierVAT). Defaults to `OB-<start>-<end>`. */
+  messageReference?: string;
 }
 
 /**
@@ -46,80 +75,125 @@ function escapeXml(value: string): string {
     .replaceAll('\'', '&apos;');
 }
 
-/**
- * Round a number to the nearest whole euro (as required by the Belastingdienst).
- */
+/** Whole euros, as the Belastingdienst requires. */
 function roundToWholeEuros(value: number): number {
-  return Math.round(value);
+  return Math.round(value) || 0;
 }
 
 /**
- * Generate a proper XBRL instance document for Dutch BTW-aangifte.
- *
- * The output follows the bd-ob (Belastingdienst Omzetbelasting) taxonomy
- * and uses standard XBRL 2.1 structure with:
- * - Namespaces for xbrli, iso4217, xlink, bd-ob, bd-bedr
- * - Context element with entity identifier (BTW number) and period
- * - Unit definitions for EUR and pure
- * - Facts for each rubriek mapped to the correct bd-ob element
+ * The amounts as filed: every box in whole euros, with 5a and 5c recomputed
+ * from the rounded boxes so the message adds up exactly.
+ */
+export function wholeEuroRubrieken(r: VatXmlRubrieken): VatXmlRubrieken {
+  const out = { ...r };
+  for (const key of Object.keys(out) as Array<keyof VatXmlRubrieken>) out[key] = roundToWholeEuros(out[key]);
+  out.r5a = out.r1aBtw + out.r1bBtw + out.r1cBtw + out.r1dBtw + out.r2aBtw + out.r4aBtw + out.r4bBtw;
+  return out;
+}
+
+/** The initials of a name, for the (mandatory) ContactInitials element. */
+function initialsOf(name: string): string {
+  const letters = name
+    .split(/\s+/)
+    .map((word) => word.replace(/[^\p{L}]/gu, '')[0])
+    .filter(Boolean)
+    .join('')
+    .toUpperCase();
+  return (letters || 'X').slice(0, 10);
+}
+
+/** Digits and `+` only, at most 14 characters (anstring14V). */
+function telephoneOf(phone: string): string {
+  return phone.replace(/[^\d+]/g, '').slice(0, 14);
+}
+
+/** The Belastingdienst's entity scheme for an omzetbelastingnummer. */
+export const OMZETBELASTINGNUMMER_SCHEME = 'http://www.belastingdienst.nl/omzetbelastingnummer';
+
+/**
+ * Generate the XBRL instance document for a Dutch BTW-aangifte.
  */
 export function generateVatXml(input: VatXmlInput): string {
   const now = new Date().toISOString();
   const periodStartDate = input.periodStart.slice(0, 10);
   const periodEndDate = input.periodEnd.slice(0, 10);
+  const taxonomy = nlTaxonomyUris(periodStartDate);
 
-  const r = input.rubrieken;
+  const r = wholeEuroRubrieken(input.rubrieken);
 
-  // Round all values to whole euros for official filing
-  const r1a = roundToWholeEuros(r.r1a);
-  const r1b = roundToWholeEuros(r.r1b);
-  const r1c = roundToWholeEuros(r.r1c);
-  const r1d = roundToWholeEuros(r.r1d);
-  const r1e = roundToWholeEuros(r.r1e);
-  const r1f = roundToWholeEuros(r.r1f);
-  const r2a = roundToWholeEuros(r.r2a);
-  const r3a = roundToWholeEuros(r.r3a);
-  const r3b = roundToWholeEuros(r.r3b);
-  const r3c = roundToWholeEuros(r.r3c);
-  const r4a = roundToWholeEuros(r.r4a);
-  const r4b = roundToWholeEuros(r.r4b);
-  const r5a = roundToWholeEuros(r.r5a);
-  const r5b = roundToWholeEuros(r.r5b);
-  const r5c = roundToWholeEuros(r.r5c);
-  const r5d = roundToWholeEuros(r.r5d);
-  const r5e = roundToWholeEuros(r.r5e);
-  const r5f = roundToWholeEuros(r.r5f);
-
-  const escapedCompanyName = escapeXml(input.companyName);
-  const escapedContactName = escapeXml(input.contactName);
-  const escapedContactPhone = escapeXml(input.contactPhone);
+  const escapedContactName = escapeXml(input.contactName.slice(0, 200));
+  const escapedInitials = escapeXml(initialsOf(input.contactName));
+  const phone = telephoneOf(input.contactPhone);
   const escapedBtwNumber = escapeXml(input.btwNumber);
+  const reference = escapeXml((input.messageReference ?? `OB-${periodStartDate}-${periodEndDate}`).slice(0, 200));
 
-  // Build the XBRL instance document
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  const amount = (element: string, value: number) =>
+    `  <bd-i:${element} contextRef="Msg" unitRef="EUR" decimals="0">${value}</bd-i:${element}>`;
+
+  const facts = [
+    '  <!-- 1. Prestaties binnenland -->',
+    '  <!-- 1a: hoog tarief -->',
+    amount('TaxedTurnoverSuppliesServicesGeneralTariff', r.r1a),
+    amount('ValueAddedTaxSuppliesServicesGeneralTariff', r.r1aBtw),
+    '  <!-- 1b: laag tarief -->',
+    amount('TaxedTurnoverSuppliesServicesReducedTariff', r.r1b),
+    amount('ValueAddedTaxSuppliesServicesReducedTariff', r.r1bBtw),
+    '  <!-- 1c: overige tarieven, behalve 0% -->',
+    amount('TaxedTurnoverSuppliesServicesOtherRates', r.r1c),
+    amount('ValueAddedTaxSuppliesServicesOtherRates', r.r1cBtw),
+    '  <!-- 1d: privégebruik -->',
+    amount('TaxedTurnoverPrivateUse', r.r1d),
+    amount('ValueAddedTaxPrivateUse', r.r1dBtw),
+    '  <!-- 1e: 0% of niet bij u belast -->',
+    amount('SuppliesServicesNotTaxed', r.r1e),
+    '  <!-- 2. Verleggingsregelingen binnenland -->',
+    amount('TurnoverSuppliesServicesByWhichVATTaxationIsTransferred', r.r2a),
+    amount('ValueAddedTaxSuppliesServicesByWhichVATTaxationIsTransferred', r.r2aBtw),
+    '  <!-- 3. Prestaties naar of in het buitenland -->',
+    '  <!-- 3a: leveringen naar landen buiten de EU -->',
+    amount('SuppliesToCountriesOutsideTheEC', r.r3a),
+    '  <!-- 3b: leveringen naar / diensten in landen binnen de EU -->',
+    amount('SuppliesToCountriesWithinTheEC', r.r3b),
+    '  <!-- 3c: installatie / afstandsverkopen binnen de EU -->',
+    amount('InstallationDistanceSalesWithinTheEC', r.r3c),
+    '  <!-- 4. Prestaties vanuit het buitenland aan u verricht -->',
+    '  <!-- 4a: uit landen buiten de EU -->',
+    amount('TurnoverFromTaxedSuppliesFromCountriesOutsideTheEC', r.r4a),
+    amount('ValueAddedTaxOnSuppliesFromCountriesOutsideTheEC', r.r4aBtw),
+    '  <!-- 4b: uit landen binnen de EU -->',
+    amount('TurnoverFromTaxedSuppliesFromCountriesWithinTheEC', r.r4b),
+    amount('ValueAddedTaxOnSuppliesFromCountriesWithinTheEC', r.r4bBtw),
+    '  <!-- 5. Berekening -->',
+    '  <!-- 5a: verschuldigde omzetbelasting -->',
+    amount('ValueAddedTaxOwed', r.r5a),
+    '  <!-- 5b: voorbelasting -->',
+    amount('ValueAddedTaxOnInput', r.r5b),
+    '  <!-- 5c: subtotaal -->',
+    amount('ValueAddedTaxOwedToBePaidBack', r.r5a - r.r5b),
+  ].join('\n');
+
+  const contact = [
+    '  <bd-i:ContactType contextRef="Msg">BPL</bd-i:ContactType>',
+    `  <bd-i:ContactInitials contextRef="Msg">${escapedInitials}</bd-i:ContactInitials>`,
+    `  <bd-i:ContactSurname contextRef="Msg">${escapedContactName}</bd-i:ContactSurname>`,
+    ...(phone ? [`  <bd-i:ContactTelephoneNumber contextRef="Msg">${escapeXml(phone)}</bd-i:ContactTelephoneNumber>`] : []),
+  ].join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <xbrli:xbrl
   xmlns:xbrli="http://www.xbrl.org/2003/instance"
   xmlns:xlink="http://www.w3.org/1999/xlink"
   xmlns:link="http://www.xbrl.org/2003/linkbase"
   xmlns:iso4217="http://www.xbrl.org/2003/iso4217"
-  xmlns:bd-ob="http://www.nltaxonomie.nl/nt17/bd/20231213/dictionary/bd-ob-tuples"
-  xmlns:bd-bedr="http://www.nltaxonomie.nl/nt17/bd/20231213/dictionary/bd-bedr"
-  xmlns:bd-dim-dim="http://www.nltaxonomie.nl/nt17/bd/20231213/dictionary/bd-dim-dim"
-  xmlns:xbrldi="http://xbrl.org/2006/xbrldi">
+  xmlns:bd-i="${taxonomy.dataNamespace}">
 
-  <!-- ================================================================== -->
-  <!-- Schema References                                                   -->
-  <!-- ================================================================== -->
   <link:schemaRef
     xlink:type="simple"
-    xlink:href="http://www.nltaxonomie.nl/nt17/bd/20231213/entrypoints/bd-rpt-ob-aangifte-2024.xsd" />
+    xlink:href="${taxonomy.obEntrypoint}" />
 
-  <!-- ================================================================== -->
-  <!-- Context: Entity + Period                                            -->
-  <!-- ================================================================== -->
-  <xbrli:context id="ctx-period">
+  <xbrli:context id="Msg">
     <xbrli:entity>
-      <xbrli:identifier scheme="http://www.belastingdienst.nl/omzetbelastingnummer">${escapedBtwNumber}</xbrli:identifier>
+      <xbrli:identifier scheme="${OMZETBELASTINGNUMMER_SCHEME}">${escapedBtwNumber}</xbrli:identifier>
     </xbrli:entity>
     <xbrli:period>
       <xbrli:startDate>${periodStartDate}</xbrli:startDate>
@@ -127,94 +201,18 @@ export function generateVatXml(input: VatXmlInput): string {
     </xbrli:period>
   </xbrli:context>
 
-  <xbrli:context id="ctx-instant">
-    <xbrli:entity>
-      <xbrli:identifier scheme="http://www.belastingdienst.nl/omzetbelastingnummer">${escapedBtwNumber}</xbrli:identifier>
-    </xbrli:entity>
-    <xbrli:period>
-      <xbrli:instant>${periodEndDate}</xbrli:instant>
-    </xbrli:period>
-  </xbrli:context>
-
-  <!-- ================================================================== -->
-  <!-- Units                                                               -->
-  <!-- ================================================================== -->
-  <xbrli:unit id="u-eur">
+  <xbrli:unit id="EUR">
     <xbrli:measure>iso4217:EUR</xbrli:measure>
   </xbrli:unit>
 
-  <xbrli:unit id="u-pure">
-    <xbrli:measure>xbrli:pure</xbrli:measure>
-  </xbrli:unit>
+  <!-- Message details and contact -->
+  <bd-i:DateTimeCreation contextRef="Msg">${now}</bd-i:DateTimeCreation>
+  <bd-i:MessageReferenceSupplierVAT contextRef="Msg">${reference}</bd-i:MessageReferenceSupplierVAT>
+  <bd-i:SoftwarePackageName contextRef="Msg">WeldSuite</bd-i:SoftwarePackageName>
+  <bd-i:SoftwarePackageVersion contextRef="Msg">1.0</bd-i:SoftwarePackageVersion>
+${contact}
 
-  <!-- ================================================================== -->
-  <!-- Contact / Filing metadata                                           -->
-  <!-- ================================================================== -->
-  <bd-bedr:ContactPerson contextRef="ctx-instant">${escapedContactName}</bd-bedr:ContactPerson>
-  <bd-bedr:ContactTelephoneNumber contextRef="ctx-instant">${escapedContactPhone}</bd-bedr:ContactTelephoneNumber>
-  <bd-bedr:EntityName contextRef="ctx-instant">${escapedCompanyName}</bd-bedr:EntityName>
-  <bd-bedr:DateTimeCreation contextRef="ctx-instant">${now}</bd-bedr:DateTimeCreation>
-  <bd-bedr:MessageReferenceSupplierVAT contextRef="ctx-instant">OB-${periodStartDate}-${periodEndDate}</bd-bedr:MessageReferenceSupplierVAT>
-  <bd-bedr:SoftwarePackageName contextRef="ctx-instant">WeldSuite</bd-bedr:SoftwarePackageName>
-  <bd-bedr:SoftwarePackageVersion contextRef="ctx-instant">1.0</bd-bedr:SoftwarePackageVersion>
-
-  <!-- ================================================================== -->
-  <!-- Rubriek 1: Binnenland (Domestic)                                    -->
-  <!-- ================================================================== -->
-  <!-- 1a: Leveringen/diensten belast met hoog tarief - omzet -->
-  <bd-ob:TurnoverSuppliesServicesGeneralTariff contextRef="ctx-period" unitRef="u-eur" decimals="0">${r1a}</bd-ob:TurnoverSuppliesServicesGeneralTariff>
-  <!-- 1b: Leveringen/diensten belast met hoog tarief - BTW -->
-  <bd-ob:ValueAddedTaxSuppliesServicesGeneralTariff contextRef="ctx-period" unitRef="u-eur" decimals="0">${r1b}</bd-ob:ValueAddedTaxSuppliesServicesGeneralTariff>
-  <!-- 1c: Leveringen/diensten belast met laag tarief - omzet -->
-  <bd-ob:TurnoverSuppliesServicesReducedTariff contextRef="ctx-period" unitRef="u-eur" decimals="0">${r1c}</bd-ob:TurnoverSuppliesServicesReducedTariff>
-  <!-- 1d: Leveringen/diensten belast met laag tarief - BTW -->
-  <bd-ob:ValueAddedTaxSuppliesServicesReducedTariff contextRef="ctx-period" unitRef="u-eur" decimals="0">${r1d}</bd-ob:ValueAddedTaxSuppliesServicesReducedTariff>
-  <!-- 1e: Leveringen/diensten belast met overige tarieven - omzet -->
-  <bd-ob:TurnoverSuppliesServicesOtherRates contextRef="ctx-period" unitRef="u-eur" decimals="0">${r1e}</bd-ob:TurnoverSuppliesServicesOtherRates>
-  <!-- 1f: Leveringen/diensten belast met overige tarieven - BTW -->
-  <bd-ob:ValueAddedTaxSuppliesServicesOtherRates contextRef="ctx-period" unitRef="u-eur" decimals="0">${r1f}</bd-ob:ValueAddedTaxSuppliesServicesOtherRates>
-
-  <!-- ================================================================== -->
-  <!-- Rubriek 2: Verlegd (Reverse charge)                                 -->
-  <!-- ================================================================== -->
-  <!-- 2a: Leveringen/diensten waarbij omzetbelasting naar u is verlegd -->
-  <bd-ob:TurnoverSuppliesServicesReverseCharge contextRef="ctx-period" unitRef="u-eur" decimals="0">${r2a}</bd-ob:TurnoverSuppliesServicesReverseCharge>
-
-  <!-- ================================================================== -->
-  <!-- Rubriek 3: Buitenland (Foreign)                                     -->
-  <!-- ================================================================== -->
-  <!-- 3a: Leveringen naar landen buiten de EU -->
-  <bd-ob:TurnoverSuppliesServicesOutsideEU contextRef="ctx-period" unitRef="u-eur" decimals="0">${r3a}</bd-ob:TurnoverSuppliesServicesOutsideEU>
-  <!-- 3b: Leveringen naar/diensten in landen binnen de EU -->
-  <bd-ob:TurnoverSuppliesServicesWithinEU contextRef="ctx-period" unitRef="u-eur" decimals="0">${r3b}</bd-ob:TurnoverSuppliesServicesWithinEU>
-  <!-- 3c: Installatie/afstandsverkopen binnen de EU -->
-  <bd-ob:TurnoverInstallationDistanceSalesWithinEU contextRef="ctx-period" unitRef="u-eur" decimals="0">${r3c}</bd-ob:TurnoverInstallationDistanceSalesWithinEU>
-
-  <!-- ================================================================== -->
-  <!-- Rubriek 4: Uit het buitenland aan u verricht                        -->
-  <!-- ================================================================== -->
-  <!-- 4a: Leveringen/diensten uit landen buiten de EU -->
-  <bd-ob:TurnoverFromOutsideEU contextRef="ctx-period" unitRef="u-eur" decimals="0">${r4a}</bd-ob:TurnoverFromOutsideEU>
-  <!-- 4b: Leveringen/diensten uit landen binnen de EU -->
-  <bd-ob:TurnoverFromWithinEU contextRef="ctx-period" unitRef="u-eur" decimals="0">${r4b}</bd-ob:TurnoverFromWithinEU>
-
-  <!-- ================================================================== -->
-  <!-- Rubriek 5: Berekening (Calculation)                                 -->
-  <!-- ================================================================== -->
-  <!-- 5a: Verschuldigde omzetbelasting (subtotaal) -->
-  <bd-ob:ValueAddedTaxOwed contextRef="ctx-period" unitRef="u-eur" decimals="0">${r5a}</bd-ob:ValueAddedTaxOwed>
-  <!-- 5b: Voorbelasting -->
-  <bd-ob:ValueAddedTaxOnInput contextRef="ctx-period" unitRef="u-eur" decimals="0">${r5b}</bd-ob:ValueAddedTaxOnInput>
-  <!-- 5c: Subtotaal -->
-  <bd-ob:ValueAddedTaxOwedToBePaidBack contextRef="ctx-period" unitRef="u-eur" decimals="0">${r5c}</bd-ob:ValueAddedTaxOwedToBePaidBack>
-  <!-- 5d: Vermindering volgens kleineondernemersregeling -->
-  <bd-ob:ValueAddedTaxSmallEntrepreneurProvisionReduction contextRef="ctx-period" unitRef="u-eur" decimals="0">${r5d}</bd-ob:ValueAddedTaxSmallEntrepreneurProvisionReduction>
-  <!-- 5e: Schatting vorige aangifte(n) -->
-  <bd-ob:ValueAddedTaxEstimatePreviousReturns contextRef="ctx-period" unitRef="u-eur" decimals="0">${r5e}</bd-ob:ValueAddedTaxEstimatePreviousReturns>
-  <!-- 5f: Totaal te betalen / terug te ontvangen -->
-  <bd-ob:ValueAddedTaxOwedToBePaidBackTotalAmount contextRef="ctx-period" unitRef="u-eur" decimals="0">${r5f}</bd-ob:ValueAddedTaxOwedToBePaidBackTotalAmount>
+${facts}
 
 </xbrli:xbrl>`;
-
-  return xml;
 }

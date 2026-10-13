@@ -19,15 +19,24 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { SalesTaxEngineError } from '@weldsuite/books-domain/sales-tax';
 import {
   collectInvoiceTaxCategories,
+  getContactVatNumber,
   validateInvoiceForFinalize,
 } from '@weldsuite/books-domain/accounting-compliance';
 import { loadEntity, postInvoice, PostingError } from './accounting-document-posting';
+import { resolveGstSupply, type GstSupply } from './accounting-gst';
 import { applyCreditNoteOnFinalize, type CreditApplication } from './accounting-credit-notes';
 import { SalesTaxDocumentError, addressRequired, engineUnavailable } from './sales-tax/errors';
 import { loadSalesTaxEntity, usesSalesTax } from './sales-tax/document-tax';
 import { recalculateStoredInvoice } from './sales-tax/persist';
 import { syncInvoiceWithProvider, type ProviderSyncResult } from './sales-tax/provider-sync';
 import type { SalesTaxRuntime } from './sales-tax/runtime';
+
+/** True when the invoice charges GST at a slab rate that was not split into CGST + SGST / IGST (no place of supply). */
+function gstSplitMissing(invoice: typeof schema.invoices.$inferSelect): boolean {
+  return (invoice.taxBreakdown ?? []).some(
+    (row) => row.taxRate > 0 && !row.component && !row.selfAssessed && row.taxCategoryCode !== 'reverse_charge',
+  );
+}
 
 export class InvoiceComplianceError extends Error {
   constructor(message: string) {
@@ -93,15 +102,41 @@ export async function finalizeInvoice(
     }
   }
 
+  // India GST: the CGST + SGST / IGST split follows the place of supply as it stands now. A credit note
+  // keeps the split of the invoice it credits.
+  const gstSupply: GstSupply | null = await resolveGstSupply(db, {
+    entityId: invoice.entityId,
+    contactId: invoice.contactId,
+    placeOfSupply: invoice.placeOfSupply,
+    shippingAddress: invoice.shippingAddress,
+    billingAddress: invoice.billingAddress,
+  });
+  if (gstSupply && items.length > 0 && invoice.type !== 'credit_note') {
+    const refreshed = await recalculateStoredInvoice(db, invoice, items, opts.tax, { gst: gstSupply });
+    invoice = refreshed.invoice;
+    items = refreshed.items;
+  }
+
   if (!opts.skipCompliance) {
     const entity = await loadEntity(db, invoice.entityId);
     const taxCategories = await collectInvoiceTaxCategories(db, invoiceId);
     const compliance = await validateInvoiceForFinalize(db, entity, invoice, taxCategories);
+    if (gstSupply && invoice.type !== 'credit_note' && gstSplitMissing(invoice)) {
+      compliance.errors.push(
+        "GST is charged but the place of supply is unknown, so it can't be split into CGST + SGST or IGST. Choose the place of supply on the invoice (or add the customer's GSTIN or address state) before finalizing.",
+      );
+      compliance.ok = false;
+    }
     if (!compliance.ok) throw new InvoiceComplianceError(compliance.errors.join(' '));
     warnings.push(...compliance.warnings);
   }
 
-  const posted = await postInvoice(db, invoice, items, { userId: opts.userId, markSent: opts.markSent });
+  // The buyer's tax id (GSTIN / VAT number) and place of supply as they were when the invoice was booked.
+  // A credit note keeps those of the invoice it was copied from.
+  const contactTaxNumber = invoice.contactTaxNumber ?? ((await getContactVatNumber(db, invoice.contactId))?.trim() || null);
+  const snapshot = { contactTaxNumber, ...(gstSupply ? { placeOfSupply: gstSupply.placeOfSupply } : {}) };
+  const posted = await postInvoice(db, invoice, items, { userId: opts.userId, markSent: opts.markSent, snapshot });
+  invoice = { ...invoice, ...snapshot };
 
   // A credit note lowers what is still open on the invoice it credits.
   let creditApplied: CreditApplication | null = null;

@@ -14,6 +14,7 @@
 
 import type { Entity } from '@weldsuite/db/schema';
 import { asText } from '@weldsuite/text';
+import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 
 const XAF_NAMESPACE = 'http://www.auditfiles.nl/XAF/4.0';
 const SOFTWARE_DESC = 'WeldBooks (WeldSuite)';
@@ -35,6 +36,43 @@ function tag(name: string, value: unknown): string {
 
 function amount(value: string | number | null | undefined): string {
   return (Number(value) || 0).toFixed(2);
+}
+
+/**
+ * Street name and house number of a street line: "Damrak 1" and "12 Linking Road" both split;
+ * a line with no number is all street name.
+ */
+export function splitStreetLine(line: string | null | undefined): { streetname?: string; number?: string } {
+  const text = (line ?? '').trim();
+  if (!text) return {};
+  const trailing = /^(.*?)[\s,]+(\d+[\w\-/]*)$/.exec(text);
+  if (trailing?.[1]) return { streetname: trailing[1].trim(), number: trailing[2] };
+  const leading = /^(\d+[\w\-/]*)[\s,]+(.+)$/.exec(text);
+  if (leading) return { streetname: leading[2].trim(), number: leading[1] };
+  return { streetname: text };
+}
+
+/** `<streetAddress>` of the XAF (streetname, number, property, city, postalCode, country), empty when there is nothing to print. */
+function streetAddressXml(address: {
+  line1?: string | null;
+  line2?: string | null;
+  city?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
+}): string {
+  const { streetname, number } = splitStreetLine(address.line1);
+  const parts = [
+    tag('streetname', streetname),
+    tag('number', number),
+    tag('property', address.line2),
+    tag('city', address.city),
+    tag('postalCode', address.postalCode),
+    tag('country', address.country),
+  ].filter(Boolean);
+  if (parts.length === 0) return '';
+  return `<streetAddress>
+      ${parts.join('\n      ')}
+    </streetAddress>`;
 }
 
 export interface XafAccount {
@@ -130,6 +168,12 @@ export function generateXaf(input: XafInput): string {
     .reduce((sum, l) => sum + (Number(l.credit) || 0), 0);
   const linesCount = transactions.reduce((sum, t) => sum + t.lines.length, 0);
 
+  // The company's own address: from the entity, the country defaulting to the entity's jurisdiction.
+  const entityAddress = normalizePostalAddress(entity.address);
+  const companyAddress = entityAddress
+    ? streetAddressXml({ ...entityAddress, country: entityAddress.country ?? entity.jurisdictionCode })
+    : '';
+
   const customersSuppliers = contacts
     .map(
       (contact) => `
@@ -138,13 +182,7 @@ export function generateXaf(input: XafInput): string {
         ${tag('custSupName', contact.name)}
         ${tag('custSupTp', custSupType(contact.role))}
         ${tag('taxRegIdent', contact.taxNumber)}
-        ${contact.street || contact.city ? `
-        <streetAddress>
-          ${tag('streetname', contact.street)}
-          ${tag('city', contact.city)}
-          ${tag('postalCode', contact.postalCode)}
-          ${tag('country', contact.country)}
-        </streetAddress>` : ''}
+        ${streetAddressXml({ line1: contact.street, city: contact.city, postalCode: contact.postalCode, country: contact.country })}
       </customerSupplier>`,
     )
     .join('');
@@ -234,6 +272,7 @@ export function generateXaf(input: XafInput): string {
     ${tag('companyName', entity.legalName ?? entity.name)}
     ${tag('taxRegistrationCountry', entity.jurisdictionCode)}
     ${tag('taxRegIdent', entity.taxIdentifiers?.vatNumber)}
+    ${companyAddress}
     <customersSuppliers>${customersSuppliers}
     </customersSuppliers>
     <generalLedger>${ledgerAccounts}

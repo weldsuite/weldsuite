@@ -86,8 +86,9 @@ export default function BillDetailPage() {
   const { t, language } = useI18n();
   const st = useTranslations();
   const tb = t.accounting.billDetail;
+  const tsl = t.accounting.statusLabels.bill as Record<string, string>;
   const td = useDocumentTexts();
-  const { formatMoney, formatDate } = useWeldbooksFormat();
+  const { formatMoney, formatDate, formatNumber } = useWeldbooksFormat();
   const { features } = useJurisdictionLabels();
   const describeError = useDescribeError();
 
@@ -200,10 +201,10 @@ export default function BillDetailPage() {
               {bill.contactName}
             </p>
           </div>
-          <Badge variant={statusVariant(bill.status)}>{bill.status}</Badge>
+          <Badge variant={statusVariant(bill.status)}>{tsl[bill.status] ?? bill.status}</Badge>
           {bill.approvalStatus && (
             <Badge variant={approvalVariant(bill.approvalStatus)}>
-              {bill.approvalStatus}
+              {tsl[bill.approvalStatus] ?? bill.approvalStatus}
             </Badge>
           )}
         </div>
@@ -366,12 +367,12 @@ export default function BillDetailPage() {
                         </AppLink>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">{item.quantity ?? '-'}</TableCell>
+                    <TableCell className="text-right">{item.quantity ? formatNumber(item.quantity) : '-'}</TableCell>
                     <TableCell className="text-right">
                       {formatMoney(item.unitPrice, bill.currency)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {item.discountPercent ? `${item.discountPercent}%` : '-'}
+                      {item.discountPercent ? `${formatNumber(item.discountPercent)}%` : '-'}
                     </TableCell>
                     <TableCell className="text-right">
                       {formatMoney(item.taxAmount, bill.currency)}

@@ -21,7 +21,7 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import type { AgencyLiabilityRow } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { CardsSkeleton, EmptyState, ErrorState } from '../shared/query-states';
 import { AgenciesLink } from '../shared/setup-links';
-import { fill, toCents } from '../shared/text';
+import { fill, toCents, visibleJurisdictionCode } from '../shared/text';
 
 function Figure({ label, value, danger }: Readonly<{ label: string; value: string; danger?: boolean }>) {
   return (
@@ -96,7 +96,9 @@ function AgencyRows({ agency, open, onToggle }: Readonly<{ agency: AgencyLiabili
                       <TableRow key={jurisdiction.jurisdictionCode}>
                         <TableCell>
                           {jurisdiction.jurisdictionName}
-                          <span className="ml-2 text-xs text-muted-foreground">{jurisdiction.jurisdictionCode}</span>
+                          {visibleJurisdictionCode(jurisdiction.jurisdictionCode) ? (
+                            <span className="ml-2 text-xs text-muted-foreground">{visibleJurisdictionCode(jurisdiction.jurisdictionCode)}</span>
+                          ) : null}
                         </TableCell>
                         <TableCell>{levels[jurisdiction.level] ?? jurisdiction.level}</TableCell>
                         <TableCell className="text-right tabular-nums">{formatMoney(jurisdiction.collected)}</TableCell>

@@ -11,6 +11,11 @@ import { inChartOfAccounts } from './chart-of-accounts';
 import { inTaxCategories } from './tax-categories';
 import { getInInvoiceRequirements } from './invoice-format';
 import { buildInGstReturn } from './gst-return';
+import { GST_FOREIGN_COUNTRY_CODE, isValidGstStateCode, usesUtgst } from './states';
+
+export * from './states';
+export { computeGstWorksheet, utiliseItc } from './gst-return';
+export type * from './gst-return';
 
 /** GSTIN: 2-digit state + PAN(10) + entity + Z + check digit. */
 const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
@@ -32,12 +37,50 @@ export function extractPanFromGstin(gstin: string): string | undefined {
   return normalized.slice(2, 12);
 }
 
-export function validateGstin(value: string): TaxIdentifierValidation {
+const GSTIN_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+/**
+ * The check character of a GSTIN: base-36 weighted sum over the first 14
+ * characters (weights 1, 2, 1, 2, ...; each product's base-36 digits are
+ * added), complemented to a multiple of 36.
+ */
+export function gstinCheckCharacter(first14: string): string {
+  let sum = 0;
+  for (let i = 0; i < 14; i++) {
+    const value = GSTIN_ALPHABET.indexOf(first14[i] ?? '');
+    const product = value * (i % 2 === 0 ? 1 : 2);
+    sum += Math.floor(product / 36) + (product % 36);
+  }
+  return GSTIN_ALPHABET[(36 - (sum % 36)) % 36];
+}
+
+/**
+ * Validate a GSTIN: format, a real state code (01-38 and 97; 00 and 99 are
+ * rejected), the check character and, when `pan` is given, that the PAN
+ * inside the GSTIN (characters 3-12) is the entity's own.
+ */
+export function validateGstin(value: string, opts: { pan?: string | null } = {}): TaxIdentifierValidation {
   const normalized = normalizeGstin(value);
   if (!GSTIN_RE.test(normalized)) {
     return {
       valid: false,
-      error: 'GSTIN must be 15 characters (e.g. 27AABCU9603R1ZM)',
+      error: 'GSTIN must be 15 characters (e.g. 27AAPFU0939F1ZV)',
+    };
+  }
+  if (!isValidGstStateCode(normalized.slice(0, 2))) {
+    return {
+      valid: false,
+      error: `GSTIN has an invalid state code '${normalized.slice(0, 2)}' (valid codes are 01-38 and 97)`,
+    };
+  }
+  if (gstinCheckCharacter(normalized.slice(0, 14)) !== normalized[14]) {
+    return { valid: false, error: 'GSTIN check digit is wrong: check the number for a typo' };
+  }
+  const pan = opts.pan ? opts.pan.replace(/\s/g, '').toUpperCase() : '';
+  if (pan && PAN_RE.test(pan) && normalized.slice(2, 12) !== pan) {
+    return {
+      valid: false,
+      error: `GSTIN contains PAN ${normalized.slice(2, 12)}, which does not match the PAN ${pan}`,
     };
   }
   return { valid: true, formatted: normalized };
@@ -75,20 +118,22 @@ function componentsForPlaceOfSupply(
   buyerCountry?: string,
 ): { components: TaxRateComponentDecision[]; reasoning: string; taxCategoryCode: string; rate: string } | null {
   const buyer = buyerCountry?.toUpperCase();
-  if (buyer && buyer !== 'IN') {
+  if ((buyer && buyer !== 'IN') || buyerStateCode === GST_FOREIGN_COUNTRY_CODE) {
     return null; // caller handles export
   }
 
   const seller = sellerStateCode?.padStart(2, '0');
   const buyerState = buyerStateCode?.padStart(2, '0');
   const intrastate = Boolean(seller && buyerState && seller === buyerState);
-  const list = intrastate ? meta.components.intrastate : meta.components.interstate;
+  const list = (intrastate ? meta.components.intrastate : meta.components.interstate).map((c) =>
+    intrastate && c.code === 'sgst' && usesUtgst(seller) ? { ...c, code: 'utgst' as const } : c,
+  );
 
   return {
     taxCategoryCode: 'standard',
     rate: meta.gstSlab.includes('.') ? meta.gstSlab : `${meta.gstSlab}.00`,
     reasoning: intrastate
-      ? `Intra-state supply (${seller}→${buyerState}) — CGST + SGST`
+      ? `Intra-state supply (${seller}→${buyerState}) — ${usesUtgst(seller) ? 'CGST + UTGST' : 'CGST + SGST'}`
       : `Inter-state supply (${seller ?? '?'}→${buyerState ?? '?'}) — IGST`,
     components: list.map((c) => ({
       taxCategoryCode: 'standard',
@@ -157,7 +202,7 @@ export const inAdapter: JurisdictionAdapter = {
     const buyerCountry = ctx.buyerCountry?.toUpperCase();
 
     // Export / non-India buyer → 0% export
-    if (buyerCountry && buyerCountry !== 'IN') {
+    if ((buyerCountry && buyerCountry !== 'IN') || ctx.buyerStateCode === GST_FOREIGN_COUNTRY_CODE) {
       return {
         taxCategoryCode: 'export_goods',
         rate: '0.00',
@@ -165,7 +210,7 @@ export const inAdapter: JurisdictionAdapter = {
       };
     }
 
-    const sellerState = normalizeStateCode(ctx.sellerStateCode);
+  const sellerState = normalizeStateCode(ctx.sellerStateCode);
     const buyerState = normalizeStateCode(
       ctx.buyerStateCode ??
         (ctx.buyerGstin ? extractStateCodeFromGstin(ctx.buyerGstin) : undefined),
@@ -177,7 +222,7 @@ export const inAdapter: JurisdictionAdapter = {
       return {
         taxCategoryCode: 'standard',
         rate: '0.00',
-        reasoning: `Unsupported GST slab '${ctx.gstSlab}' — choose a seeded rate (5/12/18/28/40)`,
+        reasoning: `Unsupported GST slab '${ctx.gstSlab}' — choose a seeded rate (0.25/3/5/18/40, or legacy 12/28)`,
       };
     }
     const resolved = category ?? findSlabCategory('18');
@@ -278,7 +323,7 @@ export function expandGstTaxBreakdown(opts: {
   if (!meta) return singleSlab();
 
   const buyerCountry = opts.buyerCountry?.toUpperCase();
-  if (buyerCountry && buyerCountry !== 'IN') {
+  if ((buyerCountry && buyerCountry !== 'IN') || opts.buyerStateCode === GST_FOREIGN_COUNTRY_CODE) {
     return [
       {
         taxRateId: opts.taxRateId,
@@ -301,13 +346,17 @@ export function expandGstTaxBreakdown(opts: {
   const intrastate = seller === buyer;
   const list = intrastate ? meta.components.intrastate : meta.components.interstate;
   const direction = opts.direction ?? 'sales';
+  // A union territory without a legislature levies UTGST where a state levies SGST.
+  const utgst = intrastate && usesUtgst(seller);
 
   return list.map((c) => {
     const rate = Number.parseFloat(c.rate);
     const taxAmount = opts.taxableAmount * (rate / 100);
+    const code = utgst && c.code === 'sgst' ? ('utgst' as const) : c.code;
     let labelPrefix = 'IGST';
-    if (c.code === 'cgst') labelPrefix = 'CGST';
-    else if (c.code === 'sgst') labelPrefix = 'SGST';
+    if (code === 'cgst') labelPrefix = 'CGST';
+    else if (code === 'sgst') labelPrefix = 'SGST';
+    else if (code === 'utgst') labelPrefix = 'UTGST';
     const label = `${labelPrefix} ${rate}%`;
     const outputRole = c.accountRole;
     const accountRole =
@@ -320,7 +369,8 @@ export function expandGstTaxBreakdown(opts: {
       taxRate: rate,
       taxableAmount: opts.taxableAmount,
       taxAmount,
-      component: c.code,
+      // UTGST posts to the SGST ledger accounts until dedicated UTGST roles exist.
+      component: code,
       accountRole,
     };
   });

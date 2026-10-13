@@ -17,7 +17,7 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import type { ReturnDocument } from '@/lib/api/domains/weldbooks-sales-tax-center';
 import { DocumentLink } from '../../shared/document-link';
 import { EmptyState, ErrorState, RowsSkeleton } from '../../shared/query-states';
-import { fill } from '../../shared/text';
+import { fill, visibleJurisdictionCode } from '../../shared/text';
 
 interface DocumentRowsProps {
   document: ReturnDocument;
@@ -54,7 +54,7 @@ function DocumentRows({ document }: Readonly<DocumentRowsProps>) {
             return (
               <TableRow key={row.taxLineId}>
                 <TableCell>
-                  <span className="font-medium">{row.jurisdictionName || row.jurisdictionCode || '—'}</span>
+                  <span className="font-medium">{row.jurisdictionName || visibleJurisdictionCode(row.jurisdictionCode) || '—'}</span>
                   {row.shipToState ? <span className="ml-2 text-xs text-muted-foreground">{row.shipToState}</span> : null}
                   {row.marketplaceFacilitated ? (
                     <Badge variant="outline" className="ml-2">

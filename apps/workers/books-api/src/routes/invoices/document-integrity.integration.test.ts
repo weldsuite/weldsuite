@@ -80,6 +80,7 @@ async function createNlEntity(name: string) {
       vatNumber: 'NL123456789B01',
       taxIdentifiers: { registrationNumber: '12345678' },
       bankDetails: { iban: 'NL91ABNA0417164300' },
+      address: { line1: 'Damrak 1', postalCode: '1012 LG', city: 'Amsterdam', country: 'NL' },
     },
   });
   expect(created.status).toBe(201);

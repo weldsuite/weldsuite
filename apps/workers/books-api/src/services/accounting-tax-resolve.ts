@@ -230,6 +230,7 @@ async function calculateRateTableTax(
     string,
     {
       name: string;
+      type: string;
       rate: string;
       taxCategoryCode: string | null;
       jurisdictionMetadata: Record<string, unknown> | null;
@@ -240,6 +241,7 @@ async function calculateRateTableTax(
       .select({
         id: schema.taxRates.id,
         name: schema.taxRates.name,
+        type: schema.taxRates.type,
         rate: schema.taxRates.rate,
         taxCategoryCode: schema.taxRates.taxCategoryCode,
         jurisdictionMetadata: schema.taxRates.jurisdictionMetadata,
@@ -255,6 +257,7 @@ async function calculateRateTableTax(
     for (const r of rates) {
       rateById.set(r.id, {
         name: r.name,
+        type: r.type,
         rate: r.rate,
         taxCategoryCode: r.taxCategoryCode ?? null,
         jurisdictionMetadata: (r.jurisdictionMetadata as Record<string, unknown> | null) ?? null,
@@ -263,6 +266,17 @@ async function calculateRateTableTax(
     const missing = rateIds.filter((id) => !rateById.has(id));
     if (missing.length > 0) {
       throw new TaxCalculationError(`Tax rate ${missing.join(', ')} does not belong to this accounting entity`);
+    }
+    // A sales document takes sales (or both) rates, a purchase document purchase (or both) ones.
+    const wrongType = args.direction === 'sales' ? 'purchase' : 'sales';
+    for (const [, rate] of rateById) {
+      if (rate.type === wrongType) {
+        throw new TaxCalculationError(
+          args.direction === 'sales'
+            ? `Tax rate "${rate.name}" is a purchase rate and can't be used on an invoice. Choose a sales rate.`
+            : `Tax rate "${rate.name}" is a sales rate and can't be used on a bill. Choose a purchase rate.`,
+        );
+      }
     }
   }
 

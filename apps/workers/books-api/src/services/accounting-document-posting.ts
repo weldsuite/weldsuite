@@ -37,6 +37,7 @@ import {
 } from '@weldsuite/books-domain/sales-tax';
 import { pickShipTo } from './sales-tax/document-tax';
 import { toBaseCurrency } from './accounting-currency';
+import { parseRate, requireBookingRate } from './accounting-fx';
 import {
   accountForRole,
   loadEntityAccounts,
@@ -54,11 +55,11 @@ type InvoiceItemRow = typeof schema.invoiceItems.$inferSelect;
 type BillRow = typeof schema.bills.$inferSelect;
 type BillItemRow = typeof schema.billItems.$inferSelect;
 type EntityRow = typeof schema.entities.$inferSelect;
-type TaxRateRow = typeof schema.taxRates.$inferSelect;
-type BreakdownRow = NonNullable<InvoiceRow['taxBreakdown']>[number];
+export type TaxRateRow = typeof schema.taxRates.$inferSelect;
+export type BreakdownRow = NonNullable<InvoiceRow['taxBreakdown']>[number];
 
 /** Legacy fallbacks for entities seeded before a role existed (NL / IN template codes). */
-const FALLBACK_CODES = {
+export const FALLBACK_CODES = {
   accounts_receivable: ['1300'],
   accounts_payable: ['1600'],
   sales_revenue: ['8000'],
@@ -77,7 +78,7 @@ export async function loadEntity(db: Database, entityId: string): Promise<Entity
   return entity;
 }
 
-async function loadTaxRates(db: Database, entityId: string, ids: Array<string | null | undefined>) {
+export async function loadTaxRates(db: Database, entityId: string, ids: Array<string | null | undefined>) {
   const unique = [...new Set(ids.filter((id): id is string => Boolean(id)))];
   if (unique.length === 0) return new Map<string, TaxRateRow>();
   const rows = await db
@@ -100,15 +101,23 @@ async function loadParty(db: Database, partyId: string | null | undefined) {
   return party;
 }
 
-/** Converts document-currency amounts to the entity's base currency. */
-function baseConverter(entity: EntityRow, currency: string | null | undefined, exchangeRate: string | null | undefined) {
-  const rate = Number.parseFloat(exchangeRate ?? '1');
-  const sameCurrency = !currency || currency === entity.baseCurrency;
-  return (amount: number) =>
-    sameCurrency || !Number.isFinite(rate) || rate === 0 ? roundMoney(amount) : toBaseCurrency(amount, rate);
+/**
+ * Converts document-currency amounts to the entity's base currency (rate: foreign
+ * units per base unit). A foreign document without a usable rate is an error:
+ * amounts are never carried over 1:1 across currencies.
+ */
+export function baseConverter(entity: EntityRow, currency: string | null | undefined, exchangeRate: string | null | undefined) {
+  if (!currency || currency === entity.baseCurrency) return (amount: number) => roundMoney(amount);
+  const rate = parseRate(exchangeRate);
+  if (!rate) {
+    throw new PostingError(
+      `The exchange rate for ${currency} against ${entity.baseCurrency} is missing. Enter an exchange rate or add one under FX rates.`,
+    );
+  }
+  return (amount: number) => toBaseCurrency(amount, rate);
 }
 
-function requireAccount(
+export function requireAccount(
   account: { id: string } | undefined,
   message: string,
 ): string {
@@ -117,7 +126,7 @@ function requireAccount(
 }
 
 /** Account for a breakdown row's tax: component role (India), the rate's ledger account, else the role for the direction. */
-function taxAccountFor(
+export function taxAccountFor(
   accounts: EntityAccounts,
   row: BreakdownRow,
   rate: TaxRateRow | undefined,
@@ -138,7 +147,7 @@ function taxAccountFor(
   return requireAccount(byDirection, 'No tax account found. Link the tax rate to a ledger account or add a tax payable account.');
 }
 
-function breakdownToTaxLine(
+export function breakdownToTaxLine(
   row: BreakdownRow,
   rate: TaxRateRow | undefined,
   args: {
@@ -311,7 +320,7 @@ export async function buildInvoicePosting(
   db: Database,
   invoice: InvoiceRow,
   items: InvoiceItemRow[],
-): Promise<{ lines: PostingLine[]; taxLines: PostingTaxLine[] }> {
+): Promise<{ lines: PostingLine[]; taxLines: PostingTaxLine[]; exchangeRate: string }> {
   const entity = await loadEntity(db, invoice.entityId);
   const accounts = await loadEntityAccounts(db, invoice.entityId);
   const breakdown = (invoice.taxBreakdown ?? []) as BreakdownRow[];
@@ -322,8 +331,15 @@ export async function buildInvoicePosting(
 
   const sign: 1 | -1 = invoice.type === 'credit_note' ? -1 : 1;
   const currency = invoice.currency || entity.baseCurrency;
-  const toBase = baseConverter(entity, invoice.currency, invoice.exchangeRate);
-  const meta = { currency, exchangeRate: invoice.exchangeRate ?? '1', contactId: invoice.contactId };
+  // The rate on the document, or the one for its date; refuses to go on without one.
+  const exchangeRate = await requireBookingRate(db, {
+    baseCurrency: entity.baseCurrency,
+    currency: invoice.currency,
+    date: invoice.issueDate,
+    stored: invoice.exchangeRate,
+  });
+  const toBase = baseConverter(entity, invoice.currency, exchangeRate);
+  const meta = { currency, exchangeRate, contactId: invoice.contactId };
 
   const defaultRevenue =
     accounts.byId(invoice.revenueAccountId) ??
@@ -425,7 +441,7 @@ export async function buildInvoicePosting(
     ...meta,
   });
 
-  return { lines, taxLines };
+  return { lines, taxLines, exchangeRate };
 }
 
 /** The ship-to ZIP stored with a US document's tax rows: the shipping address, else the billing address. */
@@ -433,14 +449,23 @@ function pickShipToZip(invoice: InvoiceRow): string | null {
   return zip5Of(pickShipTo(invoice.shippingAddress, invoice.billingAddress)) ?? null;
 }
 
-/** Post a draft invoice or credit note and mark it finalized ('sent'). */
+/**
+ * Post a draft invoice or credit note. It becomes 'finalized' (in the ledger, locked, not yet
+ * sent) or, with `markSent`, 'sent' (the send route and auto-sending recurring invoices).
+ */
 export async function postInvoice(
   db: Database,
   invoice: InvoiceRow,
   items: InvoiceItemRow[],
-  opts: { userId: string | null; markSent?: boolean; keepStatus?: boolean },
+  opts: {
+    userId: string | null;
+    markSent?: boolean;
+    keepStatus?: boolean;
+    /** Facts stored on the invoice when it is booked: the buyer's tax id and (India) the place of supply. */
+    snapshot?: { contactTaxNumber?: string | null; placeOfSupply?: string | null };
+  },
 ): Promise<PostedEntry> {
-  const { lines, taxLines } = await buildInvoicePosting(db, invoice, items);
+  const { lines, taxLines, exchangeRate } = await buildInvoicePosting(db, invoice, items);
   const isCreditNote = invoice.type === 'credit_note';
   const now = new Date();
   return postJournalEntry(db, {
@@ -460,8 +485,11 @@ export async function postInvoice(
         .update(schema.invoices)
         .set({
           // The catch-up books invoices that are already sent or paid: their status stays.
-          ...(opts.keepStatus ? {} : { status: 'sent' }),
+          ...(opts.keepStatus ? {} : { status: opts.markSent ? 'sent' : 'finalized' }),
+          // The rate the entry was posted at stays on the document.
+          exchangeRate,
           journalEntryId: posted.journalEntryId,
+          ...(opts.snapshot ?? {}),
           ...(opts.markSent ? { sentAt: now } : {}),
           updatedAt: now,
         })
@@ -597,7 +625,7 @@ export async function buildBillPosting(
   db: Database,
   bill: BillRow,
   items: BillItemRow[],
-): Promise<{ lines: PostingLine[]; taxLines: PostingTaxLine[] }> {
+): Promise<{ lines: PostingLine[]; taxLines: PostingTaxLine[]; exchangeRate: string }> {
   const entity = await loadEntity(db, bill.entityId);
   const accounts = await loadEntityAccounts(db, bill.entityId);
   const breakdown = (bill.taxBreakdown ?? []) as BreakdownRow[];
@@ -606,8 +634,14 @@ export async function buildBillPosting(
 
   const sign: 1 | -1 = bill.type === 'credit_note' ? -1 : 1;
   const currency = bill.currency || entity.baseCurrency;
-  const toBase = baseConverter(entity, bill.currency, bill.exchangeRate);
-  const meta = { currency, exchangeRate: bill.exchangeRate ?? '1', contactId: bill.contactId };
+  const exchangeRate = await requireBookingRate(db, {
+    baseCurrency: entity.baseCurrency,
+    currency: bill.currency,
+    date: bill.issueDate,
+    stored: bill.exchangeRate,
+  });
+  const toBase = baseConverter(entity, bill.currency, exchangeRate);
+  const meta = { currency, exchangeRate, contactId: bill.contactId };
   // Tax the supplier charged is part of the cost under the Dutch KOR and in the US (sales tax is never reclaimed).
   const taxDeductible = !purchaseTaxIsCost(entity) && !isKorActive(entity, bill.issueDate);
 
@@ -756,7 +790,7 @@ export async function buildBillPosting(
     ...meta,
   });
 
-  return { lines, taxLines };
+  return { lines, taxLines, exchangeRate };
 }
 
 /** Post an approved bill. */
@@ -766,7 +800,7 @@ export async function postBill(
   items: BillItemRow[],
   opts: { userId: string | null; keepStatus?: boolean },
 ): Promise<PostedEntry> {
-  const { lines, taxLines } = await buildBillPosting(db, bill, items);
+  const { lines, taxLines, exchangeRate } = await buildBillPosting(db, bill, items);
   const now = new Date();
   return postJournalEntry(db, {
     entityId: bill.entityId,
@@ -785,8 +819,9 @@ export async function postBill(
         .update(schema.bills)
         .set(
           opts.keepStatus
-            ? { journalEntryId: posted.journalEntryId, updatedAt: now }
+            ? { exchangeRate, journalEntryId: posted.journalEntryId, updatedAt: now }
             : {
+                exchangeRate,
                 approvalStatus: 'approved',
                 status: 'approved',
                 approvedBy: opts.userId,
@@ -987,9 +1022,10 @@ export function settlementSet(
   const d = delta.toFixed(2);
   const newPaid = sql`(coalesce(${table.amountPaid}, '0')::numeric + ${d}::numeric)`;
   const remaining = sql`(coalesce(${table.total}, '0')::numeric - ${newPaid})`;
+  // An invoice that was never sent goes back to 'finalized', not 'sent'.
   const unpaid =
     unpaidStatus === 'sent'
-      ? sql`case when ${table.dueDate} < now() then 'overdue' else 'sent' end`
+      ? sql`case when ${table.dueDate} < now() then 'overdue' when ${(table as typeof schema.invoices).sentAt} is not null then 'sent' else 'finalized' end`
       : sql`'approved'`;
   return {
     amountPaid: sql`${newPaid}`,

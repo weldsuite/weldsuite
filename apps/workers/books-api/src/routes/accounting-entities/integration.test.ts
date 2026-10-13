@@ -63,7 +63,7 @@ describe('/api/accounting-entities · pglite integration', () => {
         name: 'Weld India Pvt Ltd',
         jurisdictionCode: 'IN',
         baseCurrency: 'INR',
-        vatNumber: '27AABCU9603R1ZM',
+        vatNumber: '27AABCU9603R1ZN',
         seedDefaults: true,
       }),
     });
@@ -80,7 +80,7 @@ describe('/api/accounting-entities · pglite integration', () => {
     expect(row?.jurisdictionCode).toBe('IN');
     expect(row?.baseCurrency).toBe('INR');
     expect(row?.timezone).toBe('Asia/Kolkata');
-    expect(row?.taxIdentifiers?.vatNumber).toBe('27AABCU9603R1ZM');
+    expect(row?.taxIdentifiers?.vatNumber).toBe('27AABCU9603R1ZN');
     expect((row?.jurisdictionSettings as { stateCode?: string } | null)?.stateCode).toBe('27');
 
     const accounts = await db
@@ -133,7 +133,7 @@ describe('/api/accounting-entities · pglite integration', () => {
         name: 'Patch GSTIN Co',
         jurisdictionCode: 'IN',
         baseCurrency: 'INR',
-        vatNumber: '27AABCU9603R1ZM',
+        vatNumber: '27AABCU9603R1ZN',
         seedDefaults: false,
       }),
     });
@@ -159,19 +159,19 @@ describe('/api/accounting-entities · pglite integration', () => {
       .from(schema.entities)
       .where(eq(schema.entities.id, created.data.id))
       .limit(1);
-    expect(unchanged?.taxIdentifiers?.vatNumber).toBe('27AABCU9603R1ZM');
+    expect(unchanged?.taxIdentifiers?.vatNumber).toBe('27AABCU9603R1ZN');
     expect((unchanged?.jurisdictionSettings as { stateCode?: string } | null)?.stateCode).toBe('27');
 
     const goodPatch = await request(`/api/accounting-entities/${created.data.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vatNumber: '29AABCU9603R1ZM' }),
+      body: JSON.stringify({ vatNumber: '29AABCU9603R1ZJ' }),
     });
     expect(goodPatch.status).toBe(200);
     const body = (await goodPatch.json()) as {
       data: { taxIdentifiers?: { vatNumber?: string }; jurisdictionSettings?: { stateCode?: string } };
     };
-    expect(body.data.taxIdentifiers?.vatNumber).toBe('29AABCU9603R1ZM');
+    expect(body.data.taxIdentifiers?.vatNumber).toBe('29AABCU9603R1ZJ');
     expect(body.data.jurisdictionSettings?.stateCode).toBe('29');
   });
 

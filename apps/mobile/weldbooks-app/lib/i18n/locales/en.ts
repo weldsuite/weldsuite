@@ -141,6 +141,7 @@ export const en = {
 
   status: {
     draft: 'Draft',
+    finalized: 'Finalized',
     sent: 'Sent',
     viewed: 'Viewed',
     partially_paid: 'Partially paid',

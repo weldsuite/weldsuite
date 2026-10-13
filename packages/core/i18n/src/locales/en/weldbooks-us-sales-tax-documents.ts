@@ -179,6 +179,7 @@ export const weldbooksUsSalesTaxDocuments = {
     creditMemoNote:
       'The tax of a credit memo follows the invoice it credits. Change quantities or prices to credit part of a line, or remove lines you do not credit.',
     creditMemoUpdated: 'Credit memo updated',
+    creditMemoSave: 'Update {name}',
   },
 
   bill: {

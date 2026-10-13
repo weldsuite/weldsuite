@@ -71,7 +71,7 @@ export function getNlInvoiceRequirements(locale = 'nl-NL'): InvoiceRequirements 
     formatInvoiceNumber: (prefix, value, padding) =>
       `${prefix}${String(value).padStart(padding, '0')}`,
     defaultPadding: 4,
-    requiredFields: ['vatNumber', 'registrationNumber', 'iban'],
+    requiredFields: ['vatNumber', 'registrationNumber', 'iban', 'address'],
     labels: locale.startsWith('nl') ? nlLabels : enLabels,
   };
 }

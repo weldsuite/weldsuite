@@ -1,5 +1,13 @@
-import { useParams, Link } from '@tanstack/react-router';
-import { useAccountingCustomer } from '@/hooks/queries/use-accounting-queries';
+import { useState } from 'react';
+import { useParams, Link, useNavigate } from '@tanstack/react-router';
+import { toast } from 'sonner';
+import { usePermissions } from '@weldsuite/permissions/react';
+import {
+  useAccountingCustomer,
+  useDeleteAccountingCustomer,
+  useSetAccountingCustomerArchived,
+} from '@/hooks/queries/use-accounting-queries';
+import { errorDetails } from '@/lib/api/domains/weldbooks-banking';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -10,11 +18,22 @@ import {
   CardTitle,
 } from '@weldsuite/ui/components/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@weldsuite/ui/components/tabs';
-import { ArrowLeft, Pencil } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@weldsuite/ui/components/alert-dialog';
+import { Archive, ArchiveRestore, ArrowLeft, Pencil, Trash2 } from 'lucide-react';
 import { CustomerExemptionsTab } from '@/app/weldbooks/sales-tax/certificates/customer-exemptions-tab';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
+import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
@@ -48,6 +67,15 @@ export default function ContactDetailPage() {
   const { formatMoney } = useCurrentEntityCurrency();
   const { labels, features } = useJurisdictionLabels();
   const tx = t.weldbooksUs.salesTax.setup.exemptions;
+  const navigate = useNavigate();
+  const { can } = usePermissions();
+  const canDelete = can('customers:delete') || can('suppliers:delete');
+  const canArchive = can('customers:update') || can('suppliers:update');
+  const deleteContact = useDeleteAccountingCustomer();
+  const setArchived = useSetAccountingCustomerArchived();
+  const [dialog, setDialog] = useState<'delete' | 'archive' | null>(null);
+  /** The server's reason a contact can not be deleted (it is used); offers Archive instead. */
+  const [deleteBlocked, setDeleteBlocked] = useState<string | null>(null);
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -65,13 +93,57 @@ export default function ContactDetailPage() {
       countryName: (code) => countryName(code, language || 'en'),
     });
   const billingLines = addressLines(contact.billingAddress);
+  // The tax and registration number are named after the contact's country, not the books' jurisdiction.
+  const idLabels = contactIdLabels(
+    normalizeAccountingAddress(contact.billingAddress)?.country,
+    t.accounting.terminology,
+    labels,
+  );
   const shippingLines = addressLines(contact.shippingAddress);
   // US entities: a customer can hold sales tax exemption certificates (a supplier buys from us, never from them).
   const showExemptions = features.salesTax && contact.role !== 'supplier';
+  const isArchived = Boolean(contact.archivedAt);
+
+  const archive = (archived: boolean) =>
+    setArchived.mutate(
+      { id: contact.id, archived },
+      {
+        onSuccess: () => {
+          toast.success(archived ? tc.contactArchived : tc.contactRestored);
+          setDialog(null);
+          setDeleteBlocked(null);
+        },
+        onError: (err) => {
+          setDialog(null);
+          setDeleteBlocked(null);
+          toast.error(archived ? tc.archiveFailed : tc.restoreFailed, {
+            description: err instanceof Error ? err.message : undefined,
+          });
+        },
+      },
+    );
+
+  const remove = () =>
+    deleteContact.mutate(contact.id, {
+      onSuccess: () => {
+        toast.success(tc.contactDeleted);
+        navigate({ to: '/weldbooks/customers' });
+      },
+      onError: (err) => {
+        setDialog(null);
+        // 409 CONTACT_IN_USE: say what uses the contact and offer Archive.
+        if (errorDetails(err)?.code === 'CONTACT_IN_USE') {
+          setDeleteBlocked(err instanceof Error ? err.message : tc.deleteBlockedTitle);
+          return;
+        }
+        toast.error(tc.deleteFailed, { description: err instanceof Error ? err.message : undefined });
+      },
+    });
+
   const roleLabel: Record<string, string> = {
     customer: tc.roles.customer,
     supplier: labels.supplier,
-    both: tc.roles.both,
+    both: labels.customerAndSupplier,
   };
 
   return (
@@ -85,20 +157,95 @@ export default function ContactDetailPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-semibold">{contact.name}</h1>
-            {contact.role && contact.role !== 'none' ? (
-              <Badge variant="outline" className="mt-1">
-                {roleLabel[contact.role] ?? contact.role}
-              </Badge>
-            ) : null}
+            <div className="mt-1 flex flex-wrap gap-2">
+              {contact.role && contact.role !== 'none' ? (
+                <Badge variant="outline">{roleLabel[contact.role] ?? contact.role}</Badge>
+              ) : null}
+              {isArchived ? <Badge variant="secondary">{tc.archived}</Badge> : null}
+            </div>
           </div>
         </div>
-        <Link to="/weldbooks/customers/$id/edit" params={{ id: contact.id }}>
-          <Button variant="outline" size="sm">
-            <Pencil className="h-4 w-4 mr-1" />
-            {tc.editContact}
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {canArchive ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={setArchived.isPending}
+              onClick={() => (isArchived ? archive(false) : setDialog('archive'))}
+              data-testid="contact-archive"
+            >
+              {isArchived ? <ArchiveRestore className="h-4 w-4 mr-1" /> : <Archive className="h-4 w-4 mr-1" />}
+              {isArchived ? tc.unarchive : tc.archive}
+            </Button>
+          ) : null}
+          {canDelete ? (
+            <Button variant="outline" size="sm" onClick={() => setDialog('delete')} data-testid="contact-delete">
+              <Trash2 className="h-4 w-4 mr-1" />
+              {tc.delete}
+            </Button>
+          ) : null}
+          <Link to="/weldbooks/customers/$id/edit" params={{ id: contact.id }}>
+            <Button variant="outline" size="sm">
+              <Pencil className="h-4 w-4 mr-1" />
+              {tc.editContact}
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      <AlertDialog open={dialog === 'archive'} onOpenChange={(open) => !open && setDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tc.archiveTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{tc.archiveDesc}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{tc.cancel}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => archive(true)}>{tc.archive}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={dialog === 'delete'} onOpenChange={(open) => !open && setDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tc.deleteTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{tc.deleteDesc}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{tc.cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                remove();
+              }}
+              disabled={deleteContact.isPending}
+            >
+              {tc.delete}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteBlocked !== null} onOpenChange={(open) => !open && setDeleteBlocked(null)}>
+        <AlertDialogContent data-testid="contact-delete-blocked">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tc.deleteBlockedTitle}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteBlocked}
+              <span className="mt-2 block">{tc.deleteBlockedHint}</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{tc.cancel}</AlertDialogCancel>
+            {canArchive && !isArchived ? (
+              <AlertDialogAction onClick={() => archive(true)} data-testid="contact-archive-instead">
+                {tc.archiveInstead}
+              </AlertDialogAction>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Tabs defaultValue="details" className="gap-6">
         {showExemptions ? (
@@ -146,8 +293,10 @@ export default function ContactDetailPage() {
               <CardTitle>{tc.taxAndRegistration}</CardTitle>
             </CardHeader>
             <CardContent>
-              <DetailRow label={labels.taxId} value={contact.vatNumber} />
-              <DetailRow label={labels.registrationId} value={contact.registrationNumber} />
+              <DetailRow label={idLabels.taxId} value={contact.vatNumber} />
+              {(idLabels.registrationId !== null || contact.registrationNumber) && (
+                <DetailRow label={idLabels.registrationId ?? labels.registrationId} value={contact.registrationNumber} />
+              )}
               {!contact.vatNumber && !contact.registrationNumber ? (
                 <p className="text-sm text-muted-foreground">—</p>
               ) : null}

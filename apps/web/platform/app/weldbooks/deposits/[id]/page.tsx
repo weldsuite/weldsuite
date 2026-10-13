@@ -19,6 +19,7 @@ import {
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { DepositsUsOnlyGate } from '../us-only-gate';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import {
   useBankDeposit,
@@ -35,7 +36,16 @@ function Detail({ label, children }: Readonly<{ label: string; children: React.R
   );
 }
 
-export default function DepositDetailPage() {
+/** Deposits are for US entities; any other entity gets a notice instead of the screen. */
+export default function DepositDetailPageGated() {
+  return (
+    <DepositsUsOnlyGate>
+      <DepositDetailPage />
+    </DepositsUsOnlyGate>
+  );
+}
+
+function DepositDetailPage() {
   const { id } = useParams({ strict: false }) as { id: string };
   const { t } = useI18n();
   const td = t.weldbooksUs.banking.deposits;

@@ -13,6 +13,13 @@ import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { calculateFxGainLoss } from './accounting-currency';
+import {
+  formatRate,
+  isForeignCurrency,
+  MissingExchangeRateError,
+  parseRate,
+  resolveRate,
+} from './accounting-fx';
 import { resolveEntityBaseCurrency } from '../lib/entity-context';
 import {
   accountForRole,
@@ -21,8 +28,10 @@ import {
   PostingError,
   reverseJournalEntry,
   roundMoney,
+  type EntityAccounts,
 } from './accounting-posting';
 import { buildPaymentPosting, settlementSet, type PaymentAllocationInput } from './accounting-document-posting';
+import { findRecoveryEntries, postBadDebtRecovery, writtenOffBalance, writtenOffSettlementSet } from './accounting-bad-debt';
 
 export const PAYMENT_METHODS = [
   'check',
@@ -145,6 +154,9 @@ type DocumentRow = {
   balanceDue: string | null;
   status: string;
   number: string | null;
+  /** Invoices: what a written-off ('uncollectible') one still has written off is total less amount paid. */
+  total?: string | null;
+  amountPaid?: string | null;
 };
 
 async function loadDocuments(db: Database, kind: 'invoice' | 'bill', ids: string[]): Promise<Map<string, DocumentRow>> {
@@ -167,7 +179,8 @@ function assertPayable(kind: 'invoice' | 'bill', doc: DocumentRow) {
   if (kind === 'invoice' && doc.status === 'draft') {
     throw new PostingError(`Invoice ${doc.number ?? doc.id} is a draft. Finalize it before recording a payment.`);
   }
-  if (kind === 'invoice' && (doc.status === 'cancelled' || doc.status === 'uncollectible')) {
+  // A written-off ('uncollectible') invoice can still be paid: the write-off is taken back (bad debt recovery).
+  if (kind === 'invoice' && doc.status === 'cancelled') {
     throw new PostingError(`Invoice ${doc.number ?? doc.id} is ${doc.status} and can't take payments.`);
   }
   if (kind === 'bill' && (doc.status === 'draft' || doc.status === 'cancelled')) {
@@ -249,7 +262,8 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
       throw new PostingError('A sent payment can only be allocated to bills or refund a credit note');
     }
     assertPayable(kind, doc);
-    const open = Number.parseFloat(doc.balanceDue ?? '0');
+    // A written-off invoice has no open balance; what can still come in is what was written off.
+    const open = kind === 'invoice' && doc.status === 'uncollectible' ? writtenOffBalance({ status: doc.status, total: doc.total ?? null, amountPaid: doc.amountPaid ?? null }) : Number.parseFloat(doc.balanceDue ?? '0');
     if (allocation.amount > open + 0.005) {
       throw new PostingError(
         `The amount allocated to ${doc.number ?? doc.id} (${allocation.amount.toFixed(2)}) is more than its open balance (${open.toFixed(2)})`,
@@ -270,9 +284,41 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
   const firstDoc = allocations.length > 0 ? docs.get(docIds[0]) : undefined;
   const contactId = input.contactId ?? firstDoc?.contactId;
   if (!contactId) throw new PostingError('A payment needs a contact or at least one invoice or bill');
-  const currency = input.currency ?? firstDoc?.currency ?? (await resolveEntityBaseCurrency(db, input.entityId));
-  const exchangeRate = input.exchangeRate ?? '1';
+  const baseCurrency = await resolveEntityBaseCurrency(db, input.entityId);
+  const currency = input.currency ?? firstDoc?.currency ?? baseCurrency;
+  // A payment settles documents in their own currency: the amounts allocated are document amounts.
+  for (const a of allocations) {
+    const doc = docs.get((a.invoiceId ?? a.billId)!)!;
+    if (isForeignCurrency(baseCurrency, doc.currency) && doc.currency !== currency) {
+      throw new PostingError(
+        `${doc.number ?? doc.id} is in ${doc.currency}, so the payment has to be in ${doc.currency} too (it is in ${currency}).`,
+      );
+    }
+  }
+  // Foreign currency: the typed rate, else the rate on the payment date, else the one the
+  // document was booked at (no difference then). Never 1 for another currency.
+  let exchangeRate = '1';
+  if (isForeignCurrency(baseCurrency, currency)) {
+    const resolved = await resolveRate(db, { baseCurrency, currency, date: input.date, override: input.exchangeRate });
+    const booked = parseRate(firstDoc?.exchangeRate);
+    const rate = resolved?.rate ?? (booked && booked !== 1 ? formatRate(booked) : null);
+    if (!rate) throw new MissingExchangeRateError(currency, baseCurrency, input.date);
+    exchangeRate = rate;
+  }
   const paymentMethod = normalizePaymentMethod(input.paymentMethod);
+  // The realised FX difference per document, with its accounts looked up before anything is posted.
+  const fxPlan = await planFxDifferences(db, {
+    entityId: input.entityId,
+    type: input.type,
+    paymentRate: exchangeRate,
+    allocations: allocations.flatMap((a) => {
+      const doc = docs.get((a.invoiceId ?? a.billId)!);
+      // A refund of a foreign-currency credit note books no FX difference yet; a base-currency document has no rate to differ from.
+      return doc && isForeignCurrency(baseCurrency, doc.currency) && !(input.type === 'sent' && a.invoiceId)
+        ? [{ doc, amount: a.amount }]
+        : [];
+    }),
+  });
 
   // Checks and cash on a US entity wait in Undeposited Funds instead of the bank.
   const undepositedFunds = accountForRole(await loadEntityAccounts(db, input.entityId), 'undeposited_funds');
@@ -301,114 +347,118 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
   const single = allocations.length === 1 ? allocations[0] : undefined;
   const fullyAllocated = allocations.length > 0 && Math.abs(allocatedTotal - input.amount) < 0.005;
 
-  const posted = await postJournalEntry(db, {
-    entityId: input.entityId,
-    date: input.date,
-    description: `${input.type === 'received' ? 'Payment received' : 'Payment sent'}${input.reference ? ` ${input.reference}` : ''}`,
-    reference: input.reference ?? null,
-    sourceType: 'payment',
-    sourceId: paymentId,
-    postingKey: `payment:${paymentId}`,
-    lockKind: 'general',
-    lines,
-    createdBy: input.userId,
-    alsoWrite: (h, entry) => {
-      const statements: unknown[] = [
-        h.insert(schema.payments).values({
-          id: paymentId,
-          entityId: input.entityId,
-          type: input.type,
-          amount: input.amount.toFixed(2),
-          currency,
-          exchangeRate,
-          date: input.date,
-          paymentMethod,
-          checkNumber: input.checkNumber ?? null,
-          checkStatus,
-          checkPrintedAt: checkStatus === 'printed' ? now : null,
-          reference: input.reference ?? null,
-          invoiceId: single?.invoiceId ?? null,
-          billId: single?.billId ?? null,
-          contactId,
-          counterpartyId: contactId,
-          bankAccountId: input.bankAccountId ?? null,
-          bankTransactionId: input.bankTransactionId ?? null,
-          paymentRunId: input.paymentRunId ?? null,
-          backupWithholdingAmount: withheld > 0 ? withheld.toFixed(2) : null,
-          journalEntryId: entry.journalEntryId,
-          notes: input.notes ?? null,
-          isPartial: !fullyAllocated,
-          createdBy: input.userId,
-          createdAt: now,
-          updatedAt: now,
-        }),
-      ];
-      if (allocations.length > 0) {
-        statements.push(
-          h.insert(schema.paymentAllocations).values(
-            allocations.map((a) => ({
-              id: generateId('pal'),
-              entityId: input.entityId,
-              paymentId,
-              invoiceId: a.invoiceId ?? null,
-              billId: a.billId ?? null,
-              amount: a.amount.toFixed(2),
-              createdAt: now,
-              updatedAt: now,
-            })),
-          ),
-        );
-      }
-      for (const a of allocations) {
-        if (a.invoiceId) {
+  // Written-off invoices: reinstate the receivable (and the bad debt VAT relief) so the payment can settle it.
+  const recoveries = new Map<string, string>();
+  for (const a of allocations) {
+    const doc = a.invoiceId ? docs.get(a.invoiceId) : undefined;
+    if (!a.invoiceId || !doc || doc.status !== 'uncollectible') continue;
+    const [invoiceRow] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, a.invoiceId)).limit(1);
+    const recovery = await postBadDebtRecovery(db, invoiceRow, { amount: a.amount, paymentId, date: input.date, userId: input.userId });
+    if (recovery.journalEntryId) recoveries.set(a.invoiceId, recovery.journalEntryId);
+  }
+
+  let posted: Awaited<ReturnType<typeof postJournalEntry>>;
+  try {
+    posted = await postJournalEntry(db, {
+      entityId: input.entityId,
+      date: input.date,
+      description: `${input.type === 'received' ? 'Payment received' : 'Payment sent'}${input.reference ? ` ${input.reference}` : ''}`,
+      reference: input.reference ?? null,
+      sourceType: 'payment',
+      sourceId: paymentId,
+      postingKey: `payment:${paymentId}`,
+      lockKind: 'general',
+      lines,
+      createdBy: input.userId,
+      alsoWrite: (h, entry) => {
+        const statements: unknown[] = [
+          h.insert(schema.payments).values({
+            id: paymentId,
+            entityId: input.entityId,
+            type: input.type,
+            amount: input.amount.toFixed(2),
+            currency,
+            exchangeRate,
+            date: input.date,
+            paymentMethod,
+            checkNumber: input.checkNumber ?? null,
+            checkStatus,
+            checkPrintedAt: checkStatus === 'printed' ? now : null,
+            reference: input.reference ?? null,
+            invoiceId: single?.invoiceId ?? null,
+            billId: single?.billId ?? null,
+            contactId,
+            counterpartyId: contactId,
+            bankAccountId: input.bankAccountId ?? null,
+            bankTransactionId: input.bankTransactionId ?? null,
+            paymentRunId: input.paymentRunId ?? null,
+            backupWithholdingAmount: withheld > 0 ? withheld.toFixed(2) : null,
+            journalEntryId: entry.journalEntryId,
+            notes: input.notes ?? null,
+            isPartial: !fullyAllocated,
+            createdBy: input.userId,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        ];
+        if (allocations.length > 0) {
           statements.push(
-            h.update(schema.invoices).set(settlementSet(schema.invoices, a.amount, 'sent')).where(eq(schema.invoices.id, a.invoiceId)),
-          );
-        } else if (a.billId) {
-          statements.push(
-            h.update(schema.bills).set(settlementSet(schema.bills, a.amount, 'approved')).where(eq(schema.bills.id, a.billId)),
+            h.insert(schema.paymentAllocations).values(
+              allocations.map((a) => ({
+                id: generateId('pal'),
+                entityId: input.entityId,
+                paymentId,
+                invoiceId: a.invoiceId ?? null,
+                billId: a.billId ?? null,
+                amount: a.amount.toFixed(2),
+                createdAt: now,
+                updatedAt: now,
+              })),
+            ),
           );
         }
-      }
-      if (input.bankTransactionId) {
-        statements.push(
-          h
-            .update(schema.bankTransactions)
-            .set({
-              status: 'reconciled',
-              reconciliationType: input.reconciliationType ?? 'manual',
-              reconciledPaymentId: paymentId,
-              reconciledInvoiceId: single?.invoiceId ?? null,
-              reconciledBillId: single?.billId ?? null,
-              journalEntryId: entry.journalEntryId,
-              contactId,
-              updatedAt: now,
-            })
-            .where(eq(schema.bankTransactions.id, input.bankTransactionId)),
-        );
-      }
-      return statements;
-    },
-  });
-
-  for (const a of allocations) {
-    const doc = docs.get(a.invoiceId ?? a.billId ?? '');
-    // A refund of a foreign-currency credit note books no FX difference yet.
-    if (doc && !(input.type === 'sent' && a.invoiceId)) {
-      await postFxDifference(db, {
-        entityId: input.entityId,
-        paymentId,
-        documentId: doc.id,
-        type: input.type,
-        amountForeign: a.amount,
-        paymentRate: exchangeRate,
-        documentRate: doc.exchangeRate ?? '1',
-        date: input.date,
-        contactId: doc.contactId,
-        userId: input.userId,
+        for (const a of allocations) {
+          if (a.invoiceId) {
+            statements.push(
+              h.update(schema.invoices).set(recoveries.has(a.invoiceId) ? writtenOffSettlementSet(a.amount) : settlementSet(schema.invoices, a.amount, 'sent')).where(eq(schema.invoices.id, a.invoiceId)),
+            );
+          } else if (a.billId) {
+            statements.push(
+              h.update(schema.bills).set(settlementSet(schema.bills, a.amount, 'approved')).where(eq(schema.bills.id, a.billId)),
+            );
+          }
+        }
+        if (input.bankTransactionId) {
+          statements.push(
+            h
+              .update(schema.bankTransactions)
+              .set({
+                status: 'reconciled',
+                reconciliationType: input.reconciliationType ?? 'manual',
+                reconciledPaymentId: paymentId,
+                reconciledInvoiceId: single?.invoiceId ?? null,
+                reconciledBillId: single?.billId ?? null,
+                journalEntryId: entry.journalEntryId,
+                contactId,
+                updatedAt: now,
+              })
+              .where(eq(schema.bankTransactions.id, input.bankTransactionId)),
+          );
+        }
+        return statements;
+      },
+    });
+  } catch (err) {
+    // The payment did not post: take the reinstated receivable back so a retry does not reinstate it twice.
+    for (const entryId of recoveries.values()) {
+      await reverseJournalEntry(db, { entryId, date: input.date, createdBy: input.userId, description: `Undo write-off recovery of failed payment ${paymentId}` }).catch((undoErr) => {
+        console.error('[payments] could not undo write-off recovery:', undoErr);
       });
     }
+    throw err;
   }
+
+  await postFxDifferences(db, { entityId: input.entityId, paymentId, plan: fxPlan, date: input.date, userId: input.userId });
 
   return {
     paymentId,
@@ -423,51 +473,111 @@ export async function recordPayment(db: Database, input: RecordPaymentInput): Pr
 }
 
 /**
- * Post the realized FX gain or loss when a foreign-currency document is paid
- * at a different rate than it was booked at. No-op without a difference or
- * without FX accounts in the chart.
+ * Realised FX gain or loss on one document of a payment: the document was
+ * booked at its own rate, the payment settles it at the rate of the payment
+ * date. `delta` is what the payment is worth in base currency minus what the
+ * document carried (positive: more base currency).
  */
-async function postFxDifference(
+export interface FxDifference {
+  documentId: string;
+  contactId: string;
+  delta: number;
+  gain: boolean;
+  fxAccountId: string;
+  settlementAccountId: string;
+}
+
+/**
+ * The FX gain / loss account: the chart's realized_fx_gain / realized_fx_loss
+ * role (NL, IN, US charts), the NL template code for older entities, else the
+ * first other-income / other-expense account.
+ */
+function findFxAccount(accounts: EntityAccounts, gain: boolean) {
+  return (
+    accountForRole(accounts, gain ? 'realized_fx_gain' : 'realized_fx_loss', gain ? ['8400'] : ['4950']) ??
+    accounts.bySubtype(gain ? 'other_income' : 'other_expense')
+  );
+}
+
+/**
+ * The FX differences of a payment, with their accounts, worked out before the
+ * payment is posted so a chart without a gain / loss account refuses the
+ * payment instead of leaving the receivable or payable off by the difference.
+ * Money received that is worth more base currency than the invoice carried is
+ * a gain; money paid that costs more than the bill carried is a loss.
+ */
+export async function planFxDifferences(
   db: Database,
   args: {
     entityId: string;
-    paymentId: string;
-    documentId: string;
     type: 'received' | 'sent';
-    amountForeign: number;
     paymentRate: string;
-    documentRate: string;
-    date: Date;
-    contactId: string;
-    userId: string | null;
+    allocations: Array<{ doc: Pick<DocumentRow, 'id' | 'contactId' | 'exchangeRate'>; amount: number }>;
   },
-): Promise<void> {
-  const paymentRate = Number.parseFloat(args.paymentRate);
-  const documentRate = Number.parseFloat(args.documentRate);
-  if (!paymentRate || !documentRate || paymentRate === documentRate) return;
-  const delta = calculateFxGainLoss(args.amountForeign, paymentRate, documentRate);
-  if (Math.abs(delta) < 0.01) return;
+): Promise<FxDifference[]> {
+  const paymentRate = parseRate(args.paymentRate);
+  if (!paymentRate) return [];
+  const differences: Array<Omit<FxDifference, 'gain' | 'fxAccountId' | 'settlementAccountId'>> = [];
+  for (const { doc, amount } of args.allocations) {
+    const documentRate = parseRate(doc.exchangeRate);
+    if (!documentRate || documentRate === paymentRate) continue;
+    const delta = calculateFxGainLoss(amount, paymentRate, documentRate);
+    if (Math.abs(delta) >= 0.01) differences.push({ documentId: doc.id, contactId: doc.contactId, delta });
+  }
+  if (differences.length === 0) return [];
 
   const accounts = await loadEntityAccounts(db, args.entityId);
-  const isGain = delta > 0;
-  const fxAccount = accountForRole(accounts, isGain ? 'realized_fx_gain' : 'realized_fx_loss');
-  const settlement = accountForRole(accounts, args.type === 'received' ? 'accounts_receivable' : 'accounts_payable');
-  if (!fxAccount || !settlement) return;
+  const settlement =
+    args.type === 'received'
+      ? accountForRole(accounts, 'accounts_receivable', ['1300'])
+      : accountForRole(accounts, 'accounts_payable', ['1600']);
+  if (!settlement) {
+    throw new PostingError(
+      `No accounts ${args.type === 'received' ? 'receivable' : 'payable'} account found for this entity.`,
+    );
+  }
+  return differences.map((d) => {
+    const gain = args.type === 'received' ? d.delta > 0 : d.delta < 0;
+    const fxAccount = findFxAccount(accounts, gain);
+    if (!fxAccount) {
+      throw new PostingError(
+        `This payment settles a foreign-currency document at another rate than it was booked at, but the chart of accounts has no exchange ${gain ? 'gain' : 'loss'} account. Add an account with the role ${gain ? 'realized_fx_gain' : 'realized_fx_loss'} first.`,
+      );
+    }
+    return { ...d, gain, fxAccountId: fxAccount.id, settlementAccountId: settlement.id };
+  });
+}
 
-  const amount = Math.abs(delta);
+/**
+ * Post the realised FX differences of a payment as one entry (so voiding the
+ * payment reverses them in one go): a gain debits the receivable / payable
+ * that the payment over-settled and credits the gain account, a loss the other
+ * way round.
+ */
+async function postFxDifferences(
+  db: Database,
+  args: { entityId: string; paymentId: string; plan: FxDifference[]; date: Date; userId: string | null },
+): Promise<void> {
+  if (args.plan.length === 0) return;
+  const lines = args.plan.flatMap((d) => {
+    const amount = Math.abs(d.delta);
+    const description = `FX ${d.gain ? 'gain' : 'loss'} adjustment`;
+    return [
+      { accountId: d.gain ? d.settlementAccountId : d.fxAccountId, debit: amount, contactId: d.contactId, description },
+      { accountId: d.gain ? d.fxAccountId : d.settlementAccountId, credit: amount, contactId: d.contactId, description },
+    ];
+  });
+  const net = args.plan.reduce((sum, d) => sum + (d.gain ? d.delta : -d.delta), 0);
   await postJournalEntry(db, {
     entityId: args.entityId,
     date: args.date,
-    description: `FX ${isGain ? 'gain' : 'loss'} on payment ${args.paymentId}`,
+    description: `FX ${net >= 0 ? 'gain' : 'loss'} on payment ${args.paymentId}`,
     sourceType: 'payment_fx_adjustment',
     sourceId: args.paymentId,
-    postingKey: `payment:${args.paymentId}:fx:${args.documentId}`,
+    postingKey: `payment:${args.paymentId}:fx`,
     lockKind: 'general',
     createdBy: args.userId,
-    lines: [
-      { accountId: isGain ? settlement.id : fxAccount.id, debit: amount, contactId: args.contactId, description: `FX ${isGain ? 'gain' : 'loss'} adjustment` },
-      { accountId: isGain ? fxAccount.id : settlement.id, credit: amount, contactId: args.contactId, description: `FX ${isGain ? 'gain' : 'loss'} adjustment` },
-    ],
+    lines,
     alsoWrite: (h, entry) => [
       h
         .update(schema.payments)
@@ -510,6 +620,12 @@ export async function voidPayment(
         : [];
 
   const now = opts.date ?? new Date();
+  // Invoices this payment took out of a write-off: their recovery is reversed too, and they go back to 'uncollectible'.
+  const recoveryEntries = await findRecoveryEntries(
+    db,
+    paymentId,
+    allocations.flatMap((a) => (a.invoiceId ? [a.invoiceId] : [])),
+  );
   const undo = (h: Database): unknown[] => {
     const statements: unknown[] = [
       h.update(schema.payments).set({ deletedAt: now, updatedAt: now }).where(eq(schema.payments.id, paymentId)),
@@ -521,7 +637,7 @@ export async function voidPayment(
     for (const a of allocations) {
       if (a.invoiceId) {
         statements.push(
-          h.update(schema.invoices).set(settlementSet(schema.invoices, -a.amount, 'sent')).where(eq(schema.invoices.id, a.invoiceId)),
+          h.update(schema.invoices).set(recoveryEntries.has(a.invoiceId) ? writtenOffSettlementSet(-a.amount) : settlementSet(schema.invoices, -a.amount, 'sent')).where(eq(schema.invoices.id, a.invoiceId)),
         );
       } else if (a.billId) {
         statements.push(
@@ -552,6 +668,15 @@ export async function voidPayment(
     );
     return statements;
   };
+
+  for (const entryId of recoveryEntries.values()) {
+    await reverseJournalEntry(db, {
+      entryId,
+      date: now,
+      createdBy: opts.userId,
+      description: `Void write-off recovery of payment ${paymentId}`,
+    });
+  }
 
   if (payment.exchangeDifferenceEntryId) {
     await reverseJournalEntry(db, {

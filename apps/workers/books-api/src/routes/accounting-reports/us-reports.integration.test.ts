@@ -26,7 +26,7 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { authGateStatuses } from '@weldsuite/worker-kit/testing/sweeps';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -472,22 +472,84 @@ describe('comparative and split columns', () => {
     expect(res.data.revenue[0].values).toMatchObject({ total: expect.any(String) });
   });
 
-  it('cash flow keeps { period, monthly, totals } and compares', async () => {
-    await db.insert(schema.bankAccounts).values({ id: 'ba_cf', entityId: llc.id, name: 'Checking', currency: 'USD', ledgerAccountId: llc.acct['1000'] });
+  it('cash flow is built from the ledger, not from imported bank statement lines', async () => {
+    await db.insert(schema.bankAccounts).values({ id: 'ba_cf', entityId: cmp.id, name: 'Checking', currency: 'USD', ledgerAccountId: cmp.acct['1000'] });
+    // Statement lines that do not match the books must not change the report.
     await db.insert(schema.bankTransactions).values([
-      { id: 'bt_cf1', entityId: llc.id, bankAccountId: 'ba_cf', date: new Date('2026-07-15'), amount: '1080.00', status: 'unreconciled', description: 'Northwind' },
-      { id: 'bt_cf2', entityId: llc.id, bankAccountId: 'ba_cf', date: new Date('2026-07-18'), amount: '-300.00', status: 'unreconciled', description: 'Contoso' },
-      { id: 'bt_cf3', entityId: llc.id, bankAccountId: 'ba_cf', date: new Date('2026-06-02'), amount: '-100.00', status: 'unreconciled', description: 'Power' },
+      { id: 'bt_cf1', entityId: cmp.id, bankAccountId: 'ba_cf', date: new Date('2026-07-15'), amount: '9999.00', status: 'unreconciled', description: 'Northwind' },
+      { id: 'bt_cf3', entityId: cmp.id, bankAccountId: 'ba_cf', date: new Date('2026-06-02'), amount: '-5.00', status: 'unreconciled', description: 'Power' },
     ]);
-    const res = await report(llc.id, '/cash-flow?from=2026-07-01&to=2026-07-31&compare=prior_period');
+    // Gamma's checking account: +1,000 income Jul 5, -120 utilities Jul 22, -100 Jun 10, -90 Jul 2025.
+    const res = await report(cmp.id, '/cash-flow?from=2026-07-01&to=2026-07-31&compare=prior_period');
     expect(res.status).toBe(200);
     expect(res.data.period).toEqual({ from: '2026-07-01', to: '2026-07-31' });
-    expect(res.data.monthly).toEqual([{ month: '2026-07', inflows: '1080.00', outflows: '-300.00', net: '780.00' }]);
-    expect(res.data.totals).toEqual({ inflows: '1080.00', outflows: '-300.00', net: '780.00' });
+    expect(res.data.openingBalance).toBe('-190.00');
+    expect(res.data.closingBalance).toBe('690.00');
+    // Outflows are positive amounts of money that left.
+    expect(res.data.monthly).toEqual([{ month: '2026-07', inflows: '1000.00', outflows: '120.00', net: '880.00' }]);
+    expect(res.data.totals).toEqual({ inflows: '1000.00', outflows: '120.00', net: '880.00' });
+    expect(Number(res.data.openingBalance) + Number(res.data.totals.net)).toBeCloseTo(Number(res.data.closingBalance), 2);
+
+    // The closing balance is the balance sheet's bank line on the same day.
+    const sheet = await report(cmp.id, '/balance-sheet?asOf=2026-07-31');
+    expect(res.data.closingBalance).toBe(row(sheet.data.assets, '1000').balance);
+
+    const categories = Object.fromEntries(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      res.data.activities.flatMap((a: any) => a.categories.map((c: any) => [c.category, c])),
+    );
+    expect(categories.customer_receipts).toMatchObject({ inflows: '1000.00', outflows: '0.00' });
+    expect(categories.operating_expenses).toMatchObject({ inflows: '0.00', outflows: '120.00' });
+    expect(res.data.activities.map((a: { activity: string }) => a.activity)).toEqual(['operating', 'investing', 'financing']);
+    expect(res.data.activities[0]).toMatchObject({ inflows: '1000.00', outflows: '120.00', net: '880.00' });
+    expect(res.data.cashAccounts.find((a: { accountCode: string }) => a.accountCode === '1000')).toMatchObject({ openingBalance: '-190.00', closingBalance: '690.00', net: '880.00' });
+
     expect(res.data.comparison.mode).toBe('prior_period');
-    expect(res.data.comparison.totals).toEqual({ inflows: '0.00', outflows: '-100.00', net: '-100.00' });
-    expect(res.data.comparison.delta.net).toEqual({ amount: '880.00', percent: 880 });
+    expect(res.data.comparison.totals).toEqual({ inflows: '0.00', outflows: '100.00', net: '-100.00' });
+    expect(res.data.comparison.delta.net).toEqual({ amount: '980.00', percent: 980 });
     expect(res.data).not.toHaveProperty('months');
+  });
+
+  it('cash flow of the US month: a bill paid by check shows as a supplier payment, receipts held as undeposited funds are not cash yet', async () => {
+    const res = await report(llc.id, '/cash-flow?from=2026-07-01&to=2026-07-31');
+    expect(res.data.totals).toEqual({ inflows: '0.00', outflows: '420.00', net: '-420.00' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const category = (name: string) => res.data.activities.flatMap((a: any) => a.categories).find((c: any) => c.category === name);
+    expect(category('supplier_payments')).toMatchObject({ inflows: '0.00', outflows: '300.00' });
+    expect(category('operating_expenses')).toMatchObject({ inflows: '0.00', outflows: '120.00' });
+    expect(res.data.closingBalance).toBe(row((await report(llc.id, '/balance-sheet?asOf=2026-07-31')).data.assets, '1000').balance);
+  });
+
+  it('cash flow keeps an opening balance, groups investing and financing, and ignores moves between own cash accounts', async () => {
+    const created = await call('/api/accounting-entities', accountingEntitiesRoutes, '/api/accounting-entities', {
+      method: 'POST',
+      body: { name: 'Delta Holdings LLC', jurisdictionCode: 'US', entityType: 'single_member_llc', address: texas },
+    });
+    const acct = await accountsByCode(created.data.id);
+    const id = created.data.id as string;
+    await manualEntry(id, '2026-06-02', '1000', '3900', '500.00', acct); // owner's contribution: financing, before the period
+    await manualEntry(id, '2026-07-05', '1010', '1000', '200.00', acct); // checking to savings: not a cash flow
+    await manualEntry(id, '2026-07-09', '6195', '1000', '30.00', acct);
+    await manualEntry(id, '2026-07-12', '1530', '1000', '100.00', acct); // equipment: investing
+
+    const res = await report(id, '/cash-flow?from=2026-07-01&to=2026-07-31');
+    expect(res.data.openingBalance).toBe('500.00');
+    expect(res.data.totals).toEqual({ inflows: '0.00', outflows: '130.00', net: '-130.00' });
+    expect(res.data.closingBalance).toBe('370.00');
+    expect(res.data.activities.map((a: { activity: string; outflows: string }) => [a.activity, a.outflows])).toEqual([
+      ['operating', '30.00'],
+      ['investing', '100.00'],
+      ['financing', '0.00'],
+    ]);
+    const june = await report(id, '/cash-flow?from=2026-06-01&to=2026-06-30');
+    expect(june.data.activities[2]).toMatchObject({ activity: 'financing', inflows: '500.00', net: '500.00' });
+
+    const sheet = await report(id, '/balance-sheet?asOf=2026-07-31');
+    const cash = ['1000', '1010', '1020'].reduce((total, code) => total + Number(row(sheet.data.assets, code)?.balance ?? 0), 0);
+    expect(Number(res.data.closingBalance)).toBeCloseTo(cash, 2);
+
+    const csv = await report(id, '/cash-flow?from=2026-07-01&to=2026-07-31&format=csv');
+    expect(csv.text).toContain('Closing cash balance');
   });
 });
 
@@ -801,7 +863,7 @@ describe('dimensions', () => {
 describe('a voided payment', () => {
   it('never happened on cash basis', async () => {
     const before = await report(sCorp.id, '/profit-loss?from=2026-07-01&to=2026-07-31&basis=cash');
-    const invoiceC = (await db.select().from(schema.invoices).where(and(eq(schema.invoices.entityId, sCorp.id), eq(schema.invoices.status, 'sent'))))[0];
+    const invoiceC = (await db.select().from(schema.invoices).where(and(eq(schema.invoices.entityId, sCorp.id), inArray(schema.invoices.status, ['sent', 'finalized']))))[0];
     const paid = await post('/api/payments', paymentsRoutes, sCorp.id, '', {
       type: 'received',
       amount: '100.00',
@@ -830,7 +892,7 @@ describe('rounding and payments across invoices', () => {
   beforeAll(async () => {
     const created = await call('/api/accounting-entities', accountingEntitiesRoutes, '/api/accounting-entities', {
       method: 'POST',
-      body: { name: 'Odd Cents Co', jurisdictionCode: 'US', entityType: 'sole_proprietorship', accountingMethod: 'cash' },
+      body: { name: 'Odd Cents Co', jurisdictionCode: 'US', entityType: 'sole_proprietorship', accountingMethod: 'cash', address: texas },
     });
     id = created.data.id;
     acct = await accountsByCode(id);
@@ -905,5 +967,54 @@ describe('rounding and payments across invoices', () => {
     expect(pl.data.totalRevenue).toBe('300.00');
     const bs = await report(id, '/balance-sheet?asOf=2026-08-10&basis=cash');
     expect(bs.data).toMatchObject({ totalAssets: '408.25', isBalanced: true });
+  });
+});
+
+describe('tax return worksheet: Schedule L retained earnings', () => {
+  const address = { line1: '1 Congress Ave', city: 'Austin', state: 'TX', postalCode: '78701' };
+  let corp: { id: string; acct: Record<string, string> };
+
+  beforeAll(async () => {
+    const created = await call('/api/accounting-entities', accountingEntitiesRoutes, '/api/accounting-entities', {
+      method: 'POST',
+      body: { name: 'Delta Corp', jurisdictionCode: 'US', entityType: 'c_corp', address, taxIdentifiers: { einOrSsn: '98-7654321' } },
+    });
+    const acct = await accountsByCode(created.data.id);
+    corp = { id: created.data.id, acct };
+    // Stock issued for cash, then a loss for the year: no closing entry moves the loss into equity.
+    await manualEntry(corp.id, '2026-01-05', '1000', '3000', '5000.00', acct);
+    await manualEntry(corp.id, '2026-03-10', '6195', '1000', '1050.03', acct);
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const linesOf = (data: any) => Object.fromEntries(data.sections.flatMap((s: any) => s.lines.map((l: any) => [l.code, l])));
+
+  it('line 25 carries the result of the year, so Schedule L balances', async () => {
+    const res = await report(corp.id, '/tax-worksheet?year=2026&basis=accrual');
+    expect(res.status).toBe(200);
+    expect(res.data.form).toBe('f1120');
+    const lines = linesOf(res.data);
+    expect(res.data.summary.netIncomePerBooks).toBe('-1050.03');
+
+    expect(lines['f1120.l22']).toMatchObject({ amount: '5000.00' });
+    expect(lines['f1120.l25']).toMatchObject({ amount: '-1050.03', beginningAmount: '0.00' });
+    expect(lines['f1120.l25'].accounts).toEqual([
+      expect.objectContaining({ accountId: 'calculated_net_income', amount: '-1050.03', beginningAmount: '0.00' }),
+    ]);
+
+    // Assets equal liabilities plus equity at the end of the year.
+    expect(Number(lines['f1120.l1'].amount)).toBeCloseTo(Number(lines['f1120.l22'].amount) + Number(lines['f1120.l25'].amount), 2);
+  });
+
+  it('the next year starts from the earlier result', async () => {
+    const res = await report(corp.id, '/tax-worksheet?year=2027&basis=accrual');
+    const line = linesOf(res.data)['f1120.l25'];
+    expect(line).toMatchObject({ amount: '-1050.03', beginningAmount: '-1050.03' });
+  });
+
+  it('is left alone on a return that has no balance sheet', async () => {
+    const res = await report(llc.id, '/tax-worksheet?year=2026&basis=cash');
+    const all = JSON.stringify(res.data);
+    expect(all).not.toContain('calculated_net_income');
   });
 });

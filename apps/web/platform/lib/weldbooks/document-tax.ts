@@ -58,6 +58,8 @@ export interface TaxPreviewInput {
   deliveryAddress?: PostalAddress | null;
   marketplaceFacilitated?: boolean;
   originalInvoiceId?: string | null;
+  /** India GST: the place of supply the user chose ('' = derive it from the customer). */
+  placeOfSupply?: string | null;
   lines: TaxFormLine[];
 }
 
@@ -146,6 +148,7 @@ export function buildTaxPreviewRequest(input: TaxPreviewInput): TaxPreviewReques
     shippingAddress: cleanPostalAddress(input.shippingAddress) ?? null,
     items: input.lines.map((line) => previewItem(line, input.kind, input.salesTax)),
   };
+  if (input.placeOfSupply) request.placeOfSupply = input.placeOfSupply;
 
   if (input.salesTax) {
     if (input.kind === 'bill') {

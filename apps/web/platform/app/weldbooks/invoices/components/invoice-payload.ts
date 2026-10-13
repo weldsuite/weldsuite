@@ -8,6 +8,7 @@ import {
   salesTaxLinePayload,
   type SalesTaxLineValues,
 } from '@/lib/weldbooks/document-tax-form';
+import { exchangeRatePayload } from '@/lib/weldbooks/currencies';
 import { invoiceAddressPayload } from './invoice-address-section';
 
 /** A line of the invoice form (or its quick-create dialog). */
@@ -19,6 +20,8 @@ export interface InvoiceLineValues extends Partial<SalesTaxLineValues> {
   taxRateId?: string | null;
   accountId?: string | null;
   unit?: string;
+  /** India GST: HSN or SAC code. */
+  hsnSac?: string;
 }
 
 /** What the invoice form holds; the dialog leaves the optional parts out. */
@@ -29,12 +32,18 @@ export interface InvoiceFormShape {
   reference?: string;
   notes?: string;
   internalNotes?: string;
+  /** ISO 4217 code; empty = `options.currency`. */
+  currency?: string;
+  /** Typed exchange rate (foreign units per base unit); empty = the rate of the issue date. */
+  exchangeRate?: string;
   billingAddress: PostalAddress;
   shipToDifferent: boolean;
   shippingAddress: PostalAddress;
   shipFromDifferent?: boolean;
   shipFromAddress?: PostalAddress;
   marketplaceFacilitated?: boolean;
+  /** India GST: two-digit state code ('' = derive it from the customer). */
+  placeOfSupply?: string;
   items: InvoiceLineValues[];
 }
 
@@ -44,6 +53,10 @@ export interface InvoicePayloadOptions {
   /** The entity charges sales tax (a US entity): lines carry their tax code, use, inclusion and override. */
   salesTax: boolean;
   currency?: string | null;
+  /** The user emptied an exchange rate the invoice held: look it up again. */
+  resetExchangeRate?: boolean;
+  /** The entity charges India GST: lines carry their HSN/SAC and the invoice its place of supply. */
+  gst?: boolean;
 }
 
 /**
@@ -72,6 +85,7 @@ export function buildInvoicePayload(values: InvoiceFormShape, options: InvoicePa
       accountId: item.accountId || undefined,
       unit: item.unit || undefined,
       discountPercent: amountOrUndefined(item.discountPercent),
+      ...(options.gst ? { hsnSac: item.hsnSac?.trim() || null } : {}),
       ...(salesTax ? salesTaxLinePayload(item) : {}),
       ...dimensionPayload(item),
       // A credit memo line says which invoice line it credits, so the tax is reversed per line.
@@ -84,6 +98,10 @@ export function buildInvoicePayload(values: InvoiceFormShape, options: InvoicePa
     payload.shipFromAddress = shipFrom ?? (mode === 'edit' ? null : undefined);
     payload.marketplaceFacilitated = Boolean(values.marketplaceFacilitated);
   }
-  if (options.currency) payload.currency = options.currency;
+  // An empty place of supply is "derive it from the customer": on edit it is sent as null so a stored one is dropped.
+  if (options.gst) payload.placeOfSupply = values.placeOfSupply || (mode === 'edit' ? null : undefined);
+  const currency = values.currency || options.currency;
+  if (currency) payload.currency = currency;
+  Object.assign(payload, exchangeRatePayload(values.exchangeRate, options.resetExchangeRate));
   return payload;
 }

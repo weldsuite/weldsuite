@@ -25,6 +25,7 @@ import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards'
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { loadSalesTaxContext } from '@weldsuite/books-domain/sales-tax/load';
 import { calculateDocumentTax, TaxCalculationError } from '../../services/accounting-tax-resolve';
+import { resolveGstBillSupply, resolveGstSupply } from '../../services/accounting-gst';
 import { SalesTaxDocumentError, SalesTaxSetupError, salesTaxErrorResponse } from '../../services/sales-tax/errors';
 import { hasEncryptionKey, salesTaxRuntimeFromEnv, sealEngineCredentials } from '../../services/sales-tax/runtime';
 import { requireEntityId, requireSalesTaxEntity } from '../../services/sales-tax/route-helpers';
@@ -282,6 +283,8 @@ const previewSchema = z.object({
   deliveryAddress: addressSchema.nullish(),
   marketplaceFacilitated: z.boolean().nullish(),
   originalInvoiceId: z.string().max(30).nullish(),
+  /** India GST: two-digit state code of the place of supply the user chose (96 = outside India). */
+  placeOfSupply: z.string().regex(/^\d{2}$/).nullish(),
   items: z.array(previewItemSchema).min(1).max(500),
 });
 
@@ -300,12 +303,19 @@ app.post(
       const shipping = normalizePostalAddress(data.shippingAddress);
       const items = data.items.map((item, index) => ({ ...item, id: item.id ?? `line_${index}` }));
 
+      // India GST: the place of supply (chosen, else the buyer's GSTIN or address state) splits CGST + SGST from IGST.
+      const gst =
+        direction === 'sales'
+          ? await resolveGstSupply(db, { entityId, contactId: data.contactId, placeOfSupply: data.placeOfSupply, shippingAddress: shipping, billingAddress: billing })
+          : await resolveGstBillSupply(db, { entityId, contactId: data.contactId, vendorAddress: billing });
+
       const calc = await calculateDocumentTax(db, {
         entityId,
         direction,
         items,
         buyerCountry: (shipping ?? billing)?.country,
         billingProvince: (shipping ?? billing)?.state,
+        ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry, buyerGstin: gst.buyerGstin ?? undefined } : {}),
         runtime: salesTaxRuntimeFromEnv(c.env),
         document: {
           kind: data.kind,
@@ -368,6 +378,8 @@ app.post(
         })),
         jurisdictions: [...byJurisdiction.values()],
         taxBreakdown: calc.taxBreakdown,
+        /** India GST: the place of supply the split was calculated for (null: unknown, the slab is not split). */
+        placeOfSupply: gst?.placeOfSupply ?? null,
       });
     } catch (err) {
       const handled = salesTaxErrorResponse(c, err);

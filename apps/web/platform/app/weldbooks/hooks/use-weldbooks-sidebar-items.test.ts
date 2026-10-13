@@ -85,6 +85,20 @@ describe('useWeldbooksSidebarItems', () => {
     expect(hrefs(groups)).toEqual(['/weldbooks/bills', '/weldbooks/journal', '/weldbooks/vat', '/weldbooks/fixed-assets', '/weldbooks/suppliers']);
   });
 
+  it('shows the tax return, labelled GST Returns, for an Indian entity', () => {
+    jurisdiction = {
+      features: { ...NO_JURISDICTION_FEATURES, gstReturn: true },
+      terminology: { ...DEFAULT_TERMINOLOGY, tax: 'gst', taxId: 'gstin', registrationId: 'pan' },
+      isResolved: true,
+      isError: false,
+    };
+    const groups = adjust();
+    expect(hrefs(groups)).toContain('/weldbooks/vat');
+    expect(hrefs(groups)).not.toContain('/weldbooks/sales-tax');
+    const tax = groups.flatMap((g) => g.items).find((i) => i.href === '/weldbooks/vat');
+    expect(tax?.title).toBe('GST Returns');
+  });
+
   it('keeps gated items hidden when the jurisdictions fail to load', () => {
     jurisdiction = { features: NO_JURISDICTION_FEATURES, terminology: DEFAULT_TERMINOLOGY, isResolved: false, isError: true };
     expect(hrefs(adjust())).not.toContain('/weldbooks/sales-tax');

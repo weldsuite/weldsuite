@@ -10,7 +10,16 @@ import { nlTaxCategories } from './tax-categories';
 import { getNlInvoiceRequirements } from './invoice-format';
 import { buildNlBtwReturn } from './btw-return';
 
-export { computeNlRubrieken } from './btw-return';
+export {
+  computeNlRubrieken,
+  emptyRubrieken,
+  normalizeVatRubrieken,
+  recomputeRubriekTotals,
+  resolveNlRubriek,
+} from './btw-return';
+export { nlTaxonomyForPeriod, nlTaxonomyUris, NL_TAXONOMY_VERSIONS } from './taxonomy';
+export type { NlTaxonomyUris, NlTaxonomyVersion } from './taxonomy';
+export { NL_EU_SERVICES_RATE_NAME, NL_ICL_GOODS_RATE_NAME, NL_LEGACY_EU_RATE_NAME, nlTaxCategories } from './tax-categories';
 
 const EU_COUNTRIES = new Set([
   'AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI',
@@ -57,6 +66,8 @@ export const nlAdapter: JurisdictionAdapter = {
     creditNote: 'credit_note',
   },
   purchaseTax: 'recoverable',
+  // Art. 29 Wet OB: the VAT of an uncollectible invoice is recovered through the return.
+  badDebtVatRelief: true,
 
   getChartOfAccountsTemplate() {
     return nlChartOfAccounts;
@@ -100,10 +111,17 @@ export const nlAdapter: JurisdictionAdapter = {
 
     if (EU_COUNTRIES.has(buyer)) {
       if (ctx.isB2B && ctx.buyerVatNumber) {
+        if (ctx.productType === 'goods') {
+          return {
+            taxCategoryCode: 'eu_b2b_goods',
+            rate: '0.00',
+            reasoning: 'EU B2B goods with valid VAT number — intracommunautaire levering, 0% (art. 138 VAT Directive)',
+          };
+        }
         return {
           taxCategoryCode: 'eu_b2b_service',
           rate: '0.00',
-          reasoning: 'EU B2B with valid VAT number — reverse charge applies',
+          reasoning: 'EU B2B services with valid VAT number — reverse charge applies',
         };
       }
       return {

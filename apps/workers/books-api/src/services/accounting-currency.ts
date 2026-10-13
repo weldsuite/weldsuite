@@ -136,6 +136,102 @@ async function lookupHistoricalRate(
   return Number(toRow[0].rate) / Number(fromRow[0].rate);
 }
 
+/**
+ * Latest stored rate on or before `atDate`, as units of `to` per unit of `from`
+ * (a document in `to` booked in base `from`: foreign units per base unit).
+ * Looks for the pair itself, its inverse, then crosses over EUR (the cron
+ * stores ECB rates against EUR). Null when nothing is stored: unlike
+ * `getExchangeRate` this never falls back to the live feed or to made-up
+ * rates, so a missing rate is visible to the caller.
+ */
+export async function lookupStoredRate(
+  db: DbLike,
+  from: string,
+  to: string,
+  atDate: Date,
+): Promise<number | null> {
+  const fromCode = from.toUpperCase();
+  const toCode = to.toUpperCase();
+  if (fromCode === toCode) return 1;
+  const isoDate = atDate.toISOString().slice(0, 10);
+
+  const latest = async (a: string, b: string): Promise<{ date: string; rate: number } | null> => {
+    const rows = await db
+      .select({ date: fxRates.date, rate: fxRates.rate })
+      .from(fxRates)
+      .where(and(eq(fxRates.fromCurrency, a), eq(fxRates.toCurrency, b), lte(fxRates.date, isoDate)))
+      .orderBy(desc(fxRates.date))
+      .limit(1);
+    const row = rows[0];
+    const rate = row ? Number(row.rate) : 0;
+    return row && Number.isFinite(rate) && rate > 0 ? { date: String(row.date), rate } : null;
+  };
+
+  const [direct, inverse] = await Promise.all([latest(fromCode, toCode), latest(toCode, fromCode)]);
+  if (direct && (!inverse || direct.date >= inverse.date)) return direct.rate;
+  if (inverse) return 1 / inverse.rate;
+  const crossed = await lookupHistoricalRate(db, fromCode, toCode, atDate);
+  return crossed !== null && Number.isFinite(crossed) && crossed > 0 ? crossed : null;
+}
+
+const ECB_DAILY_URL = 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml';
+const ECB_HISTORY_URL = 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml';
+const DAY_MS = 86_400_000;
+
+/** One day of ECB reference rates (units per EUR), the latest on or before `atDate`; null when the feed can't say. */
+async function fetchEcbRatesOn(atDate: Date): Promise<{ date: string; rates: Record<string, number> } | null> {
+  const isoDate = atDate.toISOString().slice(0, 10);
+  const daysAgo = Math.floor((Date.now() - atDate.getTime()) / DAY_MS);
+  if (daysAgo > 90) return null;
+  try {
+    const response = await fetch(daysAgo <= 4 ? ECB_DAILY_URL : ECB_HISTORY_URL, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return null;
+    const xml = await response.text();
+    const days = [...xml.matchAll(/<Cube time=['"](\d{4}-\d{2}-\d{2})['"]>([\s\S]*?)<\/Cube>/g)]
+      .map((m) => ({ date: m[1], rates: parseEcbXml(m[2]) }))
+      .filter((d) => d.date <= isoDate && Object.keys(d.rates).length > 0)
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+    const day = days[0];
+    if (!day) return null;
+    day.rates['EUR'] = 1;
+    return day;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The ECB reference rate for a pair on a date (units of `to` per unit of
+ * `from`), from the daily file or its 90-day history, stored in fx_rates so
+ * the booking can be reproduced. Null when the feed is unreachable or has no
+ * rate for the date (older than 90 days, unsupported currency).
+ */
+export async function fetchFeedRate(db: DbLike | undefined, from: string, to: string, atDate: Date): Promise<number | null> {
+  const day = await fetchEcbRatesOn(atDate);
+  if (!day) return null;
+  const fromRate = day.rates[from.toUpperCase()];
+  const toRate = day.rates[to.toUpperCase()];
+  if (!fromRate || !toRate) return null;
+  if (db) {
+    const rows = Object.entries(day.rates)
+      .filter(([code]) => code !== 'EUR')
+      .map(([code, rate]) => ({
+        id: generateId('fxr'),
+        date: day.date,
+        fromCurrency: 'EUR',
+        toCurrency: code,
+        rate: rate.toString(),
+        source: 'ecb' as const,
+      }));
+    try {
+      await db.insert(fxRates).values(rows).onConflictDoNothing();
+    } catch (err) {
+      console.warn('[Currency] could not store ECB rates:', err);
+    }
+  }
+  return toRate / fromRate;
+}
+
 export async function convertCurrency(
   amount: number,
   from: string,

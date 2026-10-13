@@ -222,7 +222,7 @@ export const sweep = {
       "bankAccountLabel": "Bankrekening",
       "optional": "optioneel",
       "vatPlaceholder": "bijv. NL123456789B01",
-      "gstinPlaceholder": "bijv. 27AABCU9603R1ZM",
+      "gstinPlaceholder": "bijv. 27AABCU9603R1ZN",
       "createFailed": "Aanmaken van entiteit mislukt",
       "creating": "Bezig met aanmaken…",
       "createButton": "Entiteit aanmaken"

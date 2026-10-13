@@ -220,7 +220,7 @@ export const sweep = {
       "bankAccountLabel": "Bank account",
       "optional": "optional",
       "vatPlaceholder": "e.g. NL123456789B01",
-      "gstinPlaceholder": "e.g. 27AABCU9603R1ZM",
+      "gstinPlaceholder": "e.g. 27AABCU9603R1ZN",
       "createFailed": "Failed to create entity",
       "creating": "Creating…",
       "createButton": "Create entity"

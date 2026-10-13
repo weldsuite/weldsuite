@@ -49,6 +49,7 @@ vi.mock('@/lib/weldbooks/use-jurisdiction', () => ({
 vi.mock('@/lib/weldbooks/use-weldbooks-format', () => ({
   useWeldbooksFormat: () => ({
     formatMoney: (value: number | string | null | undefined) => `$${Number(value ?? 0).toFixed(2)}`,
+    formatNumber: (value: number | string | null | undefined) => String(Number(value ?? 0)),
     formatDate: (value: string | null | undefined) => value ?? '-',
     formatDateTime: (value: string | null | undefined) => `at ${value}`,
   }),
@@ -181,6 +182,47 @@ describe('InvoiceDetailPage: sales tax', () => {
     ).toBeInTheDocument();
   });
 
+  it('a finalized invoice keeps Send and Record payment, and no longer offers Finalize or Edit', () => {
+    env.invoice = invoice({ status: 'finalized' });
+    renderWithProviders(<InvoiceDetailPage />);
+
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Record Payment' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Finalize' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('a sent invoice can be sent again', () => {
+    env.invoice = invoice({ status: 'sent' });
+    renderWithProviders(<InvoiceDetailPage />);
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+  });
+
+  it('asks before finalizing, and does nothing when the user keeps the draft', async () => {
+    const user = userEvent.setup();
+    env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
+    renderWithProviders(<InvoiceDetailPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Finalize' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/books the invoice in the ledger and locks it/)).toBeInTheDocument();
+    expect(env.finalize).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Keep as draft' }));
+    expect(env.finalize).not.toHaveBeenCalled();
+  });
+
+  it('shows quantities and rates without trailing zeros', () => {
+    env.invoice = invoice({
+      items: [{ ...(invoice().items as object[])[0], quantity: '10.0000', taxRate: '21.0000', discountPercent: '0.00' }],
+    });
+    renderWithProviders(<InvoiceDetailPage />);
+    const line = screen.getByText('Hosting').closest('tr')!;
+    expect(within(line).getByText('10')).toBeInTheDocument();
+    expect(within(line).getByText('21%')).toBeInTheDocument();
+    expect(within(line).queryByText(/10.0000|21.0000/)).not.toBeInTheDocument();
+  });
+
   it('shows the engine warnings as readable messages', () => {
     env.invoice = invoice({ taxWarnings: ['not_registered_in_state', 'address_unverified'], taxBreakdown: [], taxTotal: '0.00' });
     renderWithProviders(<InvoiceDetailPage />);
@@ -280,6 +322,14 @@ describe('InvoiceDetailPage: sales tax', () => {
   });
 
   describe('finalize', () => {
+    /** Finalizing is irreversible: the button asks first. */
+    const finalize = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(screen.getByRole('button', { name: 'Finalize' }));
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('Finalize this invoice?')).toBeInTheDocument();
+      await user.click(within(dialog).getByRole('button', { name: 'Finalize' }));
+    };
+
     beforeEach(() => {
       env.invoice = invoice({ status: 'draft', taxBreakdown: [], taxTotal: '0.00' });
     });
@@ -289,7 +339,7 @@ describe('InvoiceDetailPage: sales tax', () => {
       env.finalize.mockImplementation((_id, options) => options.onError(refusal('ADDRESS_REQUIRED', { status: 400 })));
       renderWithProviders(<InvoiceDetailPage />);
 
-      await user.click(screen.getByRole('button', { name: 'Finalize' }));
+      await finalize(user);
 
       const notice = screen.getByTestId('sales-tax-error');
       expect(notice).toHaveTextContent(/state and ZIP code is needed/);
@@ -305,7 +355,7 @@ describe('InvoiceDetailPage: sales tax', () => {
       env.finalize.mockImplementation((_id, options) => options.onError(refusal('TAX_ENGINE_UNAVAILABLE', { status: 503 })));
       renderWithProviders(<InvoiceDetailPage />);
 
-      await user.click(screen.getByRole('button', { name: 'Finalize' }));
+      await finalize(user);
 
       expect(screen.getByRole('link', { name: 'Open sales tax settings' })).toHaveAttribute('href', '/weldbooks/sales-tax/settings');
     });
@@ -315,7 +365,7 @@ describe('InvoiceDetailPage: sales tax', () => {
       env.finalize.mockImplementation((_id, options) => options.onError(refusal('TAX_RATES_NOT_CONFIGURED', { status: 400 })));
       renderWithProviders(<InvoiceDetailPage />);
 
-      await user.click(screen.getByRole('button', { name: 'Finalize' }));
+      await finalize(user);
 
       expect(screen.getByRole('link', { name: 'Open sales tax agencies' })).toHaveAttribute('href', '/weldbooks/sales-tax/agencies');
     });
@@ -325,7 +375,7 @@ describe('InvoiceDetailPage: sales tax', () => {
       env.finalize.mockImplementation((_id, options) => options.onError(new Error('Period is closed')));
       renderWithProviders(<InvoiceDetailPage />);
 
-      await user.click(screen.getByRole('button', { name: 'Finalize' }));
+      await finalize(user);
 
       expect(screen.queryByTestId('sales-tax-error')).not.toBeInTheDocument();
       expect(env.toast.error).toHaveBeenCalledWith(expect.any(String), { description: 'Period is closed' });
@@ -338,7 +388,7 @@ describe('InvoiceDetailPage: sales tax', () => {
       );
       renderWithProviders(<InvoiceDetailPage />);
 
-      await user.click(screen.getByRole('button', { name: 'Finalize' }));
+      await finalize(user);
 
       expect(env.toast.warning).toHaveBeenCalledWith('Recording with your tax provider failed.', {
         description: 'commit_failed: 502',

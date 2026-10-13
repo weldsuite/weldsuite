@@ -10,6 +10,7 @@
 
 import { Hono } from 'hono';
 import { and, asc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
+import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { BOOKED_STATUSES } from '../../services/accounting-posting';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
@@ -50,15 +51,42 @@ app.get('/xaf', requirePermission('reports:read'), async (c) => {
     const startDate = start.toISOString().slice(0, 10);
     const endDate = end.toISOString().slice(0, 10);
 
+    // The relations of this entity: customers and suppliers that are on one of its invoices, bills,
+    // payments or journal lines, not every contact of the workspace.
+    const usedContactIds = async (): Promise<string[]> => {
+      const sources = await Promise.all([
+        db.select({ id: schema.invoices.contactId }).from(schema.invoices)
+          .where(and(eq(schema.invoices.entityId, entityId), isNull(schema.invoices.deletedAt))),
+        db.select({ id: schema.bills.contactId }).from(schema.bills)
+          .where(and(eq(schema.bills.entityId, entityId), isNull(schema.bills.deletedAt))),
+        db.select({ id: schema.payments.contactId }).from(schema.payments)
+          .where(and(eq(schema.payments.entityId, entityId), isNull(schema.payments.deletedAt))),
+        db.select({ id: schema.journalLines.contactId }).from(schema.journalLines)
+          .where(and(eq(schema.journalLines.entityId, entityId), isNull(schema.journalLines.deletedAt))),
+      ]);
+      return [...new Set(sources.flat().map((row) => row.id).filter((id): id is string => Boolean(id)))];
+    };
+    const contactIds = await usedContactIds();
+
     const [accounts, contacts, taxRates, entries] = await Promise.all([
       db.select().from(schema.accounts)
         .where(and(eq(schema.accounts.entityId, entityId), isNull(schema.accounts.deletedAt)))
         .orderBy(asc(schema.accounts.code)),
       // Only what the auditfile prints: the party row also holds ciphertext (TIN, ACH account number).
-      db
-        .select({ id: schema.parties.id, displayName: schema.parties.displayName, role: schema.parties.role })
-        .from(schema.parties)
-        .where(isNull(schema.parties.deletedAt)),
+      contactIds.length === 0
+        ? Promise.resolve([])
+        : db
+            .select({
+              id: schema.parties.id,
+              displayName: schema.parties.displayName,
+              role: schema.parties.role,
+              billingAddress: schema.parties.billingAddress,
+              vatNumber: schema.companies.vatNumber,
+            })
+            .from(schema.parties)
+            .leftJoin(schema.companies, eq(schema.parties.companyId, schema.companies.id))
+            .where(and(inArray(schema.parties.id, contactIds), isNull(schema.parties.deletedAt)))
+            .orderBy(asc(schema.parties.displayName)),
       db.select().from(schema.taxRates)
         .where(and(eq(schema.taxRates.entityId, entityId), isNull(schema.taxRates.deletedAt))),
       db.select().from(schema.journalEntries)
@@ -110,12 +138,19 @@ app.get('/xaf', requirePermission('reports:read'), async (c) => {
         type: a.type,
         openingBalance: a.openingBalance,
       })),
-      contacts: contacts.map((p) => ({
-        id: p.id,
-        name: p.displayName ?? p.id,
-        role: p.role,
-        taxNumber: null,
-      })),
+      contacts: contacts.map((p) => {
+        const address = normalizePostalAddress(p.billingAddress);
+        return {
+          id: p.id,
+          name: p.displayName ?? p.id,
+          role: p.role,
+          taxNumber: p.vatNumber ?? null,
+          street: address?.line1 ?? null,
+          city: address?.city ?? null,
+          postalCode: address?.postalCode ?? null,
+          country: address?.country ?? null,
+        };
+      }),
       vatCodes: taxRates.map((t) => ({ id: t.id, name: t.name, rate: t.rate })),
       transactions,
     });

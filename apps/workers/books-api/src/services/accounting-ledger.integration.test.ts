@@ -80,6 +80,7 @@ beforeAll(async () => {
     vatNumber: 'NL123456789B01',
     taxIdentifiers: { registrationNumber: '12345678' },
     bankDetails: { iban: 'NL91ABNA0417164300' },
+    address: { line1: 'Damrak 1', postalCode: '1012 LG', city: 'Amsterdam', country: 'NL' },
   });
   expect(created.status).toBe(201);
   entityId = created.data.id as string;
@@ -172,7 +173,8 @@ describe('ledger foundations', () => {
       periodEnd: '2026-09-30',
     });
     expect(res.status).toBe(201);
-    expect(res.data.rubrieken).toMatchObject({ r1a: 100, r1b: 21, r4b: 100, r5a: 21, r5b: 21, r5c: 0 });
+    // 21% of the invoice (1a) plus the 21% self-assessed on the EU acquisition (4b) is owed; both are deductible again.
+    expect(res.data.rubrieken).toMatchObject({ r1a: 100, r1aBtw: 21, r4b: 100, r4bBtw: 21, r5a: 42, r5b: 42, r5c: 0, r5g: 0 });
   });
 
   it('recording a payment posts it and settles the invoice; voiding reverses both', async () => {
@@ -195,7 +197,8 @@ describe('ledger foundations', () => {
     const voided = await call('/api/payments', paymentsRoutes, `/api/payments/${paymentId}`, 'DELETE');
     expect(voided.status).toBe(204);
     const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, invoiceId));
-    expect(invoice).toMatchObject({ status: 'sent', amountPaid: '0.00', balanceDue: '121.00' });
+    // Never sent: voiding the payment puts it back to finalized, not sent.
+    expect(invoice).toMatchObject({ status: 'finalized', amountPaid: '0.00', balanceDue: '121.00' });
     expect(await balanceOf('1300')).toBe(121);
     expect(await balanceOf('1100')).toBe(0);
   });
@@ -302,7 +305,7 @@ describe('ledger foundations', () => {
     expect(generated.status).toBe(201);
     expect(generated.data.journalEntryId).toMatch(/^je_/);
     const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, generated.data.invoiceId as string));
-    expect(invoice).toMatchObject({ taxTotal: '42.00', total: '242.00', status: 'sent' });
+    expect(invoice).toMatchObject({ taxTotal: '42.00', total: '242.00', status: 'finalized' });
 
     const stale = { ...(await db.select().from(schema.recurringInvoices).where(eq(schema.recurringInvoices.id, 'ri_ledger')))[0], nextIssueDate: new Date('2026-08-01') };
     await expect(generateRecurringInvoice(db, stale, { userId: null })).rejects.toThrow(RecurringAlreadyGeneratedError);
@@ -330,7 +333,7 @@ describe('ledger foundations', () => {
     const undone = await call('/api/bank-transactions', bankTransactionsRoutes, '/api/bank-transactions/bt_ledger/unreconcile', 'POST');
     expect(undone.status).toBe(200);
     const [reopened] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, invoice));
-    expect(reopened).toMatchObject({ status: 'sent', balanceDue: '242.00' });
+    expect(reopened).toMatchObject({ status: 'finalized', balanceDue: '242.00' });
     const [released] = await db.select().from(schema.bankTransactions).where(eq(schema.bankTransactions.id, 'bt_ledger'));
     expect(released).toMatchObject({ status: 'unreconciled', reconciledPaymentId: null, journalEntryId: null });
   });

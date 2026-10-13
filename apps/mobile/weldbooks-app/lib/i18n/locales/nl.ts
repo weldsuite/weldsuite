@@ -144,6 +144,7 @@ export const nl: Translations = {
 
   status: {
     draft: 'Concept',
+    finalized: 'Gefinaliseerd',
     sent: 'Verzonden',
     viewed: 'Bekeken',
     partially_paid: 'Gedeeltelijk betaald',

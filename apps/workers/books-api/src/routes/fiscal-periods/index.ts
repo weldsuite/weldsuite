@@ -132,14 +132,23 @@ app.get('/calendar', requirePermission('reports:read'), zValidator('query', cale
       includeYear: q.includeYear === 'true',
     });
     const existing = await existingPeriods(db, ctx.entity.id, calendar.startDate, calendar.endDate);
+    // A period is locked by date when it ends on or before the entity's period or hard lock date.
+    const lockedThrough = [ctx.entity.periodLockDate, ctx.entity.hardLockDate].filter((d): d is string => Boolean(d)).sort().pop() ?? null;
     return success(c, {
       ...calendar,
       entityId: ctx.entity.id,
-      periods: calendar.periods.map((period) => ({
-        ...period,
-        existingId:
-          existing.find((row) => row.startDate === period.startDate && row.endDate === period.endDate && row.type === period.type)?.id ?? null,
-      })),
+      periods: calendar.periods.map((period) => {
+        const row = existing.find((r) => r.startDate === period.startDate && r.endDate === period.endDate && r.type === period.type);
+        return {
+          ...period,
+          existingId: row?.id ?? null,
+          /** open | closed; null while the period has not been created. */
+          existingStatus: row?.status ?? null,
+          closedAt: row?.closedAt ?? null,
+          /** Bookings in the period are refused by an entity lock date (see lock dates), whatever its status. */
+          locked: lockedThrough !== null && period.endDate <= lockedThrough,
+        };
+      }),
     });
   } catch (err) {
     console.error('[app-api/fiscal-periods] calendar failed:', err);

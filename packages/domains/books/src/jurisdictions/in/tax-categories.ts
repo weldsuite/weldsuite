@@ -21,6 +21,13 @@ function gstSlabMeta(
 
 /**
  * Standard Indian GST rates seeded on IN entity creation.
+ *
+ * Since the 22 Sept 2025 rationalisation the general slabs are 5% and 18%
+ * (plus 40% on demerit and luxury goods), with 3% on gold and silver and 0.25%
+ * on rough diamonds. The old 12% and 28% slabs are still seeded so documents
+ * dated before the change can be entered, but switched off (`isActive: false`)
+ * and flagged `legacy` in their metadata.
+ *
  * Display names are English to match the entity default locale (`en-IN`),
  * mirroring how the NL adapter seeds Dutch names for `nl-NL`.
  * `jurisdictionMetadata.components` drives CGST+SGST (intra-state) vs IGST
@@ -37,13 +44,6 @@ export const inTaxCategories: TaxCategoryTemplate[] = [
     jurisdictionMetadata: gstSlabMeta('18', '9.00', '18.00') as unknown as Record<string, unknown>,
   },
   {
-    name: 'GST 12%',
-    rate: '12.00',
-    type: 'both',
-    taxCategoryCode: 'reduced',
-    jurisdictionMetadata: gstSlabMeta('12', '6.00', '12.00') as unknown as Record<string, unknown>,
-  },
-  {
     name: 'GST 5%',
     rate: '5.00',
     type: 'both',
@@ -51,18 +51,41 @@ export const inTaxCategories: TaxCategoryTemplate[] = [
     jurisdictionMetadata: gstSlabMeta('5', '2.50', '5.00') as unknown as Record<string, unknown>,
   },
   {
-    name: 'GST 28%',
-    rate: '28.00',
-    type: 'both',
-    taxCategoryCode: 'standard',
-    jurisdictionMetadata: gstSlabMeta('28', '14.00', '28.00') as unknown as Record<string, unknown>,
-  },
-  {
     name: 'GST 40%',
     rate: '40.00',
     type: 'both',
     taxCategoryCode: 'standard',
     jurisdictionMetadata: gstSlabMeta('40', '20.00', '40.00') as unknown as Record<string, unknown>,
+  },
+  {
+    name: 'GST 3% (gold, silver)',
+    rate: '3.00',
+    type: 'both',
+    taxCategoryCode: 'reduced',
+    jurisdictionMetadata: gstSlabMeta('3', '1.50', '3.00') as unknown as Record<string, unknown>,
+  },
+  {
+    name: 'GST 0.25% (rough diamonds)',
+    rate: '0.25',
+    type: 'both',
+    taxCategoryCode: 'super_reduced',
+    jurisdictionMetadata: gstSlabMeta('0.25', '0.125', '0.25') as unknown as Record<string, unknown>,
+  },
+  {
+    name: 'GST 12% (legacy)',
+    rate: '12.00',
+    type: 'both',
+    taxCategoryCode: 'reduced',
+    isActive: false,
+    jurisdictionMetadata: { ...gstSlabMeta('12', '6.00', '12.00'), legacy: true } as unknown as Record<string, unknown>,
+  },
+  {
+    name: 'GST 28% (legacy)',
+    rate: '28.00',
+    type: 'both',
+    taxCategoryCode: 'standard',
+    isActive: false,
+    jurisdictionMetadata: { ...gstSlabMeta('28', '14.00', '28.00'), legacy: true } as unknown as Record<string, unknown>,
   },
   {
     name: 'GST 0%',
