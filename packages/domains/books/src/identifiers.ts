@@ -118,7 +118,7 @@ export function checkVatNumberFormat(raw: string | null | undefined, countryCode
   const prefix = typedPrefix ?? (greek ? 'EL' : vatPrefixOf(countryCode));
   if (!prefix) return skip;
 
-  const national = typedPrefix ? compact.slice(2) : greek ? compact.slice(2) : compact;
+  const national = typedPrefix || greek ? compact.slice(2) : compact;
   const valid = VAT_PATTERNS[prefix].test(national);
   return {
     valid,

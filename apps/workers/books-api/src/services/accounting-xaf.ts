@@ -45,12 +45,23 @@ function amount(value: string | number | null | undefined): string {
 export function splitStreetLine(line: string | null | undefined): { streetname?: string; number?: string } {
   const text = (line ?? '').trim();
   if (!text) return {};
-  const trailing = /^(.*?)[\s,]+(\d+[\w\-/]*)$/.exec(text);
-  if (trailing?.[1]) return { streetname: trailing[1].trim(), number: trailing[2] };
-  const leading = /^(\d+[\w\-/]*)[\s,]+(.+)$/.exec(text);
-  if (leading) return { streetname: leading[2].trim(), number: leading[1] };
+  // Split on the first and last run of spaces/commas rather than one regex per
+  // side: those backtrack super-linearly on long lines.
+  const separators = [...text.matchAll(/[\s,]+/g)];
+  const first = separators[0];
+  const last = separators.at(-1);
+  if (!first || !last) return { streetname: text };
+  const trailing = text.slice(last.index + last[0].length);
+  if (last.index > 0 && HOUSE_NUMBER.test(trailing)) {
+    return { streetname: text.slice(0, last.index).trim(), number: trailing };
+  }
+  const leading = text.slice(0, first.index);
+  const rest = text.slice(first.index + first[0].length);
+  if (rest && HOUSE_NUMBER.test(leading)) return { streetname: rest.trim(), number: leading };
   return { streetname: text };
 }
+
+const HOUSE_NUMBER = /^\d[\w\-/]*$/;
 
 /** `<streetAddress>` of the XAF (streetname, number, property, city, postalCode, country), empty when there is nothing to print. */
 function streetAddressXml(address: {

@@ -128,12 +128,13 @@ function componentsForPlaceOfSupply(
   const list = (intrastate ? meta.components.intrastate : meta.components.interstate).map((c) =>
     intrastate && c.code === 'sgst' && usesUtgst(seller) ? { ...c, code: 'utgst' as const } : c,
   );
+  const intrastateTaxes = usesUtgst(seller) ? 'CGST + UTGST' : 'CGST + SGST';
 
   return {
     taxCategoryCode: 'standard',
     rate: meta.gstSlab.includes('.') ? meta.gstSlab : `${meta.gstSlab}.00`,
     reasoning: intrastate
-      ? `Intra-state supply (${seller}→${buyerState}) — ${usesUtgst(seller) ? 'CGST + UTGST' : 'CGST + SGST'}`
+      ? `Intra-state supply (${seller}→${buyerState}) — ${intrastateTaxes}`
       : `Inter-state supply (${seller ?? '?'}→${buyerState ?? '?'}) — IGST`,
     components: list.map((c) => ({
       taxCategoryCode: 'standard',

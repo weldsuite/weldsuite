@@ -114,6 +114,27 @@ async function accountBalances(db: Database, account: typeof t.$inferSelect) {
   return { ledger: Number(row?.net ?? 0), current: Number(account.currentBalance ?? 0) };
 }
 
+/**
+ * Deactivating takes the account out of use: not for system accounts, and not
+ * while it still carries a balance (move or write it off first). Returns the
+ * conflict to answer with, or null when the account can be deactivated.
+ */
+async function deactivationConflict(
+  db: Database,
+  account: typeof t.$inferSelect,
+): Promise<{ message: string; details: Record<string, unknown> } | null> {
+  if (account.isSystemAccount) {
+    return { message: 'A system account can not be deactivated.', details: { code: 'ACCOUNT_IS_SYSTEM' } };
+  }
+  const { ledger, current } = await accountBalances(db, account);
+  if (Math.abs(ledger) < ZERO_BALANCE_EPSILON && Math.abs(current) < ZERO_BALANCE_EPSILON) return null;
+  const balance = Math.abs(ledger) >= ZERO_BALANCE_EPSILON ? ledger : current;
+  return {
+    message: `This account still has a balance of ${balance.toFixed(2)}. Clear the balance before deactivating it.`,
+    details: { code: 'ACCOUNT_HAS_BALANCE', balance: balance.toFixed(2) },
+  };
+}
+
 // GET /tax-lines?year= — the lines of the entity's income-tax return for a tax
 // year (default: the current one), for the account mapping screen
 app.get('/tax-lines', requirePermission('accounts:read'), async (c) => {
@@ -335,21 +356,9 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('accounts:update'), zValidato
       }
     }
 
-    // Deactivating takes the account out of use: not for system accounts, and not
-    // while it still carries a balance (move or write it off first).
     if (data.isActive === false && account.isActive !== false) {
-      if (account.isSystemAccount) {
-        return error.conflict(c, 'A system account can not be deactivated.', { code: 'ACCOUNT_IS_SYSTEM' });
-      }
-      const { ledger, current } = await accountBalances(db, account);
-      if (Math.abs(ledger) >= ZERO_BALANCE_EPSILON || Math.abs(current) >= ZERO_BALANCE_EPSILON) {
-        const balance = Math.abs(ledger) >= ZERO_BALANCE_EPSILON ? ledger : current;
-        return error.conflict(
-          c,
-          `This account still has a balance of ${balance.toFixed(2)}. Clear the balance before deactivating it.`,
-          { code: 'ACCOUNT_HAS_BALANCE', balance: balance.toFixed(2) },
-        );
-      }
+      const conflict = await deactivationConflict(db, account);
+      if (conflict) return error.conflict(c, conflict.message, conflict.details);
     }
 
     const invalidMapping = await mappingError(db, account.entityId, data);

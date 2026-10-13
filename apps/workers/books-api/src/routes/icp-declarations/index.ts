@@ -94,6 +94,22 @@ function supplyTypeOf(taxCategoryCode: string | null | undefined): IcpSupplyType
   return taxCategoryCode === 'eu_b2b_goods' ? 'goods' : 'services';
 }
 
+type NormalizedVat = ReturnType<typeof normalizeVatNumber>;
+
+/** The contact's normalized VAT number, looked up once per contact (`cache`). Null without a contact or number. */
+async function buyerVatOf(
+  db: Database,
+  contactId: string | null,
+  cache: Map<string, NormalizedVat>,
+): Promise<NormalizedVat | null | undefined> {
+  if (!contactId) return null;
+  if (cache.has(contactId)) return cache.get(contactId);
+  const rawVat = await getContactVatNumber(db, contactId);
+  const normalized = rawVat ? normalizeVatNumber(rawVat) : null;
+  cache.set(contactId, normalized);
+  return normalized;
+}
+
 /**
  * Group net supply amounts per buyer VAT number and supply type. The ICP lists
  * goods and services separately, so a buyer who got both has two lines.
@@ -101,17 +117,12 @@ function supplyTypeOf(taxCategoryCode: string | null | undefined): IcpSupplyType
 async function aggregateSuppliesPerVat(db: Database, lines: IcpSourceLine[]) {
   const perVat = new Map<string, BuyerSupply>();
   const missingVat: string[] = [];
-  const vatByContact = new Map<string, ReturnType<typeof normalizeVatNumber>>();
+  const vatByContact = new Map<string, NormalizedVat>();
 
   for (const line of lines) {
     if (line.amount === 0) continue;
 
-    let normalized = line.contactId ? vatByContact.get(line.contactId) : null;
-    if (line.contactId && !vatByContact.has(line.contactId)) {
-      const rawVat = await getContactVatNumber(db, line.contactId);
-      normalized = rawVat ? normalizeVatNumber(rawVat) : null;
-      vatByContact.set(line.contactId, normalized);
-    }
+    const normalized = await buyerVatOf(db, line.contactId, vatByContact);
     if (!normalized) {
       if (line.contactId && !missingVat.includes(line.contactId)) missingVat.push(line.contactId);
       continue;

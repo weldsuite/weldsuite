@@ -169,6 +169,227 @@ function limitedLines(form: TaxReturnForm, taxYear: number) {
   return limited;
 }
 
+interface Placed {
+  account: LedgerAccount;
+  /** Debit minus credit over the year (P&L) or at year end (balance sheet). */
+  net: number;
+  beginningNet?: number;
+  debit: number;
+  credit: number;
+}
+
+type Balances = Map<string, { debit: number; credit: number }>;
+type AggregateRows = Awaited<ReturnType<Ledger['aggregate']>>;
+
+const balancesOf = (rows: AggregateRows): Balances => new Map(rows.map((r) => [r.accountId, { debit: r.debit, credit: r.credit }]));
+
+/** A balance sheet account starts the year at its opening balance (0 when it had none); a P&L account has none. */
+function beginningNetOf(start: { debit: number; credit: number } | undefined, isBalanceSheet: boolean): number | undefined {
+  if (start) return start.debit - start.credit;
+  return isBalanceSheet ? 0 : undefined;
+}
+
+/** The accounts with an amount (or all, when asked), by code, with the amounts the worksheet shows. */
+function placeAccounts(
+  ledger: Ledger,
+  balances: { activity: Balances; end: Balances; start: Balances },
+  includeZeroAccounts: boolean,
+): Placed[] {
+  const placed: Placed[] = [];
+  for (const account of ledger.accounts.values()) {
+    const isBalanceSheet = BALANCE_SHEET_TYPES.includes(account.type);
+    const totals = isBalanceSheet ? balances.end.get(account.id) : balances.activity.get(account.id);
+    const start = isBalanceSheet ? balances.start.get(account.id) : undefined;
+    const net = (totals?.debit ?? 0) - (totals?.credit ?? 0);
+    const beginningNet = beginningNetOf(start, isBalanceSheet);
+    const hasAmount = Math.abs(net) >= 0.005 || Math.abs(beginningNet ?? 0) >= 0.005;
+    if (!hasAmount && !includeZeroAccounts) continue;
+    placed.push({ account, net, beginningNet, debit: totals?.debit ?? 0, credit: totals?.credit ?? 0 });
+  }
+  placed.sort((a, b) => a.account.code.localeCompare(b.account.code, 'en', { numeric: true }));
+  return placed;
+}
+
+function unmappedReason(code: string | null, taxYear: number): TaxWorksheetUnmapped['reason'] {
+  if (!code) return 'none';
+  return getTaxLine(code, taxYear) ? 'other_form' : 'unknown_line';
+}
+
+function toUnmapped(p: Placed, taxYear: number): TaxWorksheetUnmapped {
+  const code = p.account.taxLine;
+  const credit = p.account.normalSide === 'credit';
+  return {
+    accountId: p.account.id,
+    code: p.account.code,
+    name: p.account.name,
+    type: p.account.type,
+    taxLine: code,
+    reason: unmappedReason(code, taxYear),
+    amount: money(credit ? -p.net : p.net),
+    ...(p.beginningNet !== undefined ? { beginningAmount: money(credit ? -p.beginningNet : p.beginningNet) } : {}),
+  };
+}
+
+/** Accounts by the line of the form they sit on; the ones that sit on none of its lines are unmapped. */
+function mapAccountsToLines(
+  placed: Placed[],
+  catalogByCode: Map<string, TaxLineDef>,
+  form: TaxReturnForm,
+  taxYear: number,
+) {
+  const byLine = new Map<string, Placed[]>();
+  const unmapped: TaxWorksheetUnmapped[] = [];
+  for (const p of placed) {
+    const code = p.account.taxLine;
+    const def = code ? (catalogByCode.get(code) ?? undefined) : undefined;
+    if (def) {
+      const list = byLine.get(def.code) ?? [];
+      list.push(p);
+      byLine.set(def.code, list);
+      continue;
+    }
+    // Schedule C has no balance sheet to map accounts to.
+    if (form === 'sch_c' && BALANCE_SHEET_TYPES.includes(p.account.type)) continue;
+    unmapped.push(toUnmapped(p, taxYear));
+  }
+  return { byLine, unmapped };
+}
+
+/** A line holding only contra accounts (debit-natural revenue, credit-natural assets) reads positive on its own side. */
+function lineSide(members: Placed[], sectionSide: 'credit' | 'debit'): 'credit' | 'debit' {
+  const onlyContra = members.length > 0 && members.every((m) => m.account.normalSide !== sectionSide);
+  if (!onlyContra) return sectionSide;
+  return sectionSide === 'credit' ? 'debit' : 'credit';
+}
+
+function buildWorksheetLine(
+  def: TaxLineDef,
+  members: Placed[],
+  limit: { percent: number; nonDeductibleLine?: string } | undefined,
+): TaxWorksheetLine {
+  const side = lineSide(members, SECTION_SIDE[def.section]);
+  const signed = (net: number) => (side === 'debit' ? net : -net);
+  const amount = members.reduce((total, m) => total + signed(m.net), 0);
+  const isBalanceSheet = def.section === 'balance_sheet' || def.section === 'equity';
+  const beginning = members.reduce((total, m) => total + signed(m.beginningNet ?? 0), 0);
+
+  const line: TaxWorksheetLine = {
+    code: def.code,
+    line: def.line,
+    label: def.label,
+    section: def.section,
+    side,
+    amount: money(amount),
+    ...(isBalanceSheet ? { beginningAmount: money(beginning) } : {}),
+    accounts: members.map((m) => ({
+      accountId: m.account.id,
+      code: m.account.code,
+      name: m.account.name,
+      type: m.account.type,
+      amount: money(signed(m.net)),
+      ...(m.beginningNet !== undefined ? { beginningAmount: money(signed(m.beginningNet)) } : {}),
+    })),
+  };
+  if (limit && members.length > 0) {
+    const deductible = (amount * limit.percent) / 100;
+    line.deductiblePercent = limit.percent;
+    line.deductibleAmount = money(deductible);
+    line.nonDeductibleAmount = money(amount - deductible);
+    if (limit.nonDeductibleLine) line.nonDeductibleLine = limit.nonDeductibleLine;
+  }
+  return line;
+}
+
+/**
+ * The result of the years up to each date is not in any equity account (no closing entries), so the
+ * retained earnings line carries it as a calculated row: end of year = through the last day, beginning = through the day before.
+ */
+async function addCalculatedResult(
+  ledger: Ledger,
+  lines: TaxWorksheetLine[],
+  periodRange: { from: Date; to: Date },
+  form: TaxReturnForm,
+  taxYear: number,
+) {
+  const retainedDef = form === 'sch_c' ? undefined : resolveTaxLine('bs_retained_earnings', form, taxYear);
+  const retainedLine = retainedDef ? lines.find((l) => l.code === retainedDef.code) : undefined;
+  if (!retainedLine) return;
+
+  const [resultToEnd, resultToStart] = await Promise.all([
+    ledger.aggregate({ from: null, to: periodRange.to }, { accountTypes: ['revenue', 'expense'] }),
+    ledger.aggregate({ from: null, to: new Date(periodRange.from.getTime() - 1) }, { accountTypes: ['revenue', 'expense'] }),
+  ]);
+  // Credit minus debit: profit is positive.
+  const result = (rows: Array<{ debit: number; credit: number }>) => rows.reduce((sum, r) => sum + r.credit - r.debit, 0);
+  const toEnd = result(resultToEnd);
+  const toStart = result(resultToStart);
+  if (Math.abs(toEnd) < 0.005 && Math.abs(toStart) < 0.005) return;
+
+  const orient = (credit: number) => (retainedLine.side === 'credit' ? credit : -credit);
+  retainedLine.amount = money(Number(retainedLine.amount) + orient(toEnd));
+  retainedLine.beginningAmount = money(Number(retainedLine.beginningAmount ?? 0) + orient(toStart));
+  retainedLine.accounts.push({
+    accountId: CALCULATED_RESULT_ID,
+    code: '',
+    name: 'Net income not yet closed to retained earnings',
+    type: 'equity',
+    amount: money(orient(toEnd)),
+    beginningAmount: money(orient(toStart)),
+  });
+}
+
+/** Section totals: a line on the other side of its section (returns in income) subtracts. */
+function buildSections(lines: TaxWorksheetLine[]): TaxWorksheetSection[] {
+  const sections: TaxWorksheetSection[] = [];
+  for (const key of SECTION_ORDER) {
+    const sectionLines = lines.filter((l) => l.section === key);
+    if (sectionLines.length === 0) continue;
+    const mixes = key === 'balance_sheet';
+    const total = sectionLines.reduce((sum, l) => sum + (l.side === SECTION_SIDE[key] ? Number(l.amount) : -Number(l.amount)), 0);
+    sections.push({ key, label: TAX_SECTION_LABELS[key], lines: sectionLines, total: mixes ? null : money(total) });
+  }
+  return sections;
+}
+
+/** Revenue minus expense of the profit and loss accounts among `rows`. */
+function profitOf(rows: Placed[]): number {
+  let net = 0;
+  for (const p of rows) {
+    if (p.account.type === 'revenue' || p.account.type === 'expense') net -= p.net;
+  }
+  return net;
+}
+
+function summarize(sections: TaxWorksheetSection[], placed: Placed[], unmapped: TaxWorksheetUnmapped[]): TaxWorksheet['summary'] {
+  const sectionTotal = (key: TaxLineSection) => Number(sections.find((s) => s.key === key)?.total ?? 0);
+  const totalIncome = sectionTotal('income');
+  const totalOtherIncome = sectionTotal('other_income');
+  const totalCogs = sectionTotal('cogs');
+  const totalDeductions = sectionTotal('deduction') + sectionTotal('other_deduction');
+  const netFromLines = totalIncome + totalOtherIncome - totalCogs - totalDeductions;
+  const notDeductible = sectionTotal('not_deductible');
+
+  const booksNet = profitOf(placed);
+  const unmappedPlaced: Placed[] = [];
+  for (const u of unmapped) {
+    const p = placed.find((x) => x.account.id === u.accountId);
+    if (p) unmappedPlaced.push(p);
+  }
+  const unmappedNet = profitOf(unmappedPlaced);
+
+  return {
+    netIncomePerBooks: money(booksNet),
+    totalIncome: money(totalIncome),
+    totalOtherIncome: money(totalOtherIncome),
+    totalCostOfGoodsSold: money(totalCogs),
+    totalDeductions: money(totalDeductions),
+    netIncomeFromLines: money(netFromLines),
+    notDeductibleTotal: money(notDeductible),
+    unmappedNetIncome: money(unmappedNet),
+    reconciles: Math.abs(booksNet - (netFromLines - notDeductible + unmappedNet)) < 0.01,
+  };
+}
+
 export async function buildTaxWorksheet(
   ledger: Ledger,
   entity: TaxWorksheet['entity'],
@@ -189,158 +410,18 @@ export async function buildTaxWorksheet(
       { accountTypes: BALANCE_SHEET_TYPES },
     ),
   ]);
-  const activityBy = new Map(activity.map((r) => [r.accountId, { debit: r.debit, credit: r.credit }]));
-  const endBy = new Map(endBalances.map((r) => [r.accountId, { debit: r.debit, credit: r.credit }]));
-  const startBy = new Map(startBalances.map((r) => [r.accountId, { debit: r.debit, credit: r.credit }]));
-
-  interface Placed {
-    account: LedgerAccount;
-    /** Debit minus credit over the year (P&L) or at year end (balance sheet). */
-    net: number;
-    beginningNet?: number;
-    debit: number;
-    credit: number;
-  }
-  const placed: Placed[] = [];
-  for (const account of ledger.accounts.values()) {
-    const isBalanceSheet = BALANCE_SHEET_TYPES.includes(account.type);
-    const totals = isBalanceSheet ? endBy.get(account.id) : activityBy.get(account.id);
-    const start = isBalanceSheet ? startBy.get(account.id) : undefined;
-    const net = (totals?.debit ?? 0) - (totals?.credit ?? 0);
-    const beginningNet = start ? start.debit - start.credit : isBalanceSheet ? 0 : undefined;
-    const hasAmount = Math.abs(net) >= 0.005 || Math.abs(beginningNet ?? 0) >= 0.005;
-    if (!hasAmount && !includeZeroAccounts) continue;
-    placed.push({ account, net, beginningNet, debit: totals?.debit ?? 0, credit: totals?.credit ?? 0 });
-  }
-  placed.sort((a, b) => a.account.code.localeCompare(b.account.code, 'en', { numeric: true }));
+  const placed = placeAccounts(
+    ledger,
+    { activity: balancesOf(activity), end: balancesOf(endBalances), start: balancesOf(startBalances) },
+    includeZeroAccounts,
+  );
 
   const catalogByCode = new Map(catalog.map((l) => [l.code, l]));
-  const byLine = new Map<string, Placed[]>();
-  const unmapped: TaxWorksheetUnmapped[] = [];
+  const { byLine, unmapped } = mapAccountsToLines(placed, catalogByCode, form, taxYear);
 
-  for (const p of placed) {
-    const code = p.account.taxLine;
-    const def = code ? (catalogByCode.get(code) ?? undefined) : undefined;
-    if (def) {
-      const list = byLine.get(def.code) ?? [];
-      list.push(p);
-      byLine.set(def.code, list);
-      continue;
-    }
-    // Schedule C has no balance sheet to map accounts to.
-    if (form === 'sch_c' && BALANCE_SHEET_TYPES.includes(p.account.type)) continue;
-    let reason: TaxWorksheetUnmapped['reason'] = 'none';
-    if (code) reason = getTaxLine(code, taxYear) ? 'other_form' : 'unknown_line';
-    const credit = p.account.normalSide === 'credit';
-    unmapped.push({
-      accountId: p.account.id,
-      code: p.account.code,
-      name: p.account.name,
-      type: p.account.type,
-      taxLine: code,
-      reason,
-      amount: money(credit ? -p.net : p.net),
-      ...(p.beginningNet !== undefined ? { beginningAmount: money(credit ? -p.beginningNet : p.beginningNet) } : {}),
-    });
-  }
-
-  const lines: TaxWorksheetLine[] = catalog.map((def: TaxLineDef) => {
-    const members = byLine.get(def.code) ?? [];
-    const sectionSide = SECTION_SIDE[def.section];
-    // A line holding only contra accounts (debit-natural revenue, credit-natural assets) reads positive on its own side.
-    const side: 'credit' | 'debit' =
-      members.length > 0 && members.every((m) => m.account.normalSide !== sectionSide) ? (sectionSide === 'credit' ? 'debit' : 'credit') : sectionSide;
-    const signed = (net: number) => (side === 'debit' ? net : -net);
-    const amount = members.reduce((total, m) => total + signed(m.net), 0);
-    const isBalanceSheet = def.section === 'balance_sheet' || def.section === 'equity';
-    const beginning = members.reduce((total, m) => total + signed(m.beginningNet ?? 0), 0);
-
-    const line: TaxWorksheetLine = {
-      code: def.code,
-      line: def.line,
-      label: def.label,
-      section: def.section,
-      side,
-      amount: money(amount),
-      ...(isBalanceSheet ? { beginningAmount: money(beginning) } : {}),
-      accounts: members.map((m) => ({
-        accountId: m.account.id,
-        code: m.account.code,
-        name: m.account.name,
-        type: m.account.type,
-        amount: money(signed(m.net)),
-        ...(m.beginningNet !== undefined ? { beginningAmount: money(signed(m.beginningNet)) } : {}),
-      })),
-    };
-    const limit = limits.get(def.code);
-    if (limit && members.length > 0) {
-      const deductible = (amount * limit.percent) / 100;
-      line.deductiblePercent = limit.percent;
-      line.deductibleAmount = money(deductible);
-      line.nonDeductibleAmount = money(amount - deductible);
-      if (limit.nonDeductibleLine) line.nonDeductibleLine = limit.nonDeductibleLine;
-    }
-    return line;
-  });
-
-  // The result of the years up to each date is not in any equity account (no closing entries), so the
-  // retained earnings line carries it as a calculated row: end of year = through the last day, beginning = through the day before.
-  const retainedDef = form === 'sch_c' ? undefined : resolveTaxLine('bs_retained_earnings', form, taxYear);
-  const retainedLine = retainedDef ? lines.find((l) => l.code === retainedDef.code) : undefined;
-  if (retainedLine) {
-    const [resultToEnd, resultToStart] = await Promise.all([
-      ledger.aggregate({ from: null, to: periodRange.to }, { accountTypes: ['revenue', 'expense'] }),
-      ledger.aggregate({ from: null, to: new Date(periodRange.from.getTime() - 1) }, { accountTypes: ['revenue', 'expense'] }),
-    ]);
-    // Credit minus debit: profit is positive.
-    const result = (rows: Array<{ debit: number; credit: number }>) => rows.reduce((sum, r) => sum + r.credit - r.debit, 0);
-    const toEnd = result(resultToEnd);
-    const toStart = result(resultToStart);
-    if (Math.abs(toEnd) >= 0.005 || Math.abs(toStart) >= 0.005) {
-      const orient = (credit: number) => (retainedLine.side === 'credit' ? credit : -credit);
-      retainedLine.amount = money(Number(retainedLine.amount) + orient(toEnd));
-      retainedLine.beginningAmount = money(Number(retainedLine.beginningAmount ?? 0) + orient(toStart));
-      retainedLine.accounts.push({
-        accountId: CALCULATED_RESULT_ID,
-        code: '',
-        name: 'Net income not yet closed to retained earnings',
-        type: 'equity',
-        amount: money(orient(toEnd)),
-        beginningAmount: money(orient(toStart)),
-      });
-    }
-  }
-
-  // Section totals: a line on the other side of its section (returns in income) subtracts.
-  const sections: TaxWorksheetSection[] = [];
-  for (const key of SECTION_ORDER) {
-    const sectionLines = lines.filter((l) => l.section === key);
-    if (sectionLines.length === 0) continue;
-    const mixes = key === 'balance_sheet';
-    const total = sectionLines.reduce((sum, l) => sum + (l.side === SECTION_SIDE[key] ? Number(l.amount) : -Number(l.amount)), 0);
-    sections.push({ key, label: TAX_SECTION_LABELS[key], lines: sectionLines, total: mixes ? null : money(total) });
-  }
-
-  const sectionTotal = (key: TaxLineSection) => Number(sections.find((s) => s.key === key)?.total ?? 0);
-  const totalIncome = sectionTotal('income');
-  const totalOtherIncome = sectionTotal('other_income');
-  const totalCogs = sectionTotal('cogs');
-  const totalDeductions = sectionTotal('deduction') + sectionTotal('other_deduction');
-  const netFromLines = totalIncome + totalOtherIncome - totalCogs - totalDeductions;
-  const notDeductible = sectionTotal('not_deductible');
-
-  let booksNet = 0;
-  for (const p of placed) {
-    if (p.account.type === 'revenue') booksNet += -p.net;
-    else if (p.account.type === 'expense') booksNet -= p.net;
-  }
-  let unmappedNet = 0;
-  for (const u of unmapped) {
-    const p = placed.find((x) => x.account.id === u.accountId);
-    if (!p) continue;
-    if (p.account.type === 'revenue') unmappedNet += -p.net;
-    else if (p.account.type === 'expense') unmappedNet -= p.net;
-  }
+  const lines = catalog.map((def: TaxLineDef) => buildWorksheetLine(def, byLine.get(def.code) ?? [], limits.get(def.code)));
+  await addCalculatedResult(ledger, lines, periodRange, form, taxYear);
+  const sections = buildSections(lines);
 
   return {
     form,
@@ -351,17 +432,7 @@ export async function buildTaxWorksheet(
     entity,
     sections,
     unmapped,
-    summary: {
-      netIncomePerBooks: money(booksNet),
-      totalIncome: money(totalIncome),
-      totalOtherIncome: money(totalOtherIncome),
-      totalCostOfGoodsSold: money(totalCogs),
-      totalDeductions: money(totalDeductions),
-      netIncomeFromLines: money(netFromLines),
-      notDeductibleTotal: money(notDeductible),
-      unmappedNetIncome: money(unmappedNet),
-      reconciles: Math.abs(booksNet - (netFromLines - notDeductible + unmappedNet)) < 0.01,
-    },
+    summary: summarize(sections, placed, unmapped),
   };
 }
 

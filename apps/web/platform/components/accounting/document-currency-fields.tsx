@@ -44,7 +44,8 @@ export function DocumentCurrencyFields({
   const tc = t.accounting.documentCurrency;
   const foreign = isForeignCurrency(baseCurrency, currency);
   const invalidRate = parseExchangeRateInput(exchangeRate) === undefined;
-  const hint = (storedRate ? Number(storedRate) : 0) > 0 ? Number(storedRate) : null;
+  const stored = Number(storedRate || 0);
+  const hint = stored > 0 ? stored : null;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
