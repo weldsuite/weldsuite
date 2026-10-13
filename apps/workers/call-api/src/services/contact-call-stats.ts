@@ -104,7 +104,7 @@ export async function getContactCallStats(
     matches.push(
       and(
         isNull(voipCalls.contactId),
-        or(...suffixes.map((s) => sql`${remoteDigits} like ${`%${s}`}`)),
+        or(...suffixes.map((s) => sql`${remoteDigits} like ${'%' + s}`)),
       )!,
     );
   }
