@@ -20,16 +20,40 @@ import { eq, and, isNull, sql } from 'drizzle-orm';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
 import * as cfEmail from '@weldsuite/worker-email';
+import type { OutboundKind } from '@weldsuite/app-api-client/schemas/outbound-mail';
+import {
+  OutboundDeniedError,
+  checkOutbound,
+  commitOutbound,
+  releaseOutbound,
+  type OutboundGuardEnv,
+  type OutboundReservation,
+} from '../outbound/guard';
 
 /**
  * The bindings the workflow reads: tenant DB resolution, the Cloudflare send
- * binding (@weldsuite/worker-email) and the R2 bucket holding the
- * attachments. Any worker Env with them fits.
+ * binding (@weldsuite/worker-email), the R2 bucket holding the attachments and
+ * the outbound guard's bindings. Any worker Env with them fits.
  */
-export interface SendScheduledEmailEnv extends DbEnv, cfEmail.WorkerEmailEnv {
+export interface SendScheduledEmailEnv
+  extends DbEnv,
+    cfEmail.WorkerEmailEnv,
+    Omit<OutboundGuardEnv, 'WORKSPACE_CACHE' | 'DATABASE_URL_MASTER' | 'NEON_API_KEY'> {
   /** R2 bucket holding the scheduled message's attachments. */
   STORAGE?: R2Bucket;
 }
+
+/**
+ * How long a scheduled message may wait for a sending limit to clear before it
+ * is marked failed (the outbound guard paces it; it must not wait forever).
+ */
+const MAX_LIMIT_WAIT_MS = 24 * 60 * 60 * 1000;
+const MAX_LIMIT_WAITS = 6;
+
+/** What one send attempt came to. Serialisable: it is a Workflow step result. */
+type SendOutcome =
+  | { status: 'sent' | 'skipped' | 'failed' }
+  | { status: 'deferred'; retryAfter: string; code: string };
 
 export interface SendScheduledEmailParams {
   workspaceId: string;
@@ -110,63 +134,132 @@ async function resolveAttachments(
   return resolved.filter((att): att is ResolvedAttachment => att !== null);
 }
 
+/** `reply` only when the message answers mail someone sent to this mailbox. */
+async function outboundKindOf(db: TenantDb, message: MailMessageRow): Promise<OutboundKind> {
+  if (!message.inReplyTo) return 'new_thread';
+  const { mailMessages } = schema;
+  const [parent] = await db
+    .select({ source: mailMessages.source })
+    .from(mailMessages)
+    .where(and(eq(mailMessages.accountId, message.accountId), eq(mailMessages.messageId, message.inReplyTo)))
+    .limit(1);
+  return parent && parent.source !== 'sent' ? 'reply' : 'new_thread';
+}
+
 export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduledEmailEnv, SendScheduledEmailParams> {
   async run(event: WorkflowEvent<SendScheduledEmailParams>, step: WorkflowStep) {
-    const { workspaceId, messageId, accountId, scheduledFor } = event.payload;
+    const { scheduledFor } = event.payload;
 
     // Sleep until the user-specified send time
     await step.sleepUntil('wait-until-scheduled', new Date(scheduledFor));
 
-    // Send with retries — the guard inside prevents double delivery on cancel/send-now races
-    await step.do('send-email', {
-      retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' },
-    }, async () => {
-      const db = await getTenantDbForWorkspace(this.env, workspaceId);
-      const { mailMessages, mailAccounts } = schema;
+    // A sending limit defers the send instead of failing it: the workflow
+    // sleeps until the limit clears, for up to a day, then gives up.
+    const deadline = new Date(scheduledFor).getTime() + MAX_LIMIT_WAIT_MS;
+    for (let attempt = 0; attempt <= MAX_LIMIT_WAITS; attempt++) {
+      // Send with retries — the guard inside prevents double delivery on cancel/send-now races
+      const outcome = await step.do(
+        attempt === 0 ? 'send-email' : `send-email-${attempt}`,
+        { retries: { limit: 3, delay: '5 seconds', backoff: 'exponential' } },
+        () => this.sendOnce(event, deadline, attempt === MAX_LIMIT_WAITS),
+      );
+      if (outcome.status !== 'deferred') return;
+      await step.sleepUntil(`wait-sending-limit-${attempt}`, new Date(outcome.retryAfter));
+    }
+  }
 
-      const [message] = await db
-        .select()
-        .from(mailMessages)
-        .where(and(eq(mailMessages.id, messageId), isNull(mailMessages.deletedAt)))
-        .limit(1);
+  private async sendOnce(
+    event: WorkflowEvent<SendScheduledEmailParams>,
+    deadline: number,
+    lastAttempt: boolean,
+  ): Promise<SendOutcome> {
+    const { workspaceId, messageId, accountId } = event.payload;
+    const db = await getTenantDbForWorkspace(this.env, workspaceId);
+    const { mailMessages, mailAccounts } = schema;
 
-      if (!message) {
-        console.log(`[SendScheduledEmail] Message ${messageId} not found, skipping`);
-        return;
+    const [message] = await db
+      .select()
+      .from(mailMessages)
+      .where(and(eq(mailMessages.id, messageId), isNull(mailMessages.deletedAt)))
+      .limit(1);
+
+    if (!message) {
+      console.log(`[SendScheduledEmail] Message ${messageId} not found, skipping`);
+      return { status: 'skipped' };
+    }
+
+    const skipReason = getSkipReason(message, messageId, event.instanceId);
+    if (skipReason) {
+      console.log(`[SendScheduledEmail] ${skipReason}`);
+      return { status: 'skipped' };
+    }
+
+    const [account] = await db
+      .select()
+      .from(mailAccounts)
+      .where(and(eq(mailAccounts.id, accountId), isNull(mailAccounts.deletedAt)))
+      .limit(1);
+
+    if (!account) {
+      console.error(`[SendScheduledEmail] Account ${accountId} not found, marking failed`);
+      await db.update(mailMessages)
+        .set({ sendStatus: 'failed', triggerRunId: null, updatedAt: new Date() })
+        .where(eq(mailMessages.id, messageId));
+      return { status: 'failed' };
+    }
+
+    const fromAddress = account.displayName
+      ? `${account.displayName} <${account.email}>`
+      : account.email;
+
+    const addresses = (list: unknown): string[] =>
+      ((list as Array<{ email?: string }> | null) ?? []).map((t) => t.email).filter((e): e is string => !!e);
+    const toAddresses = addresses(message.to);
+    const ccAddresses = addresses(message.cc);
+    const bccAddresses = addresses(message.bcc);
+
+    // ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) -----------
+    let reservation: OutboundReservation;
+    try {
+      reservation = await checkOutbound(this.env, db, {
+        subject: { kind: 'workspace', clerkOrgId: workspaceId },
+        source: 'scheduled',
+        kind: await outboundKindOf(db, message),
+        from: account.email,
+        to: toAddresses,
+        cc: ccAddresses,
+        bcc: bccAddresses,
+        subjectLine: message.subject,
+        text: message.textBody,
+        html: message.htmlBody,
+        senderDailyCap: account.dailySendLimit,
+      });
+    } catch (err) {
+      if (!(err instanceof OutboundDeniedError)) throw err;
+      const retryAfter = err.details.retryAfter ? Date.parse(err.details.retryAfter) : NaN;
+      if (!lastAttempt && !Number.isNaN(retryAfter) && retryAfter <= deadline) {
+        console.log(`[SendScheduledEmail] ${messageId} deferred by ${err.code} until ${err.details.retryAfter}`);
+        return { status: 'deferred', retryAfter: new Date(retryAfter).toISOString(), code: err.code };
       }
+      console.warn(`[SendScheduledEmail] ${messageId} refused by the outbound guard: ${err.code}`);
+      await db.update(mailMessages)
+        .set({
+          sendStatus: 'failed',
+          triggerRunId: null,
+          deliveryStatus: 'failed',
+          deliveryDetail: err.message.slice(0, 500),
+          deliveryUpdatedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(mailMessages.id, messageId));
+      return { status: 'failed' };
+    }
 
-      const skipReason = getSkipReason(message, messageId, event.instanceId);
-      if (skipReason) {
-        console.log(`[SendScheduledEmail] ${skipReason}`);
-        return;
-      }
-
-      const [account] = await db
-        .select()
-        .from(mailAccounts)
-        .where(and(eq(mailAccounts.id, accountId), isNull(mailAccounts.deletedAt)))
-        .limit(1);
-
-      if (!account) {
-        console.error(`[SendScheduledEmail] Account ${accountId} not found, marking failed`);
-        await db.update(mailMessages)
-          .set({ sendStatus: 'failed', triggerRunId: null, updatedAt: new Date() })
-          .where(eq(mailMessages.id, messageId));
-        return;
-      }
-
-      const fromAddress = account.displayName
-        ? `${account.displayName} <${account.email}>`
-        : account.email;
-
-      const toAddresses = ((message.to as any[]) || []).map((t: any) => t.email);
-      const ccAddresses = ((message.cc as any[]) || []).map((t: any) => t.email).filter(Boolean);
-      const bccAddresses = ((message.bcc as any[]) || []).map((t: any) => t.email).filter(Boolean);
-
-      const extraHeaders = buildExtraHeaders(message);
+    const extraHeaders = buildExtraHeaders(message);
+    let sendResult: cfEmail.SendEmailResponse;
+    try {
       const resolvedAttachments = await resolveAttachments(db, this.env.STORAGE, messageId);
-
-      const sendResult = await cfEmail.sendEmail(this.env, {
+      sendResult = await cfEmail.sendEmail(this.env, {
         from: fromAddress,
         to: toAddresses,
         subject: message.subject || '(No subject)',
@@ -177,26 +270,36 @@ export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduled
         headers: Object.keys(extraHeaders).length ? extraHeaders : undefined,
         attachments: resolvedAttachments.length > 0 ? resolvedAttachments : undefined,
       });
+    } catch (err) {
+      const sent = (err as { sentRecipients?: unknown }).sentRecipients;
+      if (Array.isArray(sent) && sent.length > 0) {
+        await commitOutbound(this.env, db, reservation, { sentRecipients: sent as string[] });
+      } else {
+        await releaseOutbound(this.env, reservation);
+      }
+      throw err;
+    }
+    await commitOutbound(this.env, db, reservation);
 
-      const now = new Date();
-      const updatedLabels = ((message.labels as string[]) || []).filter(l => l !== 'SCHEDULED');
+    const now = new Date();
+    const updatedLabels = ((message.labels as string[]) || []).filter(l => l !== 'SCHEDULED');
 
-      await db.update(mailMessages)
-        .set({
-          sendStatus: 'sent',
-          externalMessageId: sendResult.messageId,
-          sentDate: now,
-          triggerRunId: null,
-          labels: updatedLabels,
-          updatedAt: now,
-        })
-        .where(eq(mailMessages.id, messageId));
+    await db.update(mailMessages)
+      .set({
+        sendStatus: 'sent',
+        externalMessageId: sendResult.messageId,
+        sentDate: now,
+        triggerRunId: null,
+        labels: updatedLabels,
+        updatedAt: now,
+      })
+      .where(eq(mailMessages.id, messageId));
 
-      await db.update(mailAccounts)
-        .set({ sentToday: sql`${mailAccounts.sentToday} + 1`, updatedAt: now })
-        .where(eq(mailAccounts.id, accountId));
+    await db.update(mailAccounts)
+      .set({ sentToday: sql`${mailAccounts.sentToday} + 1`, updatedAt: now })
+      .where(eq(mailAccounts.id, accountId));
 
-      console.log(`[SendScheduledEmail] Sent ${messageId}, externalId: ${sendResult.messageId}`);
-    });
+    console.log(`[SendScheduledEmail] Sent ${messageId}, externalId: ${sendResult.messageId}`);
+    return { status: 'sent' };
   }
 }

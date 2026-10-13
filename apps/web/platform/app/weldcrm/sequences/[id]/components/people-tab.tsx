@@ -48,6 +48,7 @@ import {
   getStepKind,
   getStepName,
 } from './enrollment-progress';
+import { getSendingLimitedVariant, type SendingLimitedVariant } from './enrollment-stop-reason';
 
 interface PeopleTabProps {
   sequenceId: string;
@@ -96,6 +97,13 @@ function getAvatarColor(name: string): string {
 
 const NO_STEPS: readonly unknown[] = [];
 
+/** What the workspace's sending limit did to an enrollment, in the list. */
+const SENDING_LIMITED_STATUS_KEYS: Record<SendingLimitedVariant, string> = {
+  paused: 'crm.peopleTab.statusDescSendingLimitedPaused',
+  waiting: 'crm.peopleTab.statusDescSendingLimitedWaiting',
+  stopped: 'crm.peopleTab.statusDescSendingLimitedStopped',
+};
+
 export function PeopleTab({
   sequenceId,
   steps = NO_STEPS,
@@ -129,6 +137,8 @@ export function PeopleTab({
   }, [t, steps, describeWaiting]);
 
   const getStatusDescription = useCallback((enrollment: SequenceEnrollment): string => {
+    const sendingLimited = getSendingLimitedVariant(enrollment);
+    if (sendingLimited) return t(SENDING_LIMITED_STATUS_KEYS[sendingLimited]);
     if (enrollment.status === 'active') return getActivityDescription(enrollment);
     if (enrollment.status === 'completed') return t('crm.peopleTab.statusDescCompleted');
     if (enrollment.status === 'paused') return t('crm.peopleTab.statusDescPaused');
@@ -369,7 +379,10 @@ export function PeopleTab({
                         </span>
                         <span className="flex items-center gap-1.5 mt-px">
                           <StatusIcon className={cn('h-3 w-3 flex-shrink-0', statusColor)} />
-                          <span className="text-[13px] text-gray-400 dark:text-muted-foreground truncate">
+                          <span
+                            className="text-[13px] text-gray-400 dark:text-muted-foreground truncate"
+                            title={getSendingLimitedVariant(enrollment) ? t('crm.peopleTab.sendingLimitedHint') : undefined}
+                          >
                             {getStatusDescription(enrollment)}
                           </span>
                         </span>
@@ -477,9 +490,15 @@ export function PeopleTab({
 
             {/* Timeline — matches helpdesk activity timeline */}
             <div className="flex-1 overflow-auto px-6 py-6">
+              {getSendingLimitedVariant(selectedEnrollment) && (
+                <p className="mb-5 rounded-lg border border-border bg-muted/40 px-3 py-2 text-[13px] text-muted-foreground">
+                  {t('crm.peopleTab.sendingLimitedHint')}
+                </p>
+              )}
               <div>
                 {(() => {
                   const name = getCustomerName(selectedEnrollment);
+                  const sendingLimited = getSendingLimitedVariant(selectedEnrollment) !== null;
                   const events: Array<{
                     id: string;
                     type: 'enrolled' | 'email' | 'delay' | 'step' | 'completed' | 'unenrolled' | 'failed' | 'paused';
@@ -552,12 +571,16 @@ export function PeopleTab({
                     });
                   }
                   if (selectedEnrollment.status === 'failed') {
+                    let failedText = t('crm.peopleTab.timelineSequenceFailedNoMsg');
+                    if (sendingLimited) {
+                      failedText = t('crm.peopleTab.timelineSendingLimited', { name });
+                    } else if (selectedEnrollment.errorMessage) {
+                      failedText = t('crm.peopleTab.timelineSequenceFailed', { message: selectedEnrollment.errorMessage });
+                    }
                     events.push({
                       id: 'failed',
                       type: 'failed',
-                      text: selectedEnrollment.errorMessage
-                        ? t('crm.peopleTab.timelineSequenceFailed', { message: selectedEnrollment.errorMessage })
-                        : t('crm.peopleTab.timelineSequenceFailedNoMsg'),
+                      text: failedText,
                       timestamp: selectedEnrollment.failedAt || selectedEnrollment.enrolledAt,
                     });
                   }
@@ -565,7 +588,9 @@ export function PeopleTab({
                     events.push({
                       id: 'paused',
                       type: 'paused',
-                      text: t('crm.peopleTab.timelinePaused', { name }),
+                      text: sendingLimited
+                        ? t('crm.peopleTab.timelineSendingLimited', { name })
+                        : t('crm.peopleTab.timelinePaused', { name }),
                       timestamp: selectedEnrollment.pausedAt,
                     });
                   }

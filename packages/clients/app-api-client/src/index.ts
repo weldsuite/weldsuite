@@ -52,6 +52,7 @@ export * from './domains/mail-subscriptions';
 export * from './domains/mail-sync';
 export * from './domains/mail-threads';
 export * from './domains/mail-weldmail';
+export * from './domains/mail-sending';
 export * from './domains/mail-ai';
 
 // Mobile-consolidation surfaces — workspaces switcher + push tokens.

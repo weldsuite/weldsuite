@@ -112,6 +112,7 @@ Worker runtime secrets (set via `wrangler secret put`, not GitHub):
 | `CLERK_SECRET_KEY` / `CLERK_JWT_KEY` | `personal-api`, `app-api`, … |
 | `INTERNAL_API_SECRET` | `app-api`, `agent-runtime`, `integration-*`, `helpdesk-workflow-worker`, … |
 | `BILLING_ADMIN_SECRET` | `billing-worker`; the admin console (`apps/web/admin`) holds the same value |
+| `OUTBOUND_ADMIN_SECRET` | `mail-api` (`/internal/outbound/*`); the admin console holds the same value, next to `MAIL_API_URL` |
 
 Copy from Doppler without printing values:
 

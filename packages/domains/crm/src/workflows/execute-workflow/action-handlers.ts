@@ -7,7 +7,9 @@
  *    app-api to @weldsuite/crm-domain with the ExecuteSequence workflow)
  *  - send_email posts through the worker's own Cloudflare send binding
  *    (`@weldsuite/worker-email`) instead of an HTTP round-trip to api-worker's
- *    /api/internal/send-email endpoint
+ *    /api/internal/send-email endpoint, behind the outbound mail guard
+ *    (`@weldsuite/mail-domain/outbound`): a denial is thrown as an
+ *    `OutboundDeniedError` for the sequence workflow to pace or stop on
  *  - ai_generate / ai_classify run through `@weldsuite/ai` + the prepaid
  *    credit wallet (`@weldsuite/core-domain/ai-billing`) — api-worker's `services/ai`
  *    facade was gutted in the AI teardown and its dynamic `generate` import
@@ -21,6 +23,7 @@ import { getEntityTable, getEntityIdPrefix } from './entity-tables';
 import * as cfEmail from '@weldsuite/worker-email';
 import type { WorkerEmailEnv } from '@weldsuite/worker-email';
 import type { AiBillingEnv } from '@weldsuite/core-domain/ai-billing';
+import { guardedSend, type OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { asText } from '@weldsuite/text';
 
@@ -32,11 +35,15 @@ export type WorkflowDb = NeonHttpDatabase<typeof schema>;
 
 /**
  * The bindings the action handlers read. Any worker Env with them fits:
- * SEND_EMAIL (send_email), REALTIME (helpdesk conversation events),
+ * SEND_EMAIL (send_email), the OUTBOUND_* guard bindings (send_email; the guard
+ * also reads the DbEnv ones), REALTIME (helpdesk conversation events),
  * DATABASE_URL_MASTER (AI credit metering), and the AI gateway keys
  * `@weldsuite/ai` reads from the same env (CF_ACCOUNT_ID, AI_GATEWAY_API_TOKEN, …).
  */
-export interface ActionEnv extends WorkerEmailEnv, AiBillingEnv {
+export interface ActionEnv
+  extends WorkerEmailEnv,
+    AiBillingEnv,
+    Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** realtime-worker service binding. */
   REALTIME?: Fetcher;
   CF_ACCOUNT_ID?: string;
@@ -152,15 +159,33 @@ async function handleSendEmail(
     ? `${(account as any).displayName} <${(account as any).email}>`
     : (account as any).email;
 
-  const result = await cfEmail.sendEmail(ctx.env, {
-    from: fromAddress,
-    to: toRecipients,
-    subject: asText(inputs.subject || ''),
-    html: asText(inputs.body || inputs.html || ''),
-    text: asText(inputs.body || '').replaceAll(/<[^<>]*>/g, ''),
-    cc: inputs.cc as string[] | undefined,
-    bcc: inputs.bcc as string[] | undefined,
-  });
+  const subject = asText(inputs.subject || '');
+  const html = asText(inputs.body || inputs.html || '');
+  const text = asText(inputs.body || '').replaceAll(/<[^<>]*>/g, '');
+  const cc = inputs.cc as string[] | undefined;
+  const bcc = inputs.bcc as string[] | undefined;
+
+  // Outbound guard: sequences start conversations, so every send is a new
+  // thread. A denial throws OutboundDeniedError; execute-sequence.ts sleeps on
+  // a limit with a retryAfter and stops the enrollment on the rest. There is no
+  // waitUntil in a Workflow, so the guard counts the send inline.
+  const result = await guardedSend(
+    ctx.env,
+    ctx.db,
+    {
+      subject: { kind: 'workspace', clerkOrgId: ctx.tenant.workspaceId },
+      source: 'crm_sequence',
+      kind: 'new_thread',
+      from: fromAddress,
+      to: toRecipients,
+      cc,
+      bcc,
+      subjectLine: subject,
+      text,
+      html,
+    },
+    () => cfEmail.sendEmail(ctx.env, { from: fromAddress, to: toRecipients, subject, html, text, cc, bcc }),
+  );
 
   return { success: true, messageId: result.messageId, from: (account as any).email };
 }

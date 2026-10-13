@@ -2,16 +2,31 @@
  * Shared "send + persist" helper for personal (consumer WeldMail) outbound mail.
  *
  * Compose, reply and forward all do the same work: enforce the plan's daily
- * limit, short-circuit a replayed idempotency key, sanitize the HTML body, hand
- * the envelope to the Cloudflare `send_email` binding, then persist a SENT copy
- * stitched into the right thread. Keeping it in one place means a change to the
- * send path (a new header, a different limit) lands once rather than three
- * times — the same reason app-api has `services/mail/send.ts`.
+ * limit, short-circuit a replayed idempotency key, sanitize the HTML body, run
+ * the outbound guard, hand the envelope to the Cloudflare `send_email` binding,
+ * then persist a SENT copy stitched into the right thread. Keeping it in one
+ * place means a change to the send path (a new header, a different limit) lands
+ * once rather than three times — the same reason app-api has
+ * `services/mail/send.ts`.
+ *
+ * The outbound guard (`@weldsuite/mail-domain/outbound`, ledger key
+ * `personal:<accountId>`) wraps the transmit: it checks sender ownership and
+ * the personal plan's recipient limits before anything goes out and counts what
+ * did. The personal DB has no correspondents table, so it runs without a tenant
+ * DB (no first-contact tracking). docs/plans/weldmail-outbound-abuse.md.
  */
 
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
+import { ProviderRefusedError, TransientProviderError } from '@weldsuite/email';
 import type { PersonalMailEmailAddress } from '@weldsuite/db/schema/personal';
+import type { OutboundDenialCode } from '@weldsuite/app-api-client/schemas/outbound-mail';
+import {
+  OutboundDeniedError,
+  guardedSend,
+  tripPlatformBreaker,
+  type CheckOutboundInput,
+} from '@weldsuite/mail-domain/outbound';
 import { personalSchema, type PersonalDatabase } from '../db';
 import { generateId } from '../lib/id';
 import { sendEmail } from '../lib/cloudflare-email';
@@ -25,13 +40,23 @@ export type PersonalMailAccountRow = typeof personalMailAccounts.$inferSelect;
 export type PersonalMailMessageRow = typeof personalMailMessages.$inferSelect;
 
 export class PersonalMailSendError extends Error {
+  /** Recipients that already had the message when the send failed (a partial send). */
+  sentRecipients?: string[];
+
   constructor(
     readonly code:
       | 'ACCOUNT_NOT_FOUND'
       | 'MESSAGE_NOT_FOUND'
       | 'DAILY_LIMIT_REACHED'
       | 'NO_RECIPIENTS'
-      | 'DELIVERY_FAILED',
+      | 'DELIVERY_FAILED'
+      // The outbound guard refused (details: OutboundDenialDetails).
+      | OutboundDenialCode
+      // Cloudflare refused: its rate limit (retry in a minute), its daily quota.
+      | 'PROVIDER_RATE_LIMITED'
+      | 'PROVIDER_DAILY_LIMIT'
+      // Some recipients got it before the send failed (details: { sent, failed }).
+      | 'PARTIALLY_SENT',
     message: string,
     readonly details?: unknown,
   ) {
@@ -55,6 +80,12 @@ export interface SendComposeInput {
   /** Explicit thread to attach to, when the caller already knows it. */
   threadId?: string;
   idempotencyKey?: string;
+  /**
+   * How the outbound guard labels this send. `source` defaults to `personal`;
+   * `kind` is worked out from the thread when left out (`reply` only when
+   * `inReplyTo` is a message someone sent to this mailbox).
+   */
+  outbound?: { source?: CheckOutboundInput['source']; kind?: CheckOutboundInput['kind'] };
 }
 
 export interface SendOutcome {
@@ -67,11 +98,13 @@ function toAddresses(values: string[] | undefined): PersonalMailEmailAddress[] |
   return values.map((email) => ({ email }));
 }
 
+/** The visible text of an HTML body, whitespace collapsed; undefined when there is none. */
+function plainTextOf(htmlBody: string | null | undefined): string | undefined {
+  return htmlBody ? tagsToSpaces(htmlBody).replace(/\s+/g, ' ').trim() : undefined;
+}
+
 function previewFrom(textBody?: string | null, htmlBody?: string | null): string | null {
-  const raw =
-    textBody?.trim() ||
-    (htmlBody && tagsToSpaces(htmlBody).replace(/\s+/g, ' ').trim()) ||
-    '';
+  const raw = textBody?.trim() || plainTextOf(htmlBody) || '';
   if (!raw) return null;
   return raw.slice(0, 500);
 }
@@ -233,11 +266,82 @@ async function deliver(
     });
     return { providerMessageId: sent.messageId, pendingVerification: !!sent.pendingVerification };
   } catch (err) {
-    throw new PersonalMailSendError(
+    throw await deliveryFailure(env, input, err);
+  }
+}
+
+/**
+ * What a failed Cloudflare transmit becomes. Cloudflare's named refusals keep
+ * their meaning (its rate limit, its daily quota, which also trips the
+ * platform breaker), and a send that failed halfway says who already has it
+ * (`sentRecipients`, so the guard counts only those). Anything else is a plain
+ * delivery failure.
+ */
+async function deliveryFailure(
+  env: Env,
+  input: SendComposeInput,
+  err: unknown,
+): Promise<PersonalMailSendError> {
+  const sent = err instanceof TransientProviderError ? err.sentRecipients : [];
+  const refusal = err instanceof ProviderRefusedError ? err.refusal : null;
+  if (refusal === 'daily_limit') {
+    await tripPlatformBreaker(env, 'Cloudflare refused a send with E_DAILY_LIMIT_EXCEEDED.');
+  }
+
+  let failure: PersonalMailSendError;
+  if (sent.length > 0) {
+    const everyone = [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])];
+    const sentSet = new Set(sent.map((r) => r.toLowerCase()));
+    failure = new PersonalMailSendError(
+      'PARTIALLY_SENT',
+      `Sent to ${sent.length} of ${everyone.length} recipients.`,
+      { sent, failed: everyone.filter((r) => !sentSet.has(r.toLowerCase())) },
+    );
+    failure.sentRecipients = sent;
+  } else if (refusal === 'rate_limited') {
+    failure = new PersonalMailSendError(
+      'PROVIDER_RATE_LIMITED',
+      'Outbound mail is being rate-limited. Try again in a minute.',
+    );
+  } else if (refusal === 'daily_limit') {
+    failure = new PersonalMailSendError(
+      'PROVIDER_DAILY_LIMIT',
+      'Outbound mail is unavailable for the rest of the day. Try again later.',
+    );
+  } else {
+    failure = new PersonalMailSendError(
       'DELIVERY_FAILED',
       err instanceof Error ? err.message : 'Email delivery failed',
     );
   }
+  return failure;
+}
+
+/**
+ * `reply` only when answering a message someone sent to this mailbox. A
+ * follow-up on the mailbox's own sent mail starts no new relationship but is
+ * not a reply either: it counts as a new conversation. A client cannot claim
+ * `reply` by naming any message id in `inReplyTo`: the parent must be one we
+ * hold, and a received one.
+ */
+async function outboundKindOf(
+  db: PersonalDatabase,
+  accountId: string,
+  input: SendComposeInput,
+): Promise<CheckOutboundInput['kind']> {
+  if (!input.inReplyTo) return 'new_thread';
+  const [parent] = await db
+    .select({ source: personalMailMessages.source })
+    .from(personalMailMessages)
+    .where(
+      and(
+        eq(personalMailMessages.accountId, accountId),
+        eq(personalMailMessages.messageId, bracket(input.inReplyTo)),
+        isNull(personalMailMessages.deletedAt),
+      ),
+    )
+    .limit(1);
+  return parent && parent.source !== 'composed' ? 'reply' : 'new_thread';
 }
 
 /** Best-effort display counter — the enforced limit is the live count in `countSentToday`. */
@@ -300,12 +404,34 @@ export async function sendAndPersist(
     ? `"${account.displayName}" <${account.email}>`
     : account.email;
 
-  const { providerMessageId, pendingVerification } = await deliver(
-    env,
-    fromHeader,
-    input,
-    htmlBody,
-  );
+  // The outbound guard checks the send and reserves its recipients, then
+  // counts them once `deliver` returns (or releases them when nothing went out).
+  let delivered: { providerMessageId: string; pendingVerification: boolean };
+  try {
+    delivered = await guardedSend(
+      env,
+      null,
+      {
+        subject: { kind: 'personal', personalAccountId, plan: entitlements.plan },
+        source: input.outbound?.source ?? 'personal',
+        kind: input.outbound?.kind ?? (await outboundKindOf(db, account.id, input)),
+        from: account.email,
+        to: input.to,
+        cc: input.cc,
+        bcc: input.bcc,
+        subjectLine: input.subject,
+        text: input.textBody ?? plainTextOf(htmlBody),
+        html: htmlBody,
+      },
+      () => deliver(env, fromHeader, input, htmlBody),
+    );
+  } catch (err) {
+    if (err instanceof OutboundDeniedError) {
+      throw new PersonalMailSendError(err.code, err.message, err.details);
+    }
+    throw err;
+  }
+  const { providerMessageId, pendingVerification } = delivered;
 
   const id = generateId('msg');
   const now = new Date();
@@ -557,6 +683,7 @@ export async function forwardAndPersist(
     textBody,
     htmlBody,
     idempotencyKey: data.idempotencyKey,
+    outbound: { kind: 'forward' },
   });
 
   return { ...outcome, forwardedFrom: originalMessageId };

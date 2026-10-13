@@ -2257,6 +2257,12 @@ export const crm = {
       statusDescPaused: 'Paused',
       statusDescPending: 'Pending enrollment',
       statusDescUnenrolled: 'Unenrolled',
+      statusDescSendingLimitedPaused: 'Paused: sending limit',
+      statusDescSendingLimitedWaiting: 'Waiting: sending limit',
+      statusDescSendingLimitedStopped: 'Stopped: sending limit',
+      sendingLimitedHint:
+        'WeldMail limits how many people a workspace can email. Emails to this person are held back until sending is available again.',
+      timelineSendingLimited: '{name} was held back because the workspace reached its sending limit',
       timelineEnrolled: 'was enrolled',
       timelineAutomatedEmail: 'Automated email',
       timelineWaited: 'Waited {duration}',

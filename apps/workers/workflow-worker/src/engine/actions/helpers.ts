@@ -76,6 +76,33 @@ export async function postInternalApi<T>(
 /** Loose address check: one `@`, no whitespace or list separators, a dot in the domain. */
 export const EMAIL_ADDRESS = /^[^\s@<>(),;:"]+@[^\s@<>(),;:"][^\s@<>(),;:".]*\.[^\s@<>(),;:"]{2,}$/;
 
+/**
+ * The codes the outbound mail guard refuses a send with. A copy of
+ * `OUTBOUND_DENIAL_CODES` in @weldsuite/app-api-client/schemas/outbound-mail,
+ * which this worker does not depend on.
+ */
+const OUTBOUND_DENIAL_CODES: ReadonlySet<string> = new Set([
+  'SENDING_LIMITED',
+  'FIRST_CONTACT_LIMITED',
+  'SENDING_ON_HOLD',
+  'SENDING_SUSPENDED',
+  'SENDER_NOT_OWNED',
+  'TOO_MANY_RECIPIENTS',
+  'RECIPIENT_SUPPRESSED',
+  'PLATFORM_LIMITED',
+]);
+
+/** The guard's refusal in an `{ error: { code, message } }` body, or null when the response is something else. */
+function outboundDenial(body: string): { code: string; message: string } | null {
+  try {
+    const error = (JSON.parse(body) as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+    if (typeof error?.code !== 'string' || !OUTBOUND_DENIAL_CODES.has(error.code)) return null;
+    return { code: error.code, message: typeof error.message === 'string' ? error.message : error.code };
+  } catch {
+    return null;
+  }
+}
+
 /** A rejection that repeating the same request cannot fix: a client error or a validation failure. */
 function isPermanentRejection(status: number, body: string): boolean {
   if (status === 408 || status === 429) return false;
@@ -116,6 +143,18 @@ function readableErrorMessage(body: string): string | null {
  * is permanent so neither the engine nor Cloudflare retries it.
  */
 export function internalApiFailure(label: string, status: number, body: string): Error {
+  // The outbound mail guard refused the send (a limit, a hold, a sender the
+  // workspace does not own...). Asking again cannot lift it, whatever the
+  // status, so the step fails at once, with the denial code in the message and
+  // the details: a loop around it stops instead of hitting the limit per item.
+  const denial = outboundDenial(body);
+  if (denial) {
+    return new NonRetryableStepError(`${label} blocked (${denial.code}): ${denial.message}`, {
+      status,
+      code: denial.code,
+      body: body.slice(0, 2000),
+    });
+  }
   const readable = readableErrorMessage(body);
   const message = readable ? `${label} failed: ${readable}` : `${label} failed: ${status} - ${body.slice(0, 500)}`;
   const details = { status, body: body.slice(0, 2000) };

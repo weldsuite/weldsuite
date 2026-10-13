@@ -590,7 +590,13 @@ export const mailApi = {
         },
       );
       if (!send.success || !send.data) {
-        return { success: false, error: send.error ?? 'Send failed', errorCode: send.errorCode };
+        // The guard's denial details (which limit, when to retry) must reach the caller.
+        return {
+          success: false,
+          error: send.error ?? 'Send failed',
+          errorCode: send.errorCode,
+          errorDetails: send.errorDetails,
+        };
       }
       // Best-effort delete — if it fails the draft just lingers, the
       // user can clear it manually.

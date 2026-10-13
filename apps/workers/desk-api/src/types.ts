@@ -1,5 +1,6 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
+import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 
 /**
  * desk-api bindings: the kit's (auth, tenant DB, flags) plus only what
@@ -14,6 +15,14 @@ export interface Env extends KitEnv {
   // --- Email (@weldsuite/worker-email) — desk email replies + channel dispatch ---
   /** Cloudflare `[[send_email]]` binding for outbound mail. */
   SEND_EMAIL?: SendEmail;
+
+  // --- Outbound mail guard (@weldsuite/mail-domain/outbound) ---------------
+  /** mail-api's `OutboundLedger` Durable Object (`script_name` binding). Unset: the guard skips the ledger. */
+  OUTBOUND_LEDGER?: OutboundGuardEnv['OUTBOUND_LEDGER'];
+  /** mail-api's `OutboundPlatformBudget` Durable Object. */
+  OUTBOUND_PLATFORM?: OutboundGuardEnv['OUTBOUND_PLATFORM'];
+  /** Per-sender burst limit the guard falls back on when the ledger is unreachable. */
+  OUTBOUND_BACKSTOP?: OutboundGuardEnv['OUTBOUND_BACKSTOP'];
 
   // --- Help center custom domains (helpcenter-settings) ---------------------
   /** Cloudflare API token with Zone scopes (help center DNS records). */

@@ -180,7 +180,10 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
     c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     if (conversation.channel === 'email' && data.kind === 'message') {
       try {
-        await sendDeskEmailReply(c.env, db, conversation, message);
+        await sendDeskEmailReply(c.env, db, conversation, message, {
+          clerkOrgId: c.get('workspaceId'),
+          waitUntil: (promise) => c.executionCtx.waitUntil(promise),
+        });
       } catch (err) {
         console.error('[app-api/desk-conversations] outbound email failed:', err);
       }

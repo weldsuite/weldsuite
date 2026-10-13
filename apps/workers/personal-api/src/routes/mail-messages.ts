@@ -3,8 +3,9 @@
  * (compose / reply / forward) via Cloudflare Email Sending.
  *
  * Every send funnels through `services/mail-send.ts`, so the daily plan limit,
- * idempotency, HTML sanitizing and thread stitching behave identically no
- * matter which endpoint the client used.
+ * the outbound guard, idempotency, HTML sanitizing and thread stitching behave
+ * identically no matter which endpoint the client used (`lib/send-errors.ts`
+ * maps their refusals to responses).
  */
 
 import { Hono } from 'hono';
@@ -13,6 +14,7 @@ import { z } from 'zod';
 import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { getPersonalDb, personalSchema } from '../db';
 import { cursorPagination, error, list, success } from '../lib/response';
+import { mapSendError } from '../lib/send-errors';
 import {
   PersonalMailSendError,
   forwardAndPersist,
@@ -86,24 +88,6 @@ const forwardBody = z.object({
   htmlBody: z.string().optional(),
   idempotencyKey: z.string().min(1).max(64).optional(),
 });
-
-/** Map the one service error type onto the response shapes. */
-function mapSendError(c: Parameters<typeof error.badRequest>[0], err: PersonalMailSendError) {
-  switch (err.code) {
-    case 'ACCOUNT_NOT_FOUND':
-      return error.notFound(c, 'Mail account');
-    case 'MESSAGE_NOT_FOUND':
-      return error.notFound(c, 'Message');
-    case 'DAILY_LIMIT_REACHED':
-      return error.planLimit(c, err.message, err.details);
-    case 'NO_RECIPIENTS':
-      return error.badRequest(c, err.message);
-    case 'DELIVERY_FAILED':
-      return error.unavailable(c, err.message);
-    default:
-      return error.internal(c, err.message);
-  }
-}
 
 type ListFilters = z.infer<typeof listQuery>;
 

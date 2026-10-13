@@ -19,7 +19,9 @@
 import {
   PendingVerificationError,
   ProviderConfigError,
+  ProviderRefusedError,
   TransientProviderError,
+  type ProviderRefusal,
 } from '../../core/errors';
 import { buildRfc5322 } from '../../core/mime';
 import type {
@@ -89,10 +91,13 @@ export class CloudflareSendProvider implements IEmailSendProvider {
     const from = formatEmailAddress(options.from);
 
     const pendingRecipients: string[] = [];
+    const suppressedRecipients: string[] = [];
+    const sentRecipients: string[] = [];
     for (const rcpt of envelopeRecipients) {
       const message = new this.opts.EmailMessage(from, rcpt.email, raw);
       try {
         await this.opts.sendEmail.send(message);
+        sentRecipients.push(rcpt.email);
       } catch (err) {
         // A recipient outside the account's allowed destination list is a
         // "needs verifying" state the caller can surface to the user, not a
@@ -101,18 +106,60 @@ export class CloudflareSendProvider implements IEmailSendProvider {
           pendingRecipients.push(rcpt.email);
           continue;
         }
-        throw new TransientProviderError(
-          `send_email failed for ${rcpt.email}: ${describeError(err)}`,
-          PROVIDER,
-          err,
-        );
+        const refusal = refusalOf(err);
+        // Cloudflare suppressed this address (an earlier hard bounce or spam
+        // complaint): skip it, the others still get the message.
+        if (refusal === 'recipient_suppressed') {
+          suppressedRecipients.push(rcpt.email);
+          continue;
+        }
+        const text = `send_email failed for ${rcpt.email}: ${describeError(err)}`;
+        if (refusal) {
+          throw new ProviderRefusedError(refusal, rcpt.email, text, PROVIDER, err, sentRecipients, messageId);
+        }
+        throw new TransientProviderError(text, PROVIDER, err, sentRecipients, messageId);
       }
     }
 
+    if (sentRecipients.length === 0 && pendingRecipients.length === 0 && suppressedRecipients.length > 0) {
+      throw new ProviderRefusedError(
+        'recipient_suppressed',
+        suppressedRecipients[0]!,
+        `send_email refused: every recipient is suppressed (${suppressedRecipients.join(', ')})`,
+        PROVIDER,
+        undefined,
+        [],
+        messageId,
+      );
+    }
+
+    const metadata = {
+      ...(pendingRecipients.length ? { pendingRecipients } : {}),
+      ...(suppressedRecipients.length ? { suppressedRecipients } : {}),
+    };
     return {
       messageId,
-      metadata: pendingRecipients.length ? { pendingRecipients } : undefined,
+      metadata: Object.keys(metadata).length ? metadata : undefined,
     };
+  }
+}
+
+/** Cloudflare's Email Service error codes we act on (others stay a plain transient error). */
+function refusalOf(err: unknown): ProviderRefusal | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const code = (err as { code?: unknown }).code;
+  switch (code) {
+    case 'E_RATE_LIMIT_EXCEEDED':
+      return 'rate_limited';
+    case 'E_DAILY_LIMIT_EXCEEDED':
+      return 'daily_limit';
+    case 'E_RECIPIENT_SUPPRESSED':
+      return 'recipient_suppressed';
+    case 'E_SENDER_NOT_VERIFIED':
+    case 'E_SENDER_DOMAIN_NOT_AVAILABLE':
+      return 'sender_not_allowed';
+    default:
+      return null;
   }
 }
 

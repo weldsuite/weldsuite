@@ -3,6 +3,9 @@
 # Secrets (set via `wrangler secret put`, never hardcoded here):
 # - NEON_API_KEY (resolves tenant DB URLs from master workspace rows during auth)
 # - DATABASE_ENCRYPTION_KEY (optional; decrypts stored databaseUrl on master workspaces)
+# - DATABASE_URL_MASTER (Neon URL of the master DB; read only by the outbound mail
+#   guard for its sender-ownership check, auth uses the Hyperdrive binding. Unset
+#   skips that one check. docs/plans/weldmail-outbound-abuse.md)
 # - POSTPEER_API_KEY (WeldSocial: single WeldSuite-level PostPeer key, sent as
 #   the `x-access-key` header. Required by POST /v1/social-posts/:id/publish and
 #   /schedule, which publish through @weldsuite/social-publishing directly —
@@ -69,6 +72,28 @@ name = "RL_ENTERPRISE"
 namespace_id = "13"
   [ratelimits.simple]
   limit = 5000
+  period = 60
+
+# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md). The send routes
+# check every send against the workspace's OutboundLedger, a Durable Object
+# hosted by mail-api and bound here by name. OUTBOUND_BACKSTOP is the per-sender
+# burst limit the guard falls back on when the ledger can't be reached; its
+# namespace is shared with the other sending workers on purpose.
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
   period = 60
 
 # Entity-event hub (Phase 2). Fed by publishEntityEvent; hub fans out to
@@ -169,6 +194,25 @@ namespace_id = "23"
   limit = 5000
   period = 60
 
+# Outbound mail guard (test): mail-api's Durable Objects, and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
+
 # Master Postgres over Hyperdrive — required for api_key_registry lookups in auth.
 [[env.test.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"
@@ -219,6 +263,25 @@ name = "RL_ENTERPRISE"
 namespace_id = "3004"
   [env.production.ratelimits.simple]
   limit = 5000
+  period = 60
+
+# Outbound mail guard (production): mail-api's Durable Objects, and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
   period = 60
 
 [[env.production.hyperdrive]]

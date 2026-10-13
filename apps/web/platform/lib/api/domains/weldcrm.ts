@@ -368,6 +368,8 @@ export interface SequenceEnrollment {
   unenrolledAt?: string;
   failedAt?: string;
   errorMessage?: string;
+  /** Why the enrollment stopped or was paused (e.g. `sending_limited`), when the API says. */
+  stopReason?: string | null;
   customerSnapshot?: {
     email?: string;
     firstName?: string;

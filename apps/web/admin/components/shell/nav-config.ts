@@ -9,6 +9,7 @@ import {
   Handshake,
   Headphones,
   LayoutDashboard,
+  MailWarning,
   History,
   ListTree,
   Package,
@@ -80,6 +81,7 @@ export function getNavAreas(): NavArea[] {
           { title: 'App Catalog', href: '/apps', icon: Package },
           { title: 'Access requests', href: '/access-requests', icon: ShieldCheck },
           { title: 'Warmup network', href: '/warmup', icon: Flame },
+          { title: 'Outbound mail', href: '/outbound-mail', icon: MailWarning },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: billing.plans, href: '/plans', icon: CreditCard },
           { title: partners.jumpTo, href: '/partners', icon: Handshake },
@@ -141,6 +143,18 @@ export function getNavAreas(): NavArea[] {
       {
         group: 'WeldReach',
         items: [{ title: 'Warmup network', href: '/warmup', icon: Flame }],
+      },
+    ],
+  },
+  {
+    key: 'outbound-mail',
+    name: 'Outbound mail',
+    icon: MailWarning,
+    href: '/outbound-mail',
+    groups: [
+      {
+        group: 'WeldMail',
+        items: [{ title: 'Outbound mail', href: '/outbound-mail', icon: MailWarning }],
       },
     ],
   },

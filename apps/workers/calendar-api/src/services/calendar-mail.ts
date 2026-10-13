@@ -10,6 +10,13 @@
  *
  * Every send is best-effort: a mail failure must never fail the mutation
  * that triggered it (each attendee is wrapped in its own try/catch).
+ *
+ * The mails go out from WeldSuite's own address but carry the organizer's
+ * title and description to people the workspace may never have written to, so
+ * each batch goes through the outbound mail guard first
+ * (`@weldsuite/mail-domain/outbound`, source `calendar`; see
+ * docs/plans/weldmail-outbound-abuse.md). A refusal skips the whole batch and
+ * is logged, like any other mail failure here: the event stays saved.
  */
 
 import type { Database } from '@weldsuite/worker-kit/db';
@@ -23,6 +30,13 @@ import {
   type CalendarEventKind,
 } from '@weldsuite/emails';
 import { workerTransport } from '@weldsuite/emails/transports/binding';
+import {
+  OutboundDeniedError,
+  checkOutbound,
+  commitOutbound,
+  releaseOutbound,
+  type OutboundReservation,
+} from '@weldsuite/mail-domain/outbound';
 import type { Env } from '../types';
 import { validTimeZoneOrUndefined } from './calendar-timezone';
 
@@ -182,12 +196,22 @@ export interface CalendarMailEvent {
   allDay?: boolean | null;
 }
 
+/** What the outbound guard needs to count a batch of calendar mail against the workspace. */
+export interface OutboundContext {
+  /** Tenant DB: who has written to this workspace before (first contact), and who must not be mailed. */
+  db: Database;
+  /** The workspace's Clerk org id; the guard resolves the master workspace id from it. */
+  clerkOrgId: string;
+}
+
 /** Options of `sendCalendarEventEmails`. */
 export interface SendOptions {
   kind: MailKind;
   event: CalendarMailEvent;
   attendees: AttendeeLike[];
   organizer: OrganizerInfo;
+  /** Required, so no caller can send calendar mail past the outbound guard. */
+  outbound: OutboundContext;
   /**
    * Floor for the ICS SEQUENCE. Reschedule and cancel mails are always sent
    * with at least `nextIcsSequence()` so they supersede earlier revisions.
@@ -216,13 +240,61 @@ export function mailTimeZone(event: CalendarMailEvent, organizer: OrganizerInfo)
   );
 }
 
+/** WeldSuite's own sending address for system mail (the transport's default From). */
+const SYSTEM_SENDER = 'notifications@mail.weldsuite.org';
+
+/** An attendee with an address to mail. */
+type Recipient = AttendeeLike & { email: string };
+
+/**
+ * Ask the outbound guard once for the whole batch: every attendee gets a
+ * message of their own, but they share one title and description, and they
+ * count together against the workspace's limits (a new conversation from the
+ * `calendar` source, sent from WeldSuite's address, so no sender ownership).
+ *
+ * Returns the reservation to commit once the mails went out, `'refused'` when
+ * the guard said no (the batch is skipped), or `null` when the guard itself
+ * failed, which lets the mail through: it fails open, and an invitation is
+ * worth more than a gap in counting.
+ */
+async function reserveBatch(
+  env: Env,
+  opts: SendOptions,
+  recipients: Recipient[],
+): Promise<OutboundReservation | 'refused' | null> {
+  const { kind, event, outbound } = opts;
+  try {
+    return await checkOutbound(env, outbound.db, {
+      subject: { kind: 'workspace', clerkOrgId: outbound.clerkOrgId },
+      source: 'calendar',
+      kind: 'new_thread',
+      from: SYSTEM_SENDER,
+      systemSender: true,
+      to: recipients.map((a) => a.email),
+      subjectLine: event.title,
+      text: event.description,
+      recipientNames: recipients.map((a) => a.name).filter((name): name is string => !!name),
+    });
+  } catch (err) {
+    if (err instanceof OutboundDeniedError) {
+      console.warn(
+        `[calendar-api/calendar-mail] ${kind} mail for event ${event.id} not sent: the outbound guard refused (${err.code})`,
+      );
+      return 'refused';
+    }
+    console.error('[calendar-api/calendar-mail] outbound guard failed, sending anyway:', err);
+    return null;
+  }
+}
+
 /**
  * Send one calendar mail per attendee.
  *
  * No-ops when the worker has no email transport configured (`workerTransport`)
  * or there are no attendees. The organizer is never mailed their own event.
- * Each send is isolated: one bad address does not stop the rest, and nothing
- * here throws to the caller.
+ * The batch goes through the outbound guard first; if it refuses, nothing is
+ * sent. Each send is isolated: one bad address does not stop the rest, and
+ * nothing here throws to the caller.
  */
 export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Promise<void> {
   const transport = workerTransport(env);
@@ -236,11 +308,18 @@ export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Prom
   const sequence =
     kind === 'invite' ? (opts.sequence ?? 0) : Math.max(opts.sequence ?? 0, nextIcsSequence());
 
-  for (const attendee of opts.attendees) {
+  // Skip blank addresses and the organizer's own inbox (legacy parity).
+  const recipients = opts.attendees.filter(
+    (a): a is Recipient => !!a.email && a.email.toLowerCase() !== organizer.email?.toLowerCase(),
+  );
+  if (recipients.length === 0) return;
+
+  const reservation = await reserveBatch(env, opts, recipients);
+  if (reservation === 'refused') return;
+
+  const sent: string[] = [];
+  for (const attendee of recipients) {
     const email = attendee.email;
-    // Skip blank addresses and the organizer's own inbox (legacy parity).
-    if (!email) continue;
-    if (email.toLowerCase() === organizer.email?.toLowerCase()) continue;
 
     // External guests have no account: the authenticated calendar is a dead
     // end for them, so only members get that link.
@@ -289,8 +368,19 @@ export async function sendCalendarEventEmails(env: Env, opts: SendOptions): Prom
         replyTo: organizer.email || undefined,
         attachments: [ics],
       });
+      sent.push(email);
     } catch (err) {
       console.error(`[calendar-api/calendar-mail] ${kind} email failed for ${email}:`, err);
+    }
+  }
+
+  // Count what went out; give the rest back (the commit narrows to `sent`).
+  if (reservation) {
+    if (sent.length === 0) {
+      await releaseOutbound(env, reservation);
+    } else {
+      const partial = sent.length < recipients.length;
+      await commitOutbound(env, opts.outbound.db, reservation, partial ? { sentRecipients: sent } : {});
     }
   }
 }

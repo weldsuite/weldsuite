@@ -42,11 +42,47 @@ export class ProviderConfigError extends EmailProviderError {
   }
 }
 
-/** Provider returned a transient failure — caller should retry with backoff. */
+/**
+ * Provider returned a transient failure — caller should retry with backoff.
+ *
+ * A send fanned out per recipient can fail halfway: `sentRecipients` lists the
+ * envelopes that already went out (and `messageId` the message they carry), so
+ * the caller can record what was sent instead of retrying everyone.
+ */
 export class TransientProviderError extends EmailProviderError {
-  constructor(message: string, provider: string, cause?: unknown) {
+  constructor(
+    message: string,
+    provider: string,
+    cause?: unknown,
+    public readonly sentRecipients: string[] = [],
+    public readonly messageId?: string,
+  ) {
     super(message, provider, cause);
     this.name = 'TransientProviderError';
+  }
+}
+
+/** Why a provider refused a send, when it says so (Cloudflare `E_*` codes). */
+export type ProviderRefusal = 'rate_limited' | 'daily_limit' | 'recipient_suppressed' | 'sender_not_allowed';
+
+/**
+ * The provider refused for a reason it named: a rate or daily quota, a
+ * suppressed recipient, or a sender domain it doesn't send for. Extends
+ * TransientProviderError so existing `instanceof` checks keep working.
+ */
+export class ProviderRefusedError extends TransientProviderError {
+  constructor(
+    public readonly refusal: ProviderRefusal,
+    /** The recipient the refusal happened on. */
+    public readonly recipient: string,
+    message: string,
+    provider: string,
+    cause?: unknown,
+    sentRecipients: string[] = [],
+    messageId?: string,
+  ) {
+    super(message, provider, cause, sentRecipients, messageId);
+    this.name = 'ProviderRefusedError';
   }
 }
 

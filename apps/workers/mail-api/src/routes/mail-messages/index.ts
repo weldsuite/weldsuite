@@ -20,6 +20,7 @@ import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import * as messages from '@weldsuite/mail-domain/messages';
 import { forwardAndPersist, MailSendError, replyAndPersist } from '@weldsuite/mail-domain/send';
+import { sendErrorResponse } from '../../lib/send-errors';
 import {
   emailEventData,
   checkAccountAccess,
@@ -449,19 +450,7 @@ app.post(
         repliedTo: result.repliedTo,
       });
     } catch (err) {
-      if (err instanceof MailSendError) {
-        switch (err.code) {
-          case 'ACCOUNT_NOT_FOUND':
-            return error.notFound(c, 'Message', id);
-          case 'INVALID_RECIPIENTS':
-            return error.badRequest(c, err.message, err.details);
-          case 'SEND_BINDING_MISSING':
-          case 'STORAGE_BINDING_MISSING':
-            return c.json({ error: { code: err.code, message: err.message } }, 503);
-          default:
-            return error.internal(c, err.message);
-        }
-      }
+      if (err instanceof MailSendError) return sendErrorResponse(c, err, { resource: 'Message', id });
       console.error('[app-api/mail-messages] reply failed:', err);
       return error.internal(c, 'Failed to send reply');
     }
@@ -520,19 +509,7 @@ app.post(
         forwardedFrom: result.forwardedFrom,
       });
     } catch (err) {
-      if (err instanceof MailSendError) {
-        switch (err.code) {
-          case 'ACCOUNT_NOT_FOUND':
-            return error.notFound(c, 'Message', id);
-          case 'INVALID_RECIPIENTS':
-            return error.badRequest(c, err.message, err.details);
-          case 'SEND_BINDING_MISSING':
-          case 'STORAGE_BINDING_MISSING':
-            return c.json({ error: { code: err.code, message: err.message } }, 503);
-          default:
-            return error.internal(c, err.message);
-        }
-      }
+      if (err instanceof MailSendError) return sendErrorResponse(c, err, { resource: 'Message', id });
       console.error('[app-api/mail-messages] forward failed:', err);
       return error.internal(c, 'Failed to forward email');
     }

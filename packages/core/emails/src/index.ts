@@ -36,6 +36,7 @@ export {
   type TemplateId,
   type TemplateProps,
   type AppAccessRequestedEmailProps,
+  type OutboundAbuseAlertEmailProps,
   type BookingEmailKind,
   type BookingEmailProps,
   type BookingLocation,

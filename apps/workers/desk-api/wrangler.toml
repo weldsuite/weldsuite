@@ -77,6 +77,30 @@ remote = true
 [[send_email]]
 name = "SEND_EMAIL"
 
+# Outbound mail guard (docs/plans/weldmail-outbound-abuse.md). Agent email
+# replies (lib/desk-email.ts, channel-dispatch.ts) call it, as replies. Every
+# send is checked against the workspace's OutboundLedger, a Durable Object
+# hosted by mail-api and bound here by name.
+# OUTBOUND_BACKSTOP is the per-sender burst limit the guard falls back on when
+# the ledger can't be reached; its namespace is shared with the other sending
+# workers on purpose.
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -111,6 +135,25 @@ service = "helpdesk-workflow-worker-test"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
+
+# Outbound mail guard (test): mail-api's Durable Objects, and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
 
 [env.test.observability]
 enabled = true
@@ -150,6 +193,25 @@ service = "helpdesk-workflow-worker"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"
+
+# Outbound mail guard (production): mail-api's Durable Objects, and the shared
+# per-sender backstop (docs/plans/weldmail-outbound-abuse.md).
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
 
 [env.production.observability]
 enabled = true

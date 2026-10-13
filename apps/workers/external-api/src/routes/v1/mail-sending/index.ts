@@ -17,6 +17,11 @@
  *   - the sending address must be on a verified WeldMail domain, so the mail
  *     authenticates (SPF/DKIM) instead of landing in spam;
  *   - the account's `dailySendLimit` holds, counted from UTC midnight.
+ * The send path also runs the outbound guard (sender ownership, recipient
+ * limits, first-contact and cold-outreach caps) with source `api`, so a send
+ * can be refused with a guard code. `sendErrorResponse` maps those, and
+ * Cloudflare's own refusals, to 403 / 422 / 429 / 502 / 503 with `Retry-After`
+ * where a retry can succeed (docs/plans/weldmail-outbound-abuse.md).
  * Sending needs `mail_messages:send`, a scope that `*` and `mail_messages:*`
  * do not include (see `lib/scopes.ts`).
  *
@@ -29,6 +34,12 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { eq } from 'drizzle-orm';
 import { schema } from '../../../db';
+import {
+  OUTBOUND_DENIAL_CODES,
+  outboundDenialStatus,
+  type OutboundDenialCode,
+  type OutboundDenialDetails,
+} from '@weldsuite/app-api-client/schemas/outbound-mail';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import { canOpenAccount, emailEventData } from '@weldsuite/mail-domain/access';
 import { getDraft } from '@weldsuite/mail-domain/drafts';
@@ -52,6 +63,9 @@ import { resolveClerkOrgId } from '../../../lib/social-context';
 
 /** The policies every public-API send runs under. */
 const API_SEND_POLICY: SendOptions = { enforceDailyLimit: true, requireVerifiedDomain: true };
+
+/** Seconds a client should wait after Cloudflare's own rate limit. */
+const PROVIDER_RATE_LIMIT_RETRY_SECONDS = 60;
 
 const addresses = z.array(z.string().email()).max(100);
 const attachmentIds = z.array(z.string()).max(20).optional();
@@ -115,6 +129,19 @@ function waitUntilOf(c: Context<HonoEnv>): ExecutionContext['waitUntil'] | undef
   }
 }
 
+/**
+ * The send options for one public-API request: the API policies, plus how the
+ * outbound guard labels it. Source `api` weighs more than compose in the risk
+ * score; the key's master workspace id saves the guard a lookup.
+ */
+function sendOptionsFor(c: Context<HonoEnv>): SendOptions {
+  return {
+    ...API_SEND_POLICY,
+    waitUntil: waitUntilOf(c),
+    outbound: { source: 'api', workspaceId: c.get('apiSession').workspaceId },
+  };
+}
+
 function idempotencyKeyOf(c: Context<HonoEnv>): { key?: string; invalid?: true } {
   const key = c.req.header('Idempotency-Key')?.trim();
   if (!key) return {};
@@ -137,9 +164,43 @@ function orgMissing(c: Context<HonoEnv>) {
   return c.json({ error: { code: 'WORKSPACE_NOT_CONFIGURED', message: 'This workspace has no organisation' } }, 503);
 }
 
+/** Whole seconds until an ISO time, at least 1; null when it is missing or not a date. */
+function secondsUntil(iso: unknown): number | null {
+  if (typeof iso !== 'string') return null;
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? null : Math.max(1, Math.ceil((at - Date.now()) / 1000));
+}
+
+function isOutboundDenialCode(code: string): code is OutboundDenialCode {
+  return (OUTBOUND_DENIAL_CODES as readonly string[]).includes(code);
+}
+
+/**
+ * The outbound guard refused: the status comes from the shared denial table
+ * (403 staff or ownership, 422 the message itself, 429 a window is full),
+ * `Retry-After` from `details.retryAfter` when a retry can succeed. Which
+ * workspace owns a refused sender address is not the caller's to learn, so
+ * that one carries no details.
+ */
+function denialResponse(c: Context<HonoEnv>, err: MailSendError, code: OutboundDenialCode) {
+  const details = err.details as OutboundDenialDetails | undefined;
+  const retryAfter = secondsUntil(details?.retryAfter);
+  if (retryAfter) c.header('Retry-After', String(retryAfter));
+  return c.json(
+    {
+      error: {
+        code,
+        message: err.message,
+        ...(details && code !== 'SENDER_NOT_OWNED' ? { details } : {}),
+      },
+    },
+    outboundDenialStatus(code),
+  );
+}
+
 function sendErrorResponse(c: Context<HonoEnv>, err: unknown, resource: string, id: string) {
   if (!(err instanceof MailSendError)) throw err;
-  const body = (status: 413 | 422 | 503) =>
+  const body = (status: 413 | 422 | 429 | 502 | 503) =>
     c.json({ error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) } }, status);
   switch (err.code) {
     case 'ACCOUNT_NOT_FOUND':
@@ -160,10 +221,19 @@ function sendErrorResponse(c: Context<HonoEnv>, err: unknown, resource: string, 
       c.header('Retry-After', String(retryAfter));
       return c.json({ error: { code: err.code, message: err.message, details: err.details } }, 429);
     }
+    case 'PROVIDER_RATE_LIMITED':
+      // Cloudflare's own rate limit: a minute is enough.
+      c.header('Retry-After', String(PROVIDER_RATE_LIMIT_RETRY_SECONDS));
+      return body(429);
+    case 'PROVIDER_DAILY_LIMIT':
     case 'SEND_BINDING_MISSING':
     case 'STORAGE_BINDING_MISSING':
       return body(503);
+    case 'PARTIALLY_SENT':
+      // Some recipients got the message before the send failed; details say who.
+      return body(502);
     default:
+      if (isOutboundDenialCode(err.code)) return denialResponse(c, err, err.code);
       return error.internal(c, err.message);
   }
 }
@@ -270,7 +340,7 @@ app.post('/mail-accounts/:id/send', requireScope('mail_messages:send'), zValidat
       principal,
       accountId,
       { ...data, attachments, idempotencyKey: idem.key },
-      { ...API_SEND_POLICY, waitUntil: waitUntilOf(c) },
+      sendOptionsFor(c),
     );
     await publishSent(c, result, 'email_sent', { to: data.to });
     return sentResponse(c, result, false);
@@ -303,7 +373,7 @@ app.post('/mail-messages/:id/reply', requireScope('mail_messages:send'), zValida
       principal,
       id,
       { ...data, attachments, idempotencyKey: idem.key },
-      { ...API_SEND_POLICY, waitUntil: waitUntilOf(c) },
+      sendOptionsFor(c),
     );
     await publishSent(c, result, 'reply_sent', { conversationId: result.repliedTo });
     return sentResponse(c, result, false, { repliedTo: result.repliedTo });
@@ -336,7 +406,7 @@ app.post('/mail-messages/:id/forward', requireScope('mail_messages:send'), zVali
       principal,
       id,
       { ...data, attachments, idempotencyKey: idem.key },
-      { ...API_SEND_POLICY, waitUntil: waitUntilOf(c) },
+      sendOptionsFor(c),
     );
     await publishSent(c, result, 'email_sent', { to: data.to, conversationId: result.forwardedFrom });
     return sentResponse(c, result, false, { forwardedFrom: result.forwardedFrom });
@@ -388,7 +458,7 @@ app.post('/mail-drafts/:id/send', requireScope('mail_messages:send'), zValidator
       principal,
       id,
       { attachments, idempotencyKey: idem.key },
-      { ...API_SEND_POLICY, waitUntil: waitUntilOf(c) },
+      sendOptionsFor(c),
     );
     await publishSent(c, result, 'email_sent', { to: (draft.to as string[] | null) ?? null });
     publishEntityEvent({

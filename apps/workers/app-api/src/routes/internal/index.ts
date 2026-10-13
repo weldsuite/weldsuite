@@ -26,10 +26,11 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
+import { OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
 import type { Env, Variables } from '../../types';
 import {
-  sendInternalEmail,
   sendInternalTransactionalEmail,
+  sendWorkflowEmail,
 } from '../../services/internal-email';
 
 export const internalRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -68,7 +69,10 @@ internalRoutes.use('*', async (c, next) => {
 
 // ---------------------------------------------------------------------------
 // POST /send-email — regular outbound email (workflow send_email action).
-// Payload contract identical to the legacy api-worker endpoint.
+// Payload contract identical to the legacy api-worker endpoint, plus the
+// workspace the step runs in. The email goes through the outbound mail guard;
+// a refusal answers with the guard's status and the app-api error envelope
+// ({ error: { code, message, details } }) so the caller can stop its loop.
 // ---------------------------------------------------------------------------
 
 const internalSendEmailSchema = z.object({
@@ -80,8 +84,9 @@ const internalSendEmailSchema = z.object({
   cc: z.array(z.string()).optional(),
   bcc: z.array(z.string()).optional(),
   headers: z.record(z.string()).optional(),
-  // Accepted for contract compatibility with legacy callers; unused (the
-  // send path is workspace-agnostic — the caller resolves the from-account).
+  // Clerk org id of the workspace the workflow runs in (workflow-worker's
+  // `tenant.workspaceId`): the outbound guard counts the send against it.
+  // Optional only so an older workflow-worker keeps working during a deploy.
   workspaceId: z.string().optional(),
 });
 
@@ -89,19 +94,27 @@ internalRoutes.post('/send-email', zValidator('json', internalSendEmailSchema), 
   const data = c.req.valid('json');
 
   try {
-    const result = await sendInternalEmail(c.env, {
-      from: data.from,
-      to: data.to,
-      subject: data.subject,
-      html: data.html,
-      text: data.text,
-      cc: data.cc,
-      bcc: data.bcc,
-      headers: data.headers,
-    });
+    const result = await sendWorkflowEmail(
+      c.env,
+      {
+        from: data.from,
+        to: data.to,
+        subject: data.subject,
+        html: data.html,
+        text: data.text,
+        cc: data.cc,
+        bcc: data.bcc,
+        headers: data.headers,
+      },
+      { clerkOrgId: data.workspaceId, waitUntil: (promise) => c.executionCtx.waitUntil(promise) },
+    );
 
     return c.json({ success: true, messageId: result.messageId });
   } catch (err) {
+    if (err instanceof OutboundDeniedError) {
+      console.warn(`[Internal] Send email blocked by the outbound guard (${err.code})`);
+      return c.json({ error: { code: err.code, message: err.message, details: err.details } }, err.status);
+    }
     console.error('[Internal] Send email failed:', err);
     return c.json({ success: false, error: err instanceof Error ? err.message : 'Unknown error' }, 500);
   }

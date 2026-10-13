@@ -14,6 +14,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { mailApi } from '../lib/api-client';
+import { useNotifySendError } from '../lib/use-notify-send-error';
 import { useScheduledEmails } from '@/hooks/queries/use-mail-queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { useI18n } from '@/lib/i18n/provider';
@@ -31,6 +32,7 @@ interface ScheduledEmail {
 
 export function ScheduledClient() {
   const { t } = useI18n();
+  const notifySendError = useNotifySendError();
   useBreadcrumbs([
     { label: t.mail.inboxPage.mailBreadcrumb, href: '/weldmail' },
     { label: t.mail.scheduled.title }
@@ -48,7 +50,7 @@ export function ScheduledClient() {
         toast.success(t.mail.scheduled.emailSentImmediately);
         qc.invalidateQueries({ queryKey: ['mail'] });
       } else {
-        toast.error(result.error || t.mail.scheduled.failedToSend);
+        notifySendError(result, t.mail.scheduled.failedToSend);
       }
     } catch {
       toast.error(t.mail.scheduled.failedToSend);

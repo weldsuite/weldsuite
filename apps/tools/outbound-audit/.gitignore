@@ -1,0 +1,5 @@
+# Audit output holds customer data (mailbox addresses, recipient domains,
+# template snippets). It must never be committed.
+reports/
+*.report.md
+*.report.json

@@ -35,6 +35,7 @@ import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useMail, getAvatarColor } from '@/contexts/MailContext';
 import { appApi, appApiClient } from '@/services/app-api';
 import { sendFromAccount as sendMailFromAccount, createDraft, isPersonalAccount } from '@/services/mail-tenant';
+import { describeSendError } from '@/utils/send-error';
 import { useMailOutbox } from '@/hooks/useMailOutbox';
 
 const buildEditorHtml = (textColor: string) => `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;background:transparent}#e{font-family:system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.5;color:${textColor};padding:10px 0;min-height:180px;outline:none;-webkit-user-select:text;word-wrap:break-word}#e:empty:before{content:attr(data-placeholder);color:#9CA3AF;pointer-events:none}#e ul,#e ol{padding-left:20px;margin:4px 0}#e a{color:#3B82F6}</style></head><body><div id="e" contenteditable="true" data-placeholder="Compose email"></div><script>var e=document.getElementById('e'),p=window.ReactNativeWebView.postMessage.bind(window.ReactNativeWebView),s=function(){p(JSON.stringify({t:'c',h:e.innerHTML,x:e.innerText}))},f=function(){p(JSON.stringify({t:'f',b:document.queryCommandState('bold'),i:document.queryCommandState('italic'),u:document.queryCommandState('underline'),l:document.queryCommandState('insertUnorderedList'),ol:document.queryCommandState('insertOrderedList')}))};e.addEventListener('input',s);e.addEventListener('focus',function(){p(JSON.stringify({t:'fo'}))});e.addEventListener('blur',function(){p(JSON.stringify({t:'bl'}))});document.addEventListener('selectionchange',f);var h=function(ev){try{var m=JSON.parse(ev.data);if(m.t==='fmt'){document.execCommand(m.c,false,m.v||null);e.focus();f();s()}}catch(x){}};document.addEventListener('message',h);window.addEventListener('message',h)</script></body></html>`;
@@ -683,7 +684,10 @@ function useSendActions({ sendFromAccount, to, scheduledDate, attachments, build
       if (await work()) closeComposer();
     } catch (error) {
       console.error(logLabel, error);
-      Alert.alert('Error', failureMessage);
+      // The composer stays open, so nothing written is lost. A sending limit or
+      // refused recipient gets its own explanation instead of the generic one.
+      const described = describeSendError(error);
+      Alert.alert(described?.title ?? 'Error', described?.message ?? failureMessage);
     } finally {
       sendingRef.current = false;
       setSending(false);

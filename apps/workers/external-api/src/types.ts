@@ -1,11 +1,12 @@
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { Database } from './db';
 
 /**
  * Cloudflare Workers environment bindings for external-api.
  */
-export interface Env {
+export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** Hyperdrive binding for the master Postgres (registry + workspace lookups). */
   HYPERDRIVE_MASTER: Hyperdrive;
   /** KV namespace: API-key registry + workspace metadata cache (5-min TTL). */
@@ -53,6 +54,18 @@ export interface Env {
   SEND_EMAIL?: SendEmail;
   /** KV cache for recipient MX lookups (mail-api's namespace, so the cache is shared). */
   WORKSPACE_CACHE?: KVNamespace;
+
+  // --- Outbound mail guard (@weldsuite/mail-domain/outbound) ----------------
+  // `OUTBOUND_LEDGER`, `OUTBOUND_PLATFORM` and `OUTBOUND_BACKSTOP` come from
+  // `OutboundGuardEnv` (Env extends them): the Durable Objects are hosted by
+  // mail-api and bound with `script_name`. All optional, the guard fails open.
+  // docs/plans/weldmail-outbound-abuse.md.
+  /**
+   * Neon connection string of the master DB. Only the guard reads it here (the
+   * sender-ownership check against `mail_account_registry`); auth goes through
+   * HYPERDRIVE_MASTER. Unset skips the ownership check and nothing else.
+   */
+  DATABASE_URL_MASTER?: string;
   /**
    * Comma-separated master workspace ids whose WeldApps are first-party.
    * Those apps skip public review and show an Official badge in the store.
