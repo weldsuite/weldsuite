@@ -199,7 +199,7 @@ export const reach = {
     setupCard: {
       title: 'Set up WeldReach',
       description:
-        'Add your sender details, a payment method, a domain and your first mailbox. New mailboxes warm up for {days} days before they send campaigns.',
+        'Add your sender details, a payment method, a domain and your first mailbox. New mailboxes warm up for at least {days} days and need {rate}% inbox placement before they send campaigns.',
       cta: 'Start setup',
     },
     tiles: {
@@ -235,13 +235,16 @@ export const reach = {
       empty: 'No mailboxes yet.',
       manage: 'Manage mailboxes',
       addFirst: 'Add a mailbox',
+      inboxPlacement: 'Inbox placement',
+      inboxPlacementHint:
+        'Average share of warmup emails that reached the inbox over the last 3 days, for mailboxes that are warming up or ready to send. Mailboxes need {rate}% to join campaigns.',
     },
   },
 
   // Onboarding wizard (/weldreach/setup).
   setup: {
     title: 'Set up WeldReach',
-    description: 'Five short steps. Mailboxes warm up for {days} days after you create them, so start early.',
+    description: 'Five short steps. Mailboxes warm up for at least {days} days after you create them, so start early.',
     stepOf: 'Step {current} of {total}',
     steps: {
       identity: 'Sender',
@@ -300,7 +303,7 @@ export const reach = {
     mailboxes: {
       title: 'Create your mailboxes',
       description:
-        'Each mailbox sends from its own address and its own name. Create a few: the more mailboxes, the more you can send safely. Every mailbox costs {price} per month.',
+        'Each mailbox sends from its own address and its own name. Create a few: the more mailboxes, the more you can send safely. Spread them over several domains: warmup starts once mailboxes span at least {domains} domains. Every mailbox costs {price} per month.',
       noDomains: 'Connect a domain in the previous step first.',
       created: 'Mailbox created. It starts warming up now.',
       createdList: 'Your mailboxes',
@@ -311,7 +314,7 @@ export const reach = {
     done: {
       title: 'You are all set',
       description:
-        'Your mailboxes are warming up. They can join campaigns after {days} days, and you can already prepare prospects and write your first campaign.',
+        'Your mailboxes are warming up. They can join campaigns after at least {days} days and {rate}% inbox placement, and you can already prepare prospects and write your first campaign.',
       finish: 'Go to overview',
       finishing: 'Finishing…',
       summaryMailboxes: '{count} mailboxes created',
@@ -381,7 +384,8 @@ export const reach = {
     },
     list: {
       title: 'Mailboxes',
-      description: 'Each mailbox sends from its own address. New mailboxes warm up for {days} days first.',
+      description:
+        'Each mailbox sends from its own address. A new mailbox warms up for at least {days} days and needs {rate}% inbox placement before it sends campaigns.',
       create: 'New mailbox',
       empty: 'No mailboxes yet.',
       emptyHint: 'Create a mailbox on one of your connected domains.',
@@ -390,6 +394,7 @@ export const reach = {
         mailbox: 'Mailbox',
         type: 'Type',
         status: 'Status',
+        warmup: 'Warmup',
         sent: 'Sent today',
         lastSent: 'Last sent',
         actions: 'Actions',
@@ -401,9 +406,35 @@ export const reach = {
       pausedReason: 'Paused: {reason}',
       errorReason: 'Error: {error}',
     },
+    // Warmup figures per mailbox (WeldSuite's own warmup network).
+    warmup: {
+      info: "Warmup keeps running alongside your campaigns. WeldSuite's warmup network exchanges automatically generated emails between your mailboxes and other WeldReach mailboxes, opens them and moves them out of spam, so your mailboxes keep a good sending reputation.",
+      none: 'No warmup for this mailbox',
+      inboxPlacement: 'Inbox placement',
+      inboxPlacementHint:
+        "Share of this mailbox's warmup emails that reached the inbox over the last 3 days. It needs {rate}% to join campaigns.",
+      inboxPlacementNoData: 'Not enough warmup emails yet to measure inbox placement.',
+      sent7d: 'Warmup sent, 7 days',
+      spamRescues7d: 'Spam rescues, 7 days',
+      states: {
+        waiting: 'Waiting to start',
+        maintaining: 'Keeping warm',
+        paused: 'Warmup paused',
+        error: 'Warmup error',
+      },
+      blockers: {
+        pool_too_small:
+          'Waiting for more mailboxes: warmup starts when your mailboxes span at least {domains} domains.',
+        too_early: 'Warmup takes at least {days} days before a mailbox can send campaigns.',
+        not_enough_data: 'Not enough warmup emails yet to measure inbox placement.',
+        low_inbox_rate: 'Inbox placement is below {rate}%. The mailbox joins campaigns once it recovers.',
+        login_error: "We couldn't sign in to this mailbox, so its warmup is on hold.",
+      },
+    },
     create: {
       title: 'New mailbox',
-      description: 'The mailbox is created at our mail provider and starts warming up straight away.',
+      description:
+        'The mailbox is created at our mail provider and starts warming up straight away. It warms up for at least {days} days and needs {rate}% inbox placement before it sends campaigns.',
       domain: 'Domain',
       domainPlaceholder: 'Choose a domain',
       localPart: 'Address',

@@ -164,14 +164,20 @@ export async function pausePoolMailbox(
     .where(and(byTenantMailbox(clerkOrgId, tenantMailboxId), ne(pool.status, 'removed')));
 }
 
-/** Resume a paused mailbox where its warmup had got to. */
+/** Set by WeldSuite staff in the admin console; only staff lift it. */
+export const STAFF_PAUSE_REASON = 'paused_by_staff';
+
+/**
+ * Resume a paused mailbox where its warmup had got to. A staff pause stays:
+ * the workspace resuming its mailbox does not override WeldSuite.
+ */
 export async function resumePoolMailbox(master: MasterDatabase, clerkOrgId: string, tenantMailboxId: string): Promise<void> {
   const [row] = await master
-    .select({ id: pool.id, status: pool.status, startedAt: pool.startedAt, rampDay: pool.rampDay })
+    .select({ id: pool.id, status: pool.status, startedAt: pool.startedAt, rampDay: pool.rampDay, pausedReason: pool.pausedReason })
     .from(pool)
     .where(byTenantMailbox(clerkOrgId, tenantMailboxId))
     .limit(1);
-  if (!row || row.status !== 'paused') return;
+  if (!row || row.status !== 'paused' || row.pausedReason === STAFF_PAUSE_REASON) return;
   await master
     .update(pool)
     .set({ status: unpausedStatus(row), pausedReason: null, updatedAt: new Date() })

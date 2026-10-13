@@ -50,7 +50,11 @@ function mailbox(id: string, overrides: Record<string, unknown> = {}) {
     type: 'shared',
     status: 'active',
     warmupDay: 14,
-    warmupStatus: null,
+    warmupStatus: 'maintaining',
+    warmupInboxRate: 0.94,
+    warmupSent7d: 70,
+    warmupSpamRescues7d: 1,
+    warmupBlocker: null,
     dailyCap: 30,
     rampCurrent: 30,
     sentToday: 4,
@@ -94,7 +98,7 @@ describe('MailboxesTab', () => {
     reach.listMailboxes.mockResolvedValue(
       page([
         mailbox('mbx_1'),
-        mailbox('mbx_2', { status: 'warming', warmupDay: 5 }),
+        mailbox('mbx_2', { status: 'warming', warmupDay: 5, warmupStatus: 'warming', warmupBlocker: 'too_early' }),
         mailbox('mbx_3', { status: 'deleted' }),
         mailbox('mbx_4', { status: 'paused', pausedReason: 'Bounce rate too high' }),
       ]),

@@ -1,10 +1,10 @@
 /**
  * Small status displays for domains and mailboxes: badges, DNS check chips and
- * warmup progress. Colour is never the only signal: every state also has a
+ * warmup progress and figures. Colour is never the only signal: every state also has a
  * label and, for checks, a check or cross icon.
  */
 
-import { Check, X } from 'lucide-react';
+import { Check, Info, TriangleAlert, X } from 'lucide-react';
 import { Progress } from '@weldsuite/ui/components/progress';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
@@ -13,10 +13,18 @@ import {
   type ReachDomainStatus,
   type ReachMailbox,
   type ReachMailboxStatus,
+  type ReachWarmupBlocker,
 } from '@weldsuite/app-api-client/schemas/reach';
 import { SoftBadge, type SoftTone } from '@/components/shared/soft-badge';
 import { useReachFormat } from '@/lib/reach/format';
 import { cn } from '@/lib/utils';
+import {
+  showsWarmupFigures,
+  warmupBlockerSeverity,
+  warmupCopyParams,
+  warmupFigures,
+  warmupStateToShow,
+} from '../lib/warmup';
 
 const MAILBOX_STATUS_TONE: Record<ReachMailboxStatus, SoftTone> = {
   provisioning: 'neutral',
@@ -93,9 +101,76 @@ export function WarmupProgress({ mailbox }: Readonly<{ mailbox: Pick<ReachMailbo
   const total = WELDREACH_SENDING_DEFAULTS.warmupDays;
   const day = Math.min(Math.max(mailbox.warmupDay, 0), total);
   return (
-    <div className="mt-1 w-32 space-y-1">
+    <div className="w-32 space-y-1">
       <Progress value={(day / total) * 100} className="h-1.5" aria-label={t('reach.mailboxes.list.warmupProgress', { day, total })} />
       <p className="text-xs text-muted-foreground">{t('reach.mailboxes.list.warmupProgress', { day, total })}</p>
+    </div>
+  );
+}
+
+/** Why a warming mailbox cannot join campaigns yet, in a sentence; amber when it needs attention. */
+export function WarmupBlockerNote({ blocker }: Readonly<{ blocker: ReachWarmupBlocker }>) {
+  const t = useTranslations();
+  const warning = warmupBlockerSeverity(blocker) === 'warning';
+  const Icon = warning ? TriangleAlert : Info;
+  return (
+    <p
+      className={cn(
+        'flex max-w-56 items-start gap-1.5 text-xs',
+        warning ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground',
+      )}
+    >
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span>{t(`reach.mailboxes.warmup.blockers.${blocker}`, warmupCopyParams())}</span>
+    </p>
+  );
+}
+
+/**
+ * A mailbox's warmup at a glance: the day counter while warming, the pool state
+ * when the status badge does not say it, inbox placement, warmup emails sent
+ * and spam rescues over 7 days, and what holds a warming mailbox back. Ready
+ * mailboxes keep their figures: warmup runs alongside campaigns.
+ */
+export function WarmupSummary({ mailbox }: Readonly<{ mailbox: ReachMailbox }>) {
+  const t = useTranslations();
+  const format = useReachFormat();
+
+  if (!showsWarmupFigures(mailbox)) {
+    return (
+      <span className="text-sm text-muted-foreground" title={t('reach.mailboxes.warmup.none')}>
+        —
+      </span>
+    );
+  }
+
+  const state = warmupStateToShow(mailbox);
+  const figures = warmupFigures(mailbox);
+  const placement = figures.inboxRate === null ? null : format.percent(figures.inboxRate);
+  const placementHint = t(
+    placement === null ? 'reach.mailboxes.warmup.inboxPlacementNoData' : 'reach.mailboxes.warmup.inboxPlacementHint',
+    warmupCopyParams(),
+  );
+
+  return (
+    <div className="min-w-44 space-y-1.5">
+      <WarmupProgress mailbox={mailbox} />
+      {state && <p className="text-xs font-medium">{t(`reach.mailboxes.warmup.states.${state}`)}</p>}
+      <dl className="space-y-0.5 text-xs">
+        <div className="flex items-baseline justify-between gap-3" title={placementHint}>
+          <dt className="text-muted-foreground">{t('reach.mailboxes.warmup.inboxPlacement')}</dt>
+          <dd className="font-medium tabular-nums">{placement ?? '—'}</dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-muted-foreground">{t('reach.mailboxes.warmup.sent7d')}</dt>
+          <dd className="font-medium tabular-nums">{format.number(figures.sent7d)}</dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-muted-foreground">{t('reach.mailboxes.warmup.spamRescues7d')}</dt>
+          <dd className="font-medium tabular-nums">{format.number(figures.spamRescues7d)}</dd>
+        </div>
+      </dl>
+      {figures.blocker && <WarmupBlockerNote blocker={figures.blocker} />}
     </div>
   );
 }

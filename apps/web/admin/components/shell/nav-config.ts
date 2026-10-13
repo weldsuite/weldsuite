@@ -4,6 +4,7 @@ import {
   Building2,
   Coins,
   CreditCard,
+  Flame,
   Globe,
   Handshake,
   Headphones,
@@ -78,6 +79,7 @@ export function getNavAreas(): NavArea[] {
           { title: 'Support Inbox', href: '/support', icon: Headphones },
           { title: 'App Catalog', href: '/apps', icon: Package },
           { title: 'Access requests', href: '/access-requests', icon: ShieldCheck },
+          { title: 'Warmup network', href: '/warmup', icon: Flame },
           { title: 'Workspaces', href: '/workspaces', icon: Building2 },
           { title: billing.plans, href: '/plans', icon: CreditCard },
           { title: partners.jumpTo, href: '/partners', icon: Handshake },
@@ -127,6 +129,18 @@ export function getNavAreas(): NavArea[] {
       {
         group: 'Review',
         items: [{ title: 'Access requests', href: '/access-requests', icon: ShieldCheck }],
+      },
+    ],
+  },
+  {
+    key: 'warmup',
+    name: 'Warmup network',
+    icon: Flame,
+    href: '/warmup',
+    groups: [
+      {
+        group: 'WeldReach',
+        items: [{ title: 'Warmup network', href: '/warmup', icon: Flame }],
       },
     ],
   },

@@ -16,7 +16,6 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Card, CardContent } from '@weldsuite/ui/components/card';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { WELDREACH_SENDING_DEFAULTS } from '@weldsuite/app-api-client/schemas/reach';
 import { PageLoader } from '@/components/page-loader';
 import {
   useReachBilling,
@@ -25,6 +24,7 @@ import {
   useReachSettings,
 } from '@/hooks/queries/use-reach-queries';
 import { DashboardPage, ErrorPanel, useReachBreadcrumbs } from '../components/page-kit';
+import { warmupCopyParams } from '../lib/warmup';
 import { useBillingReturn } from '../components/use-payment-method-setup';
 import { DomainsStep } from './domains-step';
 import { DoneStep } from './done-step';
@@ -108,7 +108,7 @@ export default function ReachSetupPage() {
   return (
     <DashboardPage
       title={t('reach.setup.title')}
-      description={t('reach.setup.description', { days: WELDREACH_SENDING_DEFAULTS.warmupDays })}
+      description={t('reach.setup.description', warmupCopyParams())}
       className="max-w-4xl"
     >
       <Stepper current={stepFromUrl} completed={completed} onSelect={(step) => goTo(step)} />

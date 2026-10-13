@@ -6,6 +6,7 @@ import type { ReachDomain, ReachMailbox } from '@weldsuite/app-api-client/schema
 import { useReachFormat } from '@/lib/reach/format';
 import { CreateMailboxForm } from '../components/create-mailbox-form';
 import { MailboxStatusBadge } from '../components/status';
+import { warmupCopyParams } from '../lib/warmup';
 import { StepFooter, StepFrame } from './setup-shell';
 
 export function MailboxesStep({
@@ -34,7 +35,7 @@ export function MailboxesStep({
   const hasMailbox = mailboxes.length > 0;
 
   return (
-    <StepFrame title={t('reach.setup.mailboxes.title')} description={t('reach.setup.mailboxes.description', { price })}>
+    <StepFrame title={t('reach.setup.mailboxes.title')} description={t('reach.setup.mailboxes.description', { price, ...warmupCopyParams() })}>
       {hasMailbox && (
         <div className="space-y-2">
           <h3 className="text-sm font-medium">{t('reach.setup.mailboxes.createdList')}</h3>

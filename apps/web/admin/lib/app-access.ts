@@ -224,6 +224,7 @@ export const TERM_LABELS: Record<WeldReachTermKey, string> = {
   lawful_lists: 'No bought lists collected without a lawful basis',
   suspension: 'WeldSuite may pause or suspend sending, and share details when required by law',
   responsible_for_content: 'Responsible for the content sent and the people contacted',
+  warmup_network: 'Mailboxes take part in the WeldSuite warmup network and exchange generated emails with other WeldReach mailboxes',
 };
 
 export function listSourceLabel(source: string): string {

@@ -2,9 +2,9 @@ import { CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { WELDREACH_SENDING_DEFAULTS } from '@weldsuite/app-api-client/schemas/reach';
 import { useUpdateReachSettings } from '@/hooks/queries/use-reach-queries';
 import { reachErrorMessage } from '@/lib/reach/errors';
+import { warmupCopyParams } from '../lib/warmup';
 import { StepFooter, StepFrame } from './setup-shell';
 
 export function DoneStep({
@@ -35,7 +35,7 @@ export function DoneStep({
   return (
     <StepFrame
       title={t('reach.setup.done.title')}
-      description={t('reach.setup.done.description', { days: WELDREACH_SENDING_DEFAULTS.warmupDays })}
+      description={t('reach.setup.done.description', warmupCopyParams())}
     >
       <ul className="space-y-2 text-sm">
         <li className="flex items-center gap-2">

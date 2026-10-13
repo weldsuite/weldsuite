@@ -9,10 +9,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
+import { InfoBanner } from '@weldsuite/ui/components/info-banner';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@weldsuite/ui/components/table';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
-import { WELDREACH_SENDING_DEFAULTS, type ReachMailbox } from '@weldsuite/app-api-client/schemas/reach';
+import type { ReachMailbox } from '@weldsuite/app-api-client/schemas/reach';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   useDeleteReachMailbox,
@@ -24,8 +25,9 @@ import {
 } from '@/hooks/queries/use-reach-queries';
 import { reachErrorMessage } from '@/lib/reach/errors';
 import { useReachFormat } from '@/lib/reach/format';
-import { MailboxStatusBadge, WarmupProgress } from '../components/status';
+import { MailboxStatusBadge, WarmupSummary } from '../components/status';
 import { EmptyPanel, ErrorPanel, SectionCard } from '../components/page-kit';
+import { warmupCopyParams } from '../lib/warmup';
 import { CreateMailboxDialog, EditMailboxDialog } from './mailbox-dialogs';
 
 export function MailboxesSection() {
@@ -52,6 +54,7 @@ export function MailboxesSection() {
   const limit = access.data?.limits.maxMailboxes;
   const atLimit = limit !== undefined && (access.data?.usage.mailboxes ?? 0) >= limit;
   const hasConnectedDomain = (domains.data ?? []).some((domain) => domain.status === 'active');
+  const warmupParams = warmupCopyParams();
 
   const run = async (action: () => Promise<unknown>, successMessage: string) => {
     try {
@@ -80,11 +83,11 @@ export function MailboxesSection() {
       title={t('reach.mailboxes.list.title')}
       description={
         limit === undefined
-          ? t('reach.mailboxes.list.description', { days: WELDREACH_SENDING_DEFAULTS.warmupDays })
-          : `${t('reach.mailboxes.list.description', { days: WELDREACH_SENDING_DEFAULTS.warmupDays })} ${t(
-              'reach.mailboxes.list.limitHint',
-              { used: access.data?.usage.mailboxes ?? 0, limit },
-            )}`
+          ? t('reach.mailboxes.list.description', warmupParams)
+          : `${t('reach.mailboxes.list.description', warmupParams)} ${t('reach.mailboxes.list.limitHint', {
+              used: access.data?.usage.mailboxes ?? 0,
+              limit,
+            })}`
       }
       action={createButton}
     >
@@ -104,6 +107,11 @@ export function MailboxesSection() {
         />
       )}
       {visible.length > 0 && (
+        <InfoBanner variant="info" className="mb-4">
+          {t('reach.mailboxes.warmup.info')}
+        </InfoBanner>
+      )}
+      {visible.length > 0 && (
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -111,6 +119,7 @@ export function MailboxesSection() {
                 <TableHead>{t('reach.mailboxes.list.columns.mailbox')}</TableHead>
                 <TableHead>{t('reach.mailboxes.list.columns.type')}</TableHead>
                 <TableHead>{t('reach.mailboxes.list.columns.status')}</TableHead>
+                <TableHead>{t('reach.mailboxes.list.columns.warmup')}</TableHead>
                 <TableHead className="text-right">{t('reach.mailboxes.list.columns.sent')}</TableHead>
                 <TableHead>{t('reach.mailboxes.list.columns.lastSent')}</TableHead>
                 <TableHead className="w-12">
@@ -133,7 +142,6 @@ export function MailboxesSection() {
                       <p className="text-xs text-muted-foreground">
                         {mailbox.firstName} {mailbox.lastName}
                       </p>
-                      <WarmupProgress mailbox={mailbox} />
                       {mailbox.pausedReason && (
                         <p className="mt-1 max-w-xs text-xs text-muted-foreground">
                           {t('reach.mailboxes.list.pausedReason', { reason: mailbox.pausedReason })}
@@ -148,6 +156,9 @@ export function MailboxesSection() {
                     <TableCell className="whitespace-nowrap">{t(`reach.mailboxTypes.${mailbox.type}`)}</TableCell>
                     <TableCell>
                       <MailboxStatusBadge status={mailbox.status} />
+                    </TableCell>
+                    <TableCell>
+                      <WarmupSummary mailbox={mailbox} />
                     </TableCell>
                     <TableCell
                       className="text-right tabular-nums"

@@ -70,7 +70,11 @@ function mailbox(overrides: Partial<ReachMailbox> = {}): ReachMailbox {
     type: 'shared',
     status: 'active',
     warmupDay: 14,
-    warmupStatus: null,
+    warmupStatus: 'maintaining',
+    warmupInboxRate: 0.94,
+    warmupSent7d: 70,
+    warmupSpamRescues7d: 1,
+    warmupBlocker: null,
     dailyCap: 30,
     rampCurrent: 20,
     sentToday: 12,
@@ -123,7 +127,20 @@ beforeEach(() => {
   api.reach.listMailboxes.mockResolvedValue(
     list([
       mailbox(),
-      mailbox({ id: 'rmb_2', email: 'ben@getacme.com', firstName: 'Ben', status: 'warming', warmupDay: 6, sentToday: 0, rampCurrent: 10 }),
+      mailbox({
+        id: 'rmb_2',
+        email: 'ben@getacme.com',
+        firstName: 'Ben',
+        status: 'warming',
+        warmupDay: 6,
+        warmupStatus: 'warming',
+        warmupInboxRate: 0.92,
+        warmupSent7d: 24,
+        warmupSpamRescues7d: 2,
+        warmupBlocker: 'too_early',
+        sentToday: 0,
+        rampCurrent: 10,
+      }),
     ]),
   );
   api.reach.domainCandidates.mockResolvedValue(list([]));
@@ -146,6 +163,97 @@ describe('Mailboxes & domains page', () => {
     expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(screen.getByText('Warming up')).toBeInTheDocument();
     expect(screen.getByText('1 of 3 domains connected.', { exact: false })).toBeInTheDocument();
+  });
+
+  it('shows warmup figures per mailbox: day, inbox placement, emails sent and spam rescues', async () => {
+    renderPage();
+
+    const warming = (await screen.findByText('ben@getacme.com')).closest('tr');
+    expect(warming).not.toBeNull();
+    const row = within(warming as HTMLElement);
+    expect(row.getByText('Day 6 of 14')).toBeInTheDocument();
+    expect(row.getByText('Inbox placement').nextElementSibling).toHaveTextContent('92%');
+    expect(row.getByText('Warmup sent, 7 days').nextElementSibling).toHaveTextContent('24');
+    expect(row.getByText('Spam rescues, 7 days').nextElementSibling).toHaveTextContent('2');
+    expect(row.getByText('Warmup takes at least 14 days before a mailbox can send campaigns.')).toBeInTheDocument();
+  });
+
+  it('keeps showing inbox placement for a ready mailbox, because warmup runs alongside campaigns', async () => {
+    renderPage();
+
+    const ready = (await screen.findByText('anna@getacme.com')).closest('tr');
+    const row = within(ready as HTMLElement);
+    expect(row.getByText('Keeping warm')).toBeInTheDocument();
+    expect(row.getByText('Inbox placement').nextElementSibling).toHaveTextContent('94%');
+    expect(row.queryByText(/Day d+ of 14/)).not.toBeInTheDocument();
+    expect(row.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('explains once that warmup runs alongside campaigns and exchanges generated emails with other mailboxes', async () => {
+    renderPage();
+
+    await screen.findByText('anna@getacme.com');
+    expect(screen.getAllByText(/Warmup keeps running alongside your campaigns/)).toHaveLength(1);
+    expect(screen.getByText(/exchanges automatically generated emails between your mailboxes and other WeldReach mailboxes/)).toBeInTheDocument();
+  });
+
+  it('describes what a new mailbox needs without naming the mail provider', async () => {
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        /A new mailbox warms up for at least 14 days and needs 85% inbox placement before it sends campaigns./,
+      ),
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/mailpool/i);
+  });
+
+  it.each([
+    ['pool_too_small', 'Waiting for more mailboxes: warmup starts when your mailboxes span at least 3 domains.'],
+    ['too_early', 'Warmup takes at least 14 days before a mailbox can send campaigns.'],
+    ['not_enough_data', 'Not enough warmup emails yet to measure inbox placement.'],
+    ['low_inbox_rate', 'Inbox placement is below 85%. The mailbox joins campaigns once it recovers.'],
+    ['login_error', "We couldn't sign in to this mailbox, so its warmup is on hold."],
+  ] as const)('explains the %s blocker of a warming mailbox', async (blocker, sentence) => {
+    api.reach.listMailboxes.mockResolvedValue(
+      list([mailbox({ status: 'warming', warmupDay: 3, warmupStatus: 'warming', warmupInboxRate: null, warmupBlocker: blocker })]),
+    );
+    renderPage();
+
+    expect(await screen.findByText(sentence)).toBeInTheDocument();
+  });
+
+  it('shows a dash for inbox placement while there is not enough data, and says the mailbox waits for the pool', async () => {
+    api.reach.listMailboxes.mockResolvedValue(
+      list([
+        mailbox({
+          status: 'warming',
+          warmupDay: 0,
+          warmupStatus: 'waiting',
+          warmupInboxRate: null,
+          warmupSent7d: 0,
+          warmupSpamRescues7d: 0,
+          warmupBlocker: 'pool_too_small',
+        }),
+      ]),
+    );
+    renderPage();
+
+    const waiting = (await screen.findByText('anna@getacme.com')).closest('tr');
+    const row = within(waiting as HTMLElement);
+    expect(row.getByText('Waiting to start')).toBeInTheDocument();
+    expect(row.getByText('Day 0 of 14')).toBeInTheDocument();
+    expect(row.getByText('Inbox placement').nextElementSibling).toHaveTextContent('—');
+  });
+
+  it('shows no warmup figures for a mailbox that is being deleted', async () => {
+    api.reach.listMailboxes.mockResolvedValue(
+      list([mailbox({ status: 'deleting', warmupStatus: 'removed', warmupInboxRate: null, warmupSent7d: 0, warmupSpamRescues7d: 0 })]),
+    );
+    renderPage();
+
+    const deleting = (await screen.findByText('anna@getacme.com')).closest('tr');
+    expect(within(deleting as HTMLElement).queryByText('Inbox placement')).not.toBeInTheDocument();
   });
 
   it('shows empty states with a way forward', async () => {

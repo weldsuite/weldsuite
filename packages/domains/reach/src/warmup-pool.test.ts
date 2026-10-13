@@ -105,6 +105,13 @@ describe('pause, resume, rename', () => {
     expect(await row()).toMatchObject({ status: 'maintaining', pausedReason: null });
   });
 
+  it('leaves a staff pause in place when the workspace resumes', async () => {
+    await registerPoolMailbox(master, env, input());
+    await pausePoolMailbox(master, 'org_acme', 'rmbx_1', 'paused_by_staff');
+    await resumePoolMailbox(master, 'org_acme', 'rmbx_1');
+    expect(await row()).toMatchObject({ status: 'paused', pausedReason: 'paused_by_staff' });
+  });
+
   it('keeps the sender name in step', async () => {
     await registerPoolMailbox(master, env, input());
     await updatePoolMailboxProfile(master, 'org_acme', 'rmbx_1', { firstName: 'Janet' });

@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from '@weldsuite/i18n/provider';
-import { WELDREACH_DEFAULT_LIMITS, type ReachOverview, type ReachSettings } from '@weldsuite/app-api-client/schemas/reach';
+import {
+  WELDREACH_DEFAULT_LIMITS,
+  type ReachMailbox,
+  type ReachOverview,
+  type ReachSettings,
+} from '@weldsuite/app-api-client/schemas/reach';
 
 const api = vi.hoisted(() => ({
-  reach: { overview: vi.fn(), access: vi.fn(), getSettings: vi.fn() },
+  reach: { overview: vi.fn(), access: vi.fn(), getSettings: vi.fn(), listMailboxes: vi.fn() },
 }));
 const permissions = vi.hoisted(() => ({ can: vi.fn() }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
@@ -54,6 +59,38 @@ const settings: ReachSettings = {
   onboardingCompletedAt: '2026-10-05T00:00:00.000Z',
 };
 
+function mailbox(id: string, overrides: Partial<ReachMailbox> = {}): ReachMailbox {
+  return {
+    id,
+    domainId: 'rdm_1',
+    domainName: 'getacme.com',
+    email: `${id}@getacme.com`,
+    firstName: 'Anna',
+    lastName: 'de Vries',
+    signature: null,
+    type: 'shared',
+    status: 'active',
+    warmupDay: 14,
+    warmupStatus: 'maintaining',
+    warmupInboxRate: 0.9,
+    warmupSent7d: 70,
+    warmupSpamRescues7d: 1,
+    warmupBlocker: null,
+    dailyCap: 30,
+    rampCurrent: 20,
+    sentToday: 12,
+    lastSentAt: null,
+    pausedReason: null,
+    lastError: null,
+    createdAt: '2026-10-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function list<T>(data: T[]) {
+  return { data, pagination: { totalCount: data.length, hasMore: false, cursor: null } };
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retryDelay: 0 } } });
   render(
@@ -71,6 +108,14 @@ beforeEach(() => {
   permissions.can.mockReturnValue(true);
   api.reach.overview.mockResolvedValue({ data: overview });
   api.reach.getSettings.mockResolvedValue({ data: settings });
+  api.reach.listMailboxes.mockResolvedValue(
+    list([
+      mailbox('rmb_1', { warmupInboxRate: 0.95 }),
+      mailbox('rmb_2', { status: 'warming', warmupStatus: 'warming', warmupInboxRate: 0.85 }),
+      mailbox('rmb_3', { status: 'warming', warmupStatus: 'warming', warmupInboxRate: null }),
+      mailbox('rmb_4', { status: 'paused', warmupStatus: 'paused', warmupInboxRate: 0.1 }),
+    ]),
+  );
   api.reach.access.mockResolvedValue({
     data: {
       status: 'approved',
@@ -118,6 +163,31 @@ describe('Overview page', () => {
     expect(await screen.findByText('Ready to send')).toBeInTheDocument();
     expect(screen.getByText('Warming up')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Manage mailboxes' })).toHaveAttribute('href', '/weldreach/mailboxes');
+  });
+
+  it('adds the average inbox placement of the warming and ready mailboxes to the mailbox health', async () => {
+    renderPage();
+
+    expect(await screen.findByText('Inbox placement')).toBeInTheDocument();
+    // (95% + 85%) / 2: the mailbox without data and the paused one do not count.
+    expect(screen.getByText('90%')).toBeInTheDocument();
+  });
+
+  it('leaves the average out while no mailbox has enough warmup data, or when the member cannot read mailboxes', async () => {
+    api.reach.listMailboxes.mockResolvedValue(list([mailbox('rmb_1', { warmupInboxRate: null })]));
+    renderPage();
+    await screen.findByText('Ready to send');
+    await waitFor(() => expect(api.reach.listMailboxes).toHaveBeenCalled());
+    expect(screen.queryByText('Inbox placement')).not.toBeInTheDocument();
+
+    cleanup();
+    api.reach.listMailboxes.mockClear();
+    api.reach.listMailboxes.mockResolvedValue(list([mailbox('rmb_1')]));
+    permissions.can.mockImplementation((key: string) => key !== 'reach_mailboxes:read');
+    renderPage();
+    await screen.findByText('Ready to send');
+    expect(api.reach.listMailboxes).not.toHaveBeenCalled();
+    expect(screen.queryByText('Inbox placement')).not.toBeInTheDocument();
   });
 
   it('asks to add a first mailbox when there are none', async () => {

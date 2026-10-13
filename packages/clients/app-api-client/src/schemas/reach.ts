@@ -105,7 +105,7 @@ export const WELDREACH_INBOX_PRICE_CENTS = 500;
 export const WELDREACH_INBOX_CURRENCY = 'usd';
 
 export const WELDREACH_SENDING_DEFAULTS = {
-  /** Days in Mailpool warmup before a mailbox may join campaigns. */
+  /** Days of warmup (WeldSuite warmup network) before a mailbox may join campaigns. */
   warmupDays: 14,
   mailboxDailyCap: 30,
   mailboxDailyCapMax: 50,

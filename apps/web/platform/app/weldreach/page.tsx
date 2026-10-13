@@ -12,8 +12,9 @@ import { usePermissions } from '@weldsuite/permissions/react';
 import { WELDREACH_SENDING_DEFAULTS } from '@weldsuite/app-api-client/schemas/reach';
 import { PageLoader } from '@/components/page-loader';
 import { Link } from '@/lib/router';
-import { useReachAccess, useReachOverview, useReachSettings } from '@/hooks/queries/use-reach-queries';
+import { useReachAccess, useReachMailboxes, useReachOverview, useReachSettings } from '@/hooks/queries/use-reach-queries';
 import { useReachFormat } from '@/lib/reach/format';
+import { cn } from '@/lib/utils';
 import { ActivityChart } from './components/activity-chart';
 import {
   DashboardPage,
@@ -24,6 +25,7 @@ import {
   SectionCard,
   useReachBreadcrumbs,
 } from './components/page-kit';
+import { WARMUP_MIN_INBOX_RATE, averageInboxPlacement, warmupCopyParams } from './lib/warmup';
 
 /** Bounce rate above which the campaign guardrail pauses a campaign. */
 const BOUNCE_WARNING_RATE = WELDREACH_SENDING_DEFAULTS.campaignBounceRate;
@@ -66,7 +68,7 @@ export default function ReachOverviewPage() {
               <div className="space-y-1">
                 <h2 className="text-base font-semibold">{t('reach.overview.setupCard.title')}</h2>
                 <p className="max-w-2xl text-sm text-muted-foreground">
-                  {t('reach.overview.setupCard.description', { days: WELDREACH_SENDING_DEFAULTS.warmupDays })}
+                  {t('reach.overview.setupCard.description', warmupCopyParams())}
                 </p>
               </div>
             </div>
@@ -150,12 +152,15 @@ export default function ReachOverviewPage() {
           {mailboxTotal === 0 ? (
             <EmptyText>{t('reach.overview.health.empty')}</EmptyText>
           ) : (
-            <ul className="space-y-3 text-sm">
-              <HealthRow tone="bg-emerald-500" label={t('reach.overview.health.active')} count={data.mailboxes.active} />
-              <HealthRow tone="bg-amber-500" label={t('reach.overview.health.warming')} count={data.mailboxes.warming} />
-              <HealthRow tone="bg-muted-foreground/50" label={t('reach.overview.health.paused')} count={data.mailboxes.paused} />
-              <HealthRow tone="bg-destructive" label={t('reach.overview.health.error')} count={data.mailboxes.error} />
-            </ul>
+            <>
+              <ul className="space-y-3 text-sm">
+                <HealthRow tone="bg-emerald-500" label={t('reach.overview.health.active')} count={data.mailboxes.active} />
+                <HealthRow tone="bg-amber-500" label={t('reach.overview.health.warming')} count={data.mailboxes.warming} />
+                <HealthRow tone="bg-muted-foreground/50" label={t('reach.overview.health.paused')} count={data.mailboxes.paused} />
+                <HealthRow tone="bg-destructive" label={t('reach.overview.health.error')} count={data.mailboxes.error} />
+              </ul>
+              {can('reach_mailboxes:read') && <AverageInboxPlacement />}
+            </>
           )}
           {can('reach_mailboxes:read') && (
             <Button asChild variant="outline" size="sm" className="mt-4">
@@ -167,6 +172,37 @@ export default function ReachOverviewPage() {
         </SectionCard>
       </div>
     </DashboardPage>
+  );
+}
+
+/**
+ * Mean inbox placement of the warming and ready mailboxes (their warmup mail,
+ * last 3 days). The overview numbers carry no per-mailbox figures, so this
+ * reads the mailbox list; it shows nothing until a mailbox has enough data.
+ */
+function AverageInboxPlacement() {
+  const t = useTranslations();
+  const format = useReachFormat();
+  const mailboxes = useReachMailboxes();
+  const average = averageInboxPlacement(mailboxes.data ?? []);
+  if (average === null) return null;
+
+  const healthy = average >= WARMUP_MIN_INBOX_RATE;
+  return (
+    <div
+      className="mt-4 flex items-center justify-between gap-3 border-t pt-3 text-sm"
+      title={t('reach.overview.health.inboxPlacementHint', warmupCopyParams())}
+    >
+      <span>{t('reach.overview.health.inboxPlacement')}</span>
+      <span
+        className={cn(
+          'font-medium tabular-nums',
+          healthy ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400',
+        )}
+      >
+        {format.percent(average)}
+      </span>
+    </div>
   );
 }
 

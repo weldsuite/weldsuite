@@ -191,7 +191,7 @@ export const reach = {
     setupCard: {
       title: 'WeldReach instellen',
       description:
-        'Voeg je afzendergegevens, een betaalmethode, een domein en je eerste mailbox toe. Nieuwe mailboxen warmen {days} dagen op voordat ze campagnes versturen.',
+        'Voeg je afzendergegevens, een betaalmethode, een domein en je eerste mailbox toe. Nieuwe mailboxen warmen minstens {days} dagen op en hebben {rate}% inboxplaatsing nodig voordat ze campagnes versturen.',
       cta: 'Instellen starten',
     },
     tiles: {
@@ -227,12 +227,15 @@ export const reach = {
       empty: 'Nog geen mailboxen.',
       manage: 'Mailboxen beheren',
       addFirst: 'Mailbox toevoegen',
+      inboxPlacement: 'Inboxplaatsing',
+      inboxPlacementHint:
+        'Gemiddeld aandeel opwarm-e-mails dat in de inbox is aangekomen in de afgelopen 3 dagen, voor mailboxen die opwarmen of klaar zijn om te versturen. Mailboxen hebben {rate}% nodig om mee te doen met campagnes.',
     },
   },
 
   setup: {
     title: 'WeldReach instellen',
-    description: 'Vijf korte stappen. Mailboxen warmen {days} dagen op nadat je ze hebt gemaakt, dus begin op tijd.',
+    description: 'Vijf korte stappen. Mailboxen warmen minstens {days} dagen op nadat je ze hebt gemaakt, dus begin op tijd.',
     stepOf: 'Stap {current} van {total}',
     steps: {
       identity: 'Afzender',
@@ -291,7 +294,7 @@ export const reach = {
     mailboxes: {
       title: 'Maak je mailboxen',
       description:
-        'Elke mailbox verstuurt vanaf een eigen adres en met een eigen naam. Maak er een paar: hoe meer mailboxen, hoe meer je veilig kunt versturen. Elke mailbox kost {price} per maand.',
+        'Elke mailbox verstuurt vanaf een eigen adres en met een eigen naam. Maak er een paar: hoe meer mailboxen, hoe meer je veilig kunt versturen. Verspreid ze over meerdere domeinen: het opwarmen begint zodra de mailboxen minstens {domains} domeinen beslaan. Elke mailbox kost {price} per maand.',
       noDomains: 'Koppel eerst een domein in de vorige stap.',
       created: 'Mailbox gemaakt. Hij begint nu met opwarmen.',
       createdList: 'Je mailboxen',
@@ -302,7 +305,7 @@ export const reach = {
     done: {
       title: 'Alles staat klaar',
       description:
-        'Je mailboxen warmen op. Na {days} dagen kunnen ze meedoen met campagnes, en je kunt alvast prospects voorbereiden en je eerste campagne schrijven.',
+        'Je mailboxen warmen op. Na minstens {days} dagen en {rate}% inboxplaatsing kunnen ze meedoen met campagnes, en je kunt alvast prospects voorbereiden en je eerste campagne schrijven.',
       finish: 'Naar het overzicht',
       finishing: 'Afronden…',
       summaryMailboxes: '{count} mailboxen gemaakt',
@@ -371,7 +374,8 @@ export const reach = {
     },
     list: {
       title: 'Mailboxen',
-      description: 'Elke mailbox verstuurt vanaf een eigen adres. Nieuwe mailboxen warmen eerst {days} dagen op.',
+      description:
+        'Elke mailbox verstuurt vanaf een eigen adres. Een nieuwe mailbox warmt minstens {days} dagen op en heeft {rate}% inboxplaatsing nodig voordat hij campagnes verstuurt.',
       create: 'Nieuwe mailbox',
       empty: 'Nog geen mailboxen.',
       emptyHint: 'Maak een mailbox op een van je gekoppelde domeinen.',
@@ -380,6 +384,7 @@ export const reach = {
         mailbox: 'Mailbox',
         type: 'Type',
         status: 'Status',
+        warmup: 'Opwarmen',
         sent: 'Vandaag verstuurd',
         lastSent: 'Laatst verstuurd',
         actions: 'Acties',
@@ -391,9 +396,35 @@ export const reach = {
       pausedReason: 'Gepauzeerd: {reason}',
       errorReason: 'Fout: {error}',
     },
+    // Opwarmcijfers per mailbox (het eigen opwarmnetwerk van WeldSuite).
+    warmup: {
+      info: 'Het opwarmen loopt door naast je campagnes. Het opwarmnetwerk van WeldSuite wisselt automatisch gegenereerde e-mails uit tussen je mailboxen en andere WeldReach-mailboxen, opent ze en haalt ze uit de spam, zodat je mailboxen een goede verzendreputatie houden.',
+      none: 'Geen opwarming voor deze mailbox',
+      inboxPlacement: 'Inboxplaatsing',
+      inboxPlacementHint:
+        'Aandeel opwarm-e-mails van deze mailbox dat in de afgelopen 3 dagen in de inbox is aangekomen. Er is {rate}% nodig om mee te doen met campagnes.',
+      inboxPlacementNoData: 'Nog te weinig opwarm-e-mails om de inboxplaatsing te meten.',
+      sent7d: 'Opwarm verstuurd, 7 dagen',
+      spamRescues7d: 'Uit spam gehaald, 7 dagen',
+      states: {
+        waiting: 'Wacht op start',
+        maintaining: 'Houdt warm',
+        paused: 'Opwarmen gepauzeerd',
+        error: 'Fout bij opwarmen',
+      },
+      blockers: {
+        pool_too_small:
+          'Wacht op meer mailboxen: het opwarmen begint zodra je mailboxen minstens {domains} domeinen beslaan.',
+        too_early: 'Opwarmen duurt minstens {days} dagen voordat een mailbox campagnes kan versturen.',
+        not_enough_data: 'Nog te weinig opwarm-e-mails om de inboxplaatsing te meten.',
+        low_inbox_rate: 'De inboxplaatsing is lager dan {rate}%. De mailbox doet mee met campagnes zodra die herstelt.',
+        login_error: 'We kunnen niet inloggen op deze mailbox, dus het opwarmen staat stil.',
+      },
+    },
     create: {
       title: 'Nieuwe mailbox',
-      description: 'De mailbox wordt aangemaakt bij onze mailprovider en begint meteen met opwarmen.',
+      description:
+        'De mailbox wordt aangemaakt bij onze mailprovider en begint meteen met opwarmen. Hij warmt minstens {days} dagen op en heeft {rate}% inboxplaatsing nodig voordat hij campagnes verstuurt.',
       domain: 'Domein',
       domainPlaceholder: 'Kies een domein',
       localPart: 'Adres',

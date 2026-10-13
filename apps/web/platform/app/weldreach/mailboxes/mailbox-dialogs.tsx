@@ -35,6 +35,7 @@ import { useUpdateReachMailbox } from '@/hooks/queries/use-reach-queries';
 import { reachErrorMessage } from '@/lib/reach/errors';
 import { createReachSchemaOptions } from '@/lib/reach/zod-error-map';
 import { CreateMailboxForm } from '../components/create-mailbox-form';
+import { warmupCopyParams } from '../lib/warmup';
 import { NumberInput } from '@/components/shared/number-input';
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ export function CreateMailboxDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('reach.mailboxes.create.title')}</DialogTitle>
-          <DialogDescription>{t('reach.mailboxes.create.description')}</DialogDescription>
+          <DialogDescription>{t('reach.mailboxes.create.description', warmupCopyParams())}</DialogDescription>
         </DialogHeader>
         {open && (
           <CreateMailboxForm
