@@ -85,6 +85,7 @@ export const reach = {
     countryNone: 'No countries found',
     removeCountry: 'Remove {country}',
     termsRequired: 'Tick every statement to continue.',
+    termsProgress: '{count} of {total} confirmed',
     requestFailed: 'We could not send your request. Please try again.',
     requestedOn: 'Requested on {date}',
     previousRequest: 'Your previous answers are filled in below.',

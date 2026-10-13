@@ -143,214 +143,230 @@ export function AppAccessRequestDialog({ app, open, onOpenChange, onSubmitted }:
 
   return (
     <Dialog open={open} onOpenChange={(next) => (submitting ? undefined : onOpenChange(next))}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+      {/*
+        Header and footer stay put and only the body scrolls, so the form never
+        runs past the dialog and Send is always in reach.
+      */}
+      <DialogContent className="flex max-h-[min(90vh,56rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b px-6 pt-6 pb-4">
           <DialogTitle>{t('reach.access.requestTitle')}</DialogTitle>
           <DialogDescription>{t('reach.access.requestIntro')}</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={onSubmit} className="space-y-5" noValidate>
-            {previous && <p className="text-sm text-muted-foreground">{t('reach.accessUi.previousRequest')}</p>}
+          <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col" noValidate>
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-6 py-5">
+              {previous && <p className="text-sm text-muted-foreground">{t('reach.accessUi.previousRequest')}</p>}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="companyName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('reach.access.form.companyName')}</FormLabel>
-                    <FormControl>
-                      <Input autoComplete="organization" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="website"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('reach.access.form.website')}</FormLabel>
-                    <FormControl>
-                      <Input autoComplete="url" placeholder="https://" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="contactName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('reach.access.form.contactName')}</FormLabel>
-                    <FormControl>
-                      <Input autoComplete="name" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="contactEmail"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('reach.access.form.contactEmail')}</FormLabel>
-                    <FormControl>
-                      <Input type="email" autoComplete="email" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="companyName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('reach.access.form.companyName')}</FormLabel>
+                      <FormControl>
+                        <Input autoComplete="organization" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="website"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('reach.access.form.website')}</FormLabel>
+                      <FormControl>
+                        <Input autoComplete="url" placeholder="https://" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="contactName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('reach.access.form.contactName')}</FormLabel>
+                      <FormControl>
+                        <Input autoComplete="name" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="contactEmail"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('reach.access.form.contactEmail')}</FormLabel>
+                      <FormControl>
+                        <Input type="email" autoComplete="email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
-            <FormField
-              control={form.control}
-              name="useCase"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('reach.access.form.useCase')}</FormLabel>
-                  <FormControl>
-                    <Textarea rows={4} placeholder={t('reach.access.form.useCasePlaceholder')} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid items-start gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
-                name="expectedDailySends"
+                name="useCase"
                 render={({ field }) => (
-                  <FormItem className="min-w-0 grid-cols-[minmax(0,1fr)]">
-                    <FormLabel>{t('reach.access.form.expectedDailySends')}</FormLabel>
+                  <FormItem>
+                    <FormLabel>{t('reach.access.form.useCase')}</FormLabel>
                     <FormControl>
-                      <NumberInput
-                        min={1}
-                        name={field.name}
-                        ref={field.ref}
-                        onBlur={field.onBlur}
-                        value={field.value}
-                        onValueChange={field.onChange}
+                      <Textarea rows={4} placeholder={t('reach.access.form.useCasePlaceholder')} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid items-start gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="expectedDailySends"
+                  render={({ field }) => (
+                    <FormItem className="min-w-0 grid-cols-[minmax(0,1fr)]">
+                      <FormLabel>{t('reach.access.form.expectedDailySends')}</FormLabel>
+                      <FormControl>
+                        <NumberInput
+                          min={1}
+                          name={field.name}
+                          ref={field.ref}
+                          onBlur={field.onBlur}
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormDescription>{t('reach.accessUi.expectedDailySendsHint')}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="listSource"
+                  render={({ field }) => (
+                    <FormItem className="min-w-0 grid-cols-[minmax(0,1fr)]">
+                      <FormLabel>{t('reach.access.form.listSource')}</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {LIST_SOURCES.map((source) => (
+                            <SelectItem key={source} value={source}>
+                              {t(`reach.access.form.listSources.${source}`)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="listSourceDetails"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('reach.access.form.listSourceDetails')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={2}
+                        placeholder={t('reach.accessUi.listSourceDetailsPlaceholder')}
+                        {...field}
+                        value={field.value ?? ''}
                       />
                     </FormControl>
-                    <FormDescription>{t('reach.accessUi.expectedDailySendsHint')}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
               <FormField
                 control={form.control}
-                name="listSource"
+                name="targetCountries"
                 render={({ field }) => (
-                  <FormItem className="min-w-0 grid-cols-[minmax(0,1fr)]">
-                    <FormLabel>{t('reach.access.form.listSource')}</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {LIST_SOURCES.map((source) => (
-                          <SelectItem key={source} value={source}>
-                            {t(`reach.access.form.listSources.${source}`)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <FormItem>
+                    <FormLabel>{t('reach.access.form.targetCountries')}</FormLabel>
+                    <FormControl>
+                      <CountryMultiSelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder={t('reach.access.form.targetCountriesPlaceholder')}
+                        invalid={!!form.formState.errors.targetCountries}
+                      />
+                    </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {showConsentNotice && (
+                <InfoBanner variant="warning">{t('reach.access.form.consentNotice')}</InfoBanner>
+              )}
+
+              <FormField
+                control={form.control}
+                name="termsAccepted"
+                render={({ field }) => (
+                  <FormItem className="gap-0 overflow-hidden rounded-lg border">
+                    <div className="flex items-start justify-between gap-4 border-b bg-muted/40 px-4 py-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{t('reach.access.form.termsTitle')}</p>
+                        <p className="text-sm text-muted-foreground">{t('reach.access.form.termsIntro')}</p>
+                      </div>
+                      <span className="shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">
+                        {t('reach.accessUi.termsProgress', {
+                          count: WELDREACH_TERMS.filter((key) => field.value.includes(key)).length,
+                          total: WELDREACH_TERMS.length,
+                        })}
+                      </span>
+                    </div>
+                    <div className="divide-y">
+                      {WELDREACH_TERMS.map((key) => {
+                        const checkboxId = `reach-term-${key}`;
+                        return (
+                          <div key={key} className="flex items-start gap-3 px-4 py-3">
+                            <Checkbox
+                              id={checkboxId}
+                              className="mt-0.5"
+                              checked={field.value.includes(key)}
+                              onCheckedChange={(checked) =>
+                                field.onChange(
+                                  checked === true
+                                    ? [...field.value.filter((value) => value !== key), key]
+                                    : field.value.filter((value) => value !== key),
+                                )
+                              }
+                            />
+                            <Label htmlFor={checkboxId} className="cursor-pointer text-sm font-normal leading-snug">
+                              {t(`reach.access.terms.${key}`)}
+                            </Label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {termsError && (
+                      <p className="border-t px-4 py-3 text-sm text-destructive">{t('reach.accessUi.termsRequired')}</p>
+                    )}
                   </FormItem>
                 )}
               />
             </div>
 
-            <FormField
-              control={form.control}
-              name="listSourceDetails"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('reach.access.form.listSourceDetails')}</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={2}
-                      placeholder={t('reach.accessUi.listSourceDetailsPlaceholder')}
-                      {...field}
-                      value={field.value ?? ''}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="targetCountries"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('reach.access.form.targetCountries')}</FormLabel>
-                  <FormControl>
-                    <CountryMultiSelect
-                      value={field.value}
-                      onChange={field.onChange}
-                      placeholder={t('reach.access.form.targetCountriesPlaceholder')}
-                      invalid={!!form.formState.errors.targetCountries}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {showConsentNotice && (
-              <InfoBanner variant="warning">{t('reach.access.form.consentNotice')}</InfoBanner>
-            )}
-
-            <FormField
-              control={form.control}
-              name="termsAccepted"
-              render={({ field }) => (
-                <FormItem className="gap-3 rounded-lg border p-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">{t('reach.access.form.termsTitle')}</p>
-                    <p className="text-sm text-muted-foreground">{t('reach.access.form.termsIntro')}</p>
-                  </div>
-                  <div className="space-y-3">
-                    {WELDREACH_TERMS.map((key) => {
-                      const checkboxId = `reach-term-${key}`;
-                      return (
-                        <div key={key} className="flex items-start gap-3">
-                          <Checkbox
-                            id={checkboxId}
-                            className="mt-0.5"
-                            checked={field.value.includes(key)}
-                            onCheckedChange={(checked) =>
-                              field.onChange(
-                                checked === true
-                                  ? [...field.value.filter((value) => value !== key), key]
-                                  : field.value.filter((value) => value !== key),
-                              )
-                            }
-                          />
-                          <Label htmlFor={checkboxId} className="text-sm font-normal leading-snug">
-                            {t(`reach.access.terms.${key}`)}
-                          </Label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {termsError && <p className="text-sm text-destructive">{t('reach.accessUi.termsRequired')}</p>}
-                </FormItem>
-              )}
-            />
-
-            <DialogFooter>
+            <DialogFooter className="shrink-0 border-t px-6 py-4">
               <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
                 {t('common.actions.cancel')}
               </Button>
