@@ -145,6 +145,20 @@ async function getUserSchedulingContext(db: Database, userId: string): Promise<S
   };
 }
 
+/**
+ * Whether this user lets the scheduler place their tasks in free calendar
+ * slots (`uiPreferences.autoScheduleTasks`; absent = on).
+ */
+export async function isTaskAutoScheduleEnabled(db: Database, userId: string): Promise<boolean> {
+  const { userPreferences } = schema;
+  const [prefs] = await db
+    .select({ uiPreferences: userPreferences.uiPreferences })
+    .from(userPreferences)
+    .where(and(eq(userPreferences.userId, userId), isNull(userPreferences.deletedAt)))
+    .limit(1);
+  return prefs?.uiPreferences?.autoScheduleTasks !== false;
+}
+
 // ── Find free slot algorithm ────────────────────────────────────────────
 
 type SearchDirection = 'forward' | 'backward' | 'auto';
@@ -786,10 +800,14 @@ interface CreateEventParams {
   priority?: string | null;
 }
 
+/**
+ * Returns the new event id, or `null` when nothing was placed: the user turned
+ * off task auto-scheduling and the task has no explicit start date.
+ */
 export async function createCalendarEventForTask(
   db: Database,
   params: CreateEventParams,
-): Promise<string> {
+): Promise<string | null> {
   const { calendarEvents } = schema;
   const calendarId = await ensureDefaultCalendar(db, params.userId);
   const id = generateId('evt');
@@ -831,6 +849,8 @@ export async function createCalendarEventForTask(
     });
     return id;
   }
+
+  if (!(await isTaskAutoScheduleEnabled(db, params.userId))) return null;
 
   const ctx = await getUserSchedulingContext(db, params.userId);
   const hasDueDate = !!params.dueDate;
@@ -1041,10 +1061,11 @@ interface RescheduleParams {
   priority?: string | null;
 }
 
+/** Returns the event id the task should point at, or `null` when it no longer has one. */
 export async function rescheduleCalendarEvent(
   db: Database,
   params: RescheduleParams,
-): Promise<string> {
+): Promise<string | null> {
   const { calendarEvents } = schema;
 
   // Pinned events (autoScheduled=false) reflect a user's explicit choice of
@@ -1152,6 +1173,40 @@ export async function deleteCalendarEvent(db: Database, calendarEventId: string)
     );
 }
 
+// ── Auto-scheduling turned off: clear the user's auto-placed task events ─
+
+/**
+ * Soft-delete every auto-scheduled task event this user organises and unlink
+ * it from its task. Pinned events (a start the user chose) stay. Called when
+ * the user turns off `uiPreferences.autoScheduleTasks`.
+ */
+export async function removeAutoScheduledTaskEvents(db: Database, userId: string): Promise<number> {
+  const { calendarEvents, tasks } = schema;
+  const now = new Date();
+
+  const removed = await db
+    .update(calendarEvents)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(calendarEvents.organizerId, userId),
+        eq(calendarEvents.sourceType, 'task'),
+        eq(calendarEvents.autoScheduled, true),
+        isNull(calendarEvents.deletedAt),
+      ),
+    )
+    .returning({ id: calendarEvents.id });
+
+  if (removed.length > 0) {
+    await db
+      .update(tasks)
+      .set({ calendarEventId: null })
+      .where(inArray(tasks.calendarEventId, removed.map((r) => r.id)));
+  }
+
+  return removed.length;
+}
+
 // ── Nightly re-plan: catch up stale auto-scheduled events ───────────────
 
 /**
@@ -1175,7 +1230,10 @@ function replannableEventConditions(db: Database) {
         .where(and(
           eq(userPreferences.userId, calendarEvents.organizerId),
           isNull(userPreferences.deletedAt),
-          sql`${userPreferences.uiPreferences}->>'autoRescheduleTasks' = 'false'`,
+          or(
+            sql`${userPreferences.uiPreferences}->>'autoRescheduleTasks' = 'false'`,
+            sql`${userPreferences.uiPreferences}->>'autoScheduleTasks' = 'false'`,
+          ),
         )),
     ),
   ];
@@ -1204,8 +1262,9 @@ export async function nextAutoScheduledReplanAt(db: Database): Promise<Date | nu
  * the past while their source task is still incomplete. Reschedule each so
  * the calendar reflects "what's coming up", not "what should have happened".
  *
- * Users who set `uiPreferences.autoRescheduleTasks = false` are skipped:
- * their past slots stay where they were. The opt-out and finished tasks are
+ * Users who set `uiPreferences.autoRescheduleTasks = false` (or turned off
+ * auto-scheduling altogether with `autoScheduleTasks = false`) are skipped:
+ * their past slots stay where they were. The opt-outs and finished tasks are
  * filtered in SQL so those events never consume the batch limit.
  *
  * Intended to be invoked from the daily calendar-api sweep, one due

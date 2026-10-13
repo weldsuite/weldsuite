@@ -12,7 +12,12 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv, createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { nextAutoScheduledReplanAt } from '@weldsuite/db/lib/calendar-sync';
+import { eq } from 'drizzle-orm';
+import {
+  createCalendarEventForTask,
+  nextAutoScheduledReplanAt,
+  removeAutoScheduledTaskEvents,
+} from '@weldsuite/db/lib/calendar-sync';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -112,6 +117,70 @@ describe('nextAutoScheduledReplanAt', () => {
       uiPreferences: { autoRescheduleTasks: false },
     } as typeof schema.userPreferences.$inferInsert);
     expect(await nextAutoScheduledReplanAt(db)).toBeNull();
+  });
+
+  it('ignores users who turned off task auto-scheduling', async () => {
+    await seedTaskEvent({ start: new Date(Date.now() - HOUR), organizerId: 'user_noauto' });
+    await optOutOfAutoSchedule('user_noauto');
+    expect(await nextAutoScheduledReplanAt(db)).toBeNull();
+  });
+});
+
+async function optOutOfAutoSchedule(userId: string) {
+  await db.insert(schema.userPreferences).values({
+    id: `upref_${userId}`,
+    userId,
+    uiPreferences: { autoScheduleTasks: false },
+  } as typeof schema.userPreferences.$inferInsert);
+}
+
+describe('task auto-scheduling turned off', () => {
+  it('places no event for a task without a start date', async () => {
+    await optOutOfAutoSchedule('user_noauto');
+    const eventId = await createCalendarEventForTask(db, {
+      userId: 'user_noauto',
+      taskId: 'task_noauto',
+      title: 'Write report',
+      dueDate: new Date(Date.now() + 48 * HOUR),
+    });
+    expect(eventId).toBeNull();
+    expect(await db.select().from(schema.calendarEvents)).toHaveLength(0);
+  });
+
+  it('still pins a task that has a start date', async () => {
+    await optOutOfAutoSchedule('user_noauto');
+    const start = new Date(Date.now() + 24 * HOUR);
+    const eventId = await createCalendarEventForTask(db, {
+      userId: 'user_noauto',
+      taskId: 'task_pinned',
+      title: 'Client call prep',
+      startDate: start,
+    });
+    const [row] = await db.select().from(schema.calendarEvents).where(eq(schema.calendarEvents.id, eventId!));
+    expect(row).toMatchObject({ autoScheduled: false });
+    expect(row.startTime.getTime()).toBe(start.getTime());
+  });
+
+  it('removeAutoScheduledTaskEvents clears auto-placed events only', async () => {
+    const auto = await seedTaskEvent({ start: new Date(Date.now() + HOUR), organizerId: 'user_noauto' });
+    const pinned = await seedTaskEvent({
+      start: new Date(Date.now() + HOUR),
+      organizerId: 'user_noauto',
+      autoScheduled: false,
+    });
+    const otherUser = await seedTaskEvent({ start: new Date(Date.now() + HOUR), organizerId: 'user_other' });
+
+    expect(await removeAutoScheduledTaskEvents(db, 'user_noauto')).toBe(1);
+
+    const events = await db.select().from(schema.calendarEvents);
+    const deleted = new Set(events.filter((e) => e.deletedAt).map((e) => e.id));
+    expect([...deleted]).toEqual([auto.eventId]);
+
+    const tasks = await db.select().from(schema.tasks);
+    const linked = Object.fromEntries(tasks.map((task) => [task.id, task.calendarEventId]));
+    expect(linked[auto.taskId]).toBeNull();
+    expect(linked[pinned.taskId]).toBe(pinned.eventId);
+    expect(linked[otherUser.taskId]).toBe(otherUser.eventId);
   });
 });
 

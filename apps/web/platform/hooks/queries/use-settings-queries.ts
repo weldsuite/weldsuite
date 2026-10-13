@@ -951,6 +951,8 @@ export interface UserPreferences {
     mailDefaultAccountId?: string | null;
     /** WeldMail: last account/view the user opened (accountId or 'unified'). Fallback landing. */
     mailLastAccountId?: string | null;
+    /** WeldFlow: place tasks in free calendar slots. Absent = true. */
+    autoScheduleTasks?: boolean;
     /** WeldFlow: move unfinished auto-scheduled tasks forward each night. Absent = true. */
     autoRescheduleTasks?: boolean;
     homeWidgets?: {

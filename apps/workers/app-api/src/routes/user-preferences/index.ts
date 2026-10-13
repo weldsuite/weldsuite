@@ -17,9 +17,19 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
+import { removeAutoScheduledTaskEvents } from '@weldsuite/db/lib/calendar-sync';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.userPreferences;
+
+/** True when this update turns task auto-scheduling off (it was on, or unset). */
+function turnsOffTaskAutoSchedule(
+  data: PreferencesInput,
+  existing: typeof t.$inferSelect | undefined,
+): boolean {
+  if (data.uiPreferences?.autoScheduleTasks !== false) return false;
+  return existing?.uiPreferences?.autoScheduleTasks !== false;
+}
 
 const workingHoursSchema = z.record(z.string(), z.any()).optional();
 
@@ -129,6 +139,12 @@ app.put('/', zValidator('json', updatePreferencesSchema), async (c) => {
       .from(t)
       .where(and(eq(t.userId, userId), isNull(t.deletedAt)))
       .limit(1);
+
+    // Turning auto-scheduling off clears the task blocks it already placed;
+    // tasks with a start the user chose keep their (pinned) event.
+    if (turnsOffTaskAutoSchedule(data, existing)) {
+      await removeAutoScheduledTaskEvents(db, userId);
+    }
 
     if (existing) {
       const updateData = buildPreferencesUpdate(data, existing);

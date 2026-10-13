@@ -2423,6 +2423,8 @@ export const sweep = {
       "title": "Werktijden",
       "description": "Stel uw beschikbaarheid in voor automatische taakplanning. Taken worden ingepland in vrije tijdvakken binnen deze uren.",
       "locked": "Uw werktijden zijn vergrendeld. Neem contact op met uw werkruimtebeheerder om wijzigingen aan te brengen.",
+      "autoScheduleLabel": "Taken automatisch in mijn agenda inplannen",
+      "autoScheduleDescription": "Plan nieuwe taken in een vrij tijdvak binnen je werktijden. Zet dit uit om taken uit je agenda te houden, tenzij je ze een startdatum geeft. Taken die al automatisch zijn ingepland, worden uit je agenda gehaald.",
       "autoRescheduleLabel": "Onafgeronde taken automatisch doorschuiven",
       "autoRescheduleDescription": "Als een automatisch ingeplande taak niet op de geplande dag is afgerond, wordt deze 's nachts naar het volgende vrije tijdvak verplaatst. Zet dit uit om de taak te laten staan.",
       "autoRescheduleFailed": "Instelling voor taakplanning bijwerken mislukt"
