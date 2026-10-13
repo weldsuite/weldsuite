@@ -1,6 +1,8 @@
 # WeldReach warmup: WeldSuite's own warmup network
 
-Status (2026-10-13): plan, nothing built; the owner's decisions are in.
+Status (2026-10-13): built on branch `claude/weldsuite-cold-email-platform-72f54d`
+(PR #1115), not deployed; Phase W0 checks against real mailboxes are still open.
+Migrations (master 0056, tenant 0210) were generated with the owner's go-ahead.
 Replaces the Mailpool warmup that WeldReach uses today
 (docs/plans/weldreach.md, "Mailboxes, domains and warmup"). WeldReach is not
 live yet, so WeldSuite's warmup is the only warmup from the first release:
@@ -206,6 +208,17 @@ WeldReach has no live mailboxes yet, so there is nothing to migrate.
 3. **Cross-workspace warming** with a new access term: agreed.
 4. **Health gate**: as recommended (14 days, at least 85% inbox placement over 3 days).
 5. **Mailpool warmup**: not kept as a fallback; removed.
+
+## As built (2026-10-13)
+
+- **Code**: `@weldsuite/imap` (packages/core/imap), `@weldsuite/reach-domain` (packages/domains/reach: warmup numbers and pool operations), `apps/workers/reach-warmup-worker` (planner, pairing, dispatch, send, engage, daily, stats, cleanup, login recheck, corpus), reach-api switch-over, platform Warmup column + overview placement, admin console `/warmup`.
+- **Volume**: the ramp (2 → 40) and maintenance (10–15) are *total* warmup sends a day. Replies come on top of the threads a mailbox starts, so the planner starts `round(total / 1.6)` new threads (25 at the peak).
+- **Weekends**: no new threads on Saturday and Sunday in the mailbox's timezone; replies due then move to Monday morning.
+- **Ramp day**: advanced by the 02:30 UTC run for mailboxes that sent warmup mail the previous UTC day.
+- **Auto-pause**: a maintaining mailbox below 60% inbox placement over 3 days (minimum sample) is paused (`low_inbox_rate`) and resumed after a 3-day cool-off; it is paused again if placement is still low. User (`paused_by_user`), staff (`paused_by_staff`), Mailpool (`mailbox_suspended`) and domain pauses are never lifted by the worker.
+- **Login failures**: a failed SMTP/IMAP login puts the pool mailbox in `error` (`login_failed`) and marks the workspace due so reach-api pauses the tenant mailbox the same day; a successful login (send, engage, cleanup or the 30-minute recheck) clears it.
+- **Cleanup on Gmail**: deleting in INBOX only archives, so cleanup moves warmup mail to Trash and deletes it there.
+- **Corpus refresh**: the replaced set is kept as `previous.json`, so mail planned before a refresh still renders.
 
 ## Follow-ups (not in this plan)
 
