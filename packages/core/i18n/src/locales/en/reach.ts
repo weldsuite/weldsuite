@@ -71,6 +71,8 @@ export const reach = {
       suspension:
         'WeldSuite may pause or suspend sending at any time, for example after complaints, high bounce rates or a legal request, and may share our details with authorities when the law requires it.',
       responsible_for_content: 'We are responsible for the content we send and for the people we contact.',
+      warmup_network:
+        'Our outreach mailboxes take part in the WeldSuite warmup network: they exchange automatically generated emails with other WeldReach mailboxes to build their sending reputation.',
     },
   },
 

@@ -157,9 +157,9 @@ test.describe('App Store · on-request app', () => {
       companyName: 'Acme B.V.',
       targetCountries: ['NL'],
       expectedDailySends: 150,
-      termsVersion: 'weldreach-2026-10',
+      termsVersion: 'weldreach-2026-10b',
     });
-    expect(mock.requests[0].termsAccepted).toHaveLength(6);
+    expect(mock.requests[0].termsAccepted).toHaveLength(7);
 
     // The tile now shows the pending state and no longer offers a request.
     await expect(card(page).getByText('Request pending', { exact: true })).toBeVisible();

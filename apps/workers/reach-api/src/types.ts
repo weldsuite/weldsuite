@@ -28,6 +28,8 @@ export interface Env extends KitEnv {
 
   /** WeldSuite's Mailpool account (secret). */
   MAILPOOL_API_KEY?: string;
+  /** Seals mailbox logins for the warmup network pool (secret; same value on reach-warmup-worker). */
+  WELDREACH_WARMUP_KEY?: string;
   /** Shared secret Mailpool signs webhooks with (secret). */
   MAILPOOL_WEBHOOK_SECRET?: string;
   /** Defaults to https://app.mailpool.io/v1/api. */

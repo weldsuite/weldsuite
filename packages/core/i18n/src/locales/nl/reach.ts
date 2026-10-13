@@ -66,6 +66,8 @@ export const reach = {
       suspension:
         'WeldSuite mag het versturen op elk moment pauzeren of opschorten, bijvoorbeeld na klachten, veel bounces of een juridisch verzoek, en mag onze gegevens delen met autoriteiten als de wet dat vereist.',
       responsible_for_content: 'Wij zijn verantwoordelijk voor de inhoud die we versturen en voor de mensen die we benaderen.',
+      warmup_network:
+        'Onze outreach-mailboxen doen mee aan het opwarmnetwerk van WeldSuite: ze wisselen automatisch gegenereerde e-mails uit met andere WeldReach-mailboxen om hun verzendreputatie op te bouwen.',
     },
   },
 

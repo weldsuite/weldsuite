@@ -715,6 +715,17 @@ export const manifest: Record<string, SecretEntry[]> = {
     // Reply classification through @weldsuite/ai (same tokens as crm-api).
     "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
+    // Seals mailbox logins for the warmup network (same value on reach-warmup-worker).
+    "WELDREACH_WARMUP_KEY",
+  ],
+  // reach-warmup-worker: the WeldReach warmup network (docs/plans/weldreach-warmup.md).
+  // Master DB only; WELDREACH_WARMUP_KEY opens the pool logins reach-api sealed.
+  "reach-warmup-worker": [
+    "DATABASE_URL_MASTER",
+    "WELDREACH_WARMUP_KEY",
+    // Monthly warmup corpus generation through @weldsuite/ai.
+    "AI_GATEWAY_API_TOKEN",
+    "CLOUDFLARE_API_TOKEN",
   ],
 };
 

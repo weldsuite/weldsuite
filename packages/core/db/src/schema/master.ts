@@ -1295,6 +1295,23 @@ export {
   type ReachRoute,
   type NewReachRoute,
 } from './reach-routes';
+// WeldReach warmup network: the cross-workspace mailbox pool and its messages.
+export {
+  reachWarmupMailboxes,
+  reachWarmupMessages,
+  REACH_WARMUP_STATUSES,
+  REACH_WARMUP_MESSAGE_STATUSES,
+  REACH_WARMUP_PLACEMENTS,
+  type ReachWarmupStatus,
+  type ReachWarmupMessageStatus,
+  type ReachWarmupPlacement,
+  type ReachWarmupStats,
+  type ReachWarmupActions,
+  type ReachWarmupMailbox,
+  type NewReachWarmupMailbox,
+  type ReachWarmupMessage,
+  type NewReachWarmupMessage,
+} from './reach-warmup';
 export { appCatalog, appScreenshots, APP_CATEGORIES, type AppCatalogEntry, type NewAppCatalogEntry, type AppScreenshot, type NewAppScreenshot, type AppCategory } from './app-catalog';
 export {
   userApps,

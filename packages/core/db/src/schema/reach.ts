@@ -21,6 +21,7 @@ import {
   boolean,
   integer,
   jsonb,
+  numeric,
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
@@ -207,6 +208,8 @@ export const reachMailboxes = pgTable(
     warmupStartedAt: timestamp('warmup_started_at', { withTimezone: true }),
     warmupDay: integer('warmup_day').notNull().default(0),
     warmupStatus: varchar('warmup_status', { length: 30 }),
+    /** Inbox placement over the last 3 days from the WeldSuite warmup network (0..1); null below the minimum sample. */
+    warmupInboxRate: numeric('warmup_inbox_rate', { precision: 5, scale: 4, mode: 'number' }),
     /** Sends per day once fully ramped. */
     dailyCap: integer('daily_cap').notNull().default(30),
     /** Current ramp-up cap; grows towards `dailyCap`. */

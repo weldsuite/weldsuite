@@ -25,6 +25,7 @@
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/feature-flags": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/reach-domain": "workspace:*",
     "@weldsuite/smtp": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2",

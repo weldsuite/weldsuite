@@ -40,6 +40,8 @@ export const SENSITIVE_COLUMNS = {
   hr_employees: ['sensitiveEncrypted'],
   /** WeldReach mailbox SMTP/IMAP logins from Mailpool; only the send path and the reply sender decrypt them. */
   reach_mailboxes: ['smtpCredentials', 'imapCredentials'],
+  /** The same logins sealed for the warmup network (master DB, WELDREACH_WARMUP_KEY). */
+  reach_warmup_mailboxes: ['smtpCredentials', 'imapCredentials'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type SensitiveTableName = keyof typeof SENSITIVE_COLUMNS;

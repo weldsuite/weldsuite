@@ -16,7 +16,7 @@ import { z } from 'zod';
 export const WELDREACH_APP_CODE = 'weldreach';
 
 /** Bump when the terms text changes; stored with every request. */
-export const WELDREACH_TERMS_VERSION = 'weldreach-2026-10';
+export const WELDREACH_TERMS_VERSION = 'weldreach-2026-10b';
 
 /** Keys of the terms the requester ticks one by one. Labels live in i18n (`reach.access.terms.<key>`). */
 export const WELDREACH_TERMS = [
@@ -26,6 +26,8 @@ export const WELDREACH_TERMS = [
   'lawful_lists',
   'suspension',
   'responsible_for_content',
+  // Added with the WeldSuite warmup network (docs/plans/weldreach-warmup.md).
+  'warmup_network',
 ] as const;
 export type WeldReachTermKey = (typeof WELDREACH_TERMS)[number];
 

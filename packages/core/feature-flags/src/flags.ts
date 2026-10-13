@@ -37,6 +37,10 @@ export const FLAGS = {
   // workspaces within a minute. Campaigns keep their state and resume when
   // it is back on. Per-workspace suspension is done in the admin console.
   'weldreach-sending': { type: 'boolean', default: true },
+  // WeldReach warmup network kill switch (docs/plans/weldreach-warmup.md).
+  // Off stops all warmup sends and engagements; mailboxes keep their ramp day
+  // and continue when it is back on. Separate from weldreach-sending.
+  'weldreach-warmup': { type: 'boolean', default: true },
 } as const satisfies Record<string, FlagDefinition>;
 
 export type FlagDefinition =
