@@ -557,6 +557,101 @@ function DeviceMenu({
   );
 }
 
+/** Screen share button shown while sharing is not possible yet: visible, not clickable. */
+function DisabledScreenShareControl({ reason }: Readonly<{ reason: string }>) {
+  return (
+    <div className="flex items-center rounded-[18px] overflow-hidden ring-1 ring-border">
+      <CallTooltip label={reason}>
+        <Button
+          variant="secondary"
+          size="icon"
+          aria-label="Share screen"
+          aria-disabled="true"
+          className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", DISABLED_CONTROL_CLASSES)}
+        >
+          <IconHighlight tone="default">
+            <MonitorUp className="!h-[20px] !w-[20px]" />
+          </IconHighlight>
+        </Button>
+      </CallTooltip>
+      <Button
+        variant="secondary"
+        size="icon"
+        aria-label="Screen share options"
+        disabled
+        className="relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center"
+      >
+        <ArrowChevron tone="default" />
+      </Button>
+    </div>
+  );
+}
+
+/** Audio / quality options dropdown next to the screen share button. */
+function ScreenShareOptionsMenu({
+  isScreenSharing,
+  selectedResolutionIdx,
+  onSelectResolution,
+  shareScreenAudio,
+  toggleShareScreenAudio,
+}: Readonly<{
+  isScreenSharing: boolean;
+  selectedResolutionIdx: number;
+  onSelectResolution: (idx: number) => void;
+  shareScreenAudio: boolean;
+  toggleShareScreenAudio: () => void;
+}>) {
+  return (
+    <DropdownMenu>
+      <CallTooltip label="Screen share options">
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant={isScreenSharing ? 'default' : 'secondary'}
+          size="icon"
+          className={cn(
+            "group/arrow relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 px-0 hidden md:flex items-center justify-center transition-colors",
+            isScreenSharing
+              ? "text-primary-foreground/80 hover:bg-primary"
+              : "border-l border-border/30 hover:bg-secondary",
+          )}
+        >
+          <ArrowChevron tone={isScreenSharing ? 'active' : 'default'} />
+        </Button>
+      </DropdownMenuTrigger>
+      </CallTooltip>
+      <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
+        {/* Share-audio toggle — controls whether the captured system/tab
+            audio is forwarded. Keep the menu open on click so the user can
+            toggle without it dismissing. */}
+        <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Audio</DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={(e) => e.preventDefault()}
+          onClick={toggleShareScreenAudio}
+          className="flex items-center justify-between"
+        >
+          <span className="flex items-center gap-2">
+            {shareScreenAudio ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            Share system audio
+          </span>
+          {shareScreenAudio && <Check className="h-4 w-4 text-primary" />}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Quality</DropdownMenuLabel>
+        {SCREEN_RESOLUTIONS.map((res, idx) => (
+          <DropdownMenuItem
+            key={res.label}
+            onClick={() => onSelectResolution(idx)}
+            className="flex items-center justify-between"
+          >
+            <span>{res.label}</span>
+            {selectedResolutionIdx === idx && <Check className="h-4 w-4 text-primary" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** Screen share button + audio / quality options dropdown. */
 function ScreenShareControl({
   meeting,
@@ -598,34 +693,7 @@ function ScreenShareControl({
     }
   }
 
-  if (disabledReason) {
-    return (
-      <div className="flex items-center rounded-[18px] overflow-hidden ring-1 ring-border">
-        <CallTooltip label={disabledReason}>
-          <Button
-            variant="secondary"
-            size="icon"
-            aria-label="Share screen"
-            aria-disabled="true"
-            className={cn("h-12 w-12 rounded-none rounded-l-[18px] border-0 transition-all", DISABLED_CONTROL_CLASSES)}
-          >
-            <IconHighlight tone="default">
-              <MonitorUp className="!h-[20px] !w-[20px]" />
-            </IconHighlight>
-          </Button>
-        </CallTooltip>
-        <Button
-          variant="secondary"
-          size="icon"
-          aria-label="Screen share options"
-          disabled
-          className="relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 border-l border-border/30 px-0 hidden md:flex items-center justify-center"
-        >
-          <ArrowChevron tone="default" />
-        </Button>
-      </div>
-    );
-  }
+  if (disabledReason) return <DisabledScreenShareControl reason={disabledReason} />;
 
   return (
     <div className="flex items-center rounded-[18px] overflow-hidden ring-1 ring-border">
@@ -644,53 +712,13 @@ function ScreenShareControl({
           </IconHighlight>
         </Button>
       </CallTooltip>
-      <DropdownMenu>
-        <CallTooltip label="Screen share options">
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant={isScreenSharing ? 'default' : 'secondary'}
-            size="icon"
-            className={cn(
-              "group/arrow relative h-12 w-[30px] rounded-none rounded-r-[18px] border-0 px-0 hidden md:flex items-center justify-center transition-colors",
-              isScreenSharing
-                ? "text-primary-foreground/80 hover:bg-primary"
-                : "border-l border-border/30 hover:bg-secondary",
-            )}
-          >
-            <ArrowChevron tone={isScreenSharing ? 'active' : 'default'} />
-          </Button>
-        </DropdownMenuTrigger>
-        </CallTooltip>
-        <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-64">
-          {/* Share-audio toggle — controls whether the captured system/tab
-              audio is forwarded. Keep the menu open on click so the user can
-              toggle without it dismissing. */}
-          <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Audio</DropdownMenuLabel>
-          <DropdownMenuItem
-            onSelect={(e) => e.preventDefault()}
-            onClick={toggleShareScreenAudio}
-            className="flex items-center justify-between"
-          >
-            <span className="flex items-center gap-2">
-              {shareScreenAudio ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-              Share system audio
-            </span>
-            {shareScreenAudio && <Check className="h-4 w-4 text-primary" />}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-xs text-muted-foreground font-medium">Quality</DropdownMenuLabel>
-          {SCREEN_RESOLUTIONS.map((res, idx) => (
-            <DropdownMenuItem
-              key={res.label}
-              onClick={() => selectResolution(idx)}
-              className="flex items-center justify-between"
-            >
-              <span>{res.label}</span>
-              {selectedResolutionIdx === idx && <Check className="h-4 w-4 text-primary" />}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ScreenShareOptionsMenu
+        isScreenSharing={isScreenSharing}
+        selectedResolutionIdx={selectedResolutionIdx}
+        onSelectResolution={selectResolution}
+        shareScreenAudio={shareScreenAudio}
+        toggleShareScreenAudio={toggleShareScreenAudio}
+      />
     </div>
   );
 }
@@ -924,6 +952,201 @@ function CameraControl({
   );
 }
 
+/** Raise / lower hand button, or its not-clickable stand-in while it is unavailable. */
+function HandRaiseControl({
+  handRaised,
+  toggleHandRaise,
+  disabledReason,
+}: Readonly<{
+  handRaised: boolean;
+  toggleHandRaise: () => void;
+  disabledReason?: string;
+}>) {
+  if (disabledReason) {
+    return (
+      <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
+        <CallTooltip label={disabledReason}>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label="Raise hand"
+            aria-disabled="true"
+            className={cn("h-12 w-12 rounded-[18px] border-0 transition-all", DISABLED_CONTROL_CLASSES)}
+          >
+            <IconHighlight tone="default" fill>
+              <Hand className="!h-[20px] !w-[20px]" />
+            </IconHighlight>
+          </Button>
+        </CallTooltip>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
+      <CallTooltip label={handRaised ? 'Lower hand' : 'Raise hand'}>
+        <Button
+          variant={handRaised ? 'default' : 'secondary'}
+          size="icon"
+          aria-label={handRaised ? 'Lower hand' : 'Raise hand'}
+          className={cn("group/icon h-12 w-12 rounded-[18px] border-0 transition-all", handRaised ? "hover:bg-primary" : "hover:bg-secondary")}
+          onClick={toggleHandRaise}
+        >
+          <IconHighlight tone={handRaised ? 'active' : 'default'} fill>
+            <Hand className="!h-[20px] !w-[20px]" />
+          </IconHighlight>
+        </Button>
+      </CallTooltip>
+    </div>
+  );
+}
+
+/** The More-options dropdown (desktop; phones get `CallControlsMoreSheet`). */
+function MoreOptionsDropdown({
+  open,
+  onOpenChange,
+  runAfterClose,
+  isRecording,
+  recordingState,
+  startRecording,
+  stopRecording,
+  pauseRecording,
+  resumeRecording,
+  onToggleEffects,
+  effectsOpen,
+  viewMode,
+  setViewMode,
+  isFullscreen,
+  onToggleFullscreen,
+  onPictureInPicture,
+  onOpenSettings,
+}: Readonly<Pick<
+  CallControlsBarProps,
+  | 'isRecording' | 'recordingState' | 'startRecording' | 'stopRecording' | 'pauseRecording' | 'resumeRecording'
+  | 'onToggleEffects' | 'effectsOpen' | 'viewMode' | 'setViewMode'
+  | 'isFullscreen' | 'onToggleFullscreen' | 'onPictureInPicture' | 'onOpenSettings'
+> & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Closes the menu, then runs the action on the next frame (see `CallControlsBar`). */
+  runAfterClose: (action: () => void) => void;
+}>) {
+  return (
+    <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
+      <DropdownMenu open={open} onOpenChange={onOpenChange}>
+        <CallTooltip label="More options">
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label="More options"
+              className="group/icon h-12 w-12 rounded-[18px] border-0 transition-all hover:bg-secondary"
+            >
+              <IconHighlight tone="default" fill>
+                <EllipsisVertical className="!h-[20px] !w-[20px]" />
+              </IconHighlight>
+            </Button>
+          </DropdownMenuTrigger>
+        </CallTooltip>
+        <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-56">
+          <RecordingMenuSection
+            isRecording={isRecording}
+            recordingState={recordingState}
+            startRecording={startRecording}
+            stopRecording={stopRecording}
+            pauseRecording={pauseRecording}
+            resumeRecording={resumeRecording}
+            runAfterClose={runAfterClose}
+          />
+
+          {/* Background effects */}
+          {onToggleEffects && (
+            <>
+              <DropdownMenuItem onClick={() => runAfterClose(onToggleEffects)}>
+                <Image className="h-4 w-4 mr-0.5" />
+                Background effects
+                {effectsOpen && <Check className="h-4 w-4 ml-auto" />}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
+
+          <LayoutMenuSection viewMode={viewMode} setViewMode={setViewMode} />
+
+          <ViewOptionsMenuSection
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={onToggleFullscreen}
+            onPictureInPicture={onPictureInPicture}
+          />
+
+          {/* Host controls — opens the right-side settings panel */}
+          {onOpenSettings && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => runAfterClose(onOpenSettings)}>
+                <Settings className="h-4 w-4 mr-0.5" />
+                Host controls
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+/** Leave button; with `onEndForAll` it opens a menu offering Leave or End for all. */
+function LeaveControl({
+  onLeave,
+  onEndForAll,
+  leaveLabels,
+}: Readonly<Pick<CallControlsBarProps, 'onLeave' | 'onEndForAll' | 'leaveLabels'>>) {
+  const leaveLabel = leaveLabels?.leave ?? 'Leave call';
+
+  if (!onEndForAll) {
+    return (
+      <CallTooltip label={leaveLabel}>
+        <Button
+          variant="destructive"
+          size="icon"
+          aria-label={leaveLabel}
+          className="h-12 w-[60px] md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+          onClick={onLeave}
+        >
+          <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
+        </Button>
+      </CallTooltip>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <CallTooltip label={leaveLabel}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="destructive"
+            size="icon"
+            aria-label={leaveLabel}
+            className="h-12 w-[60px] md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
+          >
+            <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
+          </Button>
+        </DropdownMenuTrigger>
+      </CallTooltip>
+      <DropdownMenuContent side="top" align="end" sideOffset={7} className="w-56">
+        <DropdownMenuItem onClick={onLeave}>
+          <LogOut className="h-4 w-4 mr-0.5" />
+          {leaveLabels?.leaveMeeting ?? 'Leave meeting'}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onEndForAll} className="text-red-500 focus:text-red-500">
+          <Phone className="h-4 w-4 mr-0.5 rotate-[135deg]" />
+          {leaveLabels?.endForAll ?? 'End meeting for all'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function CallControlsBar({
   meeting,
   isMuted,
@@ -995,6 +1218,18 @@ export function CallControlsBar({
     requestAnimationFrame(action);
   }, []);
 
+  const effectsToggle = showVirtualBackgrounds ? onToggleEffects : undefined;
+  // Screen share and hand raise as the phone's More sheet offers them.
+  const toggleScreenShare = isScreenSharing
+    ? stopScreenShare
+    : () => startShareAtQuality(startScreenShare, selectedResolutionIdx, shareScreenAudio);
+  const sheetScreenShare = showScreenShare
+    ? { active: isScreenSharing, disabled: !!disabledControls?.screenShare, onToggle: toggleScreenShare }
+    : undefined;
+  const sheetHandRaise = showHandRaise
+    ? { raised: handRaised, disabled: !!handRaiseDisabledReason, onToggle: toggleHandRaise }
+    : undefined;
+
   return (
     <div className="flex items-center justify-center gap-2 px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:gap-3 md:p-4 bg-background/80 backdrop-blur">
       <MicControl
@@ -1034,39 +1269,12 @@ export function CallControlsBar({
       )}
 
       {/* Hand raise. On phones it lives in the More sheet. */}
-      {showHandRaise && !isMobile && handRaiseDisabledReason && (
-        <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
-          <CallTooltip label={handRaiseDisabledReason}>
-            <Button
-              variant="secondary"
-              size="icon"
-              aria-label="Raise hand"
-              aria-disabled="true"
-              className={cn("h-12 w-12 rounded-[18px] border-0 transition-all", DISABLED_CONTROL_CLASSES)}
-            >
-              <IconHighlight tone="default" fill>
-                <Hand className="!h-[20px] !w-[20px]" />
-              </IconHighlight>
-            </Button>
-          </CallTooltip>
-        </div>
-      )}
-      {showHandRaise && !isMobile && !handRaiseDisabledReason && (
-        <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
-          <CallTooltip label={handRaised ? 'Lower hand' : 'Raise hand'}>
-            <Button
-              variant={handRaised ? 'default' : 'secondary'}
-              size="icon"
-              aria-label={handRaised ? 'Lower hand' : 'Raise hand'}
-              className={cn("group/icon h-12 w-12 rounded-[18px] border-0 transition-all", handRaised ? "hover:bg-primary" : "hover:bg-secondary")}
-              onClick={toggleHandRaise}
-            >
-              <IconHighlight tone={handRaised ? 'active' : 'default'} fill>
-                <Hand className="!h-[20px] !w-[20px]" />
-              </IconHighlight>
-            </Button>
-          </CallTooltip>
-        </div>
+      {showHandRaise && !isMobile && (
+        <HandRaiseControl
+          handRaised={handRaised}
+          toggleHandRaise={toggleHandRaise}
+          disabledReason={handRaiseDisabledReason}
+        />
       )}
 
       {/* More options — a bottom sheet on phones, a dropdown elsewhere */}
@@ -1091,21 +1299,11 @@ export function CallControlsBar({
             runAfterClose={runAfterClose}
             viewMode={viewMode}
             setViewMode={setViewMode}
-            screenShare={showScreenShare ? {
-              active: isScreenSharing,
-              disabled: !!disabledControls?.screenShare,
-              onToggle: isScreenSharing
-                ? stopScreenShare
-                : () => startShareAtQuality(startScreenShare, selectedResolutionIdx, shareScreenAudio),
-            } : undefined}
-            handRaise={showHandRaise ? {
-              raised: handRaised,
-              disabled: !!handRaiseDisabledReason,
-              onToggle: toggleHandRaise,
-            } : undefined}
+            screenShare={sheetScreenShare}
+            handRaise={sheetHandRaise}
             onOpenInfo={onOpenInfo}
             onOpenTools={onOpenTools}
-            onToggleEffects={showVirtualBackgrounds ? onToggleEffects : undefined}
+            onToggleEffects={effectsToggle}
             effectsOpen={effectsOpen}
             isFullscreen={isFullscreen}
             onToggleFullscreen={onToggleFullscreen}
@@ -1125,107 +1323,29 @@ export function CallControlsBar({
           />
         </div>
       ) : (
-      <div className="rounded-[18px] overflow-hidden ring-1 ring-border">
-        <DropdownMenu open={moreOpen} onOpenChange={setMoreOpen}>
-          <CallTooltip label="More options">
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                size="icon"
-                aria-label="More options"
-                className="group/icon h-12 w-12 rounded-[18px] border-0 transition-all hover:bg-secondary"
-              >
-                <IconHighlight tone="default" fill>
-                  <EllipsisVertical className="!h-[20px] !w-[20px]" />
-                </IconHighlight>
-              </Button>
-            </DropdownMenuTrigger>
-          </CallTooltip>
-          <DropdownMenuContent side="top" align="start" sideOffset={7} className="w-56">
-            <RecordingMenuSection
-              isRecording={isRecording}
-              recordingState={recordingState}
-              startRecording={startRecording}
-              stopRecording={stopRecording}
-              pauseRecording={pauseRecording}
-              resumeRecording={resumeRecording}
-              runAfterClose={runAfterClose}
-            />
-
-            {/* Background effects */}
-            {onToggleEffects && showVirtualBackgrounds && (
-              <>
-                <DropdownMenuItem onClick={() => runAfterClose(onToggleEffects)}>
-                  <Image className="h-4 w-4 mr-0.5" />
-                  Background effects
-                  {effectsOpen && <Check className="h-4 w-4 ml-auto" />}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-
-            <LayoutMenuSection viewMode={viewMode} setViewMode={setViewMode} />
-
-            <ViewOptionsMenuSection
-              isFullscreen={isFullscreen}
-              onToggleFullscreen={onToggleFullscreen}
-              onPictureInPicture={onPictureInPicture}
-            />
-
-            {/* Host controls — opens the right-side settings panel */}
-            {onOpenSettings && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => runAfterClose(onOpenSettings)}>
-                  <Settings className="h-4 w-4 mr-0.5" />
-                  Host controls
-                </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+        <MoreOptionsDropdown
+          open={moreOpen}
+          onOpenChange={setMoreOpen}
+          runAfterClose={runAfterClose}
+          isRecording={isRecording}
+          recordingState={recordingState}
+          startRecording={startRecording}
+          stopRecording={stopRecording}
+          pauseRecording={pauseRecording}
+          resumeRecording={resumeRecording}
+          onToggleEffects={effectsToggle}
+          effectsOpen={effectsOpen}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={onToggleFullscreen}
+          onPictureInPicture={onPictureInPicture}
+          onOpenSettings={onOpenSettings}
+        />
       )}
 
       {/* Leave/End */}
-      {onEndForAll ? (
-        <DropdownMenu>
-          <CallTooltip label={leaveLabels?.leave ?? 'Leave call'}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="destructive"
-                size="icon"
-                aria-label={leaveLabels?.leave ?? 'Leave call'}
-                className="h-12 w-[60px] md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
-              >
-                <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
-              </Button>
-            </DropdownMenuTrigger>
-          </CallTooltip>
-          <DropdownMenuContent side="top" align="end" sideOffset={7} className="w-56">
-            <DropdownMenuItem onClick={onLeave}>
-              <LogOut className="h-4 w-4 mr-0.5" />
-              {leaveLabels?.leaveMeeting ?? 'Leave meeting'}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onEndForAll} className="text-red-500 focus:text-red-500">
-              <Phone className="h-4 w-4 mr-0.5 rotate-[135deg]" />
-              {leaveLabels?.endForAll ?? 'End meeting for all'}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : (
-        <CallTooltip label={leaveLabels?.leave ?? 'Leave call'}>
-          <Button
-            variant="destructive"
-            size="icon"
-            aria-label={leaveLabels?.leave ?? 'Leave call'}
-            className="h-12 w-[60px] md:w-[70px] rounded-[18px] transition-all [&]:hover:brightness-90"
-            onClick={onLeave}
-          >
-            <Phone className="!h-[20px] !w-[20px] rotate-[135deg] fill-current" />
-          </Button>
-        </CallTooltip>
-      )}
+      <LeaveControl onLeave={onLeave} onEndForAll={onEndForAll} leaveLabels={leaveLabels} />
 
       {/* Extra controls slot */}
       {extraControls}
