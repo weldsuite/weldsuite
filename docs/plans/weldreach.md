@@ -184,6 +184,10 @@ Indexes that matter:
 
 ## Mailboxes, domains and warmup
 
+> **Warmup is being replaced** by WeldSuite's own warmup network, with no Mailpool
+> fallback: see [weldreach-warmup.md](weldreach-warmup.md). The Mailpool warmup
+> described below is what the first build uses until that lands.
+
 Onboarding wizard (first visit after approval):
 
 1. Sender identity for the email footer (stored in `reach_settings`).
