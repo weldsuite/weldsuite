@@ -53,7 +53,7 @@ export function DroppableStage({ id, children, containerRef }: Readonly<Droppabl
       >
         {isOver && (
           <div
-            className="!bg-blue-100 dark:!bg-blue-300 pointer-events-none z-10"
+            className="bg-blue-500/10 dark:bg-blue-500/15 pointer-events-none z-10"
             style={overlayStyle}
           />
         )}
