@@ -495,7 +495,7 @@ describe('recurring invoices', () => {
     expect(generated.data.finalizeError).toBeNull();
     expect(generated.data.journalEntryId).toMatch(/^je_/);
     const [invoice] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, generated.data.invoiceId));
-    expect(invoice).toMatchObject({ taxTotal: '16.50', total: '216.50', status: 'sent', taxEngine: 'manual' });
+    expect(invoice).toMatchObject({ taxTotal: '16.50', total: '216.50', status: 'finalized', taxEngine: 'manual' });
     expect(sum(await taxRowsOf(invoice.id))).toBe(16.5);
   });
 });

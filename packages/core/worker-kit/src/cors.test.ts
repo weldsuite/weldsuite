@@ -22,6 +22,15 @@ describe('resolveCorsOrigin', () => {
     expect(resolveCorsOrigin('http://localhost:3202')).toBe('http://localhost:3202');
   });
 
+  it('allows the partner portal (test + production + local)', () => {
+    expect(resolveCorsOrigin('https://partner.weldsuite.org')).toBe('https://partner.weldsuite.org');
+    expect(resolveCorsOrigin('https://partner-test.weldsuite.org')).toBe(
+      'https://partner-test.weldsuite.org',
+    );
+    expect(resolveCorsOrigin('http://localhost:3203')).toBe('http://localhost:3203');
+    expect(resolveCorsOrigin('https://partner.weldsuite.org.evil.com')).toBeNull();
+  });
+
   it('allows known local SPA ports', () => {
     expect(resolveCorsOrigin('http://localhost:3000')).toBe('http://localhost:3000');
     expect(resolveCorsOrigin('http://localhost:3001')).toBe('http://localhost:3001');

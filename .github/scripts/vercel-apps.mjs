@@ -34,6 +34,7 @@ const VERCEL_APPS = {
   'helpdesk-widget': 'weldsuite-helpdesk-widget',
   'hr-portal': 'weldsuite-hr-portal',
   'meeting-portal': 'meeting-portal',
+  partner: 'weldsuite-partner',
 };
 
 // Files outside any workspace package that change how every app installs or builds.

@@ -189,8 +189,8 @@ export function useAppApi() {
       search: createSearchApi(lazyClient),
       accessRequests: createAccessRequestsApi(lazyClient),
       // Reseller licensing: workspace-facing calls (managed billing, territory
-      // requests). The portal itself builds its own clients with `X-Partner-Id`
-      // (lib/partner/partner-api.ts).
+      // requests, `/partner/me`). The portal itself is its own app
+      // (apps/web/partner).
       partners: createPartnersApi(lazyClient),
       weldpass: createWeldPassApi(lazyClient),
       weldpassPasswords: createWeldPassPasswordsApi(lazyClient),

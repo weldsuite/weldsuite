@@ -31,6 +31,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
+import { isForeignCurrency, parseExchangeRateInput } from '@/lib/weldbooks/currencies';
 import {
   defaultPaymentMethod,
   isPaymentMethod,
@@ -50,6 +51,8 @@ function createPaymentSchema(st: (key: string) => string) {
     reference: z.string().optional(),
     /** US: `undeposited` (Undeposited Funds) or the id of the bank account the money goes into. */
     depositTo: z.string().optional(),
+    /** Foreign-currency invoice: the rate of the payment; empty = the rate of the payment date. */
+    exchangeRate: z.string().optional(),
   });
 }
 
@@ -61,6 +64,8 @@ type PaymentFormValues = z.infer<ReturnType<typeof createPaymentSchema>>;
 interface RecordPaymentDialogProps {
   invoiceId: string;
   balanceDue: string;
+  /** The invoice's currency: a foreign one can be paid at a rate of its own. */
+  currency?: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** A credit note: the money goes back to the customer (the API books a refund). */
@@ -70,6 +75,7 @@ interface RecordPaymentDialogProps {
 export function RecordPaymentDialog({
   invoiceId,
   balanceDue,
+  currency,
   open,
   onOpenChange,
   refund = false,
@@ -81,7 +87,8 @@ export function RecordPaymentDialog({
   const tu = t.weldbooksUs.banking.recordPayment;
   const methodLabels = t.accounting.paymentMethods;
   const paymentSchema = useMemo(() => createPaymentSchema(st), [st]);
-  const { today } = useWeldbooksFormat();
+  const { today, entityCurrency } = useWeldbooksFormat();
+  const foreignCurrency = isForeignCurrency(entityCurrency, currency);
   const { code: jurisdictionCode } = useCurrentJurisdiction();
   const isUs = isUsJurisdictionCode(jurisdictionCode);
   const { data: bankAccountsRes } = useBankAccounts(undefined, { enabled: isUs && open });
@@ -95,6 +102,7 @@ export function RecordPaymentDialog({
       checkNumber: '',
       reference: '',
       depositTo: UNDEPOSITED,
+      exchangeRate: '',
     }),
     [balanceDue, today, jurisdictionCode],
   );
@@ -124,6 +132,11 @@ export function RecordPaymentDialog({
 
   const onSubmit = (data: PaymentFormValues) => {
     if (!isPaymentMethod(data.paymentMethod)) return;
+    const rate = foreignCurrency ? parseExchangeRateInput(data.exchangeRate) : null;
+    if (rate === undefined) {
+      toast.error(t.accounting.documentCurrency.exchangeRateInvalid);
+      return;
+    }
     recordPayment.mutate(
       {
         id: invoiceId,
@@ -133,6 +146,7 @@ export function RecordPaymentDialog({
           paymentMethod: data.paymentMethod,
           checkNumber: data.paymentMethod === 'check' && data.checkNumber?.trim() ? data.checkNumber.trim() : undefined,
           reference: data.reference?.trim() ? data.reference.trim() : undefined,
+          exchangeRate: rate ? String(rate) : undefined,
           bankAccountId: showDepositTo && data.depositTo && data.depositTo !== UNDEPOSITED ? data.depositTo : undefined,
         },
       },
@@ -241,6 +255,23 @@ export function RecordPaymentDialog({
               />
               <p className="text-xs text-muted-foreground">
                 {watch('depositTo') === UNDEPOSITED || !watch('depositTo') ? tu.undepositedHint : tu.bankHint}
+              </p>
+            </div>
+          )}
+
+          {foreignCurrency && (
+            <div className="space-y-2">
+              <Label htmlFor="exchangeRate">{t.accounting.documentCurrency.exchangeRate}</Label>
+              <Input
+                id="exchangeRate"
+                inputMode="decimal"
+                placeholder={t.accounting.documentCurrency.exchangeRateAutomatic}
+                {...register('exchangeRate')}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t.accounting.documentCurrency.exchangeRateHelp
+                  .replace('{base}', entityCurrency ?? '')
+                  .replace('{currency}', currency ?? '')}
               </p>
             </div>
           )}

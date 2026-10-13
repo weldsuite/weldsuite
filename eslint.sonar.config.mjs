@@ -127,10 +127,13 @@ const REVIEWED = [
   },
   {
     rule: 'sonarjs/no-clear-text-protocols',
-    reason: 'XML namespace URIs in Digipoort/XAF documents, not network requests.',
+    reason: 'XML/XBRL namespace and scheme URIs in Digipoort, XAF, BTW and ICP documents, not network requests.',
     files: [
       'apps/workers/books-api/src/services/accounting-digipoort.ts',
+      'apps/workers/books-api/src/services/accounting-icp-xml.ts',
       'apps/workers/books-api/src/services/accounting-xaf.ts',
+      'packages/domains/books/src/accounting-vat-xml.ts',
+      'packages/domains/books/src/jurisdictions/nl/taxonomy.ts',
     ],
   },
   {

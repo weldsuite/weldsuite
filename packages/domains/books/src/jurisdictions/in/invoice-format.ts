@@ -24,6 +24,9 @@ const enLabels: InvoiceLabels = {
   vatNumberLabel: 'GSTIN',
   registrationLabel: 'PAN',
   draftNotice: 'Draft: not a valid tax invoice',
+  hsnSac: 'HSN/SAC',
+  placeOfSupply: 'Place of supply',
+  taxableValue: 'Taxable value',
 };
 
 export const IN_NOTICE_REVERSE_CHARGE = 'Tax payable under reverse charge';
@@ -34,7 +37,7 @@ export function getInInvoiceRequirements(_locale = 'en-IN'): InvoiceRequirements
     formatInvoiceNumber: (prefix, value, padding) =>
       `${prefix}${String(value).padStart(padding, '0')}`,
     defaultPadding: 4,
-    requiredFields: ['vatNumber', 'registrationNumber'],
+    requiredFields: ['vatNumber', 'registrationNumber', 'address'],
     requiredFooter: 'This is a computer-generated tax invoice.',
     labels: enLabels,
   };

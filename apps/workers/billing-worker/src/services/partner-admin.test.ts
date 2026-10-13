@@ -65,7 +65,7 @@ vi.mock('./subscription-policy', async (importOriginal) => ({
 vi.mock('./partner-mail', () => ({
   sendPartnerInvitationEmail: mocks.sendPartnerInvitationEmail,
   sendPartnerDunningEmail: vi.fn(),
-  partnerPortalUrl: () => 'https://app.weldsuite.org/partner',
+  partnerPortalUrl: () => 'https://partner.weldsuite.org',
 }));
 
 const admin = await import('./partner-admin');

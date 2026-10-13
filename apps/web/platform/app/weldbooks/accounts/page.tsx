@@ -69,6 +69,7 @@ export default function ChartOfAccountsPage() {
   const { data, isLoading } = useAccountingAccounts({
     type: typeFilter,
     taxLine: taxLineFilter,
+    includeInactive: true,
   });
 
   const accounts = (data?.data ?? []) as AccountRow[];

@@ -33,6 +33,17 @@ export function dueTone(daysUntilDue: number): DueTone {
   return daysUntilDue <= 14 ? 'soon' : 'later';
 }
 
+/**
+ * The jurisdiction code to show next to a jurisdiction's name. A jurisdiction
+ * without a code of its own is stored under its internal id (`stj_...`); that
+ * is a database key, not something to print, so it shows nothing.
+ */
+export function visibleJurisdictionCode(code: string | null | undefined): string | null {
+  const trimmed = code?.trim();
+  if (!trimmed || /^stj_/i.test(trimmed)) return null;
+  return trimmed;
+}
+
 /** Whole cents of a dollar amount: money is compared in cents so 0.1 + 0.2 equals 0.3. */
 export function toCents(value: number): number {
   return Math.round(value * 100);

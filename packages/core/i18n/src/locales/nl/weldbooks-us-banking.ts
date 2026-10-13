@@ -288,6 +288,12 @@ export const weldbooksUsBanking = {
   },
 
   deposits: {
+    usOnly: {
+      title: 'Stortingen zijn voor Amerikaanse entiteiten',
+      description:
+        'Nog niet gestorte ontvangsten en bankstortingen zijn beschikbaar voor Amerikaanse boekhoudentiteiten. Schakel over naar een Amerikaanse entiteit om ze te gebruiken.',
+      back: 'Terug naar het dashboard',
+    },
     title: 'Stortingen',
     subtitle: 'Bankstortingen vanuit Nog niet gestorte ontvangsten.',
     makeDeposit: 'Storting doen',

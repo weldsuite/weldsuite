@@ -90,6 +90,7 @@ import {
   type ReportTable,
 } from '../../services/accounting-report-export';
 import { buildTaxWorksheet, taxWorksheetTable } from '../../services/accounting-tax-worksheet';
+import { buildCashFlow } from '../../services/accounting-cash-flow';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -394,44 +395,10 @@ app.get('/general-ledger', requirePermission('reports:read'), async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /cash-flow — bank movements by calendar month
+// GET /cash-flow — movements on the cash and bank accounts, from the ledger
 // ---------------------------------------------------------------------------
 
-interface CashFlowMonth {
-  month: string;
-  inflows: string;
-  outflows: string;
-  net: string;
-}
-
-async function cashFlowFor(db: Database, entityId: string, range: DateRange) {
-  const { bankTransactions } = schema;
-  const monthly: CashFlowMonth[] = await db
-    .select({
-      month: sql<string>`to_char(${bankTransactions.date}, 'YYYY-MM')`,
-      inflows: sql<string>`coalesce(sum(case when ${bankTransactions.amount}::numeric > 0 then ${bankTransactions.amount}::numeric else 0 end), 0)`,
-      outflows: sql<string>`coalesce(sum(case when ${bankTransactions.amount}::numeric < 0 then ${bankTransactions.amount}::numeric else 0 end), 0)`,
-      net: sql<string>`coalesce(sum(${bankTransactions.amount}::numeric), 0)`,
-    })
-    .from(bankTransactions)
-    .where(
-      and(
-        eq(bankTransactions.entityId, entityId),
-        isNull(bankTransactions.deletedAt),
-        gte(bankTransactions.date, parseReportDate(range.from, 'start')),
-        lte(bankTransactions.date, parseReportDate(range.to, 'end')),
-      ),
-    )
-    .groupBy(sql`to_char(${bankTransactions.date}, 'YYYY-MM')`)
-    .orderBy(sql`to_char(${bankTransactions.date}, 'YYYY-MM')`);
-
-  const sum = (key: 'inflows' | 'outflows' | 'net') => monthly.reduce((total, m) => total + Number.parseFloat(m[key]), 0);
-  return {
-    period: range,
-    monthly,
-    totals: { inflows: money(sum('inflows')), outflows: money(sum('outflows')), net: money(sum('net')) },
-  };
-}
+// The report itself lives in services/accounting-cash-flow.ts (ledger movements on the cash and bank accounts).
 
 app.get('/cash-flow', requirePermission('reports:read'), async (c) => {
   try {
@@ -439,11 +406,11 @@ app.get('/cash-flow', requirePermission('reports:read'), async (c) => {
     const range = resolvePeriod(ctx.entity, ctx.query);
     const compare = parseCompare(ctx.query.compare);
 
-    const report = await cashFlowFor(ctx.db, ctx.entity.id, range);
-    let json: Record<string, unknown> = report;
+    const report = await buildCashFlow(ctx.db, ctx.entity.id, range);
+    let json: Record<string, unknown> = { ...report };
     if (compare) {
       const priorRange = compare === 'prior_year' ? priorYearOf(ctx.entity, range) : priorPeriodOf(range);
-      const prior = await cashFlowFor(ctx.db, ctx.entity.id, priorRange);
+      const prior = await buildCashFlow(ctx.db, ctx.entity.id, priorRange);
       json = {
         ...report,
         comparison: {

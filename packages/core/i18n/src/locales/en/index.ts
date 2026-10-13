@@ -49,6 +49,7 @@ import { weldobjects } from './weldobjects';
 import { sweep } from './sweep';
 import { developer } from './developer';
 import { weldbooksUs } from './weldbooks-us';
+import { weldbooksIn } from './weldbooks-in';
 import { admin } from './admin';
 import { partner } from './partner';
 import { reach } from './reach';
@@ -105,6 +106,7 @@ export const en = {
   sweep,
   developer,
   weldbooksUs,
+  weldbooksIn,
   admin,
   partner,
   reach,

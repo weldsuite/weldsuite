@@ -14,6 +14,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 const statusConfig: Record<string, { icon: typeof Clock; color: string; bg: string }> = {
   draft: { icon: FileText, color: 'text-gray-600', bg: 'bg-gray-100' },
   sent: { icon: Send, color: 'text-blue-600', bg: 'bg-blue-100' },
+  finalized: { icon: Send, color: 'text-blue-600', bg: 'bg-blue-100' },
   pending: { icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-100' },
   paid: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100' },
   overdue: { icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-100' },
@@ -43,7 +44,7 @@ export function InvoicesSection({ invoices, totalCount }: Readonly<InvoicesSecti
   const totalValue = invoices.reduce((sum, inv) => sum + Number.parseFloat(inv.amount || '0'), 0);
   const paidInvoices = invoices.filter(inv => inv.status === 'paid');
   const paidValue = paidInvoices.reduce((sum, inv) => sum + Number.parseFloat(inv.amount || '0'), 0);
-  const pendingInvoices = invoices.filter(inv => inv.status === 'pending' || inv.status === 'sent');
+  const pendingInvoices = invoices.filter(inv => inv.status === 'pending' || inv.status === 'sent' || inv.status === 'finalized');
   const overdueInvoices = invoices.filter(inv => inv.status === 'overdue');
 
   return (

@@ -41,13 +41,20 @@ export function normalizeVatNumber(raw: string): { countryCode: string; number: 
   return { countryCode: match[1], number: match[2], full };
 }
 
-interface ViesResponseBody {
+export interface ViesErrorWrapper {
+  error?: string;
+  message?: string;
+}
+
+export interface ViesResponseBody {
   valid?: boolean;
   name?: string;
   address?: string;
   requestIdentifier?: string;
   actionSucceed?: boolean;
   userError?: string;
+  /** Member-state / service errors the REST API reports with HTTP 200. */
+  errorWrappers?: ViesErrorWrapper[];
 }
 
 /** Project a cached `vies_checks` row into a result. */
@@ -68,23 +75,121 @@ function resultFromCache(
   };
 }
 
-/** Call the VIES REST API. Throws on HTTP failure or a member-state outage. */
-async function consultVies(normalized: { countryCode: string; number: string }): Promise<ViesResponseBody> {
-  const response = await fetch(VIES_API_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      countryCode: normalized.countryCode,
-      vatNumber: normalized.number,
-    }),
-  });
-  if (!response.ok) throw new Error(`VIES HTTP ${response.status}`);
-  const body = (await response.json()) as ViesResponseBody;
-  // VIES reports member-state outages via userError (e.g. MS_UNAVAILABLE)
-  if (body.userError && body.userError !== 'VALID' && body.userError !== 'INVALID') {
-    throw new Error(`VIES userError: ${body.userError}`);
+/** VIES gave no verdict on the number: an outage, not "invalid". */
+export class ViesUnavailableError extends Error {
+  constructor(
+    message: string,
+    /** Worth one quick retry (the member state is throttling, not down). */
+    readonly retryable = false,
+  ) {
+    super(message);
+    this.name = 'ViesUnavailableError';
   }
-  return body;
+}
+
+/** Errors that mean "too many concurrent requests, try again in a moment". */
+const RETRYABLE_VIES_ERRORS = new Set(['MS_MAX_CONCURRENT_REQ', 'GLOBAL_MAX_CONCURRENT_REQ']);
+
+/** `userError` values that are an answer about the number, not a failure. */
+const VERDICT_USER_ERRORS = new Set(['VALID', 'INVALID']);
+
+/** Error codes that are a definitive "this is not a valid VAT number" (malformed input). */
+const DEFINITIVE_INVALID_ERRORS = new Set(['INVALID_INPUT']);
+
+export type ViesVerdict =
+  | { kind: 'verdict'; valid: boolean }
+  | { kind: 'unavailable'; reason: string; retryable: boolean };
+
+/**
+ * Read a VIES REST response body. The REST endpoint reports member-state and
+ * service failures as HTTP 200, either with `actionSucceed: false` and
+ * `errorWrappers: [{ error: 'MS_MAX_CONCURRENT_REQ' }]` or, on older paths,
+ * `userError`. Both come with `valid: false`, which is NOT a verdict on the
+ * number. Only a body with a real boolean `valid` and no failure marker is.
+ */
+export function interpretViesBody(body: ViesResponseBody | null | undefined): ViesVerdict {
+  if (!body || typeof body !== 'object') {
+    return { kind: 'unavailable', reason: 'empty response', retryable: false };
+  }
+
+  const wrapperCodes = (Array.isArray(body.errorWrappers) ? body.errorWrappers : [])
+    .map((w) => w?.error ?? w?.message ?? 'UNKNOWN')
+    .filter(Boolean);
+  if (wrapperCodes.length > 0) {
+    if (wrapperCodes.every((code) => DEFINITIVE_INVALID_ERRORS.has(code))) {
+      return { kind: 'verdict', valid: false };
+    }
+    return {
+      kind: 'unavailable',
+      reason: wrapperCodes.join(', '),
+      retryable: wrapperCodes.some((code) => RETRYABLE_VIES_ERRORS.has(code)),
+    };
+  }
+
+  if (body.userError && !VERDICT_USER_ERRORS.has(body.userError)) {
+    return {
+      kind: 'unavailable',
+      reason: body.userError,
+      retryable: RETRYABLE_VIES_ERRORS.has(body.userError),
+    };
+  }
+
+  if (body.actionSucceed === false) {
+    return { kind: 'unavailable', reason: 'actionSucceed=false', retryable: false };
+  }
+
+  if (typeof body.valid !== 'boolean') {
+    return { kind: 'unavailable', reason: 'response has no validity flag', retryable: false };
+  }
+
+  return { kind: 'verdict', valid: body.valid };
+}
+
+export interface ConsultViesOptions {
+  fetchFn?: typeof fetch;
+  /** Delay before the single retry on a throttling error. */
+  sleep?: (ms: number) => Promise<void>;
+  retryDelayMs?: number;
+}
+
+/**
+ * Call the VIES REST API. Returns the response body together with its
+ * verdict; throws `ViesUnavailableError` on an HTTP failure or any outage
+ * the body reports (after one retry when VIES says it is throttling).
+ */
+export async function consultVies(
+  normalized: { countryCode: string; number: string },
+  opts: ConsultViesOptions = {},
+): Promise<{ body: ViesResponseBody; valid: boolean }> {
+  const fetchFn = opts.fetchFn ?? fetch;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetchFn(VIES_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        countryCode: normalized.countryCode,
+        vatNumber: normalized.number,
+      }),
+    });
+    if (!response.ok) throw new ViesUnavailableError(`VIES HTTP ${response.status}`);
+
+    let body: ViesResponseBody;
+    try {
+      body = (await response.json()) as ViesResponseBody;
+    } catch {
+      throw new ViesUnavailableError('VIES returned an unreadable response');
+    }
+
+    const verdict = interpretViesBody(body);
+    if (verdict.kind === 'verdict') return { body, valid: verdict.valid };
+    if (verdict.retryable && attempt === 0) {
+      await sleep(opts.retryDelayMs ?? 1500);
+      continue;
+    }
+    throw new ViesUnavailableError(`VIES unavailable: ${verdict.reason}`, verdict.retryable);
+  }
 }
 
 /**
@@ -120,12 +225,14 @@ export async function checkVatNumber(db: Database, rawVatNumber: string): Promis
 
   // Live VIES consultation
   let body: ViesResponseBody;
+  let valid: boolean;
   try {
-    body = await consultVies(normalized);
+    ({ body, valid } = await consultVies(normalized));
   } catch (err) {
     console.warn('[vies] lookup failed:', err);
-    // Fall back to a stale cache entry if we have one — better than nothing
-    if (cached) return resultFromCache(cached, normalized.full);
+    // A stale positive answer beats nothing; a stale "invalid" does not, since
+    // it may predate the number's registration. An outage is never cached.
+    if (cached?.valid) return resultFromCache(cached, normalized.full);
     return {
       available: false,
       valid: false,
@@ -136,7 +243,6 @@ export async function checkVatNumber(db: Database, rawVatNumber: string): Promis
     };
   }
 
-  const valid = body.valid === true;
   const traderName = body.name && body.name !== '---' ? body.name.slice(0, 255) : null;
   const traderAddress = body.address && body.address !== '---' ? body.address.slice(0, 500) : null;
   const consultationNumber = body.requestIdentifier?.slice(0, 50) ?? null;

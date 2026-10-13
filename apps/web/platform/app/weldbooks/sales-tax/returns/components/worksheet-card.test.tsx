@@ -61,6 +61,35 @@ describe('WorksheetCard totals', () => {
     expect(within(use).getByText('$20.00')).toBeInTheDocument();
   });
 
+  it('totals only the tax: one sale taxed at three levels is not three sales', () => {
+    const base = makeReturn().lines!.find((line) => line.kind === 'sales')!;
+    const lines = [
+      { ...base, level: 'state' as const, jurisdictionCode: 'TX', jurisdictionName: 'Texas', reportingCode: '', rate: 6.25, taxableSales: 149.97, tax: 9.37 },
+      { ...base, level: 'county' as const, jurisdictionCode: 'TX-TRAVIS', jurisdictionName: 'Travis County', reportingCode: '', rate: 1, taxableSales: 149.97, tax: 1.5 },
+      { ...base, level: 'city' as const, jurisdictionCode: 'TX-AUSTIN', jurisdictionName: 'Austin', reportingCode: '', rate: 1, taxableSales: 149.97, tax: 1.5 },
+    ];
+    renderWithProviders(<WorksheetCard ret={makeReturn({ lines })} />);
+
+    const sales = screen.getByRole('heading', { name: 'Tax by location' }).parentElement as HTMLElement;
+    expect(within(sales).getAllByText('$149.97')).toHaveLength(3);
+    expect(within(sales).queryByText('$449.91')).not.toBeInTheDocument();
+    expect(within(sales).getByText('$12.37')).toBeInTheDocument();
+  });
+
+  it('shows the jurisdiction code only when there is a real one, never the internal id', () => {
+    const base = makeReturn().lines!.find((line) => line.kind === 'sales')!;
+    const lines = [
+      { ...base, jurisdictionCode: 'stj_abc123def456', jurisdictionName: 'Capital Metro', reportingCode: '' },
+      { ...base, jurisdictionCode: '', jurisdictionName: 'Unnamed district', reportingCode: '' },
+      { ...base, jurisdictionCode: 'TX-AUSTIN', jurisdictionName: 'Austin', reportingCode: '' },
+    ];
+    renderWithProviders(<WorksheetCard ret={makeReturn({ lines })} />);
+
+    expect(screen.getByText('Capital Metro')).toBeInTheDocument();
+    expect(screen.queryByText('stj_abc123def456')).not.toBeInTheDocument();
+    expect(screen.getByText('TX-AUSTIN')).toBeInTheDocument();
+  });
+
   it('shows no use tax table when there is no use tax', () => {
     const lines = makeReturn().lines!.filter((line) => line.kind === 'sales');
     renderWithProviders(<WorksheetCard ret={makeReturn({ lines })} />);

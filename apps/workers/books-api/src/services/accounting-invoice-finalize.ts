@@ -19,15 +19,24 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { SalesTaxEngineError } from '@weldsuite/books-domain/sales-tax';
 import {
   collectInvoiceTaxCategories,
+  getContactVatNumber,
   validateInvoiceForFinalize,
 } from '@weldsuite/books-domain/accounting-compliance';
 import { loadEntity, postInvoice, PostingError } from './accounting-document-posting';
+import { resolveGstSupply, type GstSupply } from './accounting-gst';
 import { applyCreditNoteOnFinalize, type CreditApplication } from './accounting-credit-notes';
 import { SalesTaxDocumentError, addressRequired, engineUnavailable } from './sales-tax/errors';
 import { loadSalesTaxEntity, usesSalesTax } from './sales-tax/document-tax';
 import { recalculateStoredInvoice } from './sales-tax/persist';
 import { syncInvoiceWithProvider, type ProviderSyncResult } from './sales-tax/provider-sync';
 import type { SalesTaxRuntime } from './sales-tax/runtime';
+
+/** True when the invoice charges GST at a slab rate that was not split into CGST + SGST / IGST (no place of supply). */
+function gstSplitMissing(invoice: typeof schema.invoices.$inferSelect): boolean {
+  return (invoice.taxBreakdown ?? []).some(
+    (row) => row.taxRate > 0 && !row.component && !row.selfAssessed && row.taxCategoryCode !== 'reverse_charge',
+  );
+}
 
 export class InvoiceComplianceError extends Error {
   constructor(message: string) {
@@ -46,6 +55,80 @@ export interface FinalizeResult {
   taxSync?: ProviderSyncResult;
   /** A credit note: what was applied to the invoice it credits. */
   creditApplied?: CreditApplication | null;
+}
+
+type InvoiceRow = typeof schema.invoices.$inferSelect;
+type InvoiceItemRow = typeof schema.invoiceItems.$inferSelect;
+
+/** US sales tax: the tax that posts is the engine's answer for what is saved now. */
+async function refreshSalesTax(
+  db: Database,
+  stored: InvoiceRow,
+  items: InvoiceItemRow[],
+  tax: SalesTaxRuntime | undefined,
+): Promise<{ invoice: InvoiceRow; items: InvoiceItemRow[]; warnings: string[] }> {
+  try {
+    const refreshed = await recalculateStoredInvoice(db, stored, items, tax, { forFinalize: true });
+    return { invoice: refreshed.invoice, items: refreshed.items, warnings: refreshed.calc.salesTax?.warnings ?? [] };
+  } catch (err) {
+    if (err instanceof SalesTaxEngineError) throw engineUnavailable(err);
+    throw err;
+  }
+}
+
+/**
+ * The jurisdiction's invoice requirements, plus the India GST split check. Throws
+ * `InvoiceComplianceError` when the invoice may not be finalized; returns the warnings otherwise.
+ */
+async function enforceCompliance(
+  db: Database,
+  invoice: InvoiceRow,
+  gstSupply: GstSupply | null,
+): Promise<string[]> {
+  const entity = await loadEntity(db, invoice.entityId);
+  const taxCategories = await collectInvoiceTaxCategories(db, invoice.id);
+  const compliance = await validateInvoiceForFinalize(db, entity, invoice, taxCategories);
+  if (gstSupply && invoice.type !== 'credit_note' && gstSplitMissing(invoice)) {
+    compliance.errors.push(
+      "GST is charged but the place of supply is unknown, so it can't be split into CGST + SGST or IGST. Choose the place of supply on the invoice (or add the customer's GSTIN or address state) before finalizing.",
+    );
+    compliance.ok = false;
+  }
+  if (!compliance.ok) throw new InvoiceComplianceError(compliance.errors.join(' '));
+  return compliance.warnings;
+}
+
+/**
+ * The buyer's tax id (GSTIN / VAT number) and place of supply as they were when the invoice was booked.
+ * A credit note keeps those of the invoice it was copied from.
+ */
+async function bookingSnapshot(db: Database, invoice: InvoiceRow, gstSupply: GstSupply | null) {
+  const contactTaxNumber = invoice.contactTaxNumber ?? ((await getContactVatNumber(db, invoice.contactId))?.trim() || null);
+  return { contactTaxNumber, ...(gstSupply ? { placeOfSupply: gstSupply.placeOfSupply } : {}) };
+}
+
+/**
+ * What follows a posting that actually booked: a credit note lowers what is still open on the
+ * invoice it credits, and a provider engine records the document (its warning joins `ctx.warnings`).
+ */
+async function afterPosting(
+  db: Database,
+  invoice: InvoiceRow,
+  posted: Awaited<ReturnType<typeof postInvoice>>,
+  ctx: { salesTax: boolean; tax?: SalesTaxRuntime; warnings: string[] },
+): Promise<{ creditApplied: CreditApplication | null; taxSync?: ProviderSyncResult }> {
+  const booked = Boolean(posted.journalEntryId) && !posted.alreadyPosted;
+  let creditApplied: CreditApplication | null = null;
+  if (invoice.type === 'credit_note' && booked) {
+    creditApplied = await applyCreditNoteOnFinalize(db, invoice.id);
+  }
+
+  let taxSync: ProviderSyncResult | undefined;
+  if (ctx.salesTax && booked && ctx.tax) {
+    taxSync = await syncInvoiceWithProvider(db, invoice.id, ctx.tax);
+    if (taxSync.warning) ctx.warnings.push(taxSync.warning);
+  }
+  return { creditApplied, taxSync };
 }
 
 export async function finalizeInvoice(
@@ -81,39 +164,36 @@ export async function finalizeInvoice(
   const warnings: string[] = [];
   const salesTax = usesSalesTax(await loadSalesTaxEntity(db, stored.entityId));
   if (salesTax && items.length > 0) {
-    // The tax that posts is the engine's answer for what is saved now.
-    try {
-      const refreshed = await recalculateStoredInvoice(db, stored, items, opts.tax, { forFinalize: true });
-      invoice = refreshed.invoice;
-      items = refreshed.items;
-      warnings.push(...(refreshed.calc.salesTax?.warnings ?? []));
-    } catch (err) {
-      if (err instanceof SalesTaxEngineError) throw engineUnavailable(err);
-      throw err;
-    }
+    const refreshed = await refreshSalesTax(db, stored, items, opts.tax);
+    invoice = refreshed.invoice;
+    items = refreshed.items;
+    warnings.push(...refreshed.warnings);
+  }
+
+  // India GST: the CGST + SGST / IGST split follows the place of supply as it stands now. A credit note
+  // keeps the split of the invoice it credits.
+  const gstSupply: GstSupply | null = await resolveGstSupply(db, {
+    entityId: invoice.entityId,
+    contactId: invoice.contactId,
+    placeOfSupply: invoice.placeOfSupply,
+    shippingAddress: invoice.shippingAddress,
+    billingAddress: invoice.billingAddress,
+  });
+  if (gstSupply && items.length > 0 && invoice.type !== 'credit_note') {
+    const refreshed = await recalculateStoredInvoice(db, invoice, items, opts.tax, { gst: gstSupply });
+    invoice = refreshed.invoice;
+    items = refreshed.items;
   }
 
   if (!opts.skipCompliance) {
-    const entity = await loadEntity(db, invoice.entityId);
-    const taxCategories = await collectInvoiceTaxCategories(db, invoiceId);
-    const compliance = await validateInvoiceForFinalize(db, entity, invoice, taxCategories);
-    if (!compliance.ok) throw new InvoiceComplianceError(compliance.errors.join(' '));
-    warnings.push(...compliance.warnings);
+    warnings.push(...(await enforceCompliance(db, invoice, gstSupply)));
   }
 
-  const posted = await postInvoice(db, invoice, items, { userId: opts.userId, markSent: opts.markSent });
+  const snapshot = await bookingSnapshot(db, invoice, gstSupply);
+  const posted = await postInvoice(db, invoice, items, { userId: opts.userId, markSent: opts.markSent, snapshot });
+  invoice = { ...invoice, ...snapshot };
 
-  // A credit note lowers what is still open on the invoice it credits.
-  let creditApplied: CreditApplication | null = null;
-  if (invoice.type === 'credit_note' && posted.journalEntryId && !posted.alreadyPosted) {
-    creditApplied = await applyCreditNoteOnFinalize(db, invoiceId);
-  }
-
-  let taxSync: ProviderSyncResult | undefined;
-  if (salesTax && posted.journalEntryId && !posted.alreadyPosted && opts.tax) {
-    taxSync = await syncInvoiceWithProvider(db, invoiceId, opts.tax);
-    if (taxSync.warning) warnings.push(taxSync.warning);
-  }
+  const { creditApplied, taxSync } = await afterPosting(db, invoice, posted, { salesTax, tax: opts.tax, warnings });
   return { invoice, ...posted, warnings, creditApplied, ...(taxSync ? { taxSync } : {}) };
 }
 

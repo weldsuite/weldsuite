@@ -27,6 +27,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
 import { entityExists, resolveEntityId } from '../../lib/entity-context';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
+import { ensureStandardTaxRates } from '../../services/accounting-tax-rate-ensure';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const t = schema.taxRates;
@@ -64,6 +65,13 @@ app.get('/', requirePermission('settings:read'), async (c) => {
   try {
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved');
+
+    // Entities seeded before the current template get its new rates (e.g. NL "ICL goederen") here.
+    try {
+      await ensureStandardTaxRates(db, entityId);
+    } catch (ensureErr) {
+      console.warn('[books-api/tax-rates] ensureStandardTaxRates failed:', ensureErr);
+    }
 
     const conditions = [isNull(t.deletedAt), eq(t.entityId, entityId)];
 

@@ -17,6 +17,7 @@ import {
 import type { UsDocumentContext } from './document-tax';
 import { SalesTaxDocumentError, addressRequired } from './errors';
 import type { SalesTaxRuntime } from './runtime';
+import type { GstSupply } from '../accounting-gst';
 
 type InvoiceRow = typeof schema.invoices.$inferSelect;
 type InvoiceItemRow = typeof schema.invoiceItems.$inferSelect;
@@ -151,13 +152,16 @@ export async function recalculateStoredInvoice(
   invoice: InvoiceRow,
   items: InvoiceItemRow[],
   runtime?: SalesTaxRuntime,
-  opts: { forFinalize?: boolean } = {},
+  /** `gst`: India's place of supply, which decides CGST + SGST versus IGST. */
+  opts: { forFinalize?: boolean; gst?: GstSupply | null } = {},
 ): Promise<RecalculatedInvoice> {
+  const { gst } = opts;
   const calc = await calculateDocumentTax(db, {
     entityId: invoice.entityId,
     direction: 'sales',
     items: items.map(invoiceItemToTaxItem),
     document: invoiceDocumentContext(invoice),
+    ...(gst ? { buyerStateCode: gst.buyerStateCode, buyerCountry: gst.buyerCountry, buyerGstin: gst.buyerGstin ?? undefined } : {}),
     runtime,
   });
   if (opts.forFinalize && calc.salesTax) {
@@ -174,6 +178,7 @@ export async function recalculateStoredInvoice(
   const now = new Date();
   const header = {
     ...invoiceTaxColumns(calc),
+    ...(gst ? { placeOfSupply: gst.placeOfSupply } : {}),
     balanceDue: (Number.parseFloat(calc.total) - Number.parseFloat(invoice.amountPaid ?? '0')).toFixed(2),
     updatedAt: now,
   };

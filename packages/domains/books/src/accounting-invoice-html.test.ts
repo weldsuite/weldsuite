@@ -249,3 +249,29 @@ describe('generateInvoiceHtml · US sales tax', () => {
     expect(legacy).toContain('Sales tax 8% $100.00');
   });
 });
+
+describe('generateInvoiceHtml · numbers', () => {
+  it('prints quantities and tax rates without trailing zeros', () => {
+    const html = generateInvoiceHtml(
+      invoice({
+        items: [{ description: 'Hours', quantity: '10.0000', unitPrice: '100', taxRate: '21.0000', lineTotal: '1000' }],
+        taxBreakdown: [{ taxRateName: 'BTW Hoog 21%', taxRate: 21, taxableAmount: 1000, taxAmount: 210 }],
+      }),
+      entity({ locale: 'en-US' }),
+    );
+    expect(html).toContain('>10<');
+    expect(html).toContain('>21%<');
+    expect(html).toContain('21% ');
+    expect(html).not.toContain('10.0000');
+    expect(html).not.toContain('21.0000');
+  });
+
+  it('keeps real decimals and formats them in the entity locale', () => {
+    const html = generateInvoiceHtml(
+      invoice({ items: [{ description: 'Hours', quantity: '7.5000', unitPrice: '100', taxRate: '9.0000', lineTotal: '750' }] }),
+      entity({ locale: 'nl-NL' }),
+    );
+    expect(html).toContain('>7,5<');
+    expect(html).toContain('>9%<');
+  });
+});

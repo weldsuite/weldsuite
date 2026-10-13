@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import { useParams, Link } from '@tanstack/react-router';
-import { useAccountingAccount } from '@/hooks/queries/use-accounting-queries';
+import { toast } from 'sonner';
+import { useCan } from '@weldsuite/permissions/react';
+import { useAccountingAccount, useUpdateAccount } from '@/hooks/queries/use-accounting-queries';
 import { PageLoader } from '@/components/page-loader';
 import { Button } from '@weldsuite/ui/components/button';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -9,7 +12,17 @@ import {
   CardHeader,
   CardTitle,
 } from '@weldsuite/ui/components/card';
-import { ArrowLeft, Pencil } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@weldsuite/ui/components/alert-dialog';
+import { ArrowLeft, Ban, CheckCircle2, Pencil } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useCurrentEntityCurrency } from '@/hooks/use-current-entity-currency';
 import { useCurrentJurisdiction } from '@/lib/weldbooks/use-jurisdiction';
@@ -37,6 +50,9 @@ export default function AccountDetailPage() {
   const isUs = jurisdictionCode === 'US';
   const tus = t.weldbooksUs.setup.accounts;
   const taxLineCatalog = useTaxLineCatalog(undefined, { enabled: isUs });
+  const canUpdate = useCan('accounts:update');
+  const updateAccount = useUpdateAccount();
+  const [confirmToggle, setConfirmToggle] = useState(false);
 
   if (isLoading) return <PageLoader fullScreen={false} />;
 
@@ -48,6 +64,25 @@ export default function AccountDetailPage() {
       </div>
     );
   }
+
+  const isInactive = account.isActive === false;
+  const toggleActive = () => {
+    updateAccount.mutate(
+      { id: account.id, data: { isActive: isInactive } },
+      {
+        onSuccess: () => {
+          toast.success(isInactive ? ta.reactivated : ta.deactivated);
+          setConfirmToggle(false);
+        },
+        onError: (err) => {
+          setConfirmToggle(false);
+          toast.error(isInactive ? ta.reactivateFailed : ta.deactivateFailed, {
+            description: err instanceof Error ? err.message : undefined,
+          });
+        },
+      },
+    );
+  };
 
   return (
     <div className="p-6 max-w-3xl space-y-6">
@@ -79,13 +114,40 @@ export default function AccountDetailPage() {
             </div>
           </div>
         </div>
-        <Link to="/weldbooks/accounts/$id/edit" params={{ id: account.id }}>
-          <Button variant="outline" size="sm">
-            <Pencil className="h-4 w-4 mr-1" />
-            {ta.editing}
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {canUpdate && !(account.isSystemAccount && !isInactive) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmToggle(true)}
+              disabled={updateAccount.isPending}
+              data-testid="account-toggle-active"
+            >
+              {isInactive ? <CheckCircle2 className="h-4 w-4 mr-1" /> : <Ban className="h-4 w-4 mr-1" />}
+              {isInactive ? ta.reactivate : ta.deactivate}
+            </Button>
+          )}
+          <Link to="/weldbooks/accounts/$id/edit" params={{ id: account.id }}>
+            <Button variant="outline" size="sm">
+              <Pencil className="h-4 w-4 mr-1" />
+              {ta.editing}
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      <AlertDialog open={confirmToggle} onOpenChange={setConfirmToggle}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{isInactive ? ta.reactivateTitle : ta.deactivateTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{isInactive ? ta.reactivateDesc : ta.deactivateDesc}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{ta.cancel}</AlertDialogCancel>
+            <AlertDialogAction onClick={toggleActive}>{isInactive ? ta.reactivate : ta.deactivate}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardHeader>

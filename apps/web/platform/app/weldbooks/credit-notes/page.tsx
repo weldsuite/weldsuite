@@ -27,6 +27,7 @@ function statusVariant(status: string) {
     case 'paid':
       return 'default' as const;
     case 'sent':
+    case 'finalized':
       return 'secondary' as const;
     case 'draft':
       return 'outline' as const;

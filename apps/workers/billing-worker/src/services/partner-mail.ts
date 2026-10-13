@@ -17,7 +17,7 @@ function trimTrailingSlashes(s: string): string {
 }
 
 export function partnerPortalUrl(env: Env): string {
-  return `${trimTrailingSlashes(env.APP_URL || 'https://app.weldsuite.org')}/partner`;
+  return trimTrailingSlashes(env.PARTNER_PORTAL_URL || 'https://partner.weldsuite.org');
 }
 
 export interface DunningEmailInput {

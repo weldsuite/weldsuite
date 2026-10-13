@@ -31,8 +31,10 @@ head_sampling_rate = 1
 [vars]
 ENVIRONMENT = "development"
 APP_API_URL = "http://localhost:8789"
-# Platform SPA origin: links in partner emails (portal, statements).
+# Platform SPA origin.
 APP_URL = "http://localhost:3000"
+# Partner portal (apps/web/partner): links in partner emails.
+PARTNER_PORTAL_URL = "http://localhost:3203"
 # Cloudflare Email Service. Under `wrangler dev` the SEND_EMAIL binding is
 # simulated and writes mail to disk instead of sending it.
 EMAIL_TRANSPORT = "cloudflare"
@@ -83,6 +85,7 @@ routes = [
 ENVIRONMENT = "test"
 APP_API_URL = "https://app-api-test.weldsuite.org"
 APP_URL = "https://app-test.weldsuite.org"
+PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.test.kv_namespaces]]
@@ -123,6 +126,7 @@ routes = [
 ENVIRONMENT = "production"
 APP_API_URL = "https://app-api.weldsuite.org"
 APP_URL = "https://app.weldsuite.org"
+PARTNER_PORTAL_URL = "https://partner.weldsuite.org"
 EMAIL_TRANSPORT = "cloudflare"
 
 [[env.production.hyperdrive]]

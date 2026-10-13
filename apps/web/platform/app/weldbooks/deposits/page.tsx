@@ -22,13 +22,23 @@ import {
 } from '@weldsuite/ui/components/table';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { DepositsUsOnlyGate } from './us-only-gate';
 import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useBankAccounts, useBankDeposits } from '@/hooks/queries/use-weldbooks-banking-queries';
 import { UndepositedFundsCallout } from '../banking/components/undeposited-funds-callout';
 
 const PAGE_SIZE = 25;
 
-export default function DepositsPage() {
+/** Deposits are for US entities; any other entity gets a notice instead of the screen. */
+export default function DepositsPageGated() {
+  return (
+    <DepositsUsOnlyGate>
+      <DepositsPage />
+    </DepositsUsOnlyGate>
+  );
+}
+
+function DepositsPage() {
   const { t } = useI18n();
   const td = t.weldbooksUs.banking.deposits;
   const navigate = useNavigate();

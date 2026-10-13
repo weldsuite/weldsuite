@@ -1,6 +1,6 @@
 {
-  "id": "13afd477-90d6-4e76-8f00-bd4275880844",
-  "prevId": "7ab6ae12-e241-48fb-a91c-b29a543b7be5",
+  "id": "b9cf4423-8872-41fb-98a3-d75e0ed5e904",
+  "prevId": "0306e6d2-6533-48cd-a5db-d28cc7ecefbf",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -46948,6 +46948,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "hsn_sac": {
+          "name": "hsn_sac",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "tax_included": {
           "name": "tax_included",
           "type": "boolean",
@@ -47317,6 +47323,18 @@
           "primaryKey": false,
           "notNull": false,
           "default": false
+        },
+        "place_of_supply": {
+          "name": "place_of_supply",
+          "type": "varchar(2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_tax_number": {
+          "name": "contact_tax_number",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
         },
         "payment_link": {
           "name": "payment_link",
@@ -66515,12 +66533,6 @@
         "warmup_status": {
           "name": "warmup_status",
           "type": "varchar(30)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "warmup_inbox_rate": {
-          "name": "warmup_inbox_rate",
-          "type": "numeric(5, 4)",
           "primaryKey": false,
           "notNull": false
         },

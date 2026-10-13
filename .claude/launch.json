@@ -117,6 +117,16 @@
         "dev"
       ],
       "port": 3018
+    },
+    {
+      "name": "partner",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "partner",
+        "dev"
+      ],
+      "port": 3203
     }
   ]
 }

@@ -48,9 +48,13 @@ import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { addDaysToIsoDate, toCalendarDate } from '@/lib/weldbooks/format';
 import { FORM_1099_ACCOUNT_BOXES, FORM_1099_OMIT, form1099BoxName } from '@/lib/weldbooks/form-1099';
 import { NO_TAX_RATE } from '@/lib/weldbooks/document-tax';
+import { taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
+import { isForeignCurrency } from '@/lib/weldbooks/currencies';
+import { DocumentCurrencyFields } from '@/components/accounting/document-currency-fields';
 import { WELD_TAX_CODES } from '@/lib/weldbooks/tax-codes';
 import { DimensionSelects } from '@/app/weldbooks/invoices/components/dimension-selects';
 import { DocumentTaxPanel } from '@/app/weldbooks/invoices/components/document-tax-panel';
+import { GstTaxSplit } from '@/app/weldbooks/invoices/components/gst-fields';
 import { useDocumentTaxPreview } from '@/app/weldbooks/invoices/components/use-document-tax-preview';
 import { buildBillPayload, type BillPayload } from './bill-payload';
 
@@ -89,6 +93,8 @@ function createBillFormSchema(st: (key: string) => string) {
     externalReference: z.string().optional(),
     notes: z.string().optional(),
     internalNotes: z.string().optional(),
+    currency: z.string().default(''),
+    exchangeRate: z.string().default(''),
     vendorAddress: addressSchema,
     deliveryDifferent: z.boolean().default(false),
     deliveryAddress: addressSchema,
@@ -149,9 +155,8 @@ const DEFAULT = '__default__';
 export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readonly<BillFormProps>) {
   const { t } = useI18n();
   const st = useTranslations();
-  const { formatMoney, today: localToday, entity } = useWeldbooksFormat();
+  const { formatMoney, today: localToday, entity, entityCurrency } = useWeldbooksFormat();
   const { labels, features } = useJurisdictionLabels();
-  const displayCurrency = bill?.currency;
   const tb = t.accounting.billForm;
   const td = useDocumentTexts();
   const submitLabel = mode === 'add' ? tb.createBill : tb.updateBill;
@@ -161,7 +166,8 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
   const { data: accountsData } = useAccountingAccounts({ type: 'expense' });
 
   const contacts = contactsData?.data ?? [];
-  const taxRates = taxRatesData?.data ?? [];
+  // A bill takes purchase (and both) rates only.
+  const taxRates = useMemo(() => taxRatesFor(taxRatesData?.data ?? [], 'purchase'), [taxRatesData]);
   const accounts = accountsData?.data ?? [];
 
   const stored = bill as unknown as BillWithTax | undefined;
@@ -189,6 +195,9 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
       externalReference: bill?.externalReference ?? prefill?.externalReference ?? '',
       notes: bill?.notes ?? '',
       internalNotes: bill?.internalNotes ?? '',
+      // The supplier's currency, else the entity's: set once the supplier or the entity is known.
+      currency: bill?.currency ?? prefill?.currency?.toUpperCase() ?? '',
+      exchangeRate: '',
       vendorAddress: toPostalAddressFormValue(normalizeAccountingAddress(bill?.vendorAddress)),
       deliveryDifferent: Boolean(deliveryStored),
       deliveryAddress: toPostalAddressFormValue(deliveryStored),
@@ -218,15 +227,20 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
     name: 'items',
   });
 
+  /** The user typed in (or emptied) the exchange rate: an emptied one resets it to the rate of the issue date. */
+  const rateEdited = useRef(false);
+
   const watched = form.watch();
   const watchedItems = watched.items;
+  const baseCurrency = entityCurrency ?? undefined;
+  const displayCurrency = watched.currency || bill?.currency || baseCurrency;
 
   // The server calculates the totals and each line's tax (and the use tax on the lines marked for it).
   const { salesTax, preview, totals, lineTax } = useDocumentTaxPreview({
     kind: 'bill',
     contactId: watched.contactId,
     issueDate: watched.issueDate,
-    currency: displayCurrency,
+    currency: displayCurrency ?? undefined,
     billingAddress: watched.vendorAddress,
     deliveryAddress: watched.deliveryDifferent ? watched.deliveryAddress : null,
     lines: (watchedItems ?? []).map((item) => ({
@@ -257,10 +271,27 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
       toPostalAddressFormValue(normalizeAccountingAddress(contact.billingAddress)),
       { shouldDirty: true },
     );
-  }, [watchedContactId, contactData, form]);
+    // A new bill is in the supplier's currency (else the entity's) until the user picks one.
+    if (mode === 'add' && !form.getFieldState('currency').isDirty && contact.currency) {
+      form.setValue('currency', contact.currency.toUpperCase());
+    }
+  }, [watchedContactId, contactData, form, mode]);
+
+  // Until a currency is known, the entity's: it loads after the form on a first visit.
+  useEffect(() => {
+    if (!form.getValues('currency') && baseCurrency) form.setValue('currency', baseCurrency);
+  }, [baseCurrency, form]);
 
   const submit = (values: BillFormValues) => {
-    onSubmit(buildBillPayload(values, { mode, salesTax, form1099: features.form1099 }));
+    onSubmit(
+      buildBillPayload(values, {
+        mode,
+        salesTax,
+        form1099: features.form1099,
+        // An emptied rate field on a foreign bill: back to the rate of the issue date.
+        resetExchangeRate: mode === 'edit' && rateEdited.current,
+      }),
+    );
   };
 
   const entityAddressLines = formatPostalAddressLines(normalizeAccountingAddress(entity?.address));
@@ -318,6 +349,21 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
             {form.formState.errors.dueDate && (
               <p className="text-sm text-destructive">{form.formState.errors.dueDate.message}</p>
             )}
+          </div>
+
+          <div className="md:col-span-2">
+            <DocumentCurrencyFields
+              idPrefix="bill"
+              baseCurrency={baseCurrency}
+              currency={watched.currency || baseCurrency || ''}
+              onCurrencyChange={(next) => form.setValue('currency', next, { shouldDirty: true })}
+              exchangeRate={watched.exchangeRate ?? ''}
+              onExchangeRateChange={(next) => {
+                rateEdited.current = true;
+                form.setValue('exchangeRate', next, { shouldDirty: true });
+              }}
+              storedRate={isForeignCurrency(baseCurrency, watched.currency) ? stored?.exchangeRate : null}
+            />
           </div>
         </CardContent>
       </Card>
@@ -664,6 +710,7 @@ export function BillForm({ mode, bill, prefill, onSubmit, isSubmitting }: Readon
                 kind="bill"
                 className="space-y-2 pt-2"
               />
+              {features.gstReturn && <GstTaxSplit rows={preview.result?.taxBreakdown} currency={displayCurrency} />}
             </div>
           </div>
         </CardContent>

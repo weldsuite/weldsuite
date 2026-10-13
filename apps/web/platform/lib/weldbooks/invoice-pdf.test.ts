@@ -168,6 +168,74 @@ describe('taxRowsOf', () => {
   });
 });
 
+const inEntity: InvoicePdfEntity = {
+  name: 'Weld India Pvt Ltd',
+  jurisdictionCode: 'IN',
+  baseCurrency: 'INR',
+  locale: 'en-IN',
+  taxIdentifiers: { vatNumber: '27AABCU9603R1ZN', registrationNumber: 'AABCU9603R' },
+  address: { line1: '12 Linking Road', city: 'Mumbai', state: 'Maharashtra', postalCode: '400050', country: 'IN' },
+};
+
+describe('generateInvoicePdf: India GST tax invoice', () => {
+  const gstLabels: InvoicePdfLabels = {
+    ...labels,
+    invoice: 'TAX INVOICE',
+    tax: 'GST',
+    taxId: 'GSTIN',
+    registrationId: 'PAN',
+    placeOfSupply: 'Place of supply',
+    hsnSac: 'HSN/SAC',
+    outsideIndia: 'Outside India',
+  };
+  const gstInvoice = (overrides: Partial<InvoiceWithTax> = {}) =>
+    invoice({
+      currency: 'INR',
+      placeOfSupply: '27',
+      contactTaxNumber: '27AAPFU0939F1ZV',
+      subtotal: '1000.00',
+      taxTotal: '180.00',
+      total: '1180.00',
+      balanceDue: '1180.00',
+      taxBreakdown: [
+        row({ taxRateName: 'CGST 9%', taxRate: 9, taxableAmount: 1000, taxAmount: 90, component: 'cgst' }),
+        row({ taxRateName: 'SGST 9%', taxRate: 9, taxableAmount: 1000, taxAmount: 90, component: 'sgst' }),
+      ],
+      items: [
+        { ...invoice().items[0], unitPrice: '1000.00', taxRate: '18.0000', taxAmount: '180.00', lineTotal: '1000.00', hsnSac: '998313' },
+      ],
+      ...overrides,
+    } as Partial<InvoiceWithTax>);
+
+  it('prints the supplier GSTIN and PAN, the buyer GSTIN, the place of supply and the HSN/SAC', async () => {
+    const { drawn } = captureText();
+    await generateInvoicePdf(gstInvoice(), inEntity, { labels: gstLabels });
+
+    expect(drawn).toContain('TAX INVOICE');
+    expect(drawn).toContain('GSTIN: 27AABCU9603R1ZN');
+    expect(drawn).toContain('PAN: AABCU9603R');
+    expect(drawn).toContain('GSTIN: 27AAPFU0939F1ZV');
+    expect(drawn).toContain('Place of supply');
+    expect(drawn).toContain('Maharashtra (27)');
+    expect(drawn).toContain('HSN/SAC: 998313');
+    // The slab is printed as the CGST and SGST rows the invoice stored.
+    expect(drawn).toContain('CGST 9%');
+    expect(drawn).toContain('SGST 9%');
+  });
+
+  it('names a supply outside India', async () => {
+    const { drawn } = captureText();
+    await generateInvoicePdf(gstInvoice({ placeOfSupply: '96' }), inEntity, { labels: gstLabels });
+    expect(drawn).toContain('Outside India');
+  });
+
+  it('leaves GST lines off an invoice of another jurisdiction', async () => {
+    const { drawn } = captureText();
+    await generateInvoicePdf(gstInvoice({ taxBreakdown: null }), nlEntity, { labels });
+    expect(drawn.some((text) => text.startsWith('HSN/SAC') || text === 'Place of supply')).toBe(false);
+  });
+});
+
 describe('generateInvoicePdf: US', () => {
   it('prints the tax per jurisdiction on US Letter', async () => {
     const { drawn } = captureText();

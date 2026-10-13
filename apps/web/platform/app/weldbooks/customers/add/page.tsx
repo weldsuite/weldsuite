@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { useNavigate, Link } from '@tanstack/react-router';
 import { useCreateAccountingCustomer } from '@/hooks/queries/use-accounting-queries';
@@ -5,6 +6,11 @@ import { Button } from '@weldsuite/ui/components/button';
 import { ArrowLeft } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { ContactForm, type ContactPayload } from '../components/contact-form';
+import {
+  PersonEmailConflictDialog,
+  existingPersonOf,
+  type ExistingPerson,
+} from '../components/person-email-conflict-dialog';
 
 export default function AddContactPage() {
   const navigate = useNavigate();
@@ -12,17 +18,29 @@ export default function AddContactPage() {
   const { t } = useI18n();
   const tc = t.accounting.contacts;
 
-  const onSubmit = async (payload: ContactPayload) => {
+  // A CRM person already has this email: the user decides whether to link to them or create a separate contact.
+  const [conflict, setConflict] = useState<{ person: ExistingPerson; payload: ContactPayload } | null>(null);
+
+  const submit = async (payload: ContactPayload, choice: Record<string, unknown> = {}) => {
     try {
-      await createContact.mutateAsync({ ...payload });
+      await createContact.mutateAsync({ ...payload, ...choice });
+      setConflict(null);
       toast.success(tc.contactCreated);
       navigate({ to: '/weldbooks/customers' });
     } catch (err) {
+      const person = Object.keys(choice).length === 0 ? existingPersonOf(err) : null;
+      if (person) {
+        setConflict({ person, payload });
+        return;
+      }
+      setConflict(null);
       toast.error(tc.createFailed, {
         description: err instanceof Error ? err.message : undefined,
       });
     }
   };
+
+  const onSubmit = (payload: ContactPayload) => submit(payload);
 
   return (
     <div className="p-4 sm:p-6 max-w-3xl space-y-6">
@@ -40,6 +58,14 @@ export default function AddContactPage() {
         isPending={createContact.isPending}
         onSubmit={onSubmit}
         onCancel={() => navigate({ to: '/weldbooks/customers' })}
+      />
+
+      <PersonEmailConflictDialog
+        person={conflict?.person ?? null}
+        isPending={createContact.isPending}
+        onLink={(person) => conflict && void submit(conflict.payload, { linkPersonId: person.id })}
+        onCreateSeparate={() => conflict && void submit(conflict.payload, { createSeparatePerson: true })}
+        onCancel={() => setConflict(null)}
       />
     </div>
   );

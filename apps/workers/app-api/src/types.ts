@@ -251,6 +251,8 @@ export interface Env {
   /** Absolute base URL for links in notification emails / push payloads,
    *  e.g. `https://app.weldsuite.org`. */
   PUBLIC_APP_URL?: string;
+  /** Partner portal origin (apps/web/partner), for links in partner emails. */
+  PARTNER_PORTAL_URL?: string;
 
   // --- App access requests (apps that are on request only) ---------------
   /** Where WeldSuite staff are told about a new access request (WeldReach

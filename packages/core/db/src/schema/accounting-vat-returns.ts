@@ -7,25 +7,50 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 
+/**
+ * The boxes (rubrieken) of the Dutch aangifte omzetbelasting, as the
+ * Belastingdienst numbers them. A key like `r1a` holds the omzet (turnover) of
+ * that box; where the box also has a BTW column it is `r1aBtw`.
+ *
+ *   1a hoog tarief, 1b laag tarief, 1c overige tarieven (behalve 0%),
+ *   1d privégebruik            omzet + BTW
+ *   1e 0% of niet bij u belast omzet only
+ *   2a verleggingsregelingen binnenland          omzet + BTW
+ *   3a buiten de EU, 3b binnen de EU, 3c installatie/afstandsverkopen  omzet only
+ *   4a uit landen buiten de EU, 4b uit landen binnen de EU            omzet + BTW
+ *   5a verschuldigde BTW, 5b voorbelasting, 5c subtotaal, 5d vermindering KOR,
+ *   5e schatting vorige aangifte(n), 5f schatting deze aangifte,
+ *   5g totaal te betalen / terug te vragen
+ *
+ * Returns stored before this layout (`r1a`..`r1f`, `r5f` as the total) are
+ * converted on read by `normalizeVatRubrieken` in `@weldsuite/books-domain`.
+ */
 export interface VatRubrieken {
   r1a: number;
+  r1aBtw: number;
   r1b: number;
+  r1bBtw: number;
   r1c: number;
+  r1cBtw: number;
   r1d: number;
+  r1dBtw: number;
   r1e: number;
-  r1f: number;
   r2a: number;
+  r2aBtw: number;
   r3a: number;
   r3b: number;
   r3c: number;
   r4a: number;
+  r4aBtw: number;
   r4b: number;
+  r4bBtw: number;
   r5a: number;
   r5b: number;
   r5c: number;
   r5d: number;
   r5e: number;
   r5f: number;
+  r5g: number;
 }
 
 export const vatReturns = pgTable('vat_returns', {

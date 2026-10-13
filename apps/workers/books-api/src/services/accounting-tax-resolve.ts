@@ -210,6 +210,65 @@ async function originalWasEngineTaxed(db: Database, invoiceId: string): Promise<
   return Boolean(original?.taxEngine);
 }
 
+interface RateTableRate {
+  name: string;
+  type: string;
+  rate: string;
+  taxCategoryCode: string | null;
+  jurisdictionMetadata: Record<string, unknown> | null;
+}
+
+/** The rates of this entity by id; a rate that is not one of its own is refused. */
+async function loadEntityRates(db: Database, entityId: string, rateIds: string[]): Promise<Map<string, RateTableRate>> {
+  const rateById = new Map<string, RateTableRate>();
+  if (rateIds.length === 0) return rateById;
+  const rates = await db
+    .select({
+      id: schema.taxRates.id,
+      name: schema.taxRates.name,
+      type: schema.taxRates.type,
+      rate: schema.taxRates.rate,
+      taxCategoryCode: schema.taxRates.taxCategoryCode,
+      jurisdictionMetadata: schema.taxRates.jurisdictionMetadata,
+    })
+    .from(schema.taxRates)
+    .where(
+      and(
+        inArray(schema.taxRates.id, rateIds),
+        eq(schema.taxRates.entityId, entityId),
+        isNull(schema.taxRates.deletedAt),
+      ),
+    );
+  for (const r of rates) {
+    rateById.set(r.id, {
+      name: r.name,
+      type: r.type,
+      rate: r.rate,
+      taxCategoryCode: r.taxCategoryCode ?? null,
+      jurisdictionMetadata: (r.jurisdictionMetadata as Record<string, unknown> | null) ?? null,
+    });
+  }
+  const missing = rateIds.filter((id) => !rateById.has(id));
+  if (missing.length > 0) {
+    throw new TaxCalculationError(`Tax rate ${missing.join(', ')} does not belong to this accounting entity`);
+  }
+  return rateById;
+}
+
+/** A sales document takes sales (or both) rates, a purchase document purchase (or both) ones. */
+function assertRateDirection(rateById: Map<string, RateTableRate>, direction: 'sales' | 'purchase') {
+  const wrongType = direction === 'sales' ? 'purchase' : 'sales';
+  for (const [, rate] of rateById) {
+    if (rate.type === wrongType) {
+      throw new TaxCalculationError(
+        direction === 'sales'
+          ? `Tax rate "${rate.name}" is a purchase rate and can't be used on an invoice. Choose a sales rate.`
+          : `Tax rate "${rate.name}" is a sales rate and can't be used on a bill. Choose a purchase rate.`,
+      );
+    }
+  }
+}
+
 /** The rate-table calculation: VAT / GST, and the vendor-charged tax of a US bill. */
 async function calculateRateTableTax(
   db: Database,
@@ -226,45 +285,8 @@ async function calculateRateTableTax(
   const items = args.items.map((item) => ({ ...item, taxRateId: sanitizeTaxRateId(item.taxRateId) }));
   const rateIds = [...new Set(items.map((i) => i.taxRateId).filter((id): id is string => Boolean(id)))];
 
-  const rateById = new Map<
-    string,
-    {
-      name: string;
-      rate: string;
-      taxCategoryCode: string | null;
-      jurisdictionMetadata: Record<string, unknown> | null;
-    }
-  >();
-  if (rateIds.length > 0) {
-    const rates = await db
-      .select({
-        id: schema.taxRates.id,
-        name: schema.taxRates.name,
-        rate: schema.taxRates.rate,
-        taxCategoryCode: schema.taxRates.taxCategoryCode,
-        jurisdictionMetadata: schema.taxRates.jurisdictionMetadata,
-      })
-      .from(schema.taxRates)
-      .where(
-        and(
-          inArray(schema.taxRates.id, rateIds),
-          eq(schema.taxRates.entityId, args.entityId),
-          isNull(schema.taxRates.deletedAt),
-        ),
-      );
-    for (const r of rates) {
-      rateById.set(r.id, {
-        name: r.name,
-        rate: r.rate,
-        taxCategoryCode: r.taxCategoryCode ?? null,
-        jurisdictionMetadata: (r.jurisdictionMetadata as Record<string, unknown> | null) ?? null,
-      });
-    }
-    const missing = rateIds.filter((id) => !rateById.has(id));
-    if (missing.length > 0) {
-      throw new TaxCalculationError(`Tax rate ${missing.join(', ')} does not belong to this accounting entity`);
-    }
-  }
+  const rateById = await loadEntityRates(db, args.entityId, rateIds);
+  assertRateDirection(rateById, args.direction);
 
   const enriched: TaxTotalsItemInput[] = items.map((item) => {
     const rateRow = item.taxRateId ? rateById.get(item.taxRateId) : undefined;

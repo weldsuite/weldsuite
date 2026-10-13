@@ -1,6 +1,7 @@
 import { cleanPostalAddress, type PostalAddress } from '@/components/address/postal-address';
 import { cleanTaxRateId } from '@/lib/weldbooks/document-tax';
 import { amountOrUndefined, amountString, dimensionPayload } from '@/lib/weldbooks/document-tax-form';
+import { exchangeRatePayload } from '@/lib/weldbooks/currencies';
 
 /** A line of the bill form. */
 export interface BillLineValues {
@@ -31,6 +32,10 @@ export interface BillFormShape {
   externalReference?: string;
   notes?: string;
   internalNotes?: string;
+  /** ISO 4217 code; empty = the entity's currency. */
+  currency?: string;
+  /** Typed exchange rate (foreign units per base unit); empty = the rate of the issue date. */
+  exchangeRate?: string;
   vendorAddress: PostalAddress;
   /** US: where the goods were delivered; the use tax rate follows it. */
   deliveryDifferent?: boolean;
@@ -46,6 +51,9 @@ export interface BillPayload {
   externalReference?: string;
   notes?: string;
   internalNotes?: string;
+  currency?: string;
+  /** Typed rate; `null` makes the server look the rate up again; absent keeps / looks up. */
+  exchangeRate?: string | null;
   vendorAddress?: PostalAddress;
   /** `null` clears a stored delivery address on edit. */
   deliveryAddress?: PostalAddress | null;
@@ -75,6 +83,8 @@ export interface BillPayloadOptions {
   salesTax: boolean;
   /** The entity files 1099s: lines carry a 1099 box. */
   form1099: boolean;
+  /** The user emptied an exchange rate the bill held: look it up again. */
+  resetExchangeRate?: boolean;
 }
 
 /**
@@ -96,6 +106,8 @@ export function buildBillPayload(values: BillFormShape, options: BillPayloadOpti
     externalReference: values.externalReference || undefined,
     notes: values.notes || undefined,
     internalNotes: values.internalNotes || undefined,
+    ...(values.currency ? { currency: values.currency } : {}),
+    ...exchangeRatePayload(values.exchangeRate, options.resetExchangeRate),
     vendorAddress: vendorAddress ?? (mode === 'edit' ? {} : undefined),
     ...(salesTax ? { deliveryAddress: delivery ?? (mode === 'edit' ? null : undefined) } : {}),
     items: values.items.map((item) => ({

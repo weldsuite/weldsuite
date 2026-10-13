@@ -22,6 +22,7 @@ export type TaxCategoryCode =
   | 'exempt'
   | 'reverse_charge'
   | 'eu_b2b_service'
+  | 'eu_b2b_goods'
   | 'eu_b2c_distance'
   | 'export_goods'
   | 'import_goods';

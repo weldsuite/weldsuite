@@ -61,6 +61,17 @@ export function getAppApiUrl(): string {
   return hostedAppApiUrl(host);
 }
 
+/** The partner portal, a separate app (apps/web/partner). */
+export function getPartnerPortalUrl(): string {
+  const envUrl = import.meta.env.VITE_PARTNER_PORTAL_URL as string | undefined;
+  const host = spaHostname();
+  if (!host || isLocalHostname(host)) {
+    return trimSlash(envUrl || 'http://localhost:3203');
+  }
+  if (envUrl && !isLocalUrl(envUrl)) return trimSlash(envUrl);
+  return isTestSpaHost(host) ? 'https://partner-test.weldsuite.org' : 'https://partner.weldsuite.org';
+}
+
 // ── Per-module API hosts ────────────────────────────────────────────────────
 // app-api is being split into one worker per module
 // (docs/plans/app-api-module-split.md). Paths stay the same; only the host

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useTransition } from 'react';
 import { useRouter } from '@/lib/router';
 import { toast } from 'sonner';
 import { useForm, useFieldArray } from 'react-hook-form';
@@ -56,11 +56,15 @@ import {
   type SalesTaxLineValues,
 } from '@/lib/weldbooks/document-tax-form';
 import { NO_TAX_RATE } from '@/lib/weldbooks/document-tax';
+import { taxRatesFor } from '@/lib/weldbooks/tax-rate-options';
+import { DocumentCurrencyFields } from '@/components/accounting/document-currency-fields';
+import { isValidHsnSac } from '@/lib/weldbooks/gst';
 import { productTaxCode } from '@/lib/weldbooks/tax-codes';
 import type { ProductOption } from '@/hooks/queries/use-weldbooks-tax-preview';
 import { InvoiceAddressSection } from './invoice-address-section';
 import { AddressNeededNotice, DocumentTaxPanel } from './document-tax-panel';
 import { InvoiceLineExtras } from './invoice-line-extras';
+import { GstTaxSplit, PlaceOfSupplySelect } from './gst-fields';
 import { buildInvoicePayload } from './invoice-payload';
 import { ProductPicker } from './product-picker';
 import { useDescribeError } from './sales-tax-error-notice';
@@ -84,7 +88,7 @@ const addressSchema = z.object({
 
 function createInvoiceFormSchema(
   st: (key: string) => string,
-  overrideMessages: { reasonRequired: string; amountInvalid: string },
+  overrideMessages: { reasonRequired: string; amountInvalid: string; hsnInvalid?: string },
 ) {
   const lineItemSchema = z
     .object({
@@ -94,10 +98,17 @@ function createInvoiceFormSchema(
       taxRateId: z.string().nullable().optional(),
       accountId: z.string().nullable().optional(),
       unit: z.string().optional().default(''),
+      /** India GST: HSN or SAC code (4 to 8 digits). */
+      hsnSac: z.string().optional().default(''),
       discountPercent: z.coerce.number().min(0).max(100).default(0),
       ...salesTaxLineFields,
     })
-    .superRefine(overrideChecks(overrideMessages));
+    .superRefine(overrideChecks(overrideMessages))
+    .superRefine((line, ctx) => {
+      if (!isValidHsnSac(line.hsnSac)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['hsnSac'], message: overrideMessages.hsnInvalid ?? 'HSN/SAC must be 4 to 8 digits' });
+      }
+    });
 
   return z.object({
     contactId: z.string().min(1, st('sweep.weldbooks.invoiceDialog.customerRequired')),
@@ -106,6 +117,10 @@ function createInvoiceFormSchema(
     reference: z.string().optional().default(''),
     notes: z.string().optional().default(''),
     internalNotes: z.string().optional().default(''),
+    /** India GST: two-digit state code of the place of supply; '' derives it from the customer. */
+    placeOfSupply: z.string().default(''),
+    currency: z.string().default(''),
+    exchangeRate: z.string().default(''),
     billingAddress: addressSchema,
     shipToDifferent: z.boolean(),
     shippingAddress: addressSchema,
@@ -125,6 +140,7 @@ const emptyLine = {
   taxRateId: null,
   accountId: null,
   unit: '',
+  hsnSac: '',
   discountPercent: 0,
   ...EMPTY_SALES_TAX_LINE,
 };
@@ -157,12 +173,13 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       createInvoiceFormSchema(st, {
         reasonRequired: td.line.overrideReasonRequired,
         amountInvalid: td.line.overrideAmountInvalid,
+        hsnInvalid: t.weldbooksIn.gst.hsnSacInvalid,
       }),
-    [st, td.line.overrideReasonRequired, td.line.overrideAmountInvalid],
+    [st, td.line.overrideReasonRequired, td.line.overrideAmountInvalid, t.weldbooksIn.gst.hsnSacInvalid],
   );
   const { currency, entityCurrency, formatMoney, formatDate, today, entity } = useWeldbooksFormat();
-  const { labels } = useJurisdictionLabels();
-  const displayCurrency = invoice?.currency || currency;
+  const { labels, features } = useJurisdictionLabels();
+  const gst = features.gstReturn;
   const describeError = useDescribeError();
 
   const createMutation = useCreateInvoice();
@@ -174,7 +191,8 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   const { data: taxRatesData } = useAccountingTaxRates();
 
   const contacts = useMemo(() => contactsData?.data ?? [], [contactsData]);
-  const taxRates = useMemo(() => taxRatesData?.data ?? [], [taxRatesData]);
+  // An invoice takes sales (and both) rates only.
+  const taxRates = useMemo(() => taxRatesFor(taxRatesData?.data ?? [], 'sales'), [taxRatesData]);
 
   const stored = invoice as unknown as InvoiceWithTax | undefined;
   const kind = documentKind(invoice);
@@ -194,6 +212,9 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
         reference: stored.reference ?? '',
         notes: stored.notes ?? '',
         internalNotes: stored.internalNotes ?? '',
+        placeOfSupply: stored.placeOfSupply ?? '',
+        currency: stored.currency ?? '',
+        exchangeRate: '',
         billingAddress: toPostalAddressFormValue(billing),
         shipToDifferent: !!shipping,
         shippingAddress: toPostalAddressFormValue(shipping),
@@ -209,6 +230,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                 taxRateId: item.taxRateId ?? null,
                 accountId: item.accountId ?? null,
                 unit: item.unit ?? '',
+                hsnSac: item.hsnSac ?? '',
                 discountPercent: Number.parseFloat(item.discountPercent ?? '0') || 0,
                 productId: item.productId ?? '',
                 taxCode: item.taxCode ?? '',
@@ -231,6 +253,10 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
       reference: '',
       notes: '',
       internalNotes: '',
+      placeOfSupply: '',
+      // The customer's currency, else the entity's: set once the customer or the entity is known.
+      currency: '',
+      exchangeRate: '',
       billingAddress: toPostalAddressFormValue(null),
       shipToDifferent: false,
       shippingAddress: toPostalAddressFormValue(null),
@@ -251,9 +277,13 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     name: 'items',
   });
 
+  /** The user typed in (or emptied) the exchange rate: an emptied one resets it to the rate of the issue date. */
+  const rateEdited = useRef(false);
+
   const watched = form.watch();
   const watchedItems = watched.items;
   const watchedContactId = watched.contactId;
+  const displayCurrency = watched.currency || invoice?.currency || entityCurrency || currency;
 
   // The due date follows the customer's payment terms until the user picks
   // one by hand (new invoices). The customer's default use feeds the lines.
@@ -264,6 +294,18 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     if (mode !== 'add' || selectedTerms == null || form.getFieldState('dueDate').isDirty) return;
     form.setValue('dueDate', addDaysToIsoDate(form.getValues('issueDate'), selectedTerms));
   }, [mode, selectedTerms, form]);
+
+  // A new invoice is in the customer's currency, else the entity's, until the user picks one.
+  const customerCurrency = (selectedContactData?.data as { currency?: string | null } | undefined)?.currency ?? null;
+  useEffect(() => {
+    if (mode !== 'add' || form.getFieldState('currency').isDirty) return;
+    const next = customerCurrency?.toUpperCase() || entityCurrency;
+    if (next && form.getValues('currency') !== next) form.setValue('currency', next);
+  }, [mode, customerCurrency, entityCurrency, form]);
+  // An edited invoice without a stored currency still gets the entity's.
+  useEffect(() => {
+    if (!form.getValues('currency') && entityCurrency) form.setValue('currency', entityCurrency);
+  }, [entityCurrency, form]);
 
   const setBillingAddress = useCallback(
     (next: PostalAddress) => form.setValue('billingAddress', toPostalAddressFormValue(next), { shouldDirty: true }),
@@ -286,7 +328,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     kind,
     contactId: watchedContactId,
     issueDate: watched.issueDate,
-    currency: invoice?.currency || entityCurrency,
+    currency: watched.currency || invoice?.currency || entityCurrency,
     billingAddress: watched.billingAddress,
     shipToDifferent: watched.shipToDifferent,
     shippingAddress: watched.shippingAddress,
@@ -294,6 +336,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     shipFromAddress: watched.shipFromAddress,
     marketplaceFacilitated: watched.marketplaceFacilitated,
     originalInvoiceId: stored?.creditNoteForInvoiceId,
+    placeOfSupply: gst ? watched.placeOfSupply : undefined,
     lines: (watchedItems ?? []).map(toTaxFormLine),
   });
 
@@ -333,7 +376,10 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
           mode,
           kind,
           salesTax,
+          gst,
           currency: mode === 'edit' && invoice?.currency ? invoice.currency : entityCurrency,
+          // An emptied rate field on an invoice that held one: back to the rate of the issue date.
+          resetExchangeRate: mode === 'edit' && rateEdited.current,
         });
 
         if (mode === 'edit' && invoice) {
@@ -378,7 +424,11 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
             <Label htmlFor="contactId">{tf.customer}</Label>
             <Select
               value={form.watch('contactId')}
-              onValueChange={(val) => form.setValue('contactId', val, { shouldValidate: true })}
+              onValueChange={(val) => {
+                form.setValue('contactId', val, { shouldValidate: true });
+                // Another customer: the place of supply follows their GSTIN or address again.
+                if (gst) form.setValue('placeOfSupply', '', { shouldDirty: true });
+              }}
             >
               <SelectTrigger id="contactId" className="shadow-none">
                 <SelectValue placeholder={tf.selectCustomer} />
@@ -422,6 +472,31 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
               )}
             </div>
           </div>
+
+          <DocumentCurrencyFields
+            idPrefix="invoice"
+            baseCurrency={entityCurrency}
+            currency={watched.currency || entityCurrency || ''}
+            onCurrencyChange={(next) => form.setValue('currency', next, { shouldDirty: true })}
+            exchangeRate={watched.exchangeRate ?? ''}
+            onExchangeRateChange={(next) => {
+              rateEdited.current = true;
+              form.setValue('exchangeRate', next, { shouldDirty: true });
+            }}
+            storedRate={stored?.exchangeRate}
+            disabled={isCreditMemo}
+          />
+
+          {gst && (
+            <PlaceOfSupplySelect
+              id="placeOfSupply"
+              value={watched.placeOfSupply ?? ''}
+              onChange={(next) => form.setValue('placeOfSupply', next, { shouldDirty: true })}
+              derived={preview.result?.placeOfSupply}
+              showUnknownNotice={Boolean(preview.result)}
+              disabled={isCreditMemo}
+            />
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="reference">{tf.reference}</Label>
@@ -497,7 +572,7 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-destructive"
-                      aria-label={tf.itemNumber.replace('{number}', String(index + 1))}
+                      aria-label={tf.removeLine}
                       onClick={() => remove(index)}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -587,6 +662,25 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
                       {...form.register(`items.${index}.discountPercent`, { valueAsNumber: true })}
                     />
                   </div>
+                  {gst && (
+                    <div className="space-y-2">
+                      <Label htmlFor={id('hsnSac')}>{t.weldbooksIn.gst.hsnSac}</Label>
+                      <Input
+                        id={id('hsnSac')}
+                        inputMode="numeric"
+                        maxLength={8}
+                        placeholder={t.weldbooksIn.gst.hsnSacPlaceholder}
+                        className="shadow-none"
+                        aria-describedby={id('hsnSac-help')}
+                        {...form.register(`items.${index}.hsnSac`)}
+                      />
+                      {errors?.hsnSac ? (
+                        <p className="text-sm text-destructive">{errors.hsnSac.message}</p>
+                      ) : (
+                        <p id={id('hsnSac-help')} className="text-xs text-muted-foreground">{t.weldbooksIn.gst.hsnSacHelp}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {line && (
@@ -688,6 +782,10 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
   ];
 
   const title = isCreditMemo ? td.form.creditMemoTitle : mode === 'add' ? tf.newInvoice : tf.editInvoice;
+  // A credit note saves as "Update credit note", not "Update Invoice".
+  const creditNoteSave = td.form.creditMemoSave.replace('{name}', labels.creditNote.toLowerCase());
+  const invoiceSave = mode === 'add' ? tf.createInvoice : tf.updateInvoice;
+  const submitText = isCreditMemo ? creditNoteSave.charAt(0).toUpperCase() + creditNoteSave.slice(1) : invoiceSave;
 
   return (
     <EntityFormLayout
@@ -705,12 +803,13 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
             taxLabel={labels.tax}
             showAddressNotice={false}
           />
+          {gst && <GstTaxSplit rows={preview.result?.taxBreakdown} currency={displayCurrency} />}
           {!salesTax && <p className="text-xs text-muted-foreground">{tf.totalsPreview}</p>}
         </div>
       }
       onSubmit={form.handleSubmit(onSubmit)}
       isPending={isPending}
-      submitText={mode === 'add' ? tf.createInvoice : tf.updateInvoice}
+      submitText={submitText}
       cancelLink="/weldbooks/invoices"
       showBackButton
       backLink="/weldbooks/invoices"
