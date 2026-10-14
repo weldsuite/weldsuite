@@ -146,6 +146,10 @@ export default function CallRoomPage() {
 
         m.participants.joined.on('participantJoined', () => forceUpdate());
         m.participants.joined.on('participantLeft', () => forceUpdate());
+        m.participants.joined.on('participantsCleared', () => forceUpdate());
+        // Remote tracks are replaced after every reconnect; pick them up at once.
+        m.participants.joined.on('audioUpdate', () => forceUpdate());
+        m.participants.joined.on('videoUpdate', () => forceUpdate());
         m.self.on('audioUpdate', () => forceUpdate());
         m.self.on('videoUpdate', () => forceUpdate());
 
