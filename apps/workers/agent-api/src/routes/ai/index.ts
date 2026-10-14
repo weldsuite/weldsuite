@@ -26,6 +26,7 @@ import {
   requirePermission,
 } from '@weldsuite/permissions/server';
 import {
+  billedModelId,
   generateText,
   streamText,
   isGatewayConfigured,
@@ -47,6 +48,7 @@ import {
 } from '@weldsuite/core-domain/ai-billing';
 import { getAgent } from '@weldsuite/agent-domain/agents';
 import { streamAgentChat, runAgentOnce } from '@weldsuite/agent-domain/executor';
+import { isWorkspaceAgentModel } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -148,8 +150,9 @@ app.post(
 
       // Canonical modelId: the customer's price never depends on which gateway
       // served them. `gateway`/`providerCostUsd` feed the OPS ledger only.
+      const servedModelId = billedModelId(modelId, result);
       const creditsUsed = await chargeAiUsage(metering, {
-        modelId,
+        modelId: servedModelId,
         usage: result.usage,
         op: 'generate',
         gateway: served?.gateway,
@@ -159,7 +162,7 @@ app.post(
 
       return success(c, {
         text: result.text,
-        model: modelId,
+        model: servedModelId,
         finishReason: result.finishReason,
         usage: result.usage,
         creditsUsed,
@@ -260,7 +263,9 @@ function buildAgentRunArgs(
       id: agent.id,
       name: agent.name,
       systemPrompt: agent.systemPrompt,
-      modelId: input.model ?? agent.modelId,
+      // Agents run on their configured Claude model; a non-Claude `model`
+      // override (persona model ids) falls back to it.
+      modelId: isWorkspaceAgentModel(input.model) ? input.model : agent.modelId,
       temperature: input.temperature !== undefined ? String(input.temperature) : agent.temperature,
       maxTokens: input.maxTokens ?? agent.maxTokens,
       maxIterations: agent.maxIterations,
@@ -347,8 +352,9 @@ async function chatWithPersona(
         }),
     );
 
+    const servedModelId = billedModelId(modelId, result);
     const creditsUsed = await chargeAiUsage(metering, {
-      modelId,
+      modelId: servedModelId,
       usage: result.usage,
       op: 'chat',
       gateway: served?.gateway,
@@ -358,7 +364,7 @@ async function chatWithPersona(
 
     return success(c, {
       text: result.text,
-      model: modelId,
+      model: servedModelId,
       finishReason: result.finishReason,
       usage: result.usage,
       creditsUsed,
@@ -381,23 +387,21 @@ app.post(
   requirePermission('agents:read', 'weldagent:use'),
   zValidator('json', chatSchema),
   async (c) => {
-    if (!isGatewayConfigured(c.env)) {
-      return error.internal(c, 'AI gateway is not configured');
-    }
-
     const input = c.req.valid('json');
-    const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
-
     const chat = splitChatMessages(input.messages, input.system);
     if (chat.chatMessages.length === 0) {
       return error.badRequest(c, 'At least one user message is required');
     }
 
-    // Workspace agent path — tools + agent instructions.
+    // Workspace agent path — Claude Managed Agents, tools + agent instructions.
     if (input.agentId) {
       return chatWithWorkspaceAgent(c, input, input.agentId, chat);
     }
 
+    if (!isGatewayConfigured(c.env)) {
+      return error.internal(c, 'AI gateway is not configured');
+    }
+    const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
     return chatWithPersona(c, input, metering, chat);
   },
 );
@@ -414,12 +418,12 @@ async function streamWithWorkspaceAgent(
   if (!loaded.ok) return loaded.response;
 
   try {
-    const { result } = await streamAgentChat({
+    const { stream } = streamAgentChat({
       ...buildAgentRunArgs(c, input, loaded, chat),
       metering,
       executionCtx: c.executionCtx,
     });
-    return result.toTextStreamResponse();
+    return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   } catch (err) {
     return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
   }
@@ -449,11 +453,16 @@ async function streamWithPersona(
       onError: ({ error: streamErr }) => {
         console.error('[ai/chat/stream] model error:', streamErr);
       },
-      onFinish: ({ usage }) => {
-        const cost = providerCostUsd(modelId, usage) * (GATEWAY_FEE_MULTIPLIER[attempt.gateway] ?? 1);
+      onFinish: (event) => {
+        const { usage } = event;
+        // A refused third-party model streams from the fallback model instead.
+        const servedModelId = billedModelId(modelId, event);
+        const costFactor =
+          servedModelId === modelId ? attempt.costFactor : (GATEWAY_FEE_MULTIPLIER[attempt.gateway] ?? 1);
+        const cost = providerCostUsd(servedModelId, usage) * costFactor;
         c.executionCtx.waitUntil(
           chargeAiUsage(metering, {
-            modelId,
+            modelId: servedModelId,
             usage,
             op: 'chat',
             gateway: attempt.gateway as Gateway,
@@ -487,11 +496,10 @@ app.post(
   requirePermission('agents:read', 'weldagent:use'),
   zValidator('json', chatSchema),
   async (c) => {
-    if (!isGatewayConfigured(c.env)) {
+    const input = c.req.valid('json');
+    if (!input.agentId && !isGatewayConfigured(c.env)) {
       return error.internal(c, 'AI gateway is not configured');
     }
-
-    const input = c.req.valid('json');
     const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
 
     const chat = splitChatMessages(input.messages, input.system);

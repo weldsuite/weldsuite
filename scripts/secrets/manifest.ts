@@ -641,6 +641,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     // that is not guaranteed to carry the AI scopes.
     "AI_GATEWAY_API_TOKEN",
     "CLOUDFLARE_API_TOKEN",
+    // Anthropic API key every workspace agent runs on (Claude Managed Agents).
+    "ANTHROPIC_API_KEY",
     "INTERNAL_API_SECRET",
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",

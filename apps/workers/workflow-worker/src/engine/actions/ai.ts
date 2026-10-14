@@ -45,6 +45,7 @@
 
 import {
   assertGatewayConfigured as assertAiGatewayConfigured,
+  billedModelId,
   runWithFallback,
   generateText,
   generateObject,
@@ -345,8 +346,10 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
       }),
   );
 
+  // A refused third-party model answers from the fallback model; bill that.
+  const servedModelId = billedModelId(modelId, result);
   const creditsUsed = await chargeUsage(metering, ctx, {
-    modelId,
+    modelId: servedModelId,
     usage: result.usage,
     op: 'ai_generate',
     gateway: served?.gateway,
@@ -356,7 +359,7 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
 
   return {
     text: result.text,
-    model: modelId,
+    model: servedModelId,
     finishReason: result.finishReason,
     usage: result.usage,
     creditsUsed,
@@ -425,8 +428,9 @@ export const handleAiClassify: ActionHandler = async (inputs, ctx: ActionContext
       }),
   );
 
+  const servedModelId = billedModelId(modelId, result);
   const creditsUsed = await chargeUsage(metering, ctx, {
-    modelId,
+    modelId: servedModelId,
     usage: result.usage,
     op: 'ai_classify',
     gateway: served?.gateway,
@@ -438,7 +442,7 @@ export const handleAiClassify: ActionHandler = async (inputs, ctx: ActionContext
     category: result.object.category,
     confidence: result.object.confidence ?? null,
     reasoning: result.object.reasoning ?? '',
-    model: modelId,
+    model: servedModelId,
     usage: result.usage,
     creditsUsed,
   };

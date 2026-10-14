@@ -59,7 +59,21 @@ export {
   type AdapterRuntime,
   type GatewayProvider,
 } from './adapters/index.js';
-export { resolveModelId, isModelSupported, knownCanonicalIds } from './model-map.js';
+export {
+  resolveModelId,
+  isModelSupported,
+  knownCanonicalIds,
+  modelProvider,
+  isByokModel,
+} from './model-map.js';
+
+// Third-party → Workers AI fallback on provider refusal (credit, auth, capacity).
+export {
+  withModelFallback,
+  billedModelId,
+  isProviderRefusal,
+  FALLBACK_METADATA_KEY,
+} from './fallback.js';
 
 // Cost-aware routing + failover. `AI_GATEWAY_ROUTING` defaults to 'off', which
 // is byte-identical to a single pinned gateway.

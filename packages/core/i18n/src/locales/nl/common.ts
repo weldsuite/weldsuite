@@ -799,6 +799,23 @@ export const common = {
           nameLabel: 'Naam',
           descriptionLabel: 'Omschrijving',
           descriptionPlaceholder: 'Omschrijf wat deze agent doet…',
+          modelLabel: 'Model',
+          modelDescription: 'Het Claude-model waarop deze agent draait. Grotere modellen redeneren beter; kleinere zijn sneller en goedkoper.',
+          modelPlaceholder: 'Kies een model',
+          models: {
+            'claude-opus-5-5': {
+              label: 'Claude Opus 5.5',
+              description: 'Meest capabel (standaard)',
+            },
+            'claude-sonnet-5-5': {
+              label: 'Claude Sonnet 5.5',
+              description: 'Snel en capabel, lagere kosten',
+            },
+            'claude-haiku-5-5': {
+              label: 'Claude Haiku 5.5',
+              description: 'Snelst, laagste kosten',
+            },
+          },
         },
         instructions: {
           placeholder: "Omschrijf wat deze agent moet doen, wanneer hij moet handelen en wat het verwachte resultaat is.\n\nVoorbeeld: Wanneer een nieuw contact wordt aangemaakt in het CRM, onderzoek dan de bedrijfsgrootte via webzoekopdrachten. Als het bedrijf meer dan 100 medewerkers heeft, stuur dan een melding naar het verkoopteam.",
@@ -820,7 +837,7 @@ export const common = {
           destroyed: 'Werkruimtecomputer gereset.',
           browserClosed: 'Browsersessie gesloten.',
           actionFailed: 'Actie mislukt.',
-          hint: 'Schakel computer:use en browser:use in bij rechten hieronder, en vraag de agent daarna computertools te gebruiken. Alle bots in deze werkruimte delen één sandbox.',
+          hint: 'Schakel computer:use (een Claude-sandbox met shell, bestanden en code) en browser:use in bij rechten hieronder, en vraag de agent daarna code uit te voeren of browsertools te gebruiken. Alle bots in deze werkruimte delen één browser.',
         },
         supervisor: {
           description: 'Laat deze agent taken delegeren aan andere agenten om meerstapsworkflows te orkestreren.',

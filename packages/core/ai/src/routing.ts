@@ -19,7 +19,7 @@
 
 import type { GatewayProvider } from './adapters/types.js';
 import type { WeldAiConfig } from './config.js';
-import { isModelSupported, resolveModelId } from './model-map.js';
+import { isByokModel, isModelSupported, resolveModelId } from './model-map.js';
 
 /**
  * Flat cost multiplier over provider list price, per gateway.
@@ -129,7 +129,8 @@ export function rankCandidates(params: {
       config,
       nativeModelId: resolveModelId(modelId, g),
       free,
-      costFactor: free ? 0 : GATEWAY_FEE_MULTIPLIER[g],
+      // BYOK: the provider bills our own key at list price; no Unified Billing fee.
+      costFactor: free ? 0 : isByokModel(config, modelId) ? 1 : GATEWAY_FEE_MULTIPLIER[g],
     };
   };
 
