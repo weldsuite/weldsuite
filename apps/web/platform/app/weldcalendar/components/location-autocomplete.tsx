@@ -19,7 +19,17 @@ import type { MapboxSuggestion } from '@/app/weldcalendar/lib/mapbox-search';
 interface LocationAutocompleteProps {
   value: string;
   onChange: (value: string) => void;
-  onSuggestionSelect?: (suggestion: MapboxSuggestion) => void;
+  /**
+   * A suggestion was picked. `sessionToken` is the search session it came
+   * from, for a `retrieveLocation` of its full details.
+   */
+  onSuggestionSelect?: (suggestion: MapboxSuggestion, sessionToken: string) => void;
+  /** Mapbox feature types to search (e.g. `'place'`, `'address,poi'`); defaults to all of them. */
+  searchTypes?: string;
+  /** Restrict results to one country (ISO 3166-1 alpha-2). */
+  country?: string;
+  /** List suggestions by name only, without the region/country line under it. */
+  hidePlaceDetails?: boolean;
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
@@ -31,6 +41,10 @@ interface LocationAutocompleteProps {
   popoverAlignOffset?: number;
   /** Fires when the underlying input loses focus (after the suggestion-click grace period). */
   onBlurAfterGrace?: () => void;
+  /** Runs after the built-in key handling (Escape closes the suggestions). */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  /** Select the whole value when the input gains focus, like a grid cell editor. */
+  selectOnFocus?: boolean;
 }
 
 function formatDisplay(s: MapboxSuggestion): string {
@@ -50,12 +64,17 @@ export function LocationAutocomplete({
   popoverSideOffset = 4,
   popoverAlignOffset = 0,
   onBlurAfterGrace,
+  onKeyDown,
+  selectOnFocus,
+  searchTypes,
+  country,
+  hidePlaceDetails,
 }: Readonly<LocationAutocompleteProps>) {
   const t = getTranslations('weldcalendar');
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { suggestions, isSearching, search, clear, resetSession } =
-    useLocationSearch();
+  const { suggestions, isSearching, search, clear, resetSession, getSessionToken } =
+    useLocationSearch({ types: searchTypes, country: country?.toLowerCase() || undefined });
 
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,12 +89,12 @@ export function LocationAutocomplete({
   const handleSelect = useCallback(
     (suggestion: MapboxSuggestion) => {
       onChange(formatDisplay(suggestion));
-      onSuggestionSelect?.(suggestion);
+      onSuggestionSelect?.(suggestion, getSessionToken());
       setOpen(false);
       clear();
       resetSession();
     },
-    [onChange, onSuggestionSelect, clear, resetSession],
+    [onChange, onSuggestionSelect, clear, resetSession, getSessionToken],
   );
 
   const showPopover = open && (suggestions.length > 0 || isSearching);
@@ -91,8 +110,10 @@ export function LocationAutocomplete({
             onChange={handleInputChange}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setOpen(false);
+              onKeyDown?.(e);
             }}
-            onFocus={() => {
+            onFocus={(e) => {
+              if (selectOnFocus) e.currentTarget.select();
               if (suggestions.length > 0) setOpen(true);
             }}
             onBlur={() => {
@@ -133,7 +154,7 @@ export function LocationAutocomplete({
                 >
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="text-sm font-medium truncate">{s.name}</span>
-                    {s.place_formatted && (
+                    {s.place_formatted && !hidePlaceDetails && (
                       <span className="text-xs text-muted-foreground truncate">
                         {s.place_formatted}
                       </span>

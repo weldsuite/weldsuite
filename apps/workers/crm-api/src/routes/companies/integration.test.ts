@@ -382,4 +382,30 @@ describe('/api/companies · pglite integration', () => {
     const [cleared] = await db.select().from(schema.companies).where(eq(schema.companies.id, created.data.id));
     expect(cleared?.primaryAddress).toBeNull();
   });
+
+  it('GET / adds computed attributes only with include=attributes; POST / stamps createdBy', async () => {
+    const { request } = createTestApp('/api/companies', companiesRoutes, {
+      context: { permissions: permissions('companies:read', 'companies:create'), tenantDb: db },
+    });
+    const json = { 'Content-Type': 'application/json' };
+    const created = (await (
+      await request('/api/companies', {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Attributed Co', instagramUrl: 'https://instagram.com/attributed' }),
+      })
+    ).json()) as { data: { id: string; createdBy: string; instagramUrl: string } };
+    expect(created.data.createdBy).toBe('user_test_default');
+    expect(created.data.instagramUrl).toBe('https://instagram.com/attributed');
+
+    type ListBody = { data: Array<{ id: string; attributes?: { connectionStrength: string; team: unknown[] } }> };
+    const plain = (await (await request('/api/companies?search=Attributed')).json()) as ListBody;
+    expect(plain.data.find((r) => r.id === created.data.id)?.attributes).toBeUndefined();
+
+    const withAttrs = (await (await request('/api/companies?search=Attributed&include=attributes')).json()) as ListBody;
+    expect(withAttrs.data.find((r) => r.id === created.data.id)?.attributes).toMatchObject({
+      connectionStrength: 'none',
+      team: [],
+    });
+  });
 });

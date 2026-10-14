@@ -1944,6 +1944,9 @@ export const crm = {
       bulkDeletePartial: 'Deleted {succeeded}, failed to delete {failed}',
       removeFromListSuccess: 'Removed {count} from list',
       removeFromListPartial: 'Removed {succeeded}, failed to remove {failed}',
+      searchAttributes: 'Search company attributes...',
+      attributeCreated: 'Attribute created',
+      attributeCreateFailed: 'Could not create the attribute',
     },
 
     peopleGrid: {

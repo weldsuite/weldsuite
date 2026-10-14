@@ -1945,6 +1945,9 @@ export const crm = {
       bulkDeletePartial: '{succeeded} verwijderd, {failed} verwijderen mislukt',
       removeFromListSuccess: '{count} uit de lijst verwijderd',
       removeFromListPartial: '{succeeded} verwijderd, {failed} verwijderen mislukt',
+      searchAttributes: 'Bedrijfskenmerken zoeken...',
+      attributeCreated: 'Kenmerk aangemaakt',
+      attributeCreateFailed: 'Kenmerk aanmaken mislukt',
     },
 
     peopleGrid: {

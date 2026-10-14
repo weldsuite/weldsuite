@@ -34,7 +34,8 @@ export function getCompanyImportFields(t: Tfn): ImportFieldDef[] {
     { header: f('phone'), accessorKey: 'phone' },
     { header: f('mobile'), accessorKey: 'mobile' },
     { header: f('fax'), accessorKey: 'fax' },
-    { header: f('website'), accessorKey: 'website' },
+    // The grid exports this column as "Domains".
+    { header: f('website'), accessorKey: 'website', aliases: gridAlias('website') },
     // The grid's "Primary Address" column exports as a JSON object, so this
     // field reads it back and the app's own export re-imports with the column
     // mapped. The grid column id is `location`, hence the alias lookup.
@@ -59,7 +60,8 @@ export function getCompanyImportFields(t: Tfn): ImportFieldDef[] {
     { header: f('preferredContactMethod'), accessorKey: 'preferredContactMethod' },
     { header: f('preferredLanguage'), accessorKey: 'preferredLanguage' },
     { header: f('timezone'), accessorKey: 'timezone' },
-    { header: f('tags'), accessorKey: 'tags', multiValue: true },
+    // The grid exports this column as "Categories".
+    { header: f('tags'), accessorKey: 'tags', multiValue: true, aliases: gridAlias('tags') },
     { header: f('notes'), accessorKey: 'notes' },
     { header: f('internalNotes'), accessorKey: 'internalNotes' },
     {

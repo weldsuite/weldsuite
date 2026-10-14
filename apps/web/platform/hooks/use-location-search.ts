@@ -74,5 +74,8 @@ export function useLocationSearch(options?: UseLocationSearchOptions) {
     sessionTokenRef.current = createSessionToken();
   }, []);
 
-  return { suggestions, isSearching, search, clear, resetSession };
+  /** The current billing session, for a `/retrieve` of one of its suggestions. */
+  const getSessionToken = useCallback(() => sessionTokenRef.current, []);
+
+  return { suggestions, isSearching, search, clear, resetSession, getSessionToken };
 }
