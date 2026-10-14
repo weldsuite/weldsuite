@@ -9,6 +9,7 @@
 import { eq } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
@@ -198,4 +199,10 @@ export async function getWorkspaceForOrg(env: DbEnv, clerkOrgId: string): Promis
 
 export type { Database } from './env';
 export type MasterDatabase = NeonHttpDatabase<typeof masterSchema>;
+/**
+ * A master-DB handle on any drizzle Postgres driver: neon-http in the API
+ * workers, postgres-js over Hyperdrive in external-api. Read helpers that
+ * several workers share take this instead of `MasterDatabase`.
+ */
+export type AnyMasterDatabase = PgDatabase<PgQueryResultHKT, typeof masterSchema>;
 export { schema, masterSchema };

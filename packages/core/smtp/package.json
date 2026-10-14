@@ -6,7 +6,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./testing/cloudflare-sockets-stub": "./src/testing/cloudflare-sockets-stub.ts"
+    "./testing/cloudflare-sockets-stub": "./src/testing/cloudflare-sockets-stub.ts",
+    "./testing/fake-server": "./src/testing/fake-server.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

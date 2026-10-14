@@ -457,6 +457,429 @@ export interface MailClient {
   sendDraft(draftId: string, idempotencyKey?: string): Promise<MailSendResult>;
 }
 
+// ── WeldReach ─────────────────────────────────────────────────────────────────
+// Cold email outreach, on request only: until WeldSuite approves the workspace
+// every `/v1/reach` call answers 403 `APP_ACCESS_REQUIRED` with
+// `details: { appCode, status }`. Mirrors `@weldsuite/app-api-client/schemas/reach`
+// (kept as plain types here: this package is published on its own).
+
+export type ReachCampaignStatus = 'draft' | 'active' | 'paused' | 'completed' | 'archived';
+export type ReachEnrollmentStatus =
+  | 'queued'
+  | 'active'
+  | 'replied'
+  | 'bounced'
+  | 'unsubscribed'
+  | 'completed'
+  | 'paused'
+  | 'failed';
+export type ReachProspectValidation = 'valid' | 'role' | 'consumer' | 'no_mx' | 'invalid' | 'suppressed';
+export type ReachReplyLabel =
+  | 'interested'
+  | 'meeting_request'
+  | 'not_interested'
+  | 'not_now'
+  | 'out_of_office'
+  | 'wrong_person'
+  | 'unsubscribe'
+  | 'other'
+  | 'unclassified';
+export type ReachInboundKind = 'reply' | 'auto_reply' | 'bounce';
+export type ReachMailboxStatus =
+  | 'provisioning'
+  | 'warming'
+  | 'active'
+  | 'paused'
+  | 'suspended'
+  | 'error'
+  | 'deleting'
+  | 'deleted';
+export type ReachWarmupBlocker = 'too_early' | 'not_enough_data' | 'low_inbox_rate' | 'login_error' | 'pool_too_small';
+
+/** `GET /v1/reach/access`: staff-set limits, today's usage and the global send switch. */
+export interface ReachAccess {
+  status: 'approved';
+  limits: {
+    maxDomains: number;
+    maxMailboxes: number;
+    maxDailySends: number;
+    allowConsumerRecipients: boolean;
+    forceAllowDomains: string[];
+  };
+  usage: { domains: number; mailboxes: number; sendsToday: number };
+  sendingEnabled: boolean;
+}
+
+/** `GET /v1/reach/overview`: the dashboard numbers. Rates are 0..1. */
+export interface ReachOverview {
+  sentToday: number;
+  sent7d: number;
+  replies7d: number;
+  interested7d: number;
+  bounceRate7d: number;
+  replyRate7d: number;
+  activeCampaigns: number;
+  mailboxes: { active: number; warming: number; paused: number; error: number };
+  unreadReplies: number;
+  daily: Array<{ date: string; sent: number; replies: number }>;
+}
+
+export interface ReachCampaignStats {
+  prospects: number;
+  sent: number;
+  replied: number;
+  interested: number;
+  bounced: number;
+  unsubscribed: number;
+}
+
+/** Schedule fields of a campaign. `sendDays` are ISO weekdays, 1 (Mon) to 7 (Sun); windows are `HH:MM`. */
+export interface ReachCampaignSchedule {
+  timezone: string;
+  sendDays: number[];
+  windowStart: string;
+  windowEnd: string;
+  dailyLimit: number;
+  minGapMinutes: number;
+  stopOnAutoReply: boolean;
+}
+
+export interface ReachCampaign extends ReachCampaignSchedule {
+  id: string;
+  name: string;
+  status: ReachCampaignStatus;
+  stats: ReachCampaignStats;
+  pausedReason: string | null;
+  launchedAt: string | null;
+  completedAt: string | null;
+  ownerId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One email of a sequence. Subject and body support `{{variable}}` / `{{variable|fallback}}`. */
+export interface ReachStepInput {
+  /** Wait after the previous step, 0..90 days (not used for the first step). */
+  delayDays: number;
+  /** 0..23 extra hours. */
+  delayHours: number;
+  subject: string;
+  body: string;
+  /** Send as a reply in the same thread instead of a new email. */
+  replyInThread: boolean;
+}
+
+export interface ReachCampaignStep extends ReachStepInput {
+  id: string;
+  order: number;
+}
+
+export interface ReachCampaignDetail extends ReachCampaign {
+  steps: ReachCampaignStep[];
+  mailboxIds: string[];
+}
+
+export type ReachCampaignCreateInput = Partial<ReachCampaignSchedule> & { name: string };
+export type ReachCampaignUpdateInput = Partial<ReachCampaignSchedule> & { name?: string; ownerId?: string | null };
+
+/** Enroll by prospect ids, a list, or both. */
+export interface ReachEnrollInput {
+  prospectIds?: string[];
+  listId?: string;
+}
+
+export interface ReachEnrollReport {
+  added: number;
+  skipped: Array<{
+    reason: 'already_enrolled' | 'suppressed' | 'consumer' | 'invalid' | 'enrolled_elsewhere';
+    count: number;
+  }>;
+}
+
+export interface ReachEnrollment {
+  id: string;
+  campaignId: string;
+  prospect: Pick<ReachProspect, 'id' | 'email' | 'firstName' | 'lastName' | 'companyName'>;
+  mailboxId: string | null;
+  mailboxEmail: string | null;
+  status: ReachEnrollmentStatus;
+  /** `order` of the step sent next. */
+  currentStep: number;
+  nextSendAt: string | null;
+  stoppedReason: string | null;
+  updatedAt: string;
+}
+
+export interface ReachCampaignStepStats {
+  stepId: string;
+  order: number;
+  sent: number;
+  replied: number;
+  bounced: number;
+}
+
+export interface ReachCampaignListOptions extends ResourceListOptions {
+  status?: ReachCampaignStatus;
+}
+
+export interface ReachEnrollmentListOptions {
+  limit?: number;
+  cursor?: string;
+  status?: ReachEnrollmentStatus;
+}
+
+export interface ReachProspect {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+  companyDomain: string | null;
+  title: string | null;
+  timezone: string | null;
+  customFields: Record<string, string>;
+  source: 'csv' | 'crm_list' | 'welddata' | 'manual';
+  sourceRef: string | null;
+  personId: string | null;
+  validation: ReachProspectValidation;
+  createdAt: string;
+}
+
+export interface ReachProspectInput {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  companyName?: string;
+  title?: string;
+  timezone?: string;
+  /** Up to 50 string fields; each key is also a template variable. */
+  customFields?: Record<string, string>;
+}
+
+export type ReachProspectUpdateInput = Partial<Omit<ReachProspectInput, 'email'>>;
+
+export interface ReachImportInput {
+  /** 1 to `REACH_IMPORT_MAX_ROWS` (5,000) rows. */
+  rows: ReachProspectInput[];
+  /** Add to an existing list ... */
+  listId?: string;
+  /** ... or create one with this name. */
+  listName?: string;
+  sourceRef?: string;
+}
+
+export interface ReachImportReport {
+  listId: string | null;
+  created: number;
+  updated: number;
+  /** Rows not usable, by reason; the stored ones keep their `validation`. */
+  skipped: Array<{ reason: ReachProspectValidation | 'duplicate' | 'invalid_row'; count: number }>;
+}
+
+export interface ReachProspectListOptions extends ResourceListOptions {
+  validation?: ReachProspectValidation;
+  listId?: string;
+}
+
+export interface ReachProspectList {
+  id: string;
+  name: string;
+  description: string | null;
+  source: 'csv' | 'crm_list' | 'welddata' | 'manual';
+  sourceRef: string | null;
+  prospectCount: number;
+  createdAt: string;
+}
+
+export interface ReachListInput {
+  name: string;
+  description?: string;
+}
+
+export interface ReachSuppression {
+  id: string;
+  value: string;
+  type: 'email' | 'domain';
+  reason: 'unsubscribed' | 'bounced' | 'complained' | 'manual' | 'negative_reply';
+  source: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface ReachMessage {
+  id: string;
+  direction: 'out' | 'in';
+  campaignId: string | null;
+  stepId: string | null;
+  mailboxId: string;
+  prospectId: string | null;
+  threadKey: string | null;
+  fromEmail: string;
+  toEmail: string;
+  subject: string | null;
+  snippet: string | null;
+  bodyText: string | null;
+  status: 'sending' | 'sent' | 'failed' | 'unknown' | null;
+  kind: ReachInboundKind | null;
+  label: ReachReplyLabel | null;
+  labelSource: 'ai' | 'user' | 'rule' | null;
+  readAt: string | null;
+  handledAt: string | null;
+  sentAt: string | null;
+  receivedAt: string | null;
+}
+
+export interface ReachThreadSummary {
+  /** The thread's id: the Message-ID of its first email. */
+  threadKey: string;
+  prospect: Pick<ReachProspect, 'id' | 'email' | 'firstName' | 'lastName' | 'companyName' | 'personId'> | null;
+  campaign: { id: string; name: string } | null;
+  mailbox: { id: string; email: string };
+  lastInbound: Pick<
+    ReachMessage,
+    'id' | 'subject' | 'snippet' | 'kind' | 'label' | 'labelSource' | 'receivedAt' | 'readAt' | 'handledAt'
+  >;
+  messageCount: number;
+}
+
+export interface ReachThread {
+  threadKey: string;
+  summary: ReachThreadSummary;
+  messages: ReachMessage[];
+}
+
+export interface ReachThreadListOptions {
+  limit?: number;
+  cursor?: string;
+  /** `open` (default), `unread`, `handled` or `all`. */
+  state?: 'open' | 'unread' | 'handled' | 'all';
+  label?: ReachReplyLabel;
+  kind?: ReachInboundKind;
+  campaignId?: string;
+  mailboxId?: string;
+}
+
+/** The thread list, with the inbox-wide unread count. */
+export interface ReachThreadListResponse extends ListResponse<ReachThreadSummary> {
+  meta: { unreadCount: number };
+}
+
+export interface ReachMailbox {
+  id: string;
+  domainId: string;
+  domainName: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  signature: string | null;
+  type: 'google' | 'shared';
+  status: ReachMailboxStatus;
+  warmupDay: number;
+  warmupStatus: string | null;
+  /** Inbox placement of its warmup mail over 3 days (0..1); null below the minimum sample. */
+  warmupInboxRate: number | null;
+  warmupSent7d: number;
+  warmupSpamRescues7d: number;
+  /** Why a warming mailbox may not join campaigns yet; null when ready or not warming. */
+  warmupBlocker: ReachWarmupBlocker | null;
+  dailyCap: number;
+  rampCurrent: number;
+  sentToday: number;
+  lastSentAt: string | null;
+  pausedReason: string | null;
+  lastError: string | null;
+  createdAt: string;
+}
+
+export interface ReachDomain {
+  id: string;
+  hostDomainId: string;
+  name: string;
+  status: 'connecting' | 'active' | 'error' | 'disconnecting';
+  dnsStatus: { spf: boolean; dkim: boolean; dmarc: boolean; mx: boolean; checkedAt: string } | null;
+  dmarcPolicy: string | null;
+  connectedAt: string | null;
+  lastError: string | null;
+  mailboxCount: number;
+  createdAt: string;
+}
+
+export interface ReachClient {
+  /** Requires `reach_campaigns:read`. */
+  access(): Promise<SingleResponse<ReachAccess>>;
+  /** Requires `reach_campaigns:read`. */
+  overview(): Promise<SingleResponse<ReachOverview>>;
+  /** Reads require `reach_campaigns:read`; every other method `reach_campaigns:write`. */
+  campaigns: {
+    list(options?: ReachCampaignListOptions): Promise<ListResponse<ReachCampaign>>;
+    get(id: string): Promise<SingleResponse<ReachCampaignDetail>>;
+    create(input: ReachCampaignCreateInput): Promise<ReachCampaignDetail>;
+    update(id: string, input: ReachCampaignUpdateInput): Promise<ReachCampaignDetail>;
+    /** A running campaign must be paused first (409 `CAMPAIGN_ACTIVE`). */
+    remove(id: string): Promise<void>;
+    /** Replaces the whole sequence (1..10 steps). */
+    setSteps(id: string, steps: ReachStepInput[]): Promise<ReachCampaignDetail>;
+    /** Replaces the sending mailboxes. */
+    setMailboxes(id: string, mailboxIds: string[]): Promise<ReachCampaignDetail>;
+    enroll(id: string, input: ReachEnrollInput): Promise<ReachEnrollReport>;
+    enrollments(id: string, options?: ReachEnrollmentListOptions): Promise<ListResponse<ReachEnrollment>>;
+    removeEnrollment(id: string, enrollmentId: string): Promise<void>;
+    /** 400 with `details.problems` when the campaign is not ready. */
+    launch(id: string): Promise<ReachCampaignDetail>;
+    pause(id: string): Promise<ReachCampaignDetail>;
+    resume(id: string): Promise<ReachCampaignDetail>;
+    stats(id: string): Promise<ReachCampaignStepStats[]>;
+  };
+  /** Reads require `reach_prospects:read`; writes `reach_prospects:write`. */
+  prospects: {
+    list(options?: ReachProspectListOptions): Promise<ListResponse<ReachProspect>>;
+    get(id: string): Promise<SingleResponse<ReachProspect>>;
+    create(input: ReachProspectInput & { listId?: string }): Promise<ReachProspect>;
+    /** Up to REACH_IMPORT_MAX_ROWS rows per call; existing addresses are updated. */
+    import(input: ReachImportInput): Promise<ReachImportReport>;
+    update(id: string, input: ReachProspectUpdateInput): Promise<ReachProspect>;
+    remove(id: string): Promise<void>;
+  };
+  /** Reads require `reach_prospects:read`; writes `reach_prospects:write`. */
+  lists: {
+    list(options?: { limit?: number; cursor?: string }): Promise<ListResponse<ReachProspectList>>;
+    get(id: string): Promise<SingleResponse<ReachProspectList>>;
+    create(input: ReachListInput): Promise<ReachProspectList>;
+    update(id: string, input: Partial<ReachListInput>): Promise<ReachProspectList>;
+    remove(id: string): Promise<void>;
+    addMembers(id: string, prospectIds: string[]): Promise<{ added: number }>;
+    removeMembers(id: string, prospectIds: string[]): Promise<{ removed: number }>;
+  };
+  /** The suppression list. Reads require `reach_settings:read`; writes `reach_settings:write`. */
+  suppressions: {
+    list(options?: ResourceListOptions): Promise<ListResponse<ReachSuppression>>;
+    /** Addresses or domains; `skipped` counts malformed values and ones already listed. */
+    add(values: string[]): Promise<{ added: number; skipped: number }>;
+    remove(id: string): Promise<void>;
+  };
+  /** The reply inbox. Requires `reach_inbox:read`. */
+  threads: {
+    list(options?: ReachThreadListOptions): Promise<ReachThreadListResponse>;
+    get(threadKey: string): Promise<SingleResponse<ReachThread>>;
+    /**
+     * Answer the thread's latest reply from the mailbox that received it.
+     * Requires `reach_inbox:reply`, which must be requested by name; a
+     * wildcard does not include it.
+     */
+    reply(threadKey: string, body: string): Promise<ReachMessage>;
+  };
+  /** Read-only (each inbox is billed, so they are created in the app). Requires `reach_mailboxes:read`. */
+  mailboxes: {
+    list(options?: { domainId?: string; status?: ReachMailboxStatus }): Promise<ListResponse<ReachMailbox>>;
+    get(id: string): Promise<SingleResponse<ReachMailbox>>;
+  };
+  /** Read-only. Requires `reach_mailboxes:read`. */
+  domains: {
+    list(): Promise<ListResponse<ReachDomain>>;
+    get(id: string): Promise<SingleResponse<ReachDomain>>;
+  };
+}
+
 /** Subset of a `/v1/products` row used by commerce WeldApps. */
 export interface ProductSummary {
   id: string;

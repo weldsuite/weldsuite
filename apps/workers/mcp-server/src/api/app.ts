@@ -45,6 +45,7 @@ function toApiSession(session: McpSession): ApiKeySession {
     permissionDenies: session.permissionDenies,
     tier: session.tier,
     hasApiAccess: true,
+    clerkOrgId: session.clerkOrgId,
     databaseUrl: session.databaseUrl,
   };
 }

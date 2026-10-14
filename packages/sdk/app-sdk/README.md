@@ -170,6 +170,7 @@ await bridge.toast('Saved!', 'success');
 | `tickets` | `/v1/tickets` helpers (`list` / `get`). Requires `tickets:read`. |
 | `products` | `/v1/products` helpers (`list` / `get` / `create` / `update` / `remove`). Requires `products:read` / `products:write`. In local preview, in-memory. |
 | `mail` | WeldMail: `accounts`, `messages` (`list` / `get` / `update` / `move`), `threads`, `drafts`, and `send` / `reply` / `sendDraft` (optional idempotency key). An app reaches the workspace's **shared** mailboxes only. Scopes: `mail_accounts:read`, `mail_messages:read\|write`, `mail_drafts:read\|write`; sending needs `mail_messages:send`, which a wildcard never grants. |
+| `reach` | WeldReach (cold email outreach, on request only; an unapproved workspace gets 403 `APP_ACCESS_REQUIRED`): `access()`, `overview()`, `campaigns` (CRUD, `setSteps`, `setMailboxes`, `enroll`, `enrollments`, `removeEnrollment`, `launch` / `pause` / `resume`, `stats`), `prospects` (CRUD + `import`, up to `REACH_IMPORT_MAX_ROWS` rows), `lists` (CRUD + `addMembers` / `removeMembers`), `suppressions`, `threads` (`list` / `get` / `reply`), and read-only `mailboxes` and `domains`. Scopes: `reach_campaigns`, `reach_prospects`, `reach_settings` (suppressions) `:read\|write`, `reach_inbox:read`, `reach_mailboxes:read`; `threads.reply` needs `reach_inbox:reply`, which a wildcard never grants. |
 
 List responses follow the platform envelope: `{ data: T[], pagination: { totalCount, hasMore, cursor } }`.
 

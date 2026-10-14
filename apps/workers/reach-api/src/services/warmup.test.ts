@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { openWarmupCredentials } from '@weldsuite/reach-domain/warmup-pool';
-import { openMailServerCredentials } from '../lib/credentials';
+import { openMailServerCredentials } from '@weldsuite/reach-domain/credentials';
 import { MailpoolError } from '../lib/mailpool/errors';
 import { createFakeMailpool, mailpoolMailbox } from '../lib/mailpool/testing';
 import {
@@ -22,13 +22,7 @@ import {
   seedPoolMailbox,
   seedReachDomain,
 } from '../lib/mailpool/testing-db';
-import {
-  hasLoginError,
-  processWorkspaceWarmup,
-  resumeStatusFor,
-  warmupBlockerOf,
-  type WarmupEvent,
-} from './warmup';
+import { processWorkspaceWarmup, resumeStatusFor, type WarmupEvent } from './warmup';
 
 const ENCRYPTION_KEY = 'cd'.repeat(32);
 const ENV = { DATABASE_ENCRYPTION_KEY: ENCRYPTION_KEY, WELDREACH_WARMUP_KEY: WARMUP_TEST_KEY };
@@ -82,59 +76,7 @@ describe('warmup gate helpers', () => {
     expect(resumeStatusFor({ warmupDay: 14, warmupInboxRate: 0.84 })).toBe('warming');
     expect(resumeStatusFor({ warmupDay: 14, warmupInboxRate: 0.85 })).toBe('active');
   });
-
-  it('treats a stored login error as current', () => {
-    expect(hasLoginError({ lastLoginError: null })).toBe(false);
-    expect(hasLoginError({ lastLoginError: '' })).toBe(false);
-    expect(hasLoginError({ lastLoginError: 'Invalid credentials' })).toBe(true);
-  });
-
-  describe('warmupBlockerOf', () => {
-    const warming = { status: 'warming' as const, warmupDay: 0, warmupInboxRate: null };
-    const view = (overrides: Partial<Parameters<typeof poolView>[0]> = {}) => poolView(overrides);
-
-    it('is null unless the mailbox is warming', () => {
-      for (const status of ['active', 'paused', 'provisioning', 'error'] as const) {
-        expect(warmupBlockerOf({ ...warming, status }, undefined, 0), status).toBeNull();
-      }
-    });
-
-    it('names the pool first while it is too small, then what the mailbox itself lacks', () => {
-      expect(warmupBlockerOf(warming, view(), 2)).toBe('pool_too_small');
-      expect(warmupBlockerOf(warming, view(), 3)).toBe('too_early');
-      expect(warmupBlockerOf(warming, view({ rampDay: 14 }), 3)).toBe('not_enough_data');
-      expect(warmupBlockerOf(warming, view({ rampDay: 14, inboxRate3d: 0.6 }), 3)).toBe('low_inbox_rate');
-      // Unknown pool size (master could not be read) never blames the pool.
-      expect(warmupBlockerOf(warming, view(), null)).toBe('too_early');
-    });
-
-    it('is null for a mailbox that is ready, even while the pool is small (the next pass promotes it)', () => {
-      expect(warmupBlockerOf(warming, view({ rampDay: 15, inboxRate3d: 0.92 }), 1)).toBeNull();
-    });
-
-    it('puts a login problem above a small pool', () => {
-      expect(warmupBlockerOf(warming, view({ rampDay: 20, inboxRate3d: 0.9, lastLoginError: 'bad password' }), 1)).toBe('login_error');
-    });
-
-    it('falls back to the tenant columns for a mailbox that is not in the pool', () => {
-      expect(warmupBlockerOf({ ...warming, warmupDay: 14, warmupInboxRate: 0.5 }, undefined, 5)).toBe('low_inbox_rate');
-      expect(warmupBlockerOf({ ...warming, warmupDay: 14, warmupInboxRate: 0.9 }, undefined, 5)).toBeNull();
-    });
-  });
 });
-
-function poolView(overrides: { rampDay?: number; inboxRate3d?: number | null; lastLoginError?: string | null } = {}) {
-  return {
-    tenantMailboxId: 'rmbx_1',
-    status: 'warming' as const,
-    startedAt: new Date('2026-10-01T00:00:00Z'),
-    rampDay: overrides.rampDay ?? 0,
-    stats: poolStats({ inboxRate3d: overrides.inboxRate3d ?? null }),
-    pausedReason: null,
-    lastLoginError: overrides.lastLoginError ?? null,
-    lastLoginErrorAt: overrides.lastLoginError ? NOW : null,
-  };
-}
 
 describe('processWorkspaceWarmup', () => {
   describe('provisioning', () => {

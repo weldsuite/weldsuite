@@ -49,8 +49,9 @@ const ro = (object: string) => [{ id: `${object}:read`, label: 'Read' }];
 
 // Scopes the external API only grants by name: `*` and `<object>:*` never
 // include them (external-api `NAMED_ONLY_SCOPES`). The bulk "All" buttons skip
-// them too, so a key can only send mail when someone ticked Send on purpose.
-const NAMED_ONLY_SCOPES = ['mail_messages:send'];
+// them too, so a key can only send mail (or answer WeldReach prospects) when
+// someone ticked Send or Reply on purpose.
+const NAMED_ONLY_SCOPES = ['mail_messages:send', 'reach_inbox:reply'];
 
 const PERMISSION_ENTITIES = [
   // CRM
@@ -104,6 +105,18 @@ const PERMISSION_ENTITIES = [
   { entity: 'Labels', group: 'WeldMail', description: 'Mailbox labels', scopes: rw('mail_labels') },
   { entity: 'Folders', group: 'WeldMail', description: 'Mailbox folders', scopes: rw('mail_folders') },
   { entity: 'Attachments', group: 'WeldMail', description: 'Download files; write uploads files to send', scopes: rw('mail_attachments') },
+  // WeldReach (on request only: a key gets 403 APP_ACCESS_REQUIRED until WeldSuite approves the workspace).
+  // Creating or deleting mailboxes and domains stays in the app, because every inbox is billed.
+  { entity: 'Campaigns', group: 'WeldReach', description: 'Campaigns, steps, enrollments, launch and pause, stats', scopes: rw('reach_campaigns') },
+  { entity: 'Prospects', group: 'WeldReach', description: 'Prospects, imports and prospect lists', scopes: rw('reach_prospects') },
+  { entity: 'Suppressions', group: 'WeldReach', description: 'Addresses and domains that are never emailed', scopes: rw('reach_settings') },
+  {
+    entity: 'Reply Inbox',
+    group: 'WeldReach',
+    description: 'Replies to campaigns; Reply sends an answer to a prospect',
+    scopes: [...ro('reach_inbox'), { id: 'reach_inbox:reply', label: 'Reply' }],
+  },
+  { entity: 'Mailboxes', group: 'WeldReach', description: 'Sending mailboxes and domains, warmup status (no credentials)', scopes: ro('reach_mailboxes') },
   // Chat
   { entity: 'Channels', group: 'Chat', description: 'Chat channels', scopes: rw('channels') },
   { entity: 'Channel Members', group: 'Chat', description: 'Chat channel members', scopes: rw('channel_members') },
@@ -146,7 +159,22 @@ const ALL_SCOPES = PERMISSION_ENTITIES.flatMap(e => e.scopes.map(s => s.id)).fil
   (id) => !NAMED_ONLY_SCOPES.includes(id),
 );
 
-type ScopeAction = 'read' | 'write' | 'send';
+type ScopeAction = 'read' | 'write' | 'send' | 'reply';
+
+// Actions that only exist as named-only scopes; a group gets a column for each one it has.
+const NAMED_ONLY_ACTIONS = ['send', 'reply'] as const satisfies readonly ScopeAction[];
+
+const ACTION_HEADER_KEYS: Record<ScopeAction, string> = {
+  read: 'sweep.settings.apiKeys.table.read',
+  write: 'sweep.settings.apiKeys.table.write',
+  send: 'sweep.settings.apiKeys.table.send',
+  reply: 'sweep.settings.apiKeys.table.reply',
+};
+
+const NAMED_ONLY_HINT_KEYS: Record<(typeof NAMED_ONLY_ACTIONS)[number], string> = {
+  send: 'sweep.settings.apiKeys.sendScopeHint',
+  reply: 'sweep.settings.apiKeys.replyScopeHint',
+};
 
 // Module logo per permission group
 const GROUP_LOGOS: Record<string, string> = {
@@ -157,6 +185,7 @@ const GROUP_LOGOS: Record<string, string> = {
   Files: '/assets/images/welddrive/icon.svg',
   Calendar: '/assets/images/weldcalendar/icon.svg',
   WeldMail: '/assets/images/weldmail/icon.svg',
+  WeldReach: '/assets/images/weldreach/icon.svg',
   Chat: '/assets/images/weldchat/icon.svg',
   Host: '/assets/images/weldhost/icon.svg',
   Automation: '/assets/images/weldconnect/icon.svg',
@@ -205,9 +234,11 @@ function PermissionGroupTable({
 }>) {
   const t = useTranslations();
   const groupLogo = GROUP_LOGOS[group];
-  // A Send column only for groups that have a send scope (WeldMail).
-  const hasSend = entities.some((e) => e.scopes.some((s) => s.id.endsWith(':send')));
-  const actions: ScopeAction[] = hasSend ? ['read', 'write', 'send'] : ['read', 'write'];
+  // A Send or Reply column only for groups that have such a scope (WeldMail, WeldReach).
+  const namedOnlyActions = NAMED_ONLY_ACTIONS.filter((action) =>
+    entities.some((e) => e.scopes.some((s) => s.id.endsWith(`:${action}`))),
+  );
+  const actions: ScopeAction[] = ['read', 'write', ...namedOnlyActions];
   return (
     <div className="border rounded-md overflow-hidden">
       <div className="bg-muted/40 px-3 py-1.5 text-[13px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40">
@@ -220,11 +251,11 @@ function PermissionGroupTable({
         <thead className="bg-background">
           <tr>
             <th className="text-left px-3 py-2 font-medium border-b border-border/40">{t('sweep.settings.apiKeys.table.entity')}</th>
-            <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.read')}</th>
-            <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.write')}</th>
-            {hasSend && (
-              <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.send')}</th>
-            )}
+            {actions.map((action) => (
+              <th key={action} className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">
+                {t(ACTION_HEADER_KEYS[action])}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -252,16 +283,16 @@ function PermissionGroupTable({
           })}
         </tbody>
       </table>
-      {hasSend && (
-        <p className="border-t border-border/40 bg-background px-3 py-2 text-xs text-muted-foreground">
-          {t('sweep.settings.apiKeys.sendScopeHint')}
+      {namedOnlyActions.map((action) => (
+        <p key={action} className="border-t border-border/40 bg-background px-3 py-2 text-xs text-muted-foreground">
+          {t(NAMED_ONLY_HINT_KEYS[action])}
         </p>
-      )}
+      ))}
     </div>
   );
 }
 
-// Read, write or send scope checkbox cell for an entity ("—" when the scope does not exist).
+// Read, write, send or reply scope checkbox cell for an entity ("—" when the scope does not exist).
 function PermissionScopeCell({
   entity,
   action,
@@ -655,7 +686,7 @@ export function ApiKeysSection() {
     setScopeList([...withoutWrite, ...writeScopes])
   }
 
-  // Select all scopes, keeping any named-only scope (Send) that was ticked by hand
+  // Select all scopes, keeping any named-only scope (Send, Reply) that was ticked by hand
   const selectAll = (setScopeList: (scopes: string[]) => void, currentScopes: string[]) => {
     setScopeList([...ALL_SCOPES, ...currentScopes.filter(s => NAMED_ONLY_SCOPES.includes(s))])
   }

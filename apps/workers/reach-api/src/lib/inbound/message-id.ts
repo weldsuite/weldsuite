@@ -1,6 +1,6 @@
 /** Message-ID helpers: normalising, splitting `References`, and a stable id for mail that has none. */
 
-import { trimEdges } from './strings';
+import { trimEdges } from '@weldsuite/reach-domain/inbound/strings';
 
 const MAX_ID_LENGTH = 255;
 

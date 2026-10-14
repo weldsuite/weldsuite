@@ -1,4 +1,5 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { RateLimiter } from '../durable-objects/rate-limiter';
 
 /**
@@ -68,6 +69,25 @@ export interface Env {
    * Falls back to the test CDN host when unset.
    */
   R2_PUBLIC_URL?: string;
+
+  // --- WeldReach (`/v1/reach/*`) -----------------------------------------
+  // The approval gate reads `WORKSPACE_CACHE` and, on a miss, master through
+  // `DATABASE_URL_MASTER` (like auth); raw inbound replies come from `STORAGE`.
+  // The MCP server never sends outreach email: no route and no code path here opens a mailbox login.
+  /**
+   * KV namespace shared with reach-api and external-api: the `appaccess:<org>:weldreach`
+   * entry (60 s) is read, and written on a miss, so a suspension reaches MCP as fast
+   * as it reaches the app. Unbound, every read is a miss and master answers.
+   */
+  WORKSPACE_CACHE?: KVNamespace;
+  /**
+   * D1 schedule index (reach-api's database): launching, resuming and enrolling mark
+   * the workspace due (kind `reach_send`, keyed by Clerk org id) so the send sweep
+   * picks it up. Always bind it: unset, nothing wakes the sweep.
+   */
+  SCHEDULE_INDEX?: D1Database;
+  /** Cloudflare Flagship: the `weldreach-sending` kill switch `GET /v1/reach/access` reports. Unset: the flag's default (on). */
+  FLAGSHIP?: FlagshipBinding;
 
   // --- WeldSocial (PostPeer publishing) ----------------------------------
   // Read by publish_social_post / schedule_social_post via

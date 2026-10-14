@@ -17,6 +17,14 @@
 #   Only read on the connect flow, which this worker does not expose; set for
 #   parity if that changes.)
 #   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
+#
+# WeldReach (/v1/reach/*, docs/plans/weldreach-external-api.md) adds no secrets and
+# never sends email: it reads the inbox and runs reach-api's domain code for the
+# rest. Its bindings are the same resources reach-api and external-api use:
+# WORKSPACE_CACHE (the shared 60 s app-access cache), SCHEDULE_INDEX (reach-api's D1
+# schedule index: launch / resume / enrol wake the send sweep), FLAGSHIP (the
+# `weldreach-sending` kill switch that GET /v1/reach/access reports) and the existing
+# STORAGE (raw inbound replies). The access gate reads master over DATABASE_URL_MASTER.
 name = "weldsuite-mcp-server"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
@@ -54,6 +62,21 @@ new_sqlite_classes = ["RateLimiter"]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-dev"
 
+# WeldReach: reach-api's KV (shared app-access cache), D1 schedule index and the
+# bucket of raw inbound replies. The dev defaults are reach-api's own (test resources).
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-mcp-server-test"
@@ -71,6 +94,20 @@ id = "6ffe3c8ea4e041398d84f9f670e93f88"
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
 queue = "entity-events-test"
+
+# WeldReach: reach-api's KV (the shared app-access cache), D1 schedule index and Flagship app (test).
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 
 [[env.test.r2_buckets]]
 binding = "STORAGE"
@@ -115,6 +152,20 @@ queue = "entity-events"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+# WeldReach: reach-api's KV (the shared app-access cache), D1 schedule index and Flagship app (production).
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 
 # Inheritable key — applies to all named environments unless overridden.
 [observability]

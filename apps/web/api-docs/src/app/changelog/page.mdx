@@ -14,6 +14,14 @@ A history of notable changes to the WeldSuite External API. The API is served un
 
 The current stable version. All endpoints live under `https://api.weldsuite.org/v1`.
 
+### 2026-10-13: WeldReach
+
+- **New resources** under `/v1/reach`: [Campaigns](/reach-campaigns) (with steps, mailboxes, enrollments, launch, pause, resume and step stats), [Prospects](/reach-prospects) (with JSON imports of up to 5,000 rows), [Lists](/reach-lists), [Suppressions](/reach-suppressions), [Threads](/reach-threads) (the reply inbox, with replying) and [Mailboxes and domains](/reach-mailboxes) (read-only), plus `GET /v1/reach/access` and `GET /v1/reach/overview`. See the [WeldReach overview](/weldreach).
+- **On request only**, a workspace WeldSuite has not approved for WeldReach gets `403` with the new error code `APP_ACCESS_REQUIRED` and `details: { appCode, status }`. See [Errors](/errors#access-errors).
+- **New scopes**, `reach_campaigns:read|write`, `reach_prospects:read|write`, `reach_settings:read|write`, `reach_inbox:read`, `reach_mailboxes:read`, and `reach_inbox:reply`. Like `mail_messages:send`, `reach_inbox:reply` is named only: `*` and `reach_inbox:*` do not grant it.
+- **Billing stays in the app**, every outreach mailbox is billed per month, so creating and deleting mailboxes and domains is not part of the API.
+- API writes follow the same rules as the app (validation, suppression list, daily caps, sending windows) and publish the same workspace events.
+
 ### 2026-10-08: WeldBooks is read-only
 
 A deliberate exception to the additive-only rule above: the ledger only changes through WeldBooks.
@@ -48,6 +56,7 @@ A deliberate exception to the additive-only rule above: the ledger only changes 
 - **WeldCalendar**, Calendars, Events (with recurrence support)
 - **WeldDrive**, Files (soft delete), Folders (soft delete), Drive (unified feed + storage stats, read-only)
 - **WeldMail**, Mail Accounts (read-only), Messages, Threads, Labels, Folders, Drafts, Attachments
+- **WeldReach** (on request only), Campaigns, Prospects, Lists, Suppressions, Threads, Mailboxes and Domains (read-only)
 - **WeldBooks**, Accounting Entities, GL Accounts, Invoices, Bills, Journal Entries, Payments, Bank Accounts, Bank Transactions, Accounting Contacts, Tax Rates, Recurring Invoices, Reconciliation Rules, Fiscal Periods, FX Rates, VAT Returns, Accounting Documents, ICP Declarations, Accounting Settings (singleton). All read-only except Accounting Contacts
 
 ### Notes

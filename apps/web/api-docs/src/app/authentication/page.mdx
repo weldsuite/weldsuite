@@ -70,7 +70,7 @@ A required scope is satisfied if the key holds any of the following:
     `<resource>:*` grants every action on that resource, e.g. `people:*` covers `people:read` and `people:write`.
   </Property>
   <Property name="Global wildcard" type="*">
-    The reserved `*` scope grants access to every endpoint. Use with caution. The one exception is `mail_messages:send`, which is only granted by name.
+    The reserved `*` scope grants access to every endpoint. Use with caution. The exceptions are the scopes that send email to people outside your workspace, `mail_messages:send` and `reach_inbox:reply`: they are only granted by name, never by `*` or `<resource>:*`.
   </Property>
 </Properties>
 
@@ -152,6 +152,17 @@ Scopes are `resource:action`. Unless noted, each resource supports `:read` and `
 - `mail_drafts:read` · `mail_drafts:write`
 - `mail_attachments:read` · `mail_attachments:write`
 
+### WeldReach
+
+WeldReach is available on request only: until WeldSuite approves the workspace, these scopes return `403 APP_ACCESS_REQUIRED`. See the [WeldReach overview](/weldreach).
+
+- `reach_campaigns:read` · `reach_campaigns:write`, campaigns, steps, mailboxes, enrollments, launch, pause and resume, stats, overview and access
+- `reach_prospects:read` · `reach_prospects:write`, prospects, imports, lists and list members
+- `reach_settings:read` · `reach_settings:write`, the suppression list
+- `reach_inbox:read`, read-only; threads and the unread count
+- `reach_inbox:reply`, named only: `*` and `reach_inbox:*` do not grant it. See [Reply to a thread](/reach-threads#reply-to-a-thread)
+- `reach_mailboxes:read`, read-only; mailboxes and domains
+
 ---
 
 ## Plan requirements
@@ -184,6 +195,7 @@ Every response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-Rat
 | 401 | `UNAUTHORIZED` | Key missing, malformed, revoked, or expired | Check the key / create a new one |
 | 403 | `FORBIDDEN` | Key lacks the required scope | Create a key with the right scope |
 | 403 | `FORBIDDEN` | Plan has no API access | Upgrade your plan |
+| 403 | `APP_ACCESS_REQUIRED` | The workspace has no approved access to an on-request module such as [WeldReach](/weldreach) | Request access in the WeldSuite app store |
 
 ---
 

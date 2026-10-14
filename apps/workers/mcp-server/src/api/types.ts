@@ -1,4 +1,5 @@
 import type { TenantTier } from '@weldsuite/db/schema/master';
+import type { AppAccess } from '@weldsuite/worker-kit/app-access';
 import type { Env } from '../types/env';
 import type { Database } from './db';
 
@@ -33,6 +34,12 @@ export interface ApiKeySession {
    * MCP access is not plan-gated, so this is always `true`.
    */
   hasApiAccess: boolean;
+  /**
+   * The workspace's Clerk org id (the key of the app-access cache and of the
+   * send sweep's due index). The OAuth session always knows it; the field is
+   * optional only so the copied route libraries compile as in external-api.
+   */
+  clerkOrgId?: string | null;
   /** Workspace-specific database URL (resolved from master DB). */
   databaseUrl: string | null;
   /** User-app id — set only for `app` sessions. */
@@ -55,7 +62,18 @@ export type Variables = {
   workspaceId: string;
   /** Actor id for entity events — the Clerk user behind the OAuth token. */
   userId: string;
+  /**
+   * Set by `reachAccess` on `/v1/reach/*`: the workspace's Clerk org id and its
+   * approved WeldReach access (staff-set limits, billing state).
+   */
+  reach?: ReachRequest;
 };
+
+/** What the WeldReach approval gate resolved for the request. */
+export interface ReachRequest {
+  clerkOrgId: string;
+  access: AppAccess;
+}
 
 export type HonoEnv = { Bindings: Env; Variables: Variables };
 

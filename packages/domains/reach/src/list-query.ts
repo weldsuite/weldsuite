@@ -8,10 +8,10 @@
 
 import { eq, sql, type SQL } from 'drizzle-orm';
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core';
-import type { Database } from '@weldsuite/worker-kit';
+import type { Database } from '@weldsuite/worker-kit/db';
 
-export function parseLimit(raw: string | undefined, fallback = 25, max = 100): number {
-  const n = raw ? Number.parseInt(raw, 10) : fallback;
+export function parseLimit(raw: string | number | undefined, fallback = 25, max = 100): number {
+  const n = raw ? Number.parseInt(String(raw), 10) : fallback;
   if (!Number.isFinite(n) || n < 1) return fallback;
   return Math.min(n, max);
 }
@@ -48,4 +48,29 @@ export function pageOf<T extends { id: string }>(
   const data = hasMore ? rows.slice(0, limit) : rows;
   const last = data[data.length - 1];
   return { data, hasMore, nextCursor: hasMore && last ? last.id : null };
+}
+
+/** One page of a list, ready for the `{ data, pagination }` envelope. */
+export interface Page<T> {
+  data: T[];
+  totalCount: number;
+  hasMore: boolean;
+  cursor: string | null;
+}
+
+/** The query parameters every cursor-paged list takes (raw strings, as they arrive on a URL). */
+export interface PageQuery {
+  cursor?: string;
+  limit?: string | number;
+}
+
+/** A page of `rows` (fetched with `limit + 1`), mapped to its DTOs. */
+export function pageResult<Row extends { id: string }, T>(
+  rows: Row[],
+  limit: number,
+  totalCount: number | string,
+  toDto: (row: Row) => T,
+): Page<T> {
+  const page = pageOf(rows, limit);
+  return { data: page.data.map(toDto), totalCount: Number(totalCount), hasMore: page.hasMore, cursor: page.nextCursor };
 }

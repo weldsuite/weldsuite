@@ -319,6 +319,18 @@ export const navigation: Array<NavGroup> = [
     ],
   },
   {
+    title: 'WeldReach',
+    links: [
+      { title: 'Overview', href: '/weldreach' },
+      { title: 'Campaigns', href: '/reach-campaigns' },
+      { title: 'Prospects', href: '/reach-prospects' },
+      { title: 'Lists', href: '/reach-lists' },
+      { title: 'Suppressions', href: '/reach-suppressions' },
+      { title: 'Threads', href: '/reach-threads' },
+      { title: 'Mailboxes', href: '/reach-mailboxes' },
+    ],
+  },
+  {
     title: 'WeldBooks',
     links: WELDBOOKS_NAV_LINKS,
   },

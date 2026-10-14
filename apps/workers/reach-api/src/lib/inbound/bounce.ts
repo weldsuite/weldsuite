@@ -11,8 +11,8 @@
 
 import { extractAddress } from './token';
 import { normalizeMessageId } from './message-id';
-import { emailAfter, findEmails, stripParenthesized } from './strings';
-import { isQuoteSeparator } from './text';
+import { emailAfter, findEmails, stripParenthesized } from '@weldsuite/reach-domain/inbound/strings';
+import { isQuoteSeparator } from '@weldsuite/reach-domain/inbound/text';
 import type { BounceInfo, ParsedInbound } from './types';
 
 const SYSTEM_LOCAL_PARTS = new Set([

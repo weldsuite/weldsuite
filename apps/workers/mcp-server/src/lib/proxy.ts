@@ -193,6 +193,22 @@ async function retryWithResolvedName(
   return send(retryUrl);
 }
 
+/** Longest `error.details` kept on a tool error; the rest is cut, the code and message always stay whole. */
+const ERROR_DETAILS_MAX_CHARS = 600;
+
+/**
+ * The API's `error.details` (the problems that stopped a launch, the fields that
+ * failed validation, the status behind a 403) as a suffix to the message. Without
+ * it an agent only learns "this campaign cannot be launched yet", not why.
+ */
+function errorDetails(details: unknown): string {
+  if (details === undefined || details === null) return '';
+  const text = JSON.stringify(details);
+  if (!text || text === '{}' || text === '[]') return '';
+  const shown = text.length > ERROR_DETAILS_MAX_CHARS ? text.slice(0, ERROR_DETAILS_MAX_CHARS) + '…' : text;
+  return ` (details: ${shown})`;
+}
+
 /** Turn an API response into a tool result (v1 contract, see `executeTool`). */
 async function shapeResponse(
   tool: ToolDefinition,
@@ -215,8 +231,8 @@ async function shapeResponse(
   }
 
   if (!res.ok) {
-    const errObj = (json as { error?: { code?: string; message?: string } }).error;
-    const message = errObj?.message ?? `Request failed with status ${res.status}`;
+    const errObj = (json as { error?: { code?: string; message?: string; details?: unknown } }).error;
+    const message = (errObj?.message ?? `Request failed with status ${res.status}`) + errorDetails(errObj?.details);
     console.error(
       `[MCP Tool] ${tool.method} ${url.pathname} → ${res.status}: ${JSON.stringify(json).slice(0, 200)}`,
     );
@@ -289,7 +305,7 @@ export async function executeTool(
   try {
     res = await send(url);
 
-    if (res.status === 404 && pathParamEntries.length === 1) {
+    if (res.status === 404 && pathParamEntries.length === 1 && !tool.exactId) {
       const [[placeholder, field]] = pathParamEntries as [[string, string]];
       const retried = await retryWithResolvedName(
         tool,

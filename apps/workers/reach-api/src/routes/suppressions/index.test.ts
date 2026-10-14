@@ -14,7 +14,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import suppressionRoutes from './index';
 import { asJson, readJson, reachApp } from '../../test-support/routes';
 import { resetReach, seedCampaign, seedEnrollment, seedMailbox, seedProspect } from '../../test-support/reach';
-import { domainSuffixes, normalizeSuppressionValue, SuppressionIndex } from '../../services/suppressions';
+import { domainSuffixes, normalizeSuppressionValue, SuppressionIndex } from '@weldsuite/reach-domain/suppressions';
 
 const publish = publishEntityEvent as ReturnType<typeof vi.fn>;
 let db: Database;
