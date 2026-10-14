@@ -2322,6 +2322,8 @@ export const sweep = {
       "title": "Working Hours",
       "description": "Set your availability for automatic task scheduling. Tasks will be scheduled into free slots within these hours.",
       "locked": "Your working hours are locked. Contact your workspace admin to make changes.",
+      "autoScheduleLabel": "Programar tareas en mi calendario automáticamente",
+      "autoScheduleDescription": "Coloca las tareas nuevas en un hueco libre dentro de tu horario laboral. Desactívalo para que las tareas no aparezcan en tu calendario salvo que les pongas una fecha de inicio. Las tareas ya programadas automáticamente se quitan de tu calendario.",
       "autoRescheduleLabel": "Move unfinished tasks forward automatically",
       "autoRescheduleDescription": "When an auto-scheduled task isn't finished on its planned day, move it to the next free slot overnight. Turn this off to keep it where it was.",
       "autoRescheduleFailed": "Failed to update the task scheduling setting"
