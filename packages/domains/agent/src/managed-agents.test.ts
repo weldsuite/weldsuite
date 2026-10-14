@@ -157,6 +157,51 @@ describe('driveTurn', () => {
     expect(outcome.finishReason).toBe('max_iterations');
   });
 
+  it('interrupts and throws when the caller cancels', async () => {
+    const { client, sent } = fakeClient([{ type: 'session.status_running', id: 'e1' }]);
+    const cancel = new AbortController();
+    cancel.abort();
+
+    await expect(
+      driveTurn({
+        client,
+        sessionId: 'sesn_1',
+        kickoff: [{ type: 'user.message', content: [{ type: 'text', text: 'Go' }] }],
+        deadline: Date.now() + 10_000,
+        maxModelRequests: 5,
+        invocations: [],
+        onCustomTool: vi.fn(),
+        signal: cancel.signal,
+      }),
+    ).rejects.toThrow('cancelled');
+    expect(sent).toContainEqual({ type: 'user.interrupt' });
+  });
+
+  it('weights cached input tokens by their list price', async () => {
+    const { client } = fakeClient([
+      { type: 'session.status_running', id: 'e1' },
+      {
+        type: 'span.model_request_end',
+        id: 'e2',
+        model_usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 1000, cache_creation_input_tokens: 100 },
+      },
+      { type: 'session.status_idle', id: 'e3', stop_reason: { type: 'end_turn' } },
+    ]);
+
+    const outcome = await driveTurn({
+      client,
+      sessionId: 'sesn_1',
+      kickoff: [{ type: 'user.message', content: [{ type: 'text', text: 'Go' }] }],
+      deadline: Date.now() + 10_000,
+      maxModelRequests: 5,
+      invocations: [],
+      onCustomTool: vi.fn(),
+    });
+
+    expect(outcome.usage.inputTokens).toBe(1110);
+    expect(outcome.pricedInputTokens).toBe(10 + 1000 * 0.1 + 100 * 1.25);
+  });
+
   it('reports a failed session', async () => {
     const { client } = fakeClient([
       { type: 'session.status_running', id: 'e1' },

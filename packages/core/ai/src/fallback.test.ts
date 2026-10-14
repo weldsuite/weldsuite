@@ -3,8 +3,9 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { describe, expect, it, vi } from 'vitest';
 
 import { resolveConfig } from './config.js';
-import { billedModelId, isProviderRefusal, withModelFallback } from './fallback.js';
+import { billedModelId, fallbackModelFor, isProviderRefusal, withModelFallback } from './fallback.js';
 import { isByokModel } from './model-map.js';
+import { rejectsSamplingParams, withSupportedSampling } from './sampling.js';
 
 const usage = {
   inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -111,6 +112,41 @@ describe('withModelFallback', () => {
     const bad = apiError(400, 'messages: field required');
     const model = withModelFallback({ primary: refusing(bad), fallback: answering('fallback'), ...ids });
     await expect(generateText({ model, prompt: 'hi', maxRetries: 0 })).rejects.toThrow('field required');
+  });
+});
+
+describe('fallbackModelFor', () => {
+  it('only gives third-party chat models a fallback', () => {
+    expect(fallbackModelFor({}, 'anthropic/claude-sonnet-5-5')).toBe('@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+    expect(fallbackModelFor({}, '@cf/meta/llama-3.1-8b-instruct-fast')).toBeNull();
+    expect(fallbackModelFor({}, 'typesafe/jev')).toBeNull();
+    expect(fallbackModelFor({ fallbackModel: null }, 'anthropic/claude-sonnet-5-5')).toBeNull();
+  });
+});
+
+describe('withSupportedSampling', () => {
+  it('drops sampling parameters for Claude 5 models only', async () => {
+    expect(rejectsSamplingParams('anthropic/claude-sonnet-5-5')).toBe(true);
+    expect(rejectsSamplingParams('anthropic/claude-haiku-5-5')).toBe(true);
+    expect(rejectsSamplingParams('anthropic/claude-opus-4-8')).toBe(true);
+    expect(rejectsSamplingParams('anthropic/claude-sonnet-4-5')).toBe(false);
+    expect(rejectsSamplingParams('@cf/meta/llama-3.3-70b-instruct-fp8-fast')).toBe(false);
+
+    const inner = answering('ok');
+    await generateText({
+      model: withSupportedSampling(inner, 'anthropic/claude-sonnet-5-5'),
+      prompt: 'hi',
+      temperature: 0.7,
+    });
+    expect(inner.doGenerateCalls[0]?.temperature).toBeUndefined();
+
+    const untouched = answering('ok');
+    await generateText({
+      model: withSupportedSampling(untouched, 'anthropic/claude-sonnet-4-5'),
+      prompt: 'hi',
+      temperature: 0.7,
+    });
+    expect(untouched.doGenerateCalls[0]?.temperature).toBe(0.7);
   });
 });
 

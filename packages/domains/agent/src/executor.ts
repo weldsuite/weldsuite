@@ -283,6 +283,7 @@ const DENY_UNREVIEWED =
   'No reviewer is available to approve this action in this session. Choose a safer approach, or tell the user what you wanted to run.';
 
 type TurnEvent = BetaManagedAgentsStreamSessionEvents | BetaManagedAgentsSessionEvent;
+type EventOf<T extends TurnEvent['type']> = Extract<TurnEvent, { type: T }>;
 
 export interface TurnOutcome {
   texts: string[];
@@ -290,6 +291,11 @@ export interface TurnOutcome {
   error?: string;
   modelRequests: number;
   usage: { inputTokens: number; outputTokens: number };
+  /**
+   * Input tokens weighted by their list price relative to uncached input
+   * (cache reads 0.1×, cache writes 1.25×), for pricing a turn by tokens.
+   */
+  pricedInputTokens: number;
 }
 
 export interface DriveTurnParams {
@@ -301,224 +307,318 @@ export interface DriveTurnParams {
   onCustomTool: (name: string, input: unknown) => Promise<{ result: unknown; isError: boolean }>;
   invocations: StoredToolInvocation[];
   onText?: (text: string) => void;
+  /** Aborting it (e.g. the client went away) interrupts the turn. */
+  signal?: AbortSignal;
 }
 
+/** Anthropic list price of cached input relative to uncached input. */
+const CACHE_READ_PRICE_RATIO = 0.1;
+const CACHE_WRITE_PRICE_RATIO = 1.25;
+
 /**
- * Send the kickoff events and follow the session until the turn settles:
- * idle with anything but `requires_action`, or terminated. The SSE stream has
- * no replay, so on a dropped connection the stream is reopened and the event
- * history replayed from the kickoff, deduplicated by event id.
+ * State of one turn as its events arrive. One small handler per event family;
+ * {@link TurnFollower.handle} dispatches and drops events already seen (the
+ * stream and the history replay overlap after a reconnect).
  */
-export async function driveTurn(params: DriveTurnParams): Promise<TurnOutcome> {
-  const { client, sessionId } = params;
-  const outcome: TurnOutcome = {
+class TurnFollower {
+  readonly outcome: TurnOutcome = {
     texts: [],
     finishReason: 'end_turn',
     modelRequests: 0,
     usage: { inputTokens: 0, outputTokens: 0 },
+    pricedInputTokens: 0,
   };
-  const seen = new Set<string>();
-  const kickoffIds = new Set<string>();
+  done = false;
+  /** Why the turn was stopped from our side, if it was. */
+  stopped: 'timeout' | 'cancelled' | null = null;
+  private readonly seen = new Set<string>();
+  private readonly kickoffIds = new Set<string>();
   /** Built-in tool calls by event id, so results can be matched to names. */
-  const builtinCalls = new Map<string, string>();
+  private readonly builtinCalls = new Map<string, string>();
   /** Preview text already emitted per agent.message id (streaming only). */
-  const emitted = new Map<string, number>();
-  let emittedAny = false;
-  let started = false;
-  let done = false;
-  let interrupted = false;
-  let timedOut = false;
-  let lastError: string | undefined;
+  private readonly emitted = new Map<string, number>();
+  private emittedAny = false;
+  private started = false;
+  private interrupted = false;
+  private kickoffSent = false;
+  private lastError: string | undefined;
 
-  const send = (events: BetaManagedAgentsEventParams[]) => client.beta.sessions.events.send(sessionId, { events });
-  const interrupt = async () => {
-    if (interrupted) return;
-    interrupted = true;
+  constructor(private readonly params: DriveTurnParams) {}
+
+  private send(events: BetaManagedAgentsEventParams[]) {
+    return this.params.client.beta.sessions.events.send(this.params.sessionId, { events });
+  }
+
+  async interrupt(): Promise<void> {
+    if (this.interrupted) return;
+    this.interrupted = true;
     try {
-      await send([{ type: 'user.interrupt' }]);
+      await this.send([{ type: 'user.interrupt' }]);
     } catch (err) {
       console.warn('[weldagent/managed] interrupt failed:', err instanceof Error ? err.message : err);
     }
-  };
+  }
 
-  const emit = (text: string) => {
-    if (!params.onText || !text) return;
-    params.onText(text);
-  };
+  stop(reason: 'timeout' | 'cancelled'): void {
+    this.stopped ??= reason;
+    void this.interrupt();
+  }
 
-  const handle = async (ev: TurnEvent) => {
+  stopError(): Error | null {
+    if (this.stopped === 'timeout') return new Error('The agent did not finish in time');
+    if (this.stopped === 'cancelled') return new Error('The turn was cancelled');
+    return null;
+  }
+
+  /** Stream first, then send: the stream only carries events after it opens. */
+  async sendKickoffOnce(): Promise<void> {
+    if (this.kickoffSent) return;
+    const sent = await this.send(this.params.kickoff);
+    for (const ev of sent.data ?? []) if (ev.id) this.kickoffIds.add(ev.id);
+    this.kickoffSent = true;
+  }
+
+  /** Replay the history from the kickoff on (covers a dropped stream's gap). */
+  async replayHistory(): Promise<void> {
+    let afterKickoff = false;
+    for await (const ev of this.params.client.beta.sessions.events.list(this.params.sessionId)) {
+      afterKickoff ||= this.kickoffIds.has(ev.id);
+      if (!afterKickoff) continue;
+      await this.handle(ev);
+      if (this.done) return;
+    }
+  }
+
+  async handle(ev: TurnEvent): Promise<void> {
     const id = 'id' in ev ? ev.id : undefined;
     if (id) {
-      if (seen.has(id)) return;
-      seen.add(id);
+      if (this.seen.has(id)) return;
+      this.seen.add(id);
     }
-
     switch (ev.type) {
       case 'event_start':
-        if (ev.event.type === 'agent.message') {
-          if (emittedAny) emit('\n\n');
-          emitted.set(ev.event.id, 0);
-          emittedAny = true;
-        }
-        return;
-      case 'event_delta': {
-        const text = ev.delta.content.text ?? '';
-        emitted.set(ev.event_id, (emitted.get(ev.event_id) ?? 0) + text.length);
-        emit(text);
-        return;
-      }
+        return this.onPreviewStart(ev);
+      case 'event_delta':
+        return this.onPreviewDelta(ev);
       case 'user.message':
-        if (id && kickoffIds.has(id) && ev.processed_at) started = true;
+        if (this.kickoffIds.has(ev.id) && ev.processed_at) this.started = true;
         return;
       case 'session.status_running':
+        this.started = true;
+        return;
       case 'span.model_request_start':
-        started = true;
-        if (ev.type === 'span.model_request_start') {
-          outcome.modelRequests += 1;
-          if (outcome.modelRequests > params.maxModelRequests) {
-            outcome.finishReason = 'max_iterations';
-            await interrupt();
-          }
-        }
-        return;
+        return this.onModelRequestStart();
       case 'span.model_request_end':
-        outcome.usage.inputTokens +=
-          (ev.model_usage.input_tokens ?? 0) +
-          (ev.model_usage.cache_read_input_tokens ?? 0) +
-          (ev.model_usage.cache_creation_input_tokens ?? 0);
-        outcome.usage.outputTokens += ev.model_usage.output_tokens ?? 0;
-        return;
-      case 'agent.message': {
-        const text = blocksText(ev.content);
-        if (!text) return;
-        outcome.texts.push(text);
-        // Reconcile the preview: emit whatever the deltas did not cover.
-        const already = emitted.get(ev.id);
-        if (already === undefined) {
-          if (emittedAny) emit('\n\n');
-          emittedAny = true;
-          emit(text);
-        } else if (already < text.length) {
-          emit(text.slice(already));
-        }
-        return;
-      }
-      case 'agent.custom_tool_use': {
-        const { result, isError } = await params.onCustomTool(ev.name, ev.input);
-        await send([
-          {
-            type: 'user.custom_tool_result',
-            custom_tool_use_id: ev.id,
-            content: [{ type: 'text', text: toResultText(result) }],
-            is_error: isError,
-          },
-        ]);
-        return;
-      }
+        return this.onModelRequestEnd(ev);
+      case 'agent.message':
+        return this.onAgentMessage(ev);
+      case 'agent.custom_tool_use':
+        return this.onCustomToolUse(ev);
       case 'agent.tool_use':
       case 'agent.mcp_tool_use':
-        builtinCalls.set(ev.id, ev.name);
-        params.invocations.push({ toolName: ev.name, state: 'call', args: ev.input });
-        if (ev.evaluated_permission === 'ask') {
-          // Paused for approval with nobody to ask: deny, never blanket-allow.
-          await send([
-            { type: 'user.tool_confirmation', tool_use_id: ev.id, result: 'deny', deny_message: DENY_UNREVIEWED },
-          ]);
-        }
-        return;
-      case 'agent.tool_result': {
-        const text = blocksText(ev.content);
-        params.invocations.push({
-          toolName: builtinCalls.get(ev.tool_use_id) ?? 'tool',
-          state: ev.is_error ? 'error' : 'result',
-          result: text.length > MAX_STORED_RESULT_CHARS ? `${text.slice(0, MAX_STORED_RESULT_CHARS)}…` : text,
-        });
-        return;
-      }
+        return this.onBuiltinToolUse(ev);
+      case 'agent.tool_result':
+        return this.onBuiltinToolResult(ev);
       case 'session.error':
-        lastError = (ev.error as { message?: string }).message || ev.error.type;
+        this.lastError = (ev.error as { message?: string }).message || ev.error.type;
         return;
       case 'session.status_idle':
-        if (!started || ev.stop_reason.type === 'requires_action') return;
-        done = true;
-        if (ev.stop_reason.type === 'retries_exhausted') {
-          outcome.finishReason = 'error';
-          outcome.error = lastError ?? 'The agent session failed after retries';
-        } else if (ev.stop_reason.type === 'budget_reached') {
-          outcome.finishReason = 'budget_reached';
-          outcome.error = 'This turn reached its spending limit (credits or the per-turn cap).';
-        } else if (ev.stop_reason.type === 'refusal') {
-          outcome.finishReason = 'refusal';
-        } else if (outcome.finishReason === 'end_turn' && interrupted && !timedOut) {
-          outcome.finishReason = 'max_iterations';
-        }
-        return;
+        return this.onIdle(ev);
       case 'session.status_terminated':
-        done = true;
-        outcome.finishReason = 'error';
-        outcome.error = lastError ?? 'The agent session ended unexpectedly';
+        this.done = true;
+        this.outcome.finishReason = 'error';
+        this.outcome.error = this.lastError ?? 'The agent session ended unexpectedly';
         return;
       default:
         return;
     }
-  };
+  }
 
-  const abort = new AbortController();
-  const timer = setTimeout(() => {
-    timedOut = true;
-    void interrupt();
-    abort.abort();
-  }, Math.max(1_000, params.deadline - Date.now()));
+  private emit(text: string): void {
+    if (text) this.params.onText?.(text);
+  }
 
-  let sentKickoff = false;
-  let replayHistory = false;
-  let reconnects = 0;
-  try {
-    while (!done) {
-      try {
-        const stream = await client.beta.sessions.events.stream(
-          sessionId,
-          params.onText ? { event_deltas: ['agent.message'] } : {},
-          { signal: abort.signal },
-        );
-        if (!sentKickoff) {
-          // Stream first, then send: the stream only carries events after it opens.
-          const sent = await send(params.kickoff);
-          for (const ev of sent.data ?? []) if (ev.id) kickoffIds.add(ev.id);
-          sentKickoff = true;
-        }
-        if (replayHistory) {
-          let afterKickoff = false;
-          for await (const ev of client.beta.sessions.events.list(sessionId)) {
-            if (!afterKickoff) {
-              if (!kickoffIds.has(ev.id)) continue;
-              afterKickoff = true;
-            }
-            await handle(ev);
-            if (done) break;
-          }
-        }
-        for await (const ev of stream) {
-          await handle(ev);
-          if (done) break;
-        }
-        if (done) stream.controller.abort();
-      } catch (err) {
-        if (timedOut) throw new Error('The agent did not finish in time');
-        if (++reconnects > 3) throw err;
-        console.warn('[weldagent/managed] event stream dropped, reconnecting:', err instanceof Error ? err.message : err);
-      }
-      replayHistory = true;
-      if (Date.now() > params.deadline) {
-        timedOut = true;
-        await interrupt();
-        throw new Error('The agent did not finish in time');
-      }
+  /** Separate consecutive messages in the streamed text. */
+  private beginMessage(): void {
+    if (this.emittedAny) this.emit('\n\n');
+    this.emittedAny = true;
+  }
+
+  private onPreviewStart(ev: EventOf<'event_start'>): void {
+    if (ev.event.type !== 'agent.message') return;
+    this.beginMessage();
+    this.emitted.set(ev.event.id, 0);
+  }
+
+  private onPreviewDelta(ev: EventOf<'event_delta'>): void {
+    const text = ev.delta.content.text ?? '';
+    this.emitted.set(ev.event_id, (this.emitted.get(ev.event_id) ?? 0) + text.length);
+    this.emit(text);
+  }
+
+  private async onModelRequestStart(): Promise<void> {
+    this.started = true;
+    this.outcome.modelRequests += 1;
+    if (this.outcome.modelRequests > this.params.maxModelRequests) {
+      this.outcome.finishReason = 'max_iterations';
+      await this.interrupt();
     }
+  }
+
+  private onModelRequestEnd(ev: EventOf<'span.model_request_end'>): void {
+    const usage = ev.model_usage;
+    const cacheRead = usage.cache_read_input_tokens ?? 0;
+    const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+    const uncached = usage.input_tokens ?? 0;
+    this.outcome.usage.inputTokens += uncached + cacheRead + cacheWrite;
+    this.outcome.usage.outputTokens += usage.output_tokens ?? 0;
+    this.outcome.pricedInputTokens +=
+      uncached + cacheRead * CACHE_READ_PRICE_RATIO + cacheWrite * CACHE_WRITE_PRICE_RATIO;
+  }
+
+  private onAgentMessage(ev: EventOf<'agent.message'>): void {
+    const text = blocksText(ev.content);
+    if (!text) return;
+    this.outcome.texts.push(text);
+    // Reconcile the preview: emit whatever the deltas did not cover.
+    const already = this.emitted.get(ev.id);
+    if (already === undefined) {
+      this.beginMessage();
+      this.emit(text);
+    } else if (already < text.length) {
+      this.emit(text.slice(already));
+    }
+  }
+
+  private async onCustomToolUse(ev: EventOf<'agent.custom_tool_use'>): Promise<void> {
+    const { result, isError } = await this.params.onCustomTool(ev.name, ev.input);
+    await this.send([
+      {
+        type: 'user.custom_tool_result',
+        custom_tool_use_id: ev.id,
+        content: [{ type: 'text', text: toResultText(result) }],
+        is_error: isError,
+      },
+    ]);
+  }
+
+  private async onBuiltinToolUse(ev: EventOf<'agent.tool_use'> | EventOf<'agent.mcp_tool_use'>): Promise<void> {
+    this.builtinCalls.set(ev.id, ev.name);
+    this.params.invocations.push({ toolName: ev.name, state: 'call', args: ev.input });
+    if (ev.evaluated_permission !== 'ask') return;
+    // Paused for approval with nobody to ask: deny, never blanket-allow.
+    await this.send([
+      { type: 'user.tool_confirmation', tool_use_id: ev.id, result: 'deny', deny_message: DENY_UNREVIEWED },
+    ]);
+  }
+
+  private onBuiltinToolResult(ev: EventOf<'agent.tool_result'>): void {
+    const text = blocksText(ev.content);
+    this.params.invocations.push({
+      toolName: this.builtinCalls.get(ev.tool_use_id) ?? 'tool',
+      state: ev.is_error ? 'error' : 'result',
+      result: text.length > MAX_STORED_RESULT_CHARS ? `${text.slice(0, MAX_STORED_RESULT_CHARS)}…` : text,
+    });
+  }
+
+  private onIdle(ev: EventOf<'session.status_idle'>): void {
+    const reason = ev.stop_reason.type;
+    if (!this.started || reason === 'requires_action') return;
+    this.done = true;
+    const outcome = this.outcome;
+    if (reason === 'retries_exhausted') {
+      outcome.finishReason = 'error';
+      outcome.error = this.lastError ?? 'The agent session failed after retries';
+    } else if (reason === 'budget_reached') {
+      outcome.finishReason = 'budget_reached';
+      outcome.error = 'This turn reached its spending limit (credits or the per-turn cap).';
+    } else if (reason === 'refusal') {
+      outcome.finishReason = 'refusal';
+    } else if (outcome.finishReason === 'end_turn' && this.interrupted && !this.stopped) {
+      outcome.finishReason = 'max_iterations';
+    }
+  }
+}
+
+/** Open the event stream once (sending the kickoff the first time) and follow it. */
+async function followStream(follower: TurnFollower, params: DriveTurnParams, signal: AbortSignal, replay: boolean) {
+  const stream = await params.client.beta.sessions.events.stream(
+    params.sessionId,
+    params.onText ? { event_deltas: ['agent.message'] } : {},
+    { signal },
+  );
+  await follower.sendKickoffOnce();
+  if (replay) await follower.replayHistory();
+  if (follower.done) {
+    // Settled during the replay: don't wait on the live stream.
+    stream.controller.abort();
+    return;
+  }
+  for await (const ev of stream) {
+    await follower.handle(ev);
+    if (follower.done) break;
+  }
+  if (follower.done) stream.controller.abort();
+}
+
+/**
+ * Follow the session until the turn settles. The SSE stream has no replay, so
+ * a dropped connection is reopened and the history replayed from the kickoff.
+ */
+async function followSession(follower: TurnFollower, params: DriveTurnParams, signal: AbortSignal) {
+  let replay = false;
+  let reconnects = 0;
+  while (!follower.done) {
+    throwIfStopped(follower);
+    try {
+      await followStream(follower, params, signal, replay);
+    } catch (err) {
+      reconnects = afterStreamError(follower, err, reconnects);
+    }
+    replay = true;
+    if (!follower.done && Date.now() > params.deadline) follower.stop('timeout');
+  }
+}
+
+/** The stop error (timeout / cancel) once the turn was stopped from our side. */
+function throwIfStopped(follower: TurnFollower): void {
+  const stopError = follower.stopError();
+  if (stopError) throw stopError;
+}
+
+/** A dropped stream: rethrow a stop or a 4th failure, otherwise count it and reconnect. */
+function afterStreamError(follower: TurnFollower, err: unknown, reconnects: number): number {
+  throwIfStopped(follower);
+  if (reconnects >= 3) throw err;
+  console.warn('[weldagent/managed] event stream dropped, reconnecting:', err instanceof Error ? err.message : err);
+  return reconnects + 1;
+}
+
+/**
+ * Send the kickoff events and follow the session until the turn settles:
+ * idle with anything but `requires_action`, or terminated. Past the deadline,
+ * or when `params.signal` aborts, the turn is interrupted and this throws.
+ */
+export async function driveTurn(params: DriveTurnParams): Promise<TurnOutcome> {
+  const follower = new TurnFollower(params);
+  const abort = new AbortController();
+  const stop = (reason: 'timeout' | 'cancelled') => {
+    follower.stop(reason);
+    abort.abort();
+  };
+  const timer = setTimeout(() => stop('timeout'), Math.max(1_000, params.deadline - Date.now()));
+  const onCancel = () => stop('cancelled');
+  params.signal?.addEventListener('abort', onCancel, { once: true });
+  try {
+    if (params.signal?.aborted) onCancel();
+    await followSession(follower, params, abort.signal);
+    const stopError = follower.stopError();
+    if (stopError && !follower.done) throw stopError;
   } finally {
     clearTimeout(timer);
+    params.signal?.removeEventListener('abort', onCancel);
   }
-  return outcome;
+  return follower.outcome;
 }
 
 function transcript(messages: AgentExecutorInput['messages']): string {
@@ -597,57 +697,62 @@ async function archiveSession(client: Anthropic, sessionId: string): Promise<voi
 interface TurnOptions {
   metering?: AiMetering | null;
   onText?: (text: string) => void;
+  /** Aborting it interrupts the turn (the turn is still charged for what ran). */
+  signal?: AbortSignal;
 }
 
-/**
- * One agent turn on Claude Managed Agents. Conversation turns
- * (`toolContext.conversationId`) keep using the conversation's session;
- * everything else gets a one-off session, archived afterwards.
- */
-async function runManagedTurn(input: AgentExecutorInput, options: TurnOptions = {}): Promise<AgentExecutorResult> {
+/** Everything a turn needs before it touches a session. */
+interface PreparedTurn {
+  client: Anthropic;
+  metering: AiMetering | null;
+  modelId: string;
+  setup: boolean;
+  /** Platform tools that may run this turn. */
+  allowedNow: PlatformToolDefinition[];
+  /** Platform tools the session declares (setup: save_agent_setup from the start). */
+  declared: PlatformToolDefinition[];
+  sessionTools: ManagedToolList;
+  ref: ManagedAgentRef;
+  environmentId: string;
+  system: string;
+  toolsHash: string;
+  systemHash: string;
+  allowanceUsd: number;
+}
+
+async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Promise<PreparedTurn> {
   if (!isManagedAgentsConfigured(input.env)) {
     throw new ManagedAgentsConfigError('Claude Managed Agents is not configured (ANTHROPIC_API_KEY)');
   }
   const client = managedAgentsClient(input.env);
-  const ctx = input.toolContext;
-
   const metering =
-    options.metering !== undefined
-      ? options.metering
-      : await resolveAiMetering(input.env, input.workspaceId, input.actorUserId);
+    options.metering === undefined
+      ? await resolveAiMetering(input.env, input.workspaceId, input.actorUserId)
+      : options.metering;
   await assertAiCredits(metering);
 
   const modelId = resolveManagedModel(input.agent.modelId);
   const setup = agentNeedsSetup(input.agent.systemPrompt);
-  const userMessageCount = input.messages.filter((m) => m.role === 'user').length;
-
-  // What may run right now, and what the session declares. During setup the
-  // session declares save_agent_setup from the start (one session for the
-  // whole interview); calling it too early is refused below.
+  // During setup the session declares save_agent_setup from the start (one
+  // session for the whole interview); calling it too early is refused.
   const allowedNow = toolsForAgentTurn({
     permissions: input.agent.permissions,
     enabledTools: input.agent.enabledTools,
     systemPrompt: input.agent.systemPrompt,
-    userMessageCount,
+    userMessageCount: input.messages.filter((m) => m.role === 'user').length,
     actorPermissions: input.actorPermissions,
   });
-  const declared = setup
-    ? resolveAgentTools([], []).filter((tool) => tool.id === 'agent.save_setup')
-    : allowedNow;
-  const effectivePermissions = effectiveAgentPermissions(input.agent.permissions, input.actorPermissions);
+  const declared = setup ? resolveAgentTools([], []).filter((tool) => tool.id === 'agent.save_setup') : allowedNow;
   const sessionTools = await buildManagedTools(
     declared,
-    setup ? { sandbox: false, web: false } : builtinToolAccess(effectivePermissions),
+    setup
+      ? { sandbox: false, web: false }
+      : builtinToolAccess(effectiveAgentPermissions(input.agent.permissions, input.actorPermissions)),
   );
-  const agentTools: ManagedToolList = setup
-    ? sessionTools
-    : await buildManagedTools(
-        resolveAgentTools(input.agent.permissions, input.agent.enabledTools),
-        builtinToolAccess(input.agent.permissions),
-      );
+  const agentTools = setup ? sessionTools : await agentObjectTools(input);
 
   const [ref, environmentId, system] = await Promise.all([
-    ensureManagedAgent(client, ctx.db, input.env, {
+    ensureManagedAgent(client, input.toolContext.db, input.env, {
       agentId: input.agent.id,
       workspaceId: input.workspaceId,
       name: input.agent.name,
@@ -659,110 +764,160 @@ async function runManagedTurn(input: AgentExecutorInput, options: TurnOptions = 
     ensureEnvironment(client, input.env),
     buildSessionSystem(input),
   ]);
-  const toolsHash = await sha256Hex(JSON.stringify(sessionTools));
-  const systemHash = await sha256Hex(system);
-  const allowance = await turnAllowanceUsd(metering);
 
-  // --- Session ---------------------------------------------------------------
+  return {
+    client,
+    metering,
+    modelId,
+    setup,
+    allowedNow,
+    declared,
+    sessionTools,
+    ref,
+    environmentId,
+    system,
+    toolsHash: await sha256Hex(JSON.stringify(sessionTools)),
+    systemHash: await sha256Hex(system),
+    allowanceUsd: await turnAllowanceUsd(metering),
+  };
+}
+
+/** The agent object's own tools: everything its grants allow, unnarrowed. */
+function agentObjectTools(input: AgentExecutorInput): Promise<ManagedToolList> {
+  return buildManagedTools(
+    resolveAgentTools(input.agent.permissions, input.agent.enabledTools),
+    builtinToolAccess(input.agent.permissions),
+  );
+}
+
+interface TurnSession {
+  sessionId: string;
+  /** List cost (USD) already charged before this turn. */
+  chargedUsd: number;
+  kickoff: BetaManagedAgentsEventParams[];
+  /** Set for conversation turns: the session is kept and its state saved. */
+  conversation: Awaited<ReturnType<typeof loadConversationSession>>;
+}
+
+/**
+ * The conversation's session when it still fits (same agent version and tool
+ * list, not terminated), with its budget topped up for this turn; otherwise a
+ * new session seeded with the history it has not seen.
+ */
+async function openOrReuseSession(input: AgentExecutorInput, turn: PreparedTurn): Promise<TurnSession> {
+  const { client } = turn;
+  const ctx = input.toolContext;
   const conversation = await loadConversationSession(ctx);
-  let state = conversation?.state ?? null;
-  if (state && !(await canReuse(client, state, ref, toolsHash))) state = null;
-
-  const kickoff: BetaManagedAgentsEventParams[] = [];
-  let sessionId: string;
-  let chargedUsd: number;
   const priorMessages = input.messages.slice(0, -1);
+  const state = conversation?.state;
 
-  if (state) {
-    sessionId = state.sessionId;
-    chargedUsd = state.chargedUsd;
-    const consumed = await sessionListCostUsd(client, sessionId);
-    await client.beta.sessions.update(sessionId, { budget: budgetForUsd(consumed + allowance) });
-    if (state.systemHash !== systemHash) {
+  if (state && (await canReuse(client, state, turn.ref, turn.toolsHash))) {
+    const consumed = await sessionListCostUsd(client, state.sessionId);
+    await client.beta.sessions.update(state.sessionId, { budget: budgetForUsd(consumed + turn.allowanceUsd) });
+    const kickoff: BetaManagedAgentsEventParams[] = [];
+    if (state.systemHash !== turn.systemHash) {
       kickoff.push({
         type: 'system.message',
-        content: [{ type: 'text', text: `Your instructions and saved context were updated. Current version:\n\n${system}` }],
+        content: [{ type: 'text', text: `Your instructions and saved context were updated. Current version:\n\n${turn.system}` }],
       });
     }
     kickoff.push(userMessageEvent(turnMessage(input.messages, priorMessages.slice(state.syncedMessages))));
-  } else {
-    const session = await client.beta.sessions.create({
-      agent: { type: 'agent_with_overrides', id: ref.id, version: ref.version, system, tools: sessionTools },
-      environment_id: environmentId,
-      title: `${input.agent.name}${ctx.conversationId ? ' · conversation' : ' · run'}`.slice(0, 200),
-      budget: budgetForUsd(allowance),
-      metadata: {
-        weldsuite_workspace_id: input.workspaceId,
-        weldsuite_agent_id: input.agent.id,
-        ...(ctx.conversationId ? { weldsuite_conversation_id: ctx.conversationId } : {}),
-        ...(ctx.channelId ? { weldsuite_channel_id: ctx.channelId } : {}),
-      },
-    });
-    sessionId = session.id;
-    chargedUsd = 0;
-    kickoff.push(userMessageEvent(turnMessage(input.messages, priorMessages)));
+    return { sessionId: state.sessionId, chargedUsd: state.chargedUsd, kickoff, conversation };
   }
 
-  // --- Turn ------------------------------------------------------------------
-  const invocations: StoredToolInvocation[] = [];
-  const allowedNames = new Set(allowedNow.map((tool) => tool.name));
-  let outcome: TurnOutcome | undefined;
-  let creditsUsed = 0;
+  const session = await client.beta.sessions.create({
+    agent: {
+      type: 'agent_with_overrides',
+      id: turn.ref.id,
+      version: turn.ref.version,
+      system: turn.system,
+      tools: turn.sessionTools,
+    },
+    environment_id: turn.environmentId,
+    title: `${input.agent.name}${ctx.conversationId ? ' · conversation' : ' · run'}`.slice(0, 200),
+    budget: budgetForUsd(turn.allowanceUsd),
+    metadata: {
+      weldsuite_workspace_id: input.workspaceId,
+      weldsuite_agent_id: input.agent.id,
+      ...(ctx.conversationId ? { weldsuite_conversation_id: ctx.conversationId } : {}),
+      ...(ctx.channelId ? { weldsuite_channel_id: ctx.channelId } : {}),
+    },
+  });
+  return {
+    sessionId: session.id,
+    chargedUsd: 0,
+    kickoff: [userMessageEvent(turnMessage(input.messages, priorMessages))],
+    conversation,
+  };
+}
+
+/** Runs a custom tool call: refused when the tool is not allowed this turn. */
+function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocations: StoredToolInvocation[]) {
+  const allowedNames = new Set(turn.allowedNow.map((tool) => tool.name));
+  return async (name: string, args: unknown) => {
+    const def = turn.declared.find((tool) => tool.name === name);
+    if (!def || !allowedNames.has(name)) {
+      const error =
+        def && turn.setup
+          ? 'Not yet: ask the user at least one clarifying question about routines before saving the setup.'
+          : `Tool "${name}" is not available to this agent right now.`;
+      invocations.push({ toolName: name, state: 'error', args, result: { error } });
+      return { result: { error }, isError: true };
+    }
+    return executePlatformTool(def, input.toolContext, args, invocations, {
+      autoReviewEnabled: input.agent.autoReviewEnabled,
+      skipApprovals: input.skipApprovals,
+    });
+  };
+}
+
+/**
+ * After a turn (also a failed or cancelled one): charge it, then keep the
+ * conversation's session state or archive a one-off session. Never throws.
+ */
+async function finishTurn(
+  input: AgentExecutorInput,
+  turn: PreparedTurn,
+  session: TurnSession,
+  outcome: TurnOutcome | undefined,
+): Promise<number> {
+  const { credits, totalUsd } = await settleTurn({
+    client: turn.client,
+    sessionId: session.sessionId,
+    metering: turn.metering,
+    modelId: turn.modelId,
+    chargedUsd: session.chargedUsd,
+    outcome,
+    referenceId: input.agent.id,
+  });
   try {
-    outcome = await driveTurn({
-      client,
-      sessionId,
-      kickoff,
-      deadline: Date.now() + (input.timeoutMs ?? REQUEST_RUN_TIMEOUT_MS),
-      maxModelRequests: Math.max(1, input.agent.maxIterations),
-      invocations,
-      onText: options.onText,
-      onCustomTool: async (name, args) => {
-        const def = declared.find((tool) => tool.name === name);
-        if (!def || !allowedNames.has(name)) {
-          const error =
-            def && setup
-              ? 'Not yet: ask the user at least one clarifying question about routines before saving the setup.'
-              : `Tool "${name}" is not available to this agent right now.`;
-          invocations.push({ toolName: name, state: 'error', args, result: { error } });
-          return { result: { error }, isError: true };
-        }
-        return executePlatformTool(def, ctx, args, invocations, {
-          autoReviewEnabled: input.agent.autoReviewEnabled,
-          skipApprovals: input.skipApprovals,
-        });
-      },
-    });
-  } finally {
-    creditsUsed = await settleTurn({
-      client,
-      sessionId,
-      metering,
-      modelId,
-      chargedUsd,
-      usage: outcome?.usage,
-      referenceId: input.agent.id,
-    }).then(async ({ credits, totalUsd }) => {
-      if (conversation) {
-        await saveConversationSession(ctx, {
-          sessionId,
-          agentObjectId: ref.id,
-          agentVersion: ref.version,
-          toolsHash,
-          systemHash,
-          // History plus the assistant reply this turn adds.
-          syncedMessages: input.messages.length + 1,
-          chargedUsd: totalUsd,
-        });
-      } else {
-        await archiveSession(client, sessionId);
-      }
-      return credits;
-    });
+    if (session.conversation) {
+      await saveConversationSession(input.toolContext, {
+        sessionId: session.sessionId,
+        agentObjectId: turn.ref.id,
+        agentVersion: turn.ref.version,
+        toolsHash: turn.toolsHash,
+        systemHash: turn.systemHash,
+        // History plus the assistant reply this turn adds.
+        syncedMessages: input.messages.length + 1,
+        chargedUsd: totalUsd,
+      });
+    } else {
+      await archiveSession(turn.client, session.sessionId);
+    }
+  } catch (err) {
+    console.error('[weldagent/managed] saving session state failed:', err);
   }
+  return credits;
+}
 
+function toExecutorResult(
+  outcome: TurnOutcome,
+  modelId: string,
+  creditsUsed: number,
+  invocations: StoredToolInvocation[],
+): AgentExecutorResult {
   if (outcome.error && outcome.texts.length === 0) throw new Error(outcome.error);
-
   const text = outcome.texts.join('\n\n');
   return {
     text: outcome.error ? `${text}\n\n(${outcome.error})` : text,
@@ -777,6 +932,35 @@ async function runManagedTurn(input: AgentExecutorInput, options: TurnOptions = 
     toolInvocations: invocations,
     steps: outcome.modelRequests,
   };
+}
+
+/**
+ * One agent turn on Claude Managed Agents. Conversation turns
+ * (`toolContext.conversationId`) keep using the conversation's session;
+ * everything else gets a one-off session, archived afterwards.
+ */
+async function runManagedTurn(input: AgentExecutorInput, options: TurnOptions = {}): Promise<AgentExecutorResult> {
+  const turn = await prepareTurn(input, options);
+  const session = await openOrReuseSession(input, turn);
+  const invocations: StoredToolInvocation[] = [];
+  let outcome: TurnOutcome | undefined;
+  let creditsUsed = 0;
+  try {
+    outcome = await driveTurn({
+      client: turn.client,
+      sessionId: session.sessionId,
+      kickoff: session.kickoff,
+      deadline: Date.now() + (input.timeoutMs ?? REQUEST_RUN_TIMEOUT_MS),
+      maxModelRequests: Math.max(1, input.agent.maxIterations),
+      invocations,
+      onText: options.onText,
+      signal: options.signal,
+      onCustomTool: customToolRunner(input, turn, invocations),
+    });
+  } finally {
+    creditsUsed = await finishTurn(input, turn, session, outcome);
+  }
+  return toExecutorResult(outcome, turn.modelId, creditsUsed, invocations);
 }
 
 function userMessageEvent(text: string): BetaManagedAgentsEventParams {
@@ -802,9 +986,11 @@ async function canReuse(
 }
 
 /**
- * Charge the turn: the session's list-cost growth since the last charge, or
- * the token price when that is higher (list cost is rounded to cents).
- * Never throws — the work already happened.
+ * Charge the turn: the growth of the session's list cost since the last
+ * charge (tokens at their real cache rates, sandbox runtime, web search).
+ * Only when the list cost can't be read is the turn priced from its tokens.
+ * Any turn that used the model costs at least one credit. Never throws — the
+ * work already happened.
  */
 async function settleTurn(params: {
   client: Anthropic;
@@ -812,27 +998,39 @@ async function settleTurn(params: {
   metering: AiMetering | null;
   modelId: string;
   chargedUsd: number;
-  usage?: { inputTokens: number; outputTokens: number };
+  outcome?: TurnOutcome;
   referenceId: string;
 }): Promise<{ credits: number; totalUsd: number }> {
-  let totalUsd = params.chargedUsd;
+  const usage = params.outcome?.usage ?? { inputTokens: 0, outputTokens: 0 };
+  let costUsd: number;
+  let totalUsd: number;
   try {
-    totalUsd = Math.max(params.chargedUsd, await sessionListCostUsd(params.client, params.sessionId));
+    const listUsd = await sessionListCostUsd(params.client, params.sessionId);
+    costUsd = Math.max(0, listUsd - params.chargedUsd);
+    totalUsd = Math.max(params.chargedUsd, listUsd);
   } catch (err) {
-    console.error('[weldagent/managed] reading session cost failed:', err);
+    console.error('[weldagent/managed] reading session cost failed, pricing by tokens:', err);
+    costUsd = providerCostUsd(params.modelId, {
+      inputTokens: params.outcome?.pricedInputTokens ?? 0,
+      outputTokens: usage.outputTokens,
+    });
+    // Count it as charged so the next turn's list-cost growth doesn't bill it again.
+    totalUsd = params.chargedUsd + costUsd;
   }
-  const usage = params.usage ?? { inputTokens: 0, outputTokens: 0 };
-  const tokenUsd = providerCostUsd(params.modelId, usage);
-  const costUsd = Math.max(totalUsd - params.chargedUsd, tokenUsd);
-  if (costUsd <= 0) return { credits: 0, totalUsd };
-  const credits = await chargeAiUsage(params.metering, {
-    modelId: params.modelId,
-    usage,
-    op: 'agent',
-    referenceId: params.referenceId,
-    costUsd,
-  });
-  return { credits, totalUsd };
+  if (costUsd <= 0 && usage.inputTokens + usage.outputTokens === 0) return { credits: 0, totalUsd };
+  try {
+    const credits = await chargeAiUsage(params.metering, {
+      modelId: params.modelId,
+      usage,
+      op: 'agent',
+      referenceId: params.referenceId,
+      costUsd,
+    });
+    return { credits, totalUsd };
+  } catch (err) {
+    console.error('[weldagent/managed] charging the turn failed:', err);
+    return { credits: 0, totalUsd };
+  }
 }
 
 /**
@@ -846,27 +1044,39 @@ export async function runAgentOnce(input: AgentExecutorInput): Promise<AgentExec
 export interface StreamAgentParams extends AgentExecutorInput {
   metering: AiMetering | null;
   executionCtx: { waitUntil: (p: Promise<unknown>) => void };
+  /** The request's signal: a client disconnect interrupts the turn. */
+  signal?: AbortSignal;
 }
 
 /**
  * Streaming chat: a `text/plain` stream of the agent's reply as it is written.
- * Tool calls run in between; the turn is charged when it settles.
+ * Tool calls run in between; the turn is charged when it settles. When the
+ * client stops reading (or `signal` aborts), the turn is interrupted so it
+ * stops spending, and still charged for what ran.
  */
 export function streamAgentChat(input: StreamAgentParams): { stream: ReadableStream<Uint8Array>; modelId: string } {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
+  const cancel = new AbortController();
+  const stop = () => cancel.abort();
+  input.signal?.addEventListener('abort', stop, { once: true });
+  // Cancelling the response body errors the writable side.
+  writer.closed.catch(stop);
+
   let pending = Promise.resolve();
   const write = (text: string) => {
-    pending = pending.then(() => writer.write(encoder.encode(text))).catch(() => undefined);
+    pending = pending.then(() => writer.write(encoder.encode(text))).catch(stop);
   };
 
-  const work = runManagedTurn(input, { metering: input.metering, onText: write })
+  const work = runManagedTurn(input, { metering: input.metering, onText: write, signal: cancel.signal })
     .catch((err) => {
+      if (cancel.signal.aborted) return;
       console.error('[weldagent/stream] turn failed:', err);
       write(`\n\n${err instanceof Error ? err.message : 'The agent could not finish this reply.'}`);
     })
     .finally(async () => {
+      input.signal?.removeEventListener('abort', stop);
       await pending;
       await writer.close().catch(() => undefined);
     });

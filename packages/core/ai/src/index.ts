@@ -71,9 +71,11 @@ export {
 export {
   withModelFallback,
   billedModelId,
+  fallbackModelFor,
   isProviderRefusal,
   FALLBACK_METADATA_KEY,
 } from './fallback.js';
+export { rejectsSamplingParams, withSupportedSampling } from './sampling.js';
 
 // Cost-aware routing + failover. `AI_GATEWAY_ROUTING` defaults to 'off', which
 // is byte-identical to a single pinned gateway.
@@ -81,6 +83,7 @@ export {
   rankCandidates,
   effectiveCostUsd,
   GATEWAY_FEE_MULTIPLIER,
+  gatewayCostFactor,
   ROUTING_MODES,
   type RoutingMode,
   type ModelKind,

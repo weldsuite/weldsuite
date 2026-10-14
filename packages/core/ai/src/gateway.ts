@@ -15,16 +15,11 @@ import type { EmbeddingModel, LanguageModel } from 'ai';
 
 import { createAdapter } from './adapters/index.js';
 import type { GatewayProvider } from './adapters/types.js';
-import { DEFAULT_MODEL, resolveConfig, type WeldAiConfig } from './config.js';
-import { withModelFallback } from './fallback.js';
-import { modelProvider, resolveModelId } from './model-map.js';
+import { resolveConfig, type WeldAiConfig } from './config.js';
+import { fallbackModelFor, withModelFallback } from './fallback.js';
+import { resolveModelId } from './model-map.js';
 import type { ModelId } from './models.js';
-
-/**
- * Third-party ids that are not chat models a Workers AI model can stand in for
- * (TypeSafe Jev returns structured verdicts) or that already run on Workers AI.
- */
-const NO_FALLBACK_PROVIDERS = new Set(['typesafe', 'workers-ai']);
+import { withSupportedSampling } from './sampling.js';
 
 export interface WeldAI {
   /** Resolve a chat/completion model for use with generateText/streamText/etc. */
@@ -67,14 +62,12 @@ export function createWeldAI(configOrEnv?: WeldAiConfig | object): WeldAI {
   return {
     model: (id?: ModelId) => {
       const modelId = id ?? config.defaultModel;
-      const primary = languageModel(modelId);
+      // Claude 5.x rejects non-default sampling parameters (see sampling.ts).
+      const primary = withSupportedSampling(languageModel(modelId), modelId);
       // Third-party models fall back to Workers AI when their provider refuses
       // (BYOK key out of credit, revoked, rate-limited, down). See fallback.ts.
-      const fallbackId = config.fallbackModel === undefined ? DEFAULT_MODEL : config.fallbackModel;
-      const provider = modelProvider(modelId);
-      if (!fallbackId || fallbackId === modelId || provider === null || NO_FALLBACK_PROVIDERS.has(provider)) {
-        return primary;
-      }
+      const fallbackId = fallbackModelFor(config, modelId);
+      if (!fallbackId) return primary;
       return withModelFallback({
         primary,
         fallback: languageModel(fallbackId),

@@ -147,10 +147,8 @@ const customToolCache = new WeakMap<PlatformToolDefinition, BetaManagedAgentsCus
 async function customTool(def: PlatformToolDefinition): Promise<BetaManagedAgentsCustomToolParams> {
   const cached = customToolCache.get(def);
   if (cached) return cached;
-  const { $schema: _ignored, ...jsonSchema } = (await zodSchema(def.parameters as never).jsonSchema) as Record<
-    string,
-    unknown
-  >;
+  const jsonSchema = { ...((await zodSchema(def.parameters as never).jsonSchema) as Record<string, unknown>) };
+  delete jsonSchema.$schema;
   const tool: BetaManagedAgentsCustomToolParams = {
     type: 'custom',
     name: def.name,

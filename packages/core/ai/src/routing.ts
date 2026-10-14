@@ -124,13 +124,13 @@ export function rankCandidates(params: {
   const toCandidate = (config: WeldAiConfig): GatewayCandidate => {
     const g = config.provider;
     const free = mode === 'cost' && isFree(creditByGateway.get(g));
+    const listFactor = gatewayCostFactor(config, modelId);
     return {
       gateway: g,
       config,
       nativeModelId: resolveModelId(modelId, g),
       free,
-      // BYOK: the provider bills our own key at list price; no Unified Billing fee.
-      costFactor: free ? 0 : isByokModel(config, modelId) ? 1 : GATEWAY_FEE_MULTIPLIER[g],
+      costFactor: free ? 0 : listFactor,
     };
   };
 
@@ -167,6 +167,16 @@ function rankPinned(a: GatewayCandidate, b: GatewayCandidate, pinned: GatewayPro
   // Total order, so sort() is stable across engines. (Unreachable with a single
   // gateway; `String()` keeps it typed if a second one is reintroduced.)
   return String(a.gateway).localeCompare(String(b.gateway));
+}
+
+/**
+ * What we pay per $ of list price for `modelId` on `config`'s gateway, before
+ * service credit: 1 for BYOK models (the provider bills our own key at list
+ * price, no Unified Billing fee), else the gateway's fee factor.
+ */
+export function gatewayCostFactor(config: WeldAiConfig, modelId: string): number {
+  if (isByokModel(config, modelId)) return 1;
+  return GATEWAY_FEE_MULTIPLIER[config.provider];
 }
 
 /**

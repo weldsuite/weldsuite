@@ -34,7 +34,7 @@ import {
   runWithFallback,
   pickGateway,
   providerCostUsd,
-  GATEWAY_FEE_MULTIPLIER,
+  gatewayCostFactor,
 } from '@weldsuite/ai';
 import { type Gateway } from '@weldsuite/credits/gateway-costs';
 import { readGatewayCreditSnapshot, toCreditStates } from '@weldsuite/credits/gateway-cache';
@@ -422,6 +422,8 @@ async function streamWithWorkspaceAgent(
       ...buildAgentRunArgs(c, input, loaded, chat),
       metering,
       executionCtx: c.executionCtx,
+      // Client disconnect → interrupt the turn so it stops spending.
+      signal: c.req.raw.signal,
     });
     return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
   } catch (err) {
@@ -457,8 +459,8 @@ async function streamWithPersona(
         const { usage } = event;
         // A refused third-party model streams from the fallback model instead.
         const servedModelId = billedModelId(modelId, event);
-        const costFactor =
-          servedModelId === modelId ? attempt.costFactor : (GATEWAY_FEE_MULTIPLIER[attempt.gateway] ?? 1);
+        // Zero when service credit covered the attempt; else the served model's factor (BYOK = 1).
+        const costFactor = attempt.costFactor === 0 ? 0 : gatewayCostFactor(attempt.ai.config, servedModelId);
         const cost = providerCostUsd(servedModelId, usage) * costFactor;
         c.executionCtx.waitUntil(
           chargeAiUsage(metering, {

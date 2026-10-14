@@ -188,7 +188,7 @@ export async function chargeAiUsage(
 
 /** Credits for a raw USD cost at the standard markup, min 1. */
 export function creditsForCostUsd(costUsd: number): number {
-  if (!(costUsd > 0)) return 1;
+  if (Number.isNaN(costUsd) || costUsd <= 0) return 1;
   return Math.max(1, Math.ceil(costUsd * PROVIDER_MARKUP * CREDITS_PER_USD));
 }
 

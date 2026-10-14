@@ -371,12 +371,10 @@ export async function generateWorkflowDraft(
     );
   }
 
-  await chargeAiUsage(metering, {
-    modelId: billedModelId(GENERATION_MODEL, result),
-    usage: result.usage,
-    op: 'workflow_generate',
-  });
+  // A refused third-party model answers from the fallback model; bill and report that.
+  const servedModelId = billedModelId(GENERATION_MODEL, result);
+  await chargeAiUsage(metering, { modelId: servedModelId, usage: result.usage, op: 'workflow_generate' });
 
   const { workflow, warnings } = postValidateDraft(result.object, buildValidationCatalog());
-  return { workflow, warnings, model: GENERATION_MODEL, usage: result.usage };
+  return { workflow, warnings, model: servedModelId, usage: result.usage };
 }

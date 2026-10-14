@@ -20,10 +20,33 @@
 
 import { APICallError, wrapLanguageModel, type LanguageModel, type ProviderMetadata } from 'ai';
 
+import { DEFAULT_MODEL, type WeldAiConfig } from './config.js';
 import { unwrapGatewayError } from './errors.js';
+import { modelProvider } from './model-map.js';
 
 /** `providerMetadata` key the fallback result is tagged under. */
 export const FALLBACK_METADATA_KEY = 'weldsuite';
+
+/**
+ * Third-party ids that are not chat models a Workers AI model can stand in for
+ * (TypeSafe Jev returns structured verdicts) or that already run on Workers AI.
+ */
+const NO_FALLBACK_PROVIDERS = new Set(['typesafe', 'workers-ai']);
+
+/**
+ * The model `modelId` falls back to on a provider refusal, or `null` when it
+ * has none (Workers AI models, non-chat third-party ids, fallback disabled).
+ * Callers that cap spend up front should budget for this model too.
+ */
+export function fallbackModelFor(
+  config: Pick<WeldAiConfig, 'fallbackModel'>,
+  modelId: string,
+): string | null {
+  const fallbackId = config.fallbackModel === undefined ? DEFAULT_MODEL : config.fallbackModel;
+  const provider = modelProvider(modelId);
+  if (!fallbackId || fallbackId === modelId || provider === null) return null;
+  return NO_FALLBACK_PROVIDERS.has(provider) ? null : fallbackId;
+}
 
 const PROVIDER_REFUSAL = /credit balance|insufficient (?:credit|funds|balance|quota)|billing|quota exceeded|overloaded/i;
 
@@ -122,7 +145,7 @@ export function withModelFallback(params: {
  */
 export function billedModelId(
   requestedModelId: string,
-  result: { providerMetadata?: ProviderMetadata | undefined } | null | undefined,
+  result: { providerMetadata?: ProviderMetadata } | null | undefined,
 ): string {
   const served = result?.providerMetadata?.[FALLBACK_METADATA_KEY]?.servedModelId;
   return typeof served === 'string' && served.length > 0 ? served : requestedModelId;

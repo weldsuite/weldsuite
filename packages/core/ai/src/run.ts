@@ -32,8 +32,6 @@
 import type { EmbeddingModel, LanguageModel, ProviderMetadata } from 'ai';
 
 import { billedModelId } from './fallback.js';
-import { isByokModel } from './model-map.js';
-
 import { UnsupportedModelError, type GatewayProvider } from './adapters/types.js';
 import {
   configuredGateways,
@@ -51,7 +49,7 @@ import {
 import { createWeldAI, type WeldAI } from './gateway.js';
 import { providerCostUsd, type AiUsage } from './billing-rates.js';
 import {
-  GATEWAY_FEE_MULTIPLIER,
+  gatewayCostFactor,
   rankCandidates,
   type GatewayCandidate,
   type GatewayCreditState,
@@ -262,12 +260,7 @@ async function reportUsage<T>(
     const usage = (opts.extractUsage ?? defaultExtractUsage)(value);
     // A third-party model may have fallen back (fallback.ts): price what served.
     const servedModelId = billedModelId(opts.modelId, value as { providerMetadata?: ProviderMetadata });
-    const costFactor =
-      servedModelId === opts.modelId || candidate.free
-        ? candidate.costFactor
-        : isByokModel(candidate.config, servedModelId)
-          ? 1
-          : GATEWAY_FEE_MULTIPLIER[candidate.gateway];
+    const costFactor = candidate.free ? 0 : gatewayCostFactor(candidate.config, servedModelId);
     await opts.onUsage({
       gateway: candidate.gateway,
       modelId: servedModelId,
