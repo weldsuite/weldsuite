@@ -44,6 +44,15 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
   'anthropic/claude-sonnet-4-6': { inputPerM: 3, outputPerM: 15 },
   'anthropic/claude-haiku-4-5': { inputPerM: 1, outputPerM: 5 },
   'anthropic/claude-opus-4-1': { inputPerM: 15, outputPerM: 75 },
+  'anthropic/claude-opus-5-5': { inputPerM: 4, outputPerM: 20 },
+  'anthropic/claude-sonnet-5-5': { inputPerM: 2, outputPerM: 10 },
+  // Up to 100K-token prompts ($0.50 / $2.50 beyond).
+  'anthropic/claude-haiku-5-5': { inputPerM: 0.1, outputPerM: 0.5 },
+  // Anthropic, direct (Claude Managed Agents — WeldAgent workspace agents)
+  'claude-opus-5-5': { inputPerM: 4, outputPerM: 20 },
+  'claude-sonnet-5-5': { inputPerM: 2, outputPerM: 10 },
+  // Up to 100K-token prompts ($0.50 / $2.50 beyond).
+  'claude-haiku-5-5': { inputPerM: 0.1, outputPerM: 0.5 },
   // OpenAI
   'openai/gpt-5': { inputPerM: 1.25, outputPerM: 10 },
   'openai/gpt-5-mini': { inputPerM: 0.25, outputPerM: 2 },

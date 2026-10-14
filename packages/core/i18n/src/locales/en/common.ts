@@ -799,6 +799,23 @@ export const common = {
           nameLabel: 'Name',
           descriptionLabel: 'Description',
           descriptionPlaceholder: 'Describe what this agent does…',
+          modelLabel: 'Model',
+          modelDescription: 'The Claude model this agent runs on. Larger models reason better; smaller ones are faster and cheaper.',
+          modelPlaceholder: 'Select a model',
+          models: {
+            'claude-opus-5-5': {
+              label: 'Claude Opus 5.5',
+              description: 'Most capable (default)',
+            },
+            'claude-sonnet-5-5': {
+              label: 'Claude Sonnet 5.5',
+              description: 'Fast and capable, lower cost',
+            },
+            'claude-haiku-5-5': {
+              label: 'Claude Haiku 5.5',
+              description: 'Fastest, lowest cost',
+            },
+          },
         },
         instructions: {
           placeholder: "Describe what this agent should do, when it should act, and what the expected outcome is.\n\nExample: When a new contact is created in the CRM, research their company size using web search. If the company has more than 100 employees, send a notification to the sales team.",
@@ -820,7 +837,7 @@ export const common = {
           destroyed: 'Workspace computer reset.',
           browserClosed: 'Browser session closed.',
           actionFailed: 'Action failed.',
-          hint: 'Enable computer:use and browser:use in permissions below, then ask the agent to use its computer tools. All bots in this workspace share one sandbox.',
+          hint: 'Enable computer:use (a Claude sandbox with a shell, files and code) and browser:use in permissions below, then ask the agent to run code or use its browser tools. All bots in this workspace share one browser.',
         },
         supervisor: {
           description: 'Allow this agent to delegate tasks to other agents to orchestrate multi-step workflows.',

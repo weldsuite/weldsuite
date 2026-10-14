@@ -1,5 +1,21 @@
 import { pgTable, varchar, boolean, timestamp, jsonb, integer, index } from 'drizzle-orm/pg-core';
 
+export interface WeldAgentManagedSessionState {
+  /** `sesn_…` id. */
+  sessionId: string;
+  /** Anthropic agent object id + version the session was created from. */
+  agentObjectId: string;
+  agentVersion: number;
+  /** Hash of the session's tool list; a different list starts a new session. */
+  toolsHash: string;
+  /** Hash of the system context last given to the session. */
+  systemHash: string;
+  /** How many history messages the session has already seen. */
+  syncedMessages: number;
+  /** Session list cost (USD) already charged to the credit wallet. */
+  chargedUsd: number;
+}
+
 // WeldAgent conversations - persistent chat threads per user
 export const weldagentConversations = pgTable('weldagent_conversations', {
   id: varchar('id', { length: 30 }).primaryKey(),
@@ -25,6 +41,11 @@ export const weldagentConversations = pgTable('weldagent_conversations', {
       title?: string;
       data?: Record<string, unknown>;
     };
+    /**
+     * The Claude Managed Agents session that carries this agent conversation
+     * (one per conversation, replaced when the agent's config changes).
+     */
+    managedSession?: WeldAgentManagedSessionState;
     [key: string]: unknown;
   }>(),
 

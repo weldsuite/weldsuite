@@ -133,6 +133,7 @@ routes = [
 [env.test.vars]
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 CONNECT_API_URL = "https://connect-api-test.weldsuite.org"
 # Platform SPA base for the workflow-integrations OAuth redirect
 # (routes/workflow-integrations/oauth.ts defaults to the PRODUCTION app URL
@@ -206,6 +207,7 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 CONNECT_API_URL = "https://connect-api.weldsuite.org"
 # Platform SPA base for the workflow-integrations OAuth redirect (see
 # env.test.vars above; this matches the code default, set explicitly so the

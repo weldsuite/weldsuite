@@ -42,6 +42,18 @@ interface CommonConfig {
   headers?: Record<string, string>;
   /** Override the provider's base URL. Rarely needed. */
   baseURL?: string;
+  /**
+   * Canonical model a third-party model falls back to when its provider refuses
+   * the call for credit/auth/capacity reasons (e.g. a BYOK key out of credit).
+   * `null` disables the fallback. Defaults to {@link DEFAULT_MODEL}.
+   */
+  fallbackModel?: string | null;
+  /**
+   * Providers (`anthropic`, `openai`, …) whose calls are paid with our own key
+   * stored in the gateway (BYOK) rather than Cloudflare Unified Billing. Only
+   * changes the ops cost bookkeeping — no Unified Billing fee on these.
+   */
+  byokProviders?: readonly string[];
 }
 
 export interface CloudflareGatewayConfig extends CommonConfig {
@@ -106,6 +118,10 @@ function readEnv(env?: object): EnvLike {
  * - `CF_ACCOUNT_ID` / `CLOUDFLARE_ACCOUNT_ID`   (required)
  * - `AI_GATEWAY_API_TOKEN` / `CLOUDFLARE_API_TOKEN` / `CF_API_TOKEN` → Authorization
  * - `CF_AI_GATEWAY`  gateway id, `CF_AIG_TOKEN`  gateway auth token
+ * - `AI_FALLBACK_MODEL`  model a failing third-party model falls back to
+ *   (default {@link DEFAULT_MODEL}; `none` disables)
+ * - `AI_BYOK_PROVIDERS`  comma list of providers billed via gateway-stored
+ *   keys (BYOK), e.g. `anthropic`
  */
 export function resolveConfig(env?: object): WeldAiConfig {
   return resolveConfigFor(resolveProvider(env), env);
@@ -137,9 +153,26 @@ export function resolveConfigFor(provider: GatewayProvider, env?: object): WeldA
         gateway: str(source.CF_AI_GATEWAY),
         gatewayToken: str(source.CF_AIG_TOKEN),
         defaultModel,
+        fallbackModel: resolveFallbackModel(source),
+        byokProviders: resolveByokProviders(source),
       };
     }
   }
+}
+
+function resolveFallbackModel(source: EnvLike): string | null {
+  const raw = str(source.AI_FALLBACK_MODEL);
+  if (!raw) return DEFAULT_MODEL;
+  return raw.toLowerCase() === 'none' ? null : raw;
+}
+
+function resolveByokProviders(source: EnvLike): string[] {
+  const raw = str(source.AI_BYOK_PROVIDERS);
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 /**

@@ -48,6 +48,10 @@ export const thirdParty = {
     sonnet: 'anthropic/claude-sonnet-4-5',
     opus: 'anthropic/claude-opus-4-1',
     haiku: 'anthropic/claude-haiku-4-5',
+    /** Claude 5.5 generation. Sonnet/Opus 5.5 reject non-default temperature. */
+    sonnet55: 'anthropic/claude-sonnet-5-5',
+    opus55: 'anthropic/claude-opus-5-5',
+    haiku55: 'anthropic/claude-haiku-5-5',
   },
   openai: {
     gpt5: 'openai/gpt-5',

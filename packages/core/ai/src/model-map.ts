@@ -22,6 +22,9 @@ const KNOWN_CANONICAL_IDS: readonly string[] = [
   'anthropic/claude-sonnet-4-6',
   'anthropic/claude-haiku-4-5',
   'anthropic/claude-opus-4-1',
+  'anthropic/claude-opus-5-5',
+  'anthropic/claude-sonnet-5-5',
+  'anthropic/claude-haiku-5-5',
   // OpenAI
   'openai/gpt-5',
   'openai/gpt-5-mini',
@@ -51,6 +54,19 @@ export function resolveModelId(canonicalId: string, _provider: GatewayProvider =
 /** True when `provider` can serve `canonicalId`. Cloudflare serves everything. */
 export function isModelSupported(_canonicalId: string, _provider: GatewayProvider = 'cloudflare'): boolean {
   return true;
+}
+
+/** The provider half of a canonical id (`anthropic/claude-…` → `anthropic`); `null` for Workers AI. */
+export function modelProvider(canonicalId: string): string | null {
+  if (canonicalId.startsWith('@cf/')) return null;
+  const slash = canonicalId.indexOf('/');
+  return slash > 0 ? canonicalId.slice(0, slash).toLowerCase() : null;
+}
+
+/** Is this model billed through a gateway-stored provider key (BYOK)? */
+export function isByokModel(config: { byokProviders?: readonly string[] }, canonicalId: string): boolean {
+  const provider = modelProvider(canonicalId);
+  return provider !== null && (config.byokProviders ?? []).includes(provider);
 }
 
 /** Canonical ids known to this package (for validation / model-picker UIs). */

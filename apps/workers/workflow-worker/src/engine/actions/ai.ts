@@ -45,6 +45,9 @@
 
 import {
   assertGatewayConfigured as assertAiGatewayConfigured,
+  billedModelId,
+  fallbackModelFor,
+  resolveConfig as resolveAiConfig,
   runWithFallback,
   generateText,
   generateObject,
@@ -129,15 +132,21 @@ function estimateTokens(text: string): number {
 
 /** Worst-case credits one call could cost, computed BEFORE making it. */
 function estimateMaxCredits(
+  env: object,
   modelId: string,
   inputText: string,
   maxOutputTokens: number | undefined,
   defaultOutputTokens: number,
 ): number {
-  return creditsForUsage(modelId, {
+  const usage = {
     inputTokens: estimateTokens(inputText),
     outputTokens: maxOutputTokens ?? defaultOutputTokens,
-  });
+  };
+  // A refused third-party model is answered by its fallback model (and billed
+  // as that model), so budget for whichever of the two costs more.
+  const fallbackId = fallbackModelFor(resolveAiConfig(env), modelId);
+  const fallbackCredits = fallbackId ? creditsForUsage(fallbackId, usage) : 0;
+  return Math.max(creditsForUsage(modelId, usage), fallbackCredits);
 }
 
 /**
@@ -314,7 +323,7 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
     metering,
     ctx,
     'ai_generate',
-    estimateMaxCredits(modelId, `${asText(systemPrompt ?? '')}\n${prompt}`, maxOutputTokens, GENERATE_OUTPUT_TOKENS_ESTIMATE),
+    estimateMaxCredits(ctx.env, modelId, `${asText(systemPrompt ?? '')}\n${prompt}`, maxOutputTokens, GENERATE_OUTPUT_TOKENS_ESTIMATE),
   );
 
   let served: { gateway: Gateway; providerCostUsd: number; covered: boolean } | undefined;
@@ -345,8 +354,10 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
       }),
   );
 
+  // A refused third-party model answers from the fallback model; bill that.
+  const servedModelId = billedModelId(modelId, result);
   const creditsUsed = await chargeUsage(metering, ctx, {
-    modelId,
+    modelId: servedModelId,
     usage: result.usage,
     op: 'ai_generate',
     gateway: served?.gateway,
@@ -356,7 +367,7 @@ export const handleAiGenerate: ActionHandler = async (inputs, ctx: ActionContext
 
   return {
     text: result.text,
-    model: modelId,
+    model: servedModelId,
     finishReason: result.finishReason,
     usage: result.usage,
     creditsUsed,
@@ -380,7 +391,7 @@ export const handleAiClassify: ActionHandler = async (inputs, ctx: ActionContext
     metering,
     ctx,
     'ai_classify',
-    estimateMaxCredits(modelId, `${text}\n${categories.join(', ')}`, undefined, CLASSIFY_OUTPUT_TOKENS_ESTIMATE),
+    estimateMaxCredits(ctx.env, modelId, `${text}\n${categories.join(', ')}`, undefined, CLASSIFY_OUTPUT_TOKENS_ESTIMATE),
   );
 
   // Plain JSON schema (not zod) — a dynamic enum built from the caller's
@@ -425,8 +436,9 @@ export const handleAiClassify: ActionHandler = async (inputs, ctx: ActionContext
       }),
   );
 
+  const servedModelId = billedModelId(modelId, result);
   const creditsUsed = await chargeUsage(metering, ctx, {
-    modelId,
+    modelId: servedModelId,
     usage: result.usage,
     op: 'ai_classify',
     gateway: served?.gateway,
@@ -438,7 +450,7 @@ export const handleAiClassify: ActionHandler = async (inputs, ctx: ActionContext
     category: result.object.category,
     confidence: result.object.confidence ?? null,
     reasoning: result.object.reasoning ?? '',
-    model: modelId,
+    model: servedModelId,
     usage: result.usage,
     creditsUsed,
   };
