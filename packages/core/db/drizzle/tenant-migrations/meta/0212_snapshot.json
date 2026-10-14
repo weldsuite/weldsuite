@@ -1,5 +1,5 @@
 {
-  "id": "71fe0e4a-e5b4-41e6-9a25-66a8349117bc",
+  "id": "d1a68721-4437-4626-a9d7-d93b16749aec",
   "prevId": "291d7d2b-f633-4107-bd32-c631a304bf80",
   "version": "7",
   "dialect": "postgresql",
@@ -6669,24 +6669,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "funding_raised": {
-          "name": "funding_raised",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "foundation_date": {
-          "name": "foundation_date",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "website": {
           "name": "website",
           "type": "varchar(500)",
@@ -6756,30 +6738,6 @@
         "facebook_url": {
           "name": "facebook_url",
           "type": "varchar(500)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "instagram_url": {
-          "name": "instagram_url",
-          "type": "varchar(500)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "angellist_url": {
-          "name": "angellist_url",
-          "type": "varchar(500)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "twitter_follower_count": {
-          "name": "twitter_follower_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "varchar(255)",
           "primaryKey": false,
           "notNull": false
         },
@@ -41224,7 +41182,7 @@
           "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'@cf/meta/llama-3.3-70b-instruct-fp8-fast'"
+          "default": "'claude-opus-5-5'"
         },
         "temperature": {
           "name": "temperature",
@@ -41278,6 +41236,24 @@
         "created_by": {
           "name": "created_by",
           "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anthropic_agent_id": {
+          "name": "anthropic_agent_id",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anthropic_agent_version": {
+          "name": "anthropic_agent_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anthropic_config_hash": {
+          "name": "anthropic_config_hash",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": false
         },

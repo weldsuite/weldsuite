@@ -21,7 +21,7 @@ export interface ToolDefinition {
   /** Zod raw shape for the tool inputs (path params + query/body fields). */
   inputSchema: z.ZodRawShape;
   /** HTTP method used against external-api. */
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /** Path template, e.g. `/v1/leads` or `/v1/leads/:id` or `/v1/tickets/:id/messages`. */
   path: string;
   /**
@@ -30,6 +30,13 @@ export interface ToolDefinition {
    * Consumed inputs are removed from the query string / JSON body.
    */
   pathParams?: Record<string, string>;
+  /**
+   * Never guess the record from a name. After a 404 the executor normally looks
+   * the supplied value up by name and retries with the id it finds; a tool whose
+   * effect is hard to take back (it starts email going out, or deletes) sets this,
+   * so a wrong or loosely-spelled id is refused instead of landing on a near match.
+   */
+  exactId?: boolean;
 }
 
 /**
@@ -73,6 +80,7 @@ import { chatTools } from './chat';
 import { workspaceTools } from './workspace';
 import { commerceTools } from './commerce';
 import { socialTools } from './social';
+import { reachTools } from './reach';
 
 /**
  * All registered tools
@@ -88,4 +96,5 @@ export const allTools: ToolDefinition[] = [
   ...workspaceTools,
   ...commerceTools,
   ...socialTools,
+  ...reachTools,
 ];

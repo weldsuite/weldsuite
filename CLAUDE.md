@@ -361,7 +361,11 @@ All three legacy backends were **deleted from the repo on 2026-07-17**. There is
 
 AI runs through the **`@weldsuite/ai`** package (Vercel AI SDK via the Cloudflare AI Gateway REST API, one CF token reaches both Workers AI `@cf/*` models and third-party providers). Credit metering is **`@weldsuite/core-domain/ai-billing`**, against the prepaid workspace wallet, called by the worker that runs the AI call (mostly `agent-api`; also crm, mail, books, connect, chat). A worker that reaches `@weldsuite/ai` needs `CF_ACCOUNT_ID` and the AI token (`AI_GATEWAY_API_TOKEN`, else `CLOUDFLARE_API_TOKEN`).
 
+Third-party models (`anthropic/…`) are paid with an Anthropic key stored in the gateway as a BYOK provider key (alias `default`; the Workers never hold it). Set `AI_BYOK_PROVIDERS=anthropic` on workers so the ops ledger books those calls without the Unified Billing fee. When a third-party provider refuses a call (out of credit, auth, rate limit, down), `ai.model(id)` falls back to `AI_FALLBACK_MODEL` (default Llama 3.3 70B on Workers AI; `none` disables), streaming included (`packages/core/ai/src/fallback.ts`). **Charge the model that served**: `chargeAiUsage({ modelId: billedModelId(requestedId, result) })`; for `streamText`, pass the `onFinish` event.
+
 > The old dedicated AI runtime, `apps/agent-worker`, `apps/agent-service` (Mastra.ai on Hetzner), `apps/ai-worker`, and the `@weldsuite/agent-runtime` / `@weldsuite/agent-tools` packages, was removed in the AI teardown (2026-07-08) and is being rebuilt on top of `@weldsuite/ai`. There is no `AGENT_WORKER` service binding.
+
+**Exception — WeldAgent workspace agents run on Claude Managed Agents** (a separate Anthropic account from the BYOK key above), through `@anthropic-ai/sdk` directly (`packages/domains/agent/src/managed-agents.ts` + `executor.ts`, secret `ANTHROPIC_API_KEY` on agent-api). Each agent syncs to a versioned Anthropic agent object (`weldagent_agents.anthropic_agent_*`); a conversation keeps one session (`weldagent_conversations.metadata.managedSession`), runs and room replies get a one-off session. Platform tools are custom tools executed in agent-api; the sandbox (`computer:use`) and web tools (`browser:use`) run at Anthropic. Turns are charged from the session's list cost via `chargeAiUsage({ costUsd })`. Agent models: `WORKSPACE_AGENT_MODELS` in `@weldsuite/app-api-client/schemas/workspace-agents`. Details: `docs/autonomous-agents.md`.
 
 ### Cloudflare Infra
 
@@ -555,7 +559,7 @@ Before marking a task done:
 - Don't upgrade Zod to v4 in app imports.
 - Don't reach for `apps/api-worker`, `apps/core-api`, or `apps/mobile-api-worker`, they're deleted.
 - Don't import across API workers' folders; share through `@weldsuite/worker-kit` or a `packages/domains/<module>` package.
-- Don't add direct Anthropic SDK calls, route AI through the `@weldsuite/ai` package.
+- Don't add direct Anthropic SDK calls, route AI through the `@weldsuite/ai` package. The one exception is the WeldAgent runtime on Claude Managed Agents (`packages/domains/agent`).
 - Don't "fix" a bug you couldn't reproduce, request info instead.
 
 ## graphify

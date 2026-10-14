@@ -1,0 +1,729 @@
+# Campaigns
+
+A campaign is a sequence of up to 10 emails (steps) that WeldReach sends to each enrolled prospect from the campaign's mailboxes, on the campaign's days and inside its sending window. Reads require the `reach_campaigns:read` scope; every change, including launching, pausing and enrolling prospects, requires `reach_campaigns:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  WeldReach is available on request only. Until WeldSuite approves the workspace, every endpoint here returns `403 APP_ACCESS_REQUIRED`. See the [WeldReach overview](/weldreach).
+</Note>
+
+---
+
+## The campaign model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rcmp_abc123`).</Property>
+  <Property name="name" type="string">Campaign name, up to 200 characters.</Property>
+  <Property name="status" type="string">One of `draft`, `active`, `paused`, `completed`, `archived`. See [the lifecycle](#lifecycle).</Property>
+  <Property name="timezone" type="string">IANA timezone the sending window is read in (e.g. `Europe/Amsterdam`).</Property>
+  <Property name="sendDays" type="integer[]">ISO weekdays the campaign sends on, `1` (Monday) to `7` (Sunday).</Property>
+  <Property name="windowStart" type="string">Start of the daily sending window, `HH:MM`.</Property>
+  <Property name="windowEnd" type="string">End of the daily sending window, `HH:MM`. Must be after `windowStart`.</Property>
+  <Property name="dailyLimit" type="integer">Most emails this campaign sends per day, 1 to 10,000. The mailbox caps and the workspace's `maxDailySends` still apply.</Property>
+  <Property name="minGapMinutes" type="integer">Minimum minutes between two sends from the same mailbox, 1 to 240.</Property>
+  <Property name="stopOnAutoReply" type="boolean">Stop a prospect's sequence when an auto-reply (such as an out-of-office) comes back.</Property>
+  <Property name="stats" type="object">Running totals: `prospects`, `sent`, `replied`, `interested`, `bounced`, `unsubscribed`.</Property>
+  <Property name="pausedReason" type="string">Why the campaign is paused, or `null`. `manual` when a person or an API call paused it; `bounce_rate` when WeldReach paused it because more than 3% of its recent sends bounced.</Property>
+  <Property name="launchedAt" type="timestamp">When the campaign was first launched, or `null`.</Property>
+  <Property name="completedAt" type="timestamp">When every enrollment finished, or `null`.</Property>
+  <Property name="ownerId" type="string">User ID of the campaign's owner, or `null`.</Property>
+  <Property name="createdAt" type="timestamp">When the campaign was created.</Property>
+  <Property name="updatedAt" type="timestamp">When the campaign was last updated.</Property>
+</Properties>
+
+Retrieving a single campaign also returns:
+
+<Properties>
+  <Property name="steps" type="object[]">The emails, in order. See [the step model](#the-step-model).</Property>
+  <Property name="mailboxIds" type="string[]">The [mailboxes](/reach-mailboxes) the campaign sends from.</Property>
+</Properties>
+
+### The step model {{ id: 'the-step-model' }}
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rstp_abc123`).</Property>
+  <Property name="order" type="integer">Position in the sequence, starting at `0`.</Property>
+  <Property name="delayDays" type="integer">Days to wait after the previous step was sent, 0 to 90. Not used for the first step.</Property>
+  <Property name="delayHours" type="integer">Extra hours to wait, 0 to 23.</Property>
+  <Property name="subject" type="string">Subject, up to 300 characters. Supports [template variables](/weldreach#template-variables).</Property>
+  <Property name="body" type="string">Plain-text body, up to 20,000 characters. Supports template variables. The workspace's sender address and opt-out text are added below it.</Property>
+  <Property name="replyInThread" type="boolean">Send this follow-up as a reply in the same email thread instead of a new email.</Property>
+</Properties>
+
+A due step that falls outside the sending window waits for the next window.
+
+### Lifecycle {{ id: 'lifecycle' }}
+
+| From | Action | To |
+|------|--------|----|
+| `draft` or `completed` | [Launch](#launch-a-campaign) | `active` |
+| `active` | [Pause](#pause-a-campaign), or WeldReach pauses it automatically | `paused` |
+| `paused` | [Resume](#resume-a-campaign) | `active` |
+| `active` | Every enrollment finished | `completed` |
+
+A state change that does not fit this table returns `409` with one of these codes:
+
+| `code` | Meaning |
+|--------|---------|
+| `CAMPAIGN_ACTIVE` | The campaign is running. Pause it before you delete it or change its steps, or it was already launched. |
+| `CAMPAIGN_PAUSED` | The campaign is paused; resume it instead of launching it. |
+| `CAMPAIGN_NOT_ACTIVE` | Only a running campaign can be paused. |
+| `CAMPAIGN_NOT_PAUSED` | Only a paused campaign can be resumed. |
+| `CAMPAIGN_CLOSED` | The campaign is completed or archived, so it takes no new prospects (or it is archived and cannot launch). |
+
+---
+
+## List campaigns {{ tag: 'GET', label: '/v1/reach/campaigns' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of campaigns, newest first.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 25, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="status" type="string">Only campaigns with this `status`. An unknown value returns `400`.</Property>
+      <Property name="search" type="string">Matches the campaign name (case-insensitive).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/campaigns">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/reach/campaigns \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d status=active
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "rcmp_abc123",
+          "name": "Q4 logistics managers",
+          "status": "active",
+          "timezone": "Europe/Amsterdam",
+          "sendDays": [1, 2, 3, 4, 5],
+          "windowStart": "09:00",
+          "windowEnd": "17:00",
+          "dailyLimit": 100,
+          "minGapMinutes": 8,
+          "stopOnAutoReply": false,
+          "stats": { "prospects": 240, "sent": 312, "replied": 14, "interested": 4, "bounced": 3, "unsubscribed": 2 },
+          "pausedReason": null,
+          "launchedAt": "2026-10-06T07:00:00Z",
+          "completedAt": null,
+          "ownerId": "user_abc123",
+          "createdAt": "2026-10-02T14:20:00Z",
+          "updatedAt": "2026-10-06T07:00:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 4, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a campaign {{ tag: 'POST', label: '/v1/reach/campaigns' }}
+
+<Row>
+  <Col>
+
+    Create a campaign in `draft`. Schedule fields you leave out come from the workspace's WeldReach settings, else from the defaults: `Europe/Amsterdam`, Monday to Friday, `09:00` to `17:00`, a daily limit of 100 and 8 minutes between sends. An unknown timezone, or a window that ends before it starts, returns `400`. Returns `201` with the campaign, its `steps` (empty) and `mailboxIds` (empty).
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="name" type="string">Campaign name, 1 to 200 characters.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="timezone" type="string">IANA timezone.</Property>
+      <Property name="sendDays" type="integer[]">1 to 7 ISO weekdays.</Property>
+      <Property name="windowStart" type="string">`HH:MM`.</Property>
+      <Property name="windowEnd" type="string">`HH:MM`.</Property>
+      <Property name="dailyLimit" type="integer">1 to 10,000.</Property>
+      <Property name="minGapMinutes" type="integer">1 to 240.</Property>
+      <Property name="stopOnAutoReply" type="boolean">Stop on auto-replies.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/campaigns">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/campaigns \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Q4 logistics managers",
+        "timezone": "Europe/Amsterdam",
+        "sendDays": [1, 2, 3, 4],
+        "windowStart": "08:30",
+        "windowEnd": "16:30",
+        "dailyLimit": 80
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rcmp_abc123",
+        "name": "Q4 logistics managers",
+        "status": "draft",
+        "timezone": "Europe/Amsterdam",
+        "sendDays": [1, 2, 3, 4],
+        "windowStart": "08:30",
+        "windowEnd": "16:30",
+        "dailyLimit": 80,
+        "minGapMinutes": 8,
+        "stopOnAutoReply": false,
+        "stats": { "prospects": 0, "sent": 0, "replied": 0, "interested": 0, "bounced": 0, "unsubscribed": 0 },
+        "pausedReason": null,
+        "launchedAt": null,
+        "completedAt": null,
+        "ownerId": "user_abc123",
+        "createdAt": "2026-10-13T09:00:00Z",
+        "updatedAt": "2026-10-13T09:00:00Z",
+        "steps": [],
+        "mailboxIds": []
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a campaign {{ tag: 'GET', label: '/v1/reach/campaigns/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a campaign with its `steps` and `mailboxIds`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/campaigns/rcmp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rcmp_abc123",
+        "name": "Q4 logistics managers",
+        "status": "draft",
+        "steps": [
+          {
+            "id": "rstp_abc123",
+            "order": 0,
+            "delayDays": 0,
+            "delayHours": 0,
+            "subject": "Quick question, {{firstName|there}}",
+            "body": "Hi {{firstName|there}},\n\nDo you still plan routes by hand at {{companyName}}?",
+            "replyInThread": false
+          },
+          {
+            "id": "rstp_def456",
+            "order": 1,
+            "delayDays": 3,
+            "delayHours": 0,
+            "subject": "Re: Quick question",
+            "body": "Just bumping this up, {{firstName|there}}.",
+            "replyInThread": true
+          }
+        ],
+        "mailboxIds": ["rmbx_abc123", "rmbx_def456"]
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Update a campaign {{ tag: 'PATCH', label: '/v1/reach/campaigns/:id' }}
+
+<Row>
+  <Col>
+
+    Change a campaign's name, owner or schedule. Only the fields you send change. Works in every status; a running campaign uses the new schedule from its next send. Returns the campaign with its steps and mailboxes.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="name" type="string">1 to 200 characters.</Property>
+      <Property name="ownerId" type="string">User ID of the new owner, or `null`.</Property>
+      <Property name="timezone" type="string">IANA timezone.</Property>
+      <Property name="sendDays" type="integer[]">1 to 7 ISO weekdays.</Property>
+      <Property name="windowStart" type="string">`HH:MM`.</Property>
+      <Property name="windowEnd" type="string">`HH:MM`.</Property>
+      <Property name="dailyLimit" type="integer">1 to 10,000.</Property>
+      <Property name="minGapMinutes" type="integer">1 to 240.</Property>
+      <Property name="stopOnAutoReply" type="boolean">Stop on auto-replies.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/reach/campaigns/rcmp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "dailyLimit": 120, "windowEnd": "17:30" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rcmp_abc123",
+        "dailyLimit": 120,
+        "windowEnd": "17:30",
+        "steps": [],
+        "mailboxIds": []
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Delete a campaign {{ tag: 'DELETE', label: '/v1/reach/campaigns/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a campaign. A running campaign returns `409 CAMPAIGN_ACTIVE`; pause it first. Its queued and active enrollments stop, so those prospects can join another campaign. Sent emails and replies stay in the inbox. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/reach/campaigns/rcmp_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Replace the steps {{ tag: 'PUT', label: '/v1/reach/campaigns/:id/steps' }}
+
+<Row>
+  <Col>
+
+    Replace the whole sequence with 1 to 10 steps, in the order given. Steps keep their `id` by position, so the statistics of an edited step stay attached; steps past the new end are removed. A running campaign returns `409 CAMPAIGN_ACTIVE`; pause it first. Returns the campaign with its new steps.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="steps" type="object[]">1 to 10 steps, each with `delayDays` (0 to 90), `delayHours` (0 to 23), `subject` (1 to 300 characters), `body` (1 to 20,000 characters) and `replyInThread` (boolean). All five are required.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PUT" label="/v1/reach/campaigns/rcmp_abc123/steps">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PUT https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/steps \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "steps": [
+          {
+            "delayDays": 0,
+            "delayHours": 0,
+            "subject": "Quick question, {{firstName|there}}",
+            "body": "Hi {{firstName|there}},\n\nDo you still plan routes by hand at {{companyName}}?",
+            "replyInThread": false
+          },
+          {
+            "delayDays": 3,
+            "delayHours": 0,
+            "subject": "Re: Quick question",
+            "body": "Just bumping this up, {{firstName|there}}.",
+            "replyInThread": true
+          }
+        ]
+      }'
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Set the mailboxes {{ tag: 'PUT', label: '/v1/reach/campaigns/:id/mailboxes' }}
+
+<Row>
+  <Col>
+
+    Replace the mailboxes the campaign sends from. Send an empty array to remove them all. An id that is not a mailbox of the workspace returns `400` with the unknown ids in `details.unknown`. A mailbox that is still warming up can be assigned, but only `active` mailboxes send. Returns the campaign with its new `mailboxIds`.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="mailboxIds" type="string[]">Up to 500 [mailbox](/reach-mailboxes) ids.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PUT" label="/v1/reach/campaigns/rcmp_abc123/mailboxes">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PUT https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/mailboxes \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "mailboxIds": ["rmbx_abc123", "rmbx_def456"] }'
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Enroll prospects {{ tag: 'POST', label: '/v1/reach/campaigns/:id/prospects' }}
+
+<Row>
+  <Col>
+
+    Add prospects to the campaign, by id, by [list](/reach-lists), or both. In a `draft` or `paused` campaign they wait as `queued`; in an `active` campaign they start right away. A completed or archived campaign returns `409 CAMPAIGN_CLOSED`, and an unknown `listId` returns `404`.
+
+    Prospects that cannot be emailed are skipped and counted by reason:
+
+    | Reason | Why |
+    |--------|-----|
+    | `already_enrolled` | Already in this campaign. |
+    | `suppressed` | The address or its domain is on the [suppression list](/reach-suppressions). |
+    | `consumer` | A free-mail address, and the workspace may only email businesses. |
+    | `invalid` | The prospect's `validation` is `invalid`, `role` or `no_mx`. |
+    | `enrolled_elsewhere` | Queued or active in another campaign. A prospect is in one running sequence at a time. |
+
+    ### Attributes
+
+    <Properties>
+      <Property name="prospectIds" type="string[]">Up to 10,000 [prospect](/reach-prospects) ids.</Property>
+      <Property name="listId" type="string">A prospect list; all its members are enrolled.</Property>
+    </Properties>
+
+    Give `prospectIds`, `listId` or both.
+
+    ### Response
+
+    <Properties>
+      <Property name="added" type="integer">Prospects enrolled.</Property>
+      <Property name="skipped" type="object[]">`{ reason, count }` for every reason above that applied.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/campaigns/rcmp_abc123/prospects">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/prospects \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "listId": "rpl_abc123" }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "added": 231,
+        "skipped": [
+          { "reason": "suppressed", "count": 4 },
+          { "reason": "enrolled_elsewhere", "count": 5 }
+        ]
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## List enrollments {{ tag: 'GET', label: '/v1/reach/campaigns/:id/enrollments' }}
+
+<Row>
+  <Col>
+
+    The prospects in a campaign and where each one is in the sequence, newest first.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 25, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="status" type="string">Only enrollments with this status. An unknown value returns `400`.</Property>
+    </Properties>
+
+    ### The enrollment model
+
+    <Properties>
+      <Property name="id" type="string">Unique identifier (e.g. `renr_abc123`).</Property>
+      <Property name="campaignId" type="string">The campaign.</Property>
+      <Property name="prospect" type="object">`id`, `email`, `firstName`, `lastName` and `companyName` of the prospect.</Property>
+      <Property name="mailboxId" type="string">The mailbox that emails this prospect, or `null` before the first send.</Property>
+      <Property name="mailboxEmail" type="string">That mailbox's address, or `null`.</Property>
+      <Property name="status" type="string">`queued` (waiting for launch or resume), `active`, `replied`, `bounced`, `unsubscribed`, `completed`, `paused` or `failed`.</Property>
+      <Property name="currentStep" type="integer">The `order` of the step sent next, starting at `0`.</Property>
+      <Property name="nextSendAt" type="timestamp">When the next step is due, or `null`.</Property>
+      <Property name="stoppedReason" type="string">Why the sequence ended early, or `null`. For example `replied`, `auto_reply`, `hard_bounce`, `unsubscribed`, `replied_company` or `missing_variables`.</Property>
+      <Property name="updatedAt" type="timestamp">When the enrollment last changed.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/campaigns/rcmp_abc123/enrollments">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/enrollments \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d status=replied
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "renr_abc123",
+          "campaignId": "rcmp_abc123",
+          "prospect": {
+            "id": "rpro_abc123",
+            "email": "jane@northwind-logistics.com",
+            "firstName": "Jane",
+            "lastName": "Doe",
+            "companyName": "Northwind Logistics"
+          },
+          "mailboxId": "rmbx_abc123",
+          "mailboxEmail": "sam@acme-outreach.com",
+          "status": "replied",
+          "currentStep": 1,
+          "nextSendAt": null,
+          "stoppedReason": "replied",
+          "updatedAt": "2026-10-09T13:42:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 14, "hasMore": false, "cursor": null }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Remove an enrollment {{ tag: 'DELETE', label: '/v1/reach/campaigns/:id/enrollments/:enrollmentId' }}
+
+<Row>
+  <Col>
+
+    Take a prospect out of the campaign. Nothing more is sent to them from it; the emails already sent and any replies stay. The prospect itself is not deleted. Returns `204 No Content`.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/reach/campaigns/rcmp_abc123/enrollments/renr_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/enrollments/renr_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Launch a campaign {{ tag: 'POST', label: '/v1/reach/campaigns/:id/launch' }}
+
+<Row>
+  <Col>
+
+    Start sending. Queued prospects become active and are spread over the next sending window. Works from `draft` and `completed`; see [the lifecycle](#lifecycle) for the `409` codes. Returns the campaign.
+
+    A campaign that is not ready returns `400` with every problem in `details.problems`:
+
+    | Problem | Fix |
+    |---------|-----|
+    | `no_steps` | [Add steps](#replace-the-steps). |
+    | `no_active_mailbox` | [Assign](#set-the-mailboxes) at least one mailbox with status `active`. Mailboxes that are still warming up do not count. |
+    | `no_sender_identity` | Fill in the sender company name and postal address in the WeldReach settings. Every email carries them. |
+    | `no_prospects` | [Enroll prospects](#enroll-prospects). |
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/campaigns/rcmp_abc123/launch">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X POST https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/launch \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: '400 Not ready' }}
+    {
+      "error": {
+        "code": "BAD_REQUEST",
+        "message": "This campaign cannot be launched yet",
+        "details": { "problems": ["no_active_mailbox", "no_prospects"] }
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Pause a campaign {{ tag: 'POST', label: '/v1/reach/campaigns/:id/pause' }}
+
+<Row>
+  <Col>
+
+    Stop sending until the campaign is resumed. Only an `active` campaign can be paused (`409 CAMPAIGN_NOT_ACTIVE` otherwise). Sets `pausedReason` to `manual` and returns the campaign.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/campaigns/rcmp_abc123/pause">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X POST https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/pause \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Resume a campaign {{ tag: 'POST', label: '/v1/reach/campaigns/:id/resume' }}
+
+<Row>
+  <Col>
+
+    Continue a `paused` campaign (`409 CAMPAIGN_NOT_PAUSED` otherwise). Prospects enrolled while it was paused start too. Returns the campaign.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/campaigns/rcmp_abc123/resume">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X POST https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/resume \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve step stats {{ tag: 'GET', label: '/v1/reach/campaigns/:id/stats' }}
+
+<Row>
+  <Col>
+
+    Results per step, in step order. The campaign-wide totals are in the campaign's `stats`.
+
+    ### Response
+
+    <Properties>
+      <Property name="stepId" type="string">The step.</Property>
+      <Property name="order" type="integer">Its position.</Property>
+      <Property name="sent" type="integer">Emails of this step sent.</Property>
+      <Property name="replied" type="integer">Replies to this step.</Property>
+      <Property name="bounced" type="integer">Bounces of this step.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/campaigns/rcmp_abc123/stats">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/campaigns/rcmp_abc123/stats \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        { "stepId": "rstp_abc123", "order": 0, "sent": 240, "replied": 9, "bounced": 3 },
+        { "stepId": "rstp_def456", "order": 1, "sent": 72, "replied": 5, "bounced": 0 }
+      ]
+    }
+    ```
+
+  </Col>
+</Row>

@@ -1,46 +1,42 @@
 /**
- * Domain errors of the WeldReach account services (access, settings, billing,
- * domains, mailboxes) and their mapping to the standard error envelope.
+ * Errors of the WeldReach routes and their mapping to the standard error
+ * envelope.
  *
- * Services throw `ReachServiceError` (or let a Mailpool / billing-worker / DNS
- * error through) and each router turns it into
- * `{ error: { code, message, details? } }` with `app.onError(reachErrorHandler)`.
- * A sub-app's `onError` wins over the parent's, so the handler also owns the
- * generic 500.
+ * The domain package throws `ReachDomainError` (`@weldsuite/reach-domain/errors`);
+ * the account services (access, settings, billing, domains, mailboxes) throw
+ * `ReachServiceError`, which is one, or let a Mailpool / billing-worker / DNS
+ * error through. Each router turns them into `{ error: { code, message, details? } }`
+ * with `app.onError(reachErrorHandler)`. A sub-app's `onError` wins over the
+ * parent's, so the handler also owns the generic 500.
  */
 
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { ReachDomainError, type ReachDomainErrorStatus } from '@weldsuite/reach-domain/errors';
 import { DnsLookupError } from '../lib/dns';
 import { PaymentMethodRequiredError, ReachBillingError } from '../lib/billing';
 import { MailpoolError, MailpoolNotConfiguredError } from '../lib/mailpool/errors';
 
-export type ReachErrorStatus = 400 | 402 | 403 | 404 | 409 | 422 | 502 | 503;
+export type ReachErrorStatus = ReachDomainErrorStatus;
 
-export class ReachServiceError extends Error {
-  readonly status: ReachErrorStatus;
-  readonly code: string;
-  readonly details?: unknown;
-
+/** A refusal of the account services; same envelope as any `ReachDomainError`. */
+export class ReachServiceError extends ReachDomainError {
   constructor(status: ReachErrorStatus, code: string, message: string, details?: unknown) {
-    super(message);
+    super(code, status, message, details);
     this.name = 'ReachServiceError';
-    this.status = status;
-    this.code = code;
-    this.details = details;
   }
 }
 
 export interface MappedError {
-  status: ReachErrorStatus | 500;
+  status: ReachErrorStatus;
   code: string;
   message: string;
   details?: unknown;
 }
 
-/** The HTTP shape of any error the account services can throw; null for unknown errors. */
+/** The HTTP shape of any error the routes can throw; null for unknown errors. */
 export function mapReachError(err: unknown): MappedError | null {
-  if (err instanceof ReachServiceError) {
+  if (err instanceof ReachDomainError) {
     return { status: err.status, code: err.code, message: err.message, details: err.details };
   }
   if (err instanceof PaymentMethodRequiredError) {

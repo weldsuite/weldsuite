@@ -1,0 +1,340 @@
+# Prospects
+
+A prospect is a person WeldReach can email: an address plus the details that fill a campaign's [template variables](/weldreach#template-variables). Every prospect gets a `validation` verdict when it is stored, and an address appears only once per workspace. Reads require the `reach_prospects:read` scope; creating, importing, updating and deleting require `reach_prospects:write`. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+<Note>
+  WeldReach is available on request only. Until WeldSuite approves the workspace, every endpoint here returns `403 APP_ACCESS_REQUIRED`. See the [WeldReach overview](/weldreach).
+</Note>
+
+---
+
+## The prospect model
+
+### Properties
+
+<Properties>
+  <Property name="id" type="string">Unique identifier (e.g. `rpro_abc123`).</Property>
+  <Property name="email" type="string">The address, lower-cased. Unique per workspace.</Property>
+  <Property name="firstName" type="string">First name, or `null`.</Property>
+  <Property name="lastName" type="string">Last name, or `null`.</Property>
+  <Property name="companyName" type="string">Company name, or `null`.</Property>
+  <Property name="companyDomain" type="string">The domain of the address, or `null`.</Property>
+  <Property name="title" type="string">Job title, or `null`.</Property>
+  <Property name="timezone" type="string">IANA timezone, or `null`.</Property>
+  <Property name="customFields" type="object">Up to 50 extra string fields (keys up to 64 characters, values up to 2,000). Each key works as a template variable.</Property>
+  <Property name="source" type="string">Where the prospect came from: `manual`, `csv` (an import, including API imports), `crm_list` or `welddata`.</Property>
+  <Property name="sourceRef" type="string">Your reference for the import or source list, or `null`.</Property>
+  <Property name="personId" type="string">The linked WeldCRM person, or `null`.</Property>
+  <Property name="validation" type="string">The verdict, see below.</Property>
+  <Property name="createdAt" type="timestamp">When the prospect was created.</Property>
+</Properties>
+
+### Validation
+
+The verdict is decided when the prospect is stored, strongest first:
+
+| `validation` | Meaning | Can be enrolled |
+|--------------|---------|-----------------|
+| `invalid` | Not a usable address. | No |
+| `suppressed` | The address or its domain is on the [suppression list](/reach-suppressions). | No |
+| `consumer` | A free-mail provider (gmail.com, outlook.com and the like), and the workspace may only email businesses. | No |
+| `role` | A shared mailbox such as `info@` or `sales@` that nobody reads personally. | No |
+| `no_mx` | The domain cannot receive mail. | No |
+| `valid` | None of the above. | Yes |
+
+Suppression and the consumer rule are checked again right before every send, so a verdict that went stale never causes a bad send.
+
+---
+
+## List prospects {{ tag: 'GET', label: '/v1/reach/prospects' }}
+
+<Row>
+  <Col>
+
+    Retrieve a cursor-paginated list of prospects, newest first.
+
+    ### Optional query parameters
+
+    <Properties>
+      <Property name="limit" type="integer">Items per page. Default 25, max 100.</Property>
+      <Property name="cursor" type="string">Pagination cursor.</Property>
+      <Property name="search" type="string">Matches the address, first name, last name or company name (case-insensitive).</Property>
+      <Property name="validation" type="string">Only prospects with this verdict. An unknown value returns `400`.</Property>
+      <Property name="listId" type="string">Only members of this [list](/reach-lists).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/prospects">
+
+    ```bash {{ title: 'cURL' }}
+    curl -G https://api.weldsuite.org/v1/reach/prospects \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -d listId=rpl_abc123 \
+      -d validation=valid
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": [
+        {
+          "id": "rpro_abc123",
+          "email": "jane@northwind-logistics.com",
+          "firstName": "Jane",
+          "lastName": "Doe",
+          "companyName": "Northwind Logistics",
+          "companyDomain": "northwind-logistics.com",
+          "title": "Head of Operations",
+          "timezone": "Europe/Amsterdam",
+          "customFields": { "fleetSize": "120" },
+          "source": "csv",
+          "sourceRef": "hubspot-export-2026-10",
+          "personId": null,
+          "validation": "valid",
+          "createdAt": "2026-10-02T14:25:00Z"
+        }
+      ],
+      "pagination": { "totalCount": 240, "hasMore": true, "cursor": "rpro_abc123" }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Create a prospect {{ tag: 'POST', label: '/v1/reach/prospects' }}
+
+<Row>
+  <Col>
+
+    Create one prospect. An address that already exists returns `409`; an address that is not an email address returns `400`. A suppressed, role or consumer address is still created, with that `validation`. Returns `201` with the prospect.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="email" type="string">The address, up to 320 characters.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="firstName" type="string">Up to 100 characters.</Property>
+      <Property name="lastName" type="string">Up to 100 characters.</Property>
+      <Property name="companyName" type="string">Up to 200 characters.</Property>
+      <Property name="title" type="string">Up to 200 characters.</Property>
+      <Property name="timezone" type="string">IANA timezone, up to 64 characters.</Property>
+      <Property name="customFields" type="object">Up to 50 string fields.</Property>
+      <Property name="listId" type="string">Also add the prospect to this [list](/reach-lists). An unknown list returns `404`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/prospects">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/prospects \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "jane@northwind-logistics.com",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "companyName": "Northwind Logistics",
+        "customFields": { "fleetSize": "120" },
+        "listId": "rpl_abc123"
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "id": "rpro_abc123",
+        "email": "jane@northwind-logistics.com",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "companyName": "Northwind Logistics",
+        "companyDomain": "northwind-logistics.com",
+        "title": null,
+        "timezone": null,
+        "customFields": { "fleetSize": "120" },
+        "source": "manual",
+        "sourceRef": null,
+        "personId": null,
+        "validation": "valid",
+        "createdAt": "2026-10-13T09:05:00Z"
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Import prospects {{ tag: 'POST', label: '/v1/reach/prospects/import' }}
+
+<Row>
+  <Col>
+
+    Store up to 5,000 rows in one request (`REACH_IMPORT_MAX_ROWS`). Send more in several requests. Each row has the same fields as [Create a prospect](#create-a-prospect).
+
+    An address that already exists is updated rather than duplicated: fields you send replace the stored ones, fields you leave empty keep their value, and `customFields` are merged. Every usable row is stored with a `validation` verdict; rows that cannot be enrolled are still stored but are counted in `skipped`, by reason.
+
+    ### Required attributes
+
+    <Properties>
+      <Property name="rows" type="object[]">1 to 5,000 prospects. `email` is required in each.</Property>
+    </Properties>
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="listId" type="string">Add the imported prospects to this existing [list](/reach-lists). An unknown list returns `404`.</Property>
+      <Property name="listName" type="string">Or create a new list with this name and add them to it.</Property>
+      <Property name="sourceRef" type="string">Your reference for this import, up to 255 characters. Stored on each prospect.</Property>
+    </Properties>
+
+    ### Response
+
+    <Properties>
+      <Property name="listId" type="string">The list the prospects were added to, or `null`.</Property>
+      <Property name="created" type="integer">New prospects.</Property>
+      <Property name="updated" type="integer">Existing prospects that were updated.</Property>
+      <Property name="skipped" type="object[]">`{ reason, count }`. The reason is a `validation` verdict other than `valid`, or `duplicate` (the address appeared twice in `rows`), or `invalid_row` (no usable address).</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="POST" label="/v1/reach/prospects/import">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/prospects/import \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "listName": "Logistics NL, October",
+        "sourceRef": "hubspot-export-2026-10",
+        "rows": [
+          { "email": "jane@northwind-logistics.com", "firstName": "Jane", "companyName": "Northwind Logistics" },
+          { "email": "info@contoso-freight.nl", "companyName": "Contoso Freight" },
+          { "email": "piet@fabrikam.nl", "firstName": "Piet", "customFields": { "fleetSize": "40" } }
+        ]
+      }'
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "listId": "rpl_abc123",
+        "created": 2,
+        "updated": 1,
+        "skipped": [{ "reason": "role", "count": 1 }]
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve a prospect {{ tag: 'GET', label: '/v1/reach/prospects/:id' }}
+
+<Row>
+  <Col>
+
+    Retrieve a single prospect by ID.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/prospects/rpro_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/prospects/rpro_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Update a prospect {{ tag: 'PATCH', label: '/v1/reach/prospects/:id' }}
+
+<Row>
+  <Col>
+
+    Change a prospect's details. The address cannot change; create a new prospect instead. Send an empty string to clear a field. `customFields` replaces the stored fields as a whole. Returns the prospect.
+
+    ### Optional attributes
+
+    <Properties>
+      <Property name="firstName" type="string">Up to 100 characters.</Property>
+      <Property name="lastName" type="string">Up to 100 characters.</Property>
+      <Property name="companyName" type="string">Up to 200 characters.</Property>
+      <Property name="title" type="string">Up to 200 characters.</Property>
+      <Property name="timezone" type="string">IANA timezone.</Property>
+      <Property name="customFields" type="object">Up to 50 string fields.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="PATCH" label="/v1/reach/prospects/rpro_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X PATCH https://api.weldsuite.org/v1/reach/prospects/rpro_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key" \
+      -H "Content-Type: application/json" \
+      -d '{ "title": "COO" }'
+    ```
+
+    </CodeGroup>
+
+  </Col>
+</Row>
+
+---
+
+## Delete a prospect {{ tag: 'DELETE', label: '/v1/reach/prospects/:id' }}
+
+<Row>
+  <Col>
+
+    Delete a prospect. Its running enrollments stop and nothing more is sent to the address. Sent emails and replies stay in the inbox. Importing the address again brings the prospect back. Returns `204 No Content`.
+
+    To make sure an address is never emailed again, add it to the [suppression list](/reach-suppressions) instead.
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="DELETE" label="/v1/reach/prospects/rpro_abc123">
+
+    ```bash {{ title: 'cURL' }}
+    curl -X DELETE https://api.weldsuite.org/v1/reach/prospects/rpro_abc123 \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```text {{ title: 'Response' }}
+    204 No Content
+    ```
+
+  </Col>
+</Row>

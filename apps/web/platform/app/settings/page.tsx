@@ -15,6 +15,8 @@ import {
   useUpdateUserPreferences,
   type WorkingHours,
 } from '@/hooks/queries/use-settings-queries';
+import { calendarKeys } from '@/hooks/queries/use-calendar-queries';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { toast } from 'sonner';
@@ -230,7 +232,7 @@ function WorkingHoursCard() {
               onChange={handleChange}
               disabled={!canEditSelf}
             />
-            <AutoRescheduleTasksToggle />
+            <TaskSchedulingToggles />
           </>
         )}
       </CardContent>
@@ -238,48 +240,94 @@ function WorkingHoursCard() {
   );
 }
 
+type TaskSchedulingPreference = 'autoScheduleTasks' | 'autoRescheduleTasks';
+
 /**
- * Opt-out for the nightly calendar replan (app-api `cron/calendar-replan.ts`),
- * which moves unfinished auto-scheduled tasks to the next free slot. Stored in
- * `uiPreferences.autoRescheduleTasks`; absent means on.
+ * Task auto-scheduling switches, stored in `uiPreferences` (absent means on):
+ * - `autoScheduleTasks`: place tasks in free calendar slots at all
+ *   (`createCalendarEventForTask`). Turning it off clears the blocks already placed.
+ * - `autoRescheduleTasks`: the nightly calendar replan, which moves unfinished
+ *   auto-scheduled tasks to the next free slot. Moot while auto-scheduling is off.
  */
-function AutoRescheduleTasksToggle() {
+function TaskSchedulingToggles() {
   const t = useTranslations();
   const { data: preferences } = useUserPreferences();
   const updatePreferences = useUpdateUserPreferences();
+  const queryClient = useQueryClient();
 
-  const [enabled, setEnabled] = React.useState(true);
+  const [enabled, setEnabled] = React.useState<Record<TaskSchedulingPreference, boolean>>({
+    autoScheduleTasks: true,
+    autoRescheduleTasks: true,
+  });
 
   React.useEffect(() => {
-    if (preferences) setEnabled(preferences.uiPreferences?.autoRescheduleTasks !== false);
+    if (!preferences) return;
+    setEnabled({
+      autoScheduleTasks: preferences.uiPreferences?.autoScheduleTasks !== false,
+      autoRescheduleTasks: preferences.uiPreferences?.autoRescheduleTasks !== false,
+    });
   }, [preferences]);
 
-  const handleChange = async (next: boolean) => {
-    setEnabled(next);
+  const handleChange = async (key: TaskSchedulingPreference, next: boolean) => {
+    setEnabled((prev) => ({ ...prev, [key]: next }));
     try {
-      await updatePreferences.mutateAsync({ uiPreferences: { autoRescheduleTasks: next } });
+      await updatePreferences.mutateAsync({ uiPreferences: { [key]: next } });
+      // Turning auto-scheduling off removes the task blocks it had placed.
+      if (key === 'autoScheduleTasks' && !next) {
+        queryClient.invalidateQueries({ queryKey: calendarKeys.all });
+      }
     } catch {
-      setEnabled(!next);
+      setEnabled((prev) => ({ ...prev, [key]: !next }));
       toast.error(t('sweep.settings.workingHours.autoRescheduleFailed'));
     }
   };
 
+  const busy = !preferences || updatePreferences.isPending;
+
+  return (
+    <>
+      <SettingSwitch
+        id="auto-schedule-tasks"
+        label={t('sweep.settings.workingHours.autoScheduleLabel')}
+        description={t('sweep.settings.workingHours.autoScheduleDescription')}
+        checked={enabled.autoScheduleTasks}
+        onCheckedChange={(next) => handleChange('autoScheduleTasks', next)}
+        disabled={busy}
+      />
+      <SettingSwitch
+        id="auto-reschedule-tasks"
+        label={t('sweep.settings.workingHours.autoRescheduleLabel')}
+        description={t('sweep.settings.workingHours.autoRescheduleDescription')}
+        checked={enabled.autoScheduleTasks && enabled.autoRescheduleTasks}
+        onCheckedChange={(next) => handleChange('autoRescheduleTasks', next)}
+        disabled={busy || !enabled.autoScheduleTasks}
+      />
+    </>
+  );
+}
+
+function SettingSwitch({
+  id,
+  label,
+  description,
+  checked,
+  onCheckedChange,
+  disabled,
+}: Readonly<{
+  id: string;
+  label: string;
+  description: string;
+  checked: boolean;
+  onCheckedChange: (next: boolean) => void;
+  disabled: boolean;
+}>) {
   return (
     <div className="flex items-start justify-between gap-4 mt-6">
       <div className="space-y-1">
-        <Label htmlFor="auto-reschedule-tasks">
-          {t('sweep.settings.workingHours.autoRescheduleLabel')}
-        </Label>
-        <p className="text-sm text-muted-foreground">
-          {t('sweep.settings.workingHours.autoRescheduleDescription')}
-        </p>
+        <Label htmlFor={id}>{label}</Label>
+        <p className="text-sm text-muted-foreground">{description}</p>
       </div>
-      <Switch
-        id="auto-reschedule-tasks"
-        checked={enabled}
-        onCheckedChange={handleChange}
-        disabled={!preferences || updatePreferences.isPending}
-      />
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
     </div>
   );
 }

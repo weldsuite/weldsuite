@@ -1,0 +1,213 @@
+# WeldReach
+
+WeldReach is WeldSuite's cold email outreach module. A workspace sends multi-step campaigns to prospects from dedicated outreach mailboxes on their own domains, and the replies land in one inbox. Through the API an integration can manage prospects, lists and campaigns, read the replies and answer them, and read the mailboxes and domains. {{ className: 'lead' }}
+
+<ResourceVersionBanner />
+
+---
+
+## On request only
+
+WeldReach is not available to every workspace. A workspace asks for access in the WeldSuite app store, and WeldSuite staff review the request. Until the request is approved, every `/v1/reach` endpoint returns `403` with `code: "APP_ACCESS_REQUIRED"`, whatever scopes the key holds:
+
+```json {{ title: '403 APP_ACCESS_REQUIRED' }}
+{
+  "error": {
+    "code": "APP_ACCESS_REQUIRED",
+    "message": "This workspace has no approved access to weldreach.",
+    "details": { "appCode": "weldreach", "status": "requested" }
+  }
+}
+```
+
+`details.status` tells you why:
+
+| `status` | Meaning |
+|----------|---------|
+| `none` | The workspace never asked for WeldReach. |
+| `requested` | The request is waiting for review. |
+| `rejected` | WeldSuite declined the request. |
+| `suspended` | Access was approved and later suspended, for example after complaints or a high bounce rate. |
+| `revoked` | Access was withdrawn. |
+
+The access check is cached for about a minute, so an approval or a suspension can take up to 60 seconds to reach the API.
+
+---
+
+## Billing and what stays in the app
+
+Every outreach mailbox is billed at $5 per month. That is why creating and deleting mailboxes and domains stays in the WeldReach app: the API [reads them](/reach-mailboxes) but cannot add or remove them. Everything else, from prospects to campaigns to replies, works through the API.
+
+When the WeldReach subscription is canceled, or has been past due for more than 7 days, nothing is sent: campaigns stop sending and [replies](/reach-threads#reply-to-a-thread) are refused.
+
+---
+
+## Same rules as the app
+
+Every write through the API runs the same code as the WeldReach app:
+
+- **Validation and suppression**, every prospect gets a `validation` verdict, and the suppression list and the consumer-address rule are checked again right before each send. An address that should not be emailed never is.
+- **Caps and windows**, each campaign sends only on its days, inside its sending window, up to its daily limit. Each mailbox has its own daily cap and a minimum gap between sends.
+- **Global switch**, WeldSuite can pause all WeldReach sending at once. Campaigns then wait and replies return `503`.
+- **Events**, writes publish the same workspace events as the app, so automations and webhooks you configured in WeldConnect fire for API changes too.
+
+A campaign does not send the moment you launch it. Launching makes its prospects due, and the send sweep picks them up within a few minutes, inside the campaign's sending window.
+
+---
+
+## Workspace limits
+
+WeldSuite staff set these limits per workspace when they approve it. Read the current values and today's usage with [`GET /v1/reach/access`](#retrieve-access).
+
+| Limit | Default | What it caps |
+|-------|---------|--------------|
+| `maxDomains` | 3 | Sending domains connected to WeldReach |
+| `maxMailboxes` | 10 | Outreach mailboxes |
+| `maxDailySends` | 300 | Campaign emails per day, across all mailboxes |
+| `allowConsumerRecipients` | `false` | Whether free-mail addresses (gmail.com, outlook.com and the like) may be emailed. Off means B2B only. |
+
+Mailboxes also have rules of their own:
+
+- A new mailbox warms up for at least 14 days, and needs at least 85% inbox placement, before it can join a campaign. See [warmup](/reach-mailboxes#warmup).
+- A mailbox sends at most 30 campaign emails a day by default (50 at most), with at least 8 minutes between sends.
+
+---
+
+## Scopes
+
+| Scope | Covers |
+|-------|--------|
+| `reach_campaigns:read` · `reach_campaigns:write` | [Campaigns](/reach-campaigns), their steps, mailboxes, enrollments, launch, pause and resume, stats, and the [overview](#retrieve-the-overview) and [access](#retrieve-access) endpoints on this page |
+| `reach_prospects:read` · `reach_prospects:write` | [Prospects](/reach-prospects), imports, [lists](/reach-lists) and list members |
+| `reach_settings:read` · `reach_settings:write` | The [suppression list](/reach-suppressions) |
+| `reach_inbox:read` | [Threads](/reach-threads): the reply inbox and single conversations |
+| `reach_inbox:reply` | [Replying to a thread](/reach-threads#reply-to-a-thread). **Named only:** `*` and `reach_inbox:*` do not grant it |
+| `reach_mailboxes:read` | [Mailboxes and domains](/reach-mailboxes), read-only |
+
+`reach_inbox:reply` sends email to people outside your workspace under your name, so it is never a side effect of a broad grant. Tick it on purpose when you create the key.
+
+---
+
+## A typical integration
+
+1. Put prospects in: [import](/reach-prospects#import-prospects) up to 5,000 rows at a time, optionally into a new [list](/reach-lists).
+2. [Create a campaign](/reach-campaigns#create-a-campaign), then [set its steps](/reach-campaigns#replace-the-steps) and [assign mailboxes](/reach-campaigns#set-the-mailboxes).
+3. [Enroll](/reach-campaigns#enroll-prospects) prospects by id or a whole list, and [launch](/reach-campaigns#launch-a-campaign).
+4. Poll the [reply inbox](/reach-threads#list-threads) (or subscribe to events in WeldConnect), and [answer](/reach-threads#reply-to-a-thread) the replies that need a person.
+
+Lists in WeldReach use [cursor pagination](/pagination) with a default page size of 25 and a maximum of 100.
+
+### Template variables {{ id: 'template-variables' }}
+
+Step subjects and bodies can use `{{variable}}` placeholders. The built-in variables are `firstName`, `lastName`, `fullName`, `email`, `companyName`, `title`, `senderFirstName`, `senderLastName` and `senderFullName`; a prospect's `customFields` keys work too. Give a fallback after a pipe, as in `{{firstName|there}}`. A prospect whose variable is empty and has no fallback is skipped at send time instead of getting a broken email.
+
+---
+
+## Retrieve access {{ tag: 'GET', label: '/v1/reach/access' }}
+
+<Row>
+  <Col>
+
+    The workspace's access status, its limits, today's usage, and whether sending is switched on globally. Requires `reach_campaigns:read`.
+
+    ### Response
+
+    <Properties>
+      <Property name="status" type="string">Always `approved` here: any other status returns `403 APP_ACCESS_REQUIRED` before this endpoint runs.</Property>
+      <Property name="limits" type="object">`maxDomains`, `maxMailboxes`, `maxDailySends`, `allowConsumerRecipients` and `forceAllowDomains` (domains staff allowed to connect despite existing MX records or a website).</Property>
+      <Property name="usage.domains" type="integer">Connected sending domains.</Property>
+      <Property name="usage.mailboxes" type="integer">Outreach mailboxes that are not deleted.</Property>
+      <Property name="usage.sendsToday" type="integer">Emails sent since midnight UTC.</Property>
+      <Property name="sendingEnabled" type="boolean">`false` while WeldSuite has paused all WeldReach sending.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/access">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/access \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "status": "approved",
+        "limits": {
+          "maxDomains": 3,
+          "maxMailboxes": 10,
+          "maxDailySends": 300,
+          "allowConsumerRecipients": false,
+          "forceAllowDomains": []
+        },
+        "usage": { "domains": 2, "mailboxes": 6, "sendsToday": 84 },
+        "sendingEnabled": true
+      }
+    }
+    ```
+
+  </Col>
+</Row>
+
+---
+
+## Retrieve the overview {{ tag: 'GET', label: '/v1/reach/overview' }}
+
+<Row>
+  <Col>
+
+    The numbers of the WeldReach dashboard. Days follow the workspace's default WeldReach timezone. Requires `reach_campaigns:read`.
+
+    ### Response
+
+    <Properties>
+      <Property name="sentToday" type="integer">Emails sent today.</Property>
+      <Property name="sent7d" type="integer">Emails sent in the last 7 days.</Property>
+      <Property name="replies7d" type="integer">Replies written by a person (not bounces or auto-replies) in the last 7 days.</Property>
+      <Property name="interested7d" type="integer">Replies labelled `interested` or `meeting_request` in the last 7 days.</Property>
+      <Property name="bounceRate7d" type="number">Bounced enrollments divided by emails sent, last 7 days, from 0 to 1.</Property>
+      <Property name="replyRate7d" type="number">Replies divided by emails sent, last 7 days, from 0 to 1.</Property>
+      <Property name="activeCampaigns" type="integer">Campaigns with status `active`.</Property>
+      <Property name="mailboxes" type="object">Mailbox counts: `active`, `warming`, `paused` (paused or suspended) and `error`.</Property>
+      <Property name="unreadReplies" type="integer">Unread replies.</Property>
+      <Property name="daily" type="object[]">The last 14 days, oldest first: `date` (`YYYY-MM-DD`), `sent` and `replies`.</Property>
+    </Properties>
+
+  </Col>
+  <Col sticky>
+
+    <CodeGroup title="Request" tag="GET" label="/v1/reach/overview">
+
+    ```bash {{ title: 'cURL' }}
+    curl https://api.weldsuite.org/v1/reach/overview \
+      -H "Authorization: Bearer wsk_your_api_key"
+    ```
+
+    </CodeGroup>
+
+    ```json {{ title: 'Response' }}
+    {
+      "data": {
+        "sentToday": 84,
+        "sent7d": 512,
+        "replies7d": 23,
+        "interested7d": 6,
+        "bounceRate7d": 0.0117,
+        "replyRate7d": 0.0449,
+        "activeCampaigns": 2,
+        "mailboxes": { "active": 4, "warming": 2, "paused": 0, "error": 0 },
+        "unreadReplies": 5,
+        "daily": [
+          { "date": "2026-09-30", "sent": 0, "replies": 0 },
+          { "date": "2026-10-13", "sent": 84, "replies": 4 }
+        ]
+      }
+    }
+    ```
+
+  </Col>
+</Row>

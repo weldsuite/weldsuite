@@ -83,6 +83,7 @@ name = "weldsuite-reach-warmup-test"
 [env.test.vars]
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [env.test.triggers]
 crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]
@@ -134,6 +135,7 @@ name = "weldsuite-reach-warmup"
 [env.production.vars]
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [env.production.triggers]
 crons = ["* * * * *", "*/30 * * * *", "30 2 * * *"]

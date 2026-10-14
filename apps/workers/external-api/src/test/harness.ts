@@ -52,7 +52,6 @@ const defaultSession = (scopes: string[]): ApiKeySession => ({
   userId: 'user_test',
   scopes,
   tier: 'enterprise',
-  hasApiAccess: true,
   databaseUrl: null,
   licensedApps: null,
 });

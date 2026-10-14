@@ -76,6 +76,7 @@ routes = [
 ENVIRONMENT = "test"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 REALTIME_PUBLIC_URL = "wss://realtime-test.weldsuite.org"
 PUBLIC_APP_URL = "https://app-test.weldsuite.org"
 
@@ -116,6 +117,7 @@ routes = [
 ENVIRONMENT = "production"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 REALTIME_PUBLIC_URL = "wss://realtime.weldsuite.org"
 PUBLIC_APP_URL = "https://app.weldsuite.org"
 

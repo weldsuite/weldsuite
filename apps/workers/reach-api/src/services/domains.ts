@@ -18,13 +18,13 @@
  * Staff can allow a domain past the two DNS guards (`limits.forceAllowDomains`).
  */
 
-import { and, count, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
+import { domainMailboxCounts, requireDomain, type DomainRow } from '@weldsuite/reach-domain/domains';
 import type {
   ReachDnsStatus,
-  ReachDomain,
   ReachDomainCandidate,
   ReachDomainIneligibleReason,
   ReachDomainStatus,
@@ -36,7 +36,6 @@ import { isMailpoolNotFound } from '../lib/mailpool/errors';
 import type { MailpoolDnsRecord, MailpoolDomain } from '../lib/mailpool/types';
 import { ReachServiceError } from './reach-errors';
 
-export type DomainRow = typeof schema.reachDomains.$inferSelect;
 type HostDomainRow = typeof schema.hostDomains.$inferSelect;
 
 export interface DomainDeps {
@@ -61,60 +60,6 @@ const nowOf = (deps: Pick<DomainDeps, 'now'>): Date => (deps.now ? deps.now() : 
 
 /** Domains DNS-checked at the same time in the candidates list. */
 const DNS_CHECK_CONCURRENCY = 5;
-
-// ---------------------------------------------------------------------------
-// Reads
-// ---------------------------------------------------------------------------
-
-export function toDomainDto(row: DomainRow, mailboxCount: number): ReachDomain {
-  return {
-    id: row.id,
-    hostDomainId: row.hostDomainId,
-    name: row.name,
-    mailpoolDomainId: row.mailpoolDomainId,
-    status: row.status,
-    dnsStatus: row.dnsStatus ?? null,
-    dmarcPolicy: row.dmarcPolicy,
-    connectedAt: row.connectedAt ? row.connectedAt.toISOString() : null,
-    lastError: row.lastError,
-    mailboxCount,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
-
-async function mailboxCounts(db: Database, domainIds: string[]): Promise<Map<string, number>> {
-  if (domainIds.length === 0) return new Map();
-  const rows = await db
-    .select({ domainId: schema.reachMailboxes.domainId, value: count() })
-    .from(schema.reachMailboxes)
-    .where(
-      and(
-        inArray(schema.reachMailboxes.domainId, domainIds),
-        ne(schema.reachMailboxes.status, 'deleted'),
-        isNull(schema.reachMailboxes.deletedAt),
-      ),
-    )
-    .groupBy(schema.reachMailboxes.domainId);
-  return new Map(rows.map((r) => [r.domainId, r.value]));
-}
-
-export async function listDomains(db: Database): Promise<ReachDomain[]> {
-  const rows = await db.select().from(schema.reachDomains).orderBy(schema.reachDomains.createdAt);
-  const counts = await mailboxCounts(db, rows.map((r) => r.id));
-  return rows.map((row) => toDomainDto(row, counts.get(row.id) ?? 0));
-}
-
-export async function requireDomain(db: Database, id: string): Promise<DomainRow> {
-  const [row] = await db.select().from(schema.reachDomains).where(eq(schema.reachDomains.id, id)).limit(1);
-  if (!row) throw new ReachServiceError(404, 'NOT_FOUND', `Domain with ID '${id}' not found`);
-  return row;
-}
-
-export async function getDomainDto(db: Database, id: string): Promise<ReachDomain> {
-  const row = await requireDomain(db, id);
-  const counts = await mailboxCounts(db, [id]);
-  return toDomainDto(row, counts.get(id) ?? 0);
-}
 
 // ---------------------------------------------------------------------------
 // Guards
@@ -409,7 +354,7 @@ export async function refreshDomainDns(deps: DomainDeps, id: string): Promise<Do
 export async function disconnectDomain(deps: DomainDeps, id: string): Promise<DomainRow> {
   const row = await requireDomain(deps.db, id);
 
-  const counts = await mailboxCounts(deps.db, [id]);
+  const counts = await domainMailboxCounts(deps.db, [id]);
   const mailboxCount = counts.get(id) ?? 0;
   if (mailboxCount > 0) {
     throw new ReachServiceError(409, 'DOMAIN_HAS_MAILBOXES', 'Delete the mailboxes on this domain before disconnecting it.', {

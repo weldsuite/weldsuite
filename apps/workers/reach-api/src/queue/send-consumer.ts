@@ -15,8 +15,9 @@
 
 import { getFlags, type FlagsContext } from '@weldsuite/feature-flags/server';
 import { resolveWeldReachLimits } from '@weldsuite/app-api-client/schemas/reach';
+import { maySend } from '@weldsuite/reach-domain/access';
 import { readSendDueRow, settleSendDue } from '../cron/send-sweep';
-import { maySend, openTenantDb, readReachAccess } from '../lib/tenant';
+import { openTenantDb, readReachAccess } from '../lib/tenant';
 import { runSendTick, type TickDeps, type TickResult } from '../services/send-tick';
 import type { Env, ReachSendMessage } from '../types';
 import type { Database } from '@weldsuite/worker-kit';

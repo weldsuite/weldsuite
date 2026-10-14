@@ -12,11 +12,14 @@
  * reaches the request path within a minute without a master-DB read per
  * request. Background work that must stop immediately (WeldReach's send
  * consumer) reads the master DB with `readAppAccess` instead.
+ *
+ * Workers without `DATABASE_URL_MASTER` (external-api reaches master through a
+ * Hyperdrive binding) call the `...From` variants with their own master handle.
  */
 
 import { and, eq } from 'drizzle-orm';
 import { createMiddleware } from 'hono/factory';
-import { getMasterDb, masterSchema } from './db';
+import { getMasterDb, masterSchema, type AnyMasterDatabase } from './db';
 import type { DbEnv } from './env';
 
 export type AppAccessStatus = 'none' | 'requested' | 'approved' | 'rejected' | 'suspended' | 'revoked';
@@ -38,13 +41,12 @@ export function appAccessCacheKey(clerkOrgId: string, appCode: string): string {
   return `appaccess:${clerkOrgId}:${appCode}`;
 }
 
-/** Uncached master-DB read. */
-export async function readAppAccess(
-  env: Pick<DbEnv, 'DATABASE_URL_MASTER'>,
+/** Uncached read on a master-DB handle of any driver. */
+export async function readAppAccessFrom(
+  master: AnyMasterDatabase,
   clerkOrgId: string,
   appCode: string,
 ): Promise<AppAccess> {
-  const master = getMasterDb(env);
   const [row] = await master
     .select({
       workspaceId: masterSchema.workspaces.id,
@@ -73,22 +75,43 @@ export async function readAppAccess(
   };
 }
 
-/** KV-cached (60 s) read for the request path. */
-export async function getAppAccess(env: DbEnv, clerkOrgId: string, appCode: string): Promise<AppAccess> {
+/** Uncached master-DB read. */
+export async function readAppAccess(
+  env: Pick<DbEnv, 'DATABASE_URL_MASTER'>,
+  clerkOrgId: string,
+  appCode: string,
+): Promise<AppAccess> {
+  return readAppAccessFrom(getMasterDb(env), clerkOrgId, appCode);
+}
+
+/** Where a cached read looks: the shared KV namespace, and a master handle opened only on a miss. */
+export interface AppAccessSource {
+  /** `WORKSPACE_CACHE`: every API worker shares the namespace, so one worker's read serves the others. */
+  cache: Pick<KVNamespace, 'get' | 'put'>;
+  master: () => AnyMasterDatabase;
+}
+
+/** KV-cached (60 s) read on a master-DB handle of any driver. */
+export async function getAppAccessFrom(source: AppAccessSource, clerkOrgId: string, appCode: string): Promise<AppAccess> {
   const key = appAccessCacheKey(clerkOrgId, appCode);
   try {
-    const cached = (await env.WORKSPACE_CACHE.get(key, 'json')) as AppAccess | null;
+    const cached = (await source.cache.get(key, 'json')) as AppAccess | null;
     if (cached) return cached;
   } catch (err) {
     console.warn('[app-access] KV read failed:', err);
   }
-  const access = await readAppAccess(env, clerkOrgId, appCode);
+  const access = await readAppAccessFrom(source.master(), clerkOrgId, appCode);
   try {
-    await env.WORKSPACE_CACHE.put(key, JSON.stringify(access), { expirationTtl: APP_ACCESS_CACHE_TTL_SECONDS });
+    await source.cache.put(key, JSON.stringify(access), { expirationTtl: APP_ACCESS_CACHE_TTL_SECONDS });
   } catch (err) {
     console.warn('[app-access] KV write failed:', err);
   }
   return access;
+}
+
+/** KV-cached (60 s) read for the request path. */
+export async function getAppAccess(env: DbEnv, clerkOrgId: string, appCode: string): Promise<AppAccess> {
+  return getAppAccessFrom({ cache: env.WORKSPACE_CACHE, master: () => getMasterDb(env) }, clerkOrgId, appCode);
 }
 
 export function appAccessRequiredBody(appCode: string, status: AppAccessStatus) {

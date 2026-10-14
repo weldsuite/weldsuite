@@ -43,7 +43,18 @@ export interface WeldAgentEnv extends DbEnv, NotificationEnv {
   /** Accepted by @weldsuite/ai as an alias of CF_ACCOUNT_ID. */
   CLOUDFLARE_ACCOUNT_ID?: string;
 
-  // --- WeldAgent cloud computer (agent-runtime worker) ----------------------
+  // --- Claude Managed Agents (the WeldAgent agent runtime) ------------------
+  /** Anthropic API key that runs every workspace agent (secret). */
+  ANTHROPIC_API_KEY?: string;
+  /**
+   * Optional: pin the Managed Agents environment (`env_…`). Without it the
+   * runtime finds or creates `weldsuite-weldagent-<ENVIRONMENT>` by name.
+   */
+  ANTHROPIC_ENVIRONMENT_ID?: string;
+  /** Deploy environment name (development | test | production). */
+  ENVIRONMENT?: string;
+
+  // --- WeldAgent cloud browser (agent-runtime worker) ------------------------
   /**
    * agent-runtime `AgentRuntimeInternal` entrypoint (service binding). Preferred
    * path for computer/browser calls: reachable only over a binding, so no secret

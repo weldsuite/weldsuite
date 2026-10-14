@@ -13,9 +13,12 @@ export {
   appAccessGate,
   appAccessRequiredBody,
   getAppAccess,
+  getAppAccessFrom,
   readAppAccess,
+  readAppAccessFrom,
   APP_ACCESS_CACHE_TTL_SECONDS,
   type AppAccess,
+  type AppAccessSource,
   type AppAccessStatus,
 } from './app-access';
 export { apiCors, resolveCorsOrigin } from './cors';

@@ -46,6 +46,7 @@ import projectSheets from './project-sheets';
 import products from './products';
 import projects from './projects';
 import quotes from './quotes';
+import reach from './reach';
 import settings from './settings';
 import sprints from './sprints';
 import taskComments from './task-comments';
@@ -117,6 +118,15 @@ v1.get('/', (c) => {
       '/v1/project-sheets',
       '/v1/projects',
       '/v1/quotes',
+      '/v1/reach/access',
+      '/v1/reach/campaigns',
+      '/v1/reach/domains',
+      '/v1/reach/lists',
+      '/v1/reach/mailboxes',
+      '/v1/reach/overview',
+      '/v1/reach/prospects',
+      '/v1/reach/suppressions',
+      '/v1/reach/threads',
       '/v1/settings',
       '/v1/social-accounts',
       '/v1/social-analytics',
@@ -197,6 +207,8 @@ v1.route('/project-messages', projectMessages);
 v1.route('/project-sheets', projectSheets);
 v1.route('/projects', projects);
 v1.route('/quotes', quotes);
+// WeldReach (cold email). Gated per workspace: only approved workspaces pass `reachAccess`.
+v1.route('/reach', reach);
 v1.route('/settings', settings);
 v1.route('/social-accounts', socialAccounts);
 v1.route('/social-analytics', socialAnalytics);

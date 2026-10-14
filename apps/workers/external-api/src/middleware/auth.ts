@@ -35,7 +35,6 @@ interface CachedRegistryEntry {
 interface CachedWorkspaceDetails {
   databaseUrl: string;
   tier: TenantTier;
-  hasApiAccess: boolean;
   /** Absent on entries cached before it was added; callers fall back to a lookup. */
   clerkOrgId?: string | null;
   /**
@@ -182,7 +181,6 @@ export async function getWorkspaceDetails(
       databaseUrl: masterSchema.workspaces.databaseUrl,
       clerkOrgId: masterSchema.workspaces.clerkOrgId,
       planSlug: masterSchema.plans.slug,
-      hasApiAccess: masterSchema.plans.hasApiAccess,
       billingMode: masterSchema.workspaces.billingMode,
       licenceStatus: masterSchema.workspaceLicences.status,
       licenceApps: masterSchema.workspaceLicences.allowedApps,
@@ -211,7 +209,6 @@ export async function getWorkspaceDetails(
   const result: CachedWorkspaceDetails = {
     databaseUrl,
     tier: getTierFromPlan(row.planSlug),
-    hasApiAccess: row.hasApiAccess ?? false,
     clerkOrgId: row.clerkOrgId ?? null,
     ...workspaceRestrictions({
       billingMode: row.billingMode,
@@ -235,7 +232,7 @@ export async function getWorkspaceDetails(
  * Flow:
  * 1. Hash the incoming key
  * 2. KV-cached: key_hash → {workspaceId, keyType, tenantKeyId} from master registry
- * 3. KV-cached: workspaceId → {databaseUrl, tier, hasApiAccess} from master workspaces
+ * 3. KV-cached: workspaceId → {databaseUrl, tier} from master workspaces
  * 4. Always live: verify key in workspace DB (scopes, expiry, deletedAt)
  * 5. Fire-and-forget lastUsedAt update
  */
@@ -303,7 +300,6 @@ async function validateApiKey(
         userId: null,
         scopes: (workspaceKey.scopes as string[]) || [],
         tier: workspace.tier,
-        hasApiAccess: workspace.hasApiAccess,
         databaseUrl: workspace.databaseUrl,
         clerkOrgId: workspace.clerkOrgId,
         licensedApps: workspace.licensedApps ?? null,
@@ -343,7 +339,6 @@ async function validateApiKey(
         userId: personalKey.userId,
         scopes: (personalKey.scopes as string[]) || [],
         tier: workspace.tier,
-        hasApiAccess: workspace.hasApiAccess,
         databaseUrl: workspace.databaseUrl,
         clerkOrgId: workspace.clerkOrgId,
         licensedApps: workspace.licensedApps ?? null,
@@ -471,9 +466,6 @@ async function validateAppToken(
       userId: null,
       scopes: cached.scopes,
       tier: workspace.tier,
-      // Installed apps are a platform feature, not raw API access — app tokens
-      // work regardless of whether the workspace's plan includes API access.
-      hasApiAccess: true,
       databaseUrl: workspace.databaseUrl,
       clerkOrgId: workspace.clerkOrgId,
       licensedApps: workspace.licensedApps ?? null,
@@ -515,13 +507,6 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
     return error.unauthorized(
       c,
       'Invalid API key. The key may have been revoked, expired, or never existed.',
-    );
-  }
-
-  if (!session.hasApiAccess) {
-    return error.forbidden(
-      c,
-      'API access is not available on your current plan. Please upgrade to a plan with API access.',
     );
   }
 

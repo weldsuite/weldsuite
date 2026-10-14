@@ -26,7 +26,8 @@ const dns = vi.hoisted(() => ({ lookupRecord: vi.fn() }));
 vi.mock('@weldsuite/worker-kit/dns-lookup', () => ({ lookupRecord: (...args: unknown[]) => dns.lookupRecord(...args) }));
 
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import prospectRoutes, { MAX_IMPORT_EVENTS } from './index';
+import { MAX_IMPORT_EVENTS } from '@weldsuite/reach-domain/prospects';
+import prospectRoutes from './index';
 import { reachApp, asJson, readJson } from '../../test-support/routes';
 import { resetReach, seedCampaign, seedEnrollment, seedMailbox, seedProspect } from '../../test-support/reach';
 import type { ReachImportReport, ReachProspect } from '@weldsuite/app-api-client/schemas/reach';

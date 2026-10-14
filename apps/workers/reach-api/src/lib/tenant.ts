@@ -22,17 +22,3 @@ export async function readReachAccess(env: Env, clerkOrgId: string): Promise<App
 export function reachLimits(access: Pick<AppAccess, 'limits'>): WeldReachLimits {
   return resolveWeldReachLimits(access.limits);
 }
-
-/** Days a past-due WeldReach subscription keeps sending before campaigns pause. */
-export const BILLING_GRACE_DAYS = 7;
-
-/** Whether background sending may run for this workspace right now. */
-export function maySend(access: AppAccess, now = new Date()): { ok: true } | { ok: false; reason: string } {
-  if (access.status !== 'approved') return { ok: false, reason: `access_${access.status}` };
-  if (access.billingStatus === 'canceled') return { ok: false, reason: 'billing_canceled' };
-  if (access.billingStatus === 'past_due') {
-    const since = access.billingStatusAt ? new Date(access.billingStatusAt).getTime() : now.getTime();
-    if (now.getTime() - since > BILLING_GRACE_DAYS * 86_400_000) return { ok: false, reason: 'billing_past_due' };
-  }
-  return { ok: true };
-}

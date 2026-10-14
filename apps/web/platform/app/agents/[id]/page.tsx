@@ -22,6 +22,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@weldsuite/ui/components/alert-dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@weldsuite/ui/components/select';
+import {
+  DEFAULT_WORKSPACE_AGENT_MODEL,
+  WORKSPACE_AGENT_MODELS,
+  isWorkspaceAgentModel,
+  type WorkspaceAgentModel,
+} from '@weldsuite/app-api-client/schemas/workspace-agents';
 import { cn } from '@/lib/utils';
 import {
   useAgent,
@@ -51,6 +58,7 @@ interface SyncedForm {
   name: string;
   description: string;
   systemPrompt: string;
+  modelId: WorkspaceAgentModel;
   permissions: string[];
 }
 
@@ -58,7 +66,13 @@ interface FormFields {
   name: string;
   description: string;
   systemPrompt: string;
+  modelId: WorkspaceAgentModel;
   permissions: string[];
+}
+
+/** Agents saved before Managed Agents may hold a non-Claude id; show the default. */
+function resolveModelId(value: string | null | undefined): WorkspaceAgentModel {
+  return isWorkspaceAgentModel(value) ? value : DEFAULT_WORKSPACE_AGENT_MODEL;
 }
 
 function toSyncedForm(source: {
@@ -66,6 +80,7 @@ function toSyncedForm(source: {
   name: string;
   description?: string | null;
   systemPrompt: string;
+  modelId?: string | null;
   permissions?: string[] | null;
 }): SyncedForm {
   return {
@@ -73,6 +88,7 @@ function toSyncedForm(source: {
     name: source.name,
     description: source.description ?? '',
     systemPrompt: source.systemPrompt,
+    modelId: resolveModelId(source.modelId),
     permissions: source.permissions ?? [],
   };
 }
@@ -82,6 +98,7 @@ function formMatches(synced: FormFields, current: FormFields): boolean {
     synced.name === current.name &&
     synced.description === current.description &&
     synced.systemPrompt === current.systemPrompt &&
+    synced.modelId === current.modelId &&
     synced.permissions.join('|') === current.permissions.join('|')
   );
 }
@@ -150,6 +167,7 @@ export default function AgentDetailPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [modelId, setModelId] = useState<WorkspaceAgentModel>(DEFAULT_WORKSPACE_AGENT_MODEL);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [permissionFilter, setPermissionFilter] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -164,7 +182,7 @@ export default function AgentDetailPage() {
   // (Run now, window focus, setup finishing in chat) only update the form
   // when it still matches what was last loaded.
   const lastSynced = useRef<SyncedForm | null>(null);
-  const formSnapshot = { name, description, systemPrompt, permissions };
+  const formSnapshot = { name, description, systemPrompt, modelId, permissions };
   const isDirty = !!lastSynced.current && !formMatches(lastSynced.current, formSnapshot);
 
   useEffect(() => {
@@ -179,6 +197,7 @@ export default function AgentDetailPage() {
     setName(next.name);
     setDescription(next.description);
     setSystemPrompt(next.systemPrompt);
+    setModelId(next.modelId);
     setPermissions(next.permissions);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only on server changes
   }, [agent]);
@@ -227,6 +246,7 @@ export default function AgentDetailPage() {
         name: name.trim() || agent?.name,
         description: description.trim() || null,
         systemPrompt,
+        modelId,
         permissions,
       });
       const data = (saved as { data?: NonNullable<typeof agent> })?.data;
@@ -235,6 +255,7 @@ export default function AgentDetailPage() {
         setName(data.name);
         setDescription(data.description ?? '');
         setSystemPrompt(data.systemPrompt);
+        setModelId(resolveModelId(data.modelId));
         setPermissions(data.permissions ?? []);
       }
       toast.success(fb.saved);
@@ -434,6 +455,29 @@ export default function AgentDetailPage() {
                   placeholder={t.agents.detail.general.descriptionPlaceholder}
                   onChange={(e) => setDescription(e.target.value)}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>{t.agents.detail.general.modelLabel}</Label>
+                <Select value={modelId} onValueChange={(value) => setModelId(resolveModelId(value))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={t.agents.detail.general.modelPlaceholder}>
+                      {t.agents.detail.general.models[modelId].label}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WORKSPACE_AGENT_MODELS.map((model) => (
+                      <SelectItem key={model} value={model}>
+                        <span className="flex flex-col items-start text-left">
+                          <span>{t.agents.detail.general.models[model].label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {t.agents.detail.general.models[model].description}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">{t.agents.detail.general.modelDescription}</p>
               </div>
               <div className="space-y-2">
                 <Label>{t.agents.detail.sections.instructions.label}</Label>

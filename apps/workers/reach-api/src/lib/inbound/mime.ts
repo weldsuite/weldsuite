@@ -8,8 +8,8 @@
  */
 
 import PostalMime, { type Address, type Email } from 'postal-mime';
+import { bodyText } from '@weldsuite/reach-domain/inbound/mime';
 import { normalizeMessageId, parseMessageIdList } from './message-id';
-import { htmlToText } from './text';
 import type { ParsedAddress, ParsedInbound, ReportPart } from './types';
 
 const REPORT_MIME_TYPES = new Set([
@@ -61,13 +61,6 @@ function collectHeaders(email: Email): Record<string, string> {
   return headers;
 }
 
-/** The message's text: its text part, or the HTML part converted to text. */
-function bodyText(email: Email): string {
-  if (email.text && email.text.trim() !== '') return email.text;
-  if (email.html && email.html.trim() !== '') return htmlToText(email.html);
-  return '';
-}
-
 export async function parseInbound(raw: Uint8Array): Promise<ParsedInbound> {
   const email = await PostalMime.parse(raw);
   const headers = collectHeaders(email);
@@ -83,10 +76,4 @@ export async function parseInbound(raw: Uint8Array): Promise<ParsedInbound> {
     contentType: headers['content-type'] ?? '',
     reportParts: collectReportParts(email),
   };
-}
-
-/** The text of one stored message (used when the inbox shows a thread): its text part or converted HTML. */
-export async function extractMessageText(raw: Uint8Array): Promise<string> {
-  const email = await PostalMime.parse(raw);
-  return bodyText(email);
 }

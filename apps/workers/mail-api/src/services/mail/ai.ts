@@ -20,6 +20,7 @@
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import {
   assertGatewayConfigured,
+  billedModelId,
   createWeldAI,
   generateObject,
   generateText,
@@ -298,7 +299,7 @@ async function meteredText(
   prompt: string,
 ): Promise<string> {
   const res = await guard(() => generateText({ model: ai.model(model), system, prompt }));
-  await chargeAiUsage(metering, { modelId: model, usage: res.usage, op });
+  await chargeAiUsage(metering, { modelId: billedModelId(model, res), usage: res.usage, op });
   return res.text.trim();
 }
 
@@ -374,7 +375,7 @@ export async function draftEmail(
         .join('\n'),
     }),
   );
-  await chargeAiUsage(metering, { modelId: model, usage: res.usage, op: 'draft' });
+  await chargeAiUsage(metering, { modelId: billedModelId(model, res), usage: res.usage, op: 'draft' });
   return { subject: res.object.subject, body: res.object.body };
 }
 
@@ -490,7 +491,7 @@ export async function autoDraft(
         .join('\n'),
     }),
   );
-  await chargeAiUsage(metering, { modelId: model, usage: res.usage, op: 'auto-draft' });
+  await chargeAiUsage(metering, { modelId: billedModelId(model, res), usage: res.usage, op: 'auto-draft' });
   return { subject: res.object.subject, body: res.object.body };
 }
 
@@ -612,7 +613,7 @@ export async function smartReplies(
       prompt: `Suggest 3 brief, distinct reply options (e.g. an affirmative, a decline, and a follow-up) to this email:\n\n${messageContext(message)}`,
     }),
   );
-  await chargeAiUsage(metering, { modelId: model, usage: res.usage, op: 'smart-replies' });
+  await chargeAiUsage(metering, { modelId: billedModelId(model, res), usage: res.usage, op: 'smart-replies' });
   return { replies: res.object.replies.slice(0, 3) };
 }
 
@@ -645,7 +646,7 @@ async function classifyOne(
       prompt: `Categories: ${CLASSIFY_CATEGORIES.join(', ')}.\nPriorities: ${PRIORITIES.join(', ')}.\n\nEmail:\n${messageContext(message)}`,
     }),
   );
-  await chargeAiUsage(metering, { modelId: model, usage: res.usage, op: 'label', referenceId: message.id });
+  await chargeAiUsage(metering, { modelId: billedModelId(model, res), usage: res.usage, op: 'label', referenceId: message.id });
   return {
     category: res.object.category as ClassificationResult['category'],
     priority: res.object.priority as ClassificationResult['priority'],

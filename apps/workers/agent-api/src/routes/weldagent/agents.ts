@@ -24,6 +24,7 @@ import {
 } from '@weldsuite/agent-domain/agents';
 import { extractEventSubscriptions } from '@weldsuite/agent-domain/subscriptions';
 import { executeAgentRun } from '@weldsuite/agent-domain/run';
+import { archiveManagedAgent } from '@weldsuite/agent-domain/managed-agents';
 import { listToolCatalog, resolveAgentTools } from '@weldsuite/agent-domain/tools';
 import { InsufficientAiCreditsError } from '@weldsuite/core-domain/ai-billing';
 import { reindexAgentRoutines, routineIndexSync } from '@weldsuite/agent-domain/routine-index';
@@ -204,9 +205,10 @@ app.patch('/:id', requirePermission('weldagent:update', 'weldagent:manage'), zVa
 /** DELETE /agents/:id */
 app.delete('/:id', requirePermission('weldagent:delete', 'weldagent:manage'), async (c) => {
   const db = c.get('tenantDb');
-  const ok = await deleteAgent(db, c.req.param('id'));
-  if (!ok) return error.notFound(c, 'Agent not found');
+  const deleted = await deleteAgent(db, c.req.param('id'));
+  if (!deleted) return error.notFound(c, 'Agent not found');
   await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, c.req.param('id'));
+  c.executionCtx.waitUntil(archiveManagedAgent(c.env, deleted.anthropicAgentId));
   return noContent(c);
 });
 

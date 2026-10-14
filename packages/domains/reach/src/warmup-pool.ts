@@ -12,7 +12,7 @@
 import { and, countDistinct, eq, inArray, ne, or } from 'drizzle-orm';
 import { decryptField, encryptField, type EncryptionKeyring } from '@weldsuite/db/lib/crypto';
 import type { ReachMailServerCredentials } from '@weldsuite/db/schema';
-import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { masterSchema, type AnyMasterDatabase, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { WARMUP_MIN_DAYS, domainOf } from './warmup';
 
@@ -218,7 +218,7 @@ export interface PoolMailboxView {
   lastLoginErrorAt: Date | null;
 }
 
-export async function readPoolMailboxes(master: MasterDatabase, clerkOrgId: string): Promise<PoolMailboxView[]> {
+export async function readPoolMailboxes(master: AnyMasterDatabase, clerkOrgId: string): Promise<PoolMailboxView[]> {
   return master
     .select({
       tenantMailboxId: pool.tenantMailboxId,
@@ -235,7 +235,7 @@ export async function readPoolMailboxes(master: MasterDatabase, clerkOrgId: stri
 }
 
 /** Distinct domains among mailboxes that take part (waiting, warming, maintaining). */
-export async function activePoolDomainCount(master: MasterDatabase): Promise<number> {
+export async function activePoolDomainCount(master: AnyMasterDatabase): Promise<number> {
   const [row] = await master
     .select({ n: countDistinct(pool.domain) })
     .from(pool)

@@ -152,24 +152,6 @@ const createAgentGroupChatParams = z.object({
   replyPolicy: z.enum(['mentions', 'always', 'none']).optional(),
 });
 
-const computerExecParams = z.object({
-  command: z.string().min(1).max(8000).describe('Shell command to run in the workspace computer'),
-  cwd: z.string().max(500).optional().describe('Working directory under /workspace'),
-});
-
-const computerPathParams = z.object({
-  path: z.string().min(1).max(500).describe('Absolute path under /workspace or relative path'),
-});
-
-const computerWriteParams = computerPathParams.extend({
-  content: z.string().max(500_000),
-});
-
-const computerCodeParams = z.object({
-  code: z.string().min(1).max(100_000),
-  language: z.enum(['python', 'javascript']).optional(),
-});
-
 const browserOpenParams = z.object({
   url: z.string().url().max(2000),
 });
@@ -750,84 +732,6 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         agentMemberCount: addResult.addedCount,
         openingMessageId,
       };
-    },
-  },
-  {
-    id: 'computer.exec',
-    name: 'computer_exec',
-    description:
-      'Run a shell command on the workspace cloud computer (Linux sandbox). Prefer platform tools for CRM/tickets; use this for scripts, files, and general compute.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerExecParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerExecParams.parse(raw);
-      const { computerExec } = await import('./computer-client');
-      return computerExec(ctx.env, {
-        workspaceId: ctx.workspaceId,
-        command: args.command,
-        cwd: args.cwd,
-      });
-    },
-  },
-  {
-    id: 'computer.read_file',
-    name: 'computer_read_file',
-    description: 'Read a file from the workspace cloud computer under /workspace.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerPathParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerPathParams.parse(raw);
-      const { computerReadFile } = await import('./computer-client');
-      return computerReadFile(ctx.env, { workspaceId: ctx.workspaceId, path: args.path });
-    },
-  },
-  {
-    id: 'computer.write_file',
-    name: 'computer_write_file',
-    description: 'Write a file on the workspace cloud computer under /workspace.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerWriteParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerWriteParams.parse(raw);
-      const { computerWriteFile } = await import('./computer-client');
-      return computerWriteFile(ctx.env, {
-        workspaceId: ctx.workspaceId,
-        path: args.path,
-        content: args.content,
-      });
-    },
-  },
-  {
-    id: 'computer.list_files',
-    name: 'computer_list_files',
-    description: 'List files in a directory on the workspace cloud computer.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerPathParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerPathParams.parse(raw);
-      const { computerListFiles } = await import('./computer-client');
-      return computerListFiles(ctx.env, { workspaceId: ctx.workspaceId, path: args.path });
-    },
-  },
-  {
-    id: 'computer.run_code',
-    name: 'computer_run_code',
-    description: 'Run Python or JavaScript on the workspace cloud computer.',
-    requiredPermissions: ['computer:use'],
-    parameters: computerCodeParams,
-    async execute(ctx, raw) {
-      if (!ctx.env) return { error: 'Computer runtime unavailable' };
-      const args = computerCodeParams.parse(raw);
-      const { computerRunCode } = await import('./computer-client');
-      return computerRunCode(ctx.env, {
-        workspaceId: ctx.workspaceId,
-        code: args.code,
-        language: args.language,
-      });
     },
   },
   {

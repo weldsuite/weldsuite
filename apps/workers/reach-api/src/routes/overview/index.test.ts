@@ -6,7 +6,7 @@ import { reachMessages } from '@weldsuite/db/schema';
 import { generateId } from '@weldsuite/worker-kit/id';
 import overviewRoutes from './index';
 import { readJson, reachApp } from '../../test-support/routes';
-import { buildOverview } from '../../services/overview';
+import { buildOverview } from '@weldsuite/reach-domain/overview';
 import { resetReach, seedCampaign, seedEnrollment, seedMailbox, seedOutbound, seedProspect, seedSettings } from '../../test-support/reach';
 
 let db: Database;

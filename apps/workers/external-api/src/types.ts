@@ -1,5 +1,7 @@
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import type { FlagshipBinding } from '@weldsuite/feature-flags/server';
+import type { AppAccess } from '@weldsuite/worker-kit/app-access';
 import type { Database } from './db';
 
 /**
@@ -68,6 +70,20 @@ export interface Env {
   POSTPEER_BASE_URL?: string;
   /** BYOK OAuth apps as JSON: platform → PostPeer app id. */
   POSTPEER_APP_IDS?: string;
+
+  // --- WeldReach (`/v1/reach/*`) -----------------------------------------
+  // The access gate reads `WORKSPACE_CACHE` (above, reach-api's namespace) and
+  // master over `HYPERDRIVE_MASTER`. Replies open the mailbox login with
+  // `DATABASE_ENCRYPTION_KEY` / `_V2` (above) and read inbound mail from `STORAGE`.
+  /**
+   * D1 schedule index (reach-api's database): launching, resuming and enrolling
+   * mark the workspace due (kind `reach_send`, keyed by Clerk org id) so the
+   * send sweep picks it up. Always bind it: unset, nothing wakes the sweep, and
+   * a launched campaign waits until some other write marks the workspace due.
+   */
+  SCHEDULE_INDEX?: D1Database;
+  /** Cloudflare Flagship: the `weldreach-sending` kill switch. Unset: the flag's default (on). */
+  FLAGSHIP?: FlagshipBinding;
 }
 
 /**
@@ -89,8 +105,6 @@ export interface ApiKeySession {
   scopes: string[];
   /** Workspace plan tier (free, business, scale, enterprise). */
   tier: TenantTier;
-  /** Whether the workspace plan has API access. */
-  hasApiAccess: boolean;
   /**
    * Apps the workspace is licensed for (partner-managed workspaces), or null
    * when unrestricted. Checked per request by licenceMiddleware.
@@ -136,7 +150,19 @@ export type Variables = {
    * audit/workflow events still carry a stable actor.
    */
   userId: string;
+  /**
+   * Set by `reachAccess` on `/v1/reach/*`: the workspace's Clerk org id (the key
+   * of the app access cache and the send sweep's due index) and its approved
+   * WeldReach access (staff-set limits, billing state).
+   */
+  reach?: ReachRequest;
 };
+
+/** What the WeldReach approval gate resolved for the request. */
+export interface ReachRequest {
+  clerkOrgId: string;
+  access: AppAccess;
+}
 
 export type HonoEnv = { Bindings: Env; Variables: Variables };
 

@@ -9,9 +9,10 @@
  *                       POST /threads/:threadKey/add-to-crm   person + company (+ opportunity)
  *
  * Replies arrive through the `email()` handler (src/email/handler.ts); this
- * file only reads and acts on what it stored. Handing a thread to the CRM goes
- * through the inbox permission on purpose: the request carries a WeldReach app
- * context, in which WeldCRM permission keys are not evaluated.
+ * file only reads and acts on what it stored. The reads and the reply are in
+ * `@weldsuite/reach-domain/inbox`, shared with the public API. Handing a thread
+ * to the CRM goes through the inbox permission on purpose: the request carries
+ * a WeldReach app context, in which WeldCRM permission keys are not evaluated.
  */
 
 import { Hono, type Context } from 'hono';
@@ -25,21 +26,23 @@ import {
   reachReplySchema,
   updateReachMessageSchema,
 } from '@weldsuite/app-api-client/schemas/reach';
-import type { Env, Variables } from '../../types';
-import { maySend } from '../../lib/tenant';
-import { CrmHandoffError, addThreadToCrm } from '../../services/crm-handoff';
 import {
   countUnreadThreads,
   getThread,
   listThreads,
   loadThread,
-  replyToThread,
+  sendReply,
   toMessageDto,
-  updateMessage,
-} from '../../services/inbox';
+} from '@weldsuite/reach-domain/inbox';
+import type { Env, Variables } from '../../types';
+import { CrmHandoffError, addThreadToCrm } from '../../services/crm-handoff';
+import { updateMessage } from '../../services/inbox';
+import { reachErrorHandler } from '../../services/reach-errors';
 import { replyEventData, type EntitySink } from '../../services/realtime';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+app.onError(reachErrorHandler);
 
 type InboxContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -74,28 +77,17 @@ app.get('/threads/:threadKey', requirePermission('reach_inbox:read'), async (c) 
 });
 
 app.post('/threads/:threadKey/reply', requirePermission('reach_inbox:reply'), zValidator('json', reachReplySchema), async (c) => {
-  const allowed = maySend(c.get('appAccess'));
-  if (!allowed.ok) return error.forbidden(c, `Sending is not available for this workspace (${allowed.reason})`);
-  // Global kill switch (Flagship `weldreach-sending`, default on): off means no SMTP anywhere.
-  if (!((await c.get('flags')?.isOn('weldreach-sending')) ?? true)) {
-    return error.unavailable(c, 'Sending is paused. Try again later.');
-  }
-
-  const result = await replyToThread(
-    { env: c.env, db: c.get('tenantDb') },
+  const message = await sendReply(
+    {
+      env: c.env,
+      db: c.get('tenantDb'),
+      access: c.get('appAccess'),
+      // Global kill switch (Flagship `weldreach-sending`, default on): off means no SMTP anywhere.
+      sendingEnabled: async () => (await c.get('flags')?.isOn('weldreach-sending')) ?? true,
+    },
     { threadKey: c.req.param('threadKey'), body: c.req.valid('json').body, userId: c.get('userId') },
   );
-  if (result.ok) return success(c, toMessageDto(result.message), 201);
-
-  switch (result.code) {
-    case 'NOT_FOUND':
-      return error.notFound(c, 'Thread', c.req.param('threadKey'));
-    case 'NO_REPLY':
-    case 'SUPPRESSED':
-      return error.conflict(c, result.message, { reason: result.code });
-    case 'SEND_FAILED':
-      return error.badGateway(c, result.message);
-  }
+  return success(c, message, 201);
 });
 
 app.patch('/messages/:id', requirePermission('reach_inbox:update'), zValidator('json', updateReachMessageSchema), async (c) => {

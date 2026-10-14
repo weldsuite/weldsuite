@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { success } from '@weldsuite/worker-kit/response';
 import type { Env, Variables } from '../../types';
-import { buildOverview } from '../../services/overview';
+import { buildOverview } from '@weldsuite/reach-domain/overview';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

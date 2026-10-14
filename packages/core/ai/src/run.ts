@@ -29,8 +29,9 @@
  * two ledgers apart is the whole design; don't merge them.
  */
 
-import type { EmbeddingModel, LanguageModel } from 'ai';
+import type { EmbeddingModel, LanguageModel, ProviderMetadata } from 'ai';
 
+import { billedModelId } from './fallback.js';
 import { UnsupportedModelError, type GatewayProvider } from './adapters/types.js';
 import {
   configuredGateways,
@@ -48,6 +49,7 @@ import {
 import { createWeldAI, type WeldAI } from './gateway.js';
 import { providerCostUsd, type AiUsage } from './billing-rates.js';
 import {
+  gatewayCostFactor,
   rankCandidates,
   type GatewayCandidate,
   type GatewayCreditState,
@@ -64,6 +66,11 @@ export interface Attempt {
   modelId: string;
   gateway: GatewayProvider;
   attemptIndex: number;
+  /**
+   * What we pay per $ of list price on this attempt (gateway fee; 1 for BYOK).
+   * Multiply `providerCostUsd(modelId, usage)` by it for the ops ledger.
+   */
+  costFactor: number;
 }
 
 /** What we paid to serve one call. Recorded on success only. */
@@ -230,6 +237,7 @@ function toAttempt(candidate: GatewayCandidate, modelId: string, index: number):
     modelId,
     gateway: candidate.gateway,
     attemptIndex: index,
+    costFactor: candidate.costFactor,
   };
 }
 
@@ -250,12 +258,15 @@ async function reportUsage<T>(
   if (!opts.onUsage) return;
   try {
     const usage = (opts.extractUsage ?? defaultExtractUsage)(value);
+    // A third-party model may have fallen back (fallback.ts): price what served.
+    const servedModelId = billedModelId(opts.modelId, value as { providerMetadata?: ProviderMetadata });
+    const costFactor = candidate.free ? 0 : gatewayCostFactor(candidate.config, servedModelId);
     await opts.onUsage({
       gateway: candidate.gateway,
-      modelId: opts.modelId,
-      nativeModelId: candidate.nativeModelId,
+      modelId: servedModelId,
+      nativeModelId: servedModelId === opts.modelId ? candidate.nativeModelId : servedModelId,
       usage,
-      providerCostUsd: providerCostUsd(opts.modelId, usage ?? {}) * candidate.costFactor,
+      providerCostUsd: providerCostUsd(servedModelId, usage ?? {}) * costFactor,
       coveredByServiceCredit: candidate.free,
       op: opts.op,
       attempts,
