@@ -139,11 +139,16 @@ function PiPCallWidgetInner() {
     const tick = () => forceUpdate();
     meeting.participants.joined.on('participantJoined', tick);
     meeting.participants.joined.on('participantLeft', tick);
+    meeting.participants.joined.on('participantsCleared', tick);
+    // A remote's camera track changes (it is replaced after every reconnect).
+    meeting.participants.joined.on('videoUpdate', tick);
     meeting.self.on('videoUpdate', tick);
     return () => {
       try {
         meeting.participants.joined.removeListener?.('participantJoined', tick);
         meeting.participants.joined.removeListener?.('participantLeft', tick);
+        meeting.participants.joined.removeListener?.('participantsCleared', tick);
+        meeting.participants.joined.removeListener?.('videoUpdate', tick);
         meeting.self.removeListener?.('videoUpdate', tick);
       } catch { /* ignore */ }
     };
