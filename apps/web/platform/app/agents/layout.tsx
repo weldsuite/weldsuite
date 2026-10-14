@@ -1,6 +1,6 @@
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
 import { AgentsHeader } from './components/agents-header';
-import { AgentsBotList } from './components/agents-bot-list';
+import { AgentList } from './components/agent-list';
 import { ModuleContent } from '@/components/layout/module-content';
 import { ListDetailLayout } from '@/components/list-detail-layout';
 
@@ -11,9 +11,9 @@ export default function AgentsLayout({ children }: Readonly<{ children: React.Re
         <AgentsHeader />
         <ModuleContent className="overflow-hidden">
           <ListDetailLayout
-            listWidth={340}
+            listWidth={280}
             basePath="/agents"
-            list={<AgentsBotList />}
+            list={<AgentList />}
             className="bg-background"
           >
             {children}

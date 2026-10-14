@@ -70,6 +70,7 @@ export * from './domains/feature-flags';
 export * from './schemas/weldagent';
 export * from './domains/weldagent';
 export * from './schemas/weldagent-parity';
+export * from './schemas/weldagent-questions';
 export * from './domains/weldagent-parity';
 export * from './schemas/workspace-agents';
 export * from './domains/workspace-agents';

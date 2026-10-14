@@ -20,6 +20,11 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { checkCredits } from '@weldsuite/credits';
 import { CREDITS_PER_USD, PROVIDER_MARKUP, providerCostUsd } from '@weldsuite/ai';
 import type { WeldAgentManagedSessionState } from '@weldsuite/db/schema';
+import {
+  ASK_USER_TOOL_NAME,
+  encodeQuestionMarker,
+  parseAgentQuestion,
+} from '@weldsuite/app-api-client/schemas/weldagent-questions';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { WeldAgentEnv as Env } from './env';
 import {
@@ -124,21 +129,31 @@ export function agentNeedsSetup(systemPrompt: string | null | undefined): boolea
 
 const SETUP_INTERVIEW_INSTRUCTIONS =
   'SETUP MODE — you do not have a job or a real name yet (you may appear as "Untitled").\n' +
-  'You are interviewing the user. A preset choice (e.g. "Work & projects") is ONLY a starting hint — it is NOT enough to finish setup.\n\n' +
+  'The user was just asked "What should this agent do?" and their first message is the answer. ' +
+  'Interview them until you know your purpose AND your routines, then save your setup.\n\n' +
+  'HOW TO ASK:\n' +
+  '- Ask every question with the ask_user tool: one focused question, 2-4 concrete options that fit what they told you. ' +
+  'They can always type their own answer, so do not add an "other" option.\n' +
+  '- Before calling ask_user, write at most one short sentence (or nothing). Do not repeat the question or the options in text.\n' +
+  '- After ask_user, end your turn. Their answer arrives as the next message.\n' +
+  '- Usually 2-4 questions are enough: what to focus on, when to act (new records, a schedule, only when asked in chat), ' +
+  'and what to do each time. Skip anything their answers already cover.\n\n' +
   'HARD RULES:\n' +
-  '- After the user picks a preset or gives a short answer, your reply MUST be a clarifying question. Do not summarise a finished job yet.\n' +
-  '- Ask about ROUTINES next: when should you act (new tickets, quiet contacts, schedules, chat-only, etc.) and what steps you take.\n' +
-  '- Ask one focused question at a time. Keep asking until purpose AND routines are clear.\n' +
-  '- NEVER call save_agent_setup until the user has answered at least one clarifying question about routines.\n' +
+  '- NEVER call save_agent_setup until the user has answered at least one question about routines (when you act).\n' +
   '- NEVER say you are "active", "ready", or "now helping" until save_agent_setup has succeeded.\n' +
   '- Set activate=true only if the user explicitly asks you to go live / activate; otherwise save as draft (activate=false).\n' +
   '- Do not invent workspace data or claim you already run automations.\n\n' +
-  'When both purpose and routines are clear, call save_agent_setup with a short display name, lasting systemPrompt, and description. ' +
-  'After a successful save, briefly confirm your name and what you will do.';
+  'When purpose and routines are clear, call save_agent_setup with a short display name, lasting systemPrompt, and description. ' +
+  'After a successful save, confirm in two or three sentences who you are and what you will do.';
+
+/** The setup interview's tools, from the first turn on: ask_user and save_agent_setup. */
+function setupTools(): PlatformToolDefinition[] {
+  return resolveAgentTools([], []).filter((tool) => tool.id === 'agent.ask_user' || tool.id === 'agent.save_setup');
+}
 
 /**
  * The platform tools the agent may run this turn. During onboarding only
- * save_agent_setup, and only after the user has answered at least one
+ * ask_user, plus save_agent_setup once the user has answered at least one
  * follow-up, so the interview cannot invent workspace mutations.
  */
 export function toolsForAgentTurn(input: {
@@ -149,8 +164,8 @@ export function toolsForAgentTurn(input: {
   actorPermissions?: string[] | null;
 }): PlatformToolDefinition[] {
   if (agentNeedsSetup(input.systemPrompt)) {
-    if (input.userMessageCount < 2) return [];
-    return resolveAgentTools([], []).filter((tool) => tool.id === 'agent.save_setup');
+    const tools = setupTools();
+    return input.userMessageCount < 2 ? tools.filter((tool) => tool.id === 'agent.ask_user') : tools;
   }
   return resolveAgentTools(
     effectiveAgentPermissions(input.permissions, input.actorPermissions),
@@ -172,6 +187,7 @@ function buildSystemPrompt(agent: AgentExecutorInput['agent']): string {
     'You act on workspace data only through the WeldSuite tools you have been given. Never invent IDs or claim you mutated data without a successful tool result. ' +
     'Prefer WeldSuite tools (people, tickets, tasks, chat) when they fit. When you have them, use your sandbox (bash, files) for scripts, data work and code, ' +
     'web search / fetch to look things up, and browser_* only for interactive websites without an API. ' +
+    'When you need a decision or a missing detail from the user, ask it with ask_user (one question, concrete options) and end your turn. ' +
     'Be concise and practical.\n\n' +
     (agent.systemPrompt?.trim() || 'Help the user with their workspace tasks.')
   );
@@ -444,6 +460,14 @@ class TurnFollower {
     this.emittedAny = true;
   }
 
+  /** Streamed turns carry an ask_user question inline, for the client to render as a card. */
+  private emitQuestion(input: unknown): void {
+    const question = parseAgentQuestion(input);
+    if (!question) return;
+    this.beginMessage();
+    this.emit(encodeQuestionMarker(question));
+  }
+
   private onPreviewStart(ev: EventOf<'event_start'>): void {
     if (ev.event.type !== 'agent.message') return;
     this.beginMessage();
@@ -492,6 +516,7 @@ class TurnFollower {
 
   private async onCustomToolUse(ev: EventOf<'agent.custom_tool_use'>): Promise<void> {
     const { result, isError } = await this.params.onCustomTool(ev.name, ev.input);
+    if (ev.name === ASK_USER_TOOL_NAME && !isError) this.emitQuestion(ev.input);
     await this.send([
       {
         type: 'user.custom_tool_result',
@@ -733,8 +758,8 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
 
   const modelId = resolveManagedModel(input.agent.modelId);
   const setup = agentNeedsSetup(input.agent.systemPrompt);
-  // During setup the session declares save_agent_setup from the start (one
-  // session for the whole interview); calling it too early is refused.
+  // During setup the session declares both setup tools from the start (one
+  // session for the whole interview); saving too early is refused.
   const allowedNow = toolsForAgentTurn({
     permissions: input.agent.permissions,
     enabledTools: input.agent.enabledTools,
@@ -742,7 +767,7 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
     userMessageCount: input.messages.filter((m) => m.role === 'user').length,
     actorPermissions: input.actorPermissions,
   });
-  const declared = setup ? resolveAgentTools([], []).filter((tool) => tool.id === 'agent.save_setup') : allowedNow;
+  const declared = setup ? setupTools() : allowedNow;
   const sessionTools = await buildManagedTools(
     declared,
     setup

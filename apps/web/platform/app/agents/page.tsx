@@ -1,63 +1,45 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Bot } from 'lucide-react';
-import { toast } from 'sonner';
+import { Plus } from 'lucide-react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { getTranslations } from '@/lib/i18n';
 import { useRouter } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
-import { useAgents, useCreateAgent } from '@/hooks/queries/use-agent-queries';
+import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
+import { useAgents } from '@/hooks/queries/use-agent-queries';
+import { useCreateAndOpenAgent } from './components/agent-list';
 
 /**
- * /agents — WhatsApp-style empty pane on desktop, or redirect to the first bot.
- * Mobile shows the bot list via ListDetailLayout when no detail is selected.
+ * /agents — on desktop, jump into the first agent (or offer to create one).
+ * On mobile this route shows the agent list (ListDetailLayout).
  */
 export default function AgentsPage() {
-  const t = getTranslations('common');
-  useBreadcrumbs([{ label: t.agents.pageTitle }]);
+  const t = getTranslations('common').agents;
+  useBreadcrumbs([{ label: t.pageTitle }]);
   const router = useRouter();
   const { data: agents = [], isLoading } = useAgents();
-  const createAgent = useCreateAgent();
+  const { create, isPending } = useCreateAndOpenAgent();
 
-  // Desktop jumps straight into the first bot; on mobile this route is the bot
-  // list (ListDetailLayout), so redirecting would make the list unreachable.
+  // Redirecting on mobile would make the list unreachable.
   useEffect(() => {
     if (isLoading || agents.length === 0) return;
     if (window.matchMedia('(max-width: 767px)').matches) return;
     router.replace(`/agents/${agents[0].id}`);
   }, [agents, isLoading, router]);
 
-  const handleCreate = async () => {
-    try {
-      const res = await createAgent.mutateAsync({ name: t.agents.detail.untitledAgent });
-      if (res.data?.id) router.push(`/agents/${res.data.id}`);
-    } catch {
-      toast.error(t.agents.detail.feedback.createFailed);
-    }
-  };
-
-  if (isLoading || agents.length > 0) {
-    return (
-      <div className="h-full flex-1 hidden md:flex flex-col items-center justify-center text-center px-6">
-        <p className="text-sm text-muted-foreground">{t.agents.detail.feedback.loading}</p>
-      </div>
-    );
-  }
+  if (isLoading || agents.length > 0) return <div className="hidden h-full flex-1 md:block" />;
 
   return (
-    <div className="h-full flex-1 hidden md:flex flex-col items-center justify-center text-center px-6 gap-3">
-      <Bot className="h-10 w-10 text-muted-foreground" />
-      <h3 className="text-[15px] font-semibold">{t.agents.list.emptyTitle}</h3>
-      <p className="text-sm text-muted-foreground max-w-[320px] leading-relaxed">
-        {t.agents.list.emptyDescription}
-      </p>
-      <Button
-        className="mt-1"
-        disabled={createAgent.isPending}
-        onClick={() => void handleCreate()}
-      >
-        {t.agents.list.emptyAction}
+    <div className="hidden h-full flex-1 flex-col items-center justify-center gap-3 px-6 text-center md:flex">
+      <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+        <WeldAgentIcon className="h-6 w-6" />
+      </span>
+      <h3 className="text-lg font-semibold">{t.list.emptyTitle}</h3>
+      <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">{t.list.emptyDescription}</p>
+      <Button className="mt-2 gap-1.5" disabled={isPending} onClick={() => void create()}>
+        <Plus className="h-4 w-4" />
+        {t.list.emptyAction}
       </Button>
     </div>
   );

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 import { apiUrl } from '@/lib/api/public-env';
 import { randomSuffix } from '@/lib/random';
+import { questionMarkersToText } from '@weldsuite/app-api-client/schemas/weldagent-questions';
 
 export interface ChatMessage {
   id: string;
@@ -102,7 +103,8 @@ export function useWeldAgentChat({
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify({
-            messages: history.map((m) => ({ role: m.role, content: m.content })),
+            // Streamed questions go back as readable lines, not raw markers.
+            messages: history.map((m) => ({ role: m.role, content: questionMarkersToText(m.content) })),
             system,
             model,
             ...(agentId ? { agentId } : {}),

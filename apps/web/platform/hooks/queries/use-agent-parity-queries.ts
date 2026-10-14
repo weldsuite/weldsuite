@@ -1,8 +1,7 @@
 /**
  * WeldAgent skills / routines / approvals / memory — TanStack Query hooks.
  *
- * Each section is its own query so one failing call (e.g. the cloud computer
- * being unconfigured) never blanks the others.
+ * Each section is its own query so one failing call never blanks the others.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

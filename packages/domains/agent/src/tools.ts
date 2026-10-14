@@ -14,6 +14,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEventRaw, type EntityType } from '@weldsuite/entity-events';
 import { listPeople, createPerson, getPerson, isValidWorkspaceMember } from '@weldsuite/crm-domain/people';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
+import { ASK_USER_TOOL_NAME, agentQuestionSchema } from '@weldsuite/app-api-client/schemas/weldagent-questions';
 import { reindexAgentRoutines, routineIndexSync } from './routine-index';
 import type { Database } from '@weldsuite/worker-kit/db';
 
@@ -238,6 +239,27 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         hint: args.activate
           ? 'Setup saved and activated. Confirm briefly with the user.'
           : 'Setup saved as draft. Confirm briefly; ask if they want you activated.',
+      };
+    },
+  },
+  {
+    id: 'agent.ask_user',
+    name: ASK_USER_TOOL_NAME,
+    description:
+      'Ask the user ONE multiple-choice question when you need a decision or detail from them. ' +
+      'The question is shown as a card with your options; the user can also type their own answer. ' +
+      'After calling this, end your turn without further text: their answer arrives as the next user message. ' +
+      'Never ask the same question twice, and never use it for questions you can answer yourself.',
+    requiredPermissions: [],
+    parameters: agentQuestionSchema,
+    async execute(_ctx, raw) {
+      const question = agentQuestionSchema.parse(raw);
+      return {
+        ok: true,
+        shownToUser: true,
+        question: question.question,
+        options: question.options.map((option) => option.label),
+        hint: 'The question is on screen. End your turn now and wait for the answer.',
       };
     },
   },
@@ -840,13 +862,15 @@ export function effectiveAgentPermissions(
 /**
  * Filter the registry to tools the agent may use given its grants and optional
  * explicit enabledTools allow-list.
- * `agent.save_setup` is always available so unfinished agents can finish onboarding.
+ * `agent.save_setup` is always available so unfinished agents can finish onboarding,
+ * and `agent.ask_user` so any agent can put a question to the user.
  */
 export function resolveAgentTools(
   agentPermissions: string[],
   enabledTools: string[] = [],
 ): PlatformToolDefinition[] {
   const alwaysOn = new Set([
+    'agent.ask_user',
     'agent.save_setup',
     'agent.save_skill',
     'agent.remember',

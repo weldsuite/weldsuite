@@ -33,7 +33,7 @@ export interface ConversationSummary {
   createdAt: string;
 }
 
-interface WeldAgentMessage {
+export interface WeldAgentMessage {
   id: string;
   conversationId: string;
   role: 'user' | 'assistant' | 'system';

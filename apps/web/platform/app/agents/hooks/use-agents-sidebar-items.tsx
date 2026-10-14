@@ -54,7 +54,7 @@ export function classifyAgentIcon(icon: string | null | undefined): AgentIconKin
   return 'fallback';
 }
 
-function makeAgentIcon(agent: { id: string; name: string; icon?: string | null; isSystem: boolean }): React.ComponentType<{ className?: string }> {
+export function makeAgentIcon(agent: { id: string; name: string; icon?: string | null; isSystem: boolean }): React.ComponentType<{ className?: string }> {
   const colorClass = iconColorForAgent(agent);
   const kind = classifyAgentIcon(agent.icon);
   return function AgentIcon({ className }: { className?: string }) {
