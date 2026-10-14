@@ -57,13 +57,6 @@ import { getAgent } from '@weldsuite/agent-domain/agents';
 import { enqueueWeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import { executeDecidedApproval } from '../../services/weldagent/approvals';
 import { reindexAgentRoutines, routineIndexSync } from '@weldsuite/agent-domain/routine-index';
-import {
-  browserAct,
-  browserOpen,
-  computerListFiles,
-  computerStatus,
-  isAgentComputerConfigured,
-} from '@weldsuite/agent-domain/computer-client';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -282,71 +275,6 @@ app.post('/teach/:id/stop', requirePermission('weldagent:update', 'weldagent:man
   });
   if (!session) return error.notFound(c, 'Teach session not found');
   return success(c, session);
-});
-
-// ----- Computer UX helpers -----
-app.get('/agents/:id/computer/files', requirePermission('weldagent:read'), async (c) => {
-  if (!isAgentComputerConfigured(c.env)) {
-    return success(c, { enabled: false, entries: [], reason: 'not_configured' });
-  }
-  try {
-    const path = c.req.query('path') || '/workspace';
-    const result = await computerListFiles(c.env, {
-      workspaceId: c.get('workspaceId'),
-      path,
-    });
-    return success(c, result);
-  } catch (error_) {
-    return success(c, {
-      enabled: false,
-      entries: [],
-      reason: error_ instanceof Error ? error_.message : 'unavailable',
-    });
-  }
-});
-
-app.post('/agents/:id/browser/live-view', requirePermission('weldagent:read'), async (c) => {
-  if (!isAgentComputerConfigured(c.env)) {
-    return error.badRequest(c, 'Agent computer is not configured');
-  }
-  const agentId = c.req.param('id');
-  try {
-    const result = await browserAct(c.env, {
-      workspaceId: c.get('workspaceId'),
-      agentId,
-      action: 'live_view',
-    });
-    return success(c, result);
-  } catch {
-    // No session yet — open a blank page first then request live view.
-    try {
-      await browserOpen(c.env, {
-        workspaceId: c.get('workspaceId'),
-        agentId,
-        url: 'about:blank',
-      });
-      const result = await browserAct(c.env, {
-        workspaceId: c.get('workspaceId'),
-        agentId,
-        action: 'live_view',
-      });
-      return success(c, result);
-    } catch (innerError) {
-      return error.internal(c, innerError instanceof Error ? innerError.message : 'Live view unavailable');
-    }
-  }
-});
-
-app.get('/computer/health', requirePermission('weldagent:read'), async (c) => {
-  if (!isAgentComputerConfigured(c.env)) {
-    return success(c, { ok: false, reason: 'not_configured' });
-  }
-  try {
-    const status = await computerStatus(c.env, c.get('workspaceId'));
-    return success(c, { ok: true, status });
-  } catch (error_) {
-    return success(c, { ok: false, reason: error_ instanceof Error ? error_.message : 'unavailable' });
-  }
 });
 
 // ----- Connector events (Slack / GitHub) -----

@@ -9,6 +9,7 @@ import {
 } from './managed-agents';
 import { driveTurn, type DriveTurnParams } from './executor';
 import type { PlatformToolDefinition } from './tools';
+import { splitQuestionMarkers } from '@weldsuite/app-api-client/schemas/weldagent-questions';
 
 describe('resolveManagedModel', () => {
   it('keeps Claude agent models', () => {
@@ -134,6 +135,32 @@ describe('driveTurn', () => {
     expect(outcome.texts).toEqual(['Found 1 person.']);
     expect(outcome.finishReason).toBe('end_turn');
     expect(outcome.usage).toEqual({ inputTokens: 100, outputTokens: 20 });
+  });
+
+  it('streams an ask_user question inline for the client to render', async () => {
+    const question = { question: 'When should I act?', options: [{ label: 'Daily' }, { label: 'On new tickets' }] };
+    const { client } = fakeClient([
+      { type: 'session.status_running', id: 'e1' },
+      { type: 'agent.message', id: 'e2', content: [{ type: 'text', text: 'One more thing.' }] },
+      { type: 'agent.custom_tool_use', id: 'e3', name: 'ask_user', input: question },
+      { type: 'session.status_idle', id: 'e4', stop_reason: { type: 'end_turn' } },
+    ]);
+    let streamed = '';
+
+    await driveTurn({
+      client,
+      sessionId: 'sesn_1',
+      kickoff: [{ type: 'user.message', content: [{ type: 'text', text: 'Help with support' }] }],
+      deadline: Date.now() + 10_000,
+      maxModelRequests: 10,
+      invocations: [],
+      onText: (text) => {
+        streamed += text;
+      },
+      onCustomTool: async () => ({ result: { ok: true }, isError: false }),
+    });
+
+    expect(splitQuestionMarkers(streamed)).toEqual({ text: 'One more thing.', questions: [question] });
   });
 
   it('interrupts once the model-request cap is passed', async () => {

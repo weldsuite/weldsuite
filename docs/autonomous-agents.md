@@ -1,7 +1,8 @@
 # Workspace AI Agents (WeldAgent)
 
-Named, permission-scoped AI agents that act **inside the WeldSuite platform**,
-with an optional **Cloudflare cloud computer** (Sandbox Linux + Browser Run).
+Named, permission-scoped AI agents that act **inside the WeldSuite platform**.
+They run on **Claude Managed Agents**; a granted agent also gets a sandbox and
+web tools there.
 
 ## Product model
 
@@ -17,11 +18,11 @@ with an optional **Cloudflare cloud computer** (Sandbox Linux + Browser Run).
 | Surface | Path |
 |---|---|
 | Agents gallery / builder | `/agents`, `/agents/:id` |
-| Per-bot chat history | `/agents/:id` → Chat tab (`weldagent_conversations` + `agentId`) |
+| Per-bot chat history | `/agents/:id` (`weldagent_conversations` + `agentId`); settings sheet for config |
 | Chat with agent picker | WeldAgent drawer (`Cmd/Ctrl+J`) |
 | Multi-agent rooms | WeldChat channels with agent members + @mentions |
 | API | `/api/weldagent/agents/*`, `/api/weldagent/conversations?agentId=`, `/api/ai/chat` (+ `agentId`), `/api/channels/*` |
-| Cloud computer | `agent-runtime` worker + tools `computer_*` / `browser_*` |
+| Sandbox + web | Managed Agents built-in tools; `browser_*` via the `agent-runtime` worker |
 
 ## Per-bot chat history (Grok-style)
 
@@ -52,29 +53,19 @@ Runtime: `postChatMessage` → `dispatchAgentMentions` → `runAgentOnce` → `p
 
 Agent tools for rooms: `message_agent`, `create_agent_group_chat`.
 
-## Cloud computer (Cloudflare-only)
+## Sandbox and web tools
 
-One **Linux sandbox per workspace** (shared by that workspace’s bots) plus
-**Browser Run** sessions keyed per agent.
+Both are grants on the agent (Agent settings → Access):
 
-| Piece | Where |
-|---|---|
-| Brain / tool loop | `app-api` `executor.ts` |
-| Computer + browser API | `apps/workers/agent-runtime` |
-| Client | `computer-client.ts` → `AGENT_RUNTIME_URL` + `INTERNAL_API_SECRET` |
-| Grants | `computer:use`, `browser:use` (assign on the agent) |
-| UI | Configure → Cloud computer panel |
+| Grant | What the agent gets | Runs at |
+|---|---|---|
+| `computer:use` | bash, read, write, edit, glob, grep in a private sandbox | Anthropic (Managed Agents toolset) |
+| `browser:use` | web search + fetch | Anthropic (Managed Agents toolset) |
+| `browser:use` | `browser_open`, `browser_act`, `browser_close` for sites without an API | `apps/workers/agent-runtime` (Browser Run) |
 
-Tools:
-
-- `computer_exec`, `computer_read_file`, `computer_write_file`, `computer_list_files`, `computer_run_code`
-- `browser_open`, `browser_act`, `browser_close`
-
-Ops:
-
-- Local: run Docker + `pnpm --filter agent-runtime dev` (port 8795)
-- Env: `AGENT_RUNTIME_URL`, `AGENT_COMPUTER_ENABLED`, matching `INTERNAL_API_SECRET`
-- Not a full GUI desktop — headless Chrome + Linux container (Grok-like capabilities without Hetzner)
+- Built-in tool config: `builtinToolAccess` / `agentToolset` in `packages/domains/agent/src/managed-agents.ts`
+- Browser Run client: `packages/domains/agent/src/computer-client.ts` (`AGENT_RUNTIME` binding, else `AGENT_RUNTIME_URL` + `INTERNAL_API_SECRET`; `AGENT_COMPUTER_ENABLED=false` turns it off)
+- Local: `pnpm --filter agent-runtime dev` (port 8795) for the browser tools
 
 ## Permissions
 
@@ -87,12 +78,25 @@ The chatting user being Owner does **not** widen what the agent can do.
 
 ## Runtime
 
-- Executor: `packages/domains/agent/src/executor.ts` (`generateText` / `streamText` + `stopWhen: stepCountIs(n)`)
-- Tools: `packages/domains/agent/src/tools.ts` (people, tickets, tasks, chat, computer, browser)
-- Computer: `apps/workers/agent-runtime` (Sandbox + Browser Run)
+- Executor: `packages/domains/agent/src/executor.ts` (Managed Agents sessions; platform tools run as custom tools in agent-api)
+- Tools: `packages/domains/agent/src/tools.ts` (ask_user, setup, skills, memory, routines, people, tickets, tasks, chat, browser)
+- Browser Run: `apps/workers/agent-runtime`
 - Event dispatch: `registerWeldAgentEventRunner` in `@weldsuite/entity-events` → `dispatchWeldAgentsForEvent`
 - Room dispatch: `services/chat/agent-mention-dispatch.ts`
 - Activation extracts `eventSubscriptions` from instructions (`subscriptions.ts`)
+
+## Asking the user (`ask_user`)
+
+Every agent has the `ask_user` custom tool: one question with 2-4 options it
+writes itself. The platform renders it as a card (number keys pick an option,
+"Something else" types a free answer) and the answer goes back as the next user
+message. The setup interview asks all its questions this way.
+
+- Schema + stream marker: `@weldsuite/app-api-client/schemas/weldagent-questions`
+- Conversation turns: the question is the tool invocation's `args`
+  (`app/agents/components/chat/thread.ts` pairs it with the answer)
+- Streamed turns (WeldAgent drawer): the executor writes the question into the
+  text stream between record separators; `splitQuestionMarkers` lifts it out
 
 ## Out of scope (for now)
 

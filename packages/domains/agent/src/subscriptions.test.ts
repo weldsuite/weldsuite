@@ -36,12 +36,13 @@ describe('resolveAgentTools', () => {
     expect(ids).not.toContain('tasks.create');
   });
 
-  it('respects enabledTools allow-list but always includes setup/skill/memory/routine tools', () => {
+  it('respects enabledTools allow-list but always includes ask/setup/skill/memory/routine tools', () => {
     const tools = resolveAgentTools(['people:read', 'people:create', 'tickets:read'], [
       'people.list',
     ]);
     expect(tools.map((t) => t.id)).toEqual([
       'agent.save_setup',
+      'agent.ask_user',
       'agent.save_skill',
       'agent.remember',
       'agent.create_routine',
@@ -69,14 +70,14 @@ describe('setup interview gating', () => {
     expect(agentNeedsSetup('Help with tickets daily')).toBe(false);
   });
 
-  it('withholds all tools until the user has answered a follow-up', () => {
+  it('only lets the interview ask until the user has answered a follow-up', () => {
     const early = toolsForAgentTurn({
       permissions: ['people:read', 'computer:use'],
       enabledTools: [],
       systemPrompt: '',
       userMessageCount: 1,
     });
-    expect(early).toEqual([]);
+    expect(early.map((t) => t.id)).toEqual(['agent.ask_user']);
 
     const ready = toolsForAgentTurn({
       permissions: ['people:read', 'computer:use'],
@@ -84,7 +85,7 @@ describe('setup interview gating', () => {
       systemPrompt: '',
       userMessageCount: 2,
     });
-    expect(ready.map((t) => t.id)).toEqual(['agent.save_setup']);
+    expect(ready.map((t) => t.id).sort()).toEqual(['agent.ask_user', 'agent.save_setup']);
   });
 
   it('keeps platform tools once the agent already has instructions', () => {
