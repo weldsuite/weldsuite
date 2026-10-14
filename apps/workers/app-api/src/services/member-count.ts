@@ -8,9 +8,15 @@
  * phase-out). Pure functions — no Hono context.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray, or, sql } from 'drizzle-orm';
 import type { Env } from '../types';
-import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import {
+  getTenantDbForWorkspace,
+  masterSchema,
+  schema,
+  type Database,
+  type MasterDatabase,
+} from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
@@ -29,9 +35,129 @@ export interface ClerkMembershipListItem {
 }
 
 /**
+ * Remove a user from a Clerk organization. Clerk addresses the membership by
+ * the member's user id (`DELETE /organizations/{org}/memberships/{user_id}`),
+ * not by the membership id. Returns true when the user is no longer a member,
+ * including when Clerk says they weren't one (404).
+ */
+export async function removeClerkMembership(
+  secretKey: string,
+  orgId: string,
+  userId: string,
+): Promise<boolean> {
+  const resp = await fetch(
+    `https://api.clerk.com/v1/organizations/${orgId}/memberships/${encodeURIComponent(userId)}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${secretKey}` } },
+  );
+  if (resp.ok || resp.status === 404) return true;
+  console.error('[member-count] Clerk membership delete failed:', resp.status);
+  return false;
+}
+
+type TenantMemberRef = { userId: string; email: string | null; deletedAt: Date | null };
+
+/**
+ * Clerk memberships of people WeldSuite already removed: the user has a
+ * soft-deleted member row and no live one, neither by user id nor by email (a
+ * pending re-invite). A user with no row at all is left alone, since that is
+ * a membership.created webhook that hasn't landed yet.
+ *
+ * These exist because the team-members DELETE route used to address Clerk by
+ * membership id, which Clerk 404s, so the member was removed here but stayed
+ * in the Clerk organization and kept taking a seat.
+ */
+export function pickRemovedMemberships(
+  memberships: ClerkMembershipListItem[],
+  tenantRows: TenantMemberRef[],
+): ClerkMembershipListItem[] {
+  const liveUserIds = new Set<string>();
+  const liveEmails = new Set<string>();
+  const removedUserIds = new Set<string>();
+  for (const row of tenantRows) {
+    if (row.deletedAt) {
+      removedUserIds.add(row.userId);
+    } else {
+      liveUserIds.add(row.userId);
+      if (row.email) liveEmails.add(row.email.toLowerCase());
+    }
+  }
+
+  return memberships.filter((m) => {
+    const userId = m.public_user_data.user_id;
+    const email = m.public_user_data.identifier?.toLowerCase();
+    return (
+      removedUserIds.has(userId) &&
+      !liveUserIds.has(userId) &&
+      !(email && liveEmails.has(email))
+    );
+  });
+}
+
+async function loadTenantMemberRefs(
+  tenantDb: Database,
+  memberships: ClerkMembershipListItem[],
+): Promise<TenantMemberRef[]> {
+  if (memberships.length === 0) return [];
+  const { workspaceMembers } = schema;
+  const userIds = memberships.map((m) => m.public_user_data.user_id);
+  const emails = memberships
+    .map((m) => m.public_user_data.identifier?.toLowerCase())
+    .filter((e): e is string => Boolean(e));
+
+  return tenantDb
+    .select({
+      userId: workspaceMembers.userId,
+      email: workspaceMembers.email,
+      deletedAt: workspaceMembers.deletedAt,
+    })
+    .from(workspaceMembers)
+    .where(
+      emails.length > 0
+        ? or(
+            inArray(workspaceMembers.userId, userIds),
+            inArray(sql`lower(${workspaceMembers.email})`, emails),
+          )
+        : inArray(workspaceMembers.userId, userIds),
+    );
+}
+
+/**
+ * Splits Clerk memberships into the ones that hold a seat and the ones left
+ * behind by members WeldSuite already removed, and finishes removing the
+ * latter from Clerk (best effort) so they stop counting against Clerk's cap
+ * and lose access. When the tenant DB can't be read, every membership counts.
+ */
+async function dropRemovedMemberships(
+  env: Env,
+  clerkOrgId: string,
+  memberships: ClerkMembershipListItem[],
+): Promise<ClerkMembershipListItem[]> {
+  let removed: ClerkMembershipListItem[];
+  try {
+    const tenantDb = await getTenantDbForWorkspace(env, clerkOrgId);
+    removed = pickRemovedMemberships(memberships, await loadTenantMemberRefs(tenantDb, memberships));
+  } catch (err) {
+    console.warn('[member-count] Could not check memberships against the tenant DB:', err);
+    return memberships;
+  }
+  if (removed.length === 0) return memberships;
+
+  console.warn(
+    `[member-count] ${removed.length} removed member(s) still in Clerk org ${logSafe(clerkOrgId)}, removing`,
+  );
+  await Promise.allSettled(
+    removed.map((m) => removeClerkMembership(env.CLERK_SECRET_KEY, clerkOrgId, m.public_user_data.user_id)),
+  );
+
+  const removedIds = new Set(removed.map((m) => m.id));
+  return memberships.filter((m) => !removedIds.has(m.id));
+}
+
+/**
  * Fetches the real organization membership count from Clerk's API,
- * ensuring accuracy even when webhooks have failed. If the DB count
- * differs from Clerk, syncs userWorkspaces in the background.
+ * ensuring accuracy even when webhooks have failed. Members WeldSuite already
+ * removed but Clerk still lists are not counted (and are removed from Clerk).
+ * If the DB count differs from Clerk, syncs userWorkspaces in the background.
  * Falls back to the DB count when Clerk is unreachable.
  */
 export async function getAccurateMemberCount(
@@ -69,7 +195,8 @@ export async function getAccurateMemberCount(
       total_count: number;
     };
 
-    const clerkCount = memberships.total_count;
+    const seatMemberships = await dropRemovedMemberships(env, clerkOrgId, memberships.data);
+    const clerkCount = memberships.total_count - (memberships.data.length - seatMemberships.length);
 
     // If counts match, no sync needed
     if (clerkCount === dbCount) {
@@ -81,7 +208,7 @@ export async function getAccurateMemberCount(
       `[member-count] Member count mismatch for workspace ${logSafe(workspaceId)}: DB=${dbCount}, Clerk=${logSafe(clerkCount)}. Syncing...`,
     );
 
-    syncUserWorkspacesFromClerk(masterDb, workspaceId, dbMembers, memberships.data).catch(
+    syncUserWorkspacesFromClerk(masterDb, workspaceId, dbMembers, seatMemberships).catch(
       (err) => {
         console.error('[member-count] Background member sync failed:', err);
       },
