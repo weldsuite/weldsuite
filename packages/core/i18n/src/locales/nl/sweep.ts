@@ -1979,15 +1979,6 @@ export const sweep = {
       "title": "API-sleutels",
       "description": "Beheer API-sleutels voor externe integraties",
       "loadingKeys": "API-sleutels laden...",
-      "upgradePromo": {
-        "heading": "API-toegang.",
-        "subheadingLine1": "Integreer WeldSuite met uw apps",
-        "subheadingLine2": "en automatiseer workflows",
-        "upgradeButton": "Upgraden",
-        "learnMore": "Meer informatie",
-        "featureName": "API-toegang",
-        "featureDescription": "Upgrade om WeldSuite te integreren met uw apps"
-      },
       "searchPlaceholder": "Sleutels zoeken...",
       "generateKey": "Sleutel genereren",
       "createDialog": {

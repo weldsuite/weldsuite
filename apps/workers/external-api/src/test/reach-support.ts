@@ -96,7 +96,6 @@ export function reachSession(fields: Partial<ApiKeySession> = {}): ApiKeySession
     userId: 'user_reach_test',
     scopes: ['*'],
     tier: 'enterprise',
-    hasApiAccess: true,
     databaseUrl: null,
     clerkOrgId: ORG_ID,
     licensedApps: null,

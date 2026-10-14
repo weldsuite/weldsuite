@@ -19,7 +19,6 @@ const baseRow = {
   databaseUrl: null,
   clerkOrgId: 'org_1',
   planSlug: 'business',
-  hasApiAccess: true,
   billingMode: 'direct',
   licenceStatus: null,
   licenceApps: null,

@@ -45,7 +45,7 @@ Every error response has the same shape: a single `error` object with a machine-
 |--------|--------|-------------|
 | 400 | `BAD_REQUEST` | The request body or query failed validation. `details` lists the offending fields. |
 | 401 | `UNAUTHORIZED` | The API key is missing, malformed, revoked, or expired. |
-| 403 | `FORBIDDEN` | The API key is valid but lacks the scope required for this endpoint, or the workspace plan has no API access. |
+| 403 | `FORBIDDEN` | The API key is valid but lacks the scope required for this endpoint. |
 | 403 | `APP_ACCESS_REQUIRED` | The endpoint belongs to a module that is available on request only, such as [WeldReach](/weldreach), and WeldSuite has not approved the workspace for it. `details` holds `appCode` and the access `status`. See [Access errors](#access-errors). |
 | 404 | `NOT_FOUND` | The requested resource does not exist (or is soft-deleted). |
 | 405 | `METHOD_NOT_ALLOWED` | The resource does not accept this HTTP method. Most WeldBooks resources are read-only through the API, so `POST`, `PUT`, `PATCH` and `DELETE` on them return 405 whatever the key's scopes. See the [WeldBooks overview](/weldbooks). |
@@ -147,7 +147,7 @@ async function apiRequest(path, options = {}) {
         return apiRequest(path, options)
       }
       case 'FORBIDDEN':
-        throw new Error(`Missing scope or no API access: ${message}`)
+        throw new Error(`Missing scope: ${message}`)
       case 'APP_ACCESS_REQUIRED':
         throw new Error(`Workspace not approved for ${details.appCode} (${details.status})`)
       case 'BAD_REQUEST':

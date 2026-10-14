@@ -105,8 +105,6 @@ export interface ApiKeySession {
   scopes: string[];
   /** Workspace plan tier (free, business, scale, enterprise). */
   tier: TenantTier;
-  /** Whether the workspace plan has API access. */
-  hasApiAccess: boolean;
   /**
    * Apps the workspace is licensed for (partner-managed workspaces), or null
    * when unrestricted. Checked per request by licenceMiddleware.

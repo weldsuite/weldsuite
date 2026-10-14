@@ -1897,15 +1897,6 @@ export const sweep = {
       "title": "API Keys",
       "description": "Manage API keys for external integrations",
       "loadingKeys": "Loading API keys...",
-      "upgradePromo": {
-        "heading": "API Access.",
-        "subheadingLine1": "Integrate WeldSuite with your apps",
-        "subheadingLine2": "and automate workflows",
-        "upgradeButton": "Upgrade",
-        "learnMore": "Learn more",
-        "featureName": "API Access",
-        "featureDescription": "Upgrade to integrate WeldSuite with your apps"
-      },
       "searchPlaceholder": "Search keys...",
       "generateKey": "Generate Key",
       "createDialog": {
