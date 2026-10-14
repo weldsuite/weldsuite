@@ -30,11 +30,6 @@ export interface ApiKeySession {
   /** Workspace plan tier (free, business, scale, enterprise). */
   tier: TenantTier;
   /**
-   * Retained from the external-api contract so copied routes compile unchanged.
-   * MCP access is not plan-gated, so this is always `true`.
-   */
-  hasApiAccess: boolean;
-  /**
    * The workspace's Clerk org id (the key of the app-access cache and of the
    * send sweep's due index). The OAuth session always knows it; the field is
    * optional only so the copied route libraries compile as in external-api.

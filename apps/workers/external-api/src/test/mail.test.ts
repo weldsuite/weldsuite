@@ -56,7 +56,6 @@ function session(fields: Partial<ApiKeySession>): ApiKeySession {
     userId: null,
     scopes: ['*'],
     tier: 'enterprise',
-    hasApiAccess: true,
     databaseUrl: null,
     clerkOrgId: ORG_ID,
     licensedApps: null,
