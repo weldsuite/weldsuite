@@ -1,5 +1,7 @@
 /**
- * HTTP client for weldsuite-agent-runtime (Cloudflare Sandbox + Browser Run).
+ * HTTP client for weldsuite-agent-runtime: Browser Run sessions behind the
+ * browser_* agent tools. (The sandbox and web search run at Anthropic, as
+ * Claude Managed Agents tools, and do not come through here.)
  *
  * Preferred transport: the `AGENT_RUNTIME` service binding to agent-runtime's
  * `AgentRuntimeInternal` entrypoint (no Authorization header: reachable only
@@ -90,82 +92,6 @@ async function jsonOrThrow(res: Response): Promise<unknown> {
   return data;
 }
 
-export async function computerStatus(env: Env, workspaceId: string) {
-  if (!runtimeReachable(env)) return { enabled: false as const, reason: 'not_configured' };
-  const res = await runtimeFetch(
-    env,
-    `/v1/computer/status?workspaceId=${encodeURIComponent(workspaceId)}`,
-  );
-  return jsonOrThrow(res);
-}
-
-export async function computerExec(
-  env: Env,
-  input: { workspaceId: string; command: string; cwd?: string },
-) {
-  const res = await runtimeFetch(env, '/v1/computer/exec', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-  return jsonOrThrow(res);
-}
-
-export async function computerReadFile(
-  env: Env,
-  input: { workspaceId: string; path: string },
-) {
-  const res = await runtimeFetch(env, '/v1/computer/files/read', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-  return jsonOrThrow(res);
-}
-
-export async function computerWriteFile(
-  env: Env,
-  input: { workspaceId: string; path: string; content: string },
-) {
-  const res = await runtimeFetch(env, '/v1/computer/files/write', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-  return jsonOrThrow(res);
-}
-
-export async function computerListFiles(
-  env: Env,
-  input: { workspaceId: string; path: string },
-) {
-  const res = await runtimeFetch(env, '/v1/computer/files/list', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-  return jsonOrThrow(res);
-}
-
-export async function computerRunCode(
-  env: Env,
-  input: {
-    workspaceId: string;
-    code: string;
-    language?: 'python' | 'javascript';
-  },
-) {
-  const res = await runtimeFetch(env, '/v1/computer/code', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-  return jsonOrThrow(res);
-}
-
-export async function computerDestroy(env: Env, workspaceId: string) {
-  const res = await runtimeFetch(env, '/v1/computer/destroy', {
-    method: 'POST',
-    body: JSON.stringify({ workspaceId }),
-  });
-  return jsonOrThrow(res);
-}
-
 export async function browserOpen(
   env: Env,
   input: { workspaceId: string; agentId: string; url: string },
@@ -206,9 +132,4 @@ export async function browserClose(
     body: JSON.stringify(input),
   });
   return jsonOrThrow(res);
-}
-
-export function isAgentComputerConfigured(env: Env): boolean {
-  if (!computerEnabled(env)) return false;
-  return Boolean(env.AGENT_RUNTIME) || (runtimeBase(env) != null && Boolean(env.INTERNAL_API_SECRET?.trim()));
 }
