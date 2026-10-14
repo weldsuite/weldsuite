@@ -104,7 +104,8 @@ function getCompanyLocation(company: Company): { city: string; state: string; co
  */
 function setCompanyLocation(company: Company, value: unknown): Partial<Company> {
   const next = (value ?? {}) as LocationParts;
-  const { province: _province, ...current } = (company.primaryAddress ?? {}) as Record<string, unknown>;
+  const current = { ...(company.primaryAddress ?? {}) } as Record<string, unknown>;
+  delete current.province;
   return {
     primaryAddress: {
       ...current,

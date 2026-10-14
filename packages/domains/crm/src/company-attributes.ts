@@ -54,6 +54,163 @@ function toNumber(value: string | number | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+type AttributesById = Map<string, CompanyAttributes>;
+type PartyLinked = { partyId: string | null };
+type TeamMember = CompanyAttributes['team'][number];
+type Deal = CompanyAttributes['deals'][number];
+
+interface TeamRow extends Omit<TeamMember, 'phone' | 'jobTitle'> {
+  companyId: string;
+  directPhone: string | null;
+  mobilePhone: string | null;
+  title: string | null;
+  role: string | null;
+}
+
+interface ActivityRow extends PartyLinked {
+  type: CompanyInteraction['type'];
+  status: string | null;
+  userId: string | null;
+  at: Date;
+}
+
+interface DueTaskRow extends PartyLinked {
+  id: string;
+  title: string;
+  dueDate: Date | string | null;
+}
+
+interface DealRow extends PartyLinked, Omit<Deal, 'amount' | 'closeDate'> {
+  amount: string | number | null;
+  closeDate: Date | string | null;
+}
+
+interface InteractionStats {
+  recent: number;
+  past: number;
+  byUser: Map<string, { count: number; last: number }>;
+}
+
+/** The company a party-linked row belongs to, with its attributes entry. */
+function companyForParty(
+  result: AttributesById,
+  companyByParty: Map<string, string>,
+  partyId: string | null,
+): { companyId: string; attrs: CompanyAttributes } | null {
+  const companyId = partyId ? companyByParty.get(partyId) : undefined;
+  const attrs = companyId ? result.get(companyId) : undefined;
+  return companyId && attrs ? { companyId, attrs } : null;
+}
+
+function addTeam(result: AttributesById, rows: TeamRow[]): void {
+  for (const row of rows) {
+    result.get(row.companyId)?.team.push({
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      phone: row.directPhone ?? row.mobilePhone,
+      jobTitle: row.title ?? row.role,
+    });
+  }
+}
+
+const isEarlier = (time: number, current: CompanyInteraction | null) => !current || time < Date.parse(current.at);
+const isLater = (time: number, current: CompanyInteraction | null) => !current || time > Date.parse(current.at);
+
+function countInteraction(
+  stats: Map<string, InteractionStats>,
+  companyId: string,
+  userId: string | null,
+  time: number,
+  recentSince: number,
+): void {
+  let s = stats.get(companyId);
+  if (!s) {
+    s = { recent: 0, past: 0, byUser: new Map() };
+    stats.set(companyId, s);
+  }
+  s.past++;
+  if (time >= recentSince) s.recent++;
+  if (!userId) return;
+  const u = s.byUser.get(userId) ?? { count: 0, last: 0 };
+  u.count++;
+  u.last = Math.max(u.last, time);
+  s.byUser.set(userId, u);
+}
+
+/** Most interactions wins; a tie goes to the more recent contact. */
+function strongestConnection(byUser: InteractionStats['byUser']): string | null {
+  let best: { userId: string; count: number; last: number } | null = null;
+  for (const [userId, u] of byUser) {
+    if (!best || u.count > best.count || (u.count === best.count && u.last > best.last)) best = { userId, ...u };
+  }
+  return best?.userId ?? null;
+}
+
+/**
+ * Interactions: first/last among the past ones, next among the planned
+ * future ones; strength and strongest connection from the past ones.
+ */
+function addInteractions(
+  result: AttributesById,
+  companyByParty: Map<string, string>,
+  rows: ActivityRow[],
+  now: Date,
+): void {
+  const nowTime = now.getTime();
+  const recentSince = nowTime - CONNECTION_WINDOW_DAYS * DAY_MS;
+  const stats = new Map<string, InteractionStats>();
+  for (const row of rows) {
+    const target = companyForParty(result, companyByParty, row.partyId);
+    const at = new Date(row.at);
+    const time = at.getTime();
+    if (!target || Number.isNaN(time)) continue;
+    const { companyId, attrs } = target;
+    const interaction: CompanyInteraction = { at: at.toISOString(), type: row.type, userId: row.userId };
+
+    if (time > nowTime) {
+      const planned = row.status === 'planned' || row.status === 'in_progress';
+      if (planned && isEarlier(time, attrs.nextInteraction)) attrs.nextInteraction = interaction;
+      continue;
+    }
+
+    if (isEarlier(time, attrs.firstInteraction)) attrs.firstInteraction = interaction;
+    if (isLater(time, attrs.lastInteraction)) attrs.lastInteraction = interaction;
+    countInteraction(stats, companyId, row.userId, time, recentSince);
+  }
+  for (const [companyId, s] of stats) {
+    const attrs = result.get(companyId)!;
+    attrs.connectionStrength = connectionStrengthFor(s.recent, s.past > 0);
+    attrs.strongestConnectionUserId = strongestConnection(s.byUser);
+  }
+}
+
+function addNextDueTasks(result: AttributesById, companyByParty: Map<string, string>, rows: DueTaskRow[]): void {
+  for (const row of rows) {
+    const attrs = companyForParty(result, companyByParty, row.partyId)?.attrs;
+    if (!attrs || !row.dueDate) continue;
+    const due = new Date(row.dueDate);
+    if (!attrs.nextDueTask || due.getTime() < Date.parse(attrs.nextDueTask.dueDate)) {
+      attrs.nextDueTask = { id: row.id, title: row.title, dueDate: due.toISOString() };
+    }
+  }
+}
+
+function addDeals(result: AttributesById, companyByParty: Map<string, string>, rows: DealRow[]): void {
+  for (const row of rows) {
+    companyForParty(result, companyByParty, row.partyId)?.attrs.deals.push({
+      id: row.id,
+      name: row.name,
+      stage: row.stage,
+      status: row.status,
+      amount: toNumber(row.amount),
+      currency: row.currency,
+      closeDate: row.closeDate ? new Date(row.closeDate).toISOString() : null,
+      ownerId: row.ownerId,
+    });
+  }
+}
+
 /** Computed attributes for each of `companyIds` (every id gets an entry). */
 export async function getCompanyAttributes(
   db: Database,
@@ -93,15 +250,7 @@ export async function getCompanyAttributes(
       .orderBy(desc(personCompanies.isPrimary), asc(people.displayName)),
   ]);
 
-  for (const row of teamRows) {
-    result.get(row.companyId)?.team.push({
-      id: row.id,
-      name: row.name,
-      email: row.email,
-      phone: row.directPhone ?? row.mobilePhone,
-      jobTitle: row.title ?? row.role,
-    });
-  }
+  addTeam(result, teamRows);
 
   // party id → company id. A company has at most one live wrapping party.
   const companyByParty = new Map<string, string>();
@@ -180,76 +329,9 @@ export async function getCompanyAttributes(
       .orderBy(desc(crmOpportunities.createdAt)),
   ]);
 
-  // Interactions: first/last among the past ones, next among the planned
-  // future ones; strength and strongest connection from the past ones.
-  const recentSince = now.getTime() - CONNECTION_WINDOW_DAYS * DAY_MS;
-  const stats = new Map<string, { recent: number; past: number; byUser: Map<string, { count: number; last: number }> }>();
-  for (const row of activityRows) {
-    const companyId = row.partyId ? companyByParty.get(row.partyId) : undefined;
-    const attrs = companyId ? result.get(companyId) : undefined;
-    if (!companyId || !attrs) continue;
-    const at = new Date(row.at);
-    const time = at.getTime();
-    if (Number.isNaN(time)) continue;
-    const interaction: CompanyInteraction = { at: at.toISOString(), type: row.type, userId: row.userId };
-
-    if (time > now.getTime()) {
-      if (row.status !== 'planned' && row.status !== 'in_progress') continue;
-      if (!attrs.nextInteraction || time < Date.parse(attrs.nextInteraction.at)) attrs.nextInteraction = interaction;
-      continue;
-    }
-
-    if (!attrs.firstInteraction || time < Date.parse(attrs.firstInteraction.at)) attrs.firstInteraction = interaction;
-    if (!attrs.lastInteraction || time > Date.parse(attrs.lastInteraction.at)) attrs.lastInteraction = interaction;
-
-    let s = stats.get(companyId);
-    if (!s) {
-      s = { recent: 0, past: 0, byUser: new Map() };
-      stats.set(companyId, s);
-    }
-    s.past++;
-    if (time >= recentSince) s.recent++;
-    if (row.userId) {
-      const u = s.byUser.get(row.userId) ?? { count: 0, last: 0 };
-      u.count++;
-      u.last = Math.max(u.last, time);
-      s.byUser.set(row.userId, u);
-    }
-  }
-  for (const [companyId, s] of stats) {
-    const attrs = result.get(companyId)!;
-    attrs.connectionStrength = connectionStrengthFor(s.recent, s.past > 0);
-    // Most interactions wins; a tie goes to the more recent contact.
-    let best: { userId: string; count: number; last: number } | null = null;
-    for (const [userId, u] of s.byUser) {
-      if (!best || u.count > best.count || (u.count === best.count && u.last > best.last)) best = { userId, ...u };
-    }
-    attrs.strongestConnectionUserId = best?.userId ?? null;
-  }
-
-  for (const row of [...taskRows, ...activityTaskRows]) {
-    const companyId = row.partyId ? companyByParty.get(row.partyId) : undefined;
-    const attrs = companyId ? result.get(companyId) : undefined;
-    if (!attrs || !row.dueDate) continue;
-    const due = new Date(row.dueDate);
-    if (!attrs.nextDueTask || due.getTime() < Date.parse(attrs.nextDueTask.dueDate)) {
-      attrs.nextDueTask = { id: row.id, title: row.title, dueDate: due.toISOString() };
-    }
-  }
-
-  for (const row of dealRows) {
-    const companyId = row.partyId ? companyByParty.get(row.partyId) : undefined;
-    result.get(companyId ?? '')?.deals.push({
-      id: row.id,
-      name: row.name,
-      stage: row.stage,
-      status: row.status,
-      amount: toNumber(row.amount),
-      currency: row.currency,
-      closeDate: row.closeDate ? new Date(row.closeDate).toISOString() : null,
-      ownerId: row.ownerId,
-    });
-  }
+  addInteractions(result, companyByParty, activityRows, now);
+  addNextDueTasks(result, companyByParty, [...taskRows, ...activityTaskRows]);
+  addDeals(result, companyByParty, dealRows);
 
   return result;
 }

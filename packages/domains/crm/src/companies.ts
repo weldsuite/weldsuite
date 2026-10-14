@@ -541,6 +541,18 @@ export interface UpdateCompanyResult {
   changes: Record<string, { old: unknown; new: unknown }> | null;
 }
 
+/**
+ * Timestamp columns — the schema accepts a lenient ISO string (or null to
+ * clear), the DB column wants a Date. Undefined fields are left out.
+ */
+function timestampUpdates(fields: Record<string, string | null | undefined>): Record<string, Date | null> {
+  const out: Record<string, Date | null> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    if (v !== undefined) out[k] = v ? new Date(v) : null;
+  }
+  return out;
+}
+
 export async function updateCompany(
   db: Database,
   id: string,
@@ -580,18 +592,7 @@ export async function updateCompany(
     version: existing.version + 1,
   };
   for (const [k, v] of Object.entries(rest)) if (v !== undefined) updates[k] = v;
-
-  // Timestamp columns — the schema accepts a lenient ISO string (or null to
-  // clear), the DB column wants a Date.
-  if (lastContactDate !== undefined) {
-    updates.lastContactDate = lastContactDate ? new Date(lastContactDate) : null;
-  }
-  if (nextFollowUpDate !== undefined) {
-    updates.nextFollowUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
-  }
-  if (foundationDate !== undefined) {
-    updates.foundationDate = foundationDate ? new Date(foundationDate) : null;
-  }
+  Object.assign(updates, timestampUpdates({ lastContactDate, nextFollowUpDate, foundationDate }));
 
   if (rest.name !== undefined || rest.tradingName !== undefined) {
     updates.displayName = deriveDisplayName({
