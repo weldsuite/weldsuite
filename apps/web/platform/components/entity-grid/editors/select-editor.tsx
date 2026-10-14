@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Check } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {
   Popover,
@@ -25,6 +25,7 @@ export function SelectEditor({
   onCommit,
   options,
   optionConfig,
+  allowClear,
   onOpenChange,
 }: SelectEditorProps & { onOpenChange?: (open: boolean) => void }) {
   const t = useTranslations();
@@ -35,7 +36,7 @@ export function SelectEditor({
     onOpenChange?.(next);
   };
 
-  const handleSelect = (option: string) => {
+  const handleSelect = (option: string | null) => {
     onChange?.(option);
     handleOpenChange(false);
     onCommit();
@@ -112,6 +113,16 @@ export function SelectEditor({
                   </CommandItem>
                 );
               })}
+              {allowClear && value && (
+                <CommandItem
+                  value="__clear__"
+                  onSelect={() => handleSelect(null)}
+                  className="text-destructive data-[selected=true]:text-destructive"
+                >
+                  <X className="text-destructive" />
+                  <span>{t('sweep.entities.clear')}</span>
+                </CommandItem>
+              )}
             </CommandGroup>
           </CommandList>
         </Command>

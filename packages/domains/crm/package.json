@@ -6,6 +6,7 @@
   "private": true,
   "exports": {
     "./companies": "./src/companies.ts",
+    "./company-attributes": "./src/company-attributes.ts",
     "./people": "./src/people.ts",
     "./leads": "./src/leads.ts",
     "./opportunities": "./src/opportunities.ts",

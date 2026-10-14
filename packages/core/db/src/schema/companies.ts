@@ -49,7 +49,10 @@ export const companies = pgTable('companies', {
   // Profile
   industry: varchar('industry', { length: 100 }),
   employeeCount: varchar('employee_count', { length: 50 }),
-  annualRevenue: jsonb('annual_revenue').$type<{ amount: number; currency: string }>(), // Money
+  annualRevenue: jsonb('annual_revenue').$type<{ amount: number; currency: string }>(), // Money — "Estimated ARR"
+  fundingRaised: jsonb('funding_raised').$type<{ amount: number; currency: string }>(), // Money
+  foundationDate: timestamp('foundation_date'),
+  description: text('description'),
   website: varchar('website', { length: 500 }),
 
   // Contact info
@@ -84,6 +87,13 @@ export const companies = pgTable('companies', {
   linkedinUrl: varchar('linkedin_url', { length: 500 }),
   twitterHandle: varchar('twitter_handle', { length: 100 }),
   facebookUrl: varchar('facebook_url', { length: 500 }),
+  instagramUrl: varchar('instagram_url', { length: 500 }),
+  angellistUrl: varchar('angellist_url', { length: 500 }),
+  twitterFollowerCount: integer('twitter_follower_count'),
+
+  // Clerk user id of the member who created the row (null for rows created
+  // before this column existed, and for imports without a user).
+  createdBy: varchar('created_by', { length: 255 }),
 
   // Sales motion
   ownerId: varchar('owner_id', { length: 255 }),

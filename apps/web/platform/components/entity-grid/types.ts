@@ -43,6 +43,21 @@ export interface GridColumnDef<TEntity> {
   options?: string[]; // For select fields
   selectConfig?: Record<string, StatusStyle>; // For styled select fields
   allowCreateOption?: boolean; // multi-select: let the user add a new value by typing it (free-form tags)
+  allowClear?: boolean; // single-select: offer "Clear" to empty an optional field
+  /**
+   * Lists this column under another column's entry in the Add-column menu
+   * (a sub-attribute, e.g. Team → Email addresses) instead of at the top
+   * level. The parent shows how many of its sub-attributes can be added.
+   */
+  menuParentId?: string;
+  /**
+   * `location` columns that hold one part of a location (a City, State or
+   * Country column): the Mapbox search is narrowed to that kind of place and
+   * typed text is that part alone. The value is the part's text.
+   */
+  locationPart?: 'city' | 'state' | 'country';
+  /** `currency` columns: the ISO code to format the value in (defaults to "$"). */
+  getCurrency?: (entity: TEntity) => string | null | undefined;
   favoriteField?: string; // Entity field name for star toggle (used in company columns)
   // Get the value from the entity for this column
   getValue: (entity: TEntity) => unknown;
@@ -92,6 +107,8 @@ export interface EntityGridConfig<TEntity> {
   statusConfig?: Record<string, StatusStyle>;
   allowCustomColumns?: boolean;
   onCreateAttribute?: () => void;
+  /** Placeholder for the Add-column search (defaults to "Search attributes..."). */
+  searchAttributesPlaceholder?: string;
   availableEnrichFields?: Array<{
     provider: string;
     operation: string;
@@ -347,6 +364,8 @@ export interface EditorProps<TValue = unknown> {
 export interface SelectEditorProps extends EditorProps<string | null> {
   options: string[];
   optionConfig?: Record<string, StatusStyle>;
+  /** Offer a "Clear" item that sets the value to null (optional fields only). */
+  allowClear?: boolean;
 }
 
 // Props for multi-select editor
