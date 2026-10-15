@@ -88,6 +88,16 @@ describe('editorReducer: history', () => {
     expect(canUndo(s)).toBe(true);
     expect(isDirty(run(s, { type: 'undo' }))).toBe(true);
   });
+
+  it('keeps edits made while a save was in flight unsaved', () => {
+    const edited = run(start(), { type: 'updateBlocks', ids: ['title'], update: { x: 10 } });
+    const sent = edited.doc;
+    const meanwhile = run(edited, { type: 'updateBlocks', ids: ['title'], update: { x: 20 } });
+    const s = run(meanwhile, { type: 'markSaved', doc: sent });
+    expect(isDirty(s)).toBe(true);
+    expect(s.saved).toBe(sent);
+    expect(isDirty(run(s, { type: 'undo' }))).toBe(false);
+  });
 });
 
 describe('editorReducer: blocks', () => {

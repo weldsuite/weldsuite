@@ -821,7 +821,8 @@ function markDraft(pages: LayoutPage[], draft: NonNullable<InvoiceDocumentData['
 export function layoutInvoice(template: InvoiceTemplateDocument, data: InvoiceDocumentData): InvoiceLayout {
   const size = PAPER_SIZES[template.paperSize];
   const ctx: Ctx = { theme: template.theme, data };
-  const visible = template.blocks.filter((b) => !b.hidden);
+  // The line items always print, even from a template stored with the table hidden.
+  const visible = template.blocks.filter((b) => !b.hidden || b.type === 'lineItems');
   const table = visible.find((b): b is BlockOf<'lineItems'> => b.type === 'lineItems');
   if (!table) throw new Error('Invoice template has no line-items table');
 

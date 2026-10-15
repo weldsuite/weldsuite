@@ -31,7 +31,8 @@ export interface EditorState {
 
 export type EditorAction =
   | { type: 'reset'; doc: InvoiceTemplateDocument }
-  | { type: 'markSaved' }
+  /** `doc`: the document the save sent; edits made since stay unsaved. */
+  | { type: 'markSaved'; doc?: InvoiceTemplateDocument }
   | { type: 'select'; ids: string[]; mode?: 'replace' | 'toggle' | 'add' }
   | { type: 'addBlock'; block: TemplateBlock }
   | { type: 'updateBlocks'; ids: string[]; update: BlockUpdate; coalesce?: string }
@@ -275,7 +276,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     case 'reset':
       return initialEditorState(action.doc);
     case 'markSaved':
-      return { ...state, saved: state.doc };
+      return { ...state, saved: action.doc ?? state.doc };
     case 'endCoalesce':
       return endCoalesce(state, action);
     case 'select':

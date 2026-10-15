@@ -27,11 +27,18 @@ export const invoiceTemplateKeys = {
 // Queries
 // ============================================================================
 
+/** The list query of an entity's templates; also for `queryClient.fetchQuery` when an action must wait for it. */
+export function invoiceTemplatesQuery(entityId: string) {
+  return {
+    queryKey: invoiceTemplateKeys.list(entityId),
+    queryFn: async () => (await accountingApi.listInvoiceTemplates(entityId)).data ?? [],
+  };
+}
+
 /** The entity's templates, default first, then by name. */
 export function useInvoiceTemplates(entityId: string | null | undefined, options: { enabled?: boolean } = {}) {
   return useQuery({
-    queryKey: invoiceTemplateKeys.list(entityId ?? ''),
-    queryFn: async () => (await accountingApi.listInvoiceTemplates(entityId as string)).data ?? [],
+    ...invoiceTemplatesQuery(entityId ?? ''),
     enabled: Boolean(entityId) && (options.enabled ?? true),
   });
 }

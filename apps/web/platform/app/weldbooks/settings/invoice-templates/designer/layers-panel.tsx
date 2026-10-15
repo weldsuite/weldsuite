@@ -75,7 +75,7 @@ function LayerRow({ block, label, selected, readOnly, dispatch }: Readonly<Layer
         className={iconButton}
         aria-label={`${block.hidden ? tl.show : tl.hide}: ${label}`}
         aria-pressed={Boolean(block.hidden)}
-        disabled={readOnly}
+        disabled={readOnly || block.type === 'lineItems'}
         onClick={() => dispatch({ type: 'updateBlocks', ids: [block.id], update: { hidden: block.hidden ? undefined : true } })}
       >
         {block.hidden ? <EyeOff className="h-3.5 w-3.5" aria-hidden /> : <Eye className="h-3.5 w-3.5" aria-hidden />}

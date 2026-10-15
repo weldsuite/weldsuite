@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/component
 import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { isColorToken, mergeStyle, normalizeHex, resolveColor } from '../model/colors';
-import { useDesigner } from '../context';
+import { useDesigner, useDesignerReadOnly } from '../context';
 
 // ---------------------------------------------------------------------------
 // Layout
@@ -79,13 +79,14 @@ export function SwitchField({
   hint,
 }: Readonly<{ label: ReactNode; checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; hint?: ReactNode }>) {
   const id = useId();
+  const readOnly = useDesignerReadOnly();
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-3">
         <Label htmlFor={id} className="text-sm font-normal">
           {label}
         </Label>
-        <Switch id={id} checked={checked} onCheckedChange={onChange} disabled={disabled} />
+        <Switch id={id} checked={checked} onCheckedChange={onChange} disabled={disabled || readOnly} />
       </div>
       {hint ? <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
     </div>
@@ -141,6 +142,7 @@ export function NumberInput({
   'aria-label': ariaLabel,
 }: Readonly<NumberInputProps>) {
   const [draft, setDraft] = useState<string | null>(null);
+  const readOnly = useDesignerReadOnly();
   const shown = draft ?? (value === undefined ? '' : String(roundTo(value)));
 
   const commit = (text: string) => {
@@ -159,7 +161,7 @@ export function NumberInput({
         inputMode="decimal"
         value={shown}
         placeholder={placeholder}
-        disabled={disabled}
+        disabled={disabled || readOnly}
         aria-label={ariaLabel}
         className={cn('h-8 px-2 text-sm tabular-nums', suffix && 'pr-8')}
         onChange={(e) => {
@@ -247,7 +249,7 @@ export function ColorControl({ id, value, onChange, tokens = true, emptyLabel, e
           type="button"
           variant="outline"
           size="sm"
-          disabled={disabled ?? readOnly}
+          disabled={disabled || readOnly}
           aria-label={ariaLabel}
           className="h-8 w-full justify-start gap-2 px-2 font-normal shadow-none"
         >

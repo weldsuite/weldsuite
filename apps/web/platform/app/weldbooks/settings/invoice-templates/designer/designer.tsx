@@ -247,8 +247,9 @@ export function InvoiceTemplateDesigner({ template, entity }: Readonly<InvoiceTe
     setSaving(true);
     try {
       await updateTemplate.mutateAsync({ id: template.id, data });
-      dispatch({ type: 'markSaved' });
-      setMeta({ name, isDefault: meta.isDefault });
+      // Only what was sent is saved: edits made while the request ran stay unsaved.
+      dispatch({ type: 'markSaved', doc });
+      setMeta((m) => (m.name === meta.name ? { ...m, name } : m));
       setSavedMeta({ name, isDefault: meta.isDefault });
       toast.success(ti.designer.saved);
     } catch (err) {

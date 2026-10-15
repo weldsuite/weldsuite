@@ -62,6 +62,13 @@ describe('presets', () => {
     expect(result.success).toBe(false);
   });
 
+  it('rejects a hidden line-items table, and still prints the lines of one stored that way', () => {
+    const doc = presetTemplate('classic', 'a4');
+    const hidden = { ...doc, blocks: doc.blocks.map((b) => (b.type === 'lineItems' ? { ...b, hidden: true } : b)) };
+    expect(invoiceTemplateDocumentSchema.safeParse(hidden).success).toBe(false);
+    expect(texts(layoutInvoice(hidden, data(1)))).toContain('Consulting hours, week 1');
+  });
+
   it('rejects script URLs as images', () => {
     const doc = presetTemplate('classic', 'a4');
     const result = invoiceTemplateDocumentSchema.safeParse({
