@@ -1073,6 +1073,26 @@ export const settings = {
       description: 'Departments and leave types.',
     },
 
+    weldflow: {
+      title: 'WeldFlow',
+      description: 'How WeldFlow tasks land in your calendar.',
+    },
+
+    weldcalendar: {
+      title: 'WeldCalendar',
+      description: 'How your calendar handles scheduled tasks.',
+    },
+
+    taskScheduling: {
+      tab: 'Tasks',
+      autoScheduleLabel: 'Schedule tasks in my calendar automatically',
+      autoScheduleFlowDescription: 'Place new WeldFlow tasks in a free slot within your working hours. Turn this off to keep them out of your calendar unless you give them a start date. WeldFlow tasks already placed automatically are removed from your calendar.',
+      autoScheduleCrmDescription: 'Place new CRM tasks (tasks linked to a company or person) in a free slot within your working hours. Turn this off to keep them out of your calendar unless you give them a start date. CRM tasks already placed automatically are removed from your calendar.',
+      autoRescheduleLabel: 'Move unfinished tasks forward automatically',
+      autoRescheduleDescription: "When an auto-scheduled task isn't finished on its planned day, move it to the next free slot overnight. Turn this off to keep it where it was.",
+      updateFailed: 'Failed to update the task scheduling setting',
+    },
+
     weldcrm: {
       title: 'WeldCRM',
       description: 'Configure CRM settings',

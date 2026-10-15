@@ -258,7 +258,9 @@ import { Route as WeldconnectConnectorsCallbackRouteImport } from './routes/weld
 import { Route as WeldchatDmUserIdRouteImport } from './routes/weldchat/dm/$userId'
 import { Route as SettingsCustomObjectsObjectIdRouteImport } from './routes/settings/custom-objects/$objectId'
 import { Route as SettingsAppsWeldhrRouteImport } from './routes/settings/apps/weldhr'
+import { Route as SettingsAppsWeldflowRouteImport } from './routes/settings/apps/weldflow'
 import { Route as SettingsAppsWeldcrmRouteImport } from './routes/settings/apps/weldcrm'
+import { Route as SettingsAppsWeldcalendarRouteImport } from './routes/settings/apps/weldcalendar'
 import { Route as ObjectsSlugRecordIdRouteImport } from './routes/objects/$slug/$recordId'
 import { Route as AuthRegisterSplatRouteImport } from './routes/auth/register/$'
 import { Route as AuthLoginSplatRouteImport } from './routes/auth/login/$'
@@ -1760,11 +1762,22 @@ const SettingsAppsWeldhrRoute = SettingsAppsWeldhrRouteImport.update({
   path: '/apps/weldhr',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsAppsWeldflowRoute = SettingsAppsWeldflowRouteImport.update({
+  id: '/apps/weldflow',
+  path: '/apps/weldflow',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsAppsWeldcrmRoute = SettingsAppsWeldcrmRouteImport.update({
   id: '/apps/weldcrm',
   path: '/apps/weldcrm',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsAppsWeldcalendarRoute =
+  SettingsAppsWeldcalendarRouteImport.update({
+    id: '/apps/weldcalendar',
+    path: '/apps/weldcalendar',
+    getParentRoute: () => SettingsRouteRoute,
+  } as any)
 const ObjectsSlugRecordIdRoute = ObjectsSlugRecordIdRouteImport.update({
   id: '/objects/$slug/$recordId',
   path: '/objects/$slug/$recordId',
@@ -3164,7 +3177,9 @@ export interface FileRoutesByFullPath {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
@@ -3601,7 +3616,9 @@ export interface FileRoutesByTo {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
@@ -4075,7 +4092,9 @@ export interface FileRoutesById {
   '/auth/login/$': typeof AuthLoginSplatRoute
   '/auth/register/$': typeof AuthRegisterSplatRoute
   '/objects/$slug/$recordId': typeof ObjectsSlugRecordIdRoute
+  '/settings/apps/weldcalendar': typeof SettingsAppsWeldcalendarRoute
   '/settings/apps/weldcrm': typeof SettingsAppsWeldcrmRoute
+  '/settings/apps/weldflow': typeof SettingsAppsWeldflowRoute
   '/settings/apps/weldhr': typeof SettingsAppsWeldhrRoute
   '/settings/custom-objects/$objectId': typeof SettingsCustomObjectsObjectIdRoute
   '/weldchat/dm/$userId': typeof WeldchatDmUserIdRoute
@@ -4552,7 +4571,9 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
+    | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
@@ -4989,7 +5010,9 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
+    | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
@@ -5462,7 +5485,9 @@ export interface FileRouteTypes {
     | '/auth/login/$'
     | '/auth/register/$'
     | '/objects/$slug/$recordId'
+    | '/settings/apps/weldcalendar'
     | '/settings/apps/weldcrm'
+    | '/settings/apps/weldflow'
     | '/settings/apps/weldhr'
     | '/settings/custom-objects/$objectId'
     | '/weldchat/dm/$userId'
@@ -7648,11 +7673,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAppsWeldhrRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/apps/weldflow': {
+      id: '/settings/apps/weldflow'
+      path: '/apps/weldflow'
+      fullPath: '/settings/apps/weldflow'
+      preLoaderRoute: typeof SettingsAppsWeldflowRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/apps/weldcrm': {
       id: '/settings/apps/weldcrm'
       path: '/apps/weldcrm'
       fullPath: '/settings/apps/weldcrm'
       preLoaderRoute: typeof SettingsAppsWeldcrmRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/apps/weldcalendar': {
+      id: '/settings/apps/weldcalendar'
+      path: '/apps/weldcalendar'
+      fullPath: '/settings/apps/weldcalendar'
+      preLoaderRoute: typeof SettingsAppsWeldcalendarRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/objects/$slug/$recordId': {
@@ -9277,7 +9316,9 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
 
 interface SettingsRouteRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
+  SettingsAppsWeldcalendarRoute: typeof SettingsAppsWeldcalendarRoute
   SettingsAppsWeldcrmRoute: typeof SettingsAppsWeldcrmRoute
+  SettingsAppsWeldflowRoute: typeof SettingsAppsWeldflowRoute
   SettingsAppsWeldhrRoute: typeof SettingsAppsWeldhrRoute
   SettingsCustomObjectsObjectIdRoute: typeof SettingsCustomObjectsObjectIdRoute
   SettingsActivityIndexRoute: typeof SettingsActivityIndexRoute
@@ -9331,7 +9372,9 @@ interface SettingsRouteRouteChildren {
 
 const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
+  SettingsAppsWeldcalendarRoute: SettingsAppsWeldcalendarRoute,
   SettingsAppsWeldcrmRoute: SettingsAppsWeldcrmRoute,
+  SettingsAppsWeldflowRoute: SettingsAppsWeldflowRoute,
   SettingsAppsWeldhrRoute: SettingsAppsWeldhrRoute,
   SettingsCustomObjectsObjectIdRoute: SettingsCustomObjectsObjectIdRoute,
   SettingsActivityIndexRoute: SettingsActivityIndexRoute,

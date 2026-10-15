@@ -19,7 +19,7 @@
  *   a depth limit of 5 with cycle protection.
  */
 
-import { eq, and, isNull, gte, lte, or, not, inArray, notExists, sql } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, gte, lte, or, not, inArray, notExists, sql } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '../schema';
 import type { WorkingHours, DayHours } from '../schema/helpdesk-agents';
@@ -145,18 +145,77 @@ async function getUserSchedulingContext(db: Database, userId: string): Promise<S
   };
 }
 
+// ── Task auto-scheduling switch, one per app ────────────────────────────
+
+/** The app whose switch decides whether a task is auto-scheduled. */
+export type TaskSchedulingApp = 'flow' | 'crm';
+
 /**
- * Whether this user lets the scheduler place their tasks in free calendar
- * slots (`uiPreferences.autoScheduleTasks`; absent = on).
+ * `uiPreferences` key of each app's auto-scheduling switch (absent = on).
+ * Both apps shared `autoScheduleTasks` before the split; an app whose own key
+ * was never written still follows that one.
  */
-export async function isTaskAutoScheduleEnabled(db: Database, userId: string): Promise<boolean> {
-  const { userPreferences } = schema;
-  const [prefs] = await db
-    .select({ uiPreferences: userPreferences.uiPreferences })
-    .from(userPreferences)
-    .where(and(eq(userPreferences.userId, userId), isNull(userPreferences.deletedAt)))
+export const TASK_AUTO_SCHEDULE_PREFERENCE = {
+  flow: 'autoScheduleFlowTasks',
+  crm: 'autoScheduleCrmTasks',
+} as const satisfies Record<TaskSchedulingApp, string>;
+const LEGACY_TASK_AUTO_SCHEDULE_PREFERENCE = 'autoScheduleTasks';
+
+/**
+ * A WeldCRM task: linked to a company or person, as WeldCRM lists them
+ * (`crmLinked` on flow-api `/tasks`). Every other task is a WeldFlow task.
+ */
+function crmLinkedTask() {
+  const { tasks } = schema;
+  return or(
+    isNotNull(tasks.customerId),
+    isNotNull(tasks.contactId),
+    isNotNull(tasks.counterpartyId),
+    isNotNull(tasks.personId),
+  )!;
+}
+
+/** SQL: the user's `uiPreferences` turn auto-scheduling off for this app. */
+function autoScheduleOffSql(app: TaskSchedulingApp) {
+  const prefs = schema.userPreferences.uiPreferences;
+  const own = sql.raw(`'${TASK_AUTO_SCHEDULE_PREFERENCE[app]}'`);
+  const legacy = sql.raw(`'${LEGACY_TASK_AUTO_SCHEDULE_PREFERENCE}'`);
+  return sql`coalesce(${prefs}->>${own}, ${prefs}->>${legacy}) = 'false'`;
+}
+
+async function taskSchedulingApp(db: Database, taskId: string | undefined): Promise<TaskSchedulingApp> {
+  const { tasks } = schema;
+  if (!taskId) return 'flow';
+  const [row] = await db
+    .select({ crm: sql<boolean>`${crmLinkedTask()}` })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
     .limit(1);
-  return prefs?.uiPreferences?.autoScheduleTasks !== false;
+  return row?.crm ? 'crm' : 'flow';
+}
+
+/**
+ * Whether this user lets the scheduler place this task in a free calendar
+ * slot: the switch of the task's app (WeldFlow or WeldCRM; absent = on).
+ */
+export async function isTaskAutoScheduleEnabled(
+  db: Database,
+  userId: string,
+  taskId: string | undefined,
+): Promise<boolean> {
+  const { userPreferences } = schema;
+  const [[prefs], app] = await Promise.all([
+    db
+      .select({ uiPreferences: userPreferences.uiPreferences })
+      .from(userPreferences)
+      .where(and(eq(userPreferences.userId, userId), isNull(userPreferences.deletedAt)))
+      .limit(1),
+    taskSchedulingApp(db, taskId),
+  ]);
+  // The per-app keys stay out of the schema's `uiPreferences` type: changing
+  // that type tips `typeof schema` consumers into TS2589 under incremental tsc.
+  const ui = prefs?.uiPreferences as Record<string, unknown> | null | undefined;
+  return (ui?.[TASK_AUTO_SCHEDULE_PREFERENCE[app]] ?? ui?.[LEGACY_TASK_AUTO_SCHEDULE_PREFERENCE]) !== false;
 }
 
 // ── Find free slot algorithm ────────────────────────────────────────────
@@ -876,9 +935,13 @@ export async function createCalendarEventForTask(
 
   // The opt-out covers tasks only; other sources (activities, …) still auto-place.
   const honoursTaskOptOut = resolvedSourceType === 'task';
-  if (honoursTaskOptOut && !(await isTaskAutoScheduleEnabled(db, params.userId))) return null;
+  if (honoursTaskOptOut && !(await isTaskAutoScheduleEnabled(db, params.userId, resolvedSourceId))) {
+    return null;
+  }
   const placed = (eventId: string) =>
-    honoursTaskOptOut ? keepUnlessTaskAutoScheduleOff(db, params.userId, eventId) : eventId;
+    honoursTaskOptOut
+      ? keepUnlessTaskAutoScheduleOff(db, params.userId, resolvedSourceId, eventId)
+      : eventId;
 
   const ctx = await getUserSchedulingContext(db, params.userId);
   const hasDueDate = !!params.dueDate;
@@ -1015,9 +1078,10 @@ export async function createCalendarEventForTask(
 async function keepUnlessTaskAutoScheduleOff(
   db: Database,
   userId: string,
+  taskId: string | undefined,
   eventId: string,
 ): Promise<string | null> {
-  if (await isTaskAutoScheduleEnabled(db, userId)) return eventId;
+  if (await isTaskAutoScheduleEnabled(db, userId, taskId)) return eventId;
   await deleteCalendarEvent(db, eventId);
   return null;
 }
@@ -1203,16 +1267,28 @@ export async function deleteCalendarEvent(db: Database, calendarEventId: string)
 
 /**
  * Soft-delete every auto-scheduled task event this user organises and unlink
- * it from its task. Pinned events (a start the user chose) stay. Called when
- * the user turns off `uiPreferences.autoScheduleTasks`; safe to repeat.
+ * it from its task, limited to the tasks of `app` when given. Pinned events (a
+ * start the user chose) stay. Called when the user turns off an app's
+ * auto-scheduling switch (`TASK_AUTO_SCHEDULE_PREFERENCE`); safe to repeat.
  *
  * One statement (data-modifying CTEs), so it is atomic without a transaction,
  * which the tenant DB's neon-http driver cannot open.
  */
-export async function removeAutoScheduledTaskEvents(db: Database, userId: string): Promise<number> {
+export async function removeAutoScheduledTaskEvents(
+  db: Database,
+  userId: string,
+  app?: TaskSchedulingApp,
+): Promise<number> {
   const { calendarEvents, tasks } = schema;
   // UTC wall time, as drizzle writes these timestamp-without-zone columns.
   const now = new Date().toISOString();
+  const crmTask = sql`EXISTS (
+    SELECT 1 FROM ${tasks}
+    WHERE ${tasks.id} = ${calendarEvents.sourceId} AND ${crmLinkedTask()}
+  )`;
+  let appFilter = sql``;
+  if (app === 'crm') appFilter = sql`AND ${crmTask}`;
+  if (app === 'flow') appFilter = sql`AND NOT ${crmTask}`;
   const result = await db.execute(sql`
     WITH removed AS (
       UPDATE ${calendarEvents}
@@ -1221,6 +1297,7 @@ export async function removeAutoScheduledTaskEvents(db: Database, userId: string
         AND source_type = 'task'
         AND auto_scheduled = true
         AND deleted_at IS NULL
+        ${appFilter}
       RETURNING id
     ), unlinked AS (
       UPDATE ${tasks}
@@ -1261,7 +1338,8 @@ function replannableEventConditions(db: Database) {
           isNull(userPreferences.deletedAt),
           or(
             sql`${userPreferences.uiPreferences}->>'autoRescheduleTasks' = 'false'`,
-            sql`${userPreferences.uiPreferences}->>'autoScheduleTasks' = 'false'`,
+            and(autoScheduleOffSql('crm'), crmLinkedTask()),
+            and(autoScheduleOffSql('flow'), not(crmLinkedTask())),
           ),
         )),
     ),
@@ -1291,9 +1369,9 @@ export async function nextAutoScheduledReplanAt(db: Database): Promise<Date | nu
  * the past while their source task is still incomplete. Reschedule each so
  * the calendar reflects "what's coming up", not "what should have happened".
  *
- * Users who set `uiPreferences.autoRescheduleTasks = false` (or turned off
- * auto-scheduling altogether with `autoScheduleTasks = false`) are skipped:
- * their past slots stay where they were. The opt-outs and finished tasks are
+ * Users who set `uiPreferences.autoRescheduleTasks = false` (WeldCalendar), or
+ * turned off auto-scheduling for the task's app, are skipped: their past slots
+ * stay where they were. The opt-outs and finished tasks are
  * filtered in SQL so those events never consume the batch limit.
  *
  * Intended to be invoked from the daily calendar-api sweep, one due
