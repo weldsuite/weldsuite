@@ -5,6 +5,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
 import { useMobileNav } from '@/contexts/mobile-nav-context';
 import { useWeldMeetCallOptional } from '@/contexts/weldmeet-call-context';
+import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -17,8 +18,10 @@ export function MobileHeader({ className }: Readonly<MobileHeaderProps>) {
   const { isOpen, toggleOpen, moduleInfo, showWeldAgent, toggleWeldAgent, headerVariant } = useMobileNav();
   const { resolvedTheme } = useTheme();
   const meetCall = useWeldMeetCallOptional();
+  const chatCall = useWeldChatCallOptional();
   const meetingFullscreen =
-    !!meetCall?.isFullscreen && meetCall.status !== 'idle' && meetCall.status !== 'ended';
+    (!!meetCall?.isFullscreen && meetCall.status !== 'idle' && meetCall.status !== 'ended') ||
+    (!!chatCall?.isFullscreen && chatCall.status !== 'idle' && chatCall.status !== 'ended');
   const isDark = resolvedTheme === 'dark';
 
   const Icon = moduleInfo?.icon || Home;
@@ -30,7 +33,7 @@ export function MobileHeader({ className }: Readonly<MobileHeaderProps>) {
   const wordmark = useDarkLogo ? logo?.textDark : logo?.textLight;
   const logoIcon = useDarkLogo ? logo?.iconDark : logo?.iconLight;
 
-  // A fullscreen meeting brings its own header and sits in the content layer,
+  // A fullscreen meeting or chat call brings its own header and sits at z-50,
   // below this one: step aside instead of covering its title and buttons.
   if (meetingFullscreen) return null;
 

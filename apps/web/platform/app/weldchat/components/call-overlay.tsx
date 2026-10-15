@@ -14,6 +14,7 @@
  * <CallSwitchDialog/> (components/call-switch-dialog.tsx), not a chat dialog.
  */
 
+import { createPortal } from 'react-dom';
 import { ConnectingView } from '@weldsuite/weldmeet-ui';
 import { useWeldChatCall, useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { ChatMeetingRoomView } from './chat-meeting-room';
@@ -60,10 +61,14 @@ function CallOverlayInner() {
   if (!isFullscreen) return null;
 
   if (status === 'ringing-outgoing' || status === 'connecting' || !meeting) {
-    return (
+    // Portaled to <body> like the room's own FullscreenFrame: this overlay is
+    // mounted inside the content card's z-10 stacking context, below the
+    // z-50 app sidebar rail.
+    return createPortal(
       <div className="fixed inset-0 z-50 flex bg-background">
         <ConnectingView />
-      </div>
+      </div>,
+      document.body,
     );
   }
 
