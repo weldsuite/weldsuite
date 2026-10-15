@@ -278,6 +278,73 @@ describe('getJurisdictions', () => {
     expect(us.entityTypes).toBeUndefined();
   });
 
+  it('reads the Brazilian features and terminology the API sends', async () => {
+    routeGet({
+      '/accounting-entities/jurisdictions': {
+        data: [
+          {
+            code: 'BR',
+            name: 'Brazil',
+            defaultLocale: 'pt-BR',
+            defaultCurrency: 'BRL',
+            features: {
+              vatReturn: false,
+              icp: false,
+              xafExport: false,
+              smallBusinessScheme: false,
+              gstReturn: false,
+              salesTax: false,
+              form1099: false,
+              brTaxReturn: true,
+              fiscalDocuments: true,
+              spedEcd: true,
+            },
+            terminology: {
+              tax: 'tributos',
+              taxId: 'cnpj',
+              registrationId: 'ie',
+              supplier: 'supplier',
+              creditNote: 'credit_note',
+            },
+          },
+        ],
+      },
+    });
+
+    const [br] = await api.getJurisdictions();
+
+    expect(br).toMatchObject({ code: 'BR', defaultCurrency: 'BRL', defaultLocale: 'pt-BR' });
+    expect(br.features).toEqual({
+      vatReturn: false,
+      icp: false,
+      xafExport: false,
+      smallBusinessScheme: false,
+      gstReturn: false,
+      salesTax: false,
+      form1099: false,
+      brTaxReturn: true,
+      fiscalDocuments: true,
+      spedEcd: true,
+    });
+    expect(br.terminology).toEqual({
+      tax: 'tributos',
+      taxId: 'cnpj',
+      registrationId: 'ie',
+      supplier: 'supplier',
+      creditNote: 'credit_note',
+    });
+  });
+
+  it('fills a Brazilian row from an older API with the built-in Brazilian values, not the Dutch ones', async () => {
+    routeGet({ '/accounting-entities/jurisdictions': { data: [{ code: 'br', name: 'Brazil' }] } });
+
+    const [br] = await api.getJurisdictions();
+
+    expect(br.features).toMatchObject({ brTaxReturn: true, fiscalDocuments: true, spedEcd: true, vatReturn: false });
+    expect(br.terminology).toMatchObject({ tax: 'tributos', taxId: 'cnpj', registrationId: 'ie' });
+    expect(br.defaultCurrency).toBe('BRL');
+  });
+
   it('ignores a terminology code it does not know instead of passing it to the UI', async () => {
     routeGet({
       '/accounting-entities/jurisdictions': {

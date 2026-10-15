@@ -67,6 +67,8 @@ import {
   taxYearOf,
 } from '../../services/accounting-entity-setup';
 import { getEntityLockState } from '../../services/accounting-entity-lock';
+import { normalizeBrAddress, normalizeBrSettings, syncBrTaxProfiles } from '../../services/br-entity-setup';
+import type { StoredPostalAddress } from '@weldsuite/db/schema';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -333,14 +335,15 @@ const updateEntitySchema = createEntitySchema.partial().omit({ seedDefaults: tru
  * never leave the database (`hasSsn` / `ssnLast4` say one is stored), and an
  * SSN that was typed into the EIN field before it was checked is masked.
  */
-function serializeEntity<T extends { ssnEncrypted?: string | null; salesTaxCredentialsEncrypted?: string | null; taxIdentifiers?: TaxIdentifiers | null }>(row: T) {
-  const { ssnEncrypted, salesTaxCredentialsEncrypted, ...rest } = row;
+function serializeEntity<T extends { ssnEncrypted?: string | null; salesTaxCredentialsEncrypted?: string | null; fiscalCredentialsEncrypted?: string | null; taxIdentifiers?: TaxIdentifiers | null }>(row: T) {
+  const { ssnEncrypted, salesTaxCredentialsEncrypted, fiscalCredentialsEncrypted, ...rest } = row;
   const ids = rest.taxIdentifiers;
   return {
     ...rest,
     ...(ids?.einOrSsn && looksLikeSsn(ids.einOrSsn) ? { taxIdentifiers: { ...ids, einOrSsn: maskTin(ids.einOrSsn, 'ssn') } } : {}),
     hasSsn: Boolean(ssnEncrypted),
     hasSalesTaxCredentials: Boolean(salesTaxCredentialsEncrypted),
+    hasFiscalCredentials: Boolean(fiscalCredentialsEncrypted),
   };
 }
 
@@ -473,7 +476,10 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
 
   try {
     const kind = resolveEntityKind(code, { entityType: data.entityType, taxClassification: data.taxClassification });
-    const address = isUs ? checkUsAddress(normalizePostalAddress(data.address)) : normalizePostalAddress(data.address);
+    const isBr = code === 'BR';
+    let address = isUs ? checkUsAddress(normalizePostalAddress(data.address)) : normalizePostalAddress(data.address);
+    const br = isBr ? normalizeBrSettings(data.jurisdictionSettings, address) : null;
+    if (isBr) address = normalizeBrAddress(address);
 
     let ssnEncrypted: string | null = null;
     let ssnLast4: string | null = null;
@@ -487,8 +493,9 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
     }
 
     const taxIdentifiers = checked.taxIdentifiers;
-    const jurisdictionSettings = india.jurisdictionSettings;
-    const timezone = isUs ? (data.timezone ?? defaultUsTimeZone(address?.state)) : india.timezone;
+    const jurisdictionSettings = br ? br.settings : india.jurisdictionSettings;
+    let timezone = isUs ? (data.timezone ?? defaultUsTimeZone(address?.state)) : india.timezone;
+    if (br) timezone = data.timezone ?? br.timezone;
     const locale = data.locale ?? adapter.defaultLocale;
     const baseCurrency = data.baseCurrency ?? adapter.defaultCurrency;
 
@@ -568,7 +575,10 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
         accountsCreated = seedAccounts.length;
       }
 
-      const taxCategories = adapter.getStandardTaxCategories();
+      const taxCategories = adapter.getStandardTaxCategories({
+        entityType: kind.entityType,
+        taxClassification: kind.taxClassification,
+      });
       const seedTaxRates = taxCategories.map((t) => ({
         id: generateId('txr'),
         entityId,
@@ -787,6 +797,18 @@ function buildEntityPatch(
     patch.jurisdictionSettings = tax.india.jurisdictionSettings ?? existing.jurisdictionSettings;
     if (!data.timezone && !existing.timezone) patch.timezone = tax.india.timezone;
   }
+  if (nextJurisdiction === 'BR') {
+    if (data.address !== undefined) patch.address = normalizeBrAddress(patch.address as StoredPostalAddress | null);
+    if (data.jurisdictionSettings !== undefined || data.address !== undefined) {
+      // Settings merge into the stored ones: the fiscal provider keeps its own keys there.
+      const br = normalizeBrSettings(
+        { ...existing.jurisdictionSettings, ...data.jurisdictionSettings },
+        (patch.address as StoredPostalAddress | null | undefined) ?? existing.address,
+      );
+      patch.jurisdictionSettings = br.settings;
+      if (!data.timezone && !existing.timezone) patch.timezone = br.timezone;
+    }
+  }
 
   const formChanged = applyEntityKindToPatch(patch, existing, data, nextJurisdiction);
   applyFiscalYearToPatch(patch, data);
@@ -876,6 +898,11 @@ app.patch('/:id', requirePermission('entities:update'), zValidator('json', updat
       changes: auditChanges(patch, existing as Record<string, unknown>),
     });
     publishEntityEvent({ c, entityType: 'accounting_entity', entityId: id, action: 'updated', data: { id, name: updated?.name } });
+
+    // Brazil: a new regime switches the tax profiles that apply.
+    if (nextJurisdiction === 'BR' && patch.taxClassification !== undefined && patch.taxClassification !== existing.taxClassification) {
+      await syncBrTaxProfiles(db, id, patch.taxClassification as string | null);
+    }
 
     // After a classification change the accounts still point at the old return's lines.
     return success(c, { ...serializeEntity(updated), ...(await getEntityLockState(db, id)), taxLineRemapNeeded: formChanged });

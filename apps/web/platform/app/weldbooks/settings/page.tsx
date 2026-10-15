@@ -16,6 +16,8 @@ import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
 import { classificationsOf, isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { LedgerCatchUpCard } from './components/ledger-catch-up-card';
+import { FiscalSettingsCard } from './components/fiscal-settings-card';
+import { EcdExportDialog } from '../vat/components/ecd-export-dialog';
 
 interface AccountingEmailSettings {
   inboxAddress?: string;
@@ -47,6 +49,8 @@ export default function AccountingSettingsPage() {
   const [inboxEmail, setInboxEmail] = useState('');
   const [xafYear, setXafYear] = useState(String(new Date().getFullYear() - 1));
   const [xafDownloading, setXafDownloading] = useState(false);
+  const [ecdOpen, setEcdOpen] = useState(false);
+  const tbr = t.weldbooksBr;
 
   const seedWorkflows = useMutation({
     mutationFn: () => accountingApi.seedWorkflows(),
@@ -114,6 +118,13 @@ export default function AccountingSettingsPage() {
             <SummaryRow label={ts.legalNameLabel} value={entity.legalName || entity.name} empty={ts.notSet} />
             <SummaryRow label={labels.taxId} value={taxId} empty={ts.notSet} />
             <SummaryRow label={labels.registrationId} value={ids?.registrationNumber} empty={ts.notSet} />
+            {features.brTaxReturn ? (
+              <SummaryRow
+                label={tbr.entity.regime}
+                value={entity?.taxClassification ? ((tbr.entity.regimes as Record<string, string>)[entity.taxClassification] ?? entity.taxClassification) : null}
+                empty={ts.notSet}
+              />
+            ) : null}
             {isUs ? (
               <>
                 <SummaryRow
@@ -236,6 +247,23 @@ export default function AccountingSettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {features.fiscalDocuments && <FiscalSettingsCard />}
+
+      {features.spedEcd && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{tbr.ecd.settingsTitle}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">{tbr.ecd.settingsDescription}</p>
+            <Button variant="outline" onClick={() => setEcdOpen(true)}>
+              {tbr.ecd.open}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+      <EcdExportDialog open={ecdOpen} onOpenChange={setEcdOpen} />
 
       {features.xafExport && (
         <Card>

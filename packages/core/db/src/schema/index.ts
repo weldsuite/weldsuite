@@ -303,6 +303,7 @@ export * from './accounting-payment-allocations';
 export * from './accounting-lock-date-exceptions';
 export * from './accounting-sales-tax';
 export * from './accounting-tax-returns';
+export * from './accounting-fiscal-documents';
 export * from './accounting-exemption-certificates';
 export * from './accounting-bank-feeds';
 export * from './accounting-bank-deposits';

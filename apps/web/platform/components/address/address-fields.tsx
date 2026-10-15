@@ -13,6 +13,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { countryOptions } from './countries';
 import { US_STATES, toUsStateCode } from './us-states';
 import { IN_STATES, findInState, toInStateName } from './in-states';
+import { BR_STATES, findBrState, toBrUf } from './br-states';
 import type { PostalAddress } from './postal-address';
 import { mapboxToPostalAddress, needsMapboxRetrieve } from './mapbox-address';
 import { LocationAutocomplete } from '@/app/weldcalendar/components/location-autocomplete';
@@ -20,17 +21,19 @@ import { retrieveLocation, type MapboxSuggestion } from '@/app/weldcalendar/lib/
 
 const NO_COUNTRY = '__none__';
 
-/** The state as the field shows it: a USPS code for the US, a GST state name for India. */
+/** The state as the field shows it: a USPS code for the US, a GST state name for India, a UF for Brazil. */
 function stateValueFor(country: string, state: string | null | undefined): string {
   if (country === 'US') return toUsStateCode(state);
   if (country === 'IN') return findInState(state)?.name ?? '';
+  if (country === 'BR') return findBrState(state)?.uf ?? '';
   return state ?? '';
 }
 
-/** The picker's states, or null where the state is typed. US stores the code, India the name. */
+/** The picker's states, or null where the state is typed. US stores the code, India the name, Brazil the UF. */
 function stateOptionsFor(country: string): { code: string; name: string; value: string }[] | null {
   if (country === 'US') return US_STATES.map((s) => ({ code: s.code, name: s.name, value: s.code }));
   if (country === 'IN') return IN_STATES.map((s) => ({ code: s.code, name: s.name, value: s.name }));
+  if (country === 'BR') return BR_STATES.map((s) => ({ code: s.uf, name: s.name, value: s.uf }));
   return null;
 }
 
@@ -50,7 +53,8 @@ interface AddressFieldsProps {
  * stored as the USPS code) and the postal code is labelled "ZIP code". For
  * India it is a picker of the GST states and union territories (stored as the
  * state's name; the GST state code, which decides an invoice's place of
- * supply, is read from it).
+ * supply, is read from it). For Brazil it is a picker of the 27 UFs (stored as
+ * the two-letter UF) and the postal code is a CEP.
  *
  * The street line searches Mapbox (limited to the chosen country, if any);
  * picking a result fills street, city, state, postal code and country. With
@@ -63,6 +67,7 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
   const country = address.country?.trim().toUpperCase() ?? '';
   const isUs = country === 'US';
   const isIn = country === 'IN';
+  const isBr = country === 'BR';
 
   const countries = useMemo(() => countryOptions(language || 'en'), [language]);
 
@@ -78,6 +83,8 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
       ? ((await retrieveLocation(suggestion.mapbox_id, sessionToken)) ?? suggestion)
       : suggestion;
     const picked = mapboxToPostalAddress(full);
+    // Mapbox names the state; a Brazilian address stores the two-letter UF.
+    if (picked.country === 'BR') picked.state = toBrUf(picked.state);
     // Line 2 (apartment, suite) isn't something Mapbox knows; keep what was typed.
     onChange({ ...latest.current, ...picked, line1: picked.line1 ?? latest.current.line1 ?? '' });
   };
@@ -88,6 +95,7 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
     let state = address.state;
     if (code === 'US') state = toUsStateCode(address.state);
     else if (code === 'IN') state = toInStateName(address.state);
+    else if (code === 'BR') state = toBrUf(address.state);
     update({ country: code, state: state ?? '' });
   };
 
@@ -102,7 +110,7 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
         <LocationAutocomplete
           id={id('line1')}
           value={address.line1 ?? ''}
-          placeholder={ta.line1Placeholder}
+          placeholder={isBr ? ta.line1PlaceholderBr : ta.line1Placeholder}
           disabled={disabled}
           searchTypes="address,poi"
           country={country || undefined}
@@ -121,6 +129,18 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
           onChange={(e) => update({ line2: e.target.value })}
         />
       </div>
+      {isBr && (
+        <div className="space-y-2 sm:col-span-2">
+          <Label htmlFor={id('county')}>{ta.neighborhood}</Label>
+          <Input
+            id={id('county')}
+            value={address.county ?? ''}
+            autoComplete="address-level3"
+            disabled={disabled}
+            onChange={(e) => update({ county: e.target.value })}
+          />
+        </div>
+      )}
       <div className="space-y-2">
         <Label htmlFor={id('city')}>{ta.city}</Label>
         <Input
@@ -142,7 +162,7 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
             <SelectTrigger id={id('state')}>
               <SelectValue placeholder={ta.selectState} />
             </SelectTrigger>
-            <SelectContent className={isIn ? 'max-h-72' : undefined}>
+            <SelectContent className={isIn || isBr ? 'max-h-72' : undefined}>
               {stateOptions.map((s) => (
                 <SelectItem key={s.code} value={s.value}>
                   {s.name} ({s.code})
@@ -161,12 +181,12 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
         )}
       </div>
       <div className="space-y-2">
-        <Label htmlFor={id('postalCode')}>{isUs ? ta.zipCode : ta.postalCode}</Label>
+        <Label htmlFor={id('postalCode')}>{isUs ? ta.zipCode : isBr ? ta.cep : ta.postalCode}</Label>
         <Input
           id={id('postalCode')}
           value={address.postalCode ?? ''}
           autoComplete="postal-code"
-          inputMode={isUs ? 'numeric' : undefined}
+          inputMode={isUs || isBr ? 'numeric' : undefined}
           disabled={disabled}
           onChange={(e) => update({ postalCode: e.target.value })}
         />

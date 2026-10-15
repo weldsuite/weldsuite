@@ -27,6 +27,7 @@ import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entit
 import {
   generateInvoicePdf,
   downloadPdf,
+  type BrInvoicePdfExtras,
   type InvoicePdfLabels,
 } from '@/lib/weldbooks/invoice-pdf';
 import { RecordPaymentDialog } from '../components/record-payment-dialog';
@@ -39,6 +40,9 @@ import { useWeldbooksFormat } from '@/lib/weldbooks/use-weldbooks-format';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { exemptCertificateIdsOf } from '@/lib/weldbooks/document-tax';
 import { getInvoiceCapabilities } from './invoice-capabilities';
+import { FiscalDocumentCard, PixCard } from './br-fiscal-card';
+import { fiscalDocumentsApi } from '@/lib/api/domains/weldbooks-fiscal-documents';
+import { brComplianceNotices, brPixFor } from '@/lib/weldbooks/br-invoice';
 import {
   AttachmentsCard,
   ContactCard,
@@ -63,7 +67,7 @@ export default function InvoiceDetailPage() {
   const ti = t.accounting.invoiceDetail;
   const td = useDocumentTexts();
   const { formatMoney, formatDate } = useWeldbooksFormat();
-  const { labels } = useJurisdictionLabels();
+  const { labels, features } = useJurisdictionLabels();
   const canUpdate = useCan('invoices:update');
   const canCreate = useCan('invoices:create');
   const describeError = useDescribeError();
@@ -111,6 +115,30 @@ export default function InvoiceDetailPage() {
       placeOfSupply: t.weldbooksIn.gst.placeOfSupply,
       hsnSac: t.weldbooksIn.gst.hsnSac,
       outsideIndia: t.weldbooksIn.gst.placeOfSupplyOutside,
+      // Brazil
+      br: t.weldbooksBr.pdf,
+    };
+  };
+
+  /** Brazil: the Pix QR, the authorised NF-e / NFS-e and the regime's statements the PDF prints. */
+  const brPdfExtras = async (): Promise<BrInvoicePdfExtras | undefined> => {
+    if (!invoice || !features.brTaxReturn) return undefined;
+    const documents = features.fiscalDocuments
+      ? await fiscalDocumentsApi
+          .list({ sourceType: 'invoice', sourceId: invoice.id, status: 'authorized' })
+          .then((res) => res.data)
+          .catch(() => [])
+      : [];
+    const authorized = documents[0];
+    const kinds = t.weldbooksBr.fiscal.kinds as Record<string, string>;
+    return {
+      pix: brPixFor(invoice, entity),
+      fiscalDocument: authorized
+        ? { label: kinds[authorized.kind] ?? authorized.kind.toUpperCase(), number: authorized.number, accessKey: authorized.accessKey }
+        : null,
+      notices: brComplianceNotices(entity, {
+        hasExport: Boolean(invoice.taxBreakdown?.some((row) => row.taxCategoryCode === 'export_goods')),
+      }),
     };
   };
 
@@ -139,6 +167,7 @@ export default function InvoiceDetailPage() {
           formatDate: (v) => formatDate(v, '-'),
           countryName: country,
           certificateNumbers: numbers,
+          br: await brPdfExtras(),
         },
       );
       const filename = (invoice.invoiceNumber || 'invoice') + '.pdf';
@@ -298,6 +327,10 @@ export default function InvoiceDetailPage() {
         <ContactCard invoice={invoice} />
         <DatesCard invoice={invoice} />
       </div>
+
+      {features.fiscalDocuments && <FiscalDocumentCard invoice={invoice} canUpdate={canUpdate} />}
+
+      {features.brTaxReturn && <PixCard invoice={invoice} entity={entity} />}
 
       <SalesTaxCard
         invoice={invoice}

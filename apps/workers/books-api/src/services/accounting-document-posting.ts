@@ -147,6 +147,14 @@ export function taxAccountFor(
   return requireAccount(byDirection, 'No tax account found. Link the tax rate to a ledger account or add a tax payable account.');
 }
 
+/** The account holding a system role (BR tax rows name theirs); a missing one is a setup error. */
+function roleAccount(accounts: EntityAccounts, role: string | undefined, what: string): string {
+  return requireAccount(
+    role ? accounts.byRole(role) : undefined,
+    `No account with the role ${role ?? '(none)'} for "${what}". Add it to the chart of accounts.`,
+  );
+}
+
 export function breakdownToTaxLine(
   row: BreakdownRow,
   rate: TaxRateRow | undefined,
@@ -312,6 +320,37 @@ class DimensionedAmounts {
   }
 }
 
+/**
+ * Brazil: what a bill's taxes do to the cost of its lines. A credit inside the
+ * price (ICMS, PIS/COFINS a recuperar) comes out of the cost, because it is
+ * booked as a receivable instead; a tax on top of the price that can't be
+ * credited (IPI for a reseller) goes into it. Each row is spread over the lines
+ * of its rate in proportion to their amounts, to the cent.
+ */
+function adjustBrPurchaseCost(
+  expenses: DimensionedAmounts,
+  breakdown: BreakdownRow[],
+  items: BillItemRow[],
+  accountOf: (item: BillItemRow) => string | undefined,
+): void {
+  for (const row of breakdown) {
+    let direction = 0;
+    if (row.treatment === 'embedded' && row.accountRole) direction = -1;
+    else if (row.treatment === 'added' && !row.accountRole) direction = 1;
+    if (direction === 0 || row.taxAmount === 0) continue;
+    const lines = items.filter((item) => (item.taxRateId ?? '') === row.taxRateId);
+    if (lines.length === 0) continue;
+    const parts = allocateCents(
+      toCents(row.taxAmount),
+      lines.map((item) => Number.parseFloat(item.lineTotal ?? '0')),
+    );
+    lines.forEach((item, i) => {
+      const accountId = accountOf(item);
+      if (accountId) expenses.add(accountId, direction * fromCents(parts[i]), item);
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Invoices and credit notes
 // ---------------------------------------------------------------------------
@@ -411,17 +450,41 @@ export async function buildInvoicePosting(
   } else {
     for (const row of breakdown) {
       const rate = rates.get(row.taxRateId);
-      if (row.taxAmount !== 0) {
-        lines.push({
-          accountId: taxAccountFor(accounts, row, rate, 'sales'),
-          credit: toBase(row.taxAmount * sign),
-          description: `${row.taxRateName ?? 'Tax'} ${invoice.invoiceNumber ?? ''}`.trim(),
-          taxRateId: row.taxRateId || null,
-          taxAmount: toBase(row.taxAmount * sign),
-          ...meta,
-        });
+      if (row.treatment === 'informational') {
+        // BR CBS/IBS of the 2026 test year: on the tax ledger for the worksheet, nothing in the journal.
+        taxLines.push(breakdownToTaxLine(row, rate, { direction: 'sales', sign, currency, toBase, contactId: invoice.contactId }));
+        continue;
       }
-      if (row.taxRateId) {
+      if (row.taxAmount !== 0) {
+        const description = `${row.taxRateName ?? 'Tax'} ${invoice.invoiceNumber ?? ''}`.trim();
+        const amount = toBase(row.taxAmount * sign);
+        if (row.treatment === 'withheld') {
+          // Kept back by the customer: a receivable from the tax authority (or less tax of our own) instead of from the customer.
+          lines.push({ accountId: roleAccount(accounts, row.accountRole, description), debit: amount, description, ...meta });
+        } else if (row.treatment === 'embedded') {
+          // Inside the price: a deduction from revenue against the tax payable.
+          lines.push({ accountId: roleAccount(accounts, row.offsetAccountRole, description), debit: amount, description, ...meta });
+          lines.push({
+            accountId: roleAccount(accounts, row.accountRole, description),
+            credit: amount,
+            description,
+            taxRateId: row.taxRateId || null,
+            taxAmount: amount,
+            ...meta,
+          });
+        } else {
+          lines.push({
+            accountId: taxAccountFor(accounts, row, rate, 'sales'),
+            credit: amount,
+            description,
+            taxRateId: row.taxRateId || null,
+            taxAmount: amount,
+            ...meta,
+          });
+        }
+      }
+      // Withholdings are document-level (no rate) but still reach the tax ledger.
+      if (row.taxRateId || row.treatment === 'withheld') {
         taxLines.push(
           breakdownToTaxLine(row, rate, { direction: 'sales', sign, currency, toBase, contactId: invoice.contactId }),
         );
@@ -429,8 +492,8 @@ export async function buildInvoicePosting(
     }
   }
 
-  // The receivable is the sum of what was credited, so the entry always balances in base currency.
-  const receivable = roundMoney(lines.reduce((sum, l) => sum + (l.credit ?? 0), 0));
+  // The receivable balances the entry: what was credited less what was debited (BR deductions, withholdings).
+  const receivable = roundMoney(lines.reduce((sum, l) => sum + (l.credit ?? 0) - (l.debit ?? 0), 0));
   lines.unshift({
     accountId: requireAccount(
       accountForRole(accounts, 'accounts_receivable', FALLBACK_CODES.accounts_receivable),
@@ -667,6 +730,7 @@ export async function buildBillPosting(
     const tax = taxDeductible ? 0 : Number.parseFloat(item.taxAmount ?? '0');
     expenses.add(accountId, net + tax, item);
   }
+  adjustBrPurchaseCost(expenses, breakdown, items, (item) => accounts.byId(item.accountId)?.id ?? defaultExpense?.id);
 
   const lines: PostingLine[] = [];
   for (const { accountId, classId, locationId, amount } of expenses.entries()) {
@@ -725,6 +789,21 @@ export async function buildBillPosting(
   for (const row of breakdown) {
     if (row.kind === 'use') continue;
     const rate = rates.get(row.taxRateId);
+    if (row.treatment && row.treatment !== 'added') {
+      // Brazil: a credit inside the price (Dr recoverable, already taken out of the cost) or a withholding (Cr payable).
+      if (row.treatment === 'informational' || !row.accountRole || row.taxAmount === 0) continue;
+      const description = `${row.taxRateName ?? 'Tax'} ${bill.billNumber ?? ''}`.trim();
+      const amount = toBase(row.taxAmount * sign);
+      const accountId = roleAccount(accounts, row.accountRole, description);
+      lines.push(
+        row.treatment === 'withheld'
+          ? { accountId, credit: amount, description, ...meta }
+          : { accountId, debit: amount, description, taxRateId: row.taxRateId || null, taxAmount: amount, ...meta },
+      );
+      taxLines.push(breakdownToTaxLine(row, rate, { direction: 'purchase', sign, currency, toBase, contactId: bill.contactId }));
+      continue;
+    }
+    if (row.treatment === 'added' && !row.accountRole) continue; // BR tax without a credit: part of the cost
     if (row.selfAssessed) {
       // Owed and deducted by the buyer itself: both legs, nothing to the supplier.
       if (row.taxAmount !== 0) {

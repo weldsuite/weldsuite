@@ -22,13 +22,15 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { entityTypesFor } from '@/lib/weldbooks/entity-types';
 import { isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
 import { isValidIban } from '@/lib/weldbooks/identifiers';
+import { BrEntityCreateForm } from './components/br-entity-create-form';
 import { UsEntityCreateForm } from './components/us-entity-create-form';
 
-const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR'];
+const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'SEK', 'DKK', 'NOK', 'PLN', 'INR', 'BRL'];
 
 const JURISDICTION_DEFAULTS: Record<string, { baseCurrency: string; locale: string; timezone: string; country: string }> = {
   NL: { baseCurrency: 'EUR', locale: 'nl-NL', timezone: 'Europe/Amsterdam', country: 'NL' },
   IN: { baseCurrency: 'INR', locale: 'en-IN', timezone: 'Asia/Kolkata', country: 'IN' },
+  BR: { baseCurrency: 'BRL', locale: 'pt-BR', timezone: 'America/Sao_Paulo', country: 'BR' },
 };
 
 /** A business address an invoice can print: street, city and country. */
@@ -65,6 +67,7 @@ export default function AddEntityPage() {
 
   const { data: jurisdictions = [] } = useAccountingJurisdictions();
   const isUs = isUsJurisdictionCode(jurisdictionCode);
+  const isBr = jurisdictionCode === 'BR';
   const usJurisdiction = jurisdictions.find((j) => isUsJurisdictionCode(j.code));
 
   // An IBAN needs the length of its country and valid check digits; an Indian account number is free text.
@@ -130,6 +133,9 @@ export default function AddEntityPage() {
   if (isUs && usJurisdiction?.entityTypes) {
     return <UsEntityCreateForm jurisdictionPicker={jurisdictionPicker} entityTypes={usJurisdiction.entityTypes} />;
   }
+
+  // A Brazilian entity has its own form: legal form and tax regime, CNPJ and state registration, municipality, Pix.
+  if (isBr) return <BrEntityCreateForm jurisdictionPicker={jurisdictionPicker} />;
 
   return (
     <div className="p-6 max-w-2xl space-y-6">

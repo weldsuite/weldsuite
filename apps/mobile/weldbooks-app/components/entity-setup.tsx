@@ -12,7 +12,9 @@
  *
  * A US company also says how it is organised (LLC, S corporation, ...) and how
  * the IRS taxes it, gives its EIN and its address (the origin of its sales
- * tax), and starts in USD.
+ * tax), and starts in USD. A Brazilian company gives its legal form and tax
+ * regime (they decide which taxes its invoices carry and are seeded at
+ * creation) and its CNPJ, and starts in BRL.
  */
 
 import React, { useCallback, useState } from 'react';
@@ -34,9 +36,18 @@ import {
   DEFAULT_TERMINOLOGY,
   defaultJurisdictionCode,
   findJurisdiction,
+  isBrJurisdiction,
   isUsJurisdiction,
   terminologyLabels,
 } from '@/lib/jurisdiction';
+import {
+  BR_ENTITY_TYPES,
+  allowedBrRegimes,
+  cnpjProblem,
+  formatCnpjInput,
+  normalizeCnpj,
+  validBrRegime,
+} from '@/lib/br';
 import { describeApiError } from '@/lib/sales-tax';
 import {
   EMPTY_ADDRESS,
@@ -67,6 +78,18 @@ function EntityIllustration({ stroke, fill, accent }: Readonly<{ stroke: string;
   );
 }
 
+/** The line under the tax ID field: how to write an EIN or a CNPJ, until the field has an error to show instead. */
+function taxIdHint(
+  isUs: boolean,
+  isBr: boolean,
+  error: string | undefined,
+  texts: { einHint: string; cnpjHint: string },
+): string | undefined {
+  if (error) return undefined;
+  if (isUs) return texts.einHint;
+  return isBr ? texts.cnpjHint : undefined;
+}
+
 export function CreateEntitySheet({
   visible,
   onClose,
@@ -93,6 +116,8 @@ export function CreateEntitySheet({
   const [entityType, setEntityType] = useState('single_member_llc');
   const [taxClassification, setTaxClassification] = useState('disregarded');
   const [dba, setDba] = useState('');
+  const [brEntityType, setBrEntityType] = useState<string>('ltda');
+  const [brRegime, setBrRegime] = useState<string>('simples_nacional');
   const [address, setAddress] = useState<AddressDraft>({ ...EMPTY_ADDRESS });
   const [submitting, setSubmitting] = useState(false);
   const [nameError, setNameError] = useState<string | undefined>();
@@ -101,6 +126,7 @@ export function CreateEntitySheet({
 
   const jurisdiction = findJurisdiction(jurisdictionCode, loaded);
   const isUs = isUsJurisdiction(jurisdictionCode);
+  const isBr = isBrJurisdiction(jurisdictionCode);
   const labels = terminologyLabels(t.terminology, jurisdiction?.terminology ?? DEFAULT_TERMINOLOGY);
   const types = usEntityTypes(jurisdiction?.entityTypes);
   const classificationOptions = types.find((type) => type.type === entityType)?.classifications ?? [];
@@ -110,6 +136,7 @@ export function CreateEntitySheet({
     { label: t.entitySetup.currencyGbp, value: 'GBP' },
     { label: t.entitySetup.currencyUsd, value: 'USD' },
     { label: t.entitySetup.currencyInr, value: 'INR' },
+    { label: t.entitySetup.currencyBrl, value: 'BRL' },
   ];
 
   const changeJurisdiction = (code: string) => {
@@ -124,6 +151,16 @@ export function CreateEntitySheet({
   const changeEntityType = (type: string) => {
     setEntityType(type);
     setTaxClassification(validClassification(types, type, taxClassification));
+  };
+
+  // The US form is the longest (address), then the Brazilian one (legal form and regime).
+  let sheetHeight = 0.82;
+  if (isUs) sheetHeight = 0.94;
+  else if (isBr) sheetHeight = 0.9;
+
+  const changeBrEntityType = (type: string) => {
+    setBrEntityType(type);
+    setBrRegime(validBrRegime(type, brRegime));
   };
 
   const handleCreate = useCallback(async () => {
@@ -146,6 +183,13 @@ export function CreateEntitySheet({
       setAddressErrors(problems);
       if (Object.keys(problems).length > 0) valid = false;
     }
+    if (isBr) {
+      const problem = cnpjProblem(taxId);
+      if (problem) {
+        setEinError(problem === 'format' ? t.entitySetup.cnpjFormat : t.entitySetup.cnpjCheckDigits);
+        valid = false;
+      }
+    }
     if (!valid) return;
 
     setSubmitting(true);
@@ -165,7 +209,13 @@ export function CreateEntitySheet({
               ein: taxId.trim() ? normalizeEin(taxId) : undefined,
               address: toApiAddress(address),
             }
-          : { vatNumber: taxId.trim() || undefined }),
+          : isBr
+            ? {
+                entityType: brEntityType,
+                taxClassification: validBrRegime(brEntityType, brRegime),
+                vatNumber: taxId.trim() ? normalizeCnpj(taxId) : undefined,
+              }
+            : { vatNumber: taxId.trim() || undefined }),
       });
       toast.success(t.entitySetup.created);
       await onCreated();
@@ -178,7 +228,10 @@ export function CreateEntitySheet({
   }, [
     name,
     isUs,
+    isBr,
     taxId,
+    brEntityType,
+    brRegime,
     address,
     jurisdictionCode,
     baseCurrency,
@@ -193,7 +246,7 @@ export function CreateEntitySheet({
   ]);
 
   return (
-    <Sheet visible={visible} onClose={onClose} title={t.entitySetup.sheetTitle} heightRatio={isUs ? 0.94 : 0.82}>
+    <Sheet visible={visible} onClose={onClose} title={t.entitySetup.sheetTitle} heightRatio={sheetHeight}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.sheetBody}
@@ -263,6 +316,33 @@ export function CreateEntitySheet({
             </>
           ) : null}
 
+          {isBr ? (
+            <>
+              <Select
+                label={t.entitySetup.entityType}
+                value={brEntityType}
+                onValueChange={changeBrEntityType}
+                options={BR_ENTITY_TYPES.map((type) => ({
+                  label: (t.entitySetup.entityTypes as Record<string, string>)[type] ?? type,
+                  value: type,
+                }))}
+              />
+              <View style={styles.group}>
+                <Select
+                  label={t.entitySetup.taxRegime}
+                  value={validBrRegime(brEntityType, brRegime)}
+                  onValueChange={setBrRegime}
+                  options={allowedBrRegimes(brEntityType).map((regime) => ({
+                    label: (t.entitySetup.taxClassifications as Record<string, string>)[regime] ?? regime,
+                    value: regime,
+                  }))}
+                  disabled={allowedBrRegimes(brEntityType).length <= 1}
+                />
+                <Text style={[styles.fieldHint, { color: colors.mutedForeground }]}>{t.entitySetup.regimeHint}</Text>
+              </View>
+            </>
+          ) : null}
+
           <Select
             label={t.entitySetup.baseCurrency}
             value={baseCurrency}
@@ -274,11 +354,12 @@ export function CreateEntitySheet({
             label={format(t.entitySetup.taxIdOptional, { taxId: labels.taxId })}
             value={taxId}
             onChangeText={(text) => {
-              setTaxId(isUs ? formatEinInput(text) : text);
+              if (isUs) setTaxId(formatEinInput(text));
+              else setTaxId(isBr ? formatCnpjInput(text) : text);
               if (einError) setEinError(undefined);
             }}
             placeholder={labels.taxIdPlaceholder}
-            helperText={isUs && !einError ? t.entitySetup.einHint : undefined}
+            helperText={taxIdHint(isUs, isBr, einError, t.entitySetup)}
             error={einError}
             keyboardType={isUs ? 'number-pad' : 'default'}
             autoCapitalize="characters"

@@ -268,6 +268,11 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/tax-returns',
     '/api/w9-requests',
     '/public/w9',
+    // Brazil (docs/plans/weldbooks-br.md)
+    '/api/br-tax',
+    '/api/fiscal-documents',
+    '/api/received-fiscal-documents',
+    '/public/fiscal-webhooks',
   ]),
   mod('commerce', 8806, ['weldcommerce', 'weldstash'], [
     '/api/carriers',

@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { checkVatNumberFormat, ibanProblem, isValidIban } from './identifiers';
+import {
+  brTaxIdKind,
+  brTaxIdProblem,
+  checkVatNumberFormat,
+  cnpjCheckDigits,
+  cnpjProblem,
+  cpfProblem,
+  formatCnpj,
+  formatCpf,
+  ibanProblem,
+  isValidCnpj,
+  isValidCpf,
+  isValidIban,
+  isValidInscricaoEstadual,
+  isValidMunicipalityCode,
+  normalizeCep,
+} from './identifiers';
 
 describe('checkVatNumberFormat', () => {
   it('refuses a Belgian number that is too short, with or without spaces and dots', () => {
@@ -63,5 +79,53 @@ describe('IBAN', () => {
   it('refuses wrong check digits', () => {
     expect(ibanProblem('NL92ABNA0417164300')).toBe('checksum');
     expect(ibanProblem('DE89370400440532013001')).toBe('checksum');
+  });
+});
+
+describe('Brazil identifiers', () => {
+  it('validates a numeric CNPJ with or without its mask', () => {
+    expect(isValidCnpj('11.222.333/0001-81')).toBe(true);
+    expect(isValidCnpj('11222333000181')).toBe(true);
+    expect(cnpjProblem('11.222.333/0001-82')).toBe('checksum');
+    expect(cnpjProblem('1122233300018')).toBe('format');
+    expect(cnpjProblem('00000000000000')).toBe('format');
+  });
+
+  it('validates an alphanumeric CNPJ (letters count ASCII minus 48)', () => {
+    const base = '12ABC34501DE';
+    const check = cnpjCheckDigits(base);
+    expect(isValidCnpj(`${base}${check}`)).toBe(true);
+    expect(isValidCnpj(`12.ABC.345/01DE-${check}`)).toBe(true);
+    expect(cnpjProblem(`${base}${check === '00' ? '01' : '00'}`)).toBe('checksum');
+  });
+
+  it('validates a CPF', () => {
+    expect(isValidCpf('529.982.247-25')).toBe(true);
+    expect(isValidCpf('52998224725')).toBe(true);
+    expect(cpfProblem('529.982.247-24')).toBe('checksum');
+    expect(cpfProblem('111.111.111-11')).toBe('format');
+    expect(cpfProblem('123')).toBe('format');
+  });
+
+  it('tells a CPF from a CNPJ by length', () => {
+    expect(brTaxIdKind('529.982.247-25')).toBe('cpf');
+    expect(brTaxIdKind('11.222.333/0001-81')).toBe('cnpj');
+    expect(brTaxIdProblem('529.982.247-25')).toBeNull();
+    expect(brTaxIdProblem('11.222.333/0001-81')).toBeNull();
+  });
+
+  it('formats masks', () => {
+    expect(formatCnpj('11222333000181')).toBe('11.222.333/0001-81');
+    expect(formatCpf('52998224725')).toBe('529.982.247-25');
+  });
+
+  it('checks the shape of an Inscrição Estadual, a CEP and an IBGE code', () => {
+    expect(isValidInscricaoEstadual('ISENTO')).toBe(true);
+    expect(isValidInscricaoEstadual('110.042.490.114')).toBe(true);
+    expect(isValidInscricaoEstadual('A1')).toBe(false);
+    expect(normalizeCep('01310100')).toBe('01310-100');
+    expect(normalizeCep('0131')).toBeUndefined();
+    expect(isValidMunicipalityCode('3550308')).toBe(true);
+    expect(isValidMunicipalityCode('35503')).toBe(false);
   });
 });

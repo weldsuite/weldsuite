@@ -7,6 +7,7 @@
  * form and the journal entry form, so every document writes the same fields.
  */
 import { z } from 'zod';
+import { brLinePayload, type BrLineValues } from './br-fiscal';
 import { amountString, hasCompleteOverride, type TaxFormLine, type TaxUseChoice } from './document-tax';
 
 /** Sales tax and dimension values of a line, as form state. Empty string = not set. */
@@ -86,7 +87,8 @@ export function overrideChecks(messages: OverrideMessages) {
 
 /** The line's tax values for the preview request (see `buildTaxPreviewRequest`). */
 export function toTaxFormLine(
-  line: Partial<SalesTaxLineValues> & {
+  line: Partial<SalesTaxLineValues> &
+    Partial<BrLineValues> & {
     description?: string | null;
     quantity?: number | string | null;
     unitPrice?: number | string | null;
@@ -94,7 +96,12 @@ export function toTaxFormLine(
     taxRateId?: string | null;
   },
 ): TaxFormLine {
+  // Brazil: the fiscal fields go to the preview too (only set on a Brazilian form).
+  const br = line.ncm || line.cfop || line.brOrigin || line.brIcmsRate || line.brIpiRate || line.brIssRate || line.brServiceCode || line.brCest
+    ? brLinePayload(line)
+    : null;
   return {
+    ...(br ? { ncm: br.ncm, cfop: br.cfop, fiscalData: br.fiscalData as Record<string, unknown> | null } : {}),
     description: line.description,
     quantity: line.quantity,
     unitPrice: line.unitPrice,

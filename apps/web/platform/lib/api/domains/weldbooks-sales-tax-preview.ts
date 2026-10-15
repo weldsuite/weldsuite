@@ -42,6 +42,10 @@ export interface TaxPreviewItem {
   taxRateId?: string | null;
   /** US bills: the sales tax percentage the vendor charged. */
   taxRate?: string | null;
+  /** Brazil: NCM (8 digits) and CFOP (4 digits) of the line, and its fiscal data (origin, rate overrides, service code). */
+  ncm?: string | null;
+  cfop?: string | null;
+  fiscalData?: Record<string, unknown> | null;
 }
 
 export interface TaxPreviewRequest {
@@ -58,6 +62,8 @@ export interface TaxPreviewRequest {
   originalInvoiceId?: string | null;
   /** India GST: two-digit state code of the place of supply the user chose; omitted to derive it from the customer. */
   placeOfSupply?: string | null;
+  /** Brazil: the document's withholdings and the buyer's ICMS status. */
+  fiscalData?: Record<string, unknown> | null;
   items: TaxPreviewItem[];
 }
 
@@ -110,6 +116,8 @@ export interface TaxBreakdownRow {
   certificateId?: string;
   taxCode?: string;
   kind?: 'tax' | 'use';
+  /** Brazil: how the tax relates to the price: on top of it, inside it, kept back by the payer, or for information. */
+  treatment?: 'added' | 'embedded' | 'withheld' | 'informational';
 }
 
 export interface TaxPreviewResult {
@@ -193,6 +201,8 @@ export interface InvoiceTaxFields {
   taxCommittedAt?: string | null;
   taxWarnings?: string[] | null;
   taxBreakdown?: TaxBreakdownRow[] | null;
+  /** Brazil: withholdings, buyer's ICMS status. */
+  fiscalData?: Record<string, unknown> | null;
 }
 
 export interface InvoiceItemTaxFields {
@@ -208,6 +218,10 @@ export interface InvoiceItemTaxFields {
   locationId?: string | null;
   /** Credit memos: the invoice line the line credits. */
   originalLineId?: string | null;
+  /** Brazil: NCM, CFOP and the line's fiscal data. */
+  ncm?: string | null;
+  cfop?: string | null;
+  fiscalData?: Record<string, unknown> | null;
 }
 
 type InvoiceItemRow = InvoiceDetail['items'][number];
@@ -222,6 +236,9 @@ export interface BillItemTaxFields {
   form1099Box?: string | null;
   classId?: string | null;
   locationId?: string | null;
+  ncm?: string | null;
+  cfop?: string | null;
+  fiscalData?: Record<string, unknown> | null;
 }
 
 type BillItemRow = BillDetail['items'][number];
@@ -229,6 +246,9 @@ type BillItemRow = BillDetail['items'][number];
 export interface BillTaxFields {
   deliveryAddress?: StoredAccountingAddress | null;
   taxBreakdown?: TaxBreakdownRow[] | null;
+  taxWarnings?: string[] | null;
+  /** Brazil: withholdings and the supplier's NF-e access key. */
+  fiscalData?: Record<string, unknown> | null;
 }
 
 export type BillWithTax = Omit<BillDetail, 'items'> & BillTaxFields & { items: Array<BillItemRow & BillItemTaxFields> };
@@ -247,6 +267,9 @@ export interface RecurringTemplateTaxItem {
   taxIncluded?: boolean;
   classId?: string | null;
   locationId?: string | null;
+  ncm?: string | null;
+  cfop?: string | null;
+  fiscalData?: Record<string, unknown> | null;
 }
 
 /** What `POST /recurring-invoices/:id/generate` returns, with the new finalize outcome. */

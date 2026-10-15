@@ -37,6 +37,7 @@ import {
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
 import { generateInvoiceHtml } from '@weldsuite/books-domain/accounting-invoice-html';
+import { brInvoiceRenderExtras } from '../../services/br-invoice-render';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { streamDocumentAttachment } from '../../lib/document-attachment';
 import {
@@ -45,7 +46,13 @@ import {
   getContactVatNumber,
   invoiceUsesReverseCharge,
 } from '@weldsuite/books-domain/accounting-compliance';
-import { calculateDocumentTax, TaxCalculationError, type DocumentTaxItem } from '../../services/accounting-tax-resolve';
+import {
+  calculateDocumentTax,
+  hasDocumentTaxHook,
+  TaxCalculationError,
+  type DocumentTaxItem,
+} from '../../services/accounting-tax-resolve';
+import { brDocumentFiscalSchema, brLineFiscalSchema, cfopSchema, ncmSchema } from '../../lib/br-fiscal-schemas';
 import { PostingError } from '../../services/accounting-document-posting';
 import { writeOffInvoice } from '../../services/accounting-bad-debt';
 import { assertDimensionsBelongToEntity } from '../../services/accounting-posting';
@@ -138,6 +145,10 @@ const lineItemSchema = z.object({
   taxCode: z.string().max(30).nullable().optional(),
   /** India GST: HSN (goods) or SAC (services) code, 4 to 8 digits. */
   hsnSac: z.string().trim().regex(/^(\d{4,8})?$/, 'HSN/SAC must be 4 to 8 digits').nullable().optional(),
+  /** Brazil: NCM of the goods, CFOP of the operation and the line's rate overrides. */
+  ncm: ncmSchema,
+  cfop: cfopSchema,
+  fiscalData: brLineFiscalSchema,
   taxUse: z.enum(['business', 'personal']).nullable().optional(),
   taxIncluded: z.boolean().optional(),
   taxOverrideAmount: z.union([z.string(), z.number()]).transform((v) => String(v)).nullable().optional(),
@@ -181,6 +192,8 @@ const createInvoiceSchema = z.object({
   shipFromAddress: addressSchema.nullable().optional(),
   /** India GST: two-digit state code of the place of supply (96 = outside India); derived from the buyer when omitted. */
   placeOfSupply: z.string().regex(/^\d{2}$/, 'Place of supply is a two-digit GST state code').nullable().optional(),
+  /** Brazil: withholdings, the buyer's ICMS status, natureza da operação. */
+  fiscalData: brDocumentFiscalSchema,
   /** Sold through a marketplace facilitator that collects the tax: no tax charged, the sale counts for nexus. */
   marketplaceFacilitated: z.boolean().optional(),
   revenueAccountId: z.string().max(30).optional(),
@@ -260,6 +273,7 @@ function buildInvoiceFieldUpdates(data: UpdateInvoiceInput): Record<string, unkn
   if (data.shipFromAddress !== undefined) updateData.shipFromAddress = normalizePostalAddress(data.shipFromAddress);
   if (data.marketplaceFacilitated !== undefined) updateData.marketplaceFacilitated = data.marketplaceFacilitated;
   if (data.revenueAccountId !== undefined) updateData.revenueAccountId = data.revenueAccountId;
+  if (data.fiscalData !== undefined) updateData.fiscalData = data.fiscalData;
 
   return updateData;
 }
@@ -276,7 +290,7 @@ const TAX_INPUT_FIELDS = [
 ] as const;
 
 /** The invoice fields an India GST draft's CGST/SGST/IGST split depends on besides its lines. */
-const GST_INPUT_FIELDS = ['contactId', 'billingAddress', 'shippingAddress', 'placeOfSupply'] as const;
+const GST_INPUT_FIELDS = ['contactId', 'billingAddress', 'shippingAddress', 'placeOfSupply', 'issueDate', 'fiscalData'] as const;
 
 /** The new line rows of an invoice, with the calculation's tax columns and the US inputs. */
 function buildItemRecords(
@@ -303,6 +317,9 @@ function buildItemRecords(
     sortOrder: item.sortOrder ?? idx,
     taxCode: item.taxCode || null,
     hsnSac: item.hsnSac || null,
+    ncm: item.ncm || null,
+    cfop: item.cfop || null,
+    fiscalData: item.fiscalData ?? null,
     taxUse: item.taxUse || null,
     taxIncluded: item.taxIncluded ?? false,
     taxOverrideAmount: item.taxOverrideAmount ?? null,
@@ -762,6 +779,7 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
         amountPaid: invoice.amountPaid ?? undefined,
         balanceDue: invoice.balanceDue ?? undefined,
         taxBreakdown: invoice.taxBreakdown || [],
+        ...(await brInvoiceRenderExtras(db, entityRow, invoice)),
       },
       entityRow,
     );
@@ -834,6 +852,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
         shippingAddress,
         shipFromAddress,
         marketplaceFacilitated: data.marketplaceFacilitated,
+        fiscalData: data.fiscalData,
         originalInvoiceId: data.creditNoteForInvoiceId,
       },
     });
@@ -865,6 +884,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       shippingAddress,
       shipFromAddress,
       placeOfSupply: gst?.placeOfSupply ?? null,
+      fiscalData: data.fiscalData ?? null,
       marketplaceFacilitated: data.marketplaceFacilitated ?? false,
       revenueAccountId: data.revenueAccountId || null,
       creditNoteForInvoiceId: data.creditNoteForInvoiceId || null,
@@ -947,7 +967,8 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     await applyInvoiceContactSnapshot(db, invoice, data, updateData, contactChanged);
 
     const salesTaxEntity = usesSalesTax(await loadSalesTaxEntity(db, invoice.entityId));
-    const gstEntity = await isGstEntity(db, invoice.entityId);
+    // India's place of supply and Brazil's document tax both depend on the customer and the document fields.
+    const gstEntity = (await isGstEntity(db, invoice.entityId)) || (await hasDocumentTaxHook(db, invoice.entityId));
     let newItems: InvoiceItemRecords | undefined;
     let storedItemTax: StoredItemTax = [];
     if (invoiceTaxInputsChanged(data, salesTaxEntity, gstEntity)) {

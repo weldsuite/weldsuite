@@ -504,7 +504,7 @@ This repo runs an agent-driven workflow. Specialist sub-agents live in `.claude/
 
 **Domain:** `weldflow-projects`, `weldmeet-meetings`, `weldcrm`, `welddesk-helpdesk`, `weldmail`, `weldbooks-accounting`, `weldsuite-invoicing`, `weldsuite-time-tracking`, `weldhost-domains`, `weldcommerce`, `weldsuite-wms`, `weldagent-ai`, `weldsuite-social`
 
-**Country accounting:** `accounting-be`, `-nl`, `-de`, `-fr`, `-uk`, `-us`
+**Country accounting:** `accounting-be`, `-nl`, `-de`, `-fr`, `-uk`, `-us`, `-in`, `-br`
 
 ### Autopilot
 

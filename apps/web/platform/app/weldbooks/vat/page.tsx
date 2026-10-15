@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { VatNotAvailable } from './components/vat-not-available';
 import GstReturnPage from './gst-return-page';
+import BrApuracaoPage from './br-apuracao-page';
 import { toast } from 'sonner';
 import { PageLoader } from '@/components/page-loader';
 import { useAccountingVatReturns, useCalculateVatReturn } from '@/hooks/queries/use-accounting-queries';
@@ -134,6 +135,9 @@ export default function VatReturnsPage() {
 
   // India has no stored return: the GSTR-1 / GSTR-3B worksheet of a period instead.
   if (features.gstReturn) return <GstReturnPage />;
+
+  // Brazil has no stored return either: the monthly apuração (DAS / taxes / withholdings) of a period.
+  if (features.brTaxReturn) return <BrApuracaoPage />;
 
   if (!features.vatReturn) {
     return <VatNotAvailable title={tv.notAvailableTitle} description={tv.notAvailableDescription} />;

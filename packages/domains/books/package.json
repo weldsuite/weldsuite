@@ -12,6 +12,7 @@
     "./accounting-roles": "./src/accounting-roles.ts",
     "./accounting-vat-xml": "./src/accounting-vat-xml.ts",
     "./identifiers": "./src/identifiers.ts",
+    "./jurisdictions/br": "./src/jurisdictions/br/index.ts",
     "./jurisdictions/in": "./src/jurisdictions/in/index.ts",
     "./jurisdictions/nl": "./src/jurisdictions/nl/index.ts",
     "./jurisdictions/registry": "./src/jurisdictions/registry.ts",
@@ -32,7 +33,8 @@
   "dependencies": {
     "@weldsuite/db": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "uqr": "0.1.2"
   },
   "peerDependencies": {
     "hono": "^4.0.0"

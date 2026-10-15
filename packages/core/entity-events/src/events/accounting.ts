@@ -40,4 +40,8 @@ export const ACCOUNTING_ENTITY_EVENTS = {
   accounting_dimension: ['created', 'updated', 'deleted'],
   payroll_import: ['created', 'updated', 'deleted'],
   payroll_connection: ['created', 'updated', 'deleted'],
+  // Brazil: NF-e / NFS-e issued through the fiscal provider, and NF-e received from suppliers.
+  // Payloads never carry provider tokens, request bodies or XML.
+  fiscal_document: ['created', 'updated', 'cancelled'],
+  received_fiscal_document: ['created', 'updated'],
 } as const;

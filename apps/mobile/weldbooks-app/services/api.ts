@@ -1393,6 +1393,9 @@ function toFeatures(raw: unknown, code: string): JurisdictionFeatures {
     gstReturn: flag('gstReturn'),
     salesTax: flag('salesTax'),
     form1099: flag('form1099'),
+    brTaxReturn: flag('brTaxReturn'),
+    fiscalDocuments: flag('fiscalDocuments'),
+    spedEcd: flag('spedEcd'),
   };
 }
 
@@ -1403,9 +1406,9 @@ function toTerminology(raw: unknown, code: string): JurisdictionTerminology {
   const pick = <K extends keyof JurisdictionTerminology>(key: K, allowed: readonly JurisdictionTerminology[K][]) =>
     allowed.includes(row[key] as JurisdictionTerminology[K]) ? (row[key] as JurisdictionTerminology[K]) : builtIn[key];
   return {
-    tax: pick('tax', ['vat', 'gst', 'sales_tax']),
-    taxId: pick('taxId', ['vat_number', 'gstin', 'ein']),
-    registrationId: pick('registrationId', ['kvk', 'pan', 'company_number', 'state_id']),
+    tax: pick('tax', ['vat', 'gst', 'sales_tax', 'tributos']),
+    taxId: pick('taxId', ['vat_number', 'gstin', 'ein', 'cnpj']),
+    registrationId: pick('registrationId', ['kvk', 'pan', 'company_number', 'state_id', 'ie']),
     supplier: pick('supplier', ['supplier', 'vendor']),
     creditNote: pick('creditNote', ['credit_note', 'credit_memo']),
   };

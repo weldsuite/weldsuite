@@ -40,6 +40,7 @@ import {
   Landmark,
   CreditCard,
   FileSearch,
+  FileInput,
   RefreshCw,
   ArrowLeftRight,
   LayoutDashboard,
@@ -437,6 +438,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.weldbooks.bills, href: '/weldbooks/bills', icon: CreditCard },
           { title: t.navigation.moduleSidebar.weldbooks.documents, href: '/weldbooks/documents', icon: FileSearch },
+          { title: t.navigation.moduleSidebar.weldbooks.receivedNfe, href: '/weldbooks/received-nfe', icon: FileInput },
           { title: t.navigation.moduleSidebar.weldbooks.paymentRuns, href: '/weldbooks/payment-runs', icon: Banknote },
         ],
       },

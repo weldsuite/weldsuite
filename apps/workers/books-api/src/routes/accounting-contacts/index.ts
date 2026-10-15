@@ -77,6 +77,7 @@ import {
 } from '../../services/vendor-tax-data';
 import { writeAccountingAudit } from '@weldsuite/books-domain/accounting-guards';
 import { validateGstin } from '@weldsuite/books-domain/jurisdictions/in';
+import { validateCnpjOrCpf, validateCpf } from '@weldsuite/books-domain/jurisdictions/br';
 import { checkVatNumberFormat, ibanProblem, IBAN_LENGTHS, normalizeIban } from '@weldsuite/books-domain/identifiers';
 import { resolveEntityId } from '../../lib/entity-context';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
@@ -156,6 +157,22 @@ const createContactSchema = z.object({
     type: z.enum(['one-off', 'recurring']).optional(),
   }).nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
+  /**
+   * Brazil: the counterparty's municipal registration and the flags the tax
+   * engine needs. The CNPJ is `vatNumber` and the Inscrição Estadual
+   * `registrationNumber` (of the company); a person's CPF is kept in `taxId`.
+   */
+  brFiscal: z
+    .object({
+      inscricaoMunicipal: z.string().trim().max(20).optional(),
+      icmsContributor: z.boolean().optional(),
+      simplesNacional: z.boolean().optional(),
+      municipalityCode: z.string().regex(/^\d{7}$/, 'The IBGE municipality code has 7 digits').optional(),
+      taxId: z.string().trim().max(18).optional(),
+    })
+    .strict()
+    .nullable()
+    .optional(),
   /**
    * Answers a 409 `PERSON_EMAIL_EXISTS`: a CRM person already has this email.
    * `linkPersonId` makes the contact wrap that person (their existing facts
@@ -445,6 +462,7 @@ function toPartyColumns(data: ContactPayload): Partial<typeof t.$inferInsert> {
   if (data.defaultRevenueAccountId !== undefined) record.defaultRevenueAccountId = data.defaultRevenueAccountId;
   if (data.defaultExpenseAccountId !== undefined) record.defaultExpenseAccountId = data.defaultExpenseAccountId;
   if (data.sepaMandate !== undefined) record.sepaMandate = data.sepaMandate;
+  if (data.brFiscal !== undefined) record.brFiscal = data.brFiscal;
   return record;
 }
 
@@ -800,6 +818,43 @@ async function checkIndianTaxNumber(c: AppContext, db: Database, data: ContactPa
   data.vatNumber = check.formatted;
 }
 
+/**
+ * Brazil: a CNPJ or CPF on a contact of a Brazilian entity is checked (check
+ * digits, the alphanumeric CNPJ included) and stored in its printed form. A
+ * CPF belongs to a person, so it moves to `brFiscal.taxId` and the contact
+ * stays a person rather than becoming a company. A buyer abroad is left alone.
+ */
+async function checkBrazilianTaxNumber(c: AppContext, db: Database, data: ContactPayload): Promise<void> {
+  const vat = data.vatNumber?.trim();
+  const cpf = data.brFiscal?.taxId?.trim();
+  if (!vat && !cpf) return;
+  const entityId = await resolveEntityId(c, db);
+  if (!entityId) return;
+  const [entity] = await db
+    .select({ jurisdictionCode: schema.entities.jurisdictionCode })
+    .from(schema.entities)
+    .where(eq(schema.entities.id, entityId))
+    .limit(1);
+  if (entity?.jurisdictionCode?.toUpperCase() !== 'BR') return;
+  const country = normalizePostalAddress(data.billingAddress)?.country;
+  if (country && !['BR', 'BRA', 'BRAZIL', 'BRASIL'].includes(country.toUpperCase())) return;
+
+  if (cpf) {
+    const check = validateCpf(cpf);
+    if (!check.valid) throw new ContactIdentityError('badRequest', check.error ?? 'Invalid CPF', { field: 'brFiscal.taxId' });
+    data.brFiscal = { ...data.brFiscal, taxId: check.formatted };
+  }
+  if (!vat) return;
+  const check = validateCnpjOrCpf(vat);
+  if (!check.valid) throw new ContactIdentityError('badRequest', check.error ?? 'Invalid CNPJ', { field: 'vatNumber' });
+  if (check.kind === 'cpf') {
+    data.brFiscal = { ...data.brFiscal, taxId: check.formatted };
+    data.vatNumber = undefined;
+  } else {
+    data.vatNumber = check.formatted;
+  }
+}
+
 function identityErrorResponse(c: AppContext, err: ContactIdentityError) {
   return err.status === 'conflict'
     ? error.conflict(c, err.message, err.details)
@@ -995,6 +1050,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createCon
     await assertW9Document(db, data);
     checkIdentifierFormats(data);
     await checkIndianTaxNumber(c, db, data);
+    await checkBrazilianTaxNumber(c, db, data);
     const taxChange = await buildVendorTaxChange(null, data, c.env);
     const identity = await createIdentity(c, db, data);
 
@@ -1048,6 +1104,7 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
     await assertW9Document(db, data);
     checkIdentifierFormats(data, contact.billingAddress);
     await checkIndianTaxNumber(c, db, data);
+    await checkBrazilianTaxNumber(c, db, data);
     const taxChange = await buildVendorTaxChange(contact, data, c.env);
     const link = await syncIdentity(c, db, contact, data);
 

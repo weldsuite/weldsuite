@@ -22,12 +22,18 @@ export interface JurisdictionFeatures {
   salesTax: boolean;
   /** US 1099 information returns. */
   form1099: boolean;
+  /** Brazil monthly tax worksheet (apuração). */
+  brTaxReturn: boolean;
+  /** Electronic fiscal documents (BR NF-e / NFS-e). */
+  fiscalDocuments: boolean;
+  /** Brazil SPED ECD export. */
+  spedEcd: boolean;
 }
 
 export interface JurisdictionTerminology {
-  tax: 'vat' | 'gst' | 'sales_tax';
-  taxId: 'vat_number' | 'gstin' | 'ein';
-  registrationId: 'kvk' | 'pan' | 'company_number' | 'state_id';
+  tax: 'vat' | 'gst' | 'sales_tax' | 'tributos';
+  taxId: 'vat_number' | 'gstin' | 'ein' | 'cnpj';
+  registrationId: 'kvk' | 'pan' | 'company_number' | 'state_id' | 'ie';
   supplier: 'supplier' | 'vendor';
   creditNote: 'credit_note' | 'credit_memo';
 }
@@ -52,6 +58,9 @@ export const NO_JURISDICTION_FEATURES: JurisdictionFeatures = {
   gstReturn: false,
   salesTax: false,
   form1099: false,
+  brTaxReturn: false,
+  fiscalDocuments: false,
+  spedEcd: false,
 };
 
 /** Neutral wording used until the jurisdiction is known. */

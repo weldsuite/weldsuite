@@ -57,6 +57,9 @@ export const nlAdapter: JurisdictionAdapter = {
     gstReturn: false,
     salesTax: false,
     form1099: false,
+    brTaxReturn: false,
+    fiscalDocuments: false,
+    spedEcd: false,
   },
   terminology: {
     tax: 'vat',

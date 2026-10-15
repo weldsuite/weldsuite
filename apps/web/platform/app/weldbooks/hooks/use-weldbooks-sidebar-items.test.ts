@@ -15,7 +15,7 @@ vi.mock('@/lib/i18n/provider', () => ({
           weldbooks: {
             vendors: 'Vendors',
             creditMemos: 'Credit Memos',
-            taxNav: { vat: 'VAT Returns', gst: 'GST Returns', sales_tax: 'Sales Tax' },
+            taxNav: { vat: 'VAT Returns', gst: 'GST Returns', sales_tax: 'Sales Tax', tributos: 'Taxes (apuração)' },
           },
         },
       },
@@ -31,7 +31,7 @@ const icon = () => null;
 const item = (href: string) => ({ title: href, href, icon });
 
 const MENU = [
-  { group: 'Purchases', items: [item('/weldbooks/bills'), item('/weldbooks/payment-runs')] },
+  { group: 'Purchases', items: [item('/weldbooks/bills'), item('/weldbooks/received-nfe'), item('/weldbooks/payment-runs')] },
   { group: 'Accounting', items: [item('/weldbooks/journal'), item('/weldbooks/vat'), item('/weldbooks/fixed-assets')] },
   { group: 'Tax', items: [item('/weldbooks/sales-tax'), item('/weldbooks/form-1099'), item('/weldbooks/tax-calendar')] },
   { group: 'Contacts', items: [item('/weldbooks/suppliers')] },
@@ -97,6 +97,31 @@ describe('useWeldbooksSidebarItems', () => {
     expect(hrefs(groups)).not.toContain('/weldbooks/sales-tax');
     const tax = groups.flatMap((g) => g.items).find((i) => i.href === '/weldbooks/vat');
     expect(tax?.title).toBe('GST Returns');
+  });
+
+  it('shows the apuração, labelled Taxes, and the received NF-e inbox for a Brazilian entity', () => {
+    jurisdiction = {
+      features: { ...NO_JURISDICTION_FEATURES, brTaxReturn: true, fiscalDocuments: true, spedEcd: true },
+      terminology: { ...DEFAULT_TERMINOLOGY, tax: 'tributos', taxId: 'cnpj', registrationId: 'ie' },
+      isResolved: true,
+      isError: false,
+    };
+    const groups = adjust();
+    expect(hrefs(groups)).toContain('/weldbooks/vat');
+    expect(hrefs(groups)).toContain('/weldbooks/received-nfe');
+    expect(hrefs(groups)).not.toContain('/weldbooks/sales-tax');
+    const tax = groups.flatMap((g) => g.items).find((i) => i.href === '/weldbooks/vat');
+    expect(tax?.title).toBe('Taxes (apuração)');
+  });
+
+  it('hides the received NF-e inbox for entities without fiscal documents', () => {
+    jurisdiction = {
+      features: { ...NO_JURISDICTION_FEATURES, gstReturn: true },
+      terminology: DEFAULT_TERMINOLOGY,
+      isResolved: true,
+      isError: false,
+    };
+    expect(hrefs(adjust())).not.toContain('/weldbooks/received-nfe');
   });
 
   it('keeps gated items hidden when the jurisdictions fail to load', () => {

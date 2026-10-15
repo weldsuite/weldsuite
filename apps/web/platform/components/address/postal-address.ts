@@ -12,9 +12,11 @@ export interface PostalAddress {
   state?: string;
   postalCode?: string;
   country?: string;
+  /** Brazil: the neighbourhood (bairro), which an NF-e needs for its buyer. */
+  county?: string;
 }
 
-export const POSTAL_ADDRESS_FIELDS = ['line1', 'line2', 'city', 'state', 'postalCode', 'country'] as const;
+export const POSTAL_ADDRESS_FIELDS = ['line1', 'line2', 'city', 'state', 'postalCode', 'country', 'county'] as const;
 
 export const EMPTY_POSTAL_ADDRESS: PostalAddress = {
   line1: '',
@@ -23,6 +25,7 @@ export const EMPTY_POSTAL_ADDRESS: PostalAddress = {
   state: '',
   postalCode: '',
   country: '',
+  county: '',
 };
 
 /** True when no field holds anything but whitespace. */
@@ -55,6 +58,7 @@ export function toPostalAddressFormValue(address: PostalAddress | null | undefin
     state: address?.state ?? '',
     postalCode: address?.postalCode ?? '',
     country: address?.country ?? '',
+    county: address?.county ?? '',
   };
 }
 

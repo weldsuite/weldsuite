@@ -7,6 +7,7 @@ const TAX_HREF = '/weldbooks/vat';
 const SUPPLIERS_HREF = '/weldbooks/suppliers';
 const CREDIT_NOTES_HREF = '/weldbooks/credit-notes';
 const FORM_1099_HREF = '/weldbooks/form-1099';
+const RECEIVED_NFE_HREF = '/weldbooks/received-nfe';
 
 /** Screens that only exist for jurisdictions with US sales tax. */
 const SALES_TAX_HREFS = new Set([
@@ -24,8 +25,9 @@ const SALES_TAX_HREFS = new Set([
  * Adjusts the static WeldBooks menu (MODULE_CONFIGS.weldbooks) to the selected
  * entity's jurisdiction:
  * - the tax-return item is shown only when the jurisdiction has a VAT return
- *   (`features.vatReturn`) or a GST return (`features.gstReturn`) and is labelled from the terminology
- *   (VAT / GST / Sales tax);
+ *   (`features.vatReturn`), a GST return (`features.gstReturn`) or a Brazilian apuração
+ *   (`features.brTaxReturn`) and is labelled from the terminology (VAT / GST / Sales tax / Taxes);
+ * - the received NF-e inbox needs `features.fiscalDocuments` (Brazil);
  * - the US screens (Sales Tax Center, nexus, certificates, tax calendar,
  *   payment runs, deposits, statement reconciliation, tax worksheet) need
  *   `features.salesTax`, and 1099s need `features.form1099`;
@@ -47,7 +49,8 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
       if (!enabled) return groups;
       const known = isResolved && !isError;
       const visible = (href: string): boolean => {
-        if (href === TAX_HREF) return known && (features.vatReturn || features.gstReturn);
+        if (href === TAX_HREF) return known && (features.vatReturn || features.gstReturn || features.brTaxReturn);
+        if (href === RECEIVED_NFE_HREF) return known && features.fiscalDocuments;
         if (href === FORM_1099_HREF) return known && features.form1099;
         if (SALES_TAX_HREFS.has(href)) return known && features.salesTax;
         return true;
@@ -70,7 +73,19 @@ export function useWeldbooksSidebarItems(enabled: boolean) {
         }))
         .filter((group) => group.items.length > 0);
     },
-    [enabled, isError, isResolved, features.vatReturn, features.gstReturn, features.form1099, features.salesTax, terminology, nav],
+    [
+      enabled,
+      isError,
+      isResolved,
+      features.vatReturn,
+      features.gstReturn,
+      features.brTaxReturn,
+      features.fiscalDocuments,
+      features.form1099,
+      features.salesTax,
+      terminology,
+      nav,
+    ],
   );
 
   return { adjust };

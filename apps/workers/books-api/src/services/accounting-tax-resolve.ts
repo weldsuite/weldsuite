@@ -3,12 +3,17 @@ import type { DocumentTaxBreakdownRow } from '@weldsuite/db/schema';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import {
+  calculateHookTaxTotals,
   calculateLineTaxTotals,
   getEntityStateCode,
   type PlaceOfSupplyContext,
   type TaxTotalsItemInput,
 } from './accounting-tax-totals';
 import { extractStateCodeFromGstin } from '@weldsuite/books-domain/jurisdictions/in';
+import { getAdapter, hasAdapter } from '@weldsuite/books-domain/jurisdictions/registry';
+import type { DocumentTaxContext, JurisdictionAdapter } from '@weldsuite/books-domain/jurisdictions/types';
+import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
+import { getContactVatNumber } from '@weldsuite/books-domain/accounting-compliance';
 import {
   accrueUseTax,
   calculateUsDocumentTax,
@@ -55,6 +60,11 @@ export interface DocumentTaxItem {
   taxOverrideReason?: string | null;
   accrueUseTax?: boolean | null;
   originalLineId?: string | null;
+
+  // Brazil: NCM / CFOP and the line's rate overrides, read by the BR tax engine.
+  ncm?: string | null;
+  cfop?: string | null;
+  fiscalData?: Record<string, unknown> | null;
 }
 
 export interface CalculatedLineTax {
@@ -77,6 +87,8 @@ export interface CalculatedDocumentTax {
   processedItems: CalculatedLineTax[];
   /** US sales tax: which engine answered, with its warnings. Absent for VAT / GST entities. */
   salesTax?: UsTaxMeta;
+  /** Notes from a jurisdiction's document tax hook (BR: missing UF, a withholding under the minimum). */
+  taxWarnings?: string[];
 }
 
 /** A US document's totals before any tax: the draft view while the engine is unavailable. */
@@ -280,6 +292,7 @@ async function calculateRateTableTax(
     buyerStateCode?: string;
     buyerGstin?: string;
     billingProvince?: string;
+    document?: UsDocumentContext;
   },
 ): Promise<CalculatedDocumentTax> {
   const items = args.items.map((item) => ({ ...item, taxRateId: sanitizeTaxRateId(item.taxRateId) }));
@@ -299,8 +312,24 @@ async function calculateRateTableTax(
       taxRateName: rateRow?.name ?? null,
       taxCategoryCode: rateRow?.taxCategoryCode ?? null,
       jurisdictionMetadata: rateRow?.jurisdictionMetadata ?? null,
+      fiscalData: lineFiscalData(item),
     };
   });
+
+  // Jurisdictions with a whole-document tax hook (Brazil) calculate every line's taxes at once.
+  const hook = await loadDocumentTaxHook(db, args.entityId);
+  if (hook) {
+    const ctx = await documentTaxContext(db, hook.entity, args.direction, args.document);
+    const totals = calculateHookTaxTotals(enriched, hook.compute, ctx);
+    return {
+      ...totals,
+      processedItems: totals.processedItems.map((processed, idx) => ({
+        ...processed,
+        taxRateId: enriched[idx].taxRateId ?? null,
+        taxRate: enriched[idx].taxRate ?? null,
+      })),
+    };
+  }
 
   const place = await loadPlaceOfSupply(db, args.entityId, {
     buyerCountry: args.buyerCountry,
@@ -360,4 +389,76 @@ export async function loadPlaceOfSupply(
     buyerStateCode,
     buyerCountry: opts?.buyerCountry,
   };
+}
+
+/** The line's fiscal fields as the document tax hook reads them: the jsonb plus NCM and CFOP. */
+function lineFiscalData(item: DocumentTaxItem): Record<string, unknown> | null {
+  if (!item.fiscalData && !item.ncm && !item.cfop) return null;
+  return { ...(item.fiscalData ?? {}), ...(item.ncm ? { ncm: item.ncm } : {}), ...(item.cfop ? { cfop: item.cfop } : {}) };
+}
+
+type HookEntity = {
+  jurisdictionCode: string;
+  taxClassification: string | null;
+  jurisdictionSettings: Record<string, unknown> | null;
+};
+
+/** The entity's document tax hook (Brazil), or null for jurisdictions that use the rate table as is. */
+async function loadDocumentTaxHook(
+  db: Database,
+  entityId: string,
+): Promise<{ entity: HookEntity; compute: NonNullable<JurisdictionAdapter['computeDocumentTaxes']> } | null> {
+  const [entity] = await db
+    .select({
+      jurisdictionCode: schema.entities.jurisdictionCode,
+      taxClassification: schema.entities.taxClassification,
+      jurisdictionSettings: schema.entities.jurisdictionSettings,
+    })
+    .from(schema.entities)
+    .where(and(eq(schema.entities.id, entityId), isNull(schema.entities.deletedAt)))
+    .limit(1);
+  if (!entity || !hasAdapter(entity.jurisdictionCode)) return null;
+  const adapter = getAdapter(entity.jurisdictionCode);
+  if (!adapter.computeDocumentTaxes) return null;
+  return { entity, compute: adapter.computeDocumentTaxes.bind(adapter) };
+}
+
+/** The counterparty and document facts the hook needs: address state, tax id and the party's fiscal flags. */
+async function documentTaxContext(
+  db: Database,
+  entity: HookEntity,
+  direction: 'sales' | 'purchase',
+  document: UsDocumentContext | undefined,
+): Promise<DocumentTaxContext> {
+  let address =
+    normalizePostalAddress(document?.shippingAddress) ?? normalizePostalAddress(document?.billingAddress);
+  let brFiscal: Record<string, unknown> | null = null;
+  if (document?.contactId) {
+    const [party] = await db
+      .select({
+        billingAddress: schema.parties.billingAddress,
+        shippingAddress: schema.parties.shippingAddress,
+        brFiscal: schema.parties.brFiscal,
+      })
+      .from(schema.parties)
+      .where(eq(schema.parties.id, document.contactId))
+      .limit(1);
+    brFiscal = (party?.brFiscal as Record<string, unknown> | null) ?? null;
+    address ??= normalizePostalAddress(party?.shippingAddress) ?? normalizePostalAddress(party?.billingAddress);
+  }
+  const taxId = (await getContactVatNumber(db, document?.contactId)) ?? (brFiscal?.taxId as string | undefined) ?? null;
+  const issueDate = document?.issueDate;
+  return {
+    direction,
+    issueDate: issueDate instanceof Date ? issueDate.toISOString().slice(0, 10) : issueDate,
+    entitySettings: entity.jurisdictionSettings,
+    entityTaxClassification: entity.taxClassification,
+    counterparty: { country: address?.country ?? null, stateCode: address?.state ?? null, taxId, fiscal: brFiscal },
+    documentFiscal: document?.fiscalData ?? null,
+  };
+}
+
+/** True for an entity whose jurisdiction calculates documents as a whole (Brazil). */
+export async function hasDocumentTaxHook(db: Database, entityId: string): Promise<boolean> {
+  return Boolean(await loadDocumentTaxHook(db, entityId));
 }

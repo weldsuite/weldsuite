@@ -29,6 +29,15 @@ import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { contactIdLabels } from '@/lib/weldbooks/contact-id-labels';
 import { checkVatNumberFormat, isValidIban } from '@/lib/weldbooks/identifiers';
+import { contactTaxIdError, ieError } from '@/lib/weldbooks/br-entity';
+import {
+  brContactMunicipalityError,
+  brContactValues,
+  brFiscalPayload,
+  type BrContactValues,
+  type BrFiscalView,
+} from '@/lib/weldbooks/br-contact';
+import { BrContactSection } from './br-contact-section';
 import { useI18n } from '@/lib/i18n/provider';
 import { VendorBankSection } from './vendor-bank-section';
 import {
@@ -46,18 +55,23 @@ const addressSchema = z.object({
   state: z.string().optional(),
   postalCode: z.string().optional(),
   country: z.string().optional(),
+  county: z.string().optional(),
 });
 
 interface IdentifierMessages {
   /** `{country}` and `{example}` are filled in. */
   vatNumber: string;
   iban: string;
+  /** Brazil: CNPJ / CPF, state registration and municipality code. */
+  br: Record<'cnpj' | 'cpf' | 'cnpjChecksum' | 'cpfChecksum' | 'ie' | 'municipalityCode', string>;
 }
 
 function createContactSchema(
   st: (key: string) => string,
   vendorTaxMessages: Record<VendorTaxProblem, string>,
   identifierMessages: IdentifierMessages,
+  /** The entity keeps Brazilian books: a contact without a country is a Brazilian one. */
+  brazilianBooks: boolean,
 ) {
   return z
     .object({
@@ -78,10 +92,23 @@ function createContactSchema(
       billingAddress: addressSchema,
       shippingSameAsBilling: z.boolean(),
       shippingAddress: addressSchema,
+      br: z.custom<BrContactValues>(),
     })
     .superRefine((values, ctx) => {
+      const country = values.billingAddress?.country?.trim().toUpperCase();
+      const brazilian = country === 'BR' || (!country && brazilianBooks);
+      if (brazilian) {
+        // A CNPJ (company) or CPF (person) with its check digits, an Inscrição Estadual and an IBGE code.
+        const idProblem = contactTaxIdError(values.vatNumber ?? '');
+        if (idProblem) ctx.addIssue({ code: 'custom', path: ['vatNumber'], message: identifierMessages.br[idProblem] });
+        const ie = ieError(values.registrationNumber ?? '');
+        if (ie) ctx.addIssue({ code: 'custom', path: ['registrationNumber'], message: identifierMessages.br.ie });
+        if (brContactMunicipalityError(values.br.municipalityCode)) {
+          ctx.addIssue({ code: 'custom', path: ['br', 'municipalityCode'], message: identifierMessages.br.municipalityCode });
+        }
+      }
       // A VAT number has to fit its country ("BE0123" is no Belgian number); an IBAN its length and check digits.
-      const vat = values.vatNumber?.trim();
+      const vat = brazilian ? undefined : values.vatNumber?.trim();
       if (vat) {
         const check = checkVatNumberFormat(vat, values.billingAddress?.country);
         if (!check.valid) {
@@ -124,6 +151,8 @@ export interface ContactPayload extends VendorTaxPayload {
   notes?: string;
   billingAddress?: PostalAddress;
   shippingAddress?: PostalAddress;
+  /** Brazil: `null` clears what is stored. Present only on a Brazilian entity's contact. */
+  brFiscal?: Omit<BrFiscalView, 'taxId'> | null;
 }
 
 function optional(value: string | undefined): string | undefined {
@@ -153,7 +182,8 @@ function initialValues(contact: ContactFormContact | undefined, defaultCountry: 
     lastName: contact?.lastName ?? '',
     email: contact?.email ?? '',
     phone: contact?.phone ?? '',
-    vatNumber: contact?.vatNumber ?? '',
+    // A person's CPF is kept apart from the CNPJ: the form shows whichever the contact has.
+    vatNumber: contact?.vatNumber || contact?.brFiscal?.taxId || '',
     registrationNumber: contact?.registrationNumber ?? '',
     iban: contact?.iban ?? '',
     bic: contact?.bic ?? '',
@@ -164,6 +194,7 @@ function initialValues(contact: ContactFormContact | undefined, defaultCountry: 
     ),
     shippingSameAsBilling: !shipping || sameAddress(billing, shipping),
     shippingAddress: toPostalAddressFormValue(shipping),
+    br: brContactValues(contact?.brFiscal),
   };
 }
 
@@ -188,9 +219,18 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
   const pendingLabel = mode === 'add' ? tc.creating : tc.saving;
   const { labels, code: jurisdictionCode, usesIban, features } = useJurisdictionLabels();
   const tvx = t.weldbooksUs.form1099.vendorTax;
+  const tbc = t.weldbooksBr.contact;
+  // Brazilian books: the CNPJ / CPF, IE and fiscal details apply to a Brazilian (or country-less) contact.
+  const brazilianBooks = features.brTaxReturn || jurisdictionCode === 'BR';
   const schema = useMemo(
-    () => createContactSchema(st, tvx.errors, { vatNumber: tc.vatNumberInvalid, iban: tc.ibanInvalid }),
-    [st, tvx.errors, tc.vatNumberInvalid, tc.ibanInvalid],
+    () =>
+      createContactSchema(
+        st,
+        tvx.errors,
+        { vatNumber: tc.vatNumberInvalid, iban: tc.ibanInvalid, br: tbc.errors },
+        brazilianBooks,
+      ),
+    [st, tvx.errors, tc.vatNumberInvalid, tc.ibanInvalid, tbc.errors, brazilianBooks],
   );
 
   const defaults = useMemo(
@@ -208,9 +248,14 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
   const role = form.watch('role');
   // The words of the tax and registration fields follow the contact's country (a Belgian customer of a
   // Dutch company has a KBO/BCE number, not a KvK number); a US contact has no registration number here.
-  const idLabels = contactIdLabels(form.watch('billingAddress')?.country, t.accounting.terminology, labels);
+  const billingCountry = form.watch('billingAddress')?.country?.trim().toUpperCase();
+  const brazilianContact = brazilianBooks && (!billingCountry || billingCountry === 'BR');
+  const idLabels = contactIdLabels(billingCountry, t.accounting.terminology, labels);
+  // A contact of Brazilian books without a country has the Brazilian labels too.
+  const taxIdLabel = brazilianContact ? tbc.taxIdLabel : idLabels.taxId;
+  const registrationLabel = brazilianContact ? t.accounting.terminology.registrationId.ie : idLabels.registrationId;
   const hasRegistrationNumber = Boolean(form.watch('registrationNumber')?.trim());
-  const showRegistration = idLabels.registrationId !== null || hasRegistrationNumber;
+  const showRegistration = brazilianContact || idLabels.registrationId !== null || hasRegistrationNumber;
   const showBanking = usesIban || !!contact?.iban || !!contact?.bic;
   // US-only sections: gated on the jurisdiction's features, never on a country code.
   const isVendor = role === 'supplier' || role === 'both';
@@ -243,6 +288,7 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
       notes: optional(values.notes),
       billingAddress: billing ?? emptyAddress,
       shippingAddress: shipping ?? emptyAddress,
+      ...(brazilianBooks ? { brFiscal: brazilianContact ? brFiscalPayload(values.br) : null } : {}),
     });
   };
 
@@ -390,10 +436,10 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
           </CardHeader>
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="vatNumber">{idLabels.taxId}</Label>
+              <Label htmlFor="vatNumber">{taxIdLabel}</Label>
               <Input
                 id="vatNumber"
-                placeholder={tc.taxIdPlaceholder}
+                placeholder={brazilianContact ? tbc.taxIdPlaceholder : tc.taxIdPlaceholder}
                 aria-invalid={Boolean(errors.vatNumber)}
                 {...form.register('vatNumber')}
               />
@@ -401,8 +447,9 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
             </div>
             {showRegistration && (
               <div className="space-y-2">
-                <Label htmlFor="registrationNumber">{idLabels.registrationId ?? labels.registrationId}</Label>
-                <Input id="registrationNumber" {...form.register('registrationNumber')} />
+                <Label htmlFor="registrationNumber">{registrationLabel ?? labels.registrationId}</Label>
+                <Input id="registrationNumber" aria-invalid={Boolean(errors.registrationNumber)} {...form.register('registrationNumber')} />
+                {errors.registrationNumber && <p className="text-sm text-destructive">{errors.registrationNumber.message}</p>}
               </div>
             )}
             {scope.taxUse ? (
@@ -429,6 +476,8 @@ export function ContactForm({ mode, contact, isPending, onSubmit, onCancel }: Re
             ) : null}
           </CardContent>
         </Card>
+
+        {brazilianContact ? <BrContactSection /> : null}
 
         {scope.tax ? <VendorTaxSection contact={contact} /> : null}
 

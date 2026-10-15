@@ -2,13 +2,14 @@ import { en } from './en';
 
 // Default locale (en) is eagerly imported — it's always the fallback for
 // `getTranslations()` calls that fire before a non-default locale has
-// finished loading. nl + fr + es are lazy-loaded by the provider so consumers
+// finished loading. nl + fr + es + pt are lazy-loaded by the provider so consumers
 // don't pay their bundle weight unless the user actually picks them.
 const localeLoaders = {
   en: () => Promise.resolve(en),
   nl: () => import('./nl').then((m) => m.nl),
   fr: () => import('./fr').then((m) => m.fr),
   es: () => import('./es').then((m) => m.es),
+  pt: () => import('./pt').then((m) => m.pt),
 } as const;
 
 export const localeConfig = {
@@ -16,6 +17,8 @@ export const localeConfig = {
   nl: { name: 'Nederlands', intlLocale: 'nl-NL', experimental: false },
   fr: { name: 'Français', intlLocale: 'fr-FR', experimental: true },
   es: { name: 'Español', intlLocale: 'es-ES', experimental: false },
+  // Parcial (WeldBooks Brasil primeiro): o resto cai no inglês, então fica fora dos seletores de idioma.
+  pt: { name: 'Português (Brasil)', intlLocale: 'pt-BR', experimental: true },
 } as const satisfies Record<string, {
   name: string;
   intlLocale: string;

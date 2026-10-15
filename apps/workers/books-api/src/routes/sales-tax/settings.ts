@@ -29,6 +29,7 @@ import { resolveGstBillSupply, resolveGstSupply } from '../../services/accountin
 import { SalesTaxDocumentError, SalesTaxSetupError, salesTaxErrorResponse } from '../../services/sales-tax/errors';
 import { hasEncryptionKey, salesTaxRuntimeFromEnv, sealEngineCredentials } from '../../services/sales-tax/runtime';
 import { requireEntityId, requireSalesTaxEntity } from '../../services/sales-tax/route-helpers';
+import { brDocumentFiscalSchema, brLineFiscalSchema, cfopSchema, ncmSchema } from '../../lib/br-fiscal-schemas';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -269,6 +270,10 @@ const previewItemSchema = z.object({
   /** VAT / GST entities, and the vendor's tax on a US bill. */
   taxRateId: z.string().max(30).nullish(),
   taxRate: amountField.nullish(),
+  /** Brazil: NCM, CFOP and the line's rate overrides. */
+  ncm: ncmSchema,
+  cfop: cfopSchema,
+  fiscalData: brLineFiscalSchema,
 });
 
 const previewSchema = z.object({
@@ -285,6 +290,8 @@ const previewSchema = z.object({
   originalInvoiceId: z.string().max(30).nullish(),
   /** India GST: two-digit state code of the place of supply the user chose (96 = outside India). */
   placeOfSupply: z.string().regex(/^\d{2}$/).nullish(),
+  /** Brazil: withholdings, final consumer, the buyer's ICMS status. */
+  fiscalData: brDocumentFiscalSchema,
   items: z.array(previewItemSchema).min(1).max(500),
 });
 
@@ -328,6 +335,7 @@ app.post(
           deliveryAddress: normalizePostalAddress(data.deliveryAddress),
           marketplaceFacilitated: data.marketplaceFacilitated,
           originalInvoiceId: data.originalInvoiceId,
+          fiscalData: data.fiscalData,
         },
       });
 

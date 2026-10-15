@@ -41,6 +41,10 @@ export interface TaxFormLine {
   accrueUseTax?: boolean | null;
   /** Credit memo: the invoice line the line credits. */
   originalLineId?: string | null;
+  /** Brazil: NCM, CFOP and the line's fiscal data (origin, rate overrides, service code). */
+  ncm?: string | null;
+  cfop?: string | null;
+  fiscalData?: Record<string, unknown> | null;
 }
 
 export interface TaxPreviewInput {
@@ -60,6 +64,8 @@ export interface TaxPreviewInput {
   originalInvoiceId?: string | null;
   /** India GST: the place of supply the user chose ('' = derive it from the customer). */
   placeOfSupply?: string | null;
+  /** Brazil: the document's withholdings and the buyer's ICMS status. */
+  fiscalData?: Record<string, unknown> | null;
   lines: TaxFormLine[];
 }
 
@@ -102,6 +108,9 @@ function previewItem(line: TaxFormLine, kind: TaxDocumentKind, salesTax: boolean
 
   if (!salesTax) {
     item.taxRateId = cleanTaxRateId(line.taxRateId);
+    if (line.ncm) item.ncm = line.ncm;
+    if (line.cfop) item.cfop = line.cfop;
+    if (line.fiscalData) item.fiscalData = line.fiscalData;
     return item;
   }
 
@@ -149,6 +158,7 @@ export function buildTaxPreviewRequest(input: TaxPreviewInput): TaxPreviewReques
     items: input.lines.map((line) => previewItem(line, input.kind, input.salesTax)),
   };
   if (input.placeOfSupply) request.placeOfSupply = input.placeOfSupply;
+  if (input.fiscalData) request.fiscalData = input.fiscalData;
 
   if (input.salesTax) {
     if (input.kind === 'bill') {

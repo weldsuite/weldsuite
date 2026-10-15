@@ -38,7 +38,8 @@ import {
 import { DetailSkeleton, ErrorState } from '@/components/data-states';
 import { InvoiceStatusBadge } from '@/components/status-badge';
 import { RecordPaymentSheet } from '@/components/record-payment-sheet';
-import { TaxBreakdownCard } from '@/components/tax-breakdown';
+import { TaxBreakdownCard, TreatmentBreakdownCard } from '@/components/tax-breakdown';
+import { hasTreatmentRows } from '@/lib/tax-treatment';
 import type { Invoice } from '@/types/accounting';
 
 type Confirm = 'delete' | 'cancel' | 'creditNote' | null;
@@ -316,7 +317,12 @@ export default function InvoiceDetailScreen() {
           kind="invoice"
         />
 
-        <DocumentTotalsCard doc={invoice} labels={t.invoiceDetail} taxLabel={labels.tax} />
+        <DocumentTotalsCard
+          doc={invoice}
+          labels={t.invoiceDetail}
+          taxLabel={labels.tax}
+          taxBreakdown={invoice.taxBreakdown}
+        />
 
         {isUs ? (
           <TaxBreakdownCard
@@ -325,6 +331,10 @@ export default function InvoiceDetailScreen() {
             currency={currency}
             initiallyExpanded={invoice.status === 'draft'}
           />
+        ) : null}
+
+        {!isUs && hasTreatmentRows(invoice.taxBreakdown) ? (
+          <TreatmentBreakdownCard rows={invoice.taxBreakdown} currency={currency} />
         ) : null}
 
         {invoice.notes ? (

@@ -21,6 +21,8 @@ export interface DocumentTaxPreviewArgs {
   originalInvoiceId?: string | null;
   /** India GST: the place of supply the user chose ('' = derive it from the customer). */
   placeOfSupply?: string | null;
+  /** Brazil: the document's withholdings and the buyer's ICMS status. */
+  fiscalData?: Record<string, unknown> | null;
   lines: TaxFormLine[];
 }
 
@@ -65,6 +67,7 @@ export function useDocumentTaxPreview(args: Readonly<DocumentTaxPreviewArgs>): D
     marketplaceFacilitated: args.marketplaceFacilitated,
     originalInvoiceId: args.originalInvoiceId,
     placeOfSupply: args.placeOfSupply,
+    fiscalData: args.fiscalData,
     lines: args.lines,
   });
   const preview = useTaxPreview(request, { enabled: isResolved });

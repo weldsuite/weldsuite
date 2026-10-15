@@ -289,6 +289,9 @@ export const platformSyncMap: EntitySyncMap = {
   accounting_dimension: inv(['accounting', 'dimensions']),
   payroll_import: inv(['accounting', 'payroll'], ['accounting', 'journal-entries']),
   payroll_connection: inv(['accounting', 'payroll']),
+  // Brazil: NF-e / NFS-e issued for invoices, and NF-e received from suppliers.
+  fiscal_document: inv(['accounting', 'fiscal-documents'], ['accounting', 'invoices']),
+  received_fiscal_document: inv(['accounting', 'received-fiscal-documents'], ['accounting', 'bills']),
 
   // =========================================================================
   // WeldStash — WMS

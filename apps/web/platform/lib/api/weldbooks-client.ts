@@ -102,13 +102,21 @@ async function request<T>(method: string, path: string, data?: unknown): Promise
   return response.json();
 }
 
-async function requestBlob(path: string): Promise<{ blob: Blob; filename: string | null }> {
+/** A downloaded file: its bytes, the name the server gave it and the response headers (e.g. `X-Warnings`). */
+export interface BlobResult {
+  blob: Blob;
+  filename: string | null;
+  headers: Headers;
+}
+
+async function requestBlob(path: string, init: { method?: 'GET' | 'POST'; data?: unknown } = {}): Promise<BlobResult> {
   const headers = await getAuthHeaders();
-  delete headers['Content-Type'];
+  if (init.data === undefined) delete headers['Content-Type'];
   const response = await fetch(apiUrl(`${API_PREFIX}${path}`), {
-    method: 'GET',
+    method: init.method ?? 'GET',
     headers,
     cache: 'no-store',
+    body: init.data !== undefined ? JSON.stringify(init.data) : undefined,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: 'Request failed' }));
@@ -116,12 +124,14 @@ async function requestBlob(path: string): Promise<{ blob: Blob; filename: string
   }
   const disposition = response.headers.get('content-disposition');
   const match = disposition ? /filename="?([^";]+)"?/i.exec(disposition) : null;
-  return { blob: await response.blob(), filename: match?.[1] ?? null };
+  return { blob: await response.blob(), filename: match?.[1] ?? null, headers: response.headers };
 }
 
 export const weldbooksApi = {
   get: <T>(path: string) => request<T>('GET', path),
   getBlob: (path: string) => requestBlob(path),
+  /** POST a JSON body and receive a file (the SPED ECD export). */
+  postBlob: (path: string, data?: unknown) => requestBlob(path, { method: 'POST', data: data ?? {} }),
   post: <T>(path: string, data?: unknown) => request<T>('POST', path, data),
   put: <T>(path: string, data?: unknown) => request<T>('PUT', path, data),
   patch: <T>(path: string, data?: unknown) => request<T>('PATCH', path, data),

@@ -13,10 +13,11 @@ import { enUS } from 'date-fns/locale/en-US';
 import { es } from 'date-fns/locale/es';
 import { fr } from 'date-fns/locale/fr';
 import { nl } from 'date-fns/locale/nl';
+import { ptBR } from 'date-fns/locale/pt-BR';
 import { localeConfig, type Language } from '@/lib/i18n/locales';
 import { useI18n } from '@/lib/i18n/provider';
 
-const DATE_FNS_LOCALES: Record<Language, Locale> = { en: enUS, nl, fr, es };
+const DATE_FNS_LOCALES: Record<Language, Locale> = { en: enUS, nl, fr, es, pt: ptBR };
 
 export function getDateFnsLocale(language: Language): Locale {
   return DATE_FNS_LOCALES[language] ?? enUS;

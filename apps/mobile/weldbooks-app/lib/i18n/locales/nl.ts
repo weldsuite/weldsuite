@@ -40,11 +40,23 @@ export const nl: Translations = {
   // Woorden die per rechtsgebied verschillen. Sleutels zijn de terminologiecodes van de adapter.
   // `{supplier}` / `{creditNote}` in andere teksten zijn de kleine letters, `{Supplier}` / `{CreditNote}` de benoemde vorm.
   terminology: {
-    tax: { vat: 'Btw', gst: 'GST', sales_tax: 'Sales tax' },
-    taxPercent: { vat: 'Btw %', gst: 'GST %', sales_tax: 'Sales tax %' },
-    taxRate: { vat: '{rate}% btw', gst: '{rate}% GST', sales_tax: '{rate}% sales tax' },
-    taxId: { vat_number: 'Btw-nummer', gstin: 'GSTIN', ein: 'EIN' },
-    taxIdPlaceholder: { vat_number: 'NL123456789B01', gstin: '27AAPFU0939F1ZV', ein: '12-3456789' },
+    tax: { vat: 'Btw', gst: 'GST', sales_tax: 'Sales tax', tributos: 'Belastingen' },
+    taxPercent: { vat: 'Btw %', gst: 'GST %', sales_tax: 'Sales tax %', tributos: 'Belastingen %' },
+    taxRate: { vat: '{rate}% btw', gst: '{rate}% GST', sales_tax: '{rate}% sales tax', tributos: '{rate}% belastingen' },
+    taxId: { vat_number: 'Btw-nummer', gstin: 'GSTIN', ein: 'EIN', cnpj: 'CNPJ' },
+    taxIdPlaceholder: {
+      vat_number: 'NL123456789B01',
+      gstin: '27AAPFU0939F1ZV',
+      ein: '12-3456789',
+      cnpj: '11.222.333/0001-81',
+    },
+    registrationId: {
+      kvk: 'KvK-nummer',
+      pan: 'PAN',
+      company_number: 'Bedrijfsnummer',
+      state_id: 'Staatsnummer',
+      ie: 'Staatsregistratie (IE)',
+    },
     supplier: { supplier: 'Leverancier', vendor: 'Leverancier' },
     suppliers: { supplier: 'Leveranciers', vendor: 'Leveranciers' },
     creditNote: { credit_note: 'Creditnota', credit_memo: 'Creditnota' },
@@ -140,6 +152,19 @@ export const nl: Translations = {
       creditLineNotOnOriginal: 'Een regel van deze creditering staat niet op de oorspronkelijke factuur.',
       commitNotApplicable: 'Deze factuur hoeft niet bij een belastingaanbieder te worden vastgelegd.',
     },
+  },
+
+  // Brazilië: de belastingen van een document, gegroepeerd naar hoe ze in het totaal zitten.
+  taxTreatment: {
+    title: 'Belastingspecificatie',
+    added: 'Boven op de prijs',
+    embedded: 'Inbegrepen in de prijs',
+    withheld: 'Ingehouden (van het totaal afgetrokken)',
+    informational: 'Ter informatie (niet in rekening gebracht)',
+    addedRow: 'Bijkomende belastingen',
+    withheldRow: 'Inhoudingen',
+    showBreakdown: 'Toon specificatie',
+    hideBreakdown: 'Verberg specificatie',
   },
 
   status: {
@@ -239,8 +264,14 @@ export const nl: Translations = {
     currencyGbp: 'GBP — Britse pond',
     currencyUsd: 'USD — Amerikaanse dollar',
     currencyInr: 'INR — Indiase roepie',
+    currencyBrl: 'BRL — Braziliaanse real',
     entityType: 'Rechtsvorm',
     entityTypes: {
+      mei: 'MEI (individuele micro-ondernemer)',
+      ei: 'Individuele ondernemer (EI)',
+      slu: 'Eenpersoons-BV (SLU)',
+      ltda: 'Besloten vennootschap (Ltda.)',
+      sa: 'Naamloze vennootschap (S.A.)',
       sole_proprietorship: 'Eenmanszaak',
       single_member_llc: 'LLC met één lid',
       multi_member_llc: 'LLC met twee of meer leden',
@@ -251,6 +282,10 @@ export const nl: Translations = {
     },
     taxClassification: 'Fiscale classificatie',
     taxClassifications: {
+      mei: 'MEI (SIMEI)',
+      simples_nacional: 'Simples Nacional',
+      lucro_presumido: 'Lucro Presumido',
+      lucro_real: 'Lucro Real',
       sole_proprietor: 'Eenmanszaak',
       disregarded: 'Disregarded entity',
       partnership: 'Maatschap',
@@ -266,6 +301,12 @@ export const nl: Translations = {
       'Het negencijferige Employer Identification Number van de IRS. Een eenmanszaak zonder EIN kan op het web een Social Security-nummer toevoegen.',
     einFormat: 'Een EIN heeft negen cijfers, zoals 12-3456789',
     einPrefix: 'De IRS geeft geen EIN\'s uit die met deze cijfers beginnen',
+    taxRegime: 'Belastingregime',
+    regimeHint:
+      'Hoe het bedrijf in Brazilië zijn belastingen betaalt. Het bepaalt welke belastingen WeldBooks op je facturen zet en hoe ze worden afgerekend.',
+    cnpjHint: 'Het CNPJ heeft 14 tekens. Sinds juli 2026 mogen de eerste twaalf letters zijn.',
+    cnpjFormat: 'Een CNPJ heeft 14 tekens, zoals 11.222.333/0001-81',
+    cnpjCheckDigits: 'De controlecijfers van het CNPJ kloppen niet. Controleer het nummer op een typfout',
     businessAddress: 'Bedrijfsadres',
     addressHint: 'Staat op je facturen en dient als herkomst voor sales tax.',
   },

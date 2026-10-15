@@ -292,6 +292,7 @@ function AddressesCard({ contact }: Readonly<{ contact: Contact }>) {
 function TaxRegistrationCard({ contact }: Readonly<{ contact: Contact }>) {
   const { t } = useI18n();
   const tc = t.accounting.contacts;
+  const tb = t.weldbooksBr.contact;
   const { labels } = useJurisdictionLabels();
   // The tax and registration number are named after the contact's country, not the books' jurisdiction.
   const idLabels = contactIdLabels(
@@ -305,11 +306,21 @@ function TaxRegistrationCard({ contact }: Readonly<{ contact: Contact }>) {
         <CardTitle>{tc.taxAndRegistration}</CardTitle>
       </CardHeader>
       <CardContent>
-        <DetailRow label={idLabels.taxId} value={contact.vatNumber} />
+        <DetailRow label={idLabels.taxId} value={contact.vatNumber || contact.brFiscal?.taxId} />
         {(idLabels.registrationId !== null || contact.registrationNumber) && (
           <DetailRow label={idLabels.registrationId ?? labels.registrationId} value={contact.registrationNumber} />
         )}
-        {!contact.vatNumber && !contact.registrationNumber ? (
+        {contact.brFiscal?.inscricaoMunicipal ? (
+          <DetailRow label={tb.inscricaoMunicipal} value={contact.brFiscal.inscricaoMunicipal} />
+        ) : null}
+        {contact.brFiscal?.municipalityCode ? (
+          <DetailRow label={tb.municipalityCode} value={contact.brFiscal.municipalityCode} />
+        ) : null}
+        {contact.brFiscal && contact.brFiscal.icmsContributor !== undefined ? (
+          <DetailRow label={tb.icmsContributor} value={contact.brFiscal.icmsContributor ? tb.icmsOptions.yes : tb.icmsOptions.no} />
+        ) : null}
+        {contact.brFiscal?.simplesNacional ? <DetailRow label={tb.simplesNacional} value={tb.icmsOptions.yes} /> : null}
+        {!contact.vatNumber && !contact.registrationNumber && !contact.brFiscal?.taxId ? (
           <p className="text-sm text-muted-foreground">—</p>
         ) : null}
       </CardContent>

@@ -24,6 +24,13 @@ import {
   IN_NOTICE_EXPORT,
   IN_NOTICE_REVERSE_CHARGE,
 } from './jurisdictions/in/invoice-format';
+import {
+  BR_NOTICE_EXPORT,
+  BR_NOTICE_MEI,
+  BR_NOTICE_NOT_FISCAL,
+  BR_NOTICE_SIMPLES,
+} from './jurisdictions/br/invoice-format';
+import { brRegimeOf } from './jurisdictions/br/regimes';
 import { normalizePostalAddress } from './accounting-address';
 import { isKorActive } from './accounting-guards';
 import { checkVatNumber } from './vies';
@@ -79,6 +86,15 @@ export function buildComplianceNotices(entity: Entity, categories: Set<string>):
     const notices: string[] = [];
     if (categories.has('reverse_charge')) notices.push(IN_NOTICE_REVERSE_CHARGE);
     if (categories.has('export_goods')) notices.push(IN_NOTICE_EXPORT);
+    return notices;
+  }
+  if (entity.jurisdictionCode === 'BR') {
+    const regime = brRegimeOf(entity.taxClassification);
+    const notices: string[] = [];
+    if (regime === 'simples_nacional') notices.push(BR_NOTICE_SIMPLES);
+    if (regime === 'mei') notices.push(BR_NOTICE_MEI);
+    if (categories.has('export_goods')) notices.push(BR_NOTICE_EXPORT);
+    notices.push(BR_NOTICE_NOT_FISCAL);
     return notices;
   }
   if (entity.jurisdictionCode !== 'NL') return [];

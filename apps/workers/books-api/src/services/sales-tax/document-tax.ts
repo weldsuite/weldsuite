@@ -92,6 +92,8 @@ export interface UsDocumentContext {
   deliveryAddress?: StoredPostalAddress | null;
   shipFromAddress?: StoredPostalAddress | null;
   marketplaceFacilitated?: boolean | null;
+  /** Brazil: document fiscal fields (withholdings, final consumer); read by the BR tax engine. */
+  fiscalData?: Record<string, unknown> | null;
   /** Credit memos: the invoice being credited. */
   originalInvoiceId?: string | null;
 }
