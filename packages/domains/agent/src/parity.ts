@@ -7,6 +7,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
 import { type AgentDb, getAgent, createAgent, updateAgent } from './agents';
+import { resolveManagedModel } from './managed-agents';
 
 type MemoryKind = 'preference' | 'fact' | 'summary' | 'correction';
 
@@ -942,7 +943,8 @@ export async function installTemplate(
     systemPrompt: payload.systemPrompt ?? '',
     permissions: payload.permissions ?? ['computer:use', 'browser:use'],
     enabledTools: payload.enabledTools ?? [],
-    modelId: payload.modelId,
+    // Templates exported before agents ran on Claude carry other model ids.
+    modelId: resolveManagedModel(payload.modelId),
     createdBy: input.createdBy,
   });
 

@@ -12,6 +12,14 @@ import type {
   ProductListOptions,
   ProductSummary,
   ProductsClient,
+  ReachCampaignDetail,
+  ReachCampaignStepStats,
+  ReachClient,
+  ReachEnrollReport,
+  ReachImportReport,
+  ReachMessage,
+  ReachProspect,
+  ReachProspectList,
   RecordListOptions,
   RecordsClient,
   ResourceListOptions,
@@ -20,6 +28,9 @@ import type {
   TicketsClient,
   UpdateProductInput,
 } from './types';
+
+/** Most rows one `reach.prospects.import` call takes; split bigger imports. */
+export const REACH_IMPORT_MAX_ROWS = 5000;
 
 interface ApiErrorBody {
   error?: {
@@ -259,14 +270,14 @@ export class WeldApi {
   /** `/v1/people` — requires the `people:read` scope. */
   readonly people: PeopleClient = {
     list: (options: ResourceListOptions = {}) =>
-      this.get<ListResponse<PersonSummary>>(withQuery('/v1/people', options)),
+      this.get<ListResponse<PersonSummary>>(withQuery('/v1/people', { ...options })),
     get: (id: string) => this.get<SingleResponse<PersonSummary>>(`/v1/people/${encodeURIComponent(id)}`),
   };
 
   /** `/v1/tickets` — requires the `tickets:read` scope. */
   readonly tickets: TicketsClient = {
     list: (options: ResourceListOptions = {}) =>
-      this.get<ListResponse<TicketSummary>>(withQuery('/v1/tickets', options)),
+      this.get<ListResponse<TicketSummary>>(withQuery('/v1/tickets', { ...options })),
     get: (id: string) => this.get<SingleResponse<TicketSummary>>(`/v1/tickets/${encodeURIComponent(id)}`),
   };
 
@@ -309,6 +320,110 @@ export class WeldApi {
     sendDraft: (draftId, idempotencyKey) => this.sendMail(`/v1/mail-drafts/${enc(draftId)}/send`, {}, idempotencyKey),
   };
 
+  /**
+   * WeldReach (`/v1/reach/*`), cold email outreach. On request only: until
+   * WeldSuite approves the workspace every call throws a `WeldApiError` with
+   * status 403 and code `APP_ACCESS_REQUIRED`. Scopes:
+   * `reach_campaigns:read|write` (campaigns, access, overview),
+   * `reach_prospects:read|write` (prospects, lists), `reach_settings:read|write`
+   * (suppressions), `reach_inbox:read`, `reach_mailboxes:read`, and
+   * `reach_inbox:reply` for `threads.reply` (requested by name; a wildcard
+   * does not include it). Mailboxes and domains are read-only: each inbox is
+   * billed, so they are created in the WeldReach app.
+   */
+  readonly reach: ReachClient = {
+    access: () => this.get('/v1/reach/access'),
+    overview: () => this.get('/v1/reach/overview'),
+    campaigns: {
+      list: (options = {}) => this.get(withQuery('/v1/reach/campaigns', { ...options })),
+      get: (id) => this.get(`/v1/reach/campaigns/${enc(id)}`),
+      create: async (input) => (await this.post<SingleResponse<ReachCampaignDetail>>('/v1/reach/campaigns', input)).data,
+      update: async (id, input) =>
+        (await this.patch<SingleResponse<ReachCampaignDetail>>(`/v1/reach/campaigns/${enc(id)}`, input)).data,
+      remove: async (id) => {
+        await this.delete(`/v1/reach/campaigns/${enc(id)}`);
+      },
+      setSteps: async (id, steps) =>
+        (await this.json<SingleResponse<ReachCampaignDetail>>('PUT', `/v1/reach/campaigns/${enc(id)}/steps`, { steps })).data,
+      setMailboxes: async (id, mailboxIds) =>
+        (
+          await this.json<SingleResponse<ReachCampaignDetail>>('PUT', `/v1/reach/campaigns/${enc(id)}/mailboxes`, {
+            mailboxIds,
+          })
+        ).data,
+      enroll: async (id, input) =>
+        (await this.post<SingleResponse<ReachEnrollReport>>(`/v1/reach/campaigns/${enc(id)}/prospects`, input)).data,
+      enrollments: (id, options = {}) =>
+        this.get(withQuery(`/v1/reach/campaigns/${enc(id)}/enrollments`, { ...options })),
+      removeEnrollment: async (id, enrollmentId) => {
+        await this.delete(`/v1/reach/campaigns/${enc(id)}/enrollments/${enc(enrollmentId)}`);
+      },
+      launch: (id) => this.campaignAction(id, 'launch'),
+      pause: (id) => this.campaignAction(id, 'pause'),
+      resume: (id) => this.campaignAction(id, 'resume'),
+      stats: async (id) =>
+        (await this.get<SingleResponse<ReachCampaignStepStats[]>>(`/v1/reach/campaigns/${enc(id)}/stats`)).data,
+    },
+    prospects: {
+      list: (options = {}) => this.get(withQuery('/v1/reach/prospects', { ...options })),
+      get: (id) => this.get(`/v1/reach/prospects/${enc(id)}`),
+      create: async (input) => (await this.post<SingleResponse<ReachProspect>>('/v1/reach/prospects', input)).data,
+      import: async (input) =>
+        (await this.post<SingleResponse<ReachImportReport>>('/v1/reach/prospects/import', input)).data,
+      update: async (id, input) =>
+        (await this.patch<SingleResponse<ReachProspect>>(`/v1/reach/prospects/${enc(id)}`, input)).data,
+      remove: async (id) => {
+        await this.delete(`/v1/reach/prospects/${enc(id)}`);
+      },
+    },
+    lists: {
+      list: (options = {}) => this.get(withQuery('/v1/reach/lists', { ...options })),
+      get: (id) => this.get(`/v1/reach/lists/${enc(id)}`),
+      create: async (input) => (await this.post<SingleResponse<ReachProspectList>>('/v1/reach/lists', input)).data,
+      update: async (id, input) =>
+        (await this.patch<SingleResponse<ReachProspectList>>(`/v1/reach/lists/${enc(id)}`, input)).data,
+      remove: async (id) => {
+        await this.delete(`/v1/reach/lists/${enc(id)}`);
+      },
+      addMembers: async (id, prospectIds) =>
+        (await this.post<SingleResponse<{ added: number }>>(`/v1/reach/lists/${enc(id)}/members`, { prospectIds })).data,
+      removeMembers: async (id, prospectIds) =>
+        (
+          await this.post<SingleResponse<{ removed: number }>>(`/v1/reach/lists/${enc(id)}/members/remove`, {
+            prospectIds,
+          })
+        ).data,
+    },
+    suppressions: {
+      list: (options = {}) => this.get(withQuery('/v1/reach/suppressions', { ...options })),
+      add: async (values) =>
+        (await this.post<SingleResponse<{ added: number; skipped: number }>>('/v1/reach/suppressions', { values })).data,
+      remove: async (id) => {
+        await this.delete(`/v1/reach/suppressions/${enc(id)}`);
+      },
+    },
+    threads: {
+      list: (options = {}) => this.get(withQuery('/v1/reach/threads', { ...options })),
+      // A thread key is a Message-ID (it contains an `@`), so it is always encoded.
+      get: (threadKey) => this.get(`/v1/reach/threads/${enc(threadKey)}`),
+      reply: async (threadKey, body) =>
+        (await this.post<SingleResponse<ReachMessage>>(`/v1/reach/threads/${enc(threadKey)}/reply`, { body })).data,
+    },
+    mailboxes: {
+      list: (options = {}) => this.get(withQuery('/v1/reach/mailboxes', { ...options })),
+      get: (id) => this.get(`/v1/reach/mailboxes/${enc(id)}`),
+    },
+    domains: {
+      list: () => this.get('/v1/reach/domains'),
+      get: (id) => this.get(`/v1/reach/domains/${enc(id)}`),
+    },
+  };
+
+  /** POST a campaign state change (launch / pause / resume), unwrapping `{ data }`. */
+  private async campaignAction(id: string, action: 'launch' | 'pause' | 'resume'): Promise<ReachCampaignDetail> {
+    return (await this.post<SingleResponse<ReachCampaignDetail>>(`/v1/reach/campaigns/${enc(id)}/${action}`)).data;
+  }
+
   /** POST a send with an optional `Idempotency-Key`, unwrapping `{ data }`. */
   private async sendMail(path: string, body: unknown, idempotencyKey?: string): Promise<MailSendResult> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -328,7 +443,7 @@ export class WeldApi {
       if (this.bridge.isLocalDev && this.bridge.localStore) {
         return this.bridge.localStore.listProducts(options);
       }
-      return this.get<ListResponse<ProductSummary>>(withQuery('/v1/products', options));
+      return this.get<ListResponse<ProductSummary>>(withQuery('/v1/products', { ...options }));
     },
     get: async (id: string): Promise<SingleResponse<ProductSummary>> => {
       await this.bridge.connect();

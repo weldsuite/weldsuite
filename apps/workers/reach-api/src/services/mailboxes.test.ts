@@ -7,20 +7,20 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { WELDREACH_DEFAULT_LIMITS, type CreateReachMailboxInput } from '@weldsuite/app-api-client/schemas/reach';
+import { openMailServerCredentials } from '@weldsuite/reach-domain/credentials';
+import { getMailboxDto, listMailboxes, withoutCredentials } from '@weldsuite/reach-domain/mailboxes';
 import { openWarmupCredentials } from '@weldsuite/reach-domain/warmup-pool';
 import { PaymentMethodRequiredError, ReachBillingError } from '../lib/billing';
-import { openMailServerCredentials } from '../lib/credentials';
 import { MailpoolError } from '../lib/mailpool/errors';
 import { createFakeBilling, createFakeMailpool, mailpoolMailbox } from '../lib/mailpool/testing';
 import {
   WARMUP_TEST_KEY,
-  poolStats,
   resetReachMaster,
   resetReachTenant,
   seedMailbox,
@@ -30,13 +30,10 @@ import {
 import {
   createMailbox,
   deleteMailbox,
-  getMailboxDto,
-  listMailboxes,
   pauseMailbox,
   readDepsOf,
   resumeMailbox,
   updateMailbox,
-  withoutCredentials,
   type MailboxDeps,
 } from './mailboxes';
 import { ReachServiceError } from './reach-errors';
@@ -99,18 +96,6 @@ async function poolRowOf(tenantMailboxId: string) {
 /** Deps for the reads and for pause / resume, which only need the tenant and master. */
 const poolDeps = () => ({ db, master, clerkOrgId: 'org_acme' });
 const readDeps = () => readDepsOf(poolDeps());
-
-/** `master` with every `select` counted: the list must stay cheap. */
-function countingMaster() {
-  const counter = { selects: 0 };
-  const proxy = new Proxy(master, {
-    get(target, prop, receiver) {
-      if (prop === 'select') counter.selects += 1;
-      return Reflect.get(target, prop, receiver) as unknown;
-    },
-  });
-  return { master: proxy, counter };
-}
 
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
@@ -835,158 +820,3 @@ describe('deleteMailbox', () => {
     await expect(deleteMailbox(deps, row.id)).rejects.toMatchObject({ status: 404 });
   });
 });
-
-describe('listMailboxes', () => {
-  it('lists existing mailboxes with domain name and sends since 00:00 UTC, filtered by domain and status', async () => {
-    await seedReachDomain(db, { id: 'rdom_2', hostDomainId: 'dom_2', name: 'tryacme.com' });
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'active' });
-    await seedMailbox(db, { id: 'rmbx_2', domainId: 'rdom_2', status: 'warming' });
-    await seedMailbox(db, { id: 'rmbx_3', domainId: 'rdom_1', status: 'deleted', deletedAt: NOW });
-
-    const message = (id: string, sentAt: Date, status: 'sent' | 'failed' = 'sent', direction: 'out' | 'in' = 'out') => ({
-      id,
-      direction,
-      mailboxId: 'rmbx_1',
-      messageIdHeader: `<${id}@getacme.com>`,
-      fromEmail: 'a@getacme.com',
-      toEmail: 'b@x.com',
-      status,
-      sentAt,
-    });
-    await db.insert(schema.reachMessages).values([
-      message('rmsg_1', new Date('2026-10-12T00:00:01Z')),
-      message('rmsg_2', new Date('2026-10-12T09:30:00Z')),
-      message('rmsg_old', new Date('2026-10-11T23:59:59Z')),
-      message('rmsg_failed', new Date('2026-10-12T08:00:00Z'), 'failed'),
-    ]);
-
-    const all = await listMailboxes(readDeps(), {}, NOW);
-    expect(all.map((m) => m.id)).toEqual(['rmbx_1', 'rmbx_2']);
-    expect(all[0]).toMatchObject({ domainName: 'getacme.com', sentToday: 2, status: 'active' });
-    expect(all[1]).toMatchObject({ domainName: 'tryacme.com', sentToday: 0 });
-    expect(JSON.stringify(all)).not.toMatch(/smtp|imap|inboundToken/i);
-
-    expect((await listMailboxes(readDeps(), { domainId: 'rdom_2' }, NOW)).map((m) => m.id)).toEqual(['rmbx_2']);
-    expect((await listMailboxes(readDeps(), { status: 'warming' }, NOW)).map((m) => m.id)).toEqual(['rmbx_2']);
-    expect((await listMailboxes(readDeps(), { status: 'deleted' }, NOW)).map((m) => m.id)).toEqual(['rmbx_3']);
-  });
-});
-
-describe('mailbox DTO: warmup fields', () => {
-  /** Mailboxes on three domains, so the pool is big enough unless a test says otherwise. */
-  async function poolOfDomains(count: number) {
-    for (let i = 0; i < count; i++) {
-      await seedPoolMailbox(master, { tenantMailboxId: `rmbx_peer${i}`, clerkOrgId: 'org_peer', email: `p${i}@peer${i}.com`, status: 'warming' });
-    }
-  }
-
-  it('shows the inbox rate from the tenant column and the 7-day numbers from the pool', async () => {
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'active', warmupDay: 20, warmupStatus: 'maintaining', warmupInboxRate: 0.9123 });
-    await seedPoolMailbox(master, {
-      tenantMailboxId: 'rmbx_1',
-      status: 'maintaining',
-      rampDay: 20,
-      stats: poolStats({ sent7d: 112, spamRescues7d: 4, inboxRate3d: 0.99 }),
-    });
-
-    const [dto] = await listMailboxes(readDeps(), {}, NOW);
-    expect(dto).toMatchObject({
-      warmupDay: 20,
-      warmupStatus: 'maintaining',
-      warmupInboxRate: 0.9123,
-      warmupSent7d: 112,
-      warmupSpamRescues7d: 4,
-      warmupBlocker: null,
-    });
-    expect(await getMailboxDto(readDeps(), 'rmbx_1', NOW)).toMatchObject({ warmupInboxRate: 0.9123, warmupSent7d: 112, warmupSpamRescues7d: 4 });
-  });
-
-  it('shows zeros and no rate for a mailbox without a pool row or stats', async () => {
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'active' });
-    await seedMailbox(db, { id: 'rmbx_2', domainId: 'rdom_1', status: 'active' });
-    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_2', status: 'waiting', stats: null });
-
-    for (const dto of await listMailboxes(readDeps(), {}, NOW)) {
-      expect(dto).toMatchObject({ warmupInboxRate: null, warmupSent7d: 0, warmupSpamRescues7d: 0, warmupBlocker: null });
-    }
-  });
-
-  it('blames the pool while it spans fewer than 3 domains', async () => {
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'warming' });
-    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'waiting' });
-    await poolOfDomains(1); // getacme.com + peer0.com = 2 domains
-
-    expect((await getMailboxDto(readDeps(), 'rmbx_1', NOW))?.warmupBlocker).toBe('pool_too_small');
-    expect((await listMailboxes(readDeps(), {}, NOW))[0]?.warmupBlocker).toBe('pool_too_small');
-  });
-
-  it('names what a warming mailbox lacks once the pool is big enough, and clears when it is ready', async () => {
-    await poolOfDomains(2); // + getacme.com = 3 domains
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'warming' });
-    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', status: 'warming', rampDay: 5 });
-    const blocker = async () => (await getMailboxDto(readDeps(), 'rmbx_1', NOW))?.warmupBlocker;
-    const setPool = (patch: Partial<typeof masterSchema.reachWarmupMailboxes.$inferInsert>) =>
-      master.update(masterSchema.reachWarmupMailboxes).set(patch).where(eq(masterSchema.reachWarmupMailboxes.tenantMailboxId, 'rmbx_1'));
-
-    expect(await blocker()).toBe('too_early');
-    await setPool({ rampDay: 14 });
-    expect(await blocker()).toBe('not_enough_data');
-    await setPool({ stats: poolStats({ inboxRate3d: 0.7 }) });
-    expect(await blocker()).toBe('low_inbox_rate');
-    await setPool({ stats: poolStats({ inboxRate3d: 0.9 }), lastLoginError: 'bad', lastLoginErrorAt: NOW });
-    expect(await blocker()).toBe('login_error');
-    await setPool({ lastLoginError: null, lastLoginErrorAt: null });
-    expect(await blocker()).toBeNull();
-  });
-
-  it('reports a blocker only for a warming mailbox', async () => {
-    await seedMailbox(db, { id: 'rmbx_a', domainId: 'rdom_1', status: 'active' });
-    await seedMailbox(db, { id: 'rmbx_p', domainId: 'rdom_1', status: 'paused', pausedReason: 'user' });
-    const dtos = await listMailboxes(readDeps(), {}, NOW);
-    expect(dtos.map((d) => d.warmupBlocker)).toEqual([null, null]);
-  });
-
-  it('costs at most two master queries per request, and none for an empty list', async () => {
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'warming' });
-    await seedMailbox(db, { id: 'rmbx_2', domainId: 'rdom_1', status: 'warming' });
-    await seedMailbox(db, { id: 'rmbx_3', domainId: 'rdom_1', status: 'active' });
-
-    const listed = countingMaster();
-    await listMailboxes({ db, warmup: { clerkOrgId: 'org_acme', master: () => listed.master } }, {}, NOW);
-    expect(listed.counter.selects).toBe(2);
-
-    const single = countingMaster();
-    await getMailboxDto({ db, warmup: { clerkOrgId: 'org_acme', master: () => single.master } }, 'rmbx_1', NOW);
-    expect(single.counter.selects).toBe(2);
-
-    // Nothing warming: the pool-size query is skipped.
-    const settled = countingMaster();
-    await listMailboxes({ db, warmup: { clerkOrgId: 'org_acme', master: () => settled.master } }, { status: 'active' }, NOW);
-    expect(settled.counter.selects).toBe(1);
-
-    const empty = countingMaster();
-    await listMailboxes({ db, warmup: { clerkOrgId: 'org_acme', master: () => empty.master } }, { domainId: 'rdom_none' }, NOW);
-    expect(empty.counter.selects).toBe(0);
-  });
-
-  it('still lists the mailboxes when master cannot be read (warmup numbers are decoration)', async () => {
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'warming', warmupInboxRate: 0.9 });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const dtos = await listMailboxes({ db, warmup: { clerkOrgId: 'org_acme', master: () => { throw new Error('master down'); } } }, {}, NOW);
-
-    expect(dtos).toHaveLength(1);
-    // The tenant columns still tell the gate's story; only the pool's own numbers and the pool size are missing.
-    expect(dtos[0]).toMatchObject({ warmupInboxRate: 0.9, warmupSent7d: 0, warmupSpamRescues7d: 0, warmupBlocker: 'too_early' });
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
-  });
-
-  it("never shows another workspace's pool rows", async () => {
-    await seedMailbox(db, { id: 'rmbx_1', domainId: 'rdom_1', status: 'active' });
-    await seedPoolMailbox(master, { tenantMailboxId: 'rmbx_1', clerkOrgId: 'org_other', email: 'x@other.com', stats: poolStats({ sent7d: 999 }) });
-
-    expect((await getMailboxDto(readDeps(), 'rmbx_1', NOW))?.warmupSent7d).toBe(0);
-  });
-});
-

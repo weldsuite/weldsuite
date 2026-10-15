@@ -56,6 +56,13 @@ function getDateLabel(date: Date, now: Date = new Date()): string {
   return isThisYear(date) ? format(date, 'MMMM') : format(date, 'MMMM yyyy');
 }
 
+// Row timestamp: the time for today's items, the date for anything else
+// (with the year once it's no longer the current year).
+export function formatListDate(date: Date): string {
+  if (isToday(date)) return format(date, 'h:mm a');
+  return isThisYear(date) ? format(date, 'MMM d') : format(date, 'MMM d, yyyy');
+}
+
 export function groupByDate<T extends { date: Date }>(items: T[]): Record<string, T[]> {
   const groups: Record<string, T[]> = {};
   const now = new Date();

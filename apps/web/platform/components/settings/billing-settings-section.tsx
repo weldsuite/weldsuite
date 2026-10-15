@@ -109,7 +109,7 @@ const COMPARISON_SECTIONS: ComparisonSection[] = [
       { label: 'Remove branding', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
       { label: 'Priority support', indent: true, values: { free: false, business: false, scale: true, enterprise: true } },
       { label: 'Dedicated support', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
-      { label: 'API access', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },
+      { label: 'API access', indent: true, values: { free: true, business: true, scale: true, enterprise: true } },
       { label: 'SSO / SAML', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { label: 'Custom integrations', indent: true, values: { free: false, business: false, scale: false, enterprise: true } },
       { label: 'Roles & permissions', indent: true, values: { free: false, business: true, scale: true, enterprise: true } },

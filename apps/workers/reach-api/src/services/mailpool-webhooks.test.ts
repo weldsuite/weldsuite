@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { openWarmupCredentials } from '@weldsuite/reach-domain/warmup-pool';
-import { openMailServerCredentials } from '../lib/credentials';
+import { openMailServerCredentials } from '@weldsuite/reach-domain/credentials';
 import { createFakeMailpool, mailpoolMailbox } from '../lib/mailpool/testing';
 import {
   WARMUP_TEST_KEY,

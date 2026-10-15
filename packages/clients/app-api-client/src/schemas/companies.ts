@@ -89,6 +89,12 @@ export const employeeCountSchema = z
   })
   .optional();
 
+/** A money amount, as `annualRevenue` (Estimated ARR) and `fundingRaised` store it. */
+export const moneySchema = z.object({
+  amount: z.number().nonnegative(),
+  currency: z.string().length(3),
+});
+
 export const createCompanySchema = z.object({
   name: z.string().min(1).max(255),
   tradingName: z.string().max(255).optional(),
@@ -101,6 +107,12 @@ export const createCompanySchema = z.object({
   industry: z.string().max(100).optional(),
   employeeCount: employeeCountSchema,
   website: websiteSchema,
+  description: z.string().max(5000).optional(),
+  /** "Estimated ARR". */
+  annualRevenue: moneySchema.nullish(),
+  fundingRaised: moneySchema.nullish(),
+  // Lenient ISO string (or null to clear), like the follow-up dates.
+  foundationDate: z.string().nullish(),
 
   // Contact info
   email: z.string().email().optional().or(z.literal('')),
@@ -118,6 +130,9 @@ export const createCompanySchema = z.object({
   linkedinUrl: z.string().max(500).optional(),
   twitterHandle: z.string().max(100).optional(),
   facebookUrl: z.string().max(500).optional(),
+  instagramUrl: z.string().max(500).optional(),
+  angellistUrl: z.string().max(500).optional(),
+  twitterFollowerCount: z.number().int().nonnegative().nullish(),
 
   // Sales
   ownerId: z.string().nullish(),
@@ -199,6 +214,12 @@ export const listCompaniesQuery = z.object({
    * multi_select matches if it CONTAINS the value.
    */
   customFilter: z.string().optional(),
+  /**
+   * `attributes` adds the computed {@link CompanyAttributes} (team,
+   * interactions, connection strength, next due task, deals) to every row.
+   * Costs a few extra queries per page, so only the grid asks for it.
+   */
+  include: z.enum(['attributes']).optional(),
 });
 
 export const companyDetailQuery = z.object({
@@ -322,7 +343,7 @@ export const importCompaniesSchema = z.object({
   records: z.array(importCompanyRecordSchema).min(1).max(500),
 });
 
-export const exportCompaniesQuery = listCompaniesQuery.omit({ cursor: true, limit: true });
+export const exportCompaniesQuery = listCompaniesQuery.omit({ cursor: true, limit: true, include: true });
 
 export type CreateCompanyInput = z.infer<typeof createCompanySchema>;
 export type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;
@@ -368,6 +389,11 @@ export interface Company {
   industry?: string | null;
   employeeCount?: string | null;
   website?: string | null;
+  description?: string | null;
+  /** "Estimated ARR". */
+  annualRevenue?: Money | null;
+  fundingRaised?: Money | null;
+  foundationDate?: string | null;
 
   email?: string | null;
   alternateEmails?: string[] | null;
@@ -382,7 +408,12 @@ export interface Company {
   linkedinUrl?: string | null;
   twitterHandle?: string | null;
   facebookUrl?: string | null;
+  instagramUrl?: string | null;
+  angellistUrl?: string | null;
+  twitterFollowerCount?: number | null;
 
+  /** Clerk user id of the member who created the company; null on older rows. */
+  createdBy?: string | null;
   ownerId?: string | null;
   accountManagerId?: string | null;
 
@@ -419,4 +450,53 @@ export interface Company {
   internalNotes?: string | null;
 
   partyCode?: string | null;
+
+  /** Only on list rows requested with `include=attributes`. */
+  attributes?: CompanyAttributes;
+}
+
+export interface Money {
+  amount: number;
+  currency: string;
+}
+
+/** An interaction (call, email, meeting, …) logged against the company. */
+export interface CompanyInteraction {
+  /** ISO timestamp of when it happened (or is planned). */
+  at: string;
+  /** Activity type: 'call' | 'email' | 'meeting' | 'sms' | 'linkedin' | 'demo' | 'presentation'. */
+  type: string;
+  /** Clerk user id of the team member on it. */
+  userId: string | null;
+}
+
+export const CONNECTION_STRENGTHS = ['very_strong', 'strong', 'good', 'weak', 'very_weak', 'none'] as const;
+export type ConnectionStrength = (typeof CONNECTION_STRENGTHS)[number];
+
+/**
+ * Attributes computed from the company's related records rather than stored
+ * on it (Attio's "Team", "Last interaction", "Connection strength", …).
+ * Read-only.
+ */
+export interface CompanyAttributes {
+  /** People currently working at the company. */
+  team: Array<{ id: string; name: string; email: string | null; phone: string | null; jobTitle: string | null }>;
+  firstInteraction: CompanyInteraction | null;
+  lastInteraction: CompanyInteraction | null;
+  nextInteraction: CompanyInteraction | null;
+  /** From how many interactions the last 90 days hold. */
+  connectionStrength: ConnectionStrength;
+  /** The team member with the most interactions with the company. */
+  strongestConnectionUserId: string | null;
+  nextDueTask: { id: string; title: string; dueDate: string } | null;
+  deals: Array<{
+    id: string;
+    name: string;
+    stage: string | null;
+    status: string | null;
+    amount: number | null;
+    currency: string | null;
+    closeDate: string | null;
+    ownerId: string | null;
+  }>;
 }

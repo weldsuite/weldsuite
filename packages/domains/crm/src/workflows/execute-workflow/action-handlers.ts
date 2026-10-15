@@ -533,7 +533,9 @@ async function callAiGateway(
   messages: Array<{ role: string; content: string }>,
   opts: { modelId?: string; temperature?: number; maxTokens?: number; workspaceId: string; userId: string },
 ): Promise<{ content: string; modelId: string; usage: unknown; creditsUsed?: number }> {
-  const { createWeldAI, generateText, isGatewayConfigured, recommended } = await import('@weldsuite/ai');
+  const { billedModelId, createWeldAI, generateText, isGatewayConfigured, recommended } = await import(
+    '@weldsuite/ai'
+  );
   const { resolveAiMetering, assertAiCredits, chargeAiUsage } = await import('@weldsuite/core-domain/ai-billing');
 
   if (!isGatewayConfigured(env)) {
@@ -557,13 +559,15 @@ async function callAiGateway(
     maxRetries: 1,
   });
 
+  // A refused third-party model answers from the fallback model; bill that.
+  const servedModelId = billedModelId(modelId, result);
   const creditsUsed = await chargeAiUsage(metering, {
-    modelId,
+    modelId: servedModelId,
     usage: result.usage,
     op: 'workflow',
   });
 
-  return { content: result.text, modelId, usage: result.usage, creditsUsed };
+  return { content: result.text, modelId: servedModelId, usage: result.usage, creditsUsed };
 }
 
 async function handleAiGenerate(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {

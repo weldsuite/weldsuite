@@ -1,5 +1,5 @@
 {
-  "id": "9d6aa868-717d-499d-bd49-7cc24962d0ff",
+  "id": "d1a68721-4437-4626-a9d7-d93b16749aec",
   "prevId": "291d7d2b-f633-4107-bd32-c631a304bf80",
   "version": "7",
   "dialect": "postgresql",
@@ -20504,24 +20504,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "delivery_status": {
-          "name": "delivery_status",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "delivery_updated_at": {
-          "name": "delivery_updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "delivery_detail": {
-          "name": "delivery_detail",
-          "type": "varchar(500)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "source": {
           "name": "source",
           "type": "varchar(20)",
@@ -22357,187 +22339,6 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.mail_correspondents": {
-      "name": "mail_correspondents",
-      "schema": "",
-      "columns": {
-        "email": {
-          "name": "email",
-          "type": "varchar(320)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "first_inbound_at": {
-          "name": "first_inbound_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_inbound_at": {
-          "name": "last_inbound_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "inbound_count": {
-          "name": "inbound_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "first_outbound_at": {
-          "name": "first_outbound_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_outbound_at": {
-          "name": "last_outbound_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "outbound_count": {
-          "name": "outbound_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "replied_after_first_contact": {
-          "name": "replied_after_first_contact",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "mail_correspondents_first_outbound_idx": {
-          "name": "mail_correspondents_first_outbound_idx",
-          "columns": [
-            {
-              "expression": "first_outbound_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.mail_suppressions": {
-      "name": "mail_suppressions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "email": {
-          "name": "email",
-          "type": "varchar(320)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reason": {
-          "name": "reason",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sender_email": {
-          "name": "sender_email",
-          "type": "varchar(320)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "name": "source",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "details": {
-          "name": "details",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "mail_suppressions_reason_idx": {
-          "name": "mail_suppressions_reason_idx",
-          "columns": [
-            {
-              "expression": "reason",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "mail_suppressions_email_unique": {
-          "name": "mail_suppressions_email_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "email"
-          ]
-        }
-      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -41381,7 +41182,7 @@
           "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'@cf/meta/llama-3.3-70b-instruct-fp8-fast'"
+          "default": "'claude-opus-5-5'"
         },
         "temperature": {
           "name": "temperature",
@@ -41435,6 +41236,24 @@
         "created_by": {
           "name": "created_by",
           "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anthropic_agent_id": {
+          "name": "anthropic_agent_id",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anthropic_agent_version": {
+          "name": "anthropic_agent_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "anthropic_config_hash": {
+          "name": "anthropic_config_hash",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": false
         },

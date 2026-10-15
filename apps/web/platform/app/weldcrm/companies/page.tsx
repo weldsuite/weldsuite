@@ -18,7 +18,8 @@ function CompaniesPageContent() {
   const { sort, sortDir } = usePersistedGridSort('company');
 
   const filters: Omit<ListCompaniesQuery, 'cursor'> = useMemo(() => {
-    const f: Omit<ListCompaniesQuery, 'cursor'> = { limit: 50 };
+    // `attributes`: the computed columns (Team, interactions, deals, …).
+    const f: Omit<ListCompaniesQuery, 'cursor'> = { limit: 50, include: 'attributes' };
     if (search) f.search = search;
     if (status) f.status = status;
     if (filter === 'suppliers') f.isSupplier = true;

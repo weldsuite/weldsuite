@@ -9,10 +9,10 @@ import { loadFixture } from '../../email/__fixtures__/load';
 import { parseInbound } from './mime';
 import { classifyInbound } from './kind';
 import { isUnsubscribeRequest } from './intent';
-import { makeSnippet, normalizeSubject, replySubject, stripQuotedHistory, htmlToText } from './text';
+import { makeSnippet, normalizeSubject, replySubject, stripQuotedHistory, htmlToText } from '@weldsuite/reach-domain/inbound/text';
 import { normalizeMessageId, parseMessageIdList, syntheticMessageId } from './message-id';
 import { inboundAddress, parseInboundToken } from './token';
-import { findEmails } from './strings';
+import { findEmails } from '@weldsuite/reach-domain/inbound/strings';
 
 async function parse(name: string) {
   return parseInbound(loadFixture(name));

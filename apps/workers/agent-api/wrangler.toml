@@ -9,9 +9,12 @@
 # Secrets (scripts/secrets/manifest.ts → "agent-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
 #   CLERK_SECRET_KEY, CLERK_JWT_KEY
-#   CLOUDFLARE_API_TOKEN (the AI token /api/ai and the WeldAgent runtime run on
-#     when AI_GATEWAY_API_TOKEN is unset — same value as app-api)
-#   INTERNAL_API_SECRET (FALLBACK bearer for the WeldAgent computer/browser tools'
+#   ANTHROPIC_API_KEY (every WeldAgent workspace agent runs as a Claude Managed
+#     Agent on this key; optional [var] ANTHROPIC_ENVIRONMENT_ID pins the shared
+#     environment, else `weldsuite-weldagent-<ENVIRONMENT>` is found/created)
+#   CLOUDFLARE_API_TOKEN (the AI token /api/ai's persona chat runs on when
+#     AI_GATEWAY_API_TOKEN is unset — same value as app-api)
+#   INTERNAL_API_SECRET (FALLBACK bearer for the WeldAgent browser tools'
 #     public HTTP calls to the agent-runtime worker; must match agent-runtime's.
 #     The primary path is the AGENT_RUNTIME entrypoint binding (no secret))
 #   (DATABASE_URL_MASTER also backs the AI credit metering and the one-time
@@ -21,9 +24,9 @@
 # scripts/secrets/manifest.ts now; add them to Doppler if `secrets:sync` warns
 # they are missing:
 #   DATABASE_ENCRYPTION_KEY_V2 (only during an encryption-key rotation)
-#   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): /api/ai and
-#     the WeldAgent runtime (@weldsuite/ai). When unset, @weldsuite/ai uses
-#     CLOUDFLARE_API_TOKEN.
+#   AI_GATEWAY_API_TOKEN (+ optional CF_AI_GATEWAY, CF_AIG_TOKEN): /api/ai's
+#     persona chat and /generate (@weldsuite/ai). When unset, @weldsuite/ai uses
+#     CLOUDFLARE_API_TOKEN. Workspace agents do not use it.
 #   RESEND_API_KEY (+ optional PUBLIC_APP_URL): agent run / chat reply
 #     notification emails (@weldsuite/notifications)
 #
@@ -131,6 +134,7 @@ routes = [
 [env.test.vars]
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 AGENT_RUNTIME_URL = "https://agent-runtime-test.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to
@@ -213,6 +217,7 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 AGENT_RUNTIME_URL = "https://agent-runtime.weldsuite.org"
 AGENT_COMPUTER_ENABLED = "true"
 # On Cloudflare Email Service (mail.weldsuite.org). Set back to "resend" to

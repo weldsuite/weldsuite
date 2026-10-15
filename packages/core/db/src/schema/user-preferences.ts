@@ -42,6 +42,12 @@ export const userPreferences = pgTable('user_preferences', {
     /** WeldMail: last account/view the user opened (accountId or 'unified'). Fallback landing. */
     mailLastAccountId?: string | null;
     /**
+     * WeldFlow: when false, tasks are not placed in free calendar slots. Only a
+     * task with an explicit start date still gets a (pinned) calendar event.
+     * Absent = true (auto-schedule).
+     */
+    autoScheduleTasks?: boolean;
+    /**
      * WeldFlow: when false, the nightly calendar replan leaves auto-scheduled
      * task slots in the past instead of moving them to the next free day.
      * Absent = true (move them).

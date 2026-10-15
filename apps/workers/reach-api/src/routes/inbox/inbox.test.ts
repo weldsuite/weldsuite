@@ -37,7 +37,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 const publish = vi.mocked(publishEntityEvent);
 
 const send = vi.hoisted(() => ({ sendFromMailbox: vi.fn() }));
-vi.mock('../../services/outbound', () => send);
+vi.mock('@weldsuite/reach-domain/outbound', () => send);
 
 const BASE = '/api/reach/inbox';
 const ALL = ['reach_inbox:read', 'reach_inbox:update', 'reach_inbox:reply'];

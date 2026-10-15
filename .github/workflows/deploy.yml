@@ -271,6 +271,11 @@ jobs:
               - 'packages/core/social-publishing/**'
               - 'packages/core/credits/**'
               - 'packages/core/realtime/**'
+              # WeldReach (/v1/reach/*) runs the reach domain code reach-api runs.
+              - 'packages/domains/reach/**'
+              - 'packages/core/smtp/**'
+              - 'packages/core/worker-kit/**'
+              - 'packages/core/feature-flags/**'
             integration-webhook-worker:
               - 'apps/workers/integration-webhook-worker/**'
               - 'packages/core/entity-events/**'
@@ -317,6 +322,11 @@ jobs:
               - 'packages/core/social-publishing/**'
               - 'packages/core/credits/**'
               - 'packages/core/realtime/**'
+              # WeldReach (/v1/reach/*) runs the reach domain code reach-api runs.
+              - 'packages/domains/reach/**'
+              - 'packages/core/smtp/**'
+              - 'packages/core/worker-kit/**'
+              - 'packages/core/feature-flags/**'
             agent-runtime:
               - 'apps/workers/agent-runtime/**'
             discord-bot-worker:
@@ -1126,11 +1136,14 @@ jobs:
       - name: Build ${{ matrix.app }}
         run: |
           set -euo pipefail
+          # Sensitive vars come down as "[SENSITIVE]"; the script unsets them.
           if [ "$CF_ENV" = "production" ]; then
             vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+            bash .github/scripts/vercel-unset-sensitive.sh .vercel/.env.production.local
             vercel build --prod --token "$VERCEL_TOKEN"
           else
             vercel pull --yes --environment=preview --git-branch=develop --token "$VERCEL_TOKEN"
+            bash .github/scripts/vercel-unset-sensitive.sh .vercel/.env.preview.local
             vercel build --token "$VERCEL_TOKEN"
           fi
       - name: Deploy ${{ matrix.app }}

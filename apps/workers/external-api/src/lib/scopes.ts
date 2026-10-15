@@ -13,8 +13,9 @@ import { error } from './response';
  * Scopes a key only holds when they were granted by name. Neither `*` nor
  * `<namespace>:*` covers them: sending mail goes out under the workspace's
  * name to people outside it, so it is never a side effect of a broad grant.
+ * (`reach_inbox:reply` answers a cold-email reply from the workspace's outreach mailbox.)
  */
-export const NAMED_ONLY_SCOPES: ReadonlySet<string> = new Set(['mail_messages:send']);
+export const NAMED_ONLY_SCOPES: ReadonlySet<string> = new Set(['mail_messages:send', 'reach_inbox:reply']);
 
 export function hasScope(scopes: readonly string[], required: string): boolean {
   if (scopes.includes(required)) return true;

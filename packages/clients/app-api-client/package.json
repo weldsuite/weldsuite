@@ -78,6 +78,7 @@
     "./schemas/meeting-sessions": "./src/schemas/meeting-sessions.ts",
     "./schemas/weldagent": "./src/schemas/weldagent.ts",
     "./schemas/weldagent-parity": "./src/schemas/weldagent-parity.ts",
+    "./schemas/weldagent-questions": "./src/schemas/weldagent-questions.ts",
     "./schemas/workspace-agents": "./src/schemas/workspace-agents.ts",
     "./schemas/weldconnect": "./src/schemas/weldconnect.ts",
     "./schemas/weldconnect-templates": "./src/schemas/weldconnect-templates.ts",

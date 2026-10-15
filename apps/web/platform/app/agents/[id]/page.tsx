@@ -1,544 +1,222 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, Bot, MessageSquare, Play, Pause, Save, Settings2, Trash2 } from 'lucide-react';
+import { ArrowLeft, History, Pause, Play, Settings2, SquarePen } from 'lucide-react';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useRouter, useParams } from '@/lib/router';
+import { useParams, useRouter } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
-import { Input } from '@weldsuite/ui/components/input';
-import { Textarea } from '@weldsuite/ui/components/textarea';
-import { Badge } from '@weldsuite/ui/components/badge';
-import { Label } from '@weldsuite/ui/components/label';
-import { Checkbox } from '@weldsuite/ui/components/checkbox';
+import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@weldsuite/ui/components/alert-dialog';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { cn } from '@/lib/utils';
-import {
-  useAgent,
-  useAgents,
-  useUpdateAgent,
-  useActivateAgent,
-  usePauseAgent,
-  useRunAgent,
-  useDeleteAgent,
-  useGrantablePermissions,
-  useAgentTools,
-} from '@/hooks/queries/use-agent-queries';
-import { AgentChatPanel } from '../components/agent-chat-panel';
-import { AgentComputerPanel } from '../components/agent-computer-panel';
-import { AgentParityPanels } from '../components/agent-parity-panels';
+import { useActivateAgent, useAgent, usePauseAgent } from '@/hooks/queries/use-agent-queries';
+import { useWeldAgentConversations } from '@/hooks/queries/use-weldagent-queries';
+import { AgentAvatar } from '../components/agent-avatar';
+import { agentNeedsSetup } from '../components/agent-state';
+import { AgentChat } from '../components/chat/agent-chat';
+import { errorMessage } from '../components/chat/labels';
+import { AgentSettingsSheet, type SettingsTab } from '../components/settings/agent-settings-sheet';
 
-type DetailTab = 'chat' | 'configure';
+/** `'new'` = a fresh chat, created on its first message. */
+type Selection = string | 'new' | null;
 
-function agentNeedsSetup(systemPrompt: string | null | undefined): boolean {
-  return !systemPrompt?.trim();
+function relativeDay(iso: string | null): string {
+  if (!iso) return '';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
 }
 
-type AgentDetail = NonNullable<ReturnType<typeof useAgent>['data']>;
+function StatusButton({ agentId, status }: Readonly<{ agentId: string; status: string }>) {
+  const t = getTranslations('common').agents;
+  const activate = useActivateAgent();
+  const pause = usePauseAgent();
+  const active = status === 'active';
 
-interface SyncedForm {
-  id: string;
-  name: string;
-  description: string;
-  systemPrompt: string;
-  permissions: string[];
-}
-
-interface FormFields {
-  name: string;
-  description: string;
-  systemPrompt: string;
-  permissions: string[];
-}
-
-function toSyncedForm(source: {
-  id: string;
-  name: string;
-  description?: string | null;
-  systemPrompt: string;
-  permissions?: string[] | null;
-}): SyncedForm {
-  return {
-    id: source.id,
-    name: source.name,
-    description: source.description ?? '',
-    systemPrompt: source.systemPrompt,
-    permissions: source.permissions ?? [],
+  const toggle = async () => {
+    try {
+      if (active) {
+        await pause.mutateAsync(agentId);
+        toast.success(t.detail.feedback.paused);
+      } else {
+        await activate.mutateAsync(agentId);
+        toast.success(t.detail.feedback.activated);
+      }
+    } catch (err) {
+      toast.error(errorMessage(err, t.detail.feedback.statusFailed));
+    }
   };
-}
 
-function formMatches(synced: FormFields, current: FormFields): boolean {
   return (
-    synced.name === current.name &&
-    synced.description === current.description &&
-    synced.systemPrompt === current.systemPrompt &&
-    synced.permissions.join('|') === current.permissions.join('|')
-  );
-}
-
-function AgentEventSubscriptions({ events }: Readonly<{ events: AgentDetail['eventSubscriptions'] }>) {
-  const t = getTranslations('common');
-  return (
-    <div className="flex flex-wrap gap-2">
-      {(events ?? []).length === 0 ? (
-        <span className="text-sm text-muted-foreground">
-          {t.agents.detail.sections.listening.empty}
-        </span>
-      ) : (
-        events.map((ev) => (
-          <Badge key={ev} variant="outline">
-            {ev}
-          </Badge>
-        ))
-      )}
-    </div>
-  );
-}
-
-function AgentRecentRuns({ runs }: Readonly<{ runs: AgentDetail['recentRuns'] }>) {
-  const t = getTranslations('common');
-  if ((runs ?? []).length === 0) {
-    return <p className="text-sm text-muted-foreground">{t.agents.detail.runs.emptyDescription}</p>;
-  }
-  return (
-    <div className="space-y-2">
-      {runs.map((run) => (
-        <div key={run.id} className="rounded-md border p-3 text-sm">
-          <div className="flex items-center gap-2">
-            <Badge variant="outline">{run.status}</Badge>
-            <span className="text-xs text-muted-foreground">
-              {run.triggerType} · {new Date(run.createdAt).toLocaleString()}
-            </span>
-          </div>
-          {run.result?.summary && (
-            <p className="mt-2 text-muted-foreground line-clamp-3">{run.result.summary}</p>
-          )}
-          {run.error && <p className="mt-2 text-destructive">{run.error}</p>}
-        </div>
-      ))}
-    </div>
+    <Button
+      size="sm"
+      variant={active ? 'ghost' : 'default'}
+      className="h-8 gap-1.5"
+      disabled={activate.isPending || pause.isPending}
+      onClick={() => void toggle()}
+      title={active ? t.detail.header.pauseHint : t.detail.header.activateHint}
+    >
+      {active ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+      <span className="hidden sm:inline">{active ? t.actions.pause : t.actions.activate}</span>
+    </Button>
   );
 }
 
 export default function AgentDetailPage() {
-  const t = getTranslations('common');
+  const t = getTranslations('common').agents;
   const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const id = params.id;
-
+  const { id } = useParams<{ id: string }>();
   const { data: agent, isLoading } = useAgent(id);
-  const { data: agents = [] } = useAgents();
-  const { data: grantable = [] } = useGrantablePermissions();
-  const { data: toolCatalog = [] } = useAgentTools();
-  const updateAgent = useUpdateAgent(id);
-  const activateAgent = useActivateAgent();
-  const pauseAgent = usePauseAgent();
-  const runAgent = useRunAgent();
-  const deleteAgent = useDeleteAgent();
+  const { data: conversations = [] } = useWeldAgentConversations(50, id);
 
-  const [tab, setTab] = useState<DetailTab>('chat');
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [systemPrompt, setSystemPrompt] = useState('');
-  const [permissions, setPermissions] = useState<string[]>([]);
-  const [permissionFilter, setPermissionFilter] = useState('');
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const fb = t.agents.detail.feedback;
+  const [selection, setSelection] = useState<Selection>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
 
-  useBreadcrumbs([
-    { label: t.agents.pageTitle, href: '/agents' },
-    { label: agent?.name ?? t.agents.detail.untitledAgent },
-  ]);
+  useBreadcrumbs([{ label: t.pageTitle, href: '/agents' }, { label: agent?.name ?? t.detail.untitledAgent }]);
 
-  // Sync the form from the server, but never clobber unsaved edits: refetches
-  // (Run now, window focus, setup finishing in chat) only update the form
-  // when it still matches what was last loaded.
-  const lastSynced = useRef<SyncedForm | null>(null);
-  const formSnapshot = { name, description, systemPrompt, permissions };
-  const isDirty = !!lastSynced.current && !formMatches(lastSynced.current, formSnapshot);
-
+  // Each agent opens on its latest chat, with the sheet closed.
   useEffect(() => {
-    if (!agent) return;
-    const prev = lastSynced.current;
-    const sameAgent = prev?.id === agent.id;
-    const current = formSnapshot;
-    const untouched = !prev || formMatches(prev, current);
-    if (sameAgent && !untouched) return;
-    const next = toSyncedForm(agent);
-    lastSynced.current = next;
-    setName(next.name);
-    setDescription(next.description);
-    setSystemPrompt(next.systemPrompt);
-    setPermissions(next.permissions);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only on server changes
-  }, [agent]);
-
-  // Always land on chat when switching bots.
-  useEffect(() => {
-    setTab('chat');
+    setSelection(null);
+    setSettingsOpen(false);
   }, [id]);
-
-  const availableFromGrants = useMemo(() => {
-    const set = new Set(permissions);
-    return toolCatalog.filter((tool) =>
-      tool.requiredPermissions.every((p) => set.has(p) || set.has(`${p.split(':')[0]}:*`) || set.has('*')),
-    );
-  }, [toolCatalog, permissions]);
-
-  const sortedGrantable = useMemo(() => {
-    const priority = new Set(['computer:use', 'browser:use']);
-    return [...grantable].sort((a, b) => {
-      const ap = priority.has(a) ? 0 : 1;
-      const bp = priority.has(b) ? 0 : 1;
-      if (ap !== bp) return ap - bp;
-      return a.localeCompare(b);
-    });
-  }, [grantable]);
-
-  const filteredGrantable = useMemo(() => {
-    const q = permissionFilter.trim().toLowerCase();
-    return q ? sortedGrantable.filter((key) => key.toLowerCase().includes(q)) : sortedGrantable;
-  }, [sortedGrantable, permissionFilter]);
-
-  const errorMessage = (err: unknown, fallback: string) =>
-    err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message
-      ? err.message
-      : fallback;
-
-  const togglePermission = (key: string) => {
-    setPermissions((prev) =>
-      prev.includes(key) ? prev.filter((p) => p !== key) : [...prev, key],
-    );
-  };
-
-  const handleSave = async () => {
-    try {
-      const saved = await updateAgent.mutateAsync({
-        name: name.trim() || agent?.name,
-        description: description.trim() || null,
-        systemPrompt,
-        permissions,
-      });
-      const data = (saved as { data?: NonNullable<typeof agent> })?.data;
-      if (data) {
-        lastSynced.current = toSyncedForm(data);
-        setName(data.name);
-        setDescription(data.description ?? '');
-        setSystemPrompt(data.systemPrompt);
-        setPermissions(data.permissions ?? []);
-      }
-      toast.success(fb.saved);
-    } catch (err) {
-      toast.error(errorMessage(err, fb.saveFailed));
-    }
-  };
-
-  const handleToggleStatus = async () => {
-    if (!agent) return;
-    try {
-      if (agent.status === 'active') {
-        await pauseAgent.mutateAsync(id);
-        toast.success(fb.paused);
-      } else {
-        await activateAgent.mutateAsync(id);
-        toast.success(fb.activated);
-      }
-    } catch (err) {
-      toast.error(errorMessage(err, fb.statusFailed));
-    }
-  };
-
-  const handleRun = async () => {
-    try {
-      const res = await runAgent.mutateAsync({ id });
-      const result = (res as { data?: { success?: boolean; error?: string } })?.data;
-      if (result?.success === false) {
-        toast.error(fb.runFailed.replace('{error}', result.error ?? ''));
-      } else {
-        toast.success(fb.runSucceeded);
-      }
-    } catch (err) {
-      toast.error(fb.runFailed.replace('{error}', errorMessage(err, '')));
-    }
-  };
-
-  const handleDelete = async () => {
-    try {
-      await deleteAgent.mutateAsync(id);
-      setDeleteOpen(false);
-      const remaining = agents.find((a) => a.id !== id);
-      router.replace(remaining ? `/agents/${remaining.id}` : '/agents');
-    } catch (err) {
-      toast.error(errorMessage(err, fb.deleteFailed));
-    }
-  };
 
   if (isLoading) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">{fb.loading}</div>
+      <div className="flex h-full flex-col">
+        <div className="flex h-14 items-center gap-3 border-b px-4">
+          <Skeleton className="h-9 w-9 rounded-xl" />
+          <Skeleton className="h-4 w-40" />
+        </div>
+      </div>
     );
   }
 
   if (!agent) {
     return (
-      <div className="p-6">
-        <p className="text-sm text-muted-foreground">{t.agents.detail.agentNotFound}</p>
-        <Button variant="ghost" className="mt-2" onClick={() => router.push('/agents')}>
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          {t.agents.actions.back}
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm text-muted-foreground">{t.detail.agentNotFound}</p>
+        <Button variant="outline" size="sm" onClick={() => router.push('/agents')}>
+          <ArrowLeft className="mr-1.5 h-4 w-4" />
+          {t.actions.back}
         </Button>
       </div>
     );
   }
 
-  const setupPending = agentNeedsSetup(agent.systemPrompt);
+  const setup = agentNeedsSetup(agent);
+  let conversationId: string | null = null;
+  if (selection && selection !== 'new') conversationId = selection;
+  else if (selection === null) conversationId = conversations[0]?.id ?? null;
+
+  const openSettings = (tab: SettingsTab = 'general') => {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+  };
+
+  let subtitle = agent.description || t.list.readyPreview;
+  if (setup) subtitle = t.detail.header.settingUp;
+  else if (agent.status !== 'active') subtitle = t.detail.header.notActive;
 
   return (
-    <div className="w-full h-full bg-background flex flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-3 h-14 border-b flex-shrink-0">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
         <Button
           variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0 md:hidden"
+          size="icon"
+          className="h-8 w-8 md:hidden"
           onClick={() => router.push('/agents')}
+          aria-label={t.actions.back}
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center shrink-0">
-          <Bot className="h-4 w-4 text-muted-foreground" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-medium truncate text-sm">{agent.name}</span>
-            <Badge variant={agent.status === 'active' ? 'default' : 'secondary'} className="text-[10px] px-1.5 py-0">
-              {t.agents.status[agent.status]}
-            </Badge>
-            {setupPending && (
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                {t.agents.detail.setup.badge}
-              </Badge>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground truncate">
-            {setupPending
-              ? t.agents.detail.setup.headerHint
-              : agent.description || t.agents.list.readyPreview}
-          </p>
-        </div>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left"
+          onClick={() => openSettings('general')}
+        >
+          <AgentAvatar agent={agent} />
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold">{agent.name}</span>
+            <span className={cn('block truncate text-xs', setup ? 'text-amber-600' : 'text-muted-foreground')}>
+              {subtitle}
+            </span>
+          </span>
+        </button>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex shrink-0 items-center gap-1">
+          {conversations.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={t.detail.header.history} title={t.detail.header.history}>
+                  <History className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-80 w-72 overflow-y-auto">
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  {t.detail.header.history}
+                </DropdownMenuLabel>
+                {conversations.map((c) => (
+                  <DropdownMenuItem
+                    key={c.id}
+                    className={cn('flex flex-col items-start gap-0.5', c.id === conversationId && 'bg-accent')}
+                    onSelect={() => setSelection(c.id)}
+                  >
+                    <span className="w-full truncate text-[13px]">{c.name}</span>
+                    <span className="text-[11px] text-muted-foreground">{relativeDay(c.lastMessageAt ?? c.createdAt)}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
-            type="button"
             variant="ghost"
-            size="sm"
-            className={cn('h-8 gap-1.5', tab === 'chat' && 'bg-accent')}
-            onClick={() => setTab('chat')}
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setSelection('new')}
+            aria-label={t.detail.chat.newChat}
+            title={t.detail.chat.newChat}
           >
-            <MessageSquare className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t.agents.detail.tabs.chat}</span>
+            <SquarePen className="h-4 w-4" />
           </Button>
           <Button
-            type="button"
             variant="ghost"
-            size="sm"
-            className={cn('h-8 gap-1.5', tab === 'configure' && 'bg-accent')}
-            onClick={() => setTab('configure')}
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => openSettings()}
+            aria-label={t.detail.settings.title}
+            title={t.detail.settings.title}
           >
-            <Settings2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{t.agents.detail.tabs.configure}</span>
+            <Settings2 className="h-4 w-4" />
           </Button>
-          {agent.status === 'active' ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1"
-              disabled={pauseAgent.isPending}
-              onClick={() => void handleToggleStatus()}
-              aria-label={t.agents.actions.pause}
-            >
-              <Pause className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t.agents.actions.pause}</span>
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 gap-1"
-              disabled={activateAgent.isPending || setupPending}
-              onClick={() => void handleToggleStatus()}
-              aria-label={t.agents.actions.activate}
-            >
-              <Play className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{t.agents.actions.activate}</span>
-            </Button>
-          )}
-          {tab === 'configure' && (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={runAgent.isPending || setupPending}
-                onClick={() => void handleRun()}
-              >
-                {runAgent.isPending ? t.agents.actions.running : t.agents.actions.runNow}
-              </Button>
-              <Button
-                size="sm"
-                className="h-8"
-                disabled={updateAgent.isPending || !isDirty}
-                onClick={() => void handleSave()}
-                title={isDirty ? fb.unsavedChanges : undefined}
-              >
-                <Save className="h-3.5 w-3.5 mr-1" />
-                {updateAgent.isPending ? t.agents.actions.saving : t.agents.actions.save}
-              </Button>
-            </>
-          )}
+          {!setup && <StatusButton agentId={agent.id} status={agent.status} />}
         </div>
+      </header>
+
+      <div className="min-h-0 flex-1">
+        <AgentChat
+          key={agent.id}
+          agentId={agent.id}
+          agentName={agent.name}
+          needsSetup={setup}
+          conversationId={conversationId}
+          onConversationCreated={setSelection}
+        />
       </div>
 
-      {tab === 'chat' ? (
-        <div className="flex-1 min-h-0">
-          <AgentChatPanel
-            agentId={id}
-            agentName={agent.name}
-            needsSetup={setupPending}
-          />
-        </div>
-      ) : (
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-3xl mx-auto p-6 space-y-8">
-            <section className="space-y-3">
-              <h2 className="text-xs font-semibold tracking-wide text-muted-foreground">
-                {t.agents.detail.configureHeading}
-              </h2>
-              <div className="space-y-2">
-                <Label>{t.agents.detail.general.nameLabel}</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>{t.agents.detail.general.descriptionLabel}</Label>
-                <Input
-                  value={description}
-                  placeholder={t.agents.detail.general.descriptionPlaceholder}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t.agents.detail.sections.instructions.label}</Label>
-                <Textarea
-                  className="min-h-[160px]"
-                  value={systemPrompt}
-                  placeholder={t.agents.detail.instructions.placeholder}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                />
-              </div>
-            </section>
-
-            <AgentComputerPanel agentId={id} />
-
-            <AgentParityPanels agentId={id} />
-
-            <section className="space-y-3">
-              <h2 className="text-sm font-medium">{t.agents.detail.sections.permissions.label}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t.agents.detail.sections.permissions.description}
-              </p>
-              <Input
-                value={permissionFilter}
-                placeholder={fb.permissionsSearch}
-                onChange={(e) => setPermissionFilter(e.target.value)}
-              />
-              <div className="grid sm:grid-cols-2 gap-2 max-h-64 overflow-auto rounded-md border p-3">
-                {filteredGrantable.length === 0 && (
-                  <p className="text-sm text-muted-foreground">{fb.permissionsNoMatch}</p>
-                )}
-                {filteredGrantable.map((key) => (
-                  <label key={key} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={permissions.includes(key)}
-                      onCheckedChange={() => togglePermission(key)}
-                    />
-                    <span className="font-mono text-xs">{key}</span>
-                  </label>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t.agents.detail.sections.permissions.unlockedTools}:{' '}
-                {availableFromGrants.length
-                  ? availableFromGrants.map((tool) => tool.name).join(', ')
-                  : t.agents.detail.sections.permissions.none}
-              </p>
-            </section>
-
-            <section className="space-y-3">
-              <h2 className="text-sm font-medium">{t.agents.detail.sections.listening.label}</h2>
-              <AgentEventSubscriptions events={agent.eventSubscriptions} />
-            </section>
-
-            <section className="space-y-3">
-              <h2 className="text-sm font-medium">{t.agents.detail.tabs.activity}</h2>
-              <AgentRecentRuns runs={agent.recentRuns} />
-            </section>
-
-            <section className="space-y-3 rounded-lg border border-destructive/30 p-4">
-              <div>
-                <h2 className="text-sm font-medium text-destructive">
-                  {t.agents.detail.sections.danger.label}
-                </h2>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {t.agents.detail.sections.danger.description}
-                </p>
-              </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setDeleteOpen(true)}
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                {t.agents.actions.deleteAgent}
-              </Button>
-            </section>
-          </div>
-        </div>
-      )}
-
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t.agents.deleteDialog.titleNamed.replace('{name}', agent.name)}
-            </AlertDialogTitle>
-            <AlertDialogDescription>{t.agents.deleteDialog.description}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteAgent.isPending}>
-              {t.agents.actions.cancel}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteAgent.isPending}
-              onClick={(e) => {
-                e.preventDefault();
-                void handleDelete();
-              }}
-            >
-              {t.agents.actions.deleteAgent}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AgentSettingsSheet
+        key={agent.id}
+        agent={agent}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        tab={settingsTab}
+        onTabChange={setSettingsTab}
+      />
     </div>
   );
 }

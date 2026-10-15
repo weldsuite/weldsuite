@@ -4,7 +4,7 @@ Status (2026-10-13): built on branch `claude/weldmail-cold-email-spam-10c1cb`,
 not deployed. It ships in **shadow mode** (Flagship `weldmail-outbound-guard`,
 default `shadow`): limits are decided and logged, not enforced, except sender
 ownership and complaint suppressions. The owner answered the open questions
-(see "Owner answers"); migrations (master 0057, tenant 0212) were generated with
+(see "Owner answers"); migrations (master 0057, tenant 0214) were generated with
 the owner's go-ahead. Where the build differs from the plan below, see
 "As built"; the ops steps are in "Rollout checklist". The sender-spoofing fixes
 from Phase 0 are done in a separate branch/session.
@@ -567,7 +567,7 @@ thresholds with.
 
 ## Owner answers (2026-10-13)
 
-1. **Migrations**: generate and commit them (master 0057, tenant 0212).
+1. **Migrations**: generate and commit them (master 0057, tenant 0214).
 2. **Cold outreach**: cap the template at 25 first-contact recipients a day and
    show the WeldReach notice; replies are unaffected.
 3. **AI**: screen volume templates with Workers AI, at WeldSuite's cost.
@@ -728,7 +728,7 @@ Where the build differs from the design above, and what it consists of.
 ## Rollout checklist (ops, per environment)
 
 1. **Migrations**: master `0057_outbound_mail_guard` and tenant
-   `0212_outbound_mail_guard` go out with the normal deploy. The tenant one
+   `0214_outbound_mail_guard` go out with the normal deploy. The tenant one
    backfills `mail_correspondents` from all stored mail; watch its run time on
    the largest tenants.
 2. **Queues**: `wrangler queues create mail-outbound-review-<env>`,

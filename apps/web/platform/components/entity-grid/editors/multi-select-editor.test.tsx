@@ -34,6 +34,10 @@ describe('MultiSelectEditor tag creation', () => {
 
     fireEvent.change(input, { target: { value: 'Brand New' } });
     const create = screen.getByText('sweep.entities.createOptionFromSearch:Brand New');
+    // cmdk hides a group with no matching items, which used to take the
+    // create option with it; options that don't match stay filtered out.
+    expect(create).toBeVisible();
+    expect(screen.queryByText('partner')).not.toBeInTheDocument();
     fireEvent.click(create);
     expect(onChange).toHaveBeenCalledWith(['vip', 'Brand New']);
   });

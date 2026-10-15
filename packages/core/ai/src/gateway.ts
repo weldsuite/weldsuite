@@ -16,8 +16,10 @@ import type { EmbeddingModel, LanguageModel } from 'ai';
 import { createAdapter } from './adapters/index.js';
 import type { GatewayProvider } from './adapters/types.js';
 import { resolveConfig, type WeldAiConfig } from './config.js';
+import { fallbackModelFor, withModelFallback } from './fallback.js';
 import { resolveModelId } from './model-map.js';
 import type { ModelId } from './models.js';
+import { withSupportedSampling } from './sampling.js';
 
 export interface WeldAI {
   /** Resolve a chat/completion model for use with generateText/streamText/etc. */
@@ -55,9 +57,24 @@ export function createWeldAI(configOrEnv?: WeldAiConfig | object): WeldAI {
 
   const adapter = createAdapter(config);
 
+  const languageModel = (id: string) => adapter.languageModel(resolveModelId(id, config.provider));
+
   return {
-    model: (id?: ModelId) =>
-      adapter.languageModel(resolveModelId(id ?? config.defaultModel, config.provider)),
+    model: (id?: ModelId) => {
+      const modelId = id ?? config.defaultModel;
+      // Claude 5.x rejects non-default sampling parameters (see sampling.ts).
+      const primary = withSupportedSampling(languageModel(modelId), modelId);
+      // Third-party models fall back to Workers AI when their provider refuses
+      // (BYOK key out of credit, revoked, rate-limited, down). See fallback.ts.
+      const fallbackId = fallbackModelFor(config, modelId);
+      if (!fallbackId) return primary;
+      return withModelFallback({
+        primary,
+        fallback: languageModel(fallbackId),
+        primaryId: modelId,
+        fallbackId,
+      });
+    },
     embedding: (id: ModelId) =>
       adapter.textEmbeddingModel(resolveModelId(id, config.provider)),
     provider: adapter.provider,

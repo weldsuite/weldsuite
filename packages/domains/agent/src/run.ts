@@ -59,6 +59,7 @@ export async function executeAgentRun(params: {
       agent: {
         id: agent.id,
         name: agent.name,
+        description: agent.description,
         systemPrompt: agent.systemPrompt,
         modelId: agent.modelId,
         temperature: agent.temperature,

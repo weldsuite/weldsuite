@@ -24,55 +24,40 @@
  * callers get `ReachMailbox` DTOs and credential-free rows.
  */
 
-import { and, count, eq, getTableColumns, gte, inArray, isNull, ne } from 'drizzle-orm';
-import { omitSensitive } from '@weldsuite/db/lib/sensitive-columns';
+import { and, count, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { isUniqueViolation } from '@weldsuite/worker-kit/pg-errors';
 import { randomString } from '@weldsuite/worker-kit/random';
+import { utcTomorrow } from '@weldsuite/reach-domain/access';
+import { sealMailServerCredentials } from '@weldsuite/reach-domain/credentials';
+import type { MailboxReadDeps, MailboxRow } from '@weldsuite/reach-domain/mailboxes';
 import {
-  activePoolDomainCount,
   pausePoolMailbox,
-  readPoolMailboxes,
   removePoolMailbox,
   resumePoolMailbox,
   updatePoolMailboxProfile,
-  type PoolMailboxView,
 } from '@weldsuite/reach-domain/warmup-pool';
 import {
   WELDREACH_SENDING_DEFAULTS,
   type CreateReachMailboxInput,
-  type ReachMailbox,
-  type ReachMailboxStatus,
-  type ReachWarmupBlocker,
   type UpdateReachMailboxInput,
   type WeldReachLimits,
 } from '@weldsuite/app-api-client/schemas/reach';
 import type { ReachBilling } from '../lib/billing';
-import { sealMailServerCredentials } from '../lib/credentials';
 import { inboundAddress } from '../lib/inbound/token';
 import { imapCredentialsOf, smtpCredentialsOf } from '../lib/mailpool';
 import type { MailpoolClient } from '../lib/mailpool/client';
 import { isMailpoolNotFound, MailpoolError } from '../lib/mailpool/errors';
 import type { MailpoolMailbox, UpdateMailpoolMailboxInput } from '../lib/mailpool/types';
 import type { Env } from '../types';
-import { utcDayStart, utcTomorrow } from './access';
 import { releaseInbox } from './billing';
 import { ReachServiceError } from './reach-errors';
 import { ensureSlotAvailable } from './slots';
-import { POOL_PAUSE_REASONS, registerMailboxInPool, resumeStatusFor, warmupBlockerOf } from './warmup';
+import { POOL_PAUSE_REASONS, registerMailboxInPool, resumeStatusFor } from './warmup';
 
-export type MailboxRow = typeof schema.reachMailboxes.$inferSelect;
 type DomainRow = typeof schema.reachDomains.$inferSelect;
-/** A mailbox row without its sealed logins. */
-export type SafeMailboxRow = ReturnType<typeof withoutCredentials>;
-
-export function withoutCredentials(row: MailboxRow) {
-  return omitSensitive('reach_mailboxes', row);
-}
-
-const mailboxColumns = omitSensitive('reach_mailboxes', getTableColumns(schema.reachMailboxes));
 
 export interface MailboxDeps {
   env: Pick<
@@ -94,170 +79,12 @@ export interface MailboxDeps {
 const nowOf = (deps: Pick<MailboxDeps, 'now'>): Date => (deps.now ? deps.now() : new Date());
 
 // ---------------------------------------------------------------------------
-// Reads
+// Reads (the DTOs themselves are in `@weldsuite/reach-domain/mailboxes`)
 // ---------------------------------------------------------------------------
-
-/** What the warmup pool adds to a mailbox's DTO. */
-export interface WarmupView {
-  sent7d: number;
-  spamRescues7d: number;
-  blocker: ReachWarmupBlocker | null;
-}
-
-const NO_WARMUP: WarmupView = { sent7d: 0, spamRescues7d: 0, blocker: null };
-
-export function toMailboxDto(
-  row: SafeMailboxRow,
-  domainName: string,
-  sentToday: number,
-  warmup: WarmupView = NO_WARMUP,
-): ReachMailbox {
-  return {
-    id: row.id,
-    domainId: row.domainId,
-    domainName,
-    email: row.email,
-    firstName: row.firstName,
-    lastName: row.lastName,
-    signature: row.signature,
-    type: row.type,
-    status: row.status,
-    warmupDay: row.warmupDay,
-    warmupStatus: row.warmupStatus,
-    warmupInboxRate: row.warmupInboxRate,
-    warmupSent7d: warmup.sent7d,
-    warmupSpamRescues7d: warmup.spamRescues7d,
-    warmupBlocker: warmup.blocker,
-    dailyCap: row.dailyCap,
-    rampCurrent: row.rampCurrent,
-    sentToday,
-    lastSentAt: row.lastSentAt ? row.lastSentAt.toISOString() : null,
-    pausedReason: row.pausedReason,
-    lastError: row.lastError,
-    createdAt: row.createdAt.toISOString(),
-  };
-}
-
-async function sentTodayByMailbox(db: Database, mailboxIds: string[], now: Date): Promise<Map<string, number>> {
-  if (mailboxIds.length === 0) return new Map();
-  const rows = await db
-    .select({ mailboxId: schema.reachMessages.mailboxId, value: count() })
-    .from(schema.reachMessages)
-    .where(
-      and(
-        inArray(schema.reachMessages.mailboxId, mailboxIds),
-        eq(schema.reachMessages.direction, 'out'),
-        eq(schema.reachMessages.status, 'sent'),
-        gte(schema.reachMessages.sentAt, utcDayStart(now)),
-      ),
-    )
-    .groupBy(schema.reachMessages.mailboxId);
-  return new Map(rows.map((r) => [r.mailboxId, r.value]));
-}
-
-/**
- * Where a request reads the warmup pool: the master DB, opened lazily so a
- * list with no mailboxes (or a master outage) costs nothing.
- */
-export interface WarmupSource {
-  /** Clerk org id (the tenant key). */
-  clerkOrgId: string;
-  master: () => MasterDatabase;
-}
-
-export interface MailboxReadDeps {
-  db: Database;
-  warmup: WarmupSource;
-}
 
 /** The read deps of a request that already has its write deps. */
 export function readDepsOf(deps: Pick<MailboxDeps, 'db' | 'master' | 'clerkOrgId'>): MailboxReadDeps {
   return { db: deps.db, warmup: { clerkOrgId: deps.clerkOrgId, master: () => deps.master } };
-}
-
-/**
- * The pool rows of the workspace plus the pool's domain count: at most two
- * master queries per request (the count only when a mailbox is warming).
- * Best effort: warmup numbers are decoration, so a master failure shows zeros
- * rather than failing the mailbox list.
- */
-async function readWarmupViews(
-  source: WarmupSource,
-  rows: Array<Pick<MailboxRow, 'status'>>,
-): Promise<{ pool: Map<string, PoolMailboxView>; poolDomains: number | null }> {
-  const none = { pool: new Map<string, PoolMailboxView>(), poolDomains: null };
-  if (rows.length === 0) return none;
-  try {
-    const master = source.master();
-    const views = await readPoolMailboxes(master, source.clerkOrgId);
-    const poolDomains = rows.some((r) => r.status === 'warming') ? await activePoolDomainCount(master) : null;
-    return { pool: new Map(views.map((v) => [v.tenantMailboxId, v])), poolDomains };
-  } catch (err) {
-    console.warn('[reach-mailboxes] warmup pool unavailable:', err);
-    return none;
-  }
-}
-
-function warmupViewOf(
-  row: SafeMailboxRow,
-  views: { pool: Map<string, PoolMailboxView>; poolDomains: number | null },
-): WarmupView {
-  const pool = views.pool.get(row.id);
-  return {
-    sent7d: pool?.stats?.sent7d ?? 0,
-    spamRescues7d: pool?.stats?.spamRescues7d ?? 0,
-    blocker: warmupBlockerOf(row, pool, views.poolDomains),
-  };
-}
-
-export interface ListMailboxesFilter {
-  domainId?: string;
-  status?: ReachMailboxStatus;
-}
-
-export async function listMailboxes(
-  { db, warmup }: MailboxReadDeps,
-  filter: ListMailboxesFilter = {},
-  now: Date = new Date(),
-): Promise<ReachMailbox[]> {
-  const where =
-    filter.status === 'deleted'
-      ? [eq(schema.reachMailboxes.status, 'deleted')]
-      : [
-          ne(schema.reachMailboxes.status, 'deleted'),
-          isNull(schema.reachMailboxes.deletedAt),
-          ...(filter.status ? [eq(schema.reachMailboxes.status, filter.status)] : []),
-        ];
-  if (filter.domainId) where.push(eq(schema.reachMailboxes.domainId, filter.domainId));
-
-  const rows = await db
-    .select({ ...mailboxColumns, domainName: schema.reachDomains.name })
-    .from(schema.reachMailboxes)
-    .leftJoin(schema.reachDomains, eq(schema.reachMailboxes.domainId, schema.reachDomains.id))
-    .where(and(...where))
-    .orderBy(schema.reachMailboxes.createdAt);
-
-  const sent = await sentTodayByMailbox(db, rows.map((r) => r.id), now);
-  const views = await readWarmupViews(warmup, rows);
-  return rows.map(({ domainName, ...row }) => toMailboxDto(row, domainName ?? '', sent.get(row.id) ?? 0, warmupViewOf(row, views)));
-}
-
-export async function getMailboxDto(
-  { db, warmup }: MailboxReadDeps,
-  id: string,
-  now: Date = new Date(),
-): Promise<ReachMailbox | null> {
-  const [row] = await db
-    .select({ ...mailboxColumns, domainName: schema.reachDomains.name })
-    .from(schema.reachMailboxes)
-    .leftJoin(schema.reachDomains, eq(schema.reachMailboxes.domainId, schema.reachDomains.id))
-    .where(and(eq(schema.reachMailboxes.id, id), ne(schema.reachMailboxes.status, 'deleted')))
-    .limit(1);
-  if (!row) return null;
-  const { domainName, ...mailbox } = row;
-  const sent = await sentTodayByMailbox(db, [id], now);
-  const views = await readWarmupViews(warmup, [mailbox]);
-  return toMailboxDto(mailbox, domainName ?? '', sent.get(id) ?? 0, warmupViewOf(mailbox, views));
 }
 
 async function requireMailbox(db: Database, id: string): Promise<MailboxRow> {

@@ -115,6 +115,7 @@ routes = [
 [env.test.vars]
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 
 [[env.test.flagship]]
@@ -179,6 +180,7 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
 
 [[env.production.flagship]]

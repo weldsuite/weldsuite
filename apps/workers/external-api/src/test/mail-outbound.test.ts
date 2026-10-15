@@ -42,7 +42,6 @@ function workspaceKey(): ApiKeySession {
     userId: null,
     scopes: ['*', 'mail_messages:send'],
     tier: 'enterprise',
-    hasApiAccess: true,
     databaseUrl: null,
     clerkOrgId: ORG_ID,
     licensedApps: null,

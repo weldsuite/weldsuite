@@ -33,6 +33,11 @@ import { ChannelChatPanel } from './channel-chat-panel';
 
 type RtkPerson = RTKParticipant | RTKSelf;
 
+/** Identifies a person across RTK sessions (the peer `id` changes on a rejoin). */
+function peerKey(p: RTKParticipant | undefined): string | undefined {
+  return p?.customParticipantId || p?.userId || p?.id;
+}
+
 interface CallMember {
   userId?: string;
   name?: string;
@@ -160,6 +165,10 @@ function ChatMeetingRoomAdapter() {
   // produces a false positive).
   const sharingPeersRef = useRef<Set<string>>(new Set());
 
+  // Stable keys of the remote people in the call, so a reconnect that re-adds
+  // everyone doesn't replay the join chime for each of them.
+  const knownPeersRef = useRef<Set<string>>(new Set());
+
   // Subscribe to RTK participant + media events; rebuild the [self, ...joined]
   // snapshot on every change so the shared view re-renders. Remote
   // join/leave/screen-share events also play a short audio cue so the user
@@ -179,6 +188,11 @@ function ChatMeetingRoomAdapter() {
           .map((p) => p.id),
       );
 
+    const joinedKeys = () =>
+      ((meeting.participants?.joined?.toArray?.() ?? []) as RTKParticipant[])
+        .map(peerKey)
+        .filter((key): key is string => !!key);
+
     const onSelfScreenShareUpdate = (payload: {
       screenShareEnabled: boolean;
       screenShareTracks: { audio?: MediaStreamTrack; video?: MediaStreamTrack };
@@ -190,16 +204,35 @@ function ChatMeetingRoomAdapter() {
       updateParticipants();
     };
 
-    // A remote participant joined the call.
-    const onParticipantJoined = () => {
-      playCallJoinSound();
+    // A remote participant joined the call. When the SDK reconnects it rebuilds
+    // `participants.joined` from scratch (`participantsCleared`, then a
+    // `participantJoined` for everyone still there); only chime for people who
+    // weren't already in the call.
+    const onParticipantJoined = (p?: RTKParticipant) => {
+      const key = peerKey(p);
+      if (key && !knownPeersRef.current.has(key)) {
+        knownPeersRef.current.add(key);
+        playCallJoinSound();
+      }
       updateParticipants();
     };
 
     // A remote participant left the call.
-    const onParticipantLeft = () => {
+    const onParticipantLeft = (p?: RTKParticipant) => {
+      const key = peerKey(p);
+      if (key) knownPeersRef.current.delete(key);
       playCallLeaveSound();
       updateParticipants();
+    };
+
+    // The SDK re-adds every peer synchronously right after the clear, so by the
+    // next microtask the list is whole again: resync the known set from it
+    // (drops anyone who left while we were disconnected) and re-snapshot.
+    const onParticipantsCleared = () => {
+      queueMicrotask(() => {
+        knownPeersRef.current = new Set(joinedKeys());
+        updateParticipants();
+      });
     };
 
     // A remote participant toggled their screen share — chime only on start.
@@ -214,6 +247,7 @@ function ChatMeetingRoomAdapter() {
     // Seed the sharing set so a share already in progress when we join an
     // active call doesn't fire a spurious chime on the first event.
     sharingPeersRef.current = sharingPeers();
+    knownPeersRef.current = new Set(joinedKeys());
 
     // Seed self screen-share from the live RTK getters. `selfScreenShare` is
     // otherwise only populated by the `screenShareUpdate` event — which does
@@ -233,6 +267,12 @@ function ChatMeetingRoomAdapter() {
     updateParticipants();
     meeting.participants?.joined?.on?.('participantJoined', onParticipantJoined);
     meeting.participants?.joined?.on?.('participantLeft', onParticipantLeft);
+    meeting.participants?.joined?.on?.('participantsCleared', onParticipantsCleared);
+    // Remote mic / camera changes. After a reconnect the SDK hands every peer
+    // fresh audio/video tracks; without these the tiles kept the dead tracks
+    // (blank video, silence) until the next call-timer tick re-rendered them.
+    meeting.participants?.joined?.on?.('audioUpdate', updateParticipants);
+    meeting.participants?.joined?.on?.('videoUpdate', updateParticipants);
     meeting.participants?.joined?.on?.('screenShareUpdate', onRemoteScreenShareUpdate);
     meeting.self?.on?.('audioUpdate', updateParticipants);
     meeting.self?.on?.('videoUpdate', updateParticipants);
@@ -241,6 +281,9 @@ function ChatMeetingRoomAdapter() {
     return () => {
       meeting.participants?.joined?.off?.('participantJoined', onParticipantJoined);
       meeting.participants?.joined?.off?.('participantLeft', onParticipantLeft);
+      meeting.participants?.joined?.off?.('participantsCleared', onParticipantsCleared);
+      meeting.participants?.joined?.off?.('audioUpdate', updateParticipants);
+      meeting.participants?.joined?.off?.('videoUpdate', updateParticipants);
       meeting.participants?.joined?.off?.('screenShareUpdate', onRemoteScreenShareUpdate);
       meeting.self?.off?.('audioUpdate', updateParticipants);
       meeting.self?.off?.('videoUpdate', updateParticipants);

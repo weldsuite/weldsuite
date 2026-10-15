@@ -108,18 +108,22 @@ export function MultiSelectEditor({
           />
           <CommandList>
             {!canCreate && <CommandEmpty>{t('sweep.entities.noOptionFound')}</CommandEmpty>}
-            <CommandGroup className="px-1 py-1">
-              {/* First, so Enter on a typed value creates it. */}
-              {canCreate && (
+            {/* Its own group: cmdk hides a group none of whose items match the
+                search (a forceMount item doesn't count), and a forced group
+                would force-show every option in it too. First, so Enter on a
+                typed value creates it. */}
+            {canCreate && (
+              <CommandGroup className="px-1 pt-1" forceMount>
                 <CommandItem
                   key="__create__"
                   value={`__create__${trimmedSearch}`}
-                  forceMount
                   onSelect={handleCreate}
                 >
                   <span>{t('sweep.entities.createOptionFromSearch', { value: trimmedSearch })}</span>
                 </CommandItem>
-              )}
+              </CommandGroup>
+            )}
+            <CommandGroup className="px-1 py-1">
               {allOptions.map((option) => {
                 const config = optionConfig?.[option];
                 const isSelected = selectedValues.includes(option);

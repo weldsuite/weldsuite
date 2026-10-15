@@ -366,7 +366,8 @@ class SmtpSession {
     // otherwise every recipient was permanently refused.
     const temporary = rejections.find((failure) => !failure.permanent);
     if (temporary) throw new SmtpAbort(temporary);
-    const [first] = rejections;
+    // `recipients` is never empty here, so there is a rejection per recipient.
+    const first = rejections[0] as SmtpFailure;
     throw new SmtpAbort({ ...first, recipientRejected: rejections.some((failure) => failure.recipientRejected) });
   }
 
@@ -452,7 +453,7 @@ function checkRequest(config: SmtpConfig, envelope: SmtpEnvelope): Preflight {
     return refuse({
       permanent: true,
       stage: 'rcpt',
-      response: `Invalid recipient address: ${printable(first)}`,
+      response: `Invalid recipient address: ${printable(first ?? '')}`,
       recipientRejected: true,
     });
   }

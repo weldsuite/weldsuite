@@ -31,6 +31,7 @@ import {
 } from '@weldsuite/core-domain/ai-billing';
 import { getAgent, type AgentDb } from './agents';
 import { runAgentOnce, REQUEST_RUN_TIMEOUT_MS } from './executor';
+import { isManagedAgentsConfigured } from './managed-agents';
 import { asText } from '@weldsuite/text';
 
 const WELDAGENT_SYSTEM =
@@ -218,6 +219,7 @@ export async function defaultTurnGenerator(params: {
       agent: {
         id: agent.id,
         name: agent.name,
+        description: agent.description,
         systemPrompt: agent.systemPrompt,
         modelId: agent.modelId,
         temperature: agent.temperature,
@@ -288,13 +290,14 @@ export async function acceptConversationTurn(params: {
     throw new ConversationNotFoundError(params.conversationId);
   }
 
+  const boundAgentId = params.agentId ?? conversation.agentId ?? null;
+
   // Fail fast on empty credits before accepting the turn into the background.
-  if (isGatewayConfigured(params.env)) {
+  // Agent turns run on Claude Managed Agents; persona turns on the gateway.
+  if (boundAgentId ? isManagedAgentsConfigured(params.env) : isGatewayConfigured(params.env)) {
     const metering = await resolveAiMetering(params.env, params.workspaceId, params.userId);
     await assertAiCredits(metering);
   }
-
-  const boundAgentId = params.agentId ?? conversation.agentId ?? null;
 
   if (params.agentId && !conversation.agentId) {
     await db

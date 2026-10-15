@@ -29,7 +29,8 @@ export const weldagentAgents = pgTable(
     /** Natural-language instructions / system prompt. */
     systemPrompt: text('system_prompt').notNull().default(''),
 
-    modelId: varchar('model_id', { length: 100 }).notNull().default('@cf/meta/llama-3.3-70b-instruct-fp8-fast'),
+    /** Claude model the agent runs on (see WORKSPACE_AGENT_MODELS). */
+    modelId: varchar('model_id', { length: 100 }).notNull().default('claude-opus-5-5'),
     temperature: varchar('temperature', { length: 10 }).notNull().default('0.70'),
     maxTokens: integer('max_tokens').notNull().default(2048),
 
@@ -52,6 +53,16 @@ export const weldagentAgents = pgTable(
     maxTotalTokens: integer('max_total_tokens').notNull().default(20000),
 
     createdBy: varchar('created_by', { length: 255 }),
+
+    /**
+     * The Claude Managed Agents agent object this agent runs as (`agent_…`),
+     * its latest synced version, and a hash of the config last pushed to it.
+     * Synced lazily before a session starts; a changed hash publishes a new
+     * version. Null until the agent first runs.
+     */
+    anthropicAgentId: varchar('anthropic_agent_id', { length: 100 }),
+    anthropicAgentVersion: integer('anthropic_agent_version'),
+    anthropicConfigHash: varchar('anthropic_config_hash', { length: 64 }),
 
     totalRuns: integer('total_runs').notNull().default(0),
     successfulRuns: integer('successful_runs').notNull().default(0),

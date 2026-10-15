@@ -5,7 +5,6 @@ import { Plus, Copy, Trash2, Check, AlertCircle, Pencil, EllipsisVertical } from
 import { Button } from "@weldsuite/ui/components/button"
 import { FilterPills, type ActiveFilter, type FilterConfig } from "@/components/entity-list"
 import { cn } from "@/lib/utils"
-import { Card, CardContent } from "@weldsuite/ui/components/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@weldsuite/ui/components/table"
 import {
   Dialog,
@@ -33,11 +32,7 @@ import {
   useRevokeWorkspaceApiKey,
   useUpdateWorkspaceApiKey,
 } from "@/hooks/queries/use-settings-queries"
-import { useAppApiClient } from '@/lib/api/use-app-api'
-import { PricingDialog } from "@/components/pricing-dialog"
 import { ExpandingSearchInput } from "@/components/settings/expanding-search-input"
-import type { Billing } from "@/lib/api/types/apps/billing.types"
-import { secureRandom } from "@/lib/random"
 
 // Entity-based permissions grouped by module.
 // IMPORTANT: every scope below must correspond to a scope enforced by the
@@ -49,8 +44,9 @@ const ro = (object: string) => [{ id: `${object}:read`, label: 'Read' }];
 
 // Scopes the external API only grants by name: `*` and `<object>:*` never
 // include them (external-api `NAMED_ONLY_SCOPES`). The bulk "All" buttons skip
-// them too, so a key can only send mail when someone ticked Send on purpose.
-const NAMED_ONLY_SCOPES = ['mail_messages:send'];
+// them too, so a key can only send mail (or answer WeldReach prospects) when
+// someone ticked Send or Reply on purpose.
+const NAMED_ONLY_SCOPES = ['mail_messages:send', 'reach_inbox:reply'];
 
 const PERMISSION_ENTITIES = [
   // CRM
@@ -104,6 +100,18 @@ const PERMISSION_ENTITIES = [
   { entity: 'Labels', group: 'WeldMail', description: 'Mailbox labels', scopes: rw('mail_labels') },
   { entity: 'Folders', group: 'WeldMail', description: 'Mailbox folders', scopes: rw('mail_folders') },
   { entity: 'Attachments', group: 'WeldMail', description: 'Download files; write uploads files to send', scopes: rw('mail_attachments') },
+  // WeldReach (on request only: a key gets 403 APP_ACCESS_REQUIRED until WeldSuite approves the workspace).
+  // Creating or deleting mailboxes and domains stays in the app, because every inbox is billed.
+  { entity: 'Campaigns', group: 'WeldReach', description: 'Campaigns, steps, enrollments, launch and pause, stats', scopes: rw('reach_campaigns') },
+  { entity: 'Prospects', group: 'WeldReach', description: 'Prospects, imports and prospect lists', scopes: rw('reach_prospects') },
+  { entity: 'Suppressions', group: 'WeldReach', description: 'Addresses and domains that are never emailed', scopes: rw('reach_settings') },
+  {
+    entity: 'Reply Inbox',
+    group: 'WeldReach',
+    description: 'Replies to campaigns; Reply sends an answer to a prospect',
+    scopes: [...ro('reach_inbox'), { id: 'reach_inbox:reply', label: 'Reply' }],
+  },
+  { entity: 'Mailboxes', group: 'WeldReach', description: 'Sending mailboxes and domains, warmup status (no credentials)', scopes: ro('reach_mailboxes') },
   // Chat
   { entity: 'Channels', group: 'Chat', description: 'Chat channels', scopes: rw('channels') },
   { entity: 'Channel Members', group: 'Chat', description: 'Chat channel members', scopes: rw('channel_members') },
@@ -146,7 +154,22 @@ const ALL_SCOPES = PERMISSION_ENTITIES.flatMap(e => e.scopes.map(s => s.id)).fil
   (id) => !NAMED_ONLY_SCOPES.includes(id),
 );
 
-type ScopeAction = 'read' | 'write' | 'send';
+type ScopeAction = 'read' | 'write' | 'send' | 'reply';
+
+// Actions that only exist as named-only scopes; a group gets a column for each one it has.
+const NAMED_ONLY_ACTIONS = ['send', 'reply'] as const satisfies readonly ScopeAction[];
+
+const ACTION_HEADER_KEYS: Record<ScopeAction, string> = {
+  read: 'sweep.settings.apiKeys.table.read',
+  write: 'sweep.settings.apiKeys.table.write',
+  send: 'sweep.settings.apiKeys.table.send',
+  reply: 'sweep.settings.apiKeys.table.reply',
+};
+
+const NAMED_ONLY_HINT_KEYS: Record<(typeof NAMED_ONLY_ACTIONS)[number], string> = {
+  send: 'sweep.settings.apiKeys.sendScopeHint',
+  reply: 'sweep.settings.apiKeys.replyScopeHint',
+};
 
 // Module logo per permission group
 const GROUP_LOGOS: Record<string, string> = {
@@ -157,6 +180,7 @@ const GROUP_LOGOS: Record<string, string> = {
   Files: '/assets/images/welddrive/icon.svg',
   Calendar: '/assets/images/weldcalendar/icon.svg',
   WeldMail: '/assets/images/weldmail/icon.svg',
+  WeldReach: '/assets/images/weldreach/icon.svg',
   Chat: '/assets/images/weldchat/icon.svg',
   Host: '/assets/images/weldhost/icon.svg',
   Automation: '/assets/images/weldconnect/icon.svg',
@@ -205,9 +229,11 @@ function PermissionGroupTable({
 }>) {
   const t = useTranslations();
   const groupLogo = GROUP_LOGOS[group];
-  // A Send column only for groups that have a send scope (WeldMail).
-  const hasSend = entities.some((e) => e.scopes.some((s) => s.id.endsWith(':send')));
-  const actions: ScopeAction[] = hasSend ? ['read', 'write', 'send'] : ['read', 'write'];
+  // A Send or Reply column only for groups that have such a scope (WeldMail, WeldReach).
+  const namedOnlyActions = NAMED_ONLY_ACTIONS.filter((action) =>
+    entities.some((e) => e.scopes.some((s) => s.id.endsWith(`:${action}`))),
+  );
+  const actions: ScopeAction[] = ['read', 'write', ...namedOnlyActions];
   return (
     <div className="border rounded-md overflow-hidden">
       <div className="bg-muted/40 px-3 py-1.5 text-[13px] font-semibold text-muted-foreground uppercase tracking-wider border-b border-border/40">
@@ -220,11 +246,11 @@ function PermissionGroupTable({
         <thead className="bg-background">
           <tr>
             <th className="text-left px-3 py-2 font-medium border-b border-border/40">{t('sweep.settings.apiKeys.table.entity')}</th>
-            <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.read')}</th>
-            <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.write')}</th>
-            {hasSend && (
-              <th className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">{t('sweep.settings.apiKeys.table.send')}</th>
-            )}
+            {actions.map((action) => (
+              <th key={action} className="text-center px-3 py-2 font-medium w-20 border-b border-border/40">
+                {t(ACTION_HEADER_KEYS[action])}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -252,16 +278,16 @@ function PermissionGroupTable({
           })}
         </tbody>
       </table>
-      {hasSend && (
-        <p className="border-t border-border/40 bg-background px-3 py-2 text-xs text-muted-foreground">
-          {t('sweep.settings.apiKeys.sendScopeHint')}
+      {namedOnlyActions.map((action) => (
+        <p key={action} className="border-t border-border/40 bg-background px-3 py-2 text-xs text-muted-foreground">
+          {t(NAMED_ONLY_HINT_KEYS[action])}
         </p>
-      )}
+      ))}
     </div>
   );
 }
 
-// Read, write or send scope checkbox cell for an entity ("—" when the scope does not exist).
+// Read, write, send or reply scope checkbox cell for an entity ("—" when the scope does not exist).
 function PermissionScopeCell({
   entity,
   action,
@@ -351,213 +377,6 @@ function PermissionsSelector({
   );
 }
 
-// Animated code preview component with typing effect (light mode colors)
-const codeSnippets = [
-  { indent: 0, text: 'for contact in contacts.data:', tokens: [{ start: 0, end: 3, color: 'text-purple-600' }, { start: 12, end: 14, color: 'text-purple-600' }] },
-  { indent: 1, text: 'response = client.api.get(id=contact.id)', tokens: [{ start: 22, end: 25, color: 'text-blue-600' }, { start: 26, end: 28, color: 'text-cyan-700' }] },
-  { indent: 1, text: "print('Found', len(response.data), 'records')", tokens: [{ start: 0, end: 5, color: 'text-blue-600' }, { start: 6, end: 13, color: 'text-emerald-600' }, { start: 15, end: 18, color: 'text-blue-600' }, { start: 35, end: 44, color: 'text-emerald-600' }] },
-  { indent: 1, text: 'if len(response.data) != 0:', tokens: [{ start: 0, end: 2, color: 'text-purple-600' }, { start: 3, end: 6, color: 'text-blue-600' }, { start: 25, end: 26, color: 'text-rose-600' }] },
-  { indent: 2, text: "created = response.data[0]['created_at']", tokens: [{ start: 24, end: 25, color: 'text-rose-600' }, { start: 27, end: 39, color: 'text-emerald-600' }] },
-  { indent: 2, text: "updated = datetime.strptime(created, '%Y-%m-%d')", tokens: [{ start: 19, end: 27, color: 'text-blue-600' }, { start: 37, end: 47, color: 'text-emerald-600' }] },
-  { indent: 2, text: 'today = datetime.now()', tokens: [{ start: 17, end: 20, color: 'text-blue-600' }] },
-  { indent: 2, text: 'diff = (today - updated).days', tokens: [] },
-  { indent: 2, text: 'if diff < threshold:', tokens: [{ start: 0, end: 2, color: 'text-purple-600' }] },
-  { indent: 3, text: "print(contact.name, 'updated', threshold)", tokens: [{ start: 0, end: 5, color: 'text-blue-600' }, { start: 20, end: 29, color: 'text-emerald-600' }] },
-  { indent: 3, text: 'total += len(response.data)', tokens: [{ start: 9, end: 12, color: 'text-blue-600' }] },
-  { indent: 3, text: 'for item in response.data:', tokens: [{ start: 0, end: 3, color: 'text-purple-600' }, { start: 9, end: 11, color: 'text-purple-600' }] },
-  { indent: 4, text: 'if item.metadata:', tokens: [{ start: 0, end: 2, color: 'text-purple-600' }] },
-  { indent: 5, text: 'for key in item.metadata:', tokens: [{ start: 0, end: 3, color: 'text-purple-600' }, { start: 8, end: 10, color: 'text-purple-600' }] },
-  { indent: 6, text: "value = key['value']", tokens: [{ start: 12, end: 19, color: 'text-emerald-600' }] },
-  { indent: 6, text: 'records.add((value, item.id))', tokens: [{ start: 8, end: 11, color: 'text-blue-600' }] },
-  { indent: 0, text: 'else:', tokens: [{ start: 0, end: 4, color: 'text-purple-600' }] },
-  { indent: 1, text: "print(contact.name, 'no updates')", tokens: [{ start: 0, end: 5, color: 'text-blue-600' }, { start: 20, end: 32, color: 'text-emerald-600' }] },
-  { indent: 0, text: '', tokens: [] },
-  { indent: 0, text: '# Sync data with API', tokens: [{ start: 0, end: 20, color: 'text-slate-400' }] },
-  { indent: 0, text: 'async def sync_contacts(api_key):', tokens: [{ start: 0, end: 5, color: 'text-purple-600' }, { start: 6, end: 9, color: 'text-purple-600' }, { start: 10, end: 23, color: 'text-blue-600' }] },
-  { indent: 1, text: 'client = WeldSuite(api_key=api_key)', tokens: [{ start: 19, end: 26, color: 'text-cyan-700' }] },
-  { indent: 1, text: 'contacts = await client.contacts.list()', tokens: [{ start: 11, end: 16, color: 'text-purple-600' }, { start: 33, end: 37, color: 'text-blue-600' }] },
-  { indent: 1, text: 'for c in contacts:', tokens: [{ start: 0, end: 3, color: 'text-purple-600' }, { start: 6, end: 8, color: 'text-purple-600' }] },
-  { indent: 2, text: 'yield c.to_dict()', tokens: [{ start: 0, end: 5, color: 'text-purple-600' }, { start: 8, end: 15, color: 'text-blue-600' }] },
-  { indent: 0, text: '', tokens: [] },
-  { indent: 0, text: '# Process batch orders', tokens: [{ start: 0, end: 22, color: 'text-slate-400' }] },
-  { indent: 0, text: 'def process_orders(batch_size=100):', tokens: [{ start: 0, end: 3, color: 'text-purple-600' }, { start: 4, end: 18, color: 'text-blue-600' }, { start: 30, end: 33, color: 'text-rose-600' }] },
-  { indent: 1, text: 'orders = api.orders.fetch(limit=batch_size)', tokens: [{ start: 20, end: 25, color: 'text-blue-600' }] },
-  { indent: 1, text: 'for order in orders:', tokens: [{ start: 0, end: 3, color: 'text-purple-600' }, { start: 10, end: 12, color: 'text-purple-600' }] },
-  { indent: 2, text: 'if order.status == "pending":', tokens: [{ start: 0, end: 2, color: 'text-purple-600' }, { start: 19, end: 28, color: 'text-emerald-600' }] },
-  { indent: 3, text: 'order.process()', tokens: [{ start: 6, end: 13, color: 'text-blue-600' }] },
-  { indent: 3, text: "logger.info(f'Processed {order.id}')", tokens: [{ start: 7, end: 11, color: 'text-blue-600' }, { start: 12, end: 35, color: 'text-emerald-600' }] },
-];
-
-function AnimatedCodePreview() {
-  // Start with some pre-filled lines so it doesn't begin empty
-  const initialLines = codeSnippets.slice(0, 10);
-
-  // Store animation state in React state to ensure consistent rendering
-  const [animState, setAnimState] = React.useState({
-    lines: initialLines,
-    lineIndex: 10,
-    charIndex: 0,
-    isPaused: false,
-  });
-
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const timingRef = React.useRef({
-    frameId: null as number | null,
-    lastTime: 0,
-    linesInBurst: 0,
-    pauseUntil: 0,
-  });
-
-  React.useEffect(() => {
-    let isRunning = true;
-    const timing = timingRef.current;
-    timing.lastTime = performance.now();
-
-    const charDelay = 30;
-    const linesPerBurst = 5 + Math.floor(secureRandom() * 3); // 5-7 lines per burst
-    const pauseDuration = 3000; // 3s pause
-
-    const tick = () => {
-      if (!isRunning) return;
-
-      const now = performance.now();
-
-      // Check if we're in a pause
-      if (timing.pauseUntil > now) {
-        timing.frameId = requestAnimationFrame(tick);
-        return;
-      }
-
-      if (now - timing.lastTime >= charDelay) {
-        timing.lastTime = now;
-
-        // Use functional setState to ensure atomic updates based on prev state
-        setAnimState(prev => {
-          const currentSnippet = codeSnippets[prev.lineIndex % codeSnippets.length];
-
-          if (prev.charIndex < currentSnippet.text.length) {
-            // Still typing current line
-            return { ...prev, charIndex: prev.charIndex + 1, isPaused: false };
-          } else {
-            // Line complete - add to completed lines and start new line
-            let newLines = [...prev.lines, { ...currentSnippet }];
-            if (newLines.length > 16) {
-              newLines = newLines.slice(-16);
-            }
-
-            // Track lines in current burst
-            timing.linesInBurst += 1;
-
-            // Check if we should pause after this burst
-            const shouldPause = timing.linesInBurst >= linesPerBurst;
-            if (shouldPause) {
-              timing.linesInBurst = 0;
-              timing.pauseUntil = now + pauseDuration;
-            }
-
-            // Schedule scroll after state update
-            requestAnimationFrame(() => {
-              if (containerRef.current) {
-                containerRef.current.scrollTop = containerRef.current.scrollHeight;
-              }
-            });
-
-            return {
-              lines: newLines,
-              lineIndex: prev.lineIndex + 1,
-              charIndex: 0,
-              isPaused: shouldPause,
-            };
-          }
-        });
-      }
-
-      timing.frameId = requestAnimationFrame(tick);
-    };
-
-    timing.frameId = requestAnimationFrame(tick);
-
-    return () => {
-      isRunning = false;
-      if (timing.frameId !== null) {
-        cancelAnimationFrame(timing.frameId);
-        timing.frameId = null;
-      }
-    };
-  }, []);
-
-  const renderTextWithColors = (text: string, tokens: { start: number; end: number; color: string }[], maxLen?: number) => {
-    const displayText = maxLen !== undefined ? text.slice(0, maxLen) : text;
-    if (tokens.length === 0) {
-      return <span className="text-slate-800">{displayText}</span>;
-    }
-
-    const result: React.ReactNode[] = [];
-    let lastIndex = 0;
-
-    const sortedTokens = [...tokens].sort((a, b) => a.start - b.start);
-
-    for (const token of sortedTokens) {
-      if (token.start >= displayText.length) break;
-
-      // Add plain text before this token
-      if (lastIndex < token.start) {
-        result.push(
-          <span key={`plain-${lastIndex}`} className="text-slate-800">
-            {displayText.slice(lastIndex, token.start)}
-          </span>
-        );
-        lastIndex = token.start;
-      }
-
-      // Add the colored token text
-      const tokenEnd = Math.min(token.end, displayText.length);
-      if (lastIndex < tokenEnd) {
-        result.push(
-          <span key={`token-${token.start}`} className={token.color}>
-            {displayText.slice(lastIndex, tokenEnd)}
-          </span>
-        );
-        lastIndex = tokenEnd;
-      }
-    }
-
-    // Add remaining plain text after all tokens
-    if (lastIndex < displayText.length) {
-      result.push(
-        <span key={`plain-${lastIndex}`} className="text-slate-800">
-          {displayText.slice(lastIndex)}
-        </span>
-      );
-    }
-
-    return result;
-  };
-
-  // Read from state (not ref) for consistent rendering
-  const currentSnippet = codeSnippets[animState.lineIndex % codeSnippets.length];
-
-  return (
-    <div className="flex-1 hidden lg:flex flex-col bg-slate-50 border-l overflow-hidden h-[427px]">
-      <div
-        ref={containerRef}
-        className="flex-1 p-5 font-mono text-[13px] font-medium leading-relaxed overflow-hidden"
-      >
-        {animState.lines.map((line, idx) => (
-          <div key={`line-${idx}-${line.text.slice(0, 10)}`} style={{ paddingLeft: `${line.indent * 16}px` }}>
-            {renderTextWithColors(line.text, line.tokens)}
-          </div>
-        ))}
-        {/* Current typing line */}
-        <div style={{ paddingLeft: `${currentSnippet.indent * 16}px` }}>
-          {renderTextWithColors(currentSnippet.text, currentSnippet.tokens, animState.charIndex)}
-          <span className="inline-block w-2 h-4 bg-slate-500 animate-pulse ml-0.5 align-middle" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // "usage" filter pill: keep used keys ('used') or never-used keys ('unused').
 function matchesUsageFilter(key: WorkspaceApiKey, value: string): boolean {
   const used = !!key.lastUsedAt
@@ -584,9 +403,6 @@ export function ApiKeysSection() {
   const [error, setError] = React.useState<string | null>(null)
   const [createdKey, setCreatedKey] = React.useState<WorkspaceApiKey | null>(null)
   const [copied, setCopied] = React.useState<string | null>(null)
-  const [hasApiAccess, setHasApiAccess] = React.useState<boolean | null>(null)
-  const [showPricingDialog, setShowPricingDialog] = React.useState(false)
-  const { getClient } = useAppApiClient()
 
   // Standard filter row state
   const [activeFilters, setActiveFilters] = React.useState<ActiveFilter[]>([])
@@ -655,7 +471,7 @@ export function ApiKeysSection() {
     setScopeList([...withoutWrite, ...writeScopes])
   }
 
-  // Select all scopes, keeping any named-only scope (Send) that was ticked by hand
+  // Select all scopes, keeping any named-only scope (Send, Reply) that was ticked by hand
   const selectAll = (setScopeList: (scopes: string[]) => void, currentScopes: string[]) => {
     setScopeList([...ALL_SCOPES, ...currentScopes.filter(s => NAMED_ONLY_SCOPES.includes(s))])
   }
@@ -664,30 +480,6 @@ export function ApiKeysSection() {
   const clearAll = (setScopeList: (scopes: string[]) => void) => {
     setScopeList([])
   }
-
-  // Load subscription data to check API access
-  React.useEffect(() => {
-    async function checkApiAccess() {
-      try {
-        const client = await getClient()
-        // app-api GET /api/billing/plans-page — `{ data }` envelope.
-        const plansResult = await client.get<{
-          data?: { plans: Billing.BillingPlan[]; subscription: Billing.Subscription | null }
-        }>('/billing/plans-page')
-        if (plansResult.data?.subscription) {
-          const currentPlan = plansResult.data.plans?.find(
-            (p) => p.id === plansResult.data!.subscription!.planId
-          )
-          setHasApiAccess(currentPlan?.hasApiAccess ?? false)
-        } else {
-          setHasApiAccess(false)
-        }
-      } catch {
-        setHasApiAccess(false)
-      }
-    }
-    void checkApiAccess()
-  }, [getClient])
 
   // Create new API key
   const handleCreateKey = async () => {
@@ -834,92 +626,6 @@ export function ApiKeysSection() {
             {t('sweep.settings.apiKeys.writeCountLabel', { count: writeCount })}
           </span>
         )}
-      </div>
-    )
-  }
-
-  // While the subscription check is in flight (`null`), we don't yet know
-  // whether to show the keys manager or the upgrade prompt. Render a
-  // lightweight placeholder instead of the full manager — otherwise the
-  // "Generate Key" button (and its dialog) mount during this window and then
-  // get torn out from under the user the moment the check resolves to "no API
-  // access", flashing the UI and dropping any interaction that lands in the gap.
-  if (hasApiAccess === null) {
-    return (
-      <div className="space-y-8">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('sweep.settings.apiKeys.title')}</h1>
-          <p className="text-muted-foreground">{t('sweep.settings.apiKeys.description')}</p>
-        </div>
-        <div className="border rounded-lg p-8 text-center text-muted-foreground">
-          {t('sweep.settings.apiKeys.loadingKeys')}
-        </div>
-      </div>
-    )
-  }
-
-  // Show upgrade prompt if user doesn't have API access
-  if (hasApiAccess === false) {
-    return (
-      <div className="space-y-8">
-        {/* Page Header */}
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t('sweep.settings.apiKeys.title')}</h1>
-          <p className="text-muted-foreground">{t('sweep.settings.apiKeys.description')}</p>
-        </div>
-
-        <Card className="overflow-hidden py-0 rounded-xl">
-          <CardContent className="p-0">
-            <div className="flex flex-col lg:flex-row min-h-[427px]">
-              {/* Left side - Text content */}
-              <div className="flex-1 flex flex-col pl-6 py-6">
-                {/* Title and description at top */}
-                <div>
-                  <h2 className="text-xl font-[550] tracking-tight">
-                    {t('sweep.settings.apiKeys.upgradePromo.heading')}<br />
-                    <span className="text-muted-foreground">{t('sweep.settings.apiKeys.upgradePromo.subheadingLine1')}<br />
-                    {t('sweep.settings.apiKeys.upgradePromo.subheadingLine2')}</span>
-                  </h2>
-                </div>
-
-                {/* Spacer */}
-                <div className="flex-1" />
-
-                {/* Buttons at bottom */}
-                <div className="flex items-center gap-3">
-                  <Button
-                    onClick={() => setShowPricingDialog(true)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="!h-[18px] !w-[18px]">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="m15 11.25-3-3m0 0-3 3m3-3v7.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                    </svg>
-                    {t('sweep.settings.apiKeys.upgradePromo.upgradeButton')}
-                  </Button>
-                  <Button variant="outline" className="rounded-lg">
-                    {t('sweep.settings.apiKeys.upgradePromo.learnMore')}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Right side - Code preview */}
-              <AnimatedCodePreview />
-            </div>
-          </CardContent>
-        </Card>
-
-        <PricingDialog
-          open={showPricingDialog}
-          onOpenChange={setShowPricingDialog}
-          excludePlans={['business']}
-          highlightPlan="scale"
-          featureHighlight={{
-            feature: t('sweep.settings.apiKeys.upgradePromo.featureName'),
-            description: t('sweep.settings.apiKeys.upgradePromo.featureDescription'),
-            plan: 'Pro',
-          }}
-        />
       </div>
     )
   }

@@ -145,6 +145,20 @@ async function getUserSchedulingContext(db: Database, userId: string): Promise<S
   };
 }
 
+/**
+ * Whether this user lets the scheduler place their tasks in free calendar
+ * slots (`uiPreferences.autoScheduleTasks`; absent = on).
+ */
+export async function isTaskAutoScheduleEnabled(db: Database, userId: string): Promise<boolean> {
+  const { userPreferences } = schema;
+  const [prefs] = await db
+    .select({ uiPreferences: userPreferences.uiPreferences })
+    .from(userPreferences)
+    .where(and(eq(userPreferences.userId, userId), isNull(userPreferences.deletedAt)))
+    .limit(1);
+  return prefs?.uiPreferences?.autoScheduleTasks !== false;
+}
+
 // ── Find free slot algorithm ────────────────────────────────────────────
 
 type SearchDirection = 'forward' | 'backward' | 'auto';
@@ -786,10 +800,38 @@ interface CreateEventParams {
   priority?: string | null;
 }
 
+/** Where the first free-slot search for a new event looks, and in which direction. */
+function initialSchedulingWindow(
+  dueDate: Date | null,
+  now: Date,
+): { deadline: Date; direction: SearchDirection } {
+  if (!dueDate) {
+    // No-deadline path: 60-day forward window.
+    return {
+      deadline: new Date(now.getTime() + MAX_SEARCH_DAYS_NO_DEADLINE * 24 * 60 * 60 * 1000),
+      direction: 'forward',
+    };
+  }
+  // Real-deadline path: keep historical behaviour.
+  if (dueDate <= now && (now.getTime() - dueDate.getTime()) < 24 * 60 * 60 * 1000) {
+    // Timezone edge case: "today" might be just past midnight UTC even though
+    // it's still today in the user's tz. Extend to end of today so we can
+    // still place the event in remaining working hours.
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+    return { deadline: endOfToday, direction: 'auto' };
+  }
+  return { deadline: dueDate, direction: 'auto' };
+}
+
+/**
+ * Returns the new event id, or `null` when nothing was placed: the user turned
+ * off task auto-scheduling and the task has no explicit start date.
+ */
 export async function createCalendarEventForTask(
   db: Database,
   params: CreateEventParams,
-): Promise<string> {
+): Promise<string | null> {
   const { calendarEvents } = schema;
   const calendarId = await ensureDefaultCalendar(db, params.userId);
   const id = generateId('evt');
@@ -832,29 +874,17 @@ export async function createCalendarEventForTask(
     return id;
   }
 
+  // The opt-out covers tasks only; other sources (activities, …) still auto-place.
+  const honoursTaskOptOut = resolvedSourceType === 'task';
+  if (honoursTaskOptOut && !(await isTaskAutoScheduleEnabled(db, params.userId))) return null;
+  const placed = (eventId: string) =>
+    honoursTaskOptOut ? keepUnlessTaskAutoScheduleOff(db, params.userId, eventId) : eventId;
+
   const ctx = await getUserSchedulingContext(db, params.userId);
   const hasDueDate = !!params.dueDate;
-
-  let schedulingDeadline: Date;
-  let direction: SearchDirection;
-
-  if (hasDueDate) {
-    // Real-deadline path: keep historical behaviour.
-    schedulingDeadline = params.dueDate as Date;
-    if (schedulingDeadline <= now && (now.getTime() - schedulingDeadline.getTime()) < 24 * 60 * 60 * 1000) {
-      // Timezone edge case: "today" might be just past midnight UTC even though
-      // it's still today in the user's tz. Extend to end of today so we can
-      // still place the event in remaining working hours.
-      const endOfToday = new Date(now);
-      endOfToday.setHours(23, 59, 59, 999);
-      schedulingDeadline = endOfToday;
-    }
-    direction = 'auto';
-  } else {
-    // No-deadline path: 60-day forward window.
-    schedulingDeadline = new Date(now.getTime() + MAX_SEARCH_DAYS_NO_DEADLINE * 24 * 60 * 60 * 1000);
-    direction = 'forward';
-  }
+  const searchWindow = initialSchedulingWindow(params.dueDate ?? null, now);
+  let schedulingDeadline = searchWindow.deadline;
+  const direction = searchWindow.direction;
 
   let slot = await findFreeSlot(db, {
     userId: params.userId,
@@ -899,7 +929,7 @@ export async function createCalendarEventForTask(
       createdAt: now,
       updatedAt: now,
     });
-    return id;
+    return placed(id);
   }
 
   // No free slot — try cascading bumps for medium+ priority tasks
@@ -937,7 +967,7 @@ export async function createCalendarEventForTask(
       const nextVisited = new Set([id]);
       await rescheduleBumpedEvent(db, candidate, ctx, nextVisited, 1);
 
-      return id;
+      return placed(id);
     }
   }
 
@@ -973,7 +1003,23 @@ export async function createCalendarEventForTask(
     console.warn('[calendar-sync] No slot found within 90 days for new no-dueDate event', id);
   }
 
-  return id;
+  return placed(id);
+}
+
+/**
+ * Closes the race with turning auto-scheduling off. The opt-out saves the
+ * preference before it clears the user's events, so a placement that read the
+ * old preference but inserted after that clear sees the new one here and
+ * removes its event again.
+ */
+async function keepUnlessTaskAutoScheduleOff(
+  db: Database,
+  userId: string,
+  eventId: string,
+): Promise<string | null> {
+  if (await isTaskAutoScheduleEnabled(db, userId)) return eventId;
+  await deleteCalendarEvent(db, eventId);
+  return null;
 }
 
 // ── Update calendar event for a task ────────────────────────────────────
@@ -1041,10 +1087,11 @@ interface RescheduleParams {
   priority?: string | null;
 }
 
+/** Returns the event id the task should point at, or `null` when it no longer has one. */
 export async function rescheduleCalendarEvent(
   db: Database,
   params: RescheduleParams,
-): Promise<string> {
+): Promise<string | null> {
   const { calendarEvents } = schema;
 
   // Pinned events (autoScheduled=false) reflect a user's explicit choice of
@@ -1152,6 +1199,43 @@ export async function deleteCalendarEvent(db: Database, calendarEventId: string)
     );
 }
 
+// ── Auto-scheduling turned off: clear the user's auto-placed task events ─
+
+/**
+ * Soft-delete every auto-scheduled task event this user organises and unlink
+ * it from its task. Pinned events (a start the user chose) stay. Called when
+ * the user turns off `uiPreferences.autoScheduleTasks`; safe to repeat.
+ *
+ * One statement (data-modifying CTEs), so it is atomic without a transaction,
+ * which the tenant DB's neon-http driver cannot open.
+ */
+export async function removeAutoScheduledTaskEvents(db: Database, userId: string): Promise<number> {
+  const { calendarEvents, tasks } = schema;
+  // UTC wall time, as drizzle writes these timestamp-without-zone columns.
+  const now = new Date().toISOString();
+  const result = await db.execute(sql`
+    WITH removed AS (
+      UPDATE ${calendarEvents}
+      SET deleted_at = ${now}::timestamp, updated_at = ${now}::timestamp
+      WHERE organizer_id = ${userId}
+        AND source_type = 'task'
+        AND auto_scheduled = true
+        AND deleted_at IS NULL
+      RETURNING id
+    ), unlinked AS (
+      UPDATE ${tasks}
+      SET calendar_event_id = NULL
+      WHERE calendar_event_id IN (SELECT id FROM removed)
+    )
+    SELECT count(*)::int AS removed FROM removed
+  `);
+  // neon-http and pglite return { rows }, postgres-js the rows themselves.
+  const rows = (Array.isArray(result) ? result : (result as { rows: unknown[] }).rows) as {
+    removed: number;
+  }[];
+  return rows[0]?.removed ?? 0;
+}
+
 // ── Nightly re-plan: catch up stale auto-scheduled events ───────────────
 
 /**
@@ -1175,7 +1259,10 @@ function replannableEventConditions(db: Database) {
         .where(and(
           eq(userPreferences.userId, calendarEvents.organizerId),
           isNull(userPreferences.deletedAt),
-          sql`${userPreferences.uiPreferences}->>'autoRescheduleTasks' = 'false'`,
+          or(
+            sql`${userPreferences.uiPreferences}->>'autoRescheduleTasks' = 'false'`,
+            sql`${userPreferences.uiPreferences}->>'autoScheduleTasks' = 'false'`,
+          ),
         )),
     ),
   ];
@@ -1204,8 +1291,9 @@ export async function nextAutoScheduledReplanAt(db: Database): Promise<Date | nu
  * the past while their source task is still incomplete. Reschedule each so
  * the calendar reflects "what's coming up", not "what should have happened".
  *
- * Users who set `uiPreferences.autoRescheduleTasks = false` are skipped:
- * their past slots stay where they were. The opt-out and finished tasks are
+ * Users who set `uiPreferences.autoRescheduleTasks = false` (or turned off
+ * auto-scheduling altogether with `autoScheduleTasks = false`) are skipped:
+ * their past slots stay where they were. The opt-outs and finished tasks are
  * filtered in SQL so those events never consume the batch limit.
  *
  * Intended to be invoked from the daily calendar-api sweep, one due

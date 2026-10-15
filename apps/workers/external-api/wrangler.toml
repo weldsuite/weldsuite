@@ -15,6 +15,14 @@
 #   Only read on the connect flow, which this worker does not expose; set for
 #   parity if that changes.)
 #   (POSTPEER_BASE_URL defaults to https://api.postpeer.dev/v1; override via [vars].)
+#
+# WeldReach (/v1/reach/*, docs/plans/weldreach-external-api.md) adds no secrets:
+# it runs reach-api's domain code with this worker's DATABASE_ENCRYPTION_KEY (it
+# opens the mailbox logins reach-api sealed with the same key). Its bindings:
+# SCHEDULE_INDEX (reach-api's D1 schedule index: launch / resume / enrol wake the
+# send sweep), FLAGSHIP (the `weldreach-sending` kill switch, same Flagship apps as
+# reach-api), and the existing WORKSPACE_CACHE (reach-api's KV: the shared 60 s
+# app-access cache), STORAGE (raw inbound replies) and HYPERDRIVE_MASTER.
 name = "weldsuite-external-api"
 main = "src/index.ts"
 compatibility_date = "2024-09-23"
@@ -126,6 +134,13 @@ name = "SEND_EMAIL"
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
+# WeldReach: reach-api's D1 schedule index (`workspace_due_index`, kind reach_send).
+# The dev default points at the test database, like reach-api's.
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
 [vars]
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
 
@@ -152,6 +167,16 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 
 [[env.test.send_email]]
 name = "SEND_EMAIL"
+
+# WeldReach: reach-api's D1 schedule index (test) and Flagship app (kill switch).
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
@@ -301,6 +326,16 @@ id = "99689831a815455ba7f836175e5e17c9"
 
 [[env.production.send_email]]
 name = "SEND_EMAIL"
+
+# WeldReach: reach-api's D1 schedule index (production) and Flagship app (kill switch).
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 
 # Entity-event sinks (production)
 [[env.production.queues.producers]]

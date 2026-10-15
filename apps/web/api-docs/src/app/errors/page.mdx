@@ -32,8 +32,8 @@ Every error response has the same shape: a single `error` object with a machine-
   <Property name="error.message" type="string">
     A human-readable explanation of what went wrong.
   </Property>
-  <Property name="error.details" type="array">
-    Optional. Present on validation errors (`BAD_REQUEST`), an array of Zod issues, each with a `path` and `message`.
+  <Property name="error.details" type="array | object">
+    Optional. On validation errors (`BAD_REQUEST`), an array of Zod issues, each with a `path` and `message`. Some other errors carry an object with more context, such as `APP_ACCESS_REQUIRED` below.
   </Property>
 </Properties>
 
@@ -45,12 +45,15 @@ Every error response has the same shape: a single `error` object with a machine-
 |--------|--------|-------------|
 | 400 | `BAD_REQUEST` | The request body or query failed validation. `details` lists the offending fields. |
 | 401 | `UNAUTHORIZED` | The API key is missing, malformed, revoked, or expired. |
-| 403 | `FORBIDDEN` | The API key is valid but lacks the scope required for this endpoint, or the workspace plan has no API access. |
+| 403 | `FORBIDDEN` | The API key is valid but lacks the scope required for this endpoint. |
+| 403 | `APP_ACCESS_REQUIRED` | The endpoint belongs to a module that is available on request only, such as [WeldReach](/weldreach), and WeldSuite has not approved the workspace for it. `details` holds `appCode` and the access `status`. See [Access errors](#access-errors). |
 | 404 | `NOT_FOUND` | The requested resource does not exist (or is soft-deleted). |
 | 405 | `METHOD_NOT_ALLOWED` | The resource does not accept this HTTP method. Most WeldBooks resources are read-only through the API, so `POST`, `PUT`, `PATCH` and `DELETE` on them return 405 whatever the key's scopes. See the [WeldBooks overview](/weldbooks). |
 | 409 | `CONFLICT` | The request conflicts with the current state of the resource. |
 | 429 | `RATE_LIMITED` | You exceeded your plan's rate limit. A `Retry-After` header indicates when to retry. |
 | 500 | `INTERNAL_ERROR` | An unexpected server error occurred. Retry with backoff. |
+| 502 | `UPSTREAM_ERROR` | A service behind the endpoint did not accept the request, such as the mail server of a [WeldReach reply](/reach-threads#reply-to-a-thread). The message says why. |
+| 503 | `SERVICE_UNAVAILABLE` | The endpoint is switched off for the moment, such as [WeldReach sending](/weldreach#same-rules-as-the-app) while WeldSuite has paused it. Retry later. |
 
 ---
 
@@ -85,6 +88,22 @@ When your API key is valid but lacks the scope an endpoint requires, you receive
 ```
 
 See [Authentication](/authentication) for the full list of scopes and how to grant them.
+
+## Access errors
+
+Some modules are available on request only. Until WeldSuite approves the workspace for one, each of its endpoints returns a `403` with `code: "APP_ACCESS_REQUIRED"`, whatever scopes the key holds:
+
+```json {{ title: '403 Forbidden' }}
+{
+  "error": {
+    "code": "APP_ACCESS_REQUIRED",
+    "message": "This workspace has no approved access to weldreach.",
+    "details": { "appCode": "weldreach", "status": "requested" }
+  }
+}
+```
+
+`details.appCode` names the module and `details.status` is the workspace's access status: `none` (never requested), `requested`, `rejected`, `suspended` or `revoked`. Retrying does not help; request access in the WeldSuite app store, or wait for the review. See the [WeldReach overview](/weldreach#on-request-only).
 
 ## Rate-limit errors
 
@@ -128,7 +147,9 @@ async function apiRequest(path, options = {}) {
         return apiRequest(path, options)
       }
       case 'FORBIDDEN':
-        throw new Error(`Missing scope or no API access: ${message}`)
+        throw new Error(`Missing scope: ${message}`)
+      case 'APP_ACCESS_REQUIRED':
+        throw new Error(`Workspace not approved for ${details.appCode} (${details.status})`)
       case 'BAD_REQUEST':
         throw new Error(`Validation failed: ${JSON.stringify(details)}`)
       default:
