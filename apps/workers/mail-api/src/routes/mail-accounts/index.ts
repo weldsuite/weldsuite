@@ -25,6 +25,8 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import * as accounts from '../../services/mail/accounts';
 import { MailAccountError } from '../../services/mail/accounts';
 import { MailSendError, sendAndPersist } from '@weldsuite/mail-domain/send';
+import { sendErrorResponse } from '../../lib/send-errors';
+import { MAILBOX_DAILY_SEND_LIMIT_MAX } from '@weldsuite/app-api-client/schemas/outbound-mail';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -61,7 +63,9 @@ const createBody = z.object({
   syncEnabled: z.boolean().default(true),
   syncFrequency: z.number().int().default(5),
   signature: z.string().optional(),
-  dailySendLimit: z.number().int().default(500),
+  // A mailbox can lower its own daily limit, never raise it past the outbound
+  // guard's ceiling (docs/plans/weldmail-outbound-abuse.md).
+  dailySendLimit: z.number().int().min(1).max(MAILBOX_DAILY_SEND_LIMIT_MAX).default(500),
   isDefault: z.boolean().default(false),
   isShared: z.boolean().default(true),
   assignedUserIds: z.array(z.string()).optional(),
@@ -109,27 +113,6 @@ const sendBody = z.object({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Map a MailSendError to its HTTP status code. */
-function mapSendError(c: Parameters<typeof error.badRequest>[0], err: MailSendError) {
-  switch (err.code) {
-    case 'ACCOUNT_NOT_FOUND':
-      return error.notFound(c, 'Mail account');
-    case 'FORBIDDEN':
-      return error.forbidden(c, err.message);
-    case 'INVALID_RECIPIENTS':
-    case 'ATTACHMENT_NOT_IN_WORKSPACE':
-    case 'ATTACHMENT_NOT_IN_STORAGE':
-    case 'EMAIL_TOO_LARGE':
-      return error.badRequest(c, err.message, err.details);
-    case 'STORAGE_BINDING_MISSING':
-    case 'SEND_BINDING_MISSING':
-      return c.json(
-        { error: { code: err.code, message: err.message } },
-        503,
-      );
-  }
-}
 
 /** Map a MailAccountError to its HTTP status code. */
 function mapMailAccountError(c: Parameters<typeof error.badRequest>[0], err: MailAccountError) {
@@ -396,7 +379,7 @@ app.post(
           : 'Email sent successfully',
       });
     } catch (err) {
-      if (err instanceof MailSendError) return mapSendError(c, err);
+      if (err instanceof MailSendError) return sendErrorResponse(c, err, { resource: 'Mail account' });
       console.error('[app-api/mail-accounts] send failed:', err);
       return error.internal(c, 'Failed to send email');
     }

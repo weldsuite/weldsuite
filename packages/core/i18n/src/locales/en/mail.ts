@@ -1186,6 +1186,69 @@ export const mail = {
       snoozeNextMonth: 'Next month',
     },
 
+    // Outbound mail guard: why a send was refused, the banner while sending is
+    // restricted (docs/plans/weldmail-outbound-abuse.md).
+    sending: {
+      errors: {
+        sendingLimited: {
+          hour: 'This address has reached its hourly sending limit.',
+          day: 'You have reached your daily sending limit.',
+          month: 'Your workspace has reached its monthly sending limit.',
+          generic: 'You have reached a sending limit.',
+        },
+        limitLine: {
+          hour: 'Limit: {limit} recipients per hour.',
+          day: 'Limit: {limit} recipients per day.',
+          month: 'Limit: {limit} recipients per month.',
+          message: 'Limit: {limit} recipients per message.',
+          newContactsDay: 'Limit: {limit} new contacts per day.',
+        },
+        retryAt: 'You can send again {when}.',
+        retryNow: 'You can try again in a moment.',
+        contactSupportLimit: 'Contact support if you need a higher limit.',
+        contactSupport: 'Contact support if you think this is a mistake.',
+        firstContactLimited: {
+          default: 'You have reached today\'s limit for emailing people who have not written to you first.',
+          coldOutreachTemplate: 'Messages like this one are limited when they go to many people who have not written to you first.',
+          sharedDomain: 'Addresses on weldmail.com have a low daily limit for new contacts. Connect your own domain to send more.',
+          repliesNote: 'Replies to people who wrote to you are not affected.',
+        },
+        platformLimited: 'WeldMail is at its sending capacity for today, so mail to new contacts is paused. Replies still go through.',
+        onHold: 'New conversations are paused while we review your workspace\'s sending. You can still reply to messages you have received.',
+        suspended: 'Sending is suspended for your workspace. Contact support to get it restored.',
+        senderNotOwned: 'You cannot send from this address. It does not belong to your workspace.',
+        tooManyRecipients: 'This message has too many recipients. Split it into several messages.',
+        recipientSuppressed: 'Some recipients asked not to receive mail from your workspace. Remove them and send again.',
+        recipientSuppressedNamed: 'These recipients asked not to receive mail from your workspace: {recipients}. Remove them and send again.',
+        providerRateLimited: 'Our mail provider is slowing down sending for a moment. Try again shortly.',
+        providerDailyLimit: 'Mail sending is temporarily unavailable. We have been notified, try again later.',
+        partiallySent: 'The message reached {sent} but not {failed}.',
+        partiallySentHelp: 'It is saved in Sent. Remove the people who already have it before you send again, or they will get it twice.',
+        dailyLimitReached: 'This mailbox has reached its daily sending limit.',
+        senderDomainNotVerified: 'The domain of this address is not verified yet. Check its DNS records in WeldHost, or send from another address.',
+        invalidRecipients: 'One or more recipient addresses are invalid.',
+        invalidRecipientsNamed: 'These recipient addresses cannot be used: {recipients}.',
+        emailTooLarge: 'This email is too large to send. Remove attachments or shorten the message.',
+        andMore: 'and {count} more',
+      },
+      weldreach: {
+        notice: 'WeldMail is for one-to-one email. To run outreach campaigns to people who do not know you yet, use WeldReach.',
+        action: 'Request WeldReach access',
+        askAdmin: 'A workspace admin can request access in the App Store.',
+      },
+      banner: {
+        restrictedTitle: 'Sending is restricted',
+        restricted: 'Your workspace has lower sending limits for now.',
+        holdTitle: 'New conversations are paused',
+        hold: 'New conversations are paused while we review your workspace\'s sending.',
+        suspendedTitle: 'Sending is suspended',
+        suspended: 'Sending is suspended for your workspace.',
+        repliesStillWork: 'You can still reply to messages you have received.',
+        contactSupport: 'Contact support if you think this is a mistake.',
+        viewLimits: 'View sending limits',
+      },
+    },
+
     // Shared strings
     shared: {
       messageNotFound: 'Message not found',

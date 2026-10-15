@@ -19,6 +19,8 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import * as scheduled from '../../services/mail/scheduled';
 import { MailScheduledError } from '../../services/mail/scheduled';
+import { MailSendError } from '@weldsuite/mail-domain/send';
+import { sendErrorResponse } from '../../lib/send-errors';
 import { checkAccountAccess, emailEventData } from '@weldsuite/mail-domain/access';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 
@@ -215,6 +217,7 @@ app.post('/:messageId/send-now', requirePermission('messages:update'), async (c)
     return success(c, result);
   } catch (err) {
     if (err instanceof MailScheduledError) return mapScheduledError(c, err);
+    if (err instanceof MailSendError) return sendErrorResponse(c, err, { resource: 'Scheduled message', id: messageId });
     console.error('[app-api/mail-scheduled] send-now failed:', err);
     return error.internal(c, 'Failed to send email immediately');
   }

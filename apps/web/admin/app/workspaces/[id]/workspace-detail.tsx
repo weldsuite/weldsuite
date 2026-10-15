@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowLeft, Crown, Search, Users } from 'lucide-react';
+import { ArrowLeft, Crown, MailWarning, Search, Users } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
@@ -29,6 +29,8 @@ import { ActivityTable } from '@/components/billing/activity-table';
 import { AppAccessCard } from '@/components/app-access/app-access-card';
 import type { ReachUsage } from '@/lib/app-access';
 import type { WorkspaceAppAccessEntry } from '@/lib/app-access-data';
+import { STATE_LABELS, type OutboundState } from '@/lib/outbound-mail';
+import { cn } from '@/lib/utils';
 import { StatusBadge, formatDate } from '../workspace-presentation';
 import { SubscriptionCard } from './billing/subscription-card';
 import { CreditsCard } from './billing/credits-card';
@@ -66,6 +68,7 @@ export function WorkspaceDetail({
   snapshotState,
   appAccess,
   appUsage,
+  outbound,
   canWrite,
 }: Readonly<{
   workspace: WorkspaceRow;
@@ -81,6 +84,8 @@ export function WorkspaceDetail({
   appAccess: WorkspaceAppAccessEntry[];
   /** WeldReach usage by app code, for the apps that have any. */
   appUsage: Partial<Record<string, ReachUsage>>;
+  /** The outbound mail guard's state for the workspace, for the link to its screen. */
+  outbound: { state: OutboundState; riskScore: number; openCases: number };
   canWrite: boolean;
 }>) {
   const t = adminCopy();
@@ -111,6 +116,8 @@ export function WorkspaceDetail({
                 <span className="text-xs">{workspace.planName ?? 'no plan'}</span>
                 <span aria-hidden>·</span>
                 <span className="text-xs">created {formatDate(workspace.createdAt, false)}</span>
+                <span aria-hidden>·</span>
+                <OutboundLink workspaceId={workspace.id} outbound={outbound} />
               </span>
             }
             actions={<StatusBadge workspace={workspace} />}
@@ -268,6 +275,28 @@ export function WorkspaceDetail({
         </Tabs>
       </PageBody>
     </PageContent>
+  );
+}
+
+/** Link to the workspace's Outbound mail screen, with its state when it is not plain active. */
+function OutboundLink({
+  workspaceId,
+  outbound,
+}: Readonly<{ workspaceId: string; outbound: { state: OutboundState; riskScore: number; openCases: number } }>) {
+  const notes: string[] = [];
+  if (outbound.state !== 'active') notes.push(STATE_LABELS[outbound.state].toLowerCase());
+  if (outbound.openCases > 0) notes.push(outbound.openCases === 1 ? '1 open case' : `${outbound.openCases} open cases`);
+  return (
+    <Link
+      href={`/outbound-mail/${workspaceId}`}
+      className={cn(
+        'inline-flex items-center gap-1 text-xs underline-offset-2 hover:underline',
+        notes.length > 0 && 'font-medium text-amber-600 dark:text-amber-400',
+      )}
+    >
+      <MailWarning className="h-3.5 w-3.5" />
+      Outbound mail{notes.length > 0 ? `: ${notes.join(', ')}` : ''}
+    </Link>
   );
 }
 

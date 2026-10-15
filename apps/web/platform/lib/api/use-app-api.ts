@@ -46,6 +46,7 @@ import { createMailSubscriptionsApi } from '@weldsuite/app-api-client/domains/ma
 import { createMailSyncApi } from '@weldsuite/app-api-client/domains/mail-sync';
 import { createMailThreadsApi } from '@weldsuite/app-api-client/domains/mail-threads';
 import { createMailWeldMailApi } from '@weldsuite/app-api-client/domains/mail-weldmail';
+import { createMailSendingApi } from '@weldsuite/app-api-client/domains/mail-sending';
 import { createMailAiApi } from '@weldsuite/app-api-client/domains/mail-ai';
 import { createAiApi } from '@weldsuite/app-api-client/domains/ai';
 import { createWmsSuppliersApi } from '@weldsuite/app-api-client/domains/wms-suppliers';
@@ -164,6 +165,7 @@ export function useAppApi() {
       mailSync: createMailSyncApi(lazyClient),
       mailThreads: createMailThreadsApi(lazyClient),
       mailWeldMail: createMailWeldMailApi(lazyClient),
+      mailSending: createMailSendingApi(lazyClient),
       mailAi: createMailAiApi(lazyClient),
       wmsSuppliers: createWmsSuppliersApi(lazyClient),
       featureFlags: createFeatureFlagsApi(lazyClient),

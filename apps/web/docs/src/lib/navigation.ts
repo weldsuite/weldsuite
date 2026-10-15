@@ -34,6 +34,7 @@ export const navigation = [
       { title: 'Overview', href: '/weldmail' },
       { title: 'Connect an email account', href: '/weldmail/connect-account' },
       { title: 'Send and reply to email', href: '/weldmail/send-email' },
+      { title: 'Sending limits', href: '/weldmail/sending-limits' },
     ],
   },
   {

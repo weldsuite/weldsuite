@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    // @weldsuite/emails exports its templates as .tsx source (no build step);
+    // the outbound guard's staff alerts (src/cron/outbound-alerts.ts) import it, so this needs a jsx mode
+    // to resolve those files' types. Matches the emails package's own tsconfig.
+    "jsx": "react-jsx",
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",

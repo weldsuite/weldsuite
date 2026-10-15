@@ -1,0 +1,29 @@
+{
+  "name": "outbound-audit",
+  "license": "AGPL-3.0-only",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only audit of outbound customer mail (WeldMail, CRM sequences, WeldConnect) per workspace. See README.md.",
+  "scripts": {
+    "audit:outbound": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/cloudflare-zones": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/mail-domain": "workspace:*",
+    "dotenv": "^17.2.3",
+    "postgres": "^3.4.7",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  }
+}

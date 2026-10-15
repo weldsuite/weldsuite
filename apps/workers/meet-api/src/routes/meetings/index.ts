@@ -72,7 +72,7 @@ import {
   getMeetingPortalUrl,
   mergeInvitees,
   normalizeInvitees,
-  sendInvitationEmail,
+  sendInvitationEmails,
   toMeetingAttendees,
   type ResolvedInvitee,
 } from '../../services/weldmeet/invitations';
@@ -771,22 +771,21 @@ app.post(
         existing.joinCode,
       );
       const sendEmail = body.sendEmail !== false;
-      const sent = await Promise.all(
-        added.map((attendee) =>
-          sendEmail
-            ? sendInvitationEmail(env, {
-                meeting: existing,
-                organizer: {
-                  name: inviter?.name || organizer?.name || 'Someone',
-                  email: organizer?.email ?? '',
-                  timezone: organizer?.timezone ?? undefined,
-                },
-                joinUrl,
-                attendee: { email: attendee.email, name: attendee.name },
-              })
-            : Promise.resolve(false),
-        ),
-      );
+      // One check by the outbound mail guard for the whole batch; a refusal
+      // leaves the attendees saved and reports emailSent: false for each.
+      const sent = sendEmail
+        ? await sendInvitationEmails(env, {
+            meeting: existing,
+            organizer: {
+              name: inviter?.name || organizer?.name || 'Someone',
+              email: organizer?.email ?? '',
+              timezone: organizer?.timezone ?? undefined,
+            },
+            joinUrl,
+            attendees: added.map((a) => ({ email: a.email, name: a.name })),
+            outbound: { db, clerkOrgId: orgId },
+          })
+        : added.map(() => false);
 
       return success(c, {
         attendees,
