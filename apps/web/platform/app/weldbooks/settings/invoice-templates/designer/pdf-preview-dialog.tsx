@@ -27,8 +27,11 @@ export function PdfPreviewDialog({ open, onOpenChange, layout }: Readonly<PdfPre
     setState({ status: 'loading' });
     (async () => {
       try {
-        const { renderInvoicePdf } = await import('@weldsuite/books-domain/invoice-template/pdf');
-        const bytes = await renderInvoicePdf(layout);
+        const [{ renderInvoicePdf }, { loadInvoiceFont }] = await Promise.all([
+          import('@weldsuite/books-domain/invoice-template/pdf'),
+          import('@/lib/weldbooks/invoice-fonts'),
+        ]);
+        const bytes = await renderInvoicePdf(layout, { loadFont: loadInvoiceFont });
         if (cancelled) return;
         url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
         setState({ status: 'ready', url });

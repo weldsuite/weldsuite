@@ -40,6 +40,14 @@ main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
+# The invoice-template fonts (@weldsuite/books-domain/invoice-template/fonts,
+# ~1.4 MB of Noto subsets) ship as Data modules: importing one gives its bytes.
+# Served at /public/invoice-fonts for the printable invoice HTML's @font-face.
+[[rules]]
+type = "Data"
+globs = ["**/*.ttf"]
+fallthrough = false
+
 # @weldsuite/db's lib barrel optionally imports Next.js / React helpers that
 # crash the Workers runtime; alias them to the kit's empty shims.
 [alias]

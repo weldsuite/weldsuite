@@ -3497,7 +3497,7 @@ export const accounting = {
         duplicate: 'Duplicate',
         delete: 'Delete',
         font: 'Font',
-        fonts: { helvetica: 'Helvetica', times: 'Times', courier: 'Courier' },
+        fonts: { helvetica: 'Noto Sans', times: 'Noto Serif', courier: 'Noto Sans Mono' },
         accent: 'Accent colour',
         textColor: 'Text colour',
         mutedColor: 'Muted colour',

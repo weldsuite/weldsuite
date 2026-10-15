@@ -1,12 +1,20 @@
-import { PDFDocument } from 'pdf-lib';
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
+import fontkit from '@pdf-lib/fontkit';
+import { PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
 import type { InvoiceDocumentData } from './data';
-import { drawableText, textWidth, wrapText } from './fonts';
+import { FONT_FACE_KEYS, FONT_METRICS, drawableText, faceKeyOf, normalizeText, textWidth, wrapText } from './fonts';
 import { layoutInvoice, type InvoiceLayout } from './layout';
 import { renderInvoicePdf } from './pdf';
 import { TEMPLATE_PRESETS, presetTemplate } from './presets';
-import { invoiceTemplateDocumentSchema, type InvoiceTemplateDocument } from './schema';
-import { renderInvoiceHtmlDocument, renderPageSvg } from './svg';
+import { TEMPLATE_FONTS, invoiceTemplateDocumentSchema, type InvoiceTemplateDocument } from './schema';
+import { invoiceFontFaceCss, renderInvoiceHtmlDocument, renderPageSvg } from './svg';
+
+const fontDir = join(dirname(fileURLToPath(import.meta.url)), 'fonts');
+const loadFont = (file: string) => readFile(join(fontDir, file));
 
 function data(rows = 3, overrides: Partial<InvoiceDocumentData> = {}): InvoiceDocumentData {
   return {
@@ -163,9 +171,47 @@ describe('fonts', () => {
     for (const line of lines) expect(textWidth(line, 9, { font: 'helvetica' })).toBeLessThanOrEqual(60);
   });
 
-  it('keeps every character for the HTML and replaces the ones the PDF fonts cannot draw', () => {
-    expect(wrapText('Łódź ₹', 9, { font: 'helvetica' }, 500)).toEqual(['Łódź ₹']);
-    expect(drawableText('Łódź ₹')).toBe('?ód? ?');
+  it('draws Central European, Greek, Cyrillic and currency characters as they are', () => {
+    for (const font of TEMPLATE_FONTS) {
+      for (const text of ['Łódź ₹', 'Ővári Čapek Śląsk Ștefan', 'Αθήνα Київ Москва', '€ £ ¥ ₺ ₴ ₽ ₿ ₫ ₪ №']) {
+        expect(wrapText(text, 9, { font }, 2000)).toEqual([text]);
+        expect(drawableText(text, { font, bold: true, italic: true })).toBe(text);
+      }
+    }
+  });
+
+  it('replaces only what the bundled fonts lack (CJK, emoji) in the PDF', () => {
+    expect(drawableText('Tokyo 東京 🙂 €', { font: 'helvetica' })).toBe('Tokyo ?? ? €');
+    expect(textWidth('東', 10, { font: 'helvetica' })).toBe(textWidth('?', 10, { font: 'helvetica' }));
+  });
+
+  it('composes decomposed accents and drops invisible format characters', () => {
+    expect(normalizeText('Café co­op​')).toBe('Café coop');
+  });
+
+  it('ships fonts whose glyphs survive pdf-lib subsetting (every glyph an even number of bytes)', async () => {
+    // fontkit's subsetter writes a short loca (offsets / 2): an odd-length glyph breaks every glyph after it.
+    for (const key of FONT_FACE_KEYS) {
+      const font = fontkit.create(await loadFont(FONT_METRICS[key].file)) as unknown as { loca: { offsets: number[] } };
+      expect(font.loca.offsets.every((offset) => offset % 2 === 0), key).toBe(true);
+    }
+  });
+
+  it('measures with the widths of the font files that ship', async () => {
+    const sample = 'Łódź ₹ 1.234,56 Αθήνα Київ WAVE fi';
+    for (const key of FONT_FACE_KEYS) {
+      const font = fontkit.create(await loadFont(FONT_METRICS[key].file));
+      const expected = Array.from(sample).reduce((sum, ch) => sum + font.glyphForCodePoint(ch.codePointAt(0)!).advanceWidth, 0);
+      const [family, ...style] = key.split('-');
+      const face = {
+        font: (({ sans: 'helvetica', serif: 'times', mono: 'courier' }) as const)[family as 'sans' | 'serif' | 'mono'],
+        bold: style.includes('bold'),
+        italic: style.includes('italic'),
+      };
+      expect(faceKeyOf(face)).toBe(key);
+      // At 1000pt a width in points is a width in 1/1000 em.
+      expect(textWidth(sample, 1000, face)).toBeCloseTo((expected * 1000) / font.unitsPerEm, 6);
+    }
   });
 });
 
@@ -178,10 +224,41 @@ describe('painters', () => {
     expect(renderInvoiceHtmlDocument(layout, { title: 'INV <1>' })).toContain('<title>INV &lt;1&gt;</title>');
   });
 
+  it('points the HTML at the bundled fonts and turns kerning off', () => {
+    const layout = layoutInvoice(presetTemplate('classic', 'a4'), data(1));
+    const html = renderInvoiceHtmlDocument(layout, { title: 'INV-1', fontUrl: (file, hash) => `https://fonts.test/${file}?v=${hash}` });
+    expect(html).toContain(`src:url("https://fonts.test/noto-sans-regular.ttf?v=${FONT_METRICS['sans-regular'].hash}") format("truetype");font-weight:400;font-style:normal`);
+    expect(html).toContain("font-family:'WeldBooks Noto Serif';src:url(\"https://fonts.test/noto-serif-bold-italic.ttf");
+    expect(html).toContain('font-kerning:none');
+    expect(renderPageSvg(layout, 0)).toContain(`font-family="'WeldBooks Noto Sans', 'Noto Sans'`.replaceAll("'", '&#39;'));
+    // A URL can't break out of the <style> element.
+    expect(invoiceFontFaceCss(() => '"></style><script>x</script>')).not.toContain('</style>');
+  });
+
   it('draws a PDF with one page per layout page', async () => {
     const layout = layoutInvoice(presetTemplate('modern', 'a4'), data(80));
-    const bytes = await renderInvoicePdf(layout, { loadImage: async () => null });
+    const bytes = await renderInvoicePdf(layout, { loadImage: async () => null, loadFont });
     const pdf = await PDFDocument.load(bytes);
     expect(pdf.getPageCount()).toBe(layout.pages.length);
+  });
+
+  it('prints Łódź ₹ into the PDF with the embedded font, not as "?"', async () => {
+    const layout = layoutInvoice(
+      presetTemplate('classic', 'a4'),
+      data(1, { billTo: { name: 'Łódź ₹ Spółka', lines: ['Αθήνα', 'Київ'] } }),
+    );
+    expect(texts(layout)).toContain('Łódź ₹ Spółka');
+    const pdf = await PDFDocument.load(await renderInvoicePdf(layout, { loadImage: async () => null, loadFont }));
+
+    // Every embedded font maps its drawn glyphs back to Unicode (ToUnicode CMap): the text is really there.
+    const drawn = new Set<number>();
+    for (const [, obj] of pdf.context.enumerateIndirectObjects()) {
+      if (!(obj instanceof PDFDict) || obj.get(PDFName.of('Subtype'))?.toString() !== '/Type0') continue;
+      const toUnicode = pdf.context.lookup(obj.get(PDFName.of('ToUnicode')));
+      if (!(toUnicode instanceof PDFRawStream)) throw new Error('font without a ToUnicode map');
+      const cmap = inflateSync(toUnicode.contents).toString('latin1');
+      for (const m of cmap.matchAll(/<[0-9A-F]+> <([0-9A-F]{4})>/gi)) drawn.add(Number.parseInt(m[1], 16));
+    }
+    for (const ch of 'Łłóź₹ΑθК') expect(drawn, `U+${ch.codePointAt(0)!.toString(16)}`).toContain(ch.codePointAt(0));
   });
 });

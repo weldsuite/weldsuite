@@ -16,6 +16,7 @@ import type { InvoiceTemplateDocument, TemplateBlock, TemplateBlockType } from '
 import { renderPageSvg } from '@weldsuite/books-domain/invoice-template/svg';
 import { PAPER_SIZES } from '@weldsuite/books-domain/invoice-template/schema';
 import { useI18n } from '@/lib/i18n/provider';
+import { useInvoiceFontFaces } from '@/lib/weldbooks/invoice-fonts';
 import { cn } from '@/lib/utils';
 import { BlockBox } from './block-box';
 import { minSizeOf } from './model/block-factory';
@@ -103,6 +104,7 @@ export function DesignerCanvas({ doc, layout, selection, scale, readOnly, dispat
   const cleanupRef = useRef<(() => void) | null>(null);
   const gestureCounter = useRef(0);
 
+  useInvoiceFontFaces();
   const paper = PAPER_SIZES[doc.paperSize];
   const pages = useMemo(() => (layout ? layout.pages.map((_, i) => renderPageSvg(layout, i, { withSize: false })) : []), [layout]);
   const placements = useMemo(() => new Map((layout?.placements ?? []).map((p) => [p.id, p])), [layout]);

@@ -339,6 +339,8 @@ describe('/api/invoices · templateId', () => {
     const designedHtml = await printed(designed.data.id);
     expect(designedHtml).toContain('<svg');
     expect(designedHtml).toContain('>base</text>');
+    // The reader's browser loads the fonts the layout measured with, from this worker.
+    expect(designedHtml).toMatch(/src:url\("https?:\/\/[^"]+\/public\/invoice-fonts\/noto-sans-regular\.ttf\?v=[0-9a-f]{12}"\)/);
 
     const plainEntity = 'ent_tpl_plain';
     await db.insert(schema.entities).values({ id: plainEntity, name: plainEntity, jurisdictionCode: 'IN', baseCurrency: 'INR', locale: 'en-IN' });

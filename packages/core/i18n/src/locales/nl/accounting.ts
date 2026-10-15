@@ -3530,7 +3530,7 @@ export const accounting = {
         duplicate: 'Dupliceren',
         delete: 'Verwijderen',
         font: 'Lettertype',
-        fonts: { helvetica: 'Helvetica', times: 'Times', courier: 'Courier' },
+        fonts: { helvetica: 'Noto Sans', times: 'Noto Serif', courier: 'Noto Sans Mono' },
         accent: 'Accentkleur',
         textColor: 'Tekstkleur',
         mutedColor: 'Gedempte kleur',

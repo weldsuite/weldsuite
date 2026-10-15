@@ -38,6 +38,7 @@ import {
 } from '@weldsuite/books-domain/accounting-guards';
 import { generateInvoiceHtml, generateTemplatedInvoiceHtml, type InvoiceRenderData } from '@weldsuite/books-domain/accounting-invoice-html';
 import { brInvoiceRenderExtras } from '../../services/br-invoice-render';
+import { invoiceFontUrls } from '../../services/invoice-fonts';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { streamDocumentAttachment } from '../../lib/document-attachment';
 import {
@@ -791,7 +792,11 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
     };
     // The invoice's designed template, else the entity's default, else the built-in layout.
     const template = await resolveInvoiceTemplate(db, { templateId: invoice.templateId, entityId: invoice.entityId });
-    const html = template ? generateTemplatedInvoiceHtml(template, renderData, entityRow) : generateInvoiceHtml(renderData, entityRow);
+    const html = template
+      ? generateTemplatedInvoiceHtml(template, renderData, entityRow, {
+          fontUrl: invoiceFontUrls(c.env.BOOKS_API_URL || new URL(c.req.url).origin),
+        })
+      : generateInvoiceHtml(renderData, entityRow);
 
     return new Response(html, {
       headers: {
