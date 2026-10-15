@@ -1306,7 +1306,6 @@ export default function CrmTasksClient() {
           availableLabels={availableLabels}
           members={availableAssignees}
           subtaskProgress={subtaskProgress}
-          formatDate={formatDate}
         />
       )}
 
