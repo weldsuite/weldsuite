@@ -25,8 +25,7 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
-import { Badge } from '@weldsuite/ui/components/badge';
-import { CalendarIcon, Repeat2, X } from 'lucide-react';
+import { CalendarIcon, Repeat2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { formatLocalized as format } from '@/lib/i18n/date-locale';
@@ -64,8 +63,6 @@ export function CreateTaskDialog({
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState('');
   // Scheduler fields
   const [durationValue, setDurationValue] = useState<number>(30);
   const [durationUnit, setDurationUnit] = useState<'min' | 'hr'>('min');
@@ -82,8 +79,6 @@ export function CreateTaskDialog({
       setStatus('todo');
       setPriority('medium');
       setDueDate(undefined);
-      setTags([]);
-      setTagInput('');
       setDurationValue(30);
       setDurationUnit('min');
       setStartDate(undefined);
@@ -92,17 +87,6 @@ export function CreateTaskDialog({
       setRepeatUnit('days');
     }
     onOpenChange(newOpen);
-  };
-
-  const handleAddTag = () => {
-    if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-      setTags([...tags, tagInput.trim()]);
-      setTagInput('');
-    }
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    setTags(tags.filter(tag => tag !== tagToRemove));
   };
 
   const handleCreateTask = () => {
@@ -117,7 +101,6 @@ export function CreateTaskDialog({
         status,
         priority,
         dueDate: dueDate?.toISOString(),
-        tags: tags.length > 0 ? tags : undefined,
         duration: durationMinutes,
         startDate: startDate?.toISOString(),
         repeat: buildRepeatPayload(repeat, repeatInterval, repeatUnit),
@@ -133,7 +116,6 @@ export function CreateTaskDialog({
         setStatus('todo');
         setPriority('medium');
         setDueDate(undefined);
-        setTags([]);
         setDurationValue(30);
         setDurationUnit('min');
         setStartDate(undefined);
@@ -314,41 +296,6 @@ export function CreateTaskDialog({
             </Popover>
           </div>
 
-          <div className="grid gap-2">
-            <Label className="text-[13px]">{t('sweep.shared.tags')}</Label>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {tags.map((tag) => (
-                <Badge key={tag} variant="secondary" className="gap-1">
-                  {tag}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => handleRemoveTag(tag)}
-                    className="ml-1 hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </Badge>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <Input
-                placeholder={t('sweep.shared.addATagPlaceholder')}
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddTag();
-                  }
-                }}
-                className="focus-visible:ring-0 focus-visible:ring-offset-0"
-              />
-              <Button type="button" variant="outline" onClick={handleAddTag} disabled={!tagInput.trim()}>
-                {t('sweep.shared.add')}
-              </Button>
-            </div>
-          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

@@ -25,7 +25,6 @@ import {
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
 import { Calendar } from '@weldsuite/ui/components/calendar';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { useObjectPanel } from '@/components/object-panel';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
 import {
@@ -55,7 +54,6 @@ import {
   Repeat,
   ListTodo,
   Paperclip,
-  Link,
   ChevronRight,
   FolderInput,
 } from 'lucide-react';
@@ -201,7 +199,6 @@ function transformApiTask(apiTask: RawApiTask): Task {
     dueDate: apiTask.dueDate ? new Date(apiTask.dueDate) : undefined,
     duration: apiTask.duration ?? undefined,
     createdAt: new Date(apiTask.createdAt),
-    tags: apiTask.tags || undefined,
     labels: apiTask.labels || undefined,
     customFields: apiTask.customFields || undefined,
     attachmentCount: apiTask.attachmentsCount || apiTask._count?.attachments || attachmentsFromCustomFields,
@@ -1624,39 +1621,24 @@ export function TasksClient({
                 .map((l) => ({ id: l.id, name: l.name, color: l.color }))}
             />
           )}
-          {task.tags && task.tags.length > 0 && (
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {task.tags.slice(0, 2).map((tag) => (
-                <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">{tag}</Badge>
-              ))}
-              {task.tags.length > 2 && (
-                <span className="text-[10px] text-gray-500">+{task.tags.length - 2}</span>
-              )}
-            </div>
-          )}
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
               <Repeat className="h-2.5 w-2.5" />
               {repeatBadgeLabel(task.repeat)}
             </span>
           )}
-          {((task.dependsOn?.length ?? 0) > 0 || (task.blocks?.length ?? 0) > 0) && (
-            <div className="flex items-center flex-shrink-0 text-gray-400 dark:text-muted-foreground">
-              <Link className="h-3 w-3" />
-            </div>
-          )}
         </div>
 
         {/* Attachments & Subtask count */}
         <div className={cn("w-[60px] flex justify-end gap-1 max-md:w-auto max-md:empty:hidden", isEntityMode && ENTITY_HIDE_WHEN_COMPACT)}>
           {(task.attachmentCount ?? 0) > 0 && (
-            <span className="-translate-y-[1.5px] inline-flex items-center justify-center gap-1.5 h-[22px] px-1.5 text-[11px] leading-none font-mono tabular-nums text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] flex-shrink-0">
+            <span className="inline-flex h-[18px] items-center gap-1 rounded bg-gray-100 px-1.5 font-mono text-[11px] leading-none tabular-nums text-gray-500 dark:bg-secondary dark:text-muted-foreground flex-shrink-0">
               <Paperclip className="h-3 w-3 shrink-0" />
               {task.attachmentCount}
             </span>
           )}
           {(task.subtaskCount ?? 0) > 0 && (
-            <span className="-translate-y-[0.5px] inline-flex items-center justify-center gap-1.5 h-[22px] px-1.5 text-[11px] leading-none font-mono tabular-nums text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] flex-shrink-0">
+            <span className="inline-flex h-[18px] items-center gap-1 rounded bg-gray-100 px-1.5 font-mono text-[11px] leading-none tabular-nums text-gray-500 dark:bg-secondary dark:text-muted-foreground flex-shrink-0">
               <ListTodo className="h-3 w-3 shrink-0" />
               {task.completedSubtaskCount}/{task.subtaskCount}
             </span>

@@ -14,7 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
-import { Badge } from '@weldsuite/ui/components/badge';
 import {
   Popover,
   PopoverContent,
@@ -184,7 +183,6 @@ function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
     createdAt: new Date(apiTask.createdAt),
     project: apiTask.project?.name || undefined,
     projectId: apiTask.projectId || undefined,
-    tags: apiTask.tags || undefined,
     labels: apiTask.labels || undefined,
     parentTaskId: apiTask.parentTaskId || null,
     repeat: apiTask.repeat || null,
@@ -1245,16 +1243,6 @@ export function MyTasksClient({
                 .filter((l): l is NonNullable<typeof l> => !!l)
                 .map((l) => ({ id: l.id, name: l.name, color: l.color }))}
             />
-          )}
-          {task.tags && task.tags.length > 0 && (
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {task.tags.slice(0, 2).map((tag) => (
-                <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0">{tag}</Badge>
-              ))}
-              {task.tags.length > 2 && (
-                <span className="text-[10px] text-gray-500">+{task.tags.length - 2}</span>
-              )}
-            </div>
           )}
           {task.repeat && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 flex-shrink-0">
