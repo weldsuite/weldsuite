@@ -82,30 +82,22 @@ import {
 
 const TASK_PANEL_WIDTH = 400;
 
-/**
- * Flatten a subtask tree depth-first, tagging each row with its depth below
- * the open task so the panel draws it as a tree.
- */
-function flattenSubtasks(
+/** The open task's direct subtasks as panel rows. */
+function toSubtaskItems(
   rows: TaskRow[],
   memberLookup: Map<string, { name: string; avatar?: string }>,
-  depth = 0,
-  out: SubtaskItem[] = [],
 ): SubtaskItem[] {
-  for (const s of rows) {
+  return rows.map((s) => {
     const hydrated = s.assigneeId ? memberLookup.get(s.assigneeId) : undefined;
-    out.push({
+    return {
       id: s.id,
       title: s.title,
       status: s.status,
       assignee: s.assigneeId
         ? { id: s.assigneeId, name: hydrated?.name ?? '', avatar: hydrated?.avatar }
         : null,
-      depth,
-    });
-    if (s.children?.length) flattenSubtasks(s.children, memberLookup, depth + 1, out);
-  }
-  return out;
+    };
+  });
 }
 
 /**
@@ -310,7 +302,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   const projectId = apiTask?.projectId ?? null;
 
   const commentsQuery = useTaskComments(id);
-  const subtasksQuery = useTaskSubtasks(id, apiTask);
+  const subtasksQuery = useTaskSubtasks(id);
   const ancestorsQuery = useTaskAncestors(apiTask?.parentTaskId);
   const labelsQuery = useProjectLabels(projectId);
   const projectTasksQuery = useProjectTasksForDeps(projectId);
@@ -425,9 +417,8 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     [labelsQuery.data],
   );
 
-  // The whole subtree, depth-first, so the panel draws it as a tree.
   const subtasks: SubtaskItem[] = useMemo(
-    () => flattenSubtasks(subtasksQuery.data ?? [], memberByUserId),
+    () => toSubtaskItems(subtasksQuery.data ?? [], memberByUserId),
     [subtasksQuery.data, memberByUserId],
   );
 

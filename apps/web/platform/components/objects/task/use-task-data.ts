@@ -94,27 +94,18 @@ export function useTaskComments(taskId: string | null | undefined) {
 }
 
 /**
- * The task's subtasks. In a project the API also nests every deeper level
- * under `children` (includeSubtasks), so the panel shows the whole subtree;
- * tasks outside a project get their direct children only. `task` is the
- * loaded task row, undefined while it is still loading.
+ * The task's direct subtasks. Deeper levels show once you open a subtask,
+ * so the panel lists only what hangs straight off the open task.
  */
-export function useTaskSubtasks(taskId: string | null | undefined, task: TaskRow | undefined) {
+export function useTaskSubtasks(taskId: string | null | undefined) {
   const api = useAppApi();
-  const projectId = task ? (task.projectId ?? null) : undefined;
   return useQuery({
-    queryKey: [...taskPanelKeys.subtasks(taskId ?? ''), projectId ?? null],
+    queryKey: taskPanelKeys.subtasks(taskId ?? ''),
     queryFn: async () => {
-      const res = await api.tasks.list({
-        parentTaskId: taskId!,
-        limit: 100,
-        ...(projectId ? { projectId, includeSubtasks: true } : {}),
-      });
+      const res = await api.tasks.list({ parentTaskId: taskId!, limit: 100 });
       return res.data ?? [];
     },
-    // `projectId` is undefined until the task itself has loaded; null means
-    // "no project". Waiting avoids fetching the flat list and then the tree.
-    enabled: !!taskId && projectId !== undefined,
+    enabled: !!taskId,
     staleTime: 10_000,
   });
 }
