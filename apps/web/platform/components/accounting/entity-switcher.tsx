@@ -1,21 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@weldsuite/ui/components/dropdown-menu';
-import { Button } from '@weldsuite/ui/components/button';
-import { Building2, ChevronDown, Check, Plus } from 'lucide-react';
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@weldsuite/ui/components/sidebar';
+import { Plus } from 'lucide-react';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
 import { accountingEntitiesQueryKey } from '@/hooks/use-current-entity-currency';
 import { resetEntityScopedAccountingQueries } from '@/hooks/queries/use-accounting-queries';
 import { setWeldbooksEntityId, weldbooksApi } from '@/lib/api/weldbooks-client';
+import { SidebarScopeSwitcher } from '@/components/layout/sidebar-scope-switcher';
 import { CreateEntityDialog } from './create-entity-dialog';
 
 interface EntityRow {
@@ -29,7 +22,8 @@ interface EntityRow {
 }
 
 /**
- * Dropdown for switching between legal entities in the accounting module.
+ * Sidebar switcher (top of the WeldBooks sidebar) for the accounting module's
+ * legal entities.
  * Writes selection to the persistent Jotai atom — the worker-client automatically
  * picks it up and sends `X-Accounting-Entity-Id` on subsequent API requests.
  */
@@ -71,70 +65,42 @@ export function EntitySwitcher() {
     }
   }, [entities, entityId, setEntityId]);
 
-  const current = entities.find((e) => e.id === entityId);
-
   if (entities.length === 0) {
     return (
-      <>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          {t('sweep.weldbooks.entitySwitcher.createEntity')}
-        </Button>
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            <span>{t('sweep.weldbooks.entitySwitcher.createEntity')}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
         <CreateEntityDialog open={createOpen} onOpenChange={setCreateOpen} firstEntity />
-      </>
+      </SidebarMenu>
     );
   }
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Building2 className="h-4 w-4" />
-            <span className="truncate max-w-[180px]">
-              {current ? current.name : t('sweep.weldbooks.entitySwitcher.selectEntity')}
-            </span>
-            {current ? (
-              <span className="text-muted-foreground text-xs">
-                {current.jurisdictionCode} · {current.baseCurrency}
+      <SidebarScopeSwitcher
+        options={entities
+          .filter((e) => e.isActive !== false)
+          .map((e) => ({
+            id: e.id,
+            name: e.name,
+            description: `${e.jurisdictionCode} · ${e.baseCurrency}${e.legalName ? ` · ${e.legalName}` : ''}`,
+            trailing: e.isDefault ? (
+              <span className="text-[10px] uppercase text-muted-foreground">
+                {t('sweep.weldbooks.entitySwitcher.default')}
               </span>
-            ) : null}
-            <ChevronDown className="h-3 w-3" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-[280px]">
-          <DropdownMenuLabel>{t('sweep.weldbooks.entitySwitcher.legalEntity')}</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {entities
-            .filter((e) => e.isActive !== false)
-            .map((e) => (
-              <DropdownMenuItem key={e.id} onClick={() => switchEntity(e.id)}>
-                <div className="flex items-start gap-2 w-full">
-                  {e.id === entityId ? (
-                    <Check className="h-4 w-4 mt-0.5 text-primary" />
-                  ) : (
-                    <span className="w-4" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{e.name}</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {e.jurisdictionCode} · {e.baseCurrency}
-                      {e.legalName ? ` · ${e.legalName}` : ''}
-                    </div>
-                  </div>
-                  {e.isDefault ? (
-                    <span className="text-[10px] uppercase text-muted-foreground">{t('sweep.weldbooks.entitySwitcher.default')}</span>
-                  ) : null}
-                </div>
-              </DropdownMenuItem>
-            ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            {t('sweep.weldbooks.entitySwitcher.newEntity')}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            ) : undefined,
+          }))}
+        currentId={entityId}
+        onSelect={switchEntity}
+        label={t('sweep.weldbooks.entitySwitcher.legalEntity')}
+        placeholder={t('sweep.weldbooks.entitySwitcher.selectEntity')}
+        addLabel={t('sweep.weldbooks.entitySwitcher.newEntity')}
+        onAdd={() => setCreateOpen(true)}
+      />
       <CreateEntityDialog open={createOpen} onOpenChange={setCreateOpen} />
     </>
   );

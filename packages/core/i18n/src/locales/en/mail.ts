@@ -844,6 +844,8 @@ export const mail = {
       allAccounts: 'All Accounts',
       setAsDefault: 'Set as default',
       defaultAccount: 'Default',
+      emailAccounts: 'Email accounts',
+      addAccount: 'Add account',
       editLabel: 'Edit Label',
       createLabel: 'Create Label',
       labelName: 'Name',
