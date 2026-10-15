@@ -1,6 +1,5 @@
 ﻿
 import { useState, useRef, useMemo, useCallback } from 'react';
-import { useTranslations } from '@weldsuite/i18n/client';
 import {
   DndContext,
   DragEndEvent,
@@ -22,10 +21,10 @@ import {
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@weldsuite/ui/components/button';
-import { Plus, Calendar, Search, Repeat2, User } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
-import { Badge } from '@weldsuite/ui/components/badge';
+import { Plus, Calendar, Search, Repeat2 } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { cn } from '@/lib/utils';
+import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 import { FilterPills } from '@/components/entity-list';
 import type { FilterConfig, ActiveFilter } from '@/components/entity-list';
@@ -50,14 +49,32 @@ interface CrmTasksPipelineProps {
   priorityLabels: Record<string, string>;
   searchPlaceholder: string;
   newTaskLabel: string;
+  /** Workspace labels, to show a card's labels by name and color. */
+  availableLabels?: { id: string; name: string; color: string }[];
+  /** Workspace members, for assignee avatars. */
+  members?: { id: string; name: string; avatar?: string }[];
+  /** Done / total direct subtasks per task id. */
+  subtaskProgress?: Map<string, { done: number; total: number }>;
+  /** Locale-aware short date (e.g. "Nov 10" / "10 nov"). */
+  formatDate?: (date: Date) => string;
+}
+
+/** What a card needs besides the task itself. */
+interface CardContext {
+  priorityLabels: Record<string, string>;
+  availableLabels: { id: string; name: string; color: string }[];
+  members: { id: string; name: string; avatar?: string }[];
+  subtaskProgress?: Map<string, { done: number; total: number }>;
+  formatDate: (date: Date) => string;
 }
 
 // ---------- Constants ----------
 
+// Same colors as the priority pill in the task list rows.
 const priorityColors: Record<string, string> = {
-  high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  low: 'bg-gray-100 text-gray-700 dark:bg-secondary dark:text-muted-foreground',
+  high: 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950',
+  medium: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950',
+  low: 'text-gray-600 dark:text-muted-foreground bg-gray-100 dark:bg-secondary',
 };
 
 const shortDateFormatter = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
@@ -135,8 +152,121 @@ function DroppableColumn({ id, children, containerRef }: Readonly<{ id: string; 
 
 // ---------- TaskCard ----------
 
-function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; priorityLabels: Record<string, string>; onClick?: () => void }>) {
-  const t = useTranslations();
+/**
+ * The card's content: number + title, the linked record, labels, and a footer
+ * with priority, due date, subtask progress and the assignees. Shared by the
+ * card and its drag overlay so a dragged card looks like itself.
+ */
+function TaskCardBody({ task, ctx }: Readonly<{ task: Task; ctx: CardContext }>) {
+  const isDone = task.status === 'done' || task.status === 'cancelled';
+  const record = task.linkedCompany ?? task.linkedPerson;
+  const isCompany = !!task.linkedCompany;
+  const labels = (task.labels ?? [])
+    .map((id) => ctx.availableLabels.find((l) => l.id === id))
+    .filter((l): l is NonNullable<typeof l> => !!l);
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const isOverdue = !!task.dueDate && task.dueDate < startOfToday && !isDone;
+  const progress = ctx.subtaskProgress?.get(task.id);
+  const assignees = (task.assignees && task.assignees.length > 0
+    ? task.assignees
+    : task.assignee ? [task.assignee] : []
+  ).map((a) => {
+    const member = ctx.members.find((m) => m.id === a.id);
+    return { id: a.id, name: member?.name || a.name, avatar: member?.avatar ?? a.avatar };
+  });
+  const hasFooter = !!task.priority || !!task.dueDate || !!progress || assignees.length > 0;
+
+  return (
+    <>
+      {/* Number + title */}
+      <div className="flex items-start gap-2">
+        {task.number != null && (
+          <TaskNumberBadge number={task.number} className="relative z-[1] mt-px h-[18px] flex-shrink-0 py-0" />
+        )}
+        <span
+          className={cn(
+            'min-w-0 flex-1 break-words text-sm font-medium leading-5 line-clamp-2',
+            isDone ? 'line-through text-muted-foreground' : 'text-gray-900 dark:text-foreground',
+          )}
+        >
+          {task.title}
+        </span>
+        {task.repeat && <Repeat2 className="mt-[3px] h-3.5 w-3.5 flex-shrink-0 text-indigo-500" />}
+      </div>
+
+      {/* Linked record */}
+      {record && (
+        <div className="mt-1.5 flex min-w-0 items-center gap-1.5">
+          <Avatar className={cn('h-4 w-4 flex-shrink-0', isCompany ? '!rounded-[5px]' : '!rounded-full')}>
+            {record.avatar && (
+              <AvatarImage src={record.avatar} alt={record.name} className={isCompany ? '!rounded-[5px]' : '!rounded-full'} />
+            )}
+            <AvatarFallback className={cn('text-[8px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground', isCompany ? '!rounded-[5px]' : '!rounded-full')}>
+              {record.name.charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <span className="truncate text-xs text-gray-500 dark:text-muted-foreground">{record.name}</span>
+        </div>
+      )}
+
+      {/* Labels */}
+      {labels.length > 0 && (
+        <div className="mt-2">
+          <LabelOverflowList labels={labels.map((l) => ({ id: l.id, name: l.name, color: l.color }))} />
+        </div>
+      )}
+
+      {/* Footer: priority, due date, subtasks — assignees on the right */}
+      {hasFooter && (
+        <div className="mt-3 flex items-center gap-1.5">
+          {task.priority && (
+            <span className={cn('inline-flex h-5 items-center rounded px-1.5 text-[11px] font-medium', priorityColors[task.priority] ?? priorityColors.low)}>
+              {ctx.priorityLabels[task.priority] || task.priority}
+            </span>
+          )}
+          {task.dueDate && (
+            <span
+              className={cn(
+                'inline-flex h-5 items-center gap-1 rounded px-1.5 text-[11px] font-medium',
+                isOverdue
+                  ? 'bg-red-50 text-red-600 dark:bg-red-950 dark:text-red-400'
+                  : 'bg-gray-100 text-gray-600 dark:bg-secondary dark:text-muted-foreground',
+              )}
+            >
+              <Calendar className="h-3 w-3" />
+              {ctx.formatDate(task.dueDate)}
+            </span>
+          )}
+          {progress && progress.total > 0 && (
+            <span className="inline-flex h-5 items-center rounded-[5px] border border-border bg-muted px-[5px] font-mono text-[10px] leading-none tabular-nums text-muted-foreground">
+              <span className="translate-y-[0.6px]">{progress.done}/{progress.total}</span>
+            </span>
+          )}
+          {assignees.length > 0 && (
+            <div className="ml-auto flex -space-x-1.5">
+              {assignees.slice(0, 3).map((a) => (
+                <Avatar key={a.id} className="h-[18px] w-[18px] !rounded-[6px] ring-1 ring-background" title={a.name}>
+                  {a.avatar && <AvatarImage src={a.avatar} alt={a.name} className="!rounded-[6px]" />}
+                  <AvatarFallback className="!rounded-[6px] text-[9px] font-medium bg-gray-200 dark:bg-accent text-gray-600 dark:text-muted-foreground">
+                    {(a.name || '?').charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              ))}
+              {assignees.length > 3 && (
+                <div className="relative z-10 flex size-[18px] items-center justify-center rounded-[6px] bg-[#dcdce0] ring-1 ring-background dark:bg-accent">
+                  <span className="font-mono text-[9px] font-medium text-gray-600 dark:text-muted-foreground">+{assignees.length - 3}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function TaskCard({ task, ctx, onClick }: Readonly<{ task: Task; ctx: CardContext; onClick?: () => void }>) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
 
   const style = {
@@ -165,85 +295,7 @@ function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; prio
     }
   };
 
-  const cardContent = (
-    <>
-      {/* Task number */}
-      {task.number != null && (
-        <div className="mb-1">
-          <TaskNumberBadge number={task.number} className="relative z-[1]" />
-        </div>
-      )}
-
-      {/* Title */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate block">
-          {task.title}
-        </span>
-        {task.repeat && (
-          <Repeat2 className="h-3 w-3 text-indigo-500 flex-shrink-0" />
-        )}
-      </div>
-
-      {/* Company */}
-      {(task.linkedCompany ?? task.linkedPerson) && (
-        <div className="mt-1.5">
-          <span className="text-xs text-gray-500 dark:text-muted-foreground truncate block">
-            {(task.linkedCompany ?? task.linkedPerson)?.name}
-          </span>
-        </div>
-      )}
-
-      {/* Assignee */}
-      <div className="flex items-center gap-2 mt-2">
-        {task.assignee ? (
-          <>
-            <div className="w-4 h-4 rounded bg-orange-100 flex items-center justify-center flex-shrink-0">
-              <User className="w-2.5 h-2.5 text-orange-600" />
-            </div>
-            <span className="text-sm text-gray-600 dark:text-muted-foreground truncate">
-              {task.assignee.name}
-            </span>
-          </>
-        ) : (
-          <>
-            <Avatar className="h-4 w-4 rounded">
-              <AvatarFallback className="text-[9px] bg-gray-100 text-gray-400 dark:bg-secondary dark:text-muted-foreground rounded">
-                ?
-              </AvatarFallback>
-            </Avatar>
-            <span className="text-sm text-gray-600 dark:text-muted-foreground truncate">
-              {t('crm.taskDialog.unassigned')}
-            </span>
-          </>
-        )}
-      </div>
-
-      {/* Priority */}
-      {task.priority && (
-        <div className="mt-2">
-          <Badge
-            variant="secondary"
-            className={cn(
-              'font-semibold text-[11px] px-1.5 py-0 border-0 rounded-sm',
-              priorityColors[task.priority] || 'bg-gray-100 text-gray-700 dark:bg-secondary dark:text-muted-foreground'
-            )}
-          >
-            {priorityLabels[task.priority] || task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
-          </Badge>
-        </div>
-      )}
-
-      {/* Due Date */}
-      {task.dueDate && (
-        <div className="flex items-center gap-2 mt-2">
-          <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <span className="text-sm text-gray-600 dark:text-muted-foreground">
-            {shortDateFormatter.format(task.dueDate)}
-          </span>
-        </div>
-      )}
-    </>
-  );
+  const cardContent = <TaskCardBody task={task} ctx={ctx} />;
 
   return (
     <div
@@ -251,9 +303,8 @@ function TaskCard({ task, priorityLabels, onClick }: Readonly<{ task: Task; prio
       style={style}
       {...listeners}
       className={cn(
-        "group relative bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border",
-        "hover:bg-gray-50 dark:hover:bg-secondary/70 w-full",
-        "p-3 transition-all duration-200",
+        "group relative w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-border dark:bg-background",
+        "transition-colors duration-150 hover:border-gray-300 hover:bg-gray-50 dark:hover:border-input dark:hover:bg-secondary/40",
         isDragging && "opacity-50 !bg-gray-100 dark:!bg-gray-800 !border-transparent"
       )}
     >
@@ -315,8 +366,19 @@ export function CrmTasksPipeline({
   priorityLabels,
   searchPlaceholder,
   newTaskLabel,
+  availableLabels,
+  members,
+  subtaskProgress,
+  formatDate,
 }: Readonly<CrmTasksPipelineProps>) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const cardContext = useMemo<CardContext>(() => ({
+    priorityLabels,
+    availableLabels: availableLabels ?? [],
+    members: members ?? [],
+    subtaskProgress,
+    formatDate: formatDate ?? ((date: Date) => shortDateFormatter.format(date)),
+  }), [priorityLabels, availableLabels, members, subtaskProgress, formatDate]);
 
   const columns: PipelineColumn[] = useMemo(() => [
     { id: 'backlog', name: statusLabels['backlog'], color: '#94a3b8' },
@@ -481,7 +543,7 @@ export function CrmTasksPipeline({
                                 <TaskCard
                                   key={task.id}
                                   task={task}
-                                  priorityLabels={priorityLabels}
+                                  ctx={cardContext}
                                   onClick={() => onTaskClick(task)}
                                 />
                               ))}
@@ -510,22 +572,8 @@ export function CrmTasksPipeline({
           <DragOverlay dropAnimation={{ duration: 150, easing: 'ease-out' }}>
             {activeTask ? (
               <div className="rotate-3 scale-105">
-                <div className="bg-white dark:bg-background rounded-lg border border-gray-125 dark:border-border p-3 w-[240px] shadow-lg">
-                  <span className="text-sm font-medium text-gray-900 dark:text-foreground truncate block">{activeTask.title}</span>
-                  {activeTask.assignee && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <div className="w-4 h-4 rounded bg-orange-100 flex items-center justify-center">
-                        <User className="w-2.5 h-2.5 text-orange-600" />
-                      </div>
-                      <span className="text-sm text-gray-600 dark:text-muted-foreground">{activeTask.assignee.name}</span>
-                    </div>
-                  )}
-                  {activeTask.dueDate && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <Calendar className="h-3.5 w-3.5 text-gray-400" />
-                      <span className="text-sm text-gray-600 dark:text-muted-foreground">{shortDateFormatter.format(activeTask.dueDate)}</span>
-                    </div>
-                  )}
+                <div className="w-[240px] rounded-lg border border-gray-200 bg-white p-3 shadow-lg dark:border-border dark:bg-background">
+                  <TaskCardBody task={activeTask} ctx={cardContext} />
                 </div>
               </div>
             ) : null}

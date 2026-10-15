@@ -306,6 +306,14 @@ export default function CrmTasksClient() {
     return { topLevelTasks: topLevel, subtasksByParent: byParent };
   }, [tasks]);
   const boardTasks = useMemo(() => tasks.filter((task) => !task.nestedOnly), [tasks]);
+  // Done / total direct subtasks per task, for the board cards.
+  const subtaskProgress = useMemo(() => {
+    const progress = new Map<string, { done: number; total: number }>();
+    for (const [parentId, children] of subtasksByParent) {
+      progress.set(parentId, { done: children.filter((c) => c.status === 'done').length, total: children.length });
+    }
+    return progress;
+  }, [subtasksByParent]);
   // Parents start expanded; this holds the ones the user folded.
   const [collapsedTaskIds, setCollapsedTaskIds] = useState<Set<string>>(() => new Set());
   const toggleExpandTask = useCallback((taskId: string) => {
@@ -1295,6 +1303,10 @@ export default function CrmTasksClient() {
           priorityLabels={priorityLabels}
           searchPlaceholder={`${t('common.actions.search')}...`}
           newTaskLabel={t('crm.tasks.newTask')}
+          availableLabels={availableLabels}
+          members={availableAssignees}
+          subtaskProgress={subtaskProgress}
+          formatDate={formatDate}
         />
       )}
 
