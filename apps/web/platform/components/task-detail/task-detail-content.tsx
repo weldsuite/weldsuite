@@ -2002,19 +2002,17 @@ export function SubtasksSection({
   const completedCount = directSubtasks.filter(s => s.status === 'done').length;
   const totalCount = directSubtasks.length;
 
-  // When the selected task is a subtask, the chain it hangs from is shown
-  // above it: the top-most ancestor is the tree root, every further ancestor
-  // and then the selected task follow one level deeper each, and the
-  // selected task's own subtasks sit below it. Effect: "main task → subtask →
-  // selected → selected's children". Top-level tasks (no parent) show only
-  // their children: repeating the open task as the first row made it read
-  // like the task was its own subtask.
+  // The tree always starts at the main task. For a subtask that's its
+  // top-most ancestor, with every further ancestor and then the selected task
+  // one level deeper each, and the selected task's own subtasks below it:
+  // "main task → subtask → selected → selected's children". A main task is
+  // the root itself, its subtasks hanging straight from it.
   let ancestors: { id: string; title: string; status?: string }[] = [];
   if (ancestorTasks && ancestorTasks.length > 0) ancestors = ancestorTasks;
   else if (parentTask) ancestors = [parentTask];
-  const effectiveRoot = ancestors[0];
+  const effectiveRoot = ancestors[0] ?? rootTask;
 
-  const isEmpty = subtasks.length === 0 && !effectiveRoot;
+  const isEmpty = subtasks.length === 0 && ancestors.length === 0;
   const collapsed = collapseOverride && collapseOverride.taskId === currentTaskId
     ? collapseOverride.collapsed
     : isEmpty;
@@ -2026,7 +2024,7 @@ export function SubtasksSection({
     setCollapsed(false);
     setIsAdding(true);
   };
-  const effectiveSubtasks: SubtaskItem[] = effectiveRoot && rootTask
+  const effectiveSubtasks: SubtaskItem[] = ancestors.length > 0 && rootTask
     ? [
         ...ancestors.slice(1).map((a, i) => ({ id: a.id, title: a.title, status: a.status || 'todo', assignee: null, depth: i })),
         { id: rootTask.id, title: rootTask.title, status: rootTask.status || 'todo', assignee: null, depth: ancestors.length - 1 },
@@ -2097,7 +2095,8 @@ export function SubtasksSection({
               onClick={(e) => e.stopPropagation()}
               onCheckedChange={() => onToggleSubtask?.(effectiveRoot.id, effectiveRoot.status || 'todo')}
               style={{ width: 14, height: 14, flexShrink: 0 }}
-              className="group-hover/root-task:border-muted-foreground/70"
+              // The open task's checkbox looks like a hovered one, as in the rows below.
+              className={cn('group-hover/root-task:border-muted-foreground/70', effectiveRoot.id === currentTaskId && 'border-muted-foreground/70')}
             />
           </div>
           <span

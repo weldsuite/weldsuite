@@ -108,11 +108,13 @@ describe('SubtasksSection inline add', () => {
 });
 
 describe('SubtasksSection rows', () => {
-  it('does not list the open task itself as a subtask', () => {
+  it('shows an open main task once, as the root its subtasks hang from', () => {
     renderSection([{ id: 'task_child', title: 'Existing subtask', status: 'todo', assignee: null }]);
 
-    expect(screen.getByText('Existing subtask')).toBeInTheDocument();
-    expect(screen.queryByText('Parent')).not.toBeInTheDocument();
+    const root = screen.getByText('Parent');
+    const child = screen.getByText('Existing subtask');
+    expect(screen.getAllByText('Parent')).toHaveLength(1);
+    expect(root.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows the real parent above the open task when the task is itself a subtask', () => {
