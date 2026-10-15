@@ -116,7 +116,31 @@ export function hydrate(task: RawTask): Task {
   };
 }
 
-type RawTaskNode = RawTask & { children?: RawTaskNode[] };
+type RawTaskNode = RawTask & { subtaskCount?: number; children?: RawTaskNode[] };
+
+/** Deepest subtask level loaded; matches the API's MAX_SUBTASK_DEPTH. */
+const MAX_SUBTASK_DEPTH = 10;
+
+/**
+ * Fill `children` level by level from each row's `subtaskCount`, for an API
+ * that ignores `includeSubtasks` without a projectId (it sends no `children`).
+ */
+async function loadSubtreesByCount(
+  client: { get: <T>(url: string) => Promise<T> },
+  rows: RawTaskNode[],
+): Promise<void> {
+  let frontier = rows.filter((row) => (row.subtaskCount ?? 0) > 0);
+  for (let depth = 0; depth < MAX_SUBTASK_DEPTH && frontier.length > 0; depth++) {
+    const next: RawTaskNode[] = [];
+    await Promise.all(frontier.map(async (node) => {
+      const params = new URLSearchParams({ parentTaskId: node.id, limit: '100' });
+      const res = await client.get<{ data: RawTaskNode[] }>(withQuery('/tasks', params.toString()));
+      node.children = res.data ?? [];
+      next.push(...node.children.filter((child) => (child.subtaskCount ?? 0) > 0));
+    }));
+    frontier = next;
+  }
+}
 
 /**
  * Hydrate a list fetched with `includeSubtasks`: every listed task, plus each
@@ -149,7 +173,9 @@ export async function fetchCrmTasksWithSubtasks(
   params.set('crmLinked', 'true');
   params.set('includeSubtasks', 'true');
   const res = await client.get<{ data: RawTaskNode[] }>(withQuery('/tasks', params.toString()));
-  return hydrateTaskTree(res.data ?? []);
+  const rows = res.data ?? [];
+  if (rows.length > 0 && !rows.some((row) => 'children' in row)) await loadSubtreesByCount(client, rows);
+  return hydrateTaskTree(rows);
 }
 
 /**
