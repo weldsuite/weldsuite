@@ -497,6 +497,23 @@ describe('/api/tasks · CRM company link · pglite integration', () => {
     expect(row?.duration).toBe(45);
   });
 
+  it('GET /?crmLinked=true&includeSubtasks=true nests the subtask tree without a projectId', async () => {
+    const parent = await create({ title: 'CRM parent', customerId: companyId });
+    const child = await create({ title: 'CRM child', parentTaskId: parent.id });
+    const grandchild = await create({ title: 'CRM grandchild', parentTaskId: child.id });
+    const { request } = createTestApp('/api/tasks', tasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: db },
+    });
+    const res = await request('/api/tasks?crmLinked=true&includeSubtasks=true');
+    expect(res.status).toBe(200);
+    type Node = { id: string; subtaskCount?: number; children?: Node[] };
+    const body = (await res.json()) as { data: Node[] };
+    const row = body.data.find((r) => r.id === parent.id);
+    expect(row?.subtaskCount).toBe(1);
+    expect(row?.children?.map((c) => c.id)).toEqual([child.id]);
+    expect(row?.children?.[0].children?.map((c) => c.id)).toEqual([grandchild.id]);
+  });
+
   it('GET /:id returns linkedCompany', async () => {
     const created = await create({ title: 'CRM detail', customerId: companyId });
     const { request } = createTestApp('/api/tasks', tasksRoutes, {

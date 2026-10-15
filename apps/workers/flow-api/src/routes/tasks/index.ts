@@ -12,7 +12,7 @@
  *   - sortField + sortDirection
  *   - tags / labels (CSV or array)
  *   - myTasks shorthand (assigneeId = current user)
- *   - includeSubtasks (attach full descendant tree)
+ *   - includeSubtasks (attach full descendant tree; with or without projectId)
  *   - enrichment (assignee display fields + scheduled calendar slot)
  *
  * Additional endpoints:
@@ -1480,8 +1480,10 @@ async function attachSubtaskCounts(db: TaskDb, tasks: any[]): Promise<void> {
  */
 async function attachSubtaskData(db: TaskDb, q: ListQuery, enriched: any[]): Promise<any[]> {
   if (enriched.length === 0) return [];
-  if (q.includeSubtasks && q.projectId) {
-    const descendants = await loadEnrichedDescendants(db, q.projectId, enriched);
+  if (q.includeSubtasks) {
+    // Without a projectId the page can span projects (CRM tasks), so the walk
+    // isn't narrowed to one; a subtask always shares its parent's project.
+    const descendants = await loadEnrichedDescendants(db, q.projectId ?? null, enriched);
     attachSubtaskTree(enriched, descendants);
     return descendants;
   }

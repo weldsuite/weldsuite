@@ -2,7 +2,7 @@ import { useCallback, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { crmTasksKeys, type RawTask } from '@/hooks/use-crm-tasks';
+import { crmTasksKeys, fetchCrmTasksWithSubtasks } from '@/hooks/use-crm-tasks';
 import { mailKeys } from '@/hooks/queries/use-mail-queries';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
@@ -47,21 +47,10 @@ const PREFETCHERS: Record<string, Prefetcher> = {
   weldcrm: ({ queryClient, appClient, userId }) => {
     if (!userId) return;
     return queryClient.prefetchQuery({
-      queryKey: [...crmTasksKeys.list(), userId],
-      // Must match useCrmTasks' queryFn exactly — it returns a hydrated array,
-      // not the raw `{ data }` envelope. Caching the envelope here breaks
-      // consumers that iterate the result as an array.
-      queryFn: async () => {
-        const client = await appClient();
-        const params = new URLSearchParams({ assigneeId: userId, crmLinked: 'true' });
-        const res = await client.get<{ data: RawTask[] }>(`/tasks?${params.toString()}`);
-        return (res.data ?? []).map((task) => ({
-          ...task,
-          dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
-          createdAt: new Date(task.createdAt),
-          completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
-        }));
-      },
+      // The CRM tasks page reads this list; same key and fetcher as
+      // useCrmTasksWithSubtasks, so the prefetched data is what it renders.
+      queryKey: crmTasksKeys.listWithSubtasks(userId),
+      queryFn: async () => fetchCrmTasksWithSubtasks(await appClient(), userId),
       staleTime: PREFETCH_STALE_TIME_MS,
     });
   },

@@ -55,11 +55,21 @@ export interface Task {
   /** GitHub Issues integration — set when this task is linked to an issue. */
   githubIssueNumber?: number | null;
   githubRepoLinkId?: string | null;
+  /** Set on subtasks: the task this one hangs under. */
+  parentTaskId?: string | null;
+  /**
+   * Only present in the list because it sits in a listed task's subtask tree
+   * (it isn't CRM-linked / assigned itself): shown nested, never as a row of
+   * its own.
+   */
+  nestedOnly?: boolean;
 }
 
 export const crmTasksKeys = {
   all: ['crm-tasks'] as const,
   list: () => [...crmTasksKeys.all, 'list'] as const,
+  /** The CRM tasks page's list: same tasks, plus each one's subtask tree. */
+  listWithSubtasks: (assignedToId?: string) => [...crmTasksKeys.list(), assignedToId, 'with-subtasks'] as const,
 };
 
 export type RawTask = Omit<
@@ -104,6 +114,55 @@ export function hydrate(task: RawTask): Task {
       ? { id: linkedPerson.id, name: linkedPerson.name, avatar: linkedPerson.avatar ?? undefined }
       : undefined,
   };
+}
+
+type RawTaskNode = RawTask & { children?: RawTaskNode[] };
+
+/**
+ * Hydrate a list fetched with `includeSubtasks`: every listed task, plus each
+ * subtask in their trees as a row of its own (so row actions find it by id).
+ * A subtask that isn't itself one of the listed tasks is marked `nestedOnly`.
+ */
+export function hydrateTaskTree(rows: RawTaskNode[]): Task[] {
+  const listedIds = new Set(rows.map((row) => row.id));
+  const seen = new Set<string>();
+  const out: Task[] = [];
+  const walk = (node: RawTaskNode) => {
+    const { children, ...raw } = node;
+    if (!seen.has(node.id)) {
+      seen.add(node.id);
+      out.push({ ...hydrate(raw), nestedOnly: !listedIds.has(node.id) });
+    }
+    for (const child of children ?? []) walk(child);
+  };
+  for (const row of rows) walk(row);
+  return out;
+}
+
+/** The CRM tasks list with every task's subtask tree (shared by the page and its prefetch). */
+export async function fetchCrmTasksWithSubtasks(
+  client: { get: <T>(url: string) => Promise<T> },
+  assignedToId?: string,
+): Promise<Task[]> {
+  const params = new URLSearchParams();
+  if (assignedToId) params.set('assigneeId', assignedToId);
+  params.set('crmLinked', 'true');
+  params.set('includeSubtasks', 'true');
+  const res = await client.get<{ data: RawTaskNode[] }>(withQuery('/tasks', params.toString()));
+  return hydrateTaskTree(res.data ?? []);
+}
+
+/**
+ * The CRM tasks page's list: like `useCrmTasks`, plus every task's subtasks
+ * (deeper levels included) so the page can nest them under their parent.
+ */
+export function useCrmTasksWithSubtasks(assignedToId?: string) {
+  const { getClient } = useAppApiClient();
+  useTaskLiveSync();
+  return useQuery({
+    queryKey: crmTasksKeys.listWithSubtasks(assignedToId),
+    queryFn: async () => fetchCrmTasksWithSubtasks(await getClient(), assignedToId),
+  });
 }
 
 function useTaskLiveSync(): void {

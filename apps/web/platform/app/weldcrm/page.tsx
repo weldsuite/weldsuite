@@ -38,11 +38,12 @@ import {
   Copy,
   List,
   Columns3,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import {
-  useCrmTasks,
+  useCrmTasksWithSubtasks,
   useCreateTask,
   useToggleTask,
   useUpdateTask,
@@ -62,6 +63,7 @@ import { useCompanies } from '@/components/objects/company/use-company-data';
 import { usePeople } from '@/components/objects/person/use-person-data';
 import { RecordPickerItem } from '@/components/objects/_shared/record-picker-menu';
 import { useDebounce } from '@/hooks/use-debounce';
+import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
 
 type CompanyOption = { id: string; name: string; avatar?: string };
 
@@ -283,7 +285,36 @@ export default function CrmTasksClient() {
   const intlLocale = localeConfig[language as keyof typeof localeConfig]?.intlLocale ?? 'en-US';
   // `isPending`, not `isLoading`: the latter is false while the persisted query
   // cache restores after a reload, which showed the empty task list first.
-  const { data: tasks = [], isPending: isLoading, error } = useCrmTasks(user?.id);
+  const { data: tasks = [], isPending: isLoading, error } = useCrmTasksWithSubtasks(user?.id);
+  // Subtasks whose parent is loaded render under it (same as WeldFlow's task
+  // lists); the rest are top-level rows.
+  const { topLevelTasks, subtasksByParent } = useMemo(() => {
+    const loadedIds = new Set(tasks.map((task) => task.id));
+    const byParent = new Map<string, Task[]>();
+    const topLevel: Task[] = [];
+    for (const task of tasks) {
+      const parentId = task.parentTaskId;
+      if (parentId && loadedIds.has(parentId)) {
+        const siblings = byParent.get(parentId);
+        if (siblings) siblings.push(task);
+        else byParent.set(parentId, [task]);
+      } else if (!task.nestedOnly) {
+        topLevel.push(task);
+      }
+    }
+    return { topLevelTasks: topLevel, subtasksByParent: byParent };
+  }, [tasks]);
+  const boardTasks = useMemo(() => tasks.filter((task) => !task.nestedOnly), [tasks]);
+  // Parents start expanded; this holds the ones the user folded.
+  const [collapsedTaskIds, setCollapsedTaskIds] = useState<Set<string>>(() => new Set());
+  const toggleExpandTask = useCallback((taskId: string) => {
+    setCollapsedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }, []);
   const { data: membersData } = useWorkspaceMembers(1, 100);
   const [customerSearch, setCustomerSearch] = useState('');
   const { data: companiesData } = useCompanies({
@@ -703,18 +734,25 @@ export default function CrmTasksClient() {
     return date.toLocaleDateString(intlLocale, { month: 'short', day: 'numeric' });
   }, [intlLocale]);
 
-  // Row renderer — matches Weldflow my-tasks style
-  const renderTaskRow = useCallback((task: Task, handlers: RowHandlers<Task>) => {
+  // Row renderer — matches Weldflow my-tasks style. `depth` is the nesting
+  // level of a subtask (0 = direct child of a top-level row); it's folded into
+  // paddingLeft so the hover background covers the full width.
+  const renderTaskRow = useCallback((task: Task, handlers: RowHandlers<Task>, depth?: number) => {
     const status = statusConfig[task.status] || statusConfig.todo;
     const priority = task.priority ? (priorityConfig[task.priority] || priorityConfig.medium) : null;
+    const isSubtask = depth !== undefined;
+    const hasSubtasks = (subtasksByParent.get(task.id)?.length ?? 0) > 0;
+    const isExpanded = !collapsedTaskIds.has(task.id);
 
     return (
       <div
         key={task.id}
         className={cn(
-          "relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 border-b border-gray-200/70 dark:border-border group",
+          "relative flex items-center gap-4 py-3 pr-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group",
+          !isSubtask && "border-b border-gray-200/70 dark:border-border",
           task.status === 'done' && "opacity-50"
         )}
+        style={{ paddingLeft: isSubtask ? 48 + depth * 32 : 16 }}
       >
         {/* Stretched row button: the row content sits above it and the inline controls stay clickable. */}
         <button
@@ -725,7 +763,7 @@ export default function CrmTasksClient() {
         />
 
         {/* Checkbox */}
-        <div className="relative z-[1] w-4 flex-shrink-0">
+        <div className="relative z-[1] flex w-4 flex-shrink-0 items-center">
           <Checkbox
             checked={task.status === 'done'}
             onCheckedChange={() => toggleTaskStatus(task.id)}
@@ -735,12 +773,26 @@ export default function CrmTasksClient() {
 
         {/* Task Title */}
         <div className="min-w-[200px] flex-1 flex items-center gap-2">
+          {task.number != null && (
+            <TaskNumberBadge number={task.number} className="h-[18px] flex-shrink-0 py-0" />
+          )}
           <span className={cn(
             "text-sm font-medium truncate min-w-0",
             task.status === 'done' ? "line-through text-gray-400" : "text-gray-900 dark:text-foreground"
           )}>
             {task.title}
           </span>
+          {hasSubtasks && (
+            <Button
+              variant="ghost"
+              aria-label={isExpanded ? t('projects.myTasks.collapseSubtasks') : t('projects.myTasks.expandSubtasks')}
+              aria-expanded={isExpanded}
+              onClick={(e) => { e.stopPropagation(); toggleExpandTask(task.id); }}
+              className="relative z-[1] h-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-gray-200 dark:hover:bg-gray-700 transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              <ChevronRight className={cn("h-3.5 w-3.5", isExpanded && "rotate-90")} />
+            </Button>
+          )}
           {task.labels && task.labels.length > 0 && (
             <LabelOverflowList
               labels={task.labels
@@ -758,7 +810,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Company */}
-        <div className="relative z-[1] w-[140px]">
+        <div className="relative z-[1] flex w-[140px] items-center">
           <RecordPicker
             taskId={task.id}
             linkedCompany={task.linkedCompany}
@@ -776,7 +828,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Status */}
-        <div className="relative z-[1] w-[120px]">
+        <div className="relative z-[1] flex w-[120px] items-center">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("h-auto px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", status.color, status.bg)}>
@@ -800,7 +852,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Priority */}
-        <div className="relative z-[1] w-[100px]">
+        <div className="relative z-[1] flex w-[100px] items-center">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className={cn("h-auto px-2 py-0.5 rounded text-[12px] font-medium cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 transition-shadow", priority ? priority.color : 'text-gray-400', priority ? priority.bg : '')}>
@@ -837,7 +889,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Due Date */}
-        <div className="relative z-[1] w-[100px]">
+        <div className="relative z-[1] flex w-[100px] items-center">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" className="h-auto text-sm cursor-pointer hover:ring-1 hover:ring-gray-300 dark:hover:ring-gray-600 rounded px-1 py-0.5 transition-shadow">
@@ -872,7 +924,7 @@ export default function CrmTasksClient() {
         </div>
 
         {/* Assignee(s) */}
-        <div className="relative z-[1] w-[120px]">
+        <div className="relative z-[1] flex w-[120px] items-center">
           {(() => {
             const resolvedList = getTaskAssignees(task).map((a) => {
               const fromDirectory = availableAssignees.find((m) => m.id === a.id);
@@ -1035,7 +1087,51 @@ export default function CrmTasksClient() {
         </div>
       </div>
     );
-  }, [availableAssignees, availableLabels, availableCompanyObjects, setCustomerSearch, availablePersonObjects, handleLinkCompany, handleLinkPerson, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, t, statusConfig, priorityConfig, formatDate]);
+  }, [availableAssignees, availableLabels, availableCompanyObjects, setCustomerSearch, availablePersonObjects, handleLinkCompany, handleLinkPerson, toggleTaskStatus, openTaskPanel, openEditDialog, createTaskMutation, deleteTaskMutation, t, statusConfig, priorityConfig, formatDate, subtasksByParent, collapsedTaskIds, toggleExpandTask]);
+
+  // A task's subtasks, recursively, under its row — the same tree guides as
+  // WeldFlow's task lists. Each row and its own descendants live in sibling
+  // wrappers so a row's guide lines stay bounded to that row's height.
+  const renderSubtaskList = useCallback((parent: Task, handlers: RowHandlers<Task>, depth: number): React.ReactNode => {
+    const childTasks = subtasksByParent.get(parent.id);
+    if (!childTasks || childTasks.length === 0) return null;
+    const guideLeft = 22 + depth * 32;
+    return (
+      <div hidden={collapsedTaskIds.has(parent.id)}>
+        {childTasks.map((sub, index) => {
+          const isLast = index === childTasks.length - 1;
+          const nestedContent = renderSubtaskList(sub, handlers, depth + 1);
+          return (
+            <React.Fragment key={sub.id}>
+              <div className="relative border-b border-gray-200/70 dark:border-border">
+                <div style={{ position: 'absolute', left: guideLeft, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
+                <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% - 6px)', width: 15, height: 8, borderLeft: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', borderRadius: '0 0 0 6px', zIndex: 1 }} />
+                {!isLast && (
+                  <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% + 2px)', bottom: 0, width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
+                )}
+                {renderTaskRow(sub, handlers, depth)}
+              </div>
+              {nestedContent && (
+                <div className="relative">
+                  {!isLast && (
+                    <div style={{ position: 'absolute', left: guideLeft, top: 0, bottom: 0, width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
+                  )}
+                  {nestedContent}
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  }, [subtasksByParent, collapsedTaskIds, renderTaskRow]);
+
+  const renderRow = useCallback((task: Task, handlers: RowHandlers<Task>) => (
+    <React.Fragment key={task.id}>
+      {renderTaskRow(task, handlers)}
+      {renderSubtaskList(task, handlers, 0)}
+    </React.Fragment>
+  ), [renderTaskRow, renderSubtaskList]);
 
   const handleSort = useCallback((columnId: string) => {
     setSortState(prev => {
@@ -1048,11 +1144,11 @@ export default function CrmTasksClient() {
   }, []);
 
   const sortedTasks = useMemo(() => {
-    if (!sortState) return tasks;
+    if (!sortState) return topLevelTasks;
     const { columnId, direction } = sortState;
     const dir = direction === 'asc' ? 1 : -1;
 
-    return [...tasks].sort((a, b) => {
+    return [...topLevelTasks].sort((a, b) => {
       switch (columnId) {
         case 'status':
           return (TASK_STATUS_ORDER.indexOf(a.status) - TASK_STATUS_ORDER.indexOf(b.status)) * dir;
@@ -1080,7 +1176,7 @@ export default function CrmTasksClient() {
           return 0;
       }
     });
-  }, [tasks, sortState]);
+  }, [topLevelTasks, sortState]);
 
   // Header column definitions
   const headerColumns: HeaderColumn[] = useMemo(() => [
@@ -1140,7 +1236,7 @@ export default function CrmTasksClient() {
           applyFilters={applyTaskFilters}
           onUpdateItem={(id, data) => updateTaskMutation.mutate({ taskId: id, data })}
           onDeleteItem={(id) => deleteTaskMutation.mutate(id)}
-          renderRow={renderTaskRow}
+          renderRow={renderRow}
           searchPlaceholder={`${t('common.actions.search')}...`}
           searchFields={['title', 'description']}
           sortState={sortState}
@@ -1193,7 +1289,7 @@ export default function CrmTasksClient() {
         />
       ) : (
         <CrmTasksPipeline
-          tasks={tasks}
+          tasks={boardTasks}
           filterConfigs={filterConfigs}
           onTaskClick={openTaskPanel}
           onStatusChange={handleStatusChange}
