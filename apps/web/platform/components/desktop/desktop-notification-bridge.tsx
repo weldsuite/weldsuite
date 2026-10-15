@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from '@/lib/router';
 import { onOsNotificationClick } from '@/lib/desktop-notifications';
 import { isDesktop } from '@/lib/desktop';
+import { webHrefForAction } from '@/lib/weldagent/action-links';
 
 /**
  * Desktop-only bridge: navigate on OS toast click.
@@ -20,7 +21,7 @@ export function DesktopNotificationBridge() {
       if (!actionUrl) return;
       // Only allow in-app paths — never open arbitrary URLs from a toast.
       if (!actionUrl.startsWith('/') || actionUrl.startsWith('//')) return;
-      router.push(actionUrl);
+      router.push(webHrefForAction(actionUrl));
     });
   }, [router]);
 

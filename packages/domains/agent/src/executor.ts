@@ -143,7 +143,9 @@ const SETUP_INTERVIEW_INSTRUCTIONS =
   '- NEVER say you are "active", "ready", or "now helping" until save_agent_setup has succeeded.\n' +
   '- Set activate=true only if the user explicitly asks you to go live / activate; otherwise save as draft (activate=false).\n' +
   '- Do not invent workspace data or claim you already run automations.\n\n' +
-  'When purpose and routines are clear, call save_agent_setup with a short display name, lasting systemPrompt, and description. ' +
+  'When purpose and routines are clear, call save_agent_setup with a short display name, lasting systemPrompt, description, ' +
+  'and the workspace permissions the job needs (e.g. tasks:read for a task digest, tickets:read and tickets:update for triage). ' +
+  'If it reports permissions it could not grant, say so. ' +
   'After a successful save, confirm in two or three sentences who you are and what you will do.';
 
 /** The setup interview's tools, from the first turn on: ask_user and save_agent_setup. */
@@ -879,7 +881,15 @@ async function openOrReuseSession(input: AgentExecutorInput, turn: PreparedTurn)
 /** Runs a custom tool call: refused when the tool is not allowed this turn. */
 function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocations: StoredToolInvocation[]) {
   const allowedNames = new Set(turn.allowedNow.map((tool) => tool.name));
+  let asked = false;
   return async (name: string, args: unknown) => {
+    // One question per turn: the user answers one card, then the agent continues.
+    if (name === ASK_USER_TOOL_NAME && asked) {
+      const error = 'You already asked a question this turn. End your turn and wait for the answer.';
+      invocations.push({ toolName: name, state: 'error', args, result: { error } });
+      return { result: { error }, isError: true };
+    }
+    if (name === ASK_USER_TOOL_NAME) asked = true;
     const def = turn.declared.find((tool) => tool.name === name);
     if (!def || !allowedNames.has(name)) {
       const error =
