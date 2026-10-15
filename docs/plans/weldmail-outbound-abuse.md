@@ -733,10 +733,14 @@ Where the build differs from the design above, and what it consists of.
    the largest tenants.
 2. **Queues**: `wrangler queues create mail-outbound-review-<env>`,
    `mail-outbound-review-dlq-<env>`, `mail-sending-events-<env>`,
-   `mail-sending-events-dlq-<env>` (dev, test, production).
+   `mail-sending-events-dlq-<env>`. Done for test and production on
+   2026-10-15; mail-api's deploy fails until they exist (the release-queue step
+   looks each consumed queue up).
 3. **mail-api vars**: `MAIL_SENDING_EVENTS_QUEUE_ID` = the sending-events
-   queue's id; `CF_EMAIL_DAILY_QUOTA` = the account's daily Email Sending quota
-   (arms the platform budget). The `CLOUDFLARE_API_TOKEN` mail-api uses needs
+   queue's id (test `3302a1675fa44d94a938913cd9e018ed`, production
+   `1a6e919e7fd4410b8f7edd89ff5d7933`); `CF_EMAIL_DAILY_QUOTA` = the
+   account's daily Email Sending quota (arms the platform budget). The
+   `CLOUDFLARE_API_TOKEN` mail-api uses needs
    **Queues Edit** for event subscriptions.
 4. **Secret**: `OUTBOUND_ADMIN_SECRET` (32+ characters) on mail-api
    (`scripts/secrets/manifest.ts`) and the same value in the admin console,
@@ -744,7 +748,9 @@ Where the build differs from the design above, and what it consists of.
 5. **Flagship**: create `weldmail-outbound-guard` (string: `off` / `shadow` /
    `enforce`), default `shadow`, in test and production.
 6. **Deploy order**: mail-api first (it hosts the Durable Objects), then the
-   workers that bind them by `script_name`.
+   workers that bind them by `script_name`. deploy.yml handles this: the module
+   matrix retries a binder's deploy while the host has not exported the class
+   yet (`code: 10061`), and the non-module workers deploy after the matrix.
 7. **Backfill event subscriptions** for existing sending domains:
    `POST https://mail-api[-test].weldsuite.org/internal/outbound/sending-events/subscribe`.
 8. **Shadow period** (two weeks): watch the admin console's would-be denials and
