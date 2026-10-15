@@ -42,22 +42,15 @@ export const userPreferences = pgTable('user_preferences', {
     /** WeldMail: last account/view the user opened (accountId or 'unified'). Fallback landing. */
     mailLastAccountId?: string | null;
     /**
-     * WeldFlow: when false, its tasks are not placed in free calendar slots.
-     * Only a task with an explicit start date still gets a (pinned) calendar
-     * event. Absent = `autoScheduleTasks`, else true (auto-schedule).
-     */
-    autoScheduleFlowTasks?: boolean;
-    /** WeldCRM: the same switch for CRM-linked tasks. */
-    autoScheduleCrmTasks?: boolean;
-    /**
-     * Legacy switch both apps shared before the split; no longer written. An
-     * app whose own switch is absent still follows it.
+     * WeldFlow: when false, tasks are not placed in free calendar slots. Only a
+     * task with an explicit start date still gets a (pinned) calendar event.
+     * Absent = true (auto-schedule).
      */
     autoScheduleTasks?: boolean;
     /**
-     * WeldCalendar: when false, the nightly calendar replan leaves
-     * auto-scheduled task slots in the past instead of moving them to the next
-     * free day. Absent = true (move them).
+     * WeldFlow: when false, the nightly calendar replan leaves auto-scheduled
+     * task slots in the past instead of moving them to the next free day.
+     * Absent = true (move them).
      */
     autoRescheduleTasks?: boolean;
     homeWidgets?: {

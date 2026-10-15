@@ -212,7 +212,9 @@ export async function isTaskAutoScheduleEnabled(
       .limit(1),
     taskSchedulingApp(db, taskId),
   ]);
-  const ui = prefs?.uiPreferences;
+  // The per-app keys stay out of the schema's `uiPreferences` type: changing
+  // that type tips `typeof schema` consumers into TS2589 under incremental tsc.
+  const ui = prefs?.uiPreferences as Record<string, unknown> | null | undefined;
   return (ui?.[TASK_AUTO_SCHEDULE_PREFERENCE[app]] ?? ui?.[LEGACY_TASK_AUTO_SCHEDULE_PREFERENCE]) !== false;
 }
 
@@ -1284,8 +1286,9 @@ export async function removeAutoScheduledTaskEvents(
     SELECT 1 FROM ${tasks}
     WHERE ${tasks.id} = ${calendarEvents.sourceId} AND ${crmLinkedTask()}
   )`;
-  const appFilter =
-    app === 'crm' ? sql`AND ${crmTask}` : app === 'flow' ? sql`AND NOT ${crmTask}` : sql``;
+  let appFilter = sql``;
+  if (app === 'crm') appFilter = sql`AND ${crmTask}`;
+  if (app === 'flow') appFilter = sql`AND NOT ${crmTask}`;
   const result = await db.execute(sql`
     WITH removed AS (
       UPDATE ${calendarEvents}
