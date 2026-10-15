@@ -52,7 +52,6 @@ import {
   Trash2,
   Copy,
   Repeat,
-  ListTodo,
   Paperclip,
   ChevronRight,
   FolderInput,
@@ -1639,7 +1638,6 @@ export function TasksClient({
           )}
           {(task.subtaskCount ?? 0) > 0 && (
             <span className="inline-flex h-[20px] items-center gap-1 px-1 rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
-              <ListTodo className="h-2.5 w-2.5 shrink-0" />
               {task.completedSubtaskCount}/{task.subtaskCount}
             </span>
           )}
