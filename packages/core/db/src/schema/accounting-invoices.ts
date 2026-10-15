@@ -88,6 +88,8 @@ export const invoices = pgTable('invoices', {
   fiscalData: jsonb('fiscal_data').$type<Record<string, unknown>>(),
 
   paymentLink: varchar('payment_link', { length: 500 }),
+  /** The invoice template (`invoice_templates`) this prints with; null uses the entity's default, else the built-in layout. */
+  templateId: varchar('template_id', { length: 30 }),
   journalEntryId: varchar('journal_entry_id', { length: 30 }),
   createdBy: varchar('created_by', { length: 255 }),
 }, (table) => [

@@ -6,6 +6,11 @@ import type { WeekFiscalYearConfig } from '@/lib/weldbooks/fiscal-year';
 import type { JurisdictionSummary } from '@/lib/weldbooks/jurisdiction';
 import type { UsAccountingMethod } from '@/lib/weldbooks/us-entity';
 import type {
+  CreateInvoiceTemplateInput,
+  InvoiceTemplate,
+  UpdateInvoiceTemplateInput,
+} from '@weldsuite/books-domain/invoice-template/schema';
+import type {
   AgedReport,
   BalanceSheetReport,
   CashFlowReport,
@@ -110,6 +115,8 @@ export interface UpdateAccountingEntityInput {
     bankName?: string;
   };
   taxIdentifiers?: { vatNumber?: string; registrationNumber?: string; einOrSsn?: string };
+  /** Logo, colours and document texts of invoices; replaced as a whole. */
+  branding?: AccountingEntity['branding'];
   /** US: Social Security number of a sole proprietor without an EIN. Write-only; `null` clears it. */
   ssn?: string | null;
   fiscalYearStart?: number;
@@ -406,6 +413,8 @@ export interface Customer {
 
 export interface Invoice {
   id: string;
+  /** The invoice template (invoice designer) it prints with; null uses the entity's default, else the built-in layout. */
+  templateId?: string | null;
   invoiceNumber: string | null;
   type: string;
   status: string;
@@ -802,6 +811,21 @@ export const accountingApi = {
     weldbooksApi.post<ApiResponse<LockDateException>>(
       `/accounting-entities/${id}/lock-exceptions/${exceptionId}/revoke`,
     ),
+
+  // Invoice templates (invoice designer): one default per entity, an invoice may pick one
+  listInvoiceTemplates: (entityId: string) =>
+    weldbooksApi.get<CursorListResponse<InvoiceTemplate>>(`/invoice-templates${buildQuery({ entityId })}`),
+  getInvoiceTemplate: (id: string) => weldbooksApi.get<ApiResponse<InvoiceTemplate>>(`/invoice-templates/${id}`),
+  createInvoiceTemplate: (data: CreateInvoiceTemplateInput) =>
+    weldbooksApi.post<ApiResponse<InvoiceTemplate>>('/invoice-templates', data),
+  /** `isDefault: true` makes it the entity's default and unsets the previous one. */
+  updateInvoiceTemplate: (id: string, data: UpdateInvoiceTemplateInput) =>
+    weldbooksApi.patch<ApiResponse<InvoiceTemplate>>(`/invoice-templates/${id}`, data),
+  /** Invoices that used it fall back to the entity's default. */
+  deleteInvoiceTemplate: (id: string) => weldbooksApi.delete<unknown>(`/invoice-templates/${id}`),
+  /** A copy named "<name> (copy)", never the default. */
+  duplicateInvoiceTemplate: (id: string) =>
+    weldbooksApi.post<ApiResponse<InvoiceTemplate>>(`/invoice-templates/${id}/duplicate`),
 
   // Accounts
   /** `taxLine: 'none'` lists the income and expense accounts without a tax line (US); a line code lists the accounts on it. */

@@ -317,6 +317,7 @@ import { Route as WeldconnectExecutionsIdIndexRouteImport } from './routes/weldc
 import { Route as WeldcalendarSchedulingNewIndexRouteImport } from './routes/weldcalendar/scheduling/new/index'
 import { Route as WeldcalendarSchedulingIdIndexRouteImport } from './routes/weldcalendar/scheduling/$id/index'
 import { Route as WeldbooksVatIdIndexRouteImport } from './routes/weldbooks/vat/$id/index'
+import { Route as WeldbooksSettingsInvoiceTemplatesIndexRouteImport } from './routes/weldbooks/settings/invoice-templates/index'
 import { Route as WeldbooksSettingsDimensionsIndexRouteImport } from './routes/weldbooks/settings/dimensions/index'
 import { Route as WeldbooksSalesTaxSettingsIndexRouteImport } from './routes/weldbooks/sales-tax/settings/index'
 import { Route as WeldbooksSalesTaxReturnsIndexRouteImport } from './routes/weldbooks/sales-tax/returns/index'
@@ -440,6 +441,7 @@ import { Route as WeldconnectWorkflowsIdEditIndexRouteImport } from './routes/we
 import { Route as WeldconnectTemplatesIdEditIndexRouteImport } from './routes/weldconnect/templates/$id/edit/index'
 import { Route as WeldcalendarSchedulingIdViewIndexRouteImport } from './routes/weldcalendar/scheduling/$id/view/index'
 import { Route as WeldcalendarSchedulingIdEditIndexRouteImport } from './routes/weldcalendar/scheduling/$id/edit/index'
+import { Route as WeldbooksSettingsInvoiceTemplatesIdIndexRouteImport } from './routes/weldbooks/settings/invoice-templates/$id/index'
 import { Route as WeldbooksSalesTaxReturnsIdIndexRouteImport } from './routes/weldbooks/sales-tax/returns/$id/index'
 import { Route as WeldbooksSalesTaxNexusStateIndexRouteImport } from './routes/weldbooks/sales-tax/nexus/$state/index'
 import { Route as WeldbooksSalesTaxCertificatesReportsIndexRouteImport } from './routes/weldbooks/sales-tax/certificates/reports/index'
@@ -2092,6 +2094,12 @@ const WeldbooksVatIdIndexRoute = WeldbooksVatIdIndexRouteImport.update({
   path: '/vat/$id/',
   getParentRoute: () => WeldbooksRouteRoute,
 } as any)
+const WeldbooksSettingsInvoiceTemplatesIndexRoute =
+  WeldbooksSettingsInvoiceTemplatesIndexRouteImport.update({
+    id: '/settings/invoice-templates/',
+    path: '/settings/invoice-templates/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksSettingsDimensionsIndexRoute =
   WeldbooksSettingsDimensionsIndexRouteImport.update({
     id: '/settings/dimensions/',
@@ -2823,6 +2831,12 @@ const WeldcalendarSchedulingIdEditIndexRoute =
     path: '/scheduling/$id/edit/',
     getParentRoute: () => WeldcalendarRouteRoute,
   } as any)
+const WeldbooksSettingsInvoiceTemplatesIdIndexRoute =
+  WeldbooksSettingsInvoiceTemplatesIdIndexRouteImport.update({
+    id: '/settings/invoice-templates/$id/',
+    path: '/settings/invoice-templates/$id/',
+    getParentRoute: () => WeldbooksRouteRoute,
+  } as any)
 const WeldbooksSalesTaxReturnsIdIndexRoute =
   WeldbooksSalesTaxReturnsIdIndexRouteImport.update({
     id: '/sales-tax/returns/$id/',
@@ -3422,6 +3436,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/sales-tax/returns/': typeof WeldbooksSalesTaxReturnsIndexRoute
   '/weldbooks/sales-tax/settings/': typeof WeldbooksSalesTaxSettingsIndexRoute
   '/weldbooks/settings/dimensions/': typeof WeldbooksSettingsDimensionsIndexRoute
+  '/weldbooks/settings/invoice-templates/': typeof WeldbooksSettingsInvoiceTemplatesIndexRoute
   '/weldbooks/vat/$id/': typeof WeldbooksVatIdIndexRoute
   '/weldcalendar/scheduling/$id/': typeof WeldcalendarSchedulingIdIndexRoute
   '/weldcalendar/scheduling/new/': typeof WeldcalendarSchedulingNewIndexRoute
@@ -3500,6 +3515,7 @@ export interface FileRoutesByFullPath {
   '/weldbooks/sales-tax/certificates/reports/': typeof WeldbooksSalesTaxCertificatesReportsIndexRoute
   '/weldbooks/sales-tax/nexus/$state/': typeof WeldbooksSalesTaxNexusStateIndexRoute
   '/weldbooks/sales-tax/returns/$id/': typeof WeldbooksSalesTaxReturnsIdIndexRoute
+  '/weldbooks/settings/invoice-templates/$id/': typeof WeldbooksSettingsInvoiceTemplatesIdIndexRoute
   '/weldcalendar/scheduling/$id/edit/': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view/': typeof WeldcalendarSchedulingIdViewIndexRoute
   '/weldconnect/templates/$id/edit/': typeof WeldconnectTemplatesIdEditIndexRoute
@@ -3857,6 +3873,7 @@ export interface FileRoutesByTo {
   '/weldbooks/sales-tax/returns': typeof WeldbooksSalesTaxReturnsIndexRoute
   '/weldbooks/sales-tax/settings': typeof WeldbooksSalesTaxSettingsIndexRoute
   '/weldbooks/settings/dimensions': typeof WeldbooksSettingsDimensionsIndexRoute
+  '/weldbooks/settings/invoice-templates': typeof WeldbooksSettingsInvoiceTemplatesIndexRoute
   '/weldbooks/vat/$id': typeof WeldbooksVatIdIndexRoute
   '/weldcalendar/scheduling/$id': typeof WeldcalendarSchedulingIdIndexRoute
   '/weldcalendar/scheduling/new': typeof WeldcalendarSchedulingNewIndexRoute
@@ -3935,6 +3952,7 @@ export interface FileRoutesByTo {
   '/weldbooks/sales-tax/certificates/reports': typeof WeldbooksSalesTaxCertificatesReportsIndexRoute
   '/weldbooks/sales-tax/nexus/$state': typeof WeldbooksSalesTaxNexusStateIndexRoute
   '/weldbooks/sales-tax/returns/$id': typeof WeldbooksSalesTaxReturnsIdIndexRoute
+  '/weldbooks/settings/invoice-templates/$id': typeof WeldbooksSettingsInvoiceTemplatesIdIndexRoute
   '/weldcalendar/scheduling/$id/edit': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view': typeof WeldcalendarSchedulingIdViewIndexRoute
   '/weldconnect/templates/$id/edit': typeof WeldconnectTemplatesIdEditIndexRoute
@@ -4333,6 +4351,7 @@ export interface FileRoutesById {
   '/weldbooks/sales-tax/returns/': typeof WeldbooksSalesTaxReturnsIndexRoute
   '/weldbooks/sales-tax/settings/': typeof WeldbooksSalesTaxSettingsIndexRoute
   '/weldbooks/settings/dimensions/': typeof WeldbooksSettingsDimensionsIndexRoute
+  '/weldbooks/settings/invoice-templates/': typeof WeldbooksSettingsInvoiceTemplatesIndexRoute
   '/weldbooks/vat/$id/': typeof WeldbooksVatIdIndexRoute
   '/weldcalendar/scheduling/$id/': typeof WeldcalendarSchedulingIdIndexRoute
   '/weldcalendar/scheduling/new/': typeof WeldcalendarSchedulingNewIndexRoute
@@ -4411,6 +4430,7 @@ export interface FileRoutesById {
   '/weldbooks/sales-tax/certificates/reports/': typeof WeldbooksSalesTaxCertificatesReportsIndexRoute
   '/weldbooks/sales-tax/nexus/$state/': typeof WeldbooksSalesTaxNexusStateIndexRoute
   '/weldbooks/sales-tax/returns/$id/': typeof WeldbooksSalesTaxReturnsIdIndexRoute
+  '/weldbooks/settings/invoice-templates/$id/': typeof WeldbooksSettingsInvoiceTemplatesIdIndexRoute
   '/weldcalendar/scheduling/$id/edit/': typeof WeldcalendarSchedulingIdEditIndexRoute
   '/weldcalendar/scheduling/$id/view/': typeof WeldcalendarSchedulingIdViewIndexRoute
   '/weldconnect/templates/$id/edit/': typeof WeldconnectTemplatesIdEditIndexRoute
@@ -4810,6 +4830,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/returns/'
     | '/weldbooks/sales-tax/settings/'
     | '/weldbooks/settings/dimensions/'
+    | '/weldbooks/settings/invoice-templates/'
     | '/weldbooks/vat/$id/'
     | '/weldcalendar/scheduling/$id/'
     | '/weldcalendar/scheduling/new/'
@@ -4888,6 +4909,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/certificates/reports/'
     | '/weldbooks/sales-tax/nexus/$state/'
     | '/weldbooks/sales-tax/returns/$id/'
+    | '/weldbooks/settings/invoice-templates/$id/'
     | '/weldcalendar/scheduling/$id/edit/'
     | '/weldcalendar/scheduling/$id/view/'
     | '/weldconnect/templates/$id/edit/'
@@ -5245,6 +5267,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/returns'
     | '/weldbooks/sales-tax/settings'
     | '/weldbooks/settings/dimensions'
+    | '/weldbooks/settings/invoice-templates'
     | '/weldbooks/vat/$id'
     | '/weldcalendar/scheduling/$id'
     | '/weldcalendar/scheduling/new'
@@ -5323,6 +5346,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/certificates/reports'
     | '/weldbooks/sales-tax/nexus/$state'
     | '/weldbooks/sales-tax/returns/$id'
+    | '/weldbooks/settings/invoice-templates/$id'
     | '/weldcalendar/scheduling/$id/edit'
     | '/weldcalendar/scheduling/$id/view'
     | '/weldconnect/templates/$id/edit'
@@ -5720,6 +5744,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/returns/'
     | '/weldbooks/sales-tax/settings/'
     | '/weldbooks/settings/dimensions/'
+    | '/weldbooks/settings/invoice-templates/'
     | '/weldbooks/vat/$id/'
     | '/weldcalendar/scheduling/$id/'
     | '/weldcalendar/scheduling/new/'
@@ -5798,6 +5823,7 @@ export interface FileRouteTypes {
     | '/weldbooks/sales-tax/certificates/reports/'
     | '/weldbooks/sales-tax/nexus/$state/'
     | '/weldbooks/sales-tax/returns/$id/'
+    | '/weldbooks/settings/invoice-templates/$id/'
     | '/weldcalendar/scheduling/$id/edit/'
     | '/weldcalendar/scheduling/$id/view/'
     | '/weldconnect/templates/$id/edit/'
@@ -8061,6 +8087,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldbooksVatIdIndexRouteImport
       parentRoute: typeof WeldbooksRouteRoute
     }
+    '/weldbooks/settings/invoice-templates/': {
+      id: '/weldbooks/settings/invoice-templates/'
+      path: '/settings/invoice-templates'
+      fullPath: '/weldbooks/settings/invoice-templates/'
+      preLoaderRoute: typeof WeldbooksSettingsInvoiceTemplatesIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/settings/dimensions/': {
       id: '/weldbooks/settings/dimensions/'
       path: '/settings/dimensions'
@@ -8922,6 +8955,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WeldcalendarSchedulingIdEditIndexRouteImport
       parentRoute: typeof WeldcalendarRouteRoute
     }
+    '/weldbooks/settings/invoice-templates/$id/': {
+      id: '/weldbooks/settings/invoice-templates/$id/'
+      path: '/settings/invoice-templates/$id'
+      fullPath: '/weldbooks/settings/invoice-templates/$id/'
+      preLoaderRoute: typeof WeldbooksSettingsInvoiceTemplatesIdIndexRouteImport
+      parentRoute: typeof WeldbooksRouteRoute
+    }
     '/weldbooks/sales-tax/returns/$id/': {
       id: '/weldbooks/sales-tax/returns/$id/'
       path: '/sales-tax/returns/$id'
@@ -9524,6 +9564,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksSalesTaxReturnsIndexRoute: typeof WeldbooksSalesTaxReturnsIndexRoute
   WeldbooksSalesTaxSettingsIndexRoute: typeof WeldbooksSalesTaxSettingsIndexRoute
   WeldbooksSettingsDimensionsIndexRoute: typeof WeldbooksSettingsDimensionsIndexRoute
+  WeldbooksSettingsInvoiceTemplatesIndexRoute: typeof WeldbooksSettingsInvoiceTemplatesIndexRoute
   WeldbooksVatIdIndexRoute: typeof WeldbooksVatIdIndexRoute
   WeldbooksAccountsIdEditIndexRoute: typeof WeldbooksAccountsIdEditIndexRoute
   WeldbooksBankingFeedsCallbackIndexRoute: typeof WeldbooksBankingFeedsCallbackIndexRoute
@@ -9543,6 +9584,7 @@ interface WeldbooksRouteRouteChildren {
   WeldbooksSalesTaxCertificatesReportsIndexRoute: typeof WeldbooksSalesTaxCertificatesReportsIndexRoute
   WeldbooksSalesTaxNexusStateIndexRoute: typeof WeldbooksSalesTaxNexusStateIndexRoute
   WeldbooksSalesTaxReturnsIdIndexRoute: typeof WeldbooksSalesTaxReturnsIdIndexRoute
+  WeldbooksSettingsInvoiceTemplatesIdIndexRoute: typeof WeldbooksSettingsInvoiceTemplatesIdIndexRoute
   WeldbooksBankingStatementsIdReportIndexRoute: typeof WeldbooksBankingStatementsIdReportIndexRoute
 }
 
@@ -9636,6 +9678,8 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
   WeldbooksSalesTaxReturnsIndexRoute: WeldbooksSalesTaxReturnsIndexRoute,
   WeldbooksSalesTaxSettingsIndexRoute: WeldbooksSalesTaxSettingsIndexRoute,
   WeldbooksSettingsDimensionsIndexRoute: WeldbooksSettingsDimensionsIndexRoute,
+  WeldbooksSettingsInvoiceTemplatesIndexRoute:
+    WeldbooksSettingsInvoiceTemplatesIndexRoute,
   WeldbooksVatIdIndexRoute: WeldbooksVatIdIndexRoute,
   WeldbooksAccountsIdEditIndexRoute: WeldbooksAccountsIdEditIndexRoute,
   WeldbooksBankingFeedsCallbackIndexRoute:
@@ -9663,6 +9707,8 @@ const WeldbooksRouteRouteChildren: WeldbooksRouteRouteChildren = {
     WeldbooksSalesTaxCertificatesReportsIndexRoute,
   WeldbooksSalesTaxNexusStateIndexRoute: WeldbooksSalesTaxNexusStateIndexRoute,
   WeldbooksSalesTaxReturnsIdIndexRoute: WeldbooksSalesTaxReturnsIdIndexRoute,
+  WeldbooksSettingsInvoiceTemplatesIdIndexRoute:
+    WeldbooksSettingsInvoiceTemplatesIdIndexRoute,
   WeldbooksBankingStatementsIdReportIndexRoute:
     WeldbooksBankingStatementsIdReportIndexRoute,
 }

@@ -24,12 +24,12 @@ import {
   type TaxSyncResult,
 } from '@/lib/api/domains/weldbooks-sales-tax-preview';
 import { useCurrentAccountingEntity } from '@/hooks/use-current-accounting-entity';
-import {
-  generateInvoicePdf,
-  downloadPdf,
-  type BrInvoicePdfExtras,
-  type InvoicePdfLabels,
-} from '@/lib/weldbooks/invoice-pdf';
+import { generateInvoicePdf, downloadPdf, type BrInvoicePdfExtras } from '@/lib/weldbooks/invoice-pdf';
+import { layoutInvoice } from '@weldsuite/books-domain/invoice-template/layout';
+import { renderInvoicePdf } from '@weldsuite/books-domain/invoice-template/pdf';
+import { buildInvoiceDocumentData } from '@/lib/weldbooks/invoice-template-data';
+import { useInvoiceDocumentLabels } from '@/lib/weldbooks/use-invoice-template-labels';
+import { useInvoiceTemplates } from '@/hooks/queries/use-invoice-template-queries';
 import { RecordPaymentDialog } from '../components/record-payment-dialog';
 import { SendInvoiceDialog } from '../components/send-invoice-dialog';
 import { SalesTaxErrorNotice, useDescribeError } from '../components/sales-tax-error-notice';
@@ -66,8 +66,8 @@ export default function InvoiceDetailPage() {
   const st = useTranslations();
   const ti = t.accounting.invoiceDetail;
   const td = useDocumentTexts();
-  const { formatMoney, formatDate } = useWeldbooksFormat();
-  const { labels, features } = useJurisdictionLabels();
+  const { formatMoney } = useWeldbooksFormat();
+  const { features } = useJurisdictionLabels();
   const canUpdate = useCan('invoices:update');
   const canCreate = useCan('invoices:create');
   const describeError = useDescribeError();
@@ -101,24 +101,10 @@ export default function InvoiceDetailPage() {
     .map((certificateId) => certificates.get(certificateId)?.certificateNumber ?? '')
     .filter((number) => number !== '');
 
-  const pdfLabels = (): InvoicePdfLabels => {
-    const tp = t.accounting.invoicePdf;
-    return {
-      ...tp,
-      tax: labels.tax,
-      taxId: labels.taxId,
-      registrationId: labels.registrationId,
-      creditNote: labels.creditNote.toUpperCase(),
-      jurisdictionTax: td.pdf.jurisdictionTax,
-      exempt: td.exempt,
-      // India GST tax invoice
-      placeOfSupply: t.weldbooksIn.gst.placeOfSupply,
-      hsnSac: t.weldbooksIn.gst.hsnSac,
-      outsideIndia: t.weldbooksIn.gst.placeOfSupplyOutside,
-      // Brazil
-      br: t.weldbooksBr.pdf,
-    };
-  };
+  const documentLabels = useInvoiceDocumentLabels();
+  // The invoice's designed template, else the entity's default; none prints the built-in layout.
+  const { data: templates } = useInvoiceTemplates(entityId);
+  const template = templates?.find((tpl) => tpl.id === invoice?.templateId) ?? templates?.find((tpl) => tpl.isDefault) ?? null;
 
   /** Brazil: the Pix QR, the authorised NF-e / NFS-e and the regime's statements the PDF prints. */
   const brPdfExtras = async (): Promise<BrInvoicePdfExtras | undefined> => {
@@ -159,17 +145,30 @@ export default function InvoiceDetailPage() {
           ),
         )
       ).filter((number): number is string => Boolean(number));
-      const bytes = await generateInvoicePdf(
-        invoice,
-        entity ?? { name: st('sweep.weldbooks.invoiceDetail.yourCompanyFallback') },
-        {
-          labels: pdfLabels(),
-          formatDate: (v) => formatDate(v, '-'),
-          countryName: country,
-          certificateNumbers: numbers,
-          br: await brPdfExtras(),
-        },
-      );
+      const pdfEntity = entity ?? { name: st('sweep.weldbooks.invoiceDetail.yourCompanyFallback') };
+      const br = await brPdfExtras();
+      const bytes = template
+        ? await renderInvoicePdf(
+            layoutInvoice(
+              template.document,
+              buildInvoiceDocumentData(invoice, pdfEntity, {
+                pdfLabels: documentLabels.pdfLabels,
+                labels: documentLabels.labels,
+                formatDate: documentLabels.formatDate,
+                countryName: country,
+                certificateNumbers: numbers,
+                br,
+              }),
+            ),
+            { title: invoice.invoiceNumber ?? undefined },
+          )
+        : await generateInvoicePdf(invoice, pdfEntity, {
+            labels: documentLabels.pdfLabels,
+            formatDate: documentLabels.formatDate,
+            countryName: country,
+            certificateNumbers: numbers,
+            br,
+          });
       const filename = (invoice.invoiceNumber || 'invoice') + '.pdf';
       downloadPdf(bytes, filename);
     } catch {

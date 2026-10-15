@@ -36,7 +36,7 @@ import {
   LockedPeriodError,
   writeAccountingAudit,
 } from '@weldsuite/books-domain/accounting-guards';
-import { generateInvoiceHtml } from '@weldsuite/books-domain/accounting-invoice-html';
+import { generateInvoiceHtml, generateTemplatedInvoiceHtml, type InvoiceRenderData } from '@weldsuite/books-domain/accounting-invoice-html';
 import { brInvoiceRenderExtras } from '../../services/br-invoice-render';
 import { normalizePostalAddress } from '@weldsuite/books-domain/accounting-address';
 import { streamDocumentAttachment } from '../../lib/document-attachment';
@@ -77,6 +77,7 @@ import {
 import { syncInvoiceWithProvider } from '../../services/sales-tax/provider-sync';
 import { salesTaxRuntimeFromEnv } from '../../services/sales-tax/runtime';
 import { orderInvoiceLines } from '../../services/sales-tax/order-invoice';
+import { resolveInvoiceTemplate, templateBelongsToEntity } from '../../services/invoice-templates';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -198,6 +199,8 @@ const createInvoiceSchema = z.object({
   marketplaceFacilitated: z.boolean().optional(),
   revenueAccountId: z.string().max(30).optional(),
   creditNoteForInvoiceId: z.string().max(30).optional(),
+  /** The invoice template (invoice designer) to print with; null uses the entity default. Must belong to the invoice's entity. */
+  templateId: z.string().max(30).nullable().optional(),
   items: z.array(lineItemSchema).min(1),
 });
 
@@ -278,6 +281,7 @@ function buildInvoiceFieldUpdates(data: UpdateInvoiceInput): Record<string, unkn
   applyAddressUpdates(updateData, data);
   if (data.marketplaceFacilitated !== undefined) updateData.marketplaceFacilitated = data.marketplaceFacilitated;
   if (data.revenueAccountId !== undefined) updateData.revenueAccountId = data.revenueAccountId;
+  if (data.templateId !== undefined) updateData.templateId = data.templateId;
   if (data.fiscalData !== undefined) updateData.fiscalData = data.fiscalData;
 
   return updateData;
@@ -747,47 +751,47 @@ app.get('/:id/pdf', requirePermission('invoices:read'), async (c) => {
         ? { name: invoice.contactName, email: invoice.contactEmail }
         : await loadContactSnapshot(db, invoice.contactId);
 
-    const html = generateInvoiceHtml(
-      {
-        draft: invoice.status === 'draft',
-        certificateNumbers: Object.fromEntries(certificates.map((cert) => [cert.id, cert.number])),
-        invoiceNumber: invoice.invoiceNumber || invoiceId,
-        type: invoice.type || 'standard',
-        issueDate: invoice.issueDate?.toISOString() || new Date().toISOString(),
-        dueDate: invoice.dueDate?.toISOString() || new Date().toISOString(),
-        currency: invoice.currency || entityRow.baseCurrency || 'EUR',
-        contactName: invoice.contactName || contact.name || '',
-        contactEmail: invoice.contactEmail ?? contact.email,
-        contactVatNumber,
-        complianceNotices,
-        billingAddress: invoice.billingAddress,
-        shippingAddress: invoice.shippingAddress,
-        reference: invoice.reference,
-        notes: invoice.notes,
-        placeOfSupply: invoice.placeOfSupply,
-        items: items.map((i) => ({
-          description: i.description || '',
-          hsnSac: i.hsnSac,
-          quantity: i.quantity || '1',
-          unitPrice: i.unitPrice || '0',
-          unit: i.unit ?? undefined,
-          discountPercent: i.discountPercent ?? undefined,
-          taxRate: i.taxRate ?? undefined,
-          lineTotal: i.lineTotal || '0',
-          lineTotalWithTax: i.lineTotalWithTax ?? undefined,
-          taxAmount: i.taxAmount ?? undefined,
-        })),
-        subtotal: invoice.subtotal || '0',
-        discountTotal: invoice.discountTotal || '0',
-        taxTotal: invoice.taxTotal || '0',
-        total: invoice.total || '0',
-        amountPaid: invoice.amountPaid ?? undefined,
-        balanceDue: invoice.balanceDue ?? undefined,
-        taxBreakdown: invoice.taxBreakdown || [],
-        ...(await brInvoiceRenderExtras(db, entityRow, invoice)),
-      },
-      entityRow,
-    );
+    const renderData: InvoiceRenderData = {
+      draft: invoice.status === 'draft',
+      certificateNumbers: Object.fromEntries(certificates.map((cert) => [cert.id, cert.number])),
+      invoiceNumber: invoice.invoiceNumber || invoiceId,
+      type: invoice.type || 'standard',
+      issueDate: invoice.issueDate?.toISOString() || new Date().toISOString(),
+      dueDate: invoice.dueDate?.toISOString() || new Date().toISOString(),
+      currency: invoice.currency || entityRow.baseCurrency || 'EUR',
+      contactName: invoice.contactName || contact.name || '',
+      contactEmail: invoice.contactEmail ?? contact.email,
+      contactVatNumber,
+      complianceNotices,
+      billingAddress: invoice.billingAddress,
+      shippingAddress: invoice.shippingAddress,
+      reference: invoice.reference,
+      notes: invoice.notes,
+      placeOfSupply: invoice.placeOfSupply,
+      items: items.map((i) => ({
+        description: i.description || '',
+        hsnSac: i.hsnSac,
+        quantity: i.quantity || '1',
+        unitPrice: i.unitPrice || '0',
+        unit: i.unit ?? undefined,
+        discountPercent: i.discountPercent ?? undefined,
+        taxRate: i.taxRate ?? undefined,
+        lineTotal: i.lineTotal || '0',
+        lineTotalWithTax: i.lineTotalWithTax ?? undefined,
+        taxAmount: i.taxAmount ?? undefined,
+      })),
+      subtotal: invoice.subtotal || '0',
+      discountTotal: invoice.discountTotal || '0',
+      taxTotal: invoice.taxTotal || '0',
+      total: invoice.total || '0',
+      amountPaid: invoice.amountPaid ?? undefined,
+      balanceDue: invoice.balanceDue ?? undefined,
+      taxBreakdown: invoice.taxBreakdown || [],
+      ...(await brInvoiceRenderExtras(db, entityRow, invoice)),
+    };
+    // The invoice's designed template, else the entity's default, else the built-in layout.
+    const template = await resolveInvoiceTemplate(db, { templateId: invoice.templateId, entityId: invoice.entityId });
+    const html = template ? generateTemplatedInvoiceHtml(template, renderData, entityRow) : generateInvoiceHtml(renderData, entityRow);
 
     return new Response(html, {
       headers: {
@@ -811,6 +815,9 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
   try {
     const entityId = await resolveEntityId(c, db);
     if (!entityId) return error.badRequest(c, 'No accounting entity resolved — set X-Accounting-Entity-Id or configure a default entity.');
+    if (data.templateId && !(await templateBelongsToEntity(db, data.templateId, entityId))) {
+      return error.badRequest(c, 'Invoice template not found for this accounting entity');
+    }
     const { formatted: invoiceNumber } = await nextEntityNumber(db, entityId, 'invoice');
     const baseCurrency = await resolveEntityBaseCurrency(db, entityId);
     const currency = data.currency || baseCurrency;
@@ -892,6 +899,7 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createInv
       fiscalData: data.fiscalData ?? null,
       marketplaceFacilitated: data.marketplaceFacilitated ?? false,
       revenueAccountId: data.revenueAccountId || null,
+      templateId: data.templateId || null,
       creditNoteForInvoiceId: data.creditNoteForInvoiceId || null,
       createdBy: userId,
       createdAt: new Date(),
@@ -963,6 +971,10 @@ app.on(['PUT', 'PATCH'], '/:id', requirePermission('invoices:update'), zValidato
         c,
         'Only draft invoices can be edited — finalized invoices are immutable. Corrections go through a credit note (POST /:id/credit-note).',
       );
+    }
+
+    if (data.templateId && !(await templateBelongsToEntity(db, data.templateId, invoice.entityId))) {
+      return error.badRequest(c, 'Invoice template not found for this accounting entity');
     }
 
     const updateData = buildInvoiceFieldUpdates(data);

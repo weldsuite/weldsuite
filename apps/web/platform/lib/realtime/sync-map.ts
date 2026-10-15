@@ -287,6 +287,7 @@ export const platformSyncMap: EntitySyncMap = {
   payment_run: inv(['accounting', 'payment-runs'], ['accounting', 'bills'], ['accounting', 'payments']),
   fixed_asset: inv(['accounting', 'fixed-assets']),
   accounting_dimension: inv(['accounting', 'dimensions']),
+  invoice_template: inv(['accounting', 'invoice-templates']),
   payroll_import: inv(['accounting', 'payroll'], ['accounting', 'journal-entries']),
   payroll_connection: inv(['accounting', 'payroll']),
   // Brazil: NF-e / NFS-e issued for invoices, and NF-e received from suppliers.
