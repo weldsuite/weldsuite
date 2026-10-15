@@ -1633,12 +1633,13 @@ export function TasksClient({
           {(task.attachmentCount ?? 0) > 0 && (
             <span className="inline-flex h-[21px] items-center gap-1 px-[5px] rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
               <Paperclip className="h-2.5 w-2.5 shrink-0" />
-              {task.attachmentCount}
+              <span className="translate-y-[0.6px]">{task.attachmentCount}</span>
             </span>
           )}
           {(task.subtaskCount ?? 0) > 0 && (
             <span className="inline-flex h-[21px] items-center gap-1 px-[5px] rounded-[5px] border border-border bg-muted font-mono text-[10px] leading-none tabular-nums text-muted-foreground flex-shrink-0">
-              {task.completedSubtaskCount}/{task.subtaskCount}
+              {/* Monospace digits ride ~0.6px high in the line box; this centres them in the chip. */}
+              <span className="translate-y-[0.6px]">{task.completedSubtaskCount}/{task.subtaskCount}</span>
             </span>
           )}
         </div>
