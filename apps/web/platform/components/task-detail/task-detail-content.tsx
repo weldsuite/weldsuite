@@ -2235,13 +2235,6 @@ export function SubtasksSection({
                       >
                         {subtask.title}
                       </span>
-                      {subtask.assignee && (
-                        <div style={{ width: 20, height: 20, borderRadius: 9999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="bg-muted" title={subtask.assignee.name}>
-                          <span style={{ fontSize: 9, fontWeight: 500 }} className="text-muted-foreground">
-                            {subtask.assignee.name.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      )}
                       {subtask.id !== currentTaskId && (
                         <Button
                           variant="ghost"
