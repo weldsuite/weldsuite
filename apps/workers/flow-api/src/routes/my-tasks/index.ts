@@ -15,6 +15,10 @@
  * fit arbitrary sort fields, so this surface stays page-based like the
  * legacy endpoint the WeldFlow infinite-scroll list expects.
  *
+ * includeSubtasks=true attaches each returned task's full subtask tree as
+ * `children` (whoever the subtasks are assigned to), so the list can show
+ * them nested under their parent.
+ *
  * Read-only; no entity events. Permission: `tasks:read`.
  */
 
@@ -34,6 +38,7 @@ import {
   dueDateBucketCondition,
   resolveTaskSortColumn,
   enrichTasksWithAssignees,
+  attachSubtaskTreeAcrossProjects,
 } from '../tasks';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -50,6 +55,7 @@ const myTasksFiltersSchema = z.object({
   dueDateBucket: dueDateBucketEnum,
   sortField: taskSortFieldEnum,
   sortDirection: z.enum(['asc', 'desc']).optional().default('asc'),
+  includeSubtasks: z.coerce.boolean().optional().default(false),
 });
 
 app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFiltersSchema), async (c) => {
@@ -147,6 +153,7 @@ app.get('/', requirePermission('tasks:read'), zValidator('query', myTasksFilters
       const project = projectByTaskId.get(task.id);
       return { ...task, project: project?.id ? project : null };
     });
+    if (q.includeSubtasks) await attachSubtaskTreeAcrossProjects(db, data);
 
     // Offset-based: cursor is always null, hasMore drives the next page fetch.
     return list(c, data, cursorPagination(totalCount, hasMore, null));

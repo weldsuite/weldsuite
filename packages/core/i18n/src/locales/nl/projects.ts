@@ -667,6 +667,8 @@ export const projects = {
       duplicate: 'Dupliceren',
       delete: 'Verwijderen',
       subtaskCreated: 'Subtaak aangemaakt',
+      expandSubtasks: 'Subtaken tonen',
+      collapseSubtasks: 'Subtaken verbergen',
       subtaskCreateFailed: 'Aanmaken van subtaak mislukt',
       taskCreated: 'Taak aangemaakt',
       taskCreateFailed: 'Aanmaken van taak mislukt',

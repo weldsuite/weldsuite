@@ -110,6 +110,8 @@ export function useTaskProjects(params?: { page?: number; pageSize?: number; cur
   dueDateBucket?: 'overdue' | 'today' | 'this-week' | 'later' | 'no-date';
   sortField?: 'title' | 'status' | 'priority' | 'dueDate' | 'assignee' | 'position' | 'createdAt';
   sortDirection?: 'asc' | 'desc';
+  /** Attach each task's subtask tree as `children`. */
+  includeSubtasks?: boolean;
 };
 
 export function useInfiniteMyTasks(filters: MyTasksFilters = {}, pageSize = 50) {

@@ -1382,17 +1382,21 @@ function paginateTaskRows(
   return { data: rows, paginationMeta: cursorPagination(totalCount, hasMore, nextCursor) };
 }
 
-/** Full descendant tree (BFS over parentTaskId, bounded by MAX_SUBTASK_DEPTH), enriched + hydrated in one batch. */
-async function loadEnrichedDescendants(db: TaskDb, projectId: string, roots: any[]): Promise<any[]> {
+/**
+ * Full descendant tree (BFS over parentTaskId, bounded by MAX_SUBTASK_DEPTH), enriched + hydrated in one batch.
+ * `projectId` narrows the walk to one project; without it the roots may span projects (My Tasks).
+ */
+async function loadEnrichedDescendants(db: TaskDb, projectId: string | null, roots: any[]): Promise<any[]> {
   let frontier: string[] = roots.map((row: any) => row.id);
   const allDescendants: any[] = [];
+  const seen = new Set<string>();
   for (let depth = 0; depth < MAX_SUBTASK_DEPTH && frontier.length > 0; depth++) {
     const children = await db
       .select()
       .from(t)
       .where(
         and(
-          eq(t.projectId, projectId),
+          projectId ? eq(t.projectId, projectId) : undefined,
           inArray(t.parentTaskId, frontier),
           isNull(t.deletedAt),
         ),
@@ -1400,9 +1404,13 @@ async function loadEnrichedDescendants(db: TaskDb, projectId: string, roots: any
       // Oldest first, like the task panel's subtask list (and like a subtask
       // appended in the client), so both surfaces agree.
       .orderBy(asc(t.position), asc(t.createdAt), asc(t.id));
-    if (children.length === 0) break;
-    allDescendants.push(...children);
-    frontier = children.map((child: any) => child.id);
+    // A root can itself sit under another root (My Tasks lists my subtasks
+    // as rows of their own), so the same child can be reached twice.
+    const fresh = children.filter((child: any) => !seen.has(child.id));
+    if (fresh.length === 0) break;
+    for (const child of fresh) seen.add(child.id);
+    allDescendants.push(...fresh);
+    frontier = fresh.map((child: any) => child.id);
   }
 
   // Phase 3: hydrate the whole descendant set in one batch too.
@@ -1428,6 +1436,17 @@ function attachSubtaskTree(roots: any[], descendants: any[]): void {
     for (const k of kids) attach(k);
   };
   for (const top of roots) attach(top);
+}
+
+/**
+ * Attach every root's full subtask tree as `children` (+ subtaskCount /
+ * completedSubtaskCount on each node). Used by My Tasks, whose roots span
+ * projects, so the walk is not narrowed to one project.
+ */
+export async function attachSubtaskTreeAcrossProjects(db: TaskDb, roots: any[]): Promise<void> {
+  if (roots.length === 0) return;
+  const descendants = await loadEnrichedDescendants(db, null, roots);
+  attachSubtaskTree(roots, descendants);
 }
 
 async function attachSubtaskCounts(db: TaskDb, tasks: any[]): Promise<void> {

@@ -64,7 +64,6 @@ import {
 } from '@weldsuite/ui/components/dropdown-menu';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
-import { Badge } from '@weldsuite/ui/components/badge';
 import { cn } from '@/lib/utils';
 import { LabelOverflowList } from '@/app/weldflow/lib/label-overflow-list';
 import { TaskNumberBadge } from '@/components/weldflow/task-number-badge';
@@ -82,11 +81,6 @@ import { useProjectPermissions } from '@/app/weldflow/contexts/project-permissio
 import { buildStatusToStageId } from '@/app/weldflow/lib/stage-resolution';
 
 // ---------- Types ----------
-
-interface Tag {
-  name: string;
-  color: string;
-}
 
 interface ProjectLabel {
   id: string;
@@ -113,7 +107,6 @@ interface TaskFeature {
   taskKey?: string;
   commentsCount?: number;
   attachmentsCount?: number;
-  tags?: Tag[];
   labels?: string[];
 }
 
@@ -179,7 +172,6 @@ interface RawPipelineTask {
   commentsCount?: number;
   attachmentsCount?: number;
   _count?: { comments?: number; attachments?: number };
-  tags?: (string | Tag)[];
   labels?: string[];
   assigneeId?: string;
   assigneeName?: string;
@@ -222,16 +214,6 @@ function mapTaskToFeature(task: RawPipelineTask, statusToStageId?: Map<string, s
     taskKey: task.key,
     commentsCount: task.commentsCount || task._count?.comments || 0,
     attachmentsCount: task.attachmentsCount || task._count?.attachments || 0,
-    tags: (task.tags || []).map((tag: string | Tag) => {
-      if (typeof tag === 'object' && tag !== null) return tag;
-      try {
-        const parsed = JSON.parse(tag);
-        if (parsed.name && parsed.color) return parsed as Tag;
-      } catch {
-        // Not valid JSON — fall through to the plain-string tag below.
-      }
-      return { name: String(tag), color: '#94a3b8' };
-    }),
     labels: task.labels || undefined,
   };
 }
@@ -434,23 +416,6 @@ function TaskCard({ feature, isDragging, onClick, availableLabels = [], canWrite
               .filter((l): l is NonNullable<typeof l> => !!l)
               .map((l) => ({ id: l.id, name: l.name, color: l.color }))}
           />
-        </div>
-      )}
-
-      {/* Tags */}
-      {feature.tags && feature.tags.length > 0 && (
-        <div className="flex items-center gap-2 mt-3">
-          <Hash className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-          <div className="flex flex-wrap gap-1 min-w-0">
-            {feature.tags.slice(0, 3).map((tag) => (
-              <Badge key={`${tag.name}-${tag.color}`} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
-                {tag.name}
-              </Badge>
-            ))}
-            {feature.tags.length > 3 && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">+{feature.tags.length - 3}</Badge>
-            )}
-          </div>
         </div>
       )}
 
@@ -824,8 +789,7 @@ const PipelinePage = () => {
         f.taskKey?.toLowerCase().includes(query) ||
         // Lets "1042" / "#1042" find the card by its number.
         taskNumberMatches(f.number, query) ||
-        f.owner?.name.toLowerCase().includes(query) ||
-        f.tags?.some(t => t.name.toLowerCase().includes(query))
+        f.owner?.name.toLowerCase().includes(query)
       );
     }
 
@@ -1215,18 +1179,6 @@ const PipelinePage = () => {
                           .filter((l): l is NonNullable<typeof l> => !!l)
                           .map((l) => ({ id: l.id, name: l.name, color: l.color }))}
                       />
-                    </div>
-                  )}
-                  {activeDeal.tags && activeDeal.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {activeDeal.tags.slice(0, 3).map((tag) => (
-                        <Badge key={`${tag.name}-${tag.color}`} className="text-[10px] px-1.5 py-0 h-5 text-gray-700 dark:text-gray-800" style={{ backgroundColor: tag.color }}>
-                          {tag.name}
-                        </Badge>
-                      ))}
-                      {activeDeal.tags.length > 3 && (
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">+{activeDeal.tags.length - 3}</Badge>
-                      )}
                     </div>
                   )}
                 </div>

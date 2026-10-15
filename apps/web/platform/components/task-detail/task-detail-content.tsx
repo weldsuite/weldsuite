@@ -568,6 +568,8 @@ export interface TaskDetailContentProps {
   onToggleSubtask?: (subtaskId: string, currentStatus: string) => void;
   onNavigateToTask?: (taskId: string) => void;
   parentTask?: { id: string; title: string; status?: string } | null;
+  /** The open task's ancestors, root first (last = direct parent). Wins over `parentTask`. */
+  ancestorTasks?: { id: string; title: string; status?: string }[];
   // Dependencies
   dependencyTasks?: DependencyTask[];
   blockingTasks?: DependencyTask[];
@@ -1016,6 +1018,7 @@ export function TaskDetailContent({
   onToggleSubtask,
   onNavigateToTask,
   parentTask,
+  ancestorTasks,
   dependencyTasks = [],
   blockingTasks = [],
   allProjectTasks = [],
@@ -1670,6 +1673,7 @@ export function TaskDetailContent({
               <SubtasksSection
                 subtasks={subtasks}
                 parentTask={parentTask}
+                ancestorTasks={ancestorTasks}
                 currentTaskId={task.id}
                 rootTask={{ id: task.id, title: task.title, status: task.status }}
                 onCreateSubtask={onCreateSubtask}
@@ -1905,13 +1909,37 @@ function findAncestorContinuations(
   for (let c = 0; c < d; c++) {
     let j = i - 1;
     while (j >= 0 && (subtasks[j].depth ?? 0) !== c) j--;
-    arr.push({ depth: c, show: j >= 0 && nextSiblingAt[j] !== -1 });
+    const target = j >= 0 ? nextSiblingAt[j] : -1;
+    arr.push({ depth: c, show: target !== -1, target });
   }
   return arr;
 }
 
 /** Whether the guide column at `depth` draws a line through a row. */
-type AncestorContinuation = { depth: number; show: boolean };
+type AncestorContinuation = {
+  depth: number;
+  show: boolean;
+  /** Index of the later sibling this line runs down to (-1 when none). */
+  target: number;
+};
+
+// Subtask tree geometry. Level 0 is the root row; each level indents by
+// TREE_INDENT. A row's guide drops from TREE_TRUNK_GAP below its parent's
+// checkbox, down the checkbox's centre, and turns into the row with a rounded
+// elbow that stops TREE_ELBOW_GAP short of the row's own checkbox.
+const TREE_CHECKBOX = 14;
+const TREE_INDENT = 20;
+const TREE_LEFT = 4;
+const TREE_ELBOW_RADIUS = 6;
+const TREE_ELBOW_GAP = 3;
+const TREE_LINE = 'var(--color-border)';
+/** A guide leading into the open or hovered row. */
+const TREE_LINE_DARK = 'color-mix(in srgb, var(--color-border), var(--color-foreground) 20%)';
+/** Space between a checkbox and the trunk that drops from it to its children. */
+const TREE_TRUNK_GAP = 3;
+const treeCheckboxLeft = (level: number) => TREE_LEFT + level * TREE_INDENT;
+/** x of the guide for rows at `level`: the centre of the level-above checkbox. */
+const treeGuideX = (level: number) => treeCheckboxLeft(level - 1) + Math.floor(TREE_CHECKBOX / 2);
 
 /** Per-row guide-line data for the subtask tree (see the render comment for what each array means). */
 function computeSubtaskTreeGuides(subtasks: SubtaskItem[]): {
@@ -1938,6 +1966,7 @@ function computeSubtaskTreeGuides(subtasks: SubtaskItem[]): {
 export function SubtasksSection({
   subtasks,
   parentTask,
+  ancestorTasks,
   currentTaskId,
   rootTask,
   onCreateSubtask,
@@ -1946,6 +1975,8 @@ export function SubtasksSection({
 }: Readonly<{
   subtasks: SubtaskItem[];
   parentTask?: { id: string; title: string; status?: string } | null;
+  /** The open task's ancestors, root first (last = direct parent). Wins over `parentTask`. */
+  ancestorTasks?: { id: string; title: string; status?: string }[];
   /** The task currently shown in the panel — if it matches a subtask row,
    *  that row stays highlighted so the user can see which item they're on. */
   currentTaskId?: string;
@@ -1962,16 +1993,23 @@ export function SubtasksSection({
   const [collapsed, setCollapsed] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const completedCount = subtasks.filter(s => s.status === 'done').length;
-  const totalCount = subtasks.length;
+  // `subtasks` can carry the whole subtree (rows below depth 0); the count
+  // covers the open task's direct children only.
+  const directSubtasks = subtasks.filter(s => (s.depth ?? 0) === 0);
+  const completedCount = directSubtasks.filter(s => s.status === 'done').length;
+  const totalCount = directSubtasks.length;
 
-  // When the selected task has a parent, we surface the parent as the tree
-  // root AND prepend the selected task into the list at depth 0 (shifting
-  // the originally-loaded descendants down by one level). Effect: the panel
-  // reads as "parent → selected → selected's children". Top-level tasks
-  // (no parent) show only their children: repeating the open task as the
-  // first row made it read like the task was its own subtask.
-  const effectiveRoot = parentTask ?? undefined;
+  // When the selected task is a subtask, the chain it hangs from is shown
+  // above it: the top-most ancestor is the tree root, every further ancestor
+  // and then the selected task follow one level deeper each, and the
+  // selected task's own subtasks sit below it. Effect: "main task → subtask →
+  // selected → selected's children". Top-level tasks (no parent) show only
+  // their children: repeating the open task as the first row made it read
+  // like the task was its own subtask.
+  let ancestors: { id: string; title: string; status?: string }[] = [];
+  if (ancestorTasks && ancestorTasks.length > 0) ancestors = ancestorTasks;
+  else if (parentTask) ancestors = [parentTask];
+  const effectiveRoot = ancestors[0];
 
   // "Add subtask" only reveals an inline title field; the subtask is created
   // when the user submits a title (see InlineSubtaskInput).
@@ -1979,12 +2017,18 @@ export function SubtasksSection({
     setCollapsed(false);
     setIsAdding(true);
   };
-  const effectiveSubtasks: SubtaskItem[] = parentTask && rootTask
+  const effectiveSubtasks: SubtaskItem[] = effectiveRoot && rootTask
     ? [
-        { id: rootTask.id, title: rootTask.title, status: rootTask.status || 'todo', assignee: null, depth: 0 },
-        ...subtasks.map((s) => ({ ...s, depth: (s.depth ?? 0) + 1 })),
+        ...ancestors.slice(1).map((a, i) => ({ id: a.id, title: a.title, status: a.status || 'todo', assignee: null, depth: i })),
+        { id: rootTask.id, title: rootTask.title, status: rootTask.status || 'todo', assignee: null, depth: ancestors.length - 1 },
+        ...subtasks.map((s) => ({ ...s, depth: (s.depth ?? 0) + ancestors.length })),
       ]
     : subtasks;
+  // A guide darkens along its whole length when the row it leads into is
+  // the open task or hovered — trunk, pass-through and elbow alike.
+  const leadsToHighlighted = (idx: number): boolean =>
+    idx >= 0 && idx < effectiveSubtasks.length
+    && (effectiveSubtasks[idx].id === currentTaskId || hoveredIndex === idx);
 
   return (
     <div style={{ overflow: 'hidden', maxWidth: '100%' }} className="group/subtasks-section">
@@ -2014,18 +2058,19 @@ export function SubtasksSection({
       {/* Root row — the task whose children fill the list. Shown only when
           there ARE subtasks, so deep-level children's col-0 elbows visually
           thread back to THIS row (their real parent) instead of to the
-          `parentTask` breadcrumb above it (which is the grandparent). The
-          layout MIRRORS the subtask-row layout (18px connector column +
-          content with marginLeft -5 and padding-left 9) so the checkbox
-          lines up horizontally with every subtask checkbox and the col-0
-          tree guide stays in its own column. The connector column carries
-          only the BOTTOM-HALF descending trunk — there's no elbow because
-          this row is the root of the tree, nothing above it to connect to. */}
+          `parentTask` breadcrumb above it (which is the grandparent). It is
+          level 0 of the tree geometry (treeCheckboxLeft / treeGuideX), and
+          carries only a trunk down from its checkbox — no elbow, since
+          nothing sits above the root. */}
       {effectiveRoot && effectiveSubtasks.length > 0 && (
         <div
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px', position: 'relative' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `5px 4px 5px ${treeCheckboxLeft(0)}px`, position: 'relative' }}
           className={cn('group/root-task rounded-md', effectiveRoot.id !== currentTaskId && 'cursor-pointer')}
         >
+          {/* Trunk from the root checkbox down into the first row's guide */}
+          <div
+            style={{ position: 'absolute', left: treeGuideX(1), top: `calc(50% + ${TREE_CHECKBOX / 2 + TREE_TRUNK_GAP}px)`, bottom: 0, width: 1, backgroundColor: leadsToHighlighted(0) ? TREE_LINE_DARK : TREE_LINE, pointerEvents: 'none' }}
+          />
           {effectiveRoot.id !== currentTaskId && (
             <button
               type="button"
@@ -2057,7 +2102,7 @@ export function SubtasksSection({
               size="icon"
               onClick={(e) => { e.stopPropagation(); onNavigateToTask?.(effectiveRoot.id); }}
               style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}
-              className="z-[1] text-muted-foreground opacity-0 group-hover/root-task:opacity-100 transition-opacity hover:text-foreground"
+              className="z-[1] size-5 rounded-[6px] text-muted-foreground opacity-0 group-hover/root-task:opacity-100 transition-opacity hover:text-foreground"
             >
               <ChevronRight style={{ width: 14, height: 14 }} />
             </Button>
@@ -2101,8 +2146,13 @@ export function SubtasksSection({
                 // so it darkens when the next row is active OR hovered.
                 const upperDark = isActive || isHovered;
                 const lowerDark = nextIsActive || nextIsHovered;
-                const DARK = 'color-mix(in srgb, var(--color-border), var(--color-foreground) 20%)';
-                const DEFAULT = 'var(--color-border)';
+                const DARK = TREE_LINE_DARK;
+                const DEFAULT = TREE_LINE;
+                // Rows sit one level below the root row (level 0), also when
+                // there's no root row, so first-level rows keep their guide.
+                const level = depth + 1;
+                const checkboxLeft = treeCheckboxLeft(level);
+                const guideX = treeGuideX(level);
                 return (
                   <div
                     key={subtask.id}
@@ -2110,72 +2160,53 @@ export function SubtasksSection({
                     onMouseLeave={() => setHoveredIndex(null)}
                     className="flex overflow-hidden max-w-full relative"
                   >
-                    {/* Descending trunk — parent→first-child connector. Sits
-                        at col d+1 (which lands inside the content area in
-                        the flex layout, so it has to be absolutely
-                        positioned rather than laid out as a column). Runs
-                        from this row's middle down to its bottom where the
-                        child row below picks it up with its own upper
-                        vertical. */}
-                    {descendToChild && (
+                    {/* Tree guides, all measured from the checkbox they
+                        hang from: a row at level L (root row = level 0) has
+                        its checkbox at x = treeCheckboxLeft(L), and its guide
+                        runs down the centre of its parent's checkbox. Lines
+                        are absolutely positioned behind the row content. */}
+                    {continuations.map(({ depth: ancestorDepth, show, target }) => show && (
                       <div
-                        style={{
-                          position: 'absolute',
-                          left: (depth + 1) * 18 + 6,
-                          top: 'calc(50% + 2px)',
-                          bottom: 0,
-                          width: 1,
-                          backgroundColor: DEFAULT,
-                          zIndex: 0,
-                          pointerEvents: 'none',
-                        }}
+                        key={ancestorDepth}
+                        style={{ position: 'absolute', left: treeGuideX(ancestorDepth + 1), top: 0, bottom: 0, width: 1, backgroundColor: leadsToHighlighted(target) ? DARK : DEFAULT, pointerEvents: 'none' }}
+                      />
+                    ))}
+                    {/* Upper guide into the elbow — the very first row has
+                        nothing above it when there's no root row. */}
+                    {(index > 0 || !!effectiveRoot) && (
+                      <div
+                        style={{ position: 'absolute', left: guideX, top: 0, height: `calc(50% - ${TREE_ELBOW_RADIUS}px)`, width: 1, backgroundColor: upperDark ? DARK : DEFAULT, pointerEvents: 'none' }}
                       />
                     )}
-                    {/* Ancestor guide columns — one per depth level above
-                        this row. Each draws a continuous vertical line only
-                        if its ancestor has more siblings below, so the tree
-                        trunk "threads through" descendants back to its later
-                        siblings. */}
-                    {continuations.map(({ depth, show }) => (
-                      <div key={depth} style={{ width: 18, flexShrink: 0, position: 'relative' }}>
-                        {show && (
-                          <div
-                            style={{ position: 'absolute', left: 6, top: 0, bottom: 0, width: 1, backgroundColor: DEFAULT }}
-                          />
-                        )}
-                      </div>
-                    ))}
-                    {/* Tree connector with rounded corner */}
-                    <div style={{ width: 18, flexShrink: 0, position: 'relative' }}>
-                      {/* Vertical line above the curve — nothing sits above the very first
-                          row when the list has no root row, so skip it there. */}
-                      {(index > 0 || !!effectiveRoot) && (
-                        <div
-                          style={{ position: 'absolute', left: 6, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: upperDark ? DARK : DEFAULT }}
-                        />
-                      )}
-                      {/* Rounded corner */}
+                    {/* Rounded elbow, ending just short of this row's checkbox */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: guideX,
+                        top: `calc(50% - ${TREE_ELBOW_RADIUS}px)`,
+                        width: checkboxLeft - TREE_ELBOW_GAP - guideX,
+                        height: TREE_ELBOW_RADIUS + 0.5,
+                        boxSizing: 'border-box',
+                        borderLeft: `1px solid ${upperDark ? DARK : DEFAULT}`,
+                        borderBottom: `1px solid ${upperDark ? DARK : DEFAULT}`,
+                        borderBottomLeftRadius: TREE_ELBOW_RADIUS,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                    {/* Guide on down to the next sibling — darkens when that
+                        sibling is active OR hovered, so it leads into its elbow. */}
+                    {!isLast && (
                       <div
-                        style={{
-                          position: 'absolute',
-                          left: 6,
-                          top: 'calc(50% - 6px)',
-                          width: 8,
-                          height: 8,
-                          borderLeft: `1px solid ${upperDark ? DARK : DEFAULT}`,
-                          borderBottom: `1px solid ${upperDark ? DARK : DEFAULT}`,
-                          borderRadius: '0 0 0 6px',
-                        }}
+                        style={{ position: 'absolute', left: guideX, top: '50%', bottom: 0, width: 1, backgroundColor: lowerDark ? DARK : DEFAULT, pointerEvents: 'none' }}
                       />
-                      {/* Vertical line below the curve — darkens when the
-                          next sibling is active OR hovered, so the line that
-                          leads down into the next row's curve follows along. */}
-                      {!isLast && (
-                        <div
-                          style={{ position: 'absolute', left: 6, top: 'calc(50% + 2px)', bottom: 0, width: 1, backgroundColor: lowerDark ? DARK : DEFAULT }}
-                        />
-                      )}
-                    </div>
+                    )}
+                    {/* Trunk from this row's checkbox down to its first child;
+                        darkens with that child, like the child's own elbow. */}
+                    {descendToChild && (
+                      <div
+                        style={{ position: 'absolute', left: treeGuideX(level + 1), top: `calc(50% + ${TREE_CHECKBOX / 2 + TREE_TRUNK_GAP}px)`, bottom: 0, width: 1, backgroundColor: leadsToHighlighted(index + 1) ? DARK : DEFAULT, pointerEvents: 'none' }}
+                      />
+                    )}
                     {/* Subtask row — no hover bg, darkening comes from the
                         connector lines and checkbox border instead. */}
                     <div
@@ -2183,16 +2214,17 @@ export function SubtasksSection({
                       tabIndex={0}
                       onClick={() => onNavigateToTask?.(subtask.id)}
                       onKeyDown={activateOnKey(() => onNavigateToTask?.(subtask.id))}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 4px 5px 9px', marginLeft: -5, overflow: 'hidden', flex: 1, minWidth: 0, cursor: 'pointer' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: `5px 4px 5px ${checkboxLeft}px`, overflow: 'hidden', flex: 1, minWidth: 0, cursor: 'pointer' }}
                       className="group/subtask rounded-md relative"
                     >
                       <div>
+                        {/* The open row's checkbox looks exactly like a hovered one. */}
                         <Checkbox
                           checked={subtask.status === 'done'}
                           onClick={(e) => e.stopPropagation()}
                           onCheckedChange={() => onToggleSubtask?.(subtask.id, subtask.status)}
                           style={{ width: 14, height: 14, flexShrink: 0 }}
-                          className={cn(isActive ? 'border-muted-foreground/70' : isHovered && 'border-muted-foreground/70')}
+                          className={cn((isActive || isHovered) && 'border-muted-foreground/70')}
                         />
                       </div>
                       <span
@@ -2203,20 +2235,13 @@ export function SubtasksSection({
                       >
                         {subtask.title}
                       </span>
-                      {subtask.assignee && (
-                        <div style={{ width: 20, height: 20, borderRadius: 9999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="bg-muted" title={subtask.assignee.name}>
-                          <span style={{ fontSize: 9, fontWeight: 500 }} className="text-muted-foreground">
-                            {subtask.assignee.name.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      )}
                       {subtask.id !== currentTaskId && (
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => onNavigateToTask?.(subtask.id)}
                           style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}
-                          className="text-muted-foreground opacity-0 group-hover/subtask:opacity-100 transition-opacity hover:text-foreground"
+                          className="size-5 rounded-[6px] text-muted-foreground opacity-0 group-hover/subtask:opacity-100 transition-opacity hover:text-foreground"
                         >
                           <ChevronRight style={{ width: 14, height: 14 }} />
                         </Button>

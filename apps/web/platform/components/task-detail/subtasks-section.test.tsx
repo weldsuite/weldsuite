@@ -129,4 +129,31 @@ describe('SubtasksSection rows', () => {
     expect(screen.getByText('Grandparent')).toBeInTheDocument();
     expect(screen.getByText('Parent')).toBeInTheDocument();
   });
+
+  it('shows the whole chain from the main task down to the open task and its subtree', () => {
+    render(
+      <SubtasksSection
+        subtasks={[
+          { id: 'task_child', title: 'Child', status: 'todo', assignee: null, depth: 0 },
+          { id: 'task_grandchild', title: 'Grandchild', status: 'todo', assignee: null, depth: 1 },
+        ]}
+        ancestorTasks={[
+          { id: 'task_main', title: 'Main task', status: 'todo' },
+          { id: 'task_sub', title: 'Subtask', status: 'todo' },
+        ]}
+        currentTaskId="task_open"
+        rootTask={{ id: 'task_open', title: 'Open task', status: 'todo' }}
+        onCreateSubtask={vi.fn()}
+      />,
+    );
+
+    const order = ['Main task', 'Subtask', 'Open task', 'Child', 'Grandchild'].map(
+      (title) => screen.getByText(title),
+    );
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    // The count covers the open task's direct children only.
+    expect(screen.getByText('0/1')).toBeInTheDocument();
+  });
 });

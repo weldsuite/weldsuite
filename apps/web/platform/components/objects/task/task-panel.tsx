@@ -51,6 +51,7 @@ import {
 import { DescriptionField } from '@/components/task-detail/task-detail-content';
 import { TaskChat } from '@/components/task-detail/task-chat';
 import type { Task as CrmTask } from '@/hooks/use-crm-tasks';
+import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import type { TaskRow } from '@weldsuite/app-api-client/domains/tasks';
 import { normalizeTaskStatus, type UpdateTaskInput } from '@weldsuite/app-api-client/schemas/tasks';
 import type { TaskCommentRow } from '@weldsuite/core-api-client/domains/task-comments';
@@ -69,6 +70,7 @@ import {
   useTaskPersonOptions,
   useTaskComments,
   useTaskSubtasks,
+  useTaskAncestors,
   useToggleSubtask,
   useToggleTask,
   useUpdateTask,
@@ -79,6 +81,24 @@ import {
 } from './use-task-data';
 
 const TASK_PANEL_WIDTH = 400;
+
+/** The open task's direct subtasks as panel rows. */
+function toSubtaskItems(
+  rows: TaskRow[],
+  memberLookup: Map<string, { name: string; avatar?: string }>,
+): SubtaskItem[] {
+  return rows.map((s) => {
+    const hydrated = s.assigneeId ? memberLookup.get(s.assigneeId) : undefined;
+    return {
+      id: s.id,
+      title: s.title,
+      status: s.status,
+      assignee: s.assigneeId
+        ? { id: s.assigneeId, name: hydrated?.name ?? '', avatar: hydrated?.avatar }
+        : null,
+    };
+  });
+}
 
 /**
  * Map the app-api row → the `CrmTask` shape `TaskDetailContent` expects.
@@ -154,6 +174,9 @@ function toUiComment(row: TaskCommentRow): TaskComment {
   };
 }
 
+/** What the task dialog hands back when it saves an edit. */
+type TaskDialogUpdate = Parameters<React.ComponentProps<typeof TaskDialog>['onUpdate']>[1];
+
 function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: () => void }>) {
   // The header pins its items to the first line (the title can wrap), so the
   // checkbox is centred in a box as tall as the 28px header buttons.
@@ -163,7 +186,7 @@ function TaskAvatar({ status, onToggle }: Readonly<{ status?: string; onToggle: 
         checked={status === 'done'}
         onCheckedChange={onToggle}
         className={cn(
-          'h-5 w-5 flex-shrink-0 !rounded-[6px]',
+          'size-[18px] flex-shrink-0 !rounded-[6px]',
           status === 'done' && 'data-[state=checked]:!bg-green-600 data-[state=checked]:!border-green-600',
         )}
       />
@@ -200,6 +223,10 @@ function TaskActions({
   onDelete: () => void;
 }>) {
   const t = useTranslations();
+  // "Edit task" opens the task dialog only once the menu has closed: opening a
+  // dialog while the menu is still tearing down leaves the page unclickable
+  // (both lock pointer events) and the menu's focus return fights the dialog's.
+  const editOnCloseRef = React.useRef(false);
   return (
     <div className="flex items-center gap-0.5">
       <DropdownMenu>
@@ -213,8 +240,20 @@ function TaskActions({
             <EllipsisVertical className="size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onEdit}>
+        <DropdownMenuContent
+          align="end"
+          onCloseAutoFocus={(e) => {
+            if (!editOnCloseRef.current) return;
+            editOnCloseRef.current = false;
+            e.preventDefault();
+            onEdit();
+          }}
+        >
+          <DropdownMenuItem
+            onClick={() => {
+              editOnCloseRef.current = true;
+            }}
+          >
             <Pencil />
             {t('sweep.entities.editTask')}
           </DropdownMenuItem>
@@ -264,6 +303,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
 
   const commentsQuery = useTaskComments(id);
   const subtasksQuery = useTaskSubtasks(id);
+  const ancestorsQuery = useTaskAncestors(apiTask?.parentTaskId);
   const labelsQuery = useProjectLabels(projectId);
   const projectTasksQuery = useProjectTasksForDeps(projectId);
   const projectMembersQuery = useProjectMembers(projectId);
@@ -378,17 +418,7 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   );
 
   const subtasks: SubtaskItem[] = useMemo(
-    () => (subtasksQuery.data ?? []).map((s) => {
-      const hydrated = s.assigneeId ? memberByUserId.get(s.assigneeId) : undefined;
-      return {
-        id: s.id,
-        title: s.title,
-        status: s.status,
-        assignee: s.assigneeId
-          ? { id: s.assigneeId, name: hydrated?.name ?? '', avatar: hydrated?.avatar }
-          : null,
-      };
-    }),
+    () => toSubtaskItems(subtasksQuery.data ?? [], memberByUserId),
     [subtasksQuery.data, memberByUserId],
   );
 
@@ -428,12 +458,12 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
       .filter((pt): pt is DependencyTask => !!pt);
   }, [apiTask?.blocks, allProjectTasksForDeps]);
 
-  const parentTask = useMemo(() => {
-    const pid = apiTask?.parentTaskId;
-    if (!pid) return null;
-    const parent = allProjectTasksForDeps.find((pt) => pt.id === pid);
-    return parent ? { id: parent.id, title: parent.title, status: parent.status } : null;
-  }, [apiTask?.parentTaskId, allProjectTasksForDeps]);
+  // The chain this task hangs from, root first: shown above it in Subtasks
+  // so a subtask always reads in the context of its main task.
+  const ancestorTasks = useMemo(
+    () => (ancestorsQuery.data ?? []).map((a) => ({ id: a.id, title: a.title, status: a.status })),
+    [ancestorsQuery.data],
+  );
 
   const attachments: TaskAttachment[] = useMemo(() => {
     // Files-backed attachments (entityType='task'); fall back to the legacy
@@ -535,18 +565,33 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
   }, [apiTask, duplicateMutation, t]);
 
   /**
-   * Edit — the legacy panel handed control back to a per-page TaskDialog. The
-   * new panel makes every field in-place editable, so "Edit task" no longer
-   * needs to open a separate dialog. We still emit a `task-panel-edit-requested`
-   * window event so any caller that wants to surface the old dialog can hook
-   * in without the panel having to know about it.
+   * Edit — opens the same dialog used to create a task, filled in with this
+   * task; saving writes the changed fields through the panel's update path.
    */
-  const handleEdit = useCallback(() => {
-    if (!apiTask) return;
-    window.dispatchEvent(
-      new CustomEvent('task-panel-edit-requested', { detail: { taskId: apiTask.id } }),
-    );
-  }, [apiTask]);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const handleEdit = useCallback(() => setEditDialogOpen(true), []);
+  const handleDialogUpdate = useCallback((taskId: string, data: TaskDialogUpdate) => {
+    const update: TaskUpdateData = {
+      title: data.title,
+      description: data.description ?? '',
+      status: data.status,
+      labels: data.labels ?? [],
+    };
+    if (data.priority) update.priority = data.priority;
+    if (data.dueDate) update.dueDate = data.dueDate;
+    // The dialog echoes the estimate back on every save, and writing it
+    // re-plans the task's calendar block, so only send a real change.
+    if (data.duration !== undefined && data.duration !== task?.duration) update.duration = data.duration;
+    // No repeat in the dialog means "doesn't repeat", which clears an existing one.
+    if (data.repeat || task?.repeat) update.repeat = data.repeat ?? null;
+    if (data.assigneeIds) update.assignees = data.assigneeIds.map((id) => ({ id, name: '' }));
+    if (showCompanyField) {
+      update.linkedCompany = data.linkedCompany ?? null;
+      update.linkedPerson = data.linkedPerson ?? null;
+    }
+    handleUpdate(taskId, update);
+    setEditDialogOpen(false);
+  }, [handleUpdate, task?.duration, task?.repeat, showCompanyField]);
 
   /**
    * Copy link — the stable `/weldflow/task/{id}` URL, which resolves the
@@ -747,13 +792,30 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
             onCreateSubtask={projectId ? handleCreateSubtask : undefined}
             onToggleSubtask={handleToggleSubtask}
             onNavigateToTask={handleNavigateToTask}
-            parentTask={parentTask}
+            ancestorTasks={ancestorTasks}
             dependencyTasks={projectId ? dependencyTasks : undefined}
             blockingTasks={projectId ? blockingTasks : undefined}
             allProjectTasks={projectId ? allProjectTasksForDeps : undefined}
             onAddDependency={projectId ? handleAddDependency : undefined}
             onRemoveDependency={projectId ? handleRemoveDependency : undefined}
           />
+      )}
+      {task && (
+        <TaskDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          editingTask={task}
+          availableAssignees={availableAssignees}
+          availableCompanies={availableCompanies}
+          availablePeople={availablePeople}
+          hideRecord={!showCompanyField}
+          availableLabels={availableLabels}
+          onCreateLabel={handleCreateLabel}
+          projectId={projectId ?? undefined}
+          onSave={() => {}}
+          onUpdate={handleDialogUpdate}
+          isPending={updateMutation.isPending}
+        />
       )}
       <ConfirmDialog
         open={confirmDeleteOpen}

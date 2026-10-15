@@ -59,6 +59,8 @@ export interface TaskDetailPanelProps {
   onToggleSubtask?: (subtaskId: string, currentStatus: string) => void;
   onNavigateToTask?: (taskId: string) => void;
   parentTask?: { id: string; title: string; status?: string } | null;
+  /** The open task's ancestors, root first (last = direct parent). Wins over `parentTask`. */
+  ancestorTasks?: { id: string; title: string; status?: string }[];
   // Dependencies
   dependencyTasks?: DependencyTask[];
   blockingTasks?: DependencyTask[];
@@ -123,6 +125,7 @@ export function TaskDetailPanel({
   onToggleSubtask,
   onNavigateToTask,
   parentTask,
+  ancestorTasks,
   dependencyTasks,
   blockingTasks,
   allProjectTasks,
@@ -420,6 +423,7 @@ export function TaskDetailPanel({
             onToggleSubtask={onToggleSubtask}
             onNavigateToTask={onNavigateToTask}
             parentTask={parentTask}
+            ancestorTasks={ancestorTasks}
             dependencyTasks={dependencyTasks}
             blockingTasks={blockingTasks}
             allProjectTasks={allProjectTasks}
