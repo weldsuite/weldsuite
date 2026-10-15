@@ -129,3 +129,48 @@ describe('/api/my-tasks · pagination · pglite integration', () => {
     expect(new Set(ids).size).toBe(6);
   });
 });
+
+describe('/api/my-tasks · includeSubtasks · pglite integration', () => {
+  type TreeNode = { id: string; subtaskCount?: number; children?: TreeNode[] };
+  let treeDb: Database;
+
+  async function getTree(query: string): Promise<TreeNode[]> {
+    const { request } = createTestApp('/api/my-tasks', myTasksRoutes, {
+      context: { permissions: permissions('tasks:read'), tenantDb: treeDb },
+    });
+    const res = await request(`/api/my-tasks?${query}`);
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { data: TreeNode[] }).data;
+  }
+
+  beforeAll(async () => {
+    treeDb = (await createPgliteDb()).db;
+    const at = new Date(Date.UTC(2026, 0, 1));
+    const row = (id: string, extra: Partial<typeof schema.tasks.$inferInsert> = {}) =>
+      ({ id, title: `Task ${id}`, status: 'todo', assigneeId: ME, projectId: 'prj_tree', createdAt: at, updatedAt: at, ...extra }) as typeof schema.tasks.$inferInsert;
+    await treeDb.insert(schema.tasks).values([
+      row('task_tree_parent'),
+      // Someone else's subtask still belongs under my parent.
+      row('task_tree_child_other', { parentTaskId: 'task_tree_parent', assigneeId: OTHER }),
+      row('task_tree_child_mine', { parentTaskId: 'task_tree_parent', status: 'done' }),
+      row('task_tree_grandchild', { parentTaskId: 'task_tree_child_mine', assigneeId: OTHER }),
+      row('task_tree_child_deleted', { parentTaskId: 'task_tree_parent', deletedAt: at }),
+    ]);
+  }, 60_000);
+
+  it('attaches the full subtask tree, whoever the subtasks are assigned to', async () => {
+    const data = await getTree('includeSubtasks=true');
+    const parent = data.find((t) => t.id === 'task_tree_parent');
+    expect(parent?.children?.map((c) => c.id).sort()).toEqual(['task_tree_child_mine', 'task_tree_child_other']);
+    expect(parent?.subtaskCount).toBe(2);
+    const mine = parent?.children?.find((c) => c.id === 'task_tree_child_mine');
+    expect(mine?.children?.map((c) => c.id)).toEqual(['task_tree_grandchild']);
+  });
+
+  it('leaves the flat shape alone without the flag', async () => {
+    const data = await getTree('pageSize=50');
+    expect(data.every((t) => t.children === undefined)).toBe(true);
+    // My own subtask is still listed as a row of its own.
+    expect(data.map((t) => t.id)).toContain('task_tree_child_mine');
+  });
+});

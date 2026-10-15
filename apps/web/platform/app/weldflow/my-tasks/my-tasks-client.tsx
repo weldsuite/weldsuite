@@ -56,6 +56,7 @@ import {
   Columns3,
   Repeat,
   FolderKanban,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { coloredSquareColors, findColoredSquareIconByLabel } from '@/components/app-sidebar-layout';
@@ -89,6 +90,8 @@ interface Task {
   tags?: string[];
   labels?: string[];
   parentTaskId?: string | null;
+  /** Reached only through a parent's subtask tree (not assigned to me): shown nested, never as a row of its own. */
+  nestedOnly?: boolean;
   repeat?: { frequency: string; interval?: number; unit?: string } | null;
   scheduledStart?: string | Date | null;
   scheduledEnd?: string | Date | null;
@@ -148,6 +151,8 @@ const statusConfigBase = {
 type ApiTaskWithSchedule = Projects.ProjectTask & {
   duration?: number;
   repeat?: { frequency: string; interval?: number; unit?: string } | null;
+  /** Subtask tree, present when the list is fetched with includeSubtasks=true. */
+  children?: ApiTaskWithSchedule[];
 };
 
 // Prefer the multi-assignee array, fall back to the singular assignee id.
@@ -184,6 +189,34 @@ function transformApiTask(apiTask: ApiTaskWithSchedule): Task {
     parentTaskId: apiTask.parentTaskId || null,
     repeat: apiTask.repeat || null,
   };
+}
+
+// Flatten the server rows plus their subtask trees into one list, so every
+// row-level action (status, inline edit, delete) finds subtasks by id. The
+// render step regroups them under their parent via `parentTaskId`.
+function flattenApiTasks(apiTasks: ApiTaskWithSchedule[]): Task[] {
+  const ownIds = new Set(apiTasks.map((task) => task.id));
+  const seen = new Set<string>();
+  const out: Task[] = [];
+  const add = (apiTask: ApiTaskWithSchedule, parent: Task | undefined): Task => {
+    const task: Task = { ...transformApiTask(apiTask), nestedOnly: !ownIds.has(apiTask.id) };
+    // Tree rows don't carry the project summary; a subtask shares its parent's project.
+    if (!task.project && parent?.project && (!task.projectId || task.projectId === parent.projectId)) {
+      task.project = parent.project;
+      task.projectId = parent.projectId;
+    }
+    if (!seen.has(apiTask.id)) {
+      seen.add(apiTask.id);
+      out.push(task);
+    }
+    return task;
+  };
+  const walk = (apiTask: ApiTaskWithSchedule, parent?: Task) => {
+    const task = add(apiTask, parent);
+    for (const child of apiTask.children ?? []) walk(child, task);
+  };
+  for (const apiTask of apiTasks) walk(apiTask);
+  return out;
 }
 
 // Map project status to CRM status format (now 1:1 since CRM uses same statuses)
@@ -490,13 +523,13 @@ export function MyTasksClient({
     cancelled: { label: t.projects.myTasks.statusLabels.cancelled, ...statusConfigBase.cancelled },
   }), [t]);
 
-  const [tasks, setTasks] = useState<Task[]>(initialTasks.map((task) => transformApiTask(task)));
+  const [tasks, setTasks] = useState<Task[]>(() => flattenApiTasks(initialTasks));
   const prevInitialTasksRef = useRef(initialTasks);
   useEffect(() => {
     if (prevInitialTasksRef.current !== initialTasks) {
       prevInitialTasksRef.current = initialTasks;
       setTasks((prev) => {
-        const fresh = initialTasks.map((task) => transformApiTask(task));
+        const fresh = flattenApiTasks(initialTasks);
         const freshById = new Map(fresh.map((f) => [f.id, f]));
         const prevById = new Map(prev.map((p) => [p.id, p]));
 
@@ -826,8 +859,34 @@ export function MyTasksClient({
   const statusOrder = useMemo(() => ['backlog', 'todo', 'in_progress', 'review', 'testing', 'done', 'cancelled'], []);
   const priorityOrder = useMemo(() => ['low', 'medium', 'high', 'urgent'], []);
 
+  // Subtasks whose parent is loaded render under it; the rest are top-level rows.
+  const { topLevelTasks, subtasksByParent } = useMemo(() => {
+    const loadedIds = new Set(tasks.map((task) => task.id));
+    const byParent: Record<string, Task[]> = {};
+    const topLevel: Task[] = [];
+    for (const task of tasks) {
+      if (task.parentTaskId && loadedIds.has(task.parentTaskId)) {
+        (byParent[task.parentTaskId] ??= []).push(task);
+      } else if (!task.nestedOnly) {
+        topLevel.push(task);
+      }
+    }
+    return { topLevelTasks: topLevel, subtasksByParent: byParent };
+  }, [tasks]);
+  const boardTasks = useMemo(() => tasks.filter((task) => !task.nestedOnly), [tasks]);
+  // Parents start expanded; this holds the ones the user folded.
+  const [collapsedTaskIds, setCollapsedTaskIds] = useState<Set<string>>(() => new Set());
+  const toggleExpandTask = useCallback((taskId: string) => {
+    setCollapsedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }, []);
+
   const sortedTasks = useMemo(() => {
-    if (!sortState) return tasks;
+    if (!sortState) return topLevelTasks;
     const { columnId, direction } = sortState;
     const dir = direction === 'asc' ? 1 : -1;
 
@@ -838,7 +897,7 @@ export function MyTasksClient({
       return a.id.localeCompare(b.id);
     };
 
-    return [...tasks].sort((a, b) => {
+    return [...topLevelTasks].sort((a, b) => {
       let cmp = 0;
       switch (columnId) {
         case 'status':
@@ -868,7 +927,7 @@ export function MyTasksClient({
       }
       return cmp !== 0 ? cmp : tiebreak(a, b);
     });
-  }, [tasks, sortState, statusOrder, priorityOrder]);
+  }, [topLevelTasks, sortState, statusOrder, priorityOrder]);
 
   // Table drag-and-drop handler — commit reorder on drop
   const handleTableDragEnd = useCallback(async (event: DragEndEvent) => {
@@ -880,7 +939,10 @@ export function MyTasksClient({
     if (oldIndex === -1 || newIndex === -1) return;
 
     const reordered = arrayMove(sortedTasks, oldIndex, newIndex);
-    setTasks(reordered);
+    // Only top-level rows are sortable; keep the subtask rows after them.
+    const topLevelIds = new Set(sortedTasks.map((task) => task.id));
+    const subtaskRows = tasks.filter((task) => !topLevelIds.has(task.id));
+    setTasks([...reordered, ...subtaskRows]);
 
     const tasksByProject = new Map<string, string[]>();
     for (const task of reordered) {
@@ -894,12 +956,12 @@ export function MyTasksClient({
     for (const [projectId, taskIds] of tasksByProject) {
       const result = await tasksApi.reorderTasks(projectId, taskIds);
       if (!result.success) {
-        setTasks(arrayMove(reordered, newIndex, oldIndex));
+        setTasks([...arrayMove(reordered, newIndex, oldIndex), ...subtaskRows]);
         toast.error(t.projects.myTasks.reorderFailed);
         break;
       }
     }
-  }, [sortedTasks, t]);
+  }, [sortedTasks, tasks, t]);
 
   const tasksRef = useRef(tasks);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
@@ -1115,18 +1177,25 @@ export function MyTasksClient({
     { id: 'assignee', header: t.projects.myTasks.columns.assignee, width: 'w-[120px]', sortable: true },
   ], [t]);
 
-  // Render row content (reused for list rows and drag overlay)
-  const renderTaskRow = useCallback((task: Task) => {
+  // Render row content (reused for top-level and subtask rows). `depth` is the
+  // nesting level of a subtask (0 = direct child of a top-level row); it's
+  // folded into paddingLeft so the hover background covers the full width.
+  const renderTaskRow = useCallback((task: Task, depth?: number) => {
     const status = statusConfig[task.status] || statusConfig.todo;
     const priority = priorityConfig[task.priority] || priorityConfig.medium;
+    const isSubtask = depth !== undefined;
+    const hasSubtasks = (subtasksByParent[task.id]?.length ?? 0) > 0;
+    const isExpanded = !collapsedTaskIds.has(task.id);
 
     return (
       <div
         key={task.id}
         className={cn(
-          "relative flex items-center gap-4 px-4 py-3 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer border-b border-gray-200/70 dark:border-border group",
+          "relative flex items-center gap-4 py-3 pr-4 hover:bg-gray-50 dark:hover:bg-secondary/50 cursor-pointer group",
+          !isSubtask && "border-b border-gray-200/70 dark:border-border",
           task.status === 'done' && "opacity-50"
         )}
+        style={{ paddingLeft: isSubtask ? 48 + depth * 32 : 16 }}
       >
         {/* Row click target: stretched button; interactive cells sit above it */}
         <button
@@ -1156,6 +1225,17 @@ export function MyTasksClient({
           )}>
             {task.title}
           </span>
+          {hasSubtasks && (
+            <Button
+              variant="ghost"
+              aria-label={isExpanded ? t.projects.myTasks.collapseSubtasks : t.projects.myTasks.expandSubtasks}
+              aria-expanded={isExpanded}
+              onClick={(e) => { e.stopPropagation(); toggleExpandTask(task.id); }}
+              className="relative z-[1] h-auto p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-gray-200 dark:hover:bg-gray-700 transition-[opacity,color,background-color] flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              <ChevronRight className={cn("h-3.5 w-3.5", isExpanded && "rotate-90")} />
+            </Button>
+          )}
           {task.labels && task.labels.length > 0 && (
             <LabelOverflowList
               labels={task.labels
@@ -1457,11 +1537,53 @@ export function MyTasksClient({
         </div>
       </div>
     );
-  }, [isPending, toggleTaskStatus, deleteTask, availableLabels, handleStatusChange, updateTaskInline, availableAssignees, formatDateShort, startTransition, queryClient, t, priorityConfig, statusConfig]);
+  }, [isPending, toggleTaskStatus, deleteTask, availableLabels, handleStatusChange, updateTaskInline, availableAssignees, formatDateShort, startTransition, queryClient, t, priorityConfig, statusConfig, subtasksByParent, collapsedTaskIds, toggleExpandTask]);
+
+  // Recursively render a task's subtasks under it, with the same tree guides
+  // as the project task list. Each row and its own descendants live in sibling
+  // wrappers so a row's guide lines stay bounded to that row's height.
+  const renderSubtaskList = useCallback((parent: Task, depth: number): React.ReactNode => {
+    const childTasks = subtasksByParent[parent.id];
+    if (!childTasks || childTasks.length === 0) return null;
+    const guideLeft = 22 + depth * 32;
+    return (
+      <div hidden={collapsedTaskIds.has(parent.id)}>
+        {childTasks.map((sub, index) => {
+          const isLast = index === childTasks.length - 1;
+          const nestedContent = renderSubtaskList(sub, depth + 1);
+          return (
+            <React.Fragment key={sub.id}>
+              <div className="relative border-b border-gray-200/70 dark:border-border">
+                <div style={{ position: 'absolute', left: guideLeft, top: 0, height: 'calc(50% - 5px)', width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
+                <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% - 6px)', width: 10, height: 8, borderLeft: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', borderRadius: '0 0 0 6px', zIndex: 1 }} />
+                {!isLast && (
+                  <div style={{ position: 'absolute', left: guideLeft, top: 'calc(50% + 2px)', bottom: 0, width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
+                )}
+                {renderTaskRow(sub, depth)}
+              </div>
+              {nestedContent && (
+                <div className="relative">
+                  {!isLast && (
+                    <div style={{ position: 'absolute', left: guideLeft, top: 0, bottom: 0, width: 1, backgroundColor: 'var(--color-border)', zIndex: 1 }} />
+                  )}
+                  {nestedContent}
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    );
+  }, [subtasksByParent, collapsedTaskIds, renderTaskRow]);
 
   // Render row (wraps content with sortable when drag is enabled)
   const renderRow = useCallback((task: Task) => {
-    const rowContent = renderTaskRow(task);
+    const rowContent = (
+      <React.Fragment key={task.id}>
+        {renderTaskRow(task)}
+        {renderSubtaskList(task, 0)}
+      </React.Fragment>
+    );
 
     if (isDragEnabled) {
       return (
@@ -1472,7 +1594,7 @@ export function MyTasksClient({
     }
 
     return rowContent;
-  }, [renderTaskRow, isDragEnabled]);
+  }, [renderTaskRow, renderSubtaskList, isDragEnabled]);
 
   const viewToggle = (
     <div className="flex items-center border bg-background dark:bg-input/30 dark:border-input rounded-md overflow-hidden shadow-none">
@@ -1606,7 +1728,7 @@ export function MyTasksClient({
       ) : (
         <>
           <MyTasksPipeline
-            tasks={tasks}
+            tasks={boardTasks}
             availableLabels={availableLabels}
             filterConfigs={filterConfigs}
             onTaskClick={(task) => setSelectedTask(task)}

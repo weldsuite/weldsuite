@@ -667,6 +667,8 @@ export const projects = {
       duplicate: 'Duplicate',
       delete: 'Delete',
       subtaskCreated: 'Subtask created',
+      expandSubtasks: 'Show subtasks',
+      collapseSubtasks: 'Hide subtasks',
       subtaskCreateFailed: 'Failed to create subtask',
       taskCreated: 'Task created',
       taskCreateFailed: 'Failed to create task',

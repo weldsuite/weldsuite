@@ -62,6 +62,7 @@ export default function MyTasksPage() {
 
   const filters = useMemo<MyTasksFilters>(() => ({
     search: debouncedSearch || undefined,
+    includeSubtasks: true,
     ...activeFiltersToServerFilters(activeFilters),
     ...sortStateToServerSort(sortState),
   }), [debouncedSearch, activeFilters, sortState]);
