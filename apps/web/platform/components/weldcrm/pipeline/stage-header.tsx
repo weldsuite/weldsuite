@@ -30,6 +30,21 @@ interface StageHeaderProps {
   onDeleteStage?: (stageId: string) => void;
 }
 
+/**
+ * A stage's color swatch. Stage colors come either as a Tailwind class
+ * (`bg-blue-500`) or as a CSS color (`#64748b`); a CSS color used as a class
+ * name paints nothing, so it goes in `style` instead.
+ */
+function StageSwatch({ color }: Readonly<{ color?: string }>) {
+  const isCssColor = !!color && /^(#|rgb|hsl|oklch|oklab)/i.test(color);
+  return (
+    <div
+      className={cn('w-3 h-3 rounded flex-shrink-0', !isCssColor && (color || 'bg-gray-400'))}
+      style={isCssColor ? { backgroundColor: color } : undefined}
+    />
+  );
+}
+
 export function StageHeader({
   stage,
   onAddDeal,
@@ -64,11 +79,12 @@ export function StageHeader({
       >
         <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="flex items-center gap-2 ml-1">
-              <div className={cn(
-                "w-3 h-3 rounded",
-                stage.color || "bg-gray-400"
-              )} />
+            {/* Compact trigger: the header row itself carries the padding and hover. */}
+            <Button
+              variant="ghost"
+              className="flex h-auto items-center gap-2 ml-1 p-0 has-[>svg]:px-0 hover:bg-transparent dark:hover:bg-transparent"
+            >
+              <StageSwatch color={stage.color} />
               <h3 className="font-medium text-sm text-gray-900 dark:text-foreground">
                 {stage.name}
               </h3>
@@ -86,7 +102,7 @@ export function StageHeader({
           >
             <div className="flex items-center justify-between px-2 py-1.5">
               <div className="flex items-center gap-2">
-                <div className={cn("w-3 h-3 rounded", stage.color || "bg-gray-400")} />
+                <StageSwatch color={stage.color} />
                 <span className="text-sm font-medium">{stage.name}</span>
               </div>
             </div>
