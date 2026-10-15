@@ -182,9 +182,9 @@ function TaskCardBody({ task, ctx }: Readonly<{ task: Task; ctx: CardContext }>)
       {/* Assignee */}
       {firstAssignee && (
         <div className="flex items-center gap-2 mt-2">
-          <Avatar className="h-4 w-4 rounded">
-            <AvatarImage src={assigneeAvatar} />
-            <AvatarFallback className="text-[9px] bg-cyan-500 text-white rounded">
+          <Avatar className="h-4 w-4 !rounded-[5px]">
+            <AvatarImage src={assigneeAvatar} className="!rounded-[5px]" />
+            <AvatarFallback className="text-[9px] bg-cyan-500 text-white !rounded-[5px]">
               {initialOf(assigneeName || '')}
             </AvatarFallback>
           </Avatar>
