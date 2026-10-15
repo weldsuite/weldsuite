@@ -1990,7 +1990,10 @@ export function SubtasksSection({
   onNavigateToTask?: (taskId: string) => void;
 }>) {
   const t = useTranslations();
-  const [collapsed, setCollapsed] = useState(false);
+  // The user's own open/closed choice, per open task. Without one the section
+  // follows its content: closed while there is nothing to show (no subtasks,
+  // no parent chain), open otherwise — also once subtasks finish loading.
+  const [collapseOverride, setCollapseOverride] = useState<{ taskId?: string; collapsed: boolean } | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   // `subtasks` can carry the whole subtree (rows below depth 0); the count
@@ -2010,6 +2013,12 @@ export function SubtasksSection({
   if (ancestorTasks && ancestorTasks.length > 0) ancestors = ancestorTasks;
   else if (parentTask) ancestors = [parentTask];
   const effectiveRoot = ancestors[0];
+
+  const isEmpty = subtasks.length === 0 && !effectiveRoot;
+  const collapsed = collapseOverride && collapseOverride.taskId === currentTaskId
+    ? collapseOverride.collapsed
+    : isEmpty;
+  const setCollapsed = (next: boolean) => setCollapseOverride({ taskId: currentTaskId, collapsed: next });
 
   // "Add subtask" only reveals an inline title field; the subtask is created
   // when the user submits a title (see InlineSubtaskInput).
@@ -2042,12 +2051,15 @@ export function SubtasksSection({
             </span>
           )}
         </Button>
-        {subtasks.length > 0 && (
+        {/* Quick add from the header — when the list has rows, or while the
+            section is closed (the inline "Add subtask" button is hidden then). */}
+        {(subtasks.length > 0 || collapsed) && (
           <Button
             variant="ghost"
             size="icon"
             onClick={startAdding}
-            className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover/subtasks-section:opacity-100"
+            aria-label={t('sweep.shared.addSubtask')}
+            className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-0 group-hover/subtasks-section:opacity-100 focus-visible:opacity-100"
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>

@@ -157,3 +157,42 @@ describe('SubtasksSection rows', () => {
     expect(screen.getByText('0/1')).toBeInTheDocument();
   });
 });
+
+describe('SubtasksSection open/closed', () => {
+  const HEADER = 'sweep.shared.subtasks';
+
+  it('starts closed when the task has no subtasks and no parent', () => {
+    renderSection();
+    // Only the header's quick-add is there; the inline "Add subtask" row isn't.
+    const adds = screen.getAllByRole('button', { name: ADD_LABEL });
+    expect(adds).toHaveLength(1);
+    expect(adds[0].className).toContain('group-hover/subtasks-section:opacity-100');
+  });
+
+  it('starts open when the task has subtasks', () => {
+    renderSection([{ id: 'task_child', title: 'Existing subtask', status: 'todo', assignee: null }]);
+    expect(screen.getByText('Existing subtask')).toBeInTheDocument();
+  });
+
+  it('starts open for a subtask so its parent chain shows', () => {
+    render(
+      <SubtasksSection
+        subtasks={[]}
+        ancestorTasks={[{ id: 'task_main', title: 'Main task', status: 'todo' }]}
+        currentTaskId="task_open"
+        rootTask={{ id: 'task_open', title: 'Open task', status: 'todo' }}
+        onCreateSubtask={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Main task')).toBeInTheDocument();
+  });
+
+  it('opens on a header click even when empty', () => {
+    renderSection();
+    fireEvent.click(screen.getByText(HEADER));
+    // The inline "Add subtask" row shows once open; the header quick-add hides.
+    const adds = screen.getAllByRole('button', { name: ADD_LABEL });
+    expect(adds).toHaveLength(1);
+    expect(adds[0].className).not.toContain('group-hover/subtasks-section:opacity-100');
+  });
+});
