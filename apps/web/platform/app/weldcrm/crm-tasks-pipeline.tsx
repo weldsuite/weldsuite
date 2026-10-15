@@ -652,11 +652,15 @@ export function CrmTasksPipeline({
             if (columnsScrollRef.current) columnsScrollRef.current.scrollLeft = e.currentTarget.scrollLeft;
           }}
         >
-          {columns.map((column) => {
+          {columns.map((column, index) => {
             const calculation = calculations[column.id];
             const columnTasks = filteredTasks.filter((task) => task.status === column.id);
             return (
-              <div key={`calc-${column.id}`} className="flex-shrink-0 w-[240px]">
+              <div key={`calc-${column.id}`} className="relative flex-shrink-0 w-[240px]">
+                {/* Divider, centred in the 16px gap to the previous column's cell */}
+                {index > 0 && (
+                  <div aria-hidden className="pointer-events-none absolute -left-2 top-0 bottom-0 w-px bg-gray-100 dark:bg-border" />
+                )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     {calculation ? (
