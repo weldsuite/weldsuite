@@ -125,7 +125,8 @@ export class FocusClient {
 
   constructor(options: FocusClientOptions) {
     this.baseUrl = FOCUS_BASE_URLS[options.environment];
-    this.auth = `Basic ${btoa(`${options.token}:`)}`;
+    const credentials = `${options.token}:`;
+    this.auth = `Basic ${btoa(credentials)}`;
     this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
   }
 

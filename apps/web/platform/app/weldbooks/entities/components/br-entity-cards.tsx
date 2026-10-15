@@ -33,15 +33,14 @@ interface BrFieldProps {
 
 /** A labelled field with its help line and error message. */
 export function BrField({ id, label, help, error, children, className }: Readonly<BrFieldProps>) {
+  const helpLine = help ? <p className="text-xs text-muted-foreground" id={`${id}-help`}>{help}</p> : null;
   return (
     <div className={className ?? 'space-y-2'}>
       <Label htmlFor={id}>{label}</Label>
       {children}
       {error ? (
         <p className="text-sm text-destructive" id={`${id}-error`}>{error}</p>
-      ) : help ? (
-        <p className="text-xs text-muted-foreground" id={`${id}-help`}>{help}</p>
-      ) : null}
+      ) : helpLine}
     </div>
   );
 }

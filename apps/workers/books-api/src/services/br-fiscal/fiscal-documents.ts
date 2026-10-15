@@ -126,14 +126,18 @@ async function loadCounterparty(db: Database, invoice: InvoiceRow): Promise<BrFi
     normalizePostalAddress(party?.billingAddress) ??
     {};
   const taxId = (await getContactVatNumber(db, invoice.contactId)) ?? brFiscal.taxId ?? null;
-  const { taxId: _taxId, ...fiscal } = brFiscal;
   return {
     name: invoice.contactName || party?.displayName || identityName || '',
     email: invoice.contactEmail,
     taxId,
     address,
-    fiscal,
+    fiscal: fiscalFieldsOf(brFiscal),
   };
+}
+
+/** A party's BR fiscal fields without its tax id, which the counterparty carries on its own. */
+function fiscalFieldsOf({ taxId, ...fiscal }: BrFiscalCounterparty['fiscal'] & { taxId?: string }): BrFiscalCounterparty['fiscal'] {
+  return fiscal;
 }
 
 function toFiscalLines(items: InvoiceItemRow[], rates: Awaited<ReturnType<typeof loadTaxRates>>): BrFiscalLine[] {
@@ -401,47 +405,49 @@ export interface IssueArgs {
   now?: Date;
 }
 
-/**
- * Issue the NF-e or NFS-e of a finalized invoice or credit note. Returns the
- * new row (`processing`, or already `authorized` when Focus answers
- * synchronously). A provider rejection is saved on the row and rethrown.
- */
-export async function issueFiscalDocument(db: Database, env: Env, args: IssueArgs): Promise<IssueResult> {
-  const now = args.now ?? new Date();
-  const entity = await requireFiscalEntity(db, args.entityId);
+/** The invoice to issue: it has to exist in the entity, not be a pro forma, and be finalized. */
+async function loadIssuableInvoice(db: Database, entity: EntityRow, invoiceId: string): Promise<InvoiceRow> {
   const [invoice] = await db
     .select()
     .from(schema.invoices)
-    .where(and(eq(schema.invoices.id, args.invoiceId), eq(schema.invoices.entityId, entity.id), isNull(schema.invoices.deletedAt)))
+    .where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.entityId, entity.id), isNull(schema.invoices.deletedAt)))
     .limit(1);
   if (!invoice) throw new FiscalDocumentError('Invoice not found', 404);
   if (invoice.type === 'proforma') throw new FiscalDocumentError('A pro forma invoice cannot be issued as a fiscal document');
   if (NOT_ISSUABLE_STATUSES.has(invoice.status)) {
     throw new FiscalDocumentError('Finalize the invoice before issuing its fiscal document');
   }
+  return invoice;
+}
 
-  const settings = fiscalSettingsOf(entity);
-  const environment = fiscalEnvironmentOf(settings);
-  const client = await focusClientFor(entity, env, environment, args.fetch);
-  const sourceType = invoice.type === 'credit_note' ? 'credit_note' : 'invoice';
-
-  let previous = await db
+/**
+ * The earlier attempts of a source document, once the ones a network failure left
+ * behind are settled. Throws when one is authorized or still being authorized.
+ */
+async function settlePreviousDocuments(
+  db: Database,
+  env: Env,
+  sourceType: 'invoice' | 'credit_note',
+  sourceId: string,
+  fetchImpl: typeof fetch | undefined,
+): Promise<FiscalDocumentRow[]> {
+  const earlier = await db
     .select()
     .from(schema.fiscalDocuments)
-    .where(and(eq(schema.fiscalDocuments.sourceType, sourceType), eq(schema.fiscalDocuments.sourceId, invoice.id)))
+    .where(and(eq(schema.fiscalDocuments.sourceType, sourceType), eq(schema.fiscalDocuments.sourceId, sourceId)))
     .orderBy(desc(schema.fiscalDocuments.createdAt));
   // A network failure may have left a document with Focus: settle those before sending another.
-  for (const stale of previous.filter((d) => d.status === 'error')) {
+  for (const stale of earlier.filter((d) => d.status === 'error')) {
     try {
-      await refreshFiscalDocument(db, env, stale, { fetch: args.fetch });
+      await refreshFiscalDocument(db, env, stale, { fetch: fetchImpl });
     } catch (err) {
       if (!(err instanceof FiscalProviderError) && !(err instanceof FiscalDocumentError)) throw err;
     }
   }
-  previous = await db
+  const previous = await db
     .select()
     .from(schema.fiscalDocuments)
-    .where(and(eq(schema.fiscalDocuments.sourceType, sourceType), eq(schema.fiscalDocuments.sourceId, invoice.id)));
+    .where(and(eq(schema.fiscalDocuments.sourceType, sourceType), eq(schema.fiscalDocuments.sourceId, sourceId)));
   const live = previous.find((d) => d.status === 'authorized' || d.status === 'processing');
   if (live) {
     throw new FiscalDocumentError(
@@ -450,33 +456,20 @@ export async function issueFiscalDocument(db: Database, env: Env, args: IssueArg
       { documentId: live.id },
     );
   }
+  return previous;
+}
 
-  const context = await buildIssueContext(db, entity, invoice, environment, now);
-  let payload: FocusRecord;
-  if (context.kind === 'nfe') payload = buildNfePayload(context.args);
-  else if (context.kind === 'nfse') payload = buildNfsePayload(context.args);
-  else payload = buildNfsenPayload({ ...context.args, dpsNumber: await nextDpsNumber(db, entity.id, environment) });
+async function payloadFor(db: Database, entity: EntityRow, context: IssueContext, environment: FocusEnvironment): Promise<FocusRecord> {
+  if (context.kind === 'nfe') return buildNfePayload(context.args);
+  if (context.kind === 'nfse') return buildNfsePayload(context.args);
+  return buildNfsenPayload({ ...context.args, dpsNumber: await nextDpsNumber(db, entity.id, environment) });
+}
 
-  const id = generateId('fdoc');
-  const providerRef = providerRefFor(invoice.id, previous.length + 1);
-  let created: FiscalDocumentRow;
+/** Write the attempt's row as `processing` before sending it, so an early webhook finds it. */
+async function insertProcessingDocument(db: Database, values: typeof schema.fiscalDocuments.$inferInsert): Promise<FiscalDocumentRow> {
   try {
-    [created] = await db
-      .insert(schema.fiscalDocuments)
-      .values({
-        id,
-        entityId: entity.id,
-        sourceType,
-        sourceId: invoice.id,
-        kind: context.kind,
-        provider: 'focus_nfe',
-        providerRef,
-        environment,
-        status: 'processing',
-        requestPayload: payload,
-        createdBy: args.userId ?? null,
-      })
-      .returning();
+    const [created] = await db.insert(schema.fiscalDocuments).values(values).returning();
+    return created;
   } catch (err) {
     // Two requests for the same invoice at once pick the same reference: the unique index lets only one through.
     if (err instanceof Error && /fiscal_documents_provider_ref_idx|duplicate key/.test(`${err.message} ${String(err.cause ?? '')}`)) {
@@ -484,6 +477,43 @@ export async function issueFiscalDocument(db: Database, env: Env, args: IssueArg
     }
     throw err;
   }
+}
+
+/**
+ * Issue the NF-e or NFS-e of a finalized invoice or credit note. Returns the
+ * new row (`processing`, or already `authorized` when Focus answers
+ * synchronously). A provider rejection is saved on the row and rethrown.
+ */
+export async function issueFiscalDocument(db: Database, env: Env, args: IssueArgs): Promise<IssueResult> {
+  const now = args.now ?? new Date();
+  const entity = await requireFiscalEntity(db, args.entityId);
+  const invoice = await loadIssuableInvoice(db, entity, args.invoiceId);
+
+  const settings = fiscalSettingsOf(entity);
+  const environment = fiscalEnvironmentOf(settings);
+  const client = await focusClientFor(entity, env, environment, args.fetch);
+  const sourceType = invoice.type === 'credit_note' ? 'credit_note' : 'invoice';
+
+  const previous = await settlePreviousDocuments(db, env, sourceType, invoice.id, args.fetch);
+
+  const context = await buildIssueContext(db, entity, invoice, environment, now);
+  const payload = await payloadFor(db, entity, context, environment);
+
+  const id = generateId('fdoc');
+  const providerRef = providerRefFor(invoice.id, previous.length + 1);
+  const created = await insertProcessingDocument(db, {
+    id,
+    entityId: entity.id,
+    sourceType,
+    sourceId: invoice.id,
+    kind: context.kind,
+    provider: 'focus_nfe',
+    providerRef,
+    environment,
+    status: 'processing',
+    requestPayload: payload,
+    createdBy: args.userId ?? null,
+  });
 
   try {
     const res = await client.submit(context.kind, providerRef, payload);

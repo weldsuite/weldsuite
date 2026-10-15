@@ -74,12 +74,25 @@ export function buildPixPayload(input: PixPayloadInput): string {
   return payload + crc16Ccitt(payload);
 }
 
+/**
+ * name@domain.tld: exactly one "@", both sides non-empty and without whitespace,
+ * and a "." inside the domain (not its first or last character). Checked without
+ * a regex: the equivalent pattern backtracks super-linearly.
+ */
+function isPlausibleEmail(k: string): boolean {
+  const parts = k.split('@');
+  if (parts.length !== 2) return false;
+  const [local, domain] = parts;
+  if (!local || !domain || /\s/.test(local) || /\s/.test(domain)) return false;
+  return domain.slice(1, -1).includes('.');
+}
+
 /** Basic check of a Pix key's shape (it does not check that the key is registered). */
 export function isPlausiblePixKey(key: string): boolean {
   const k = key.trim();
   if (/^\d{11}$/.test(k) || /^[0-9A-Z]{12}\d{2}$/.test(k)) return true; // CPF / CNPJ
   if (/^\+55\d{10,11}$/.test(k)) return true; // phone
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(k) && k.length <= 77) return true; // e-mail
+  if (isPlausibleEmail(k) && k.length <= 77) return true; // e-mail
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(k); // random key
 }
 

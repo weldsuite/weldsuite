@@ -434,6 +434,117 @@ app.get('/:id', requirePermission('entities:read'), async (c) => {
   }
 });
 
+type CreateEntityData = z.infer<typeof createEntitySchema>;
+
+/**
+ * The address, jurisdiction settings and time zone of a new entity. A US
+ * address is checked; a Brazilian entity's settings are checked against its
+ * address and give the time zone of its state.
+ */
+function newEntityLocation(code: string, data: CreateEntityData, india: ReturnType<typeof applyIndiaTaxIdentifiers>) {
+  const isUs = code === 'US';
+  const isBr = code === 'BR';
+  let address = isUs ? checkUsAddress(normalizePostalAddress(data.address)) : normalizePostalAddress(data.address);
+  const br = isBr ? normalizeBrSettings(data.jurisdictionSettings, address) : null;
+  if (isBr) address = normalizeBrAddress(address);
+
+  const jurisdictionSettings = br ? br.settings : india.jurisdictionSettings;
+  let timezone = isUs ? (data.timezone ?? defaultUsTimeZone(address?.state)) : india.timezone;
+  if (br) timezone = data.timezone ?? br.timezone;
+  return { address, jurisdictionSettings, timezone };
+}
+
+/** The encrypted SSN columns of a new entity, or the error response when the SSN can not be stored. */
+async function newEntitySsn(
+  c: AppContext,
+  ssnInput: string | null | undefined,
+  isUs: boolean,
+): Promise<Response | { ssnEncrypted: string | null; ssnLast4: string | null }> {
+  if (!ssnInput) return { ssnEncrypted: null, ssnLast4: null };
+  if (!isUs) return error.badRequest(c, 'An SSN can only be stored on a US entity');
+  const ssn = checkSsn(ssnInput);
+  const keyring = keyringFromEnv(c.env);
+  if (!keyring.v1 && !keyring.v2) return error.unavailable(c, 'Encryption is not configured, so an SSN can not be stored');
+  return { ssnEncrypted: await encryptField(ssn, keyring), ssnLast4: tinLast4(ssn) };
+}
+
+/** Seed a new entity's chart of accounts and tax rates from its jurisdiction adapter. */
+async function seedEntityDefaults(
+  db: Database,
+  args: {
+    adapter: ReturnType<typeof getAdapter>;
+    entityId: string;
+    jurisdictionCode: string;
+    baseCurrency: string;
+    kind: ReturnType<typeof resolveEntityKind>;
+    timezone: Parameters<typeof taxYearOf>[0];
+    now: Date;
+  },
+): Promise<{ accountsCreated: number; taxRatesCreated: number }> {
+  const { adapter, entityId, jurisdictionCode, baseCurrency, kind, timezone, now } = args;
+  let accountsCreated = 0;
+  let taxRatesCreated = 0;
+
+  const seedAccounts = buildSeedAccounts({
+    adapter,
+    entityId,
+    jurisdictionCode,
+    baseCurrency,
+    entityType: kind.entityType,
+    taxClassification: kind.taxClassification,
+    taxYear: taxYearOf(timezone),
+    now,
+  });
+
+  if (seedAccounts.length > 0) {
+    await db.insert(schema.accounts).values(seedAccounts);
+    accountsCreated = seedAccounts.length;
+  }
+
+  const taxCategories = adapter.getStandardTaxCategories({
+    entityType: kind.entityType,
+    taxClassification: kind.taxClassification,
+  });
+  const seedTaxRates = taxCategories.map((t) => ({
+    id: generateId('txr'),
+    entityId,
+    jurisdictionCode,
+    name: t.name,
+    rate: t.rate,
+    type: t.type,
+    taxCategoryCode: t.taxCategoryCode,
+    isDefault: t.isDefault ?? false,
+    isActive: t.isActive ?? true,
+    jurisdictionMetadata: t.jurisdictionMetadata,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  if (seedTaxRates.length > 0) {
+    await db.insert(schema.taxRates).values(seedTaxRates);
+    taxRatesCreated = seedTaxRates.length;
+  }
+  return { accountsCreated, taxRatesCreated };
+}
+
+/** Point the accounting settings' defaultEntityId at the entity (creating the settings row if needed). */
+async function makeDefaultEntity(db: Database, entityId: string, now: Date): Promise<void> {
+  const [existing] = await db.select().from(schema.settings).limit(1);
+  if (existing) {
+    await db
+      .update(schema.settings)
+      .set({ defaultEntityId: entityId, updatedAt: now })
+      .where(eq(schema.settings.id, existing.id));
+  } else {
+    await db.insert(schema.settings).values({
+      id: generateId('acs'),
+      defaultEntityId: entityId,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+}
+
 // POST / — create entity + seed sequences/CoA/tax rates from the jurisdiction adapter
 app.post('/', requirePermission('entities:create'), zValidator('json', createEntitySchema), async (c) => {
   const db = c.get('tenantDb');
@@ -476,26 +587,13 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
 
   try {
     const kind = resolveEntityKind(code, { entityType: data.entityType, taxClassification: data.taxClassification });
-    const isBr = code === 'BR';
-    let address = isUs ? checkUsAddress(normalizePostalAddress(data.address)) : normalizePostalAddress(data.address);
-    const br = isBr ? normalizeBrSettings(data.jurisdictionSettings, address) : null;
-    if (isBr) address = normalizeBrAddress(address);
+    const { address, jurisdictionSettings, timezone } = newEntityLocation(code, data, india);
 
-    let ssnEncrypted: string | null = null;
-    let ssnLast4: string | null = null;
-    if (data.ssn) {
-      if (!isUs) return error.badRequest(c, 'An SSN can only be stored on a US entity');
-      const ssn = checkSsn(data.ssn);
-      const keyring = keyringFromEnv(c.env);
-      if (!keyring.v1 && !keyring.v2) return error.unavailable(c, 'Encryption is not configured, so an SSN can not be stored');
-      ssnEncrypted = await encryptField(ssn, keyring);
-      ssnLast4 = tinLast4(ssn);
-    }
+    const ssnColumns = await newEntitySsn(c, data.ssn, isUs);
+    if (ssnColumns instanceof Response) return ssnColumns;
+    const { ssnEncrypted, ssnLast4 } = ssnColumns;
 
     const taxIdentifiers = checked.taxIdentifiers;
-    const jurisdictionSettings = br ? br.settings : india.jurisdictionSettings;
-    let timezone = isUs ? (data.timezone ?? defaultUsTimeZone(address?.state)) : india.timezone;
-    if (br) timezone = data.timezone ?? br.timezone;
     const locale = data.locale ?? adapter.defaultLocale;
     const baseCurrency = data.baseCurrency ?? adapter.defaultCurrency;
 
@@ -555,68 +653,12 @@ app.post('/', requirePermission('entities:create'), zValidator('json', createEnt
       })),
     );
 
-    let accountsCreated = 0;
-    let taxRatesCreated = 0;
-
-    if (data.seedDefaults) {
-      const seedAccounts = buildSeedAccounts({
-        adapter,
-        entityId,
-        jurisdictionCode: code,
-        baseCurrency,
-        entityType: kind.entityType,
-        taxClassification: kind.taxClassification,
-        taxYear: taxYearOf(timezone),
-        now,
-      });
-
-      if (seedAccounts.length > 0) {
-        await db.insert(schema.accounts).values(seedAccounts);
-        accountsCreated = seedAccounts.length;
-      }
-
-      const taxCategories = adapter.getStandardTaxCategories({
-        entityType: kind.entityType,
-        taxClassification: kind.taxClassification,
-      });
-      const seedTaxRates = taxCategories.map((t) => ({
-        id: generateId('txr'),
-        entityId,
-        jurisdictionCode: newEntity.jurisdictionCode,
-        name: t.name,
-        rate: t.rate,
-        type: t.type,
-        taxCategoryCode: t.taxCategoryCode,
-        isDefault: t.isDefault ?? false,
-        isActive: t.isActive ?? true,
-        jurisdictionMetadata: t.jurisdictionMetadata,
-        createdAt: now,
-        updatedAt: now,
-      }));
-
-      if (seedTaxRates.length > 0) {
-        await db.insert(schema.taxRates).values(seedTaxRates);
-        taxRatesCreated = seedTaxRates.length;
-      }
-    }
+    const { accountsCreated, taxRatesCreated } = data.seedDefaults
+      ? await seedEntityDefaults(db, { adapter, entityId, jurisdictionCode: code, baseCurrency, kind, timezone, now })
+      : { accountsCreated: 0, taxRatesCreated: 0 };
 
     // If this is the first / default entity, update settings.defaultEntityId
-    if (newEntity.isDefault) {
-      const [existing] = await db.select().from(schema.settings).limit(1);
-      if (existing) {
-        await db
-          .update(schema.settings)
-          .set({ defaultEntityId: entityId, updatedAt: now })
-          .where(eq(schema.settings.id, existing.id));
-      } else {
-        await db.insert(schema.settings).values({
-          id: generateId('acs'),
-          defaultEntityId: entityId,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
+    if (newEntity.isDefault) await makeDefaultEntity(db, entityId, now);
 
     await writeAccountingAudit(c, db, {
       accountingEntityId: entityId,
@@ -766,6 +808,21 @@ function applyEntityKindToPatch(
   );
 }
 
+/** Brazil: the CEP of a patched address, and the settings checked against the address (UF, municipality). */
+function applyBrSettingsToPatch(patch: Record<string, unknown>, existing: EntityRow, data: EntityUpdateData): void {
+  if (data.address !== undefined) patch.address = normalizeBrAddress(patch.address as StoredPostalAddress | null);
+  if (data.jurisdictionSettings !== undefined || data.address !== undefined) {
+    // Settings merge into the stored ones: the fiscal provider keeps its own keys there.
+    const br = normalizeBrSettings(
+      { ...existing.jurisdictionSettings, ...data.jurisdictionSettings },
+      (patch.address as StoredPostalAddress | null | undefined) ?? existing.address,
+    );
+    patch.jurisdictionSettings = br.settings;
+    // The existing timezone stays unless explicitly patched.
+    if (!data.timezone && !existing.timezone) patch.timezone = br.timezone;
+  }
+}
+
 /** The columns a PATCH sets (everything but the SSN), and whether the US return form changed. */
 function buildEntityPatch(
   existing: EntityRow,
@@ -797,18 +854,7 @@ function buildEntityPatch(
     patch.jurisdictionSettings = tax.india.jurisdictionSettings ?? existing.jurisdictionSettings;
     if (!data.timezone && !existing.timezone) patch.timezone = tax.india.timezone;
   }
-  if (nextJurisdiction === 'BR') {
-    if (data.address !== undefined) patch.address = normalizeBrAddress(patch.address as StoredPostalAddress | null);
-    if (data.jurisdictionSettings !== undefined || data.address !== undefined) {
-      // Settings merge into the stored ones: the fiscal provider keeps its own keys there.
-      const br = normalizeBrSettings(
-        { ...existing.jurisdictionSettings, ...data.jurisdictionSettings },
-        (patch.address as StoredPostalAddress | null | undefined) ?? existing.address,
-      );
-      patch.jurisdictionSettings = br.settings;
-      if (!data.timezone && !existing.timezone) patch.timezone = br.timezone;
-    }
-  }
+  if (nextJurisdiction === 'BR') applyBrSettingsToPatch(patch, existing, data);
 
   const formChanged = applyEntityKindToPatch(patch, existing, data, nextJurisdiction);
   applyFiscalYearToPatch(patch, data);

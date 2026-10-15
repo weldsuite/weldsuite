@@ -248,12 +248,10 @@ export function ieError(value: string): BrEntityErrorCode | null {
   return value.trim() === '' || isValidInscricaoEstadual(value) ? null : 'ie';
 }
 
-/** The checks of the BR fields (everything optional, but what is filled in must be well formed). */
-export function brEntityErrors(
-  values: BrEntityValues,
-  context: { entityType?: string | null; cnpj?: string; ie?: string },
-): BrEntityErrors {
-  const errors: BrEntityErrors = {};
+type BrEntityErrorContext = { entityType?: string | null; cnpj?: string; ie?: string };
+
+/** The CNPJ / IE checks, only for the identifiers the caller passed. */
+function addIdentifierErrors(errors: BrEntityErrors, context: BrEntityErrorContext): void {
   if (context.cnpj !== undefined) {
     const e = cnpjError(context.cnpj);
     if (e) errors.cnpj = e;
@@ -262,7 +260,10 @@ export function brEntityErrors(
     const e = ieError(context.ie);
     if (e) errors.ie = e;
   }
-  if (!allowedBrRegimes(context.entityType).includes(values.regime)) errors.regime = 'regime';
+}
+
+/** The UF and municipality checks (the IBGE code must belong to the UF). */
+function addLocationErrors(errors: BrEntityErrors, values: BrEntityValues): void {
   const uf = values.uf.trim();
   const state = uf ? findBrState(uf) : undefined;
   if (uf && !state) errors.uf = 'uf';
@@ -271,6 +272,10 @@ export function brEntityErrors(
     if (!isValidMunicipalityCode(code)) errors.municipalityCode = 'municipalityCode';
     else if (state && code.slice(0, 2) !== state.ibge) errors.municipalityCode = 'municipalityUf';
   }
+}
+
+/** The CNAE, ISS rate, NF-e series and Pix checks. */
+function addTaxSetupErrors(errors: BrEntityErrors, values: BrEntityValues): void {
   const cnae = values.cnae.trim();
   if (cnae && !/^\d{7}$|^\d{4}-\d\/\d{2}$/.test(cnae)) errors.cnae = 'cnae';
   const iss = values.issRate.trim();
@@ -283,6 +288,10 @@ export function brEntityErrors(
   const pix = values.pixKey.trim();
   if (pix && !isPlausiblePixKey(pix)) errors.pixKey = 'pixKey';
   if (values.pixCity.trim().length > 15) errors.pixCity = 'pixCity';
+}
+
+/** The CBS / IBS rates (0–30 %) and the 12-month payroll (not negative). */
+function addReformErrors(errors: BrEntityErrors, values: BrEntityValues): void {
   for (const key of ['cbsRate', 'ibsRate'] as const) {
     const raw = values[key].trim();
     if (!raw) continue;
@@ -294,6 +303,16 @@ export function brEntityErrors(
     const n = parseNumber(payroll);
     if (n === undefined || n < 0) errors.payroll12m = 'amount';
   }
+}
+
+/** The checks of the BR fields (everything optional, but what is filled in must be well formed). */
+export function brEntityErrors(values: BrEntityValues, context: BrEntityErrorContext): BrEntityErrors {
+  const errors: BrEntityErrors = {};
+  addIdentifierErrors(errors, context);
+  if (!allowedBrRegimes(context.entityType).includes(values.regime)) errors.regime = 'regime';
+  addLocationErrors(errors, values);
+  addTaxSetupErrors(errors, values);
+  addReformErrors(errors, values);
   return errors;
 }
 

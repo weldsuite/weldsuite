@@ -154,7 +154,7 @@ describe('settings', () => {
     const calls = focus.calls.length;
     const res = await webhook(token, secret, { ref: 'unknown-ref' });
     expect(res.status).toBe(200);
-    expect(focus.calls.length).toBe(calls);
+    expect(focus.calls).toHaveLength(calls);
     // So is a body that is not JSON.
     expect((await webhook(token, secret, 'not json')).status).toBe(200);
     // Bodies over 64 KB are refused.
@@ -185,8 +185,8 @@ describe('issuing', () => {
     const res = await api('POST', '/issue', { invoiceId: 'inv_nontm' });
     expect(res.status).toBe(400);
     expect(res.error.details.missing).toEqual(expect.arrayContaining(['line 1: NCM (8 digits)']));
-    expect(focus.calls.length).toBe(before);
-    expect((await db.select().from(schema.fiscalDocuments).where(eq(schema.fiscalDocuments.sourceId, 'inv_nontm'))).length).toBe(0);
+    expect(focus.calls).toHaveLength(before);
+    expect(await db.select().from(schema.fiscalDocuments).where(eq(schema.fiscalDocuments.sourceId, 'inv_nontm'))).toHaveLength(0);
   });
 
   it('issues an NF-e: a processing row with the payload, an event and an audit row', async () => {
@@ -270,7 +270,7 @@ describe('issuing', () => {
     const res = await api('POST', `/${doc.id}/refresh`);
     expect(res.status).toBe(200);
     expect(res.data.status).toBe('authorized');
-    expect(sent.length).toBe(events);
+    expect(sent).toHaveLength(events);
   });
 
   it('sends a carta de correção on the authorized NF-e', async () => {
@@ -346,7 +346,7 @@ describe('issuing', () => {
     const posts = focus.callsTo('POST', /\/v2\/nfe\?ref=inv_net/).length;
     const res = await api('POST', '/issue', { invoiceId: 'inv_net' });
     expect(res.status).toBe(409);
-    expect(focus.callsTo('POST', /\/v2\/nfe\?ref=inv_net/).length).toBe(posts);
+    expect(focus.callsTo('POST', /\/v2\/nfe\?ref=inv_net/)).toHaveLength(posts);
   });
 });
 

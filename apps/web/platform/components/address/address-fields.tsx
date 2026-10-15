@@ -68,6 +68,8 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
   const isUs = country === 'US';
   const isIn = country === 'IN';
   const isBr = country === 'BR';
+  const otherPostalCodeLabel = isBr ? ta.cep : ta.postalCode;
+  const postalCodeLabel = isUs ? ta.zipCode : otherPostalCodeLabel;
 
   const countries = useMemo(() => countryOptions(language || 'en'), [language]);
 
@@ -181,7 +183,7 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
         )}
       </div>
       <div className="space-y-2">
-        <Label htmlFor={id('postalCode')}>{isUs ? ta.zipCode : isBr ? ta.cep : ta.postalCode}</Label>
+        <Label htmlFor={id('postalCode')}>{postalCodeLabel}</Label>
         <Input
           id={id('postalCode')}
           value={address.postalCode ?? ''}

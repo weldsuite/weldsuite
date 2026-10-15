@@ -490,6 +490,78 @@ function drawTableHeader(ctx: DrawContext, labels: InvoicePdfLabels, tableX: num
   }
 }
 
+type InvoicePdfItem = NonNullable<InvoiceWithTax['items']>[number];
+
+/** The code lines printed under an item's description (null when not printed). */
+function itemCodeLines(
+  item: InvoicePdfItem,
+  labels: InvoicePdfLabels,
+  gst: boolean | undefined,
+  br: boolean | undefined,
+): { hsnLine: string | null; brLine: string | null } {
+  // India GST: the HSN/SAC code goes on a line of its own under the description.
+  const hsnLine = gst && item.hsnSac ? `${labels.hsnSac ?? 'HSN/SAC'}: ${item.hsnSac}` : null;
+  const brLine = br ? brLineCodes(item, labels) : null;
+  return { hsnLine, brLine };
+}
+
+/** A new page for the rest of the line items, headed "continued"; returns the y below the heading. */
+function startContinuationPage(pdf: PDFDocument, ctx: DrawContext, invoice: InvoiceWithTax, labels: InvoicePdfLabels): number {
+  ctx.page = pdf.addPage([ctx.size.width, ctx.size.height]);
+  const y = ctx.size.height - MARGIN_TOP;
+  drawText(ctx, fill(labels.continued, { number: invoice.invoiceNumber ?? labels.invoice }), MARGIN_X, y, {
+    size: 10,
+    bold: true,
+  });
+  return y - 20;
+}
+
+/** The wrapped description of a row, with its HSN/SAC and NCM / CFOP lines under it. */
+function drawItemDescription(
+  ctx: DrawContext,
+  { descLines, hsnLine, brLine }: { descLines: string[]; hsnLine: string | null; brLine: string | null },
+  x: number,
+  y: number,
+) {
+  let lineY = y;
+  for (const line of descLines) {
+    drawText(ctx, line, x, lineY, { size: 9 });
+    lineY -= ROW_HEIGHT;
+  }
+  if (hsnLine) drawText(ctx, hsnLine, x, lineY, { size: 8, color: ctx.muted });
+  if (brLine) drawText(ctx, brLine, x, lineY - (hsnLine ? ROW_HEIGHT : 0), { size: 8, color: ctx.muted });
+}
+
+/** Quantity, unit price, tax rate and line total of a row, right-aligned. */
+function drawItemAmounts(
+  ctx: DrawContext,
+  item: InvoicePdfItem,
+  {
+    col,
+    tableX,
+    y,
+    currency,
+    locale,
+  }: { col: ReturnType<typeof columns>; tableX: number; y: number; currency: string | null; locale: string | undefined },
+) {
+  drawText(ctx, formatWeldbooksNumber(item.quantity ?? '1', locale), tableX + col.qty.x, y, { size: 9, align: 'right', width: col.qty.width });
+  drawText(ctx, formatCurrency(item.unitPrice, currency, locale), tableX + col.unitPrice.x, y, {
+    size: 9,
+    align: 'right',
+    width: col.unitPrice.width,
+  });
+  drawText(ctx, item.taxRate ? formatWeldbooksNumber(item.taxRate, locale) + '%' : '-', tableX + col.tax.x, y, {
+    size: 9,
+    align: 'right',
+    width: col.tax.width,
+  });
+  drawText(ctx, formatCurrency(item.lineTotal, currency, locale), tableX + col.total.x, y, {
+    size: 9,
+    align: 'right',
+    width: col.total.width,
+  });
+}
+
 /** Line-item rows with page breaks. Mutates `ctx.page` on a break; returns the next y. */
 function drawLineItems(
   pdf: PDFDocument,
@@ -525,46 +597,17 @@ function drawLineItems(
   const totalsReservedHeight = reservedHeight; // approx space for totals + footer
   for (const item of invoice.items ?? []) {
     const descLines = wrapText(item.description, ctx.font, 9, col.description.width);
-    // India GST: the HSN/SAC code goes on a line of its own under the description.
-    const hsnLine = gst && item.hsnSac ? `${labels.hsnSac ?? 'HSN/SAC'}: ${item.hsnSac}` : null;
-    const brLine = br ? brLineCodes(item, labels) : null;
+    const { hsnLine, brLine } = itemCodeLines(item, labels, gst, br);
     const rowLines = Math.max(1, descLines.length + (hsnLine ? 1 : 0) + (brLine ? 1 : 0));
     const rowH = rowLines * ROW_HEIGHT;
 
     // Page break if we'd overlap totals band.
     if (y - rowH < MARGIN_BOTTOM + totalsReservedHeight) {
-      ctx.page = pdf.addPage([ctx.size.width, ctx.size.height]);
-      y = ctx.size.height - MARGIN_TOP;
-      drawText(ctx, fill(labels.continued, { number: invoice.invoiceNumber ?? labels.invoice }), MARGIN_X, y, {
-        size: 10,
-        bold: true,
-      });
-      y -= 20;
+      y = startContinuationPage(pdf, ctx, invoice, labels);
     }
 
-    let lineY = y;
-    for (const line of descLines) {
-      drawText(ctx, line, tableX + col.description.x, lineY, { size: 9 });
-      lineY -= ROW_HEIGHT;
-    }
-    if (hsnLine) drawText(ctx, hsnLine, tableX + col.description.x, lineY, { size: 8, color: ctx.muted });
-    if (brLine) drawText(ctx, brLine, tableX + col.description.x, lineY - (hsnLine ? ROW_HEIGHT : 0), { size: 8, color: ctx.muted });
-    drawText(ctx, formatWeldbooksNumber(item.quantity ?? '1', locale), tableX + col.qty.x, y, { size: 9, align: 'right', width: col.qty.width });
-    drawText(ctx, formatCurrency(item.unitPrice, currency, locale), tableX + col.unitPrice.x, y, {
-      size: 9,
-      align: 'right',
-      width: col.unitPrice.width,
-    });
-    drawText(ctx, item.taxRate ? formatWeldbooksNumber(item.taxRate, locale) + '%' : '-', tableX + col.tax.x, y, {
-      size: 9,
-      align: 'right',
-      width: col.tax.width,
-    });
-    drawText(ctx, formatCurrency(item.lineTotal, currency, locale), tableX + col.total.x, y, {
-      size: 9,
-      align: 'right',
-      width: col.total.width,
-    });
+    drawItemDescription(ctx, { descLines, hsnLine, brLine }, tableX + col.description.x, y);
+    drawItemAmounts(ctx, item, { col, tableX, y, currency, locale });
 
     y -= rowH;
     ctx.page.drawRectangle({
@@ -658,14 +701,9 @@ function drawTotals(
 
   totalsRow(labels.subtotal, formatCurrency(invoice.subtotal, currency, locale));
   const brTotals = br ? brTotalsOf(invoice) : null;
-  if (brTotals) {
-    for (const row of [...brTotals.added, ...brTotals.withheld]) {
-      totalsRow(row.label, formatCurrency(row.amount, currency, locale));
-    }
-  } else {
-    for (const row of taxRowsOf(invoice, labels)) {
-      totalsRow(row.label, formatCurrency(row.amount, currency, locale));
-    }
+  const taxRows = brTotals ? [...brTotals.added, ...brTotals.withheld] : taxRowsOf(invoice, labels);
+  for (const row of taxRows) {
+    totalsRow(row.label, formatCurrency(row.amount, currency, locale));
   }
   y -= 4;
   ctx.page.drawRectangle({ x: totalsX, y: y + 4, width: totalsW, height: 1, color: ctx.accent });
@@ -676,21 +714,33 @@ function drawTotals(
     totalsRow(labels.balanceDue, formatCurrency(invoice.balanceDue, currency, locale), true, ctx.accent);
   }
   if (brTotals) {
-    // Taxes inside the price and the CBS / IBS test amounts: for information, under the total.
-    const info: Array<[string, Array<{ label: string; amount: number }>]> = [
-      [labels.br?.includedTaxes ?? '', brTotals.embedded],
-      [labels.br?.informationalTaxes ?? '', brTotals.informational],
-    ];
-    for (const [title, rows] of info) {
-      if (rows.length === 0) continue;
-      y -= 6;
-      drawText(ctx, title, totalsX, y, { size: 7, bold: true, color: ctx.muted, width: totalsW });
+    y = drawBrInfoTotals(ctx, labels, brTotals, { currency, locale, x: totalsX, width: totalsW, y });
+  }
+  return y;
+}
+
+/** Taxes inside the price and the CBS / IBS test amounts of a Brazilian invoice, under the total. Returns the y below them. */
+function drawBrInfoTotals(
+  ctx: DrawContext,
+  labels: InvoicePdfLabels,
+  brTotals: ReturnType<typeof brTotalsOf>,
+  { currency, locale, x, width, y: startY }: { currency: string | null; locale: string | undefined; x: number; width: number; y: number },
+): number {
+  let y = startY;
+  // Taxes inside the price and the CBS / IBS test amounts: for information, under the total.
+  const info: Array<[string, Array<{ label: string; amount: number }>]> = [
+    [labels.br?.includedTaxes ?? '', brTotals.embedded],
+    [labels.br?.informationalTaxes ?? '', brTotals.informational],
+  ];
+  for (const [title, rows] of info) {
+    if (rows.length === 0) continue;
+    y -= 6;
+    drawText(ctx, title, x, y, { size: 7, bold: true, color: ctx.muted, width });
+    y -= 12;
+    for (const row of rows) {
+      drawText(ctx, row.label, x, y, { size: 8, color: ctx.muted });
+      drawText(ctx, formatCurrency(row.amount, currency, locale), x, y, { size: 8, color: ctx.muted, align: 'right', width });
       y -= 12;
-      for (const row of rows) {
-        drawText(ctx, row.label, totalsX, y, { size: 8, color: ctx.muted });
-        drawText(ctx, formatCurrency(row.amount, currency, locale), totalsX, y, { size: 8, color: ctx.muted, align: 'right', width: totalsW });
-        y -= 12;
-      }
     }
   }
   return y;

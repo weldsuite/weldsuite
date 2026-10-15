@@ -189,7 +189,8 @@ function computeQuarterly(input: BrApuracaoInput, withheld: BrApuracao['withheld
     // CSLL follows the 90-day rule: from 1 April 2026, so 2026 counts from the second quarter.
     const applyCsll = applyIrpj && (year > 2026 || quarter >= 2);
     const irpjExcess = applyIrpj ? lc224Excess(totals) : 0;
-    const csllExcess = applyCsll ? lc224Excess(year === 2026 ? totals.slice(1) : totals) : 0;
+    const csllQuarters = year === 2026 ? totals.slice(1) : totals;
+    const csllExcess = applyCsll ? lc224Excess(csllQuarters) : 0;
     lc224Applied = irpjExcess > 0 || csllExcess > 0;
     irpjBase = presumedBase(services, goods, irpjExcess, { services: 0.32, goods: 0.08 }) + q.otherIncome;
     csllBase = presumedBase(services, goods, csllExcess, { services: 0.32, goods: 0.12 }) + q.otherIncome;
@@ -223,12 +224,8 @@ function computeQuarterly(input: BrApuracaoInput, withheld: BrApuracao['withheld
   };
 }
 
-export function computeBrApuracao(input: BrApuracaoInput): BrApuracao {
-  const warnings: string[] = [];
-  const { ledger, period } = input;
-  const year = Number(period.slice(0, 4));
-
-  const withheldByCustomers = {
+function withheldByCustomersOf(ledger: BrTaxLedgerTotal[]): BrApuracao['withheldByCustomers'] {
+  return {
     irrf: sum(ledger, 'sales', 'irrf').tax,
     pis: sum(ledger, 'sales', 'pis_ret').tax,
     cofins: sum(ledger, 'sales', 'cofins_ret').tax,
@@ -236,8 +233,10 @@ export function computeBrApuracao(input: BrApuracaoInput): BrApuracao {
     inss: sum(ledger, 'sales', 'inss_ret').tax,
     iss: sum(ledger, 'sales', 'iss_ret').tax,
   };
+}
 
-  // Withholdings we kept back from suppliers: paid over by the 20th of the next month.
+/** Withholdings we kept back from suppliers: paid over by the 20th of the next month. */
+function computeWithholdingsToPay(ledger: BrTaxLedgerTotal[], period: string, warnings: string[]): BrWithholdingLine[] {
   const withholdingsToPay: BrWithholdingLine[] = [];
   const irrf = sum(ledger, 'purchase', 'irrf');
   if (irrf.tax) withholdingsToPay.push({ code: 'irrf', base: irrf.base, amount: irrf.tax, dueDate: nextMonthDay(period, 20), darfCode: '1708' });
@@ -252,63 +251,111 @@ export function computeBrApuracao(input: BrApuracaoInput): BrApuracao {
     withholdingsToPay.push({ code: 'iss', base: issRet.base, amount: issRet.tax, dueDate: nextMonthDay(period, 10) });
     warnings.push('ISS withheld from suppliers is due on the date of the municipality where the service was provided.');
   }
+  return withholdingsToPay;
+}
+
+function computeSimples(input: BrApuracaoInput, year: number, warnings: string[]): NonNullable<BrApuracao['simples']> {
+  const das = computeSimplesDas({
+    rbt12: input.simples?.rbt12 ?? 0,
+    payroll12m: input.simples?.payroll12m ?? 0,
+    slices: input.simples?.slices ?? [],
+  });
+  const simples = { ...das, dueDate: nextMonthDay(input.period, 20) };
+  if (das.overLimit) warnings.push('Revenue of the last 12 months is above R$ 4.8 million: the company has to leave the Simples Nacional.');
+  else if (das.overSublimit) warnings.push('Revenue of the last 12 months is above the R$ 3.6 million sublimit: ICMS and ISS are paid outside the DAS.');
+  if (year >= 2027) warnings.push('From 2027 the DAS also collects CBS (and IBS) with new annex percentages, which this worksheet does not yet apply.');
+  return simples;
+}
+
+function computeMei(input: BrApuracaoInput, year: number, warnings: string[]): NonNullable<BrApuracao['mei']> {
+  const wage = BR_MINIMUM_WAGE[year] ?? BR_MINIMUM_WAGE[2026];
+  if (!BR_MINIMUM_WAGE[year]) warnings.push(`The minimum wage for ${year} is not configured; the ${2026} figure is used.`);
+  const activity = input.meiActivity ?? 'services';
+  const inssPart = round2(wage * 0.05);
+  const icms = activity === 'services' ? 0 : 1;
+  const iss = activity === 'commerce' ? 0 : 5;
+  return { amount: round2(inssPart + icms + iss), inss: inssPart, icms, iss, dueDate: nextMonthDay(input.period, 20) };
+}
+
+function taxLine(code: BrTaxCode, debits: number, credits: number, offsets: number, dueDate: string | null): BrTaxLine {
+  return {
+    code,
+    debits,
+    credits,
+    offsets,
+    payable: round2(Math.max(0, debits - credits - offsets)),
+    dueDate,
+  };
+}
+
+/** PIS / COFINS until 2026; CBS / IBS from 2027. */
+function federalContributionLines(
+  ledger: BrTaxLedgerTotal[],
+  period: string,
+  year: number,
+  withheldByCustomers: BrApuracao['withheldByCustomers'],
+): BrTaxLine[] {
+  if (year < 2027) {
+    return [
+      taxLine('pis', sum(ledger, 'sales', 'pis').tax, sum(ledger, 'purchase', 'pis').tax, withheldByCustomers.pis, nextMonthDay(period, 25)),
+      taxLine('cofins', sum(ledger, 'sales', 'cofins').tax, sum(ledger, 'purchase', 'cofins').tax, withheldByCustomers.cofins, nextMonthDay(period, 25)),
+    ];
+  }
+  const lines: BrTaxLine[] = [];
+  const cbs = sum(ledger, 'sales', 'cbs').tax;
+  const cbsCredits = sum(ledger, 'purchase', 'cbs').tax;
+  if (cbs || cbsCredits) lines.push(taxLine('cbs', cbs, cbsCredits, 0, nextMonthDay(period, 25)));
+  const ibs = sum(ledger, 'sales', 'ibs').tax;
+  const ibsCredits = sum(ledger, 'purchase', 'ibs').tax;
+  if (ibs || ibsCredits) lines.push(taxLine('ibs', ibs, ibsCredits, 0, nextMonthDay(period, 25)));
+  return lines;
+}
+
+/** Lucro Presumido / Real: the month's taxes, debits less credits less offsets. */
+function computeRegularTaxes(
+  ledger: BrTaxLedgerTotal[],
+  period: string,
+  year: number,
+  withheldByCustomers: BrApuracao['withheldByCustomers'],
+  warnings: string[],
+): BrTaxLine[] {
+  const taxes: BrTaxLine[] = [];
+  const issDebits = sum(ledger, 'sales', 'iss').tax;
+  taxes.push(taxLine('iss', issDebits, 0, withheldByCustomers.iss, nextMonthDay(period, 10)));
+  const icmsDebits = round2(sum(ledger, 'sales', 'icms', 'fcp').tax);
+  const icmsCredits = sum(ledger, 'purchase', 'icms').tax;
+  if (icmsDebits || icmsCredits) taxes.push(taxLine('icms', icmsDebits, icmsCredits, 0, null));
+  const ipiDebits = sum(ledger, 'sales', 'ipi').tax;
+  const ipiCredits = sum(ledger, 'purchase', 'ipi').tax;
+  if (ipiDebits || ipiCredits) taxes.push(taxLine('ipi', ipiDebits, ipiCredits, 0, nextMonthDay(period, 25)));
+  taxes.push(...federalContributionLines(ledger, period, year, withheldByCustomers));
+  for (const t of taxes) {
+    if (t.debits - t.credits - t.offsets < -0.005) {
+      warnings.push(`${t.code.toUpperCase()}: credits and offsets exceed the debits by R$ ${(t.credits + t.offsets - t.debits).toFixed(2)}; the balance carries over to the next month.`);
+    }
+  }
+  if (icmsDebits || icmsCredits) warnings.push('ICMS is due on the date set by the state; ICMS-ST and DIFAL are not included.');
+  return taxes;
+}
+
+export function computeBrApuracao(input: BrApuracaoInput): BrApuracao {
+  const warnings: string[] = [];
+  const { ledger, period } = input;
+  const year = Number(period.slice(0, 4));
+
+  const withheldByCustomers = withheldByCustomersOf(ledger);
+  const withholdingsToPay = computeWithholdingsToPay(ledger, period, warnings);
 
   let simples: BrApuracao['simples'] = null;
   let mei: BrApuracao['mei'] = null;
-  const taxes: BrTaxLine[] = [];
+  let taxes: BrTaxLine[] = [];
 
   if (input.regime === 'simples_nacional') {
-    const das = computeSimplesDas({
-      rbt12: input.simples?.rbt12 ?? 0,
-      payroll12m: input.simples?.payroll12m ?? 0,
-      slices: input.simples?.slices ?? [],
-    });
-    simples = { ...das, dueDate: nextMonthDay(period, 20) };
-    if (das.overLimit) warnings.push('Revenue of the last 12 months is above R$ 4.8 million: the company has to leave the Simples Nacional.');
-    else if (das.overSublimit) warnings.push('Revenue of the last 12 months is above the R$ 3.6 million sublimit: ICMS and ISS are paid outside the DAS.');
-    if (year >= 2027) warnings.push('From 2027 the DAS also collects CBS (and IBS) with new annex percentages, which this worksheet does not yet apply.');
+    simples = computeSimples(input, year, warnings);
   } else if (input.regime === 'mei') {
-    const wage = BR_MINIMUM_WAGE[year] ?? BR_MINIMUM_WAGE[2026];
-    if (!BR_MINIMUM_WAGE[year]) warnings.push(`The minimum wage for ${year} is not configured; the ${2026} figure is used.`);
-    const activity = input.meiActivity ?? 'services';
-    const inssPart = round2(wage * 0.05);
-    const icms = activity === 'services' ? 0 : 1;
-    const iss = activity === 'commerce' ? 0 : 5;
-    mei = { amount: round2(inssPart + icms + iss), inss: inssPart, icms, iss, dueDate: nextMonthDay(period, 20) };
+    mei = computeMei(input, year, warnings);
   } else {
-    const line = (code: BrTaxCode, debits: number, credits: number, offsets: number, dueDate: string | null): BrTaxLine => ({
-      code,
-      debits,
-      credits,
-      offsets,
-      payable: round2(Math.max(0, debits - credits - offsets)),
-      dueDate,
-    });
-    const issDebits = sum(ledger, 'sales', 'iss').tax;
-    taxes.push(line('iss', issDebits, 0, withheldByCustomers.iss, nextMonthDay(period, 10)));
-    const icmsDebits = round2(sum(ledger, 'sales', 'icms', 'fcp').tax);
-    const icmsCredits = sum(ledger, 'purchase', 'icms').tax;
-    if (icmsDebits || icmsCredits) taxes.push(line('icms', icmsDebits, icmsCredits, 0, null));
-    const ipiDebits = sum(ledger, 'sales', 'ipi').tax;
-    const ipiCredits = sum(ledger, 'purchase', 'ipi').tax;
-    if (ipiDebits || ipiCredits) taxes.push(line('ipi', ipiDebits, ipiCredits, 0, nextMonthDay(period, 25)));
-    if (year < 2027) {
-      taxes.push(line('pis', sum(ledger, 'sales', 'pis').tax, sum(ledger, 'purchase', 'pis').tax, withheldByCustomers.pis, nextMonthDay(period, 25)));
-      taxes.push(line('cofins', sum(ledger, 'sales', 'cofins').tax, sum(ledger, 'purchase', 'cofins').tax, withheldByCustomers.cofins, nextMonthDay(period, 25)));
-    } else {
-      const cbs = sum(ledger, 'sales', 'cbs').tax;
-      const cbsCredits = sum(ledger, 'purchase', 'cbs').tax;
-      if (cbs || cbsCredits) taxes.push(line('cbs', cbs, cbsCredits, 0, nextMonthDay(period, 25)));
-      const ibs = sum(ledger, 'sales', 'ibs').tax;
-      const ibsCredits = sum(ledger, 'purchase', 'ibs').tax;
-      if (ibs || ibsCredits) taxes.push(line('ibs', ibs, ibsCredits, 0, nextMonthDay(period, 25)));
-    }
-    for (const t of taxes) {
-      if (t.debits - t.credits - t.offsets < -0.005) {
-        warnings.push(`${t.code.toUpperCase()}: credits and offsets exceed the debits by R$ ${(t.credits + t.offsets - t.debits).toFixed(2)}; the balance carries over to the next month.`);
-      }
-    }
-    if (icmsDebits || icmsCredits) warnings.push('ICMS is due on the date set by the state; ICMS-ST and DIFAL are not included.');
+    taxes = computeRegularTaxes(ledger, period, year, withheldByCustomers, warnings);
   }
 
   const quarterly = computeQuarterly(input, withheldByCustomers, warnings);

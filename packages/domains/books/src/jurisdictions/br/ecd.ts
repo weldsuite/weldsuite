@@ -201,123 +201,158 @@ function buildChart(accounts: EcdAccount[]): ChartNode[] {
 
 function monthsOf(start: string, end: string): Array<{ start: string; end: string }> {
   const months: Array<{ start: string; end: string }> = [];
-  let [y, m] = start.split('-').map(Number);
+  const [sy, sm] = start.split('-').map(Number);
   const [ey, em] = end.split('-').map(Number);
-  while (y < ey || (y === ey && m <= em)) {
+  // Months counted from year 0, so a December rolls over into January of the next year.
+  for (let index = sy * 12 + sm - 1; index <= ey * 12 + em - 1; index++) {
+    const y = Math.floor(index / 12);
+    const m = (index % 12) + 1;
     const first = `${y}-${String(m).padStart(2, '0')}-01`;
     const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
     const last = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     months.push({ start: first < start ? start : first, end: last > end ? end : last });
-    m += 1;
-    if (m > 12) {
-      m = 1;
-      y += 1;
-    }
   }
   return months;
 }
 
-export function buildEcd(input: EcdInput): EcdResult {
-  const warnings: string[] = [];
+type EcdField = string | number | null | undefined;
+type Emit = (...fields: EcdField[]) => void;
+
+function createEmitter(): { lines: string[]; counts: Map<string, number>; emit: Emit } {
   const lines: string[] = [];
   const counts = new Map<string, number>();
-  const emit = (...fields: Array<string | number | null | undefined>) => {
+  const emit: Emit = (...fields) => {
     const reg = String(fields[0]);
     counts.set(reg, (counts.get(reg) ?? 0) + 1);
     lines.push(`|${fields.map((f) => (f === null || f === undefined ? '' : String(f))).join('|')}|`);
   };
+  return { lines, counts, emit };
+}
 
-  const chart = buildChart(input.accounts);
-  const analytical = chart.filter((n) => !n.synthetic);
-  const byCode = new Map(chart.map((n) => [n.code, n]));
-  const cnpj = input.company.cnpj.replace(/[^0-9A-Z]/gi, '').toUpperCase();
+/** The period's entries on known accounts, without zero lines, in date order. */
+function periodEntries(input: EcdInput, byCode: Map<string, ChartNode>): EcdEntry[] {
   const start = input.periodStart;
   const end = input.periodEnd;
-
-  // Entries, with a closing entry when the ledger has none.
-  const entries = input.entries
+  return input.entries
     .filter((e) => e.date >= start && e.date <= end)
     .map((e) => ({ ...e, lines: e.lines.filter((l) => byCode.has(l.accountCode) && (l.debit !== 0 || l.credit !== 0)) }))
     .filter((e) => e.lines.length > 0)
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+}
 
+function balancesBeforeClosing(analytical: ChartNode[], openingBalances: Record<string, number>, entries: EcdEntry[]): Map<string, number> {
   const balanceBeforeClosing = new Map<string, number>();
-  for (const node of analytical) balanceBeforeClosing.set(node.code, input.openingBalances[node.code] ?? 0);
+  for (const node of analytical) balanceBeforeClosing.set(node.code, openingBalances[node.code] ?? 0);
   for (const entry of entries.filter((e) => !e.closing)) {
     for (const l of entry.lines) balanceBeforeClosing.set(l.accountCode, (balanceBeforeClosing.get(l.accountCode) ?? 0) + l.debit - l.credit);
   }
-  const resultAccounts = analytical.filter((n) => n.nature === '04');
-  const hasClosing = entries.some((e) => e.closing);
-  if (!hasClosing) {
-    if (!byCode.has(input.retainedEarningsCode)) {
-      warnings.push(`Retained earnings account ${input.retainedEarningsCode} is not in the chart; no closing entry was generated.`);
-    } else {
-      const closingLines: EcdEntryLine[] = [];
-      let net = 0;
-      for (const node of resultAccounts) {
-        const balance = r2(balanceBeforeClosing.get(node.code) ?? 0);
-        if (balance === 0) continue;
-        closingLines.push({ accountCode: node.code, debit: balance < 0 ? -balance : 0, credit: balance > 0 ? balance : 0, description: 'Encerramento do exercício' });
-        net += balance;
-      }
-      if (closingLines.length > 0) {
-        closingLines.push({
-          accountCode: input.retainedEarningsCode,
-          debit: net > 0 ? r2(net) : 0,
-          credit: net < 0 ? r2(-net) : 0,
-          description: 'Resultado do exercício',
-        });
-        entries.push({ id: `ENC-${end.slice(0, 4)}`, date: end, description: 'Encerramento do exercício', lines: closingLines, closing: true });
-      }
-    }
+  return balanceBeforeClosing;
+}
+
+/** The closing entry moving the result accounts to retained earnings, or null when nothing has a balance. */
+function generatedClosingEntry(
+  input: EcdInput,
+  resultAccounts: ChartNode[],
+  balanceBeforeClosing: Map<string, number>,
+): EcdEntry | null {
+  const closingLines: EcdEntryLine[] = [];
+  let net = 0;
+  for (const node of resultAccounts) {
+    const balance = r2(balanceBeforeClosing.get(node.code) ?? 0);
+    if (balance === 0) continue;
+    closingLines.push({ accountCode: node.code, debit: balance < 0 ? -balance : 0, credit: balance > 0 ? balance : 0, description: 'Encerramento do exercício' });
+    net += balance;
   }
+  if (closingLines.length === 0) return null;
+  closingLines.push({
+    accountCode: input.retainedEarningsCode,
+    debit: net > 0 ? r2(net) : 0,
+    credit: net < 0 ? r2(-net) : 0,
+    description: 'Resultado do exercício',
+  });
+  const end = input.periodEnd;
+  return { id: `ENC-${end.slice(0, 4)}`, date: end, description: 'Encerramento do exercício', lines: closingLines, closing: true };
+}
 
-  // Bloco 0
-  emit('0000', 'LECD', ddmmaaaa(start), ddmmaaaa(end), text(input.company.name), cnpj, input.company.uf, text(input.company.ie), input.company.municipalityCode ?? '', text(input.company.im), '', input.startSituation ?? 0, input.company.nire ? 1 : 0, 0, '', 0, 0, '', 'N', 'N', 0, 0, '');
+/** Adds a closing entry when the ledger has none. */
+function addClosingEntry(
+  input: EcdInput,
+  entries: EcdEntry[],
+  byCode: Map<string, ChartNode>,
+  resultAccounts: ChartNode[],
+  balanceBeforeClosing: Map<string, number>,
+  warnings: string[],
+): void {
+  if (entries.some((e) => e.closing)) return;
+  if (!byCode.has(input.retainedEarningsCode)) {
+    warnings.push(`Retained earnings account ${input.retainedEarningsCode} is not in the chart; no closing entry was generated.`);
+    return;
+  }
+  const closing = generatedClosingEntry(input, resultAccounts, balanceBeforeClosing);
+  if (closing) entries.push(closing);
+}
+
+function emitBlock0(emit: Emit, input: EcdInput, cnpj: string): void {
+  const { company } = input;
+  emit('0000', 'LECD', ddmmaaaa(input.periodStart), ddmmaaaa(input.periodEnd), text(company.name), cnpj, company.uf, text(company.ie), company.municipalityCode ?? '', text(company.im), '', input.startSituation ?? 0, company.nire ? 1 : 0, 0, '', 0, 0, '', 'N', 'N', 0, 0, '');
   emit('0001', 0);
-  emit('0007', input.company.ie ? input.company.uf : '00', text(input.company.ie));
+  emit('0007', company.ie ? company.uf : '00', text(company.ie));
   emit('0990', 4);
+}
 
-  // Bloco I
-  const blockIStart = lines.length;
-  emit('I001', 0);
-  emit('I010', 'G', '9.00');
-  emit('I030', 'TERMO DE ABERTURA', input.bookNumber ?? 1, 'DIARIO GERAL', '{QTD_LIN}', text(input.company.name), input.company.nire ?? '', cnpj, '', '', text(input.company.municipalityName), ddmmaaaa(end));
+function emitChartOfAccounts(emit: Emit, chart: ChartNode[], start: string): void {
   for (const node of chart) {
     emit('I050', ddmmaaaa(start), node.nature, node.synthetic ? 'S' : 'A', node.level, node.code, node.parent ?? '', text(node.name));
     // Each analytical account is its own detail line in J100 / J150.
     if (!node.synthetic) emit('I052', '', node.code);
   }
+}
 
-  // I150/I155: monthly balances of each analytical account with movement or a balance.
+type Moves = Map<string, { debit: number; credit: number }>;
+
+function movesOfMonth(entries: EcdEntry[], month: { start: string; end: string }): Moves {
+  const moves: Moves = new Map();
+  for (const entry of entries) {
+    if (entry.date < month.start || entry.date > month.end) continue;
+    for (const l of entry.lines) {
+      const m = moves.get(l.accountCode) ?? { debit: 0, credit: 0 };
+      m.debit += l.debit;
+      m.credit += l.credit;
+      moves.set(l.accountCode, m);
+    }
+  }
+  return moves;
+}
+
+/** I155 rows of a month; updates the running balances. */
+function monthBalanceRows(analytical: ChartNode[], moves: Moves, running: Map<string, number>): string[][] {
+  const rows: string[][] = [];
+  for (const node of analytical) {
+    const opening = r2(running.get(node.code) ?? 0);
+    const m = moves.get(node.code) ?? { debit: 0, credit: 0 };
+    const closing = r2(opening + m.debit - m.credit);
+    running.set(node.code, closing);
+    if (opening === 0 && m.debit === 0 && m.credit === 0) continue;
+    rows.push(['I155', node.code, '', amount(opening), dc(opening), amount(m.debit), amount(m.credit), amount(closing), dc(closing)]);
+  }
+  return rows;
+}
+
+/** I150/I155: monthly balances of each analytical account with movement or a balance. Returns the closing balances. */
+function emitMonthlyBalances(emit: Emit, input: EcdInput, analytical: ChartNode[], entries: EcdEntry[]): Map<string, number> {
   const running = new Map<string, number>();
   for (const node of analytical) running.set(node.code, input.openingBalances[node.code] ?? 0);
-  for (const month of monthsOf(start, end)) {
-    const moves = new Map<string, { debit: number; credit: number }>();
-    for (const entry of entries) {
-      if (entry.date < month.start || entry.date > month.end) continue;
-      for (const l of entry.lines) {
-        const m = moves.get(l.accountCode) ?? { debit: 0, credit: 0 };
-        m.debit += l.debit;
-        m.credit += l.credit;
-        moves.set(l.accountCode, m);
-      }
-    }
-    const rows: string[][] = [];
-    for (const node of analytical) {
-      const opening = r2(running.get(node.code) ?? 0);
-      const m = moves.get(node.code) ?? { debit: 0, credit: 0 };
-      const closing = r2(opening + m.debit - m.credit);
-      running.set(node.code, closing);
-      if (opening === 0 && m.debit === 0 && m.credit === 0) continue;
-      rows.push(['I155', node.code, '', amount(opening), dc(opening), amount(m.debit), amount(m.credit), amount(closing), dc(closing)]);
-    }
+  for (const month of monthsOf(input.periodStart, input.periodEnd)) {
+    const rows = monthBalanceRows(analytical, movesOfMonth(entries, month), running);
     if (rows.length === 0) continue;
     emit('I150', ddmmaaaa(month.start), ddmmaaaa(month.end));
     for (const row of rows) emit(...row);
   }
+  return running;
+}
 
-  // I200/I250: the journal.
+/** I200/I250: the journal. */
+function emitJournal(emit: Emit, entries: EcdEntry[], warnings: string[]): void {
   for (const entry of entries) {
     const total = r2(entry.lines.reduce((s, l) => s + l.debit, 0));
     const credits = r2(entry.lines.reduce((s, l) => s + l.credit, 0));
@@ -329,8 +364,10 @@ export function buildEcd(input: EcdInput): EcdResult {
       if (l.credit) emit('I250', l.accountCode, '', amount(l.credit), 'C', '', '', hist, '');
     }
   }
+}
 
-  // I350/I355: result accounts before the closing.
+/** I350/I355: result accounts before the closing. */
+function emitResultBalances(emit: Emit, end: string, resultAccounts: ChartNode[], balanceBeforeClosing: Map<string, number>): void {
   const resultBalances = resultAccounts
     .map((n) => [n.code, r2(balanceBeforeClosing.get(n.code) ?? 0)] as const)
     .filter(([, balance]) => balance !== 0);
@@ -338,35 +375,55 @@ export function buildEcd(input: EcdInput): EcdResult {
     emit('I350', ddmmaaaa(end));
     for (const [code, balance] of resultBalances) emit('I355', code, '', amount(balance), dc(balance));
   }
-  emit('I990', lines.length - blockIStart + 1);
+}
 
-  // Bloco J: statements, aggregated over the chart (each analytical account is a detail line).
-  const blockJStart = lines.length;
+interface EcdLedger {
+  chart: ChartNode[];
+  analytical: ChartNode[];
+  balanceBeforeClosing: Map<string, number>;
+  /** Closing balances per analytical account. */
+  running: Map<string, number>;
+}
+
+function subtreeSum(analytical: ChartNode[], node: ChartNode, value: (code: string) => number): number {
+  return analytical
+    .filter((a) => a.code === node.code || a.code.startsWith(`${node.code}.`) || (!a.code.includes('.') && a.parent === node.code))
+    .reduce((s, a) => s + value(a.code), 0);
+}
+
+function emitSignatories(emit: Emit, signatories: EcdSignatory[], warnings: string[]): void {
+  if (!signatories.some((s) => s.code === '900')) warnings.push('The ECD must be signed by a contador (code 900): add one.');
+  if (!signatories.some((s) => s.legalRepresentative)) warnings.push('The ECD must be signed by the legal representative: add one.');
+  for (const s of signatories) {
+    emit('J930', text(s.name), s.taxId.replace(/\D/g, ''), text(s.qualification), s.code, s.crc ?? '', s.email ?? '', s.phone ?? '', s.crcUf ?? '', '', '', s.legalRepresentative ? 'S' : 'N');
+  }
+}
+
+/** Bloco J: statements, aggregated over the chart (each analytical account is a detail line). */
+function emitBlockJ(emit: Emit, input: EcdInput, ledger: EcdLedger, warnings: string[]): void {
+  const { chart, analytical, balanceBeforeClosing, running } = ledger;
+  const start = input.periodStart;
+  const end = input.periodEnd;
   emit('J001', 0);
   emit('J005', ddmmaaaa(start), ddmmaaaa(end), 1, '');
   const opening = (code: string) => input.openingBalances[code] ?? 0;
   const closingBalance = (code: string) => running.get(code) ?? 0;
-  const subtreeSum = (node: ChartNode, value: (code: string) => number): number =>
-    analytical.filter((a) => a.code === node.code || a.code.startsWith(`${node.code}.`) || (!a.code.includes('.') && a.parent === node.code)).reduce((s, a) => s + value(a.code), 0);
   for (const node of chart.filter((n) => n.nature !== '04')) {
-    const ini = r2(subtreeSum(node, opening));
-    const fin = r2(subtreeSum(node, closingBalance));
+    const ini = r2(subtreeSum(analytical, node, opening));
+    const fin = r2(subtreeSum(analytical, node, closingBalance));
     emit('J100', node.code, node.synthetic ? 'T' : 'D', node.level, node.parent ?? '', node.code.startsWith('1') ? 'A' : 'P', text(node.name), amount(ini), dc(ini), amount(fin), dc(fin), '');
   }
   let order = 1;
   for (const node of chart.filter((n) => n.nature === '04')) {
-    const value = r2(subtreeSum(node, (code) => balanceBeforeClosing.get(code) ?? 0));
+    const value = r2(subtreeSum(analytical, node, (code) => balanceBeforeClosing.get(code) ?? 0));
     emit('J150', order++, node.code, node.synthetic ? 'T' : 'D', node.level, node.parent ?? '', text(node.name), '', '', amount(value), dc(value), value <= 0 ? 'R' : 'D', '');
   }
   emit('J900', 'TERMO DE ENCERRAMENTO', input.bookNumber ?? 1, 'DIARIO GERAL', text(input.company.name), '{QTD_LIN}', ddmmaaaa(start), ddmmaaaa(end));
-  if (!input.signatories.some((s) => s.code === '900')) warnings.push('The ECD must be signed by a contador (code 900): add one.');
-  if (!input.signatories.some((s) => s.legalRepresentative)) warnings.push('The ECD must be signed by the legal representative: add one.');
-  for (const s of input.signatories) {
-    emit('J930', text(s.name), s.taxId.replace(/\D/g, ''), text(s.qualification), s.code, s.crc ?? '', s.email ?? '', s.phone ?? '', s.crcUf ?? '', '', '', s.legalRepresentative ? 'S' : 'N');
-  }
-  emit('J990', lines.length - blockJStart + 1);
+  emitSignatories(emit, input.signatories, warnings);
+}
 
-  // Bloco 9
+/** Bloco 9: register counts. */
+function emitBlock9(emit: Emit, lines: string[], counts: Map<string, number>): void {
   emit('9001', 0);
   const registers = [...counts.keys(), '9900', '9990', '9999'];
   const uniqueRegisters = [...new Set(registers)];
@@ -379,6 +436,46 @@ export function buildEcd(input: EcdInput): EcdResult {
   // 9001 + the 9900 lines + 9990 + 9999
   emit('9990', uniqueRegisters.length + 3);
   emit('9999', lines.length + 1);
+}
+
+export function buildEcd(input: EcdInput): EcdResult {
+  const warnings: string[] = [];
+  const { lines, counts, emit } = createEmitter();
+
+  const chart = buildChart(input.accounts);
+  const analytical = chart.filter((n) => !n.synthetic);
+  const byCode = new Map(chart.map((n) => [n.code, n]));
+  const cnpj = input.company.cnpj.replace(/[^0-9A-Z]/gi, '').toUpperCase();
+  const start = input.periodStart;
+  const end = input.periodEnd;
+
+  // Entries, with a closing entry when the ledger has none.
+  const entries = periodEntries(input, byCode);
+  const balanceBeforeClosing = balancesBeforeClosing(analytical, input.openingBalances, entries);
+  const resultAccounts = analytical.filter((n) => n.nature === '04');
+  addClosingEntry(input, entries, byCode, resultAccounts, balanceBeforeClosing, warnings);
+
+  // Bloco 0
+  emitBlock0(emit, input, cnpj);
+
+  // Bloco I
+  const blockIStart = lines.length;
+  emit('I001', 0);
+  emit('I010', 'G', '9.00');
+  emit('I030', 'TERMO DE ABERTURA', input.bookNumber ?? 1, 'DIARIO GERAL', '{QTD_LIN}', text(input.company.name), input.company.nire ?? '', cnpj, '', '', text(input.company.municipalityName), ddmmaaaa(end));
+  emitChartOfAccounts(emit, chart, start);
+  const running = emitMonthlyBalances(emit, input, analytical, entries);
+  emitJournal(emit, entries, warnings);
+  emitResultBalances(emit, end, resultAccounts, balanceBeforeClosing);
+  emit('I990', lines.length - blockIStart + 1);
+
+  // Bloco J
+  const blockJStart = lines.length;
+  emitBlockJ(emit, input, { chart, analytical, balanceBeforeClosing, running }, warnings);
+  emit('J990', lines.length - blockJStart + 1);
+
+  // Bloco 9
+  emitBlock9(emit, lines, counts);
 
   const lineCount = lines.length;
   const content = lines.map((l) => l.replace('{QTD_LIN}', String(lineCount))).join('\r\n') + '\r\n';

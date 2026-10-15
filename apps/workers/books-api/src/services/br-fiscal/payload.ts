@@ -181,29 +181,57 @@ function rowOf(rows: DocumentTaxRow[], component: string): DocumentTaxRow | unde
   return rows.find((r) => r.component === component);
 }
 
+const SPACE = /\s/;
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+/** A house number ("123", "12A") or "S/N" / "SN". */
+const HOUSE_NUMBER = /^(?:\d+[a-z]?|s\/?n)$/i;
+
+/** "Rua das Flores 123" (trimmed): the last word when it is a house number, and the single line before the spaces in front of it. */
+function splitTrailingNumber(text: string): { street: string; number: string } | null {
+  let numberStart = text.length;
+  while (numberStart > 0 && !SPACE.test(text[numberStart - 1])) numberStart--;
+  let streetEnd = numberStart;
+  while (streetEnd > 0 && SPACE.test(text[streetEnd - 1])) streetEnd--;
+  if (streetEnd === 0 || streetEnd === numberStart) return null;
+  const street = text.slice(0, streetEnd);
+  const number = text.slice(numberStart);
+  if (LINE_BREAK.test(street) || !HOUSE_NUMBER.test(number)) return null;
+  return { street: street.trim(), number: number.toUpperCase() };
+}
+
 /** "Rua das Flores, 123" or "Rua das Flores 123" -> street and number ("S/N" when there is none). */
 export function splitStreet(line1: string | undefined): { street: string; number: string } {
   const text = (line1 ?? '').trim();
-  const comma = /^(.+?),\s*(\d+[A-Za-z]?|s\/?n)\b/i.exec(text);
+  const comma = /^(.+?),\s*(\d+[a-z]?|s\/?n)\b/i.exec(text);
   if (comma) return { street: comma[1].trim(), number: comma[2].toUpperCase() };
-  const trailing = /^(.+?)\s+(\d+[A-Za-z]?|s\/?n)$/i.exec(text);
-  if (trailing) return { street: trailing[1].trim(), number: trailing[2].toUpperCase() };
-  return { street: text, number: 'S/N' };
+  return splitTrailingNumber(text) ?? { street: text, number: 'S/N' };
 }
+
+/** First digit of a return CFOP by the first digit of the sale's: 5 -> 1, 6 -> 2, 7 -> 3. */
+const RETURN_CFOP_FIRST_DIGIT: Record<string, string> = { '5': '1', '6': '2', '7': '3' };
 
 /** CFOP of the entrada that returns goods sold under `cfop` (5102 -> 1202, 6102 -> 2202). */
 export function returnCfop(cfop: string): string {
   if (/^[123]/.test(cfop)) return cfop;
   const known: Record<string, string> = { '5101': '1201', '5102': '1202', '6101': '2201', '6102': '2202', '7101': '3201', '7102': '3202' };
   if (known[cfop]) return known[cfop];
-  const first = cfop[0] === '5' ? '1' : cfop[0] === '6' ? '2' : cfop[0] === '7' ? '3' : cfop[0];
+  const first = RETURN_CFOP_FIRST_DIGIT[cfop[0]] ?? cfop[0];
   return `${first}${cfop.slice(1)}`;
 }
 
+/** local_destino of an NF-e: 1 inside the issuer's state, 2 to another state, 3 abroad. */
+export type NfeDestination = 1 | 2 | 3;
+
+/** First digit of a sale CFOP by destination: 5 inside the state, 6 to another state, 7 abroad. */
+function saleCfopPrefix(destination: NfeDestination): string {
+  if (destination === 1) return '5';
+  return destination === 2 ? '6' : '7';
+}
+
 /** The CFOP of a sale line when the line has none: own production (5101) or resale (5102), by destination. */
-export function defaultSaleCfop(kind: BrSupplyKind | undefined, destination: 1 | 2 | 3): string {
+export function defaultSaleCfop(kind: BrSupplyKind | undefined, destination: NfeDestination): string {
   const base = kind === 'goods_production' ? '101' : '102';
-  return `${destination === 1 ? '5' : destination === 2 ? '6' : '7'}${base}`;
+  return `${saleCfopPrefix(destination)}${base}`;
 }
 
 /** LC 116 item ("01.07", "0107", "1.07") as the 6-digit national code (cTribNac): item, subitem, desdobro. */
@@ -269,7 +297,14 @@ function counterpartyId(counterparty: BrFiscalCounterparty): { kind: 'cnpj' | 'c
   return null;
 }
 
-function localDestination(issuer: BrFiscalIssuer, counterparty: BrFiscalCounterparty, missing: string[]): 1 | 2 | 3 {
+/** The CNPJ or CPF of a party under the payload's own field names. */
+function partyIdFields(id: ReturnType<typeof counterpartyId>, cnpjField: string, cpfField: string): FocusRecord {
+  if (id?.kind === 'cnpj') return { [cnpjField]: id.value };
+  if (id?.kind === 'cpf') return { [cpfField]: id.value };
+  return {};
+}
+
+function localDestination(issuer: BrFiscalIssuer, counterparty: BrFiscalCounterparty, missing: string[]): NfeDestination {
   if (isForeign(counterparty.address.country)) return 3;
   const issuerUf = issuer.settings.uf?.toUpperCase();
   const uf = counterparty.address.state?.toUpperCase();
@@ -303,12 +338,87 @@ function ibsCbsFields(line: BrFiscalLine, rows: DocumentTaxRow[]): FocusRecord {
   };
 }
 
+/** ICMS, PIS and COFINS of an item from a Simples Nacional issuer (CSOSN; the taxes are inside the DAS). */
+function simplesItemTaxes(line: BrFiscalLine, issuer: BrFiscalIssuer, document: BrFiscalDocument, exempt: boolean): FocusRecord {
+  const fields: FocusRecord = {};
+  const credit = issuer.regime === 'simples_nacional' ? (issuer.settings.simplesCreditRate ?? 0) : 0;
+  if (document.isCreditNote || exempt) {
+    fields.icms_situacao_tributaria = '400';
+  } else if (credit > 0) {
+    fields.icms_situacao_tributaria = '101';
+    fields.icms_aliquota_credito_simples = credit;
+    fields.icms_valor_credito_simples = round2((line.lineTotal * credit) / 100);
+  } else {
+    fields.icms_situacao_tributaria = '102';
+  }
+  // PIS and COFINS are inside the DAS: operação isenta da contribuição.
+  fields.pis_situacao_tributaria = '07';
+  fields.cofins_situacao_tributaria = '07';
+  return fields;
+}
+
+/** ICMS (and its FCP) of an item from a regular-regime issuer. */
+function icmsItemFields(line: BrFiscalLine, rows: DocumentTaxRow[]): FocusRecord {
+  const fields: FocusRecord = {};
+  const icms = rowOf(rows, 'icms');
+  const fcp = rowOf(rows, 'fcp');
+  if (icms) {
+    fields.icms_situacao_tributaria = '00';
+    fields.icms_modalidade_base_calculo = 3;
+    fields.icms_base_calculo = round2(icms.taxableAmount);
+    fields.icms_aliquota = icms.taxRate;
+    fields.icms_valor = round2(icms.taxAmount);
+  } else {
+    fields.icms_situacao_tributaria = line.kind === 'exempt' ? '40' : '41';
+  }
+  if (fcp) {
+    fields.fcp_percentual = fcp.taxRate;
+    fields.fcp_base_calculo = round2(fcp.taxableAmount);
+    fields.fcp_valor = round2(fcp.taxAmount);
+  }
+  return fields;
+}
+
+function ipiItemFields(rows: DocumentTaxRow[]): FocusRecord {
+  const ipi = rowOf(rows, 'ipi');
+  if (!ipi) return {};
+  return {
+    ipi_situacao_tributaria: '50',
+    ipi_codigo_enquadramento_legal: '999',
+    ipi_base_calculo: round2(ipi.taxableAmount),
+    ipi_aliquota: ipi.taxRate,
+    ipi_valor: round2(ipi.taxAmount),
+  };
+}
+
+function pisCofinsItemFields(line: BrFiscalLine, rows: DocumentTaxRow[]): FocusRecord {
+  const fields: FocusRecord = {};
+  for (const tax of ['pis', 'cofins'] as const) {
+    const row = rowOf(rows, tax);
+    if (row) {
+      fields[`${tax}_situacao_tributaria`] = '01';
+      fields[`${tax}_base_calculo`] = round2(row.taxableAmount);
+      fields[`${tax}_aliquota_porcentual`] = row.taxRate;
+      fields[`${tax}_valor`] = round2(row.taxAmount);
+    } else {
+      // 07 isenta (exempt lines), 08 sem incidência (exports, and from 2027 when CBS replaces them).
+      fields[`${tax}_situacao_tributaria`] = line.kind === 'exempt' ? '07' : '08';
+    }
+  }
+  return fields;
+}
+
+/** The taxes of an item from a regular-regime issuer: ICMS, FCP, IPI, PIS, COFINS and the 2026 IBS / CBS. */
+function regularItemTaxes(line: BrFiscalLine, rows: DocumentTaxRow[]): FocusRecord {
+  return { ...icmsItemFields(line, rows), ...ipiItemFields(rows), ...pisCofinsItemFields(line, rows), ...ibsCbsFields(line, rows) };
+}
+
 function nfeItem(
   index: number,
   line: BrFiscalLine,
   rows: DocumentTaxRow[],
   args: BuildPayloadArgs,
-  destination: 1 | 2 | 3,
+  destination: NfeDestination,
   missing: string[],
 ): FocusRecord {
   const { issuer, document } = args;
@@ -323,6 +433,7 @@ function nfeItem(
 
   const gross = round2(line.quantity * line.unitPrice);
   const discount = round2(gross - line.lineTotal);
+  const unit = (line.unit || 'UN').toUpperCase().slice(0, 6);
   const item: FocusRecord = {
     numero_item: n,
     codigo_produto: line.productCode || String(n),
@@ -332,11 +443,11 @@ function nfeItem(
     codigo_barras_comercial: 'SEM GTIN',
     codigo_barras_tributavel: 'SEM GTIN',
     cfop,
-    unidade_comercial: (line.unit || 'UN').toUpperCase().slice(0, 6),
+    unidade_comercial: unit,
     quantidade_comercial: line.quantity,
     valor_unitario_comercial: line.unitPrice,
     valor_bruto: gross,
-    unidade_tributavel: (line.unit || 'UN').toUpperCase().slice(0, 6),
+    unidade_tributavel: unit,
     quantidade_tributavel: line.quantity,
     valor_unitario_tributavel: line.unitPrice,
     valor_desconto: discount > 0 ? discount : undefined,
@@ -345,62 +456,7 @@ function nfeItem(
   };
 
   const exempt = line.kind === 'exempt' || line.kind === 'export_goods';
-
-  if (simples) {
-    const credit = issuer.regime === 'simples_nacional' ? (issuer.settings.simplesCreditRate ?? 0) : 0;
-    if (document.isCreditNote || exempt) {
-      item.icms_situacao_tributaria = '400';
-    } else if (credit > 0) {
-      item.icms_situacao_tributaria = '101';
-      item.icms_aliquota_credito_simples = credit;
-      item.icms_valor_credito_simples = round2((line.lineTotal * credit) / 100);
-    } else {
-      item.icms_situacao_tributaria = '102';
-    }
-    // PIS and COFINS are inside the DAS: operação isenta da contribuição.
-    item.pis_situacao_tributaria = '07';
-    item.cofins_situacao_tributaria = '07';
-  } else {
-    const icms = rowOf(rows, 'icms');
-    const fcp = rowOf(rows, 'fcp');
-    if (icms) {
-      item.icms_situacao_tributaria = '00';
-      item.icms_modalidade_base_calculo = 3;
-      item.icms_base_calculo = round2(icms.taxableAmount);
-      item.icms_aliquota = icms.taxRate;
-      item.icms_valor = round2(icms.taxAmount);
-    } else {
-      item.icms_situacao_tributaria = line.kind === 'exempt' ? '40' : '41';
-    }
-    if (fcp) {
-      item.fcp_percentual = fcp.taxRate;
-      item.fcp_base_calculo = round2(fcp.taxableAmount);
-      item.fcp_valor = round2(fcp.taxAmount);
-    }
-
-    const ipi = rowOf(rows, 'ipi');
-    if (ipi) {
-      item.ipi_situacao_tributaria = '50';
-      item.ipi_codigo_enquadramento_legal = '999';
-      item.ipi_base_calculo = round2(ipi.taxableAmount);
-      item.ipi_aliquota = ipi.taxRate;
-      item.ipi_valor = round2(ipi.taxAmount);
-    }
-
-    for (const tax of ['pis', 'cofins'] as const) {
-      const row = rowOf(rows, tax);
-      if (row) {
-        item[`${tax}_situacao_tributaria`] = '01';
-        item[`${tax}_base_calculo`] = round2(row.taxableAmount);
-        item[`${tax}_aliquota_porcentual`] = row.taxRate;
-        item[`${tax}_valor`] = round2(row.taxAmount);
-      } else {
-        // 07 isenta (exempt lines), 08 sem incidência (exports, and from 2027 when CBS replaces them).
-        item[`${tax}_situacao_tributaria`] = line.kind === 'exempt' ? '07' : '08';
-      }
-    }
-    Object.assign(item, ibsCbsFields(line, rows));
-  }
+  Object.assign(item, simples ? simplesItemTaxes(line, issuer, document, exempt) : regularItemTaxes(line, rows));
   return compact(item);
 }
 
@@ -435,54 +491,88 @@ export function buildNfePayload(args: BuildPayloadArgs): FocusRecord {
   const contributor = buyerIsIcmsContributor(args);
   const finalConsumer = document.fiscal.finalConsumer ?? !contributor;
   const buyerIe = digitsOf(counterparty.fiscal.inscricaoEstadual);
-  const exemptIe = (counterparty.fiscal.inscricaoEstadual ?? '').toUpperCase() === 'ISENTO';
-  let ieIndicator = 9;
-  if (destination !== 3) {
-    if (contributor && !exemptIe) {
-      ieIndicator = 1;
-      if (!buyerIe) missing.push("the customer's Inscrição Estadual (or mark it as not an ICMS taxpayer)");
-    } else if (exemptIe) {
-      ieIndicator = 2;
-    }
-  }
+  const ieIndicator = recipientIeIndicator(counterparty, destination, contributor, buyerIe, missing);
 
-  const address = counterparty.address;
-  const { street, number } = splitStreet(address.line1);
-  if (destination !== 3) {
-    if (!street) missing.push("the customer's street address");
-    if (!address.county) missing.push("the customer's neighbourhood (bairro)");
-    if (!address.city) missing.push("the customer's city");
-    if (!counterparty.fiscal.municipalityCode) missing.push("the customer's IBGE municipality code");
-  }
+  const { street, number } = splitStreet(counterparty.address.line1);
+  if (destination !== 3) requireRecipientAddress(counterparty, street, missing);
 
   const items = lines.map((line, i) => nfeItem(i, line, taxes.lines[i] ?? [], args, destination, missing));
   if (missing.length > 0) throw new BrPayloadError('The NF-e is missing data', [...new Set(missing)]);
 
-  // What Focus adds up: price less discount, plus the taxes charged on top (IPI, later CBS/IBS).
-  const total = round2(
-    lines.reduce((sum, line, i) => sum + line.lineTotal + (taxes.lines[i] ?? []).filter((r) => r.treatment === 'added').reduce((s, r) => s + r.taxAmount, 0), 0),
-  );
+  const total = nfeTotal(lines, taxes);
   const credit = simples && issuer.regime === 'simples_nacional' && !document.isCreditNote ? (issuer.settings.simplesCreditRate ?? 0) : 0;
   const creditValue = round2(lines.reduce((sum, l) => sum + (l.lineTotal * credit) / 100, 0));
-  const extra = [
-    ...simplesNotice(issuer, credit, creditValue),
-    ...(document.number ? [`Fatura ${document.number}`] : []),
-    ...(document.notes?.trim() ? [document.notes.trim()] : []),
-  ];
-
-  const issueIso = brasiliaIso(now);
-  const onCredit = Boolean(document.dueDate && document.dueDate > document.issueDate);
-  const payment = document.isCreditNote
-    ? { indicador_pagamento: 0, forma_pagamento: '90', valor_pagamento: 0 }
-    : {
-        indicador_pagamento: onCredit ? 1 : 0,
-        forma_pagamento: issuer.settings.pixKey ? '17' : '99',
-        ...(issuer.settings.pixKey ? {} : { descricao_pagamento: 'Outros' }),
-        valor_pagamento: total,
-      };
+  const extra = [...simplesNotice(issuer, credit, creditValue), ...invoiceNotes(document)];
 
   return compact({
-    natureza_operacao: (document.fiscal.naturezaOperacao ?? (document.isCreditNote ? 'Devolucao de venda de mercadoria' : 'Venda de mercadoria')).slice(0, 60),
+    ...nfeOperationFields(document, destination, finalConsumer, brasiliaIso(now)),
+    ...nfeIssuerFields(issuer, ie),
+    nome_destinatario: environment === 'homologacao' ? HOMOLOGACAO_RECIPIENT_NAME : counterparty.name.slice(0, 60),
+    ...partyIdFields(id, 'cnpj_destinatario', 'cpf_destinatario'),
+    indicador_inscricao_estadual_destinatario: ieIndicator,
+    inscricao_estadual_destinatario: ieIndicator === 1 ? buyerIe : undefined,
+    ...recipientAddressFields(counterparty, destination, street, number),
+    email_destinatario: counterparty.email?.slice(0, 60),
+    modalidade_frete: 9,
+    notas_referenciadas: document.isCreditNote && document.referencedAccessKey ? [{ chave_nfe: document.referencedAccessKey }] : undefined,
+    informacoes_adicionais_contribuinte: extra.length > 0 ? extra.join(' | ').slice(0, 5000) : undefined,
+    formas_pagamento: [nfePayment(issuer, document, total)],
+    items,
+  });
+}
+
+/** indicador_inscricao_estadual_destinatario: 1 contributor with an IE, 2 exempt from IE, 9 not a contributor (and abroad). */
+function recipientIeIndicator(
+  counterparty: BrFiscalCounterparty,
+  destination: NfeDestination,
+  contributor: boolean,
+  buyerIe: string,
+  missing: string[],
+): number {
+  if (destination === 3) return 9;
+  const exemptIe = (counterparty.fiscal.inscricaoEstadual ?? '').toUpperCase() === 'ISENTO';
+  if (contributor && !exemptIe) {
+    if (!buyerIe) missing.push("the customer's Inscrição Estadual (or mark it as not an ICMS taxpayer)");
+    return 1;
+  }
+  return exemptIe ? 2 : 9;
+}
+
+function requireRecipientAddress(counterparty: BrFiscalCounterparty, street: string, missing: string[]): void {
+  const address = counterparty.address;
+  if (!street) missing.push("the customer's street address");
+  if (!address.county) missing.push("the customer's neighbourhood (bairro)");
+  if (!address.city) missing.push("the customer's city");
+  if (!counterparty.fiscal.municipalityCode) missing.push("the customer's IBGE municipality code");
+}
+
+/** What Focus adds up: price less discount, plus the taxes charged on top (IPI, later CBS/IBS). */
+function nfeTotal(lines: BrFiscalLine[], taxes: BrFiscalTaxes): number {
+  return round2(
+    lines.reduce((sum, line, i) => sum + line.lineTotal + (taxes.lines[i] ?? []).filter((r) => r.treatment === 'added').reduce((s, r) => s + r.taxAmount, 0), 0),
+  );
+}
+
+/** The invoice's number and notes, as lines of a document's complementary information. */
+function invoiceNotes(document: BrFiscalDocument): string[] {
+  return [...(document.number ? [`Fatura ${document.number}`] : []), ...(document.notes?.trim() ? [document.notes.trim()] : [])];
+}
+
+function nfePayment(issuer: BrFiscalIssuer, document: BrFiscalDocument, total: number): FocusRecord {
+  if (document.isCreditNote) return { indicador_pagamento: 0, forma_pagamento: '90', valor_pagamento: 0 };
+  const onCredit = Boolean(document.dueDate && document.dueDate > document.issueDate);
+  return {
+    indicador_pagamento: onCredit ? 1 : 0,
+    forma_pagamento: issuer.settings.pixKey ? '17' : '99',
+    ...(issuer.settings.pixKey ? {} : { descricao_pagamento: 'Outros' }),
+    valor_pagamento: total,
+  };
+}
+
+function nfeOperationFields(document: BrFiscalDocument, destination: NfeDestination, finalConsumer: boolean, issueIso: string): FocusRecord {
+  const defaultNature = document.isCreditNote ? 'Devolucao de venda de mercadoria' : 'Venda de mercadoria';
+  return {
+    natureza_operacao: (document.fiscal.naturezaOperacao ?? defaultNature).slice(0, 60),
     data_emissao: issueIso,
     data_entrada_saida: issueIso,
     tipo_documento: document.isCreditNote ? 0 : 1,
@@ -490,34 +580,33 @@ export function buildNfePayload(args: BuildPayloadArgs): FocusRecord {
     finalidade_emissao: document.isCreditNote ? 4 : 1,
     consumidor_final: finalConsumer ? 1 : 0,
     presenca_comprador: document.online ? 2 : 9,
+  };
+}
+
+function nfeIssuerFields(issuer: BrFiscalIssuer, ie: string): FocusRecord {
+  return {
     cnpj_emitente: issuer.cnpj,
     inscricao_estadual_emitente: ie,
     regime_tributario_emitente: Number.parseInt(crtOf(issuer.regime), 10),
     ...(issuer.settings.nfeSeries ? { serie: Number.parseInt(issuer.settings.nfeSeries, 10) || undefined } : {}),
-    nome_destinatario: environment === 'homologacao' ? HOMOLOGACAO_RECIPIENT_NAME : counterparty.name.slice(0, 60),
-    ...(id?.kind === 'cnpj' ? { cnpj_destinatario: id.value } : {}),
-    ...(id?.kind === 'cpf' ? { cpf_destinatario: id.value } : {}),
-    indicador_inscricao_estadual_destinatario: ieIndicator,
-    inscricao_estadual_destinatario: ieIndicator === 1 ? buyerIe : undefined,
-    ...(destination === 3
-      ? { pais_destinatario: address.country, municipio_destinatario: address.city, logradouro_destinatario: street, numero_destinatario: number, bairro_destinatario: address.county }
-      : {
-          logradouro_destinatario: street,
-          numero_destinatario: number,
-          complemento_destinatario: address.line2,
-          bairro_destinatario: address.county,
-          municipio_destinatario: address.city,
-          codigo_municipio_destinatario: counterparty.fiscal.municipalityCode,
-          uf_destinatario: address.state?.toUpperCase(),
-          cep_destinatario: digitsOf(address.postalCode) || undefined,
-        }),
-    email_destinatario: counterparty.email?.slice(0, 60),
-    modalidade_frete: 9,
-    notas_referenciadas: document.isCreditNote && document.referencedAccessKey ? [{ chave_nfe: document.referencedAccessKey }] : undefined,
-    informacoes_adicionais_contribuinte: extra.length > 0 ? extra.join(' | ').slice(0, 5000) : undefined,
-    formas_pagamento: [payment],
-    items,
-  });
+  };
+}
+
+function recipientAddressFields(counterparty: BrFiscalCounterparty, destination: NfeDestination, street: string, number: string): FocusRecord {
+  const address = counterparty.address;
+  if (destination === 3) {
+    return { pais_destinatario: address.country, municipio_destinatario: address.city, logradouro_destinatario: street, numero_destinatario: number, bairro_destinatario: address.county };
+  }
+  return {
+    logradouro_destinatario: street,
+    numero_destinatario: number,
+    complemento_destinatario: address.line2,
+    bairro_destinatario: address.county,
+    municipio_destinatario: address.city,
+    codigo_municipio_destinatario: counterparty.fiscal.municipalityCode,
+    uf_destinatario: address.state?.toUpperCase(),
+    cep_destinatario: digitsOf(address.postalCode) || undefined,
+  };
 }
 
 // --- NFS-e (services) ---------------------------------------------------------------
@@ -602,7 +691,7 @@ function requireDomesticTomador(counterparty: BrFiscalCounterparty, missing: str
 
 /** The invoice's notes and number as the NFS-e's complementary information. */
 function serviceNotes(document: BrFiscalDocument): string | undefined {
-  const parts = [...(document.number ? [`Fatura ${document.number}`] : []), ...(document.notes?.trim() ? [document.notes.trim()] : [])];
+  const parts = invoiceNotes(document);
   return parts.length > 0 ? parts.join(' | ').slice(0, 2000) : undefined;
 }
 
@@ -625,18 +714,11 @@ export function buildNfsenPayload(args: NfsePayloadArgs): FocusRecord {
 
   const simples = isSimplesRegime(issuer.regime);
   const withheld = withholdingTotals(taxes.withheld);
-  const pisCofinsWithheld = withheld.pis > 0 || withheld.cofins > 0 || withheld.csll > 0;
   const municipality = digitsOf(issuer.settings.municipalityCode);
   const emission = brasiliaIso(now);
   // The competência cannot be after the emission.
   const competence = document.issueDate > emission.slice(0, 10) ? emission.slice(0, 10) : document.issueDate;
-  const tomador = tomadorAddress(counterparty);
-  const hasIbsCbs = taxes.lines.some((rows) => rows.some((r) => r.component === 'cbs' || r.component === 'ibs'));
-  const first = args.lines[0];
-
-  let issTaxation = 1;
-  if (service.exportService) issTaxation = 3;
-  else if (service.exempt) issTaxation = 4;
+  const issTaxation = nfsenIssTaxation(service);
 
   return compact({
     data_emissao: emission,
@@ -648,20 +730,10 @@ export function buildNfsenPayload(args: NfsePayloadArgs): FocusRecord {
     cnpj_prestador: issuer.cnpj,
     inscricao_municipal_prestador: issuer.settings.inscricaoMunicipal,
     codigo_municipio_prestador: Number.parseInt(municipality, 10),
-    codigo_opcao_simples_nacional: issuer.regime === 'mei' ? 2 : simples ? 3 : 1,
+    codigo_opcao_simples_nacional: simplesNacionalOption(issuer.regime, simples),
     regime_tributario_simples_nacional: simples ? 1 : undefined,
     regime_especial_tributacao: 0,
-    ...(id?.kind === 'cnpj' ? { cnpj_tomador: id.value } : {}),
-    ...(id?.kind === 'cpf' ? { cpf_tomador: id.value } : {}),
-    razao_social_tomador: counterparty.name.slice(0, 150),
-    inscricao_municipal_tomador: counterparty.fiscal.inscricaoMunicipal,
-    codigo_municipio_tomador: tomador.codigo_municipio ? Number.parseInt(tomador.codigo_municipio, 10) : undefined,
-    cep_tomador: tomador.cep,
-    logradouro_tomador: tomador.logradouro,
-    numero_tomador: tomador.numero,
-    complemento_tomador: tomador.complemento,
-    bairro_tomador: tomador.bairro,
-    email_tomador: counterparty.email?.slice(0, 80),
+    ...nfsenTomadorFields(counterparty, id),
     codigo_municipio_prestacao: Number.parseInt(municipality, 10),
     codigo_tributacao_nacional_iss: nationalCode,
     codigo_nbs: service.nbs,
@@ -672,30 +744,68 @@ export function buildNfsenPayload(args: NfsePayloadArgs): FocusRecord {
     tipo_retencao_iss: withheld.iss > 0 ? 2 : 1,
     // The Simples Nacional provider's ISS is inside its DAS: no rate is informed.
     percentual_aliquota_relativa_municipio: !simples && issTaxation === 1 ? service.issRate : undefined,
-    ...(pisCofinsWithheld
-      ? {
-          situacao_tributaria_pis_cofins: '01',
-          base_calculo_pis_cofins: service.amount,
-          aliquota_pis: 0.65,
-          aliquota_cofins: 3,
-          valor_pis: withheld.pis,
-          valor_cofins: withheld.cofins,
-          tipo_retencao_pis_cofins: 3,
-          valor_csll: withheld.csll,
-        }
-      : {}),
+    ...nfsenPisCofinsFields(withheld, service.amount),
     valor_irrf: withheld.irrf > 0 ? withheld.irrf : undefined,
     valor_cp: withheld.inss > 0 ? withheld.inss : undefined,
-    ...(hasIbsCbs
-      ? {
-          finalidade_emissao: 0,
-          consumidor_final: document.fiscal.finalConsumer ? 1 : 0,
-          indicador_destinatario: 0,
-          ibs_cbs_situacao_tributaria: first?.fiscal.ibsCbsCst ?? '000',
-          ibs_cbs_classificacao_tributaria: first?.fiscal.cClassTrib ?? '000001',
-        }
-      : {}),
+    ...nfsenIbsCbsFields(args),
   });
+}
+
+/** tributacao_iss: 1 taxable, 3 export of services, 4 exempt. */
+function nfsenIssTaxation(service: ServiceSummary): number {
+  if (service.exportService) return 3;
+  if (service.exempt) return 4;
+  return 1;
+}
+
+/** codigo_opcao_simples_nacional: 1 not an optant, 2 MEI, 3 ME/EPP. */
+function simplesNacionalOption(regime: BrTaxRegime, simples: boolean): number {
+  if (regime === 'mei') return 2;
+  return simples ? 3 : 1;
+}
+
+function nfsenTomadorFields(counterparty: BrFiscalCounterparty, id: ReturnType<typeof counterpartyId>): FocusRecord {
+  const tomador = tomadorAddress(counterparty);
+  return {
+    ...partyIdFields(id, 'cnpj_tomador', 'cpf_tomador'),
+    razao_social_tomador: counterparty.name.slice(0, 150),
+    inscricao_municipal_tomador: counterparty.fiscal.inscricaoMunicipal,
+    codigo_municipio_tomador: tomador.codigo_municipio ? Number.parseInt(tomador.codigo_municipio, 10) : undefined,
+    cep_tomador: tomador.cep,
+    logradouro_tomador: tomador.logradouro,
+    numero_tomador: tomador.numero,
+    complemento_tomador: tomador.complemento,
+    bairro_tomador: tomador.bairro,
+    email_tomador: counterparty.email?.slice(0, 80),
+  };
+}
+
+function nfsenPisCofinsFields(withheld: ReturnType<typeof withholdingTotals>, amount: number): FocusRecord {
+  const pisCofinsWithheld = withheld.pis > 0 || withheld.cofins > 0 || withheld.csll > 0;
+  if (!pisCofinsWithheld) return {};
+  return {
+    situacao_tributaria_pis_cofins: '01',
+    base_calculo_pis_cofins: amount,
+    aliquota_pis: 0.65,
+    aliquota_cofins: 3,
+    valor_pis: withheld.pis,
+    valor_cofins: withheld.cofins,
+    tipo_retencao_pis_cofins: 3,
+    valor_csll: withheld.csll,
+  };
+}
+
+function nfsenIbsCbsFields(args: NfsePayloadArgs): FocusRecord {
+  const hasIbsCbs = args.taxes.lines.some((rows) => rows.some((r) => r.component === 'cbs' || r.component === 'ibs'));
+  if (!hasIbsCbs) return {};
+  const first = args.lines[0];
+  return {
+    finalidade_emissao: 0,
+    consumidor_final: args.document.fiscal.finalConsumer ? 1 : 0,
+    indicador_destinatario: 0,
+    ibs_cbs_situacao_tributaria: first?.fiscal.ibsCbsCst ?? '000',
+    ibs_cbs_classificacao_tributaria: first?.fiscal.cClassTrib ?? '000001',
+  };
 }
 
 /**

@@ -172,6 +172,7 @@ export const brTaxApi = {
     if (params.contactId) query.set('contactId', params.contactId);
     if (params.serviceKind) query.set('serviceKind', params.serviceKind);
     const qs = query.toString();
-    return weldbooksApi.get<{ data: SuggestedWithholdings }>(`/br-tax/withholdings/suggest${qs ? `?${qs}` : ''}`);
+    const search = qs ? `?${qs}` : '';
+    return weldbooksApi.get<{ data: SuggestedWithholdings }>(`/br-tax/withholdings/suggest${search}`);
   },
 };

@@ -153,108 +153,137 @@ function salesLine(line: DocumentTaxLineInput, profile: BrTaxProfile, s: EngineS
   let issAmount = 0;
 
   if (profile.kind === 'service') {
-    const issRate = num(fiscal.issRate) ?? profile.issRate ?? s.defaultIssRate;
-    const iss = row({
-      line,
-      name: 'ISS',
-      component: 'iss',
-      rate: issRate,
-      base: amount,
-      treatment: 'embedded',
-      accountRole: 'tax_payable_iss',
-      offsetAccountRole: 'revenue_deduction_iss',
-    });
+    const iss = salesIssRow(line, profile, fiscal, s);
     issAmount = iss.taxAmount;
     rows.push(iss);
   } else {
     // Goods: IPI on top (production), ICMS inside.
     let ipiAmount = 0;
     if (profile.kind === 'goods_production') {
-      const ipiRate = num(fiscal.ipiRate) ?? 0;
-      if (s.year >= 2027 && ipiRate > 0) {
-        s.warnings.add('IPI is reduced to zero from 2027 (LC 214/2025) except for goods also made in the Zona Franca de Manaus: check the rate.');
-      }
-      if (ipiRate > 0) {
-        const ipi = row({ line, name: 'IPI', component: 'ipi', rate: ipiRate, base: amount, treatment: 'added', accountRole: 'tax_payable_ipi' });
+      const ipi = productionIpiRow(line, fiscal, s);
+      if (ipi) {
         ipiAmount = ipi.taxAmount;
         rows.push(ipi);
-      } else if (!fiscal.ipiRate && fiscal.ipiRate !== 0) {
-        s.warnings.add('No IPI rate on a line of own production: enter the TIPI rate of its NCM (0 if none).');
       }
     }
-
-    if (!s.entityUf) s.warnings.add("The entity's state (UF) is not set, so ICMS can't be worked out.");
-    const resolved = s.entityUf
-      ? icmsRateForSale({ originUf: s.entityUf, destinationUf: s.counterpartyUf ?? s.entityUf, origin: fiscal.origin })
-      : { rate: 0, interstate: false, fcp: 0 };
-    const icmsRate = num(fiscal.icmsRate) ?? resolved.rate;
-    const icmsBase = amount + (s.finalConsumer ? ipiAmount : 0);
-    if (icmsRate > 0) {
-      const icms = row({
-        line,
-        name: 'ICMS',
-        component: 'icms',
-        rate: icmsRate,
-        base: icmsBase,
-        treatment: 'embedded',
-        accountRole: 'tax_payable_icms',
-        offsetAccountRole: 'revenue_deduction_icms',
-      });
-      icmsTotal += icms.taxAmount;
-      rows.push(icms);
-    }
-    if (resolved.fcp > 0 && fiscal.icmsRate === undefined) {
-      const fcp = row({
-        line,
-        name: 'FCP',
-        component: 'fcp',
-        rate: resolved.fcp,
-        base: icmsBase,
-        treatment: 'embedded',
-        accountRole: 'tax_payable_icms',
-        offsetAccountRole: 'revenue_deduction_icms',
-      });
-      icmsTotal += fcp.taxAmount;
-      rows.push(fcp);
-    }
-    if (resolved.interstate && s.finalConsumer) {
-      s.warnings.add(
-        'Interstate sale to a final consumer: the ICMS rate difference (DIFAL) owed to the destination state is not calculated. Add it on the NF-e or pay it by GNRE.',
-      );
-    }
+    const icms = salesIcmsRows(line, fiscal, s, ipiAmount);
+    icmsTotal = icms.total;
+    rows.push(...icms.rows);
   }
 
   // PIS / COFINS until 2026; from 2027 they are replaced by CBS.
-  const pisCofins = pisCofinsRates(s.regime);
-  let pisCofinsTotal = 0;
-  if (pisCofins && s.year < 2027) {
-    const base = amount - icmsTotal;
-    const pis = row({
-      line,
-      name: 'PIS',
-      component: 'pis',
-      rate: pisCofins.pis,
-      base,
-      treatment: 'embedded',
-      accountRole: 'tax_payable_pis',
-      offsetAccountRole: 'revenue_deduction_pis',
-    });
-    const cofins = row({
-      line,
-      name: 'COFINS',
-      component: 'cofins',
-      rate: pisCofins.cofins,
-      base,
-      treatment: 'embedded',
-      accountRole: 'tax_payable_cofins',
-      offsetAccountRole: 'revenue_deduction_cofins',
-    });
-    pisCofinsTotal = pis.taxAmount + cofins.taxAmount;
-    rows.push(pis, cofins);
-  }
+  const pisCofins = salesPisCofinsRows(line, amount - icmsTotal, s);
+  rows.push(...pisCofins.rows);
 
-  rows.push(...cbsIbsRows(line, amount - icmsTotal - issAmount - pisCofinsTotal, s));
+  rows.push(...cbsIbsRows(line, amount - icmsTotal - issAmount - pisCofins.total, s));
   return rows;
+}
+
+function salesIssRow(line: DocumentTaxLineInput, profile: BrTaxProfile, fiscal: BrLineFiscalData, s: EngineState): DocumentTaxRow {
+  const issRate = num(fiscal.issRate) ?? profile.issRate ?? s.defaultIssRate;
+  return row({
+    line,
+    name: 'ISS',
+    component: 'iss',
+    rate: issRate,
+    base: line.lineTotal,
+    treatment: 'embedded',
+    accountRole: 'tax_payable_iss',
+    offsetAccountRole: 'revenue_deduction_iss',
+  });
+}
+
+/** IPI on top of the price of goods of own production, or null when the line has no IPI rate. */
+function productionIpiRow(line: DocumentTaxLineInput, fiscal: BrLineFiscalData, s: EngineState): DocumentTaxRow | null {
+  const ipiRate = num(fiscal.ipiRate) ?? 0;
+  if (s.year >= 2027 && ipiRate > 0) {
+    s.warnings.add('IPI is reduced to zero from 2027 (LC 214/2025) except for goods also made in the Zona Franca de Manaus: check the rate.');
+  }
+  if (ipiRate > 0) {
+    return row({ line, name: 'IPI', component: 'ipi', rate: ipiRate, base: line.lineTotal, treatment: 'added', accountRole: 'tax_payable_ipi' });
+  }
+  if (!fiscal.ipiRate && fiscal.ipiRate !== 0) {
+    s.warnings.add('No IPI rate on a line of own production: enter the TIPI rate of its NCM (0 if none).');
+  }
+  return null;
+}
+
+/** ICMS (and FCP) inside the price of goods sold; the base includes the IPI when the buyer is a final consumer. */
+function salesIcmsRows(
+  line: DocumentTaxLineInput,
+  fiscal: BrLineFiscalData,
+  s: EngineState,
+  ipiAmount: number,
+): { rows: DocumentTaxRow[]; total: number } {
+  const rows: DocumentTaxRow[] = [];
+  let total = 0;
+  if (!s.entityUf) s.warnings.add("The entity's state (UF) is not set, so ICMS can't be worked out.");
+  const resolved = s.entityUf
+    ? icmsRateForSale({ originUf: s.entityUf, destinationUf: s.counterpartyUf ?? s.entityUf, origin: fiscal.origin })
+    : { rate: 0, interstate: false, fcp: 0 };
+  const icmsRate = num(fiscal.icmsRate) ?? resolved.rate;
+  const icmsBase = line.lineTotal + (s.finalConsumer ? ipiAmount : 0);
+  if (icmsRate > 0) {
+    const icms = row({
+      line,
+      name: 'ICMS',
+      component: 'icms',
+      rate: icmsRate,
+      base: icmsBase,
+      treatment: 'embedded',
+      accountRole: 'tax_payable_icms',
+      offsetAccountRole: 'revenue_deduction_icms',
+    });
+    total += icms.taxAmount;
+    rows.push(icms);
+  }
+  if (resolved.fcp > 0 && fiscal.icmsRate === undefined) {
+    const fcp = row({
+      line,
+      name: 'FCP',
+      component: 'fcp',
+      rate: resolved.fcp,
+      base: icmsBase,
+      treatment: 'embedded',
+      accountRole: 'tax_payable_icms',
+      offsetAccountRole: 'revenue_deduction_icms',
+    });
+    total += fcp.taxAmount;
+    rows.push(fcp);
+  }
+  if (resolved.interstate && s.finalConsumer) {
+    s.warnings.add(
+      'Interstate sale to a final consumer: the ICMS rate difference (DIFAL) owed to the destination state is not calculated. Add it on the NF-e or pay it by GNRE.',
+    );
+  }
+  return { rows, total };
+}
+
+/** PIS and COFINS inside the price, on the line amount less the ICMS; none from 2027. */
+function salesPisCofinsRows(line: DocumentTaxLineInput, base: number, s: EngineState): { rows: DocumentTaxRow[]; total: number } {
+  const pisCofins = pisCofinsRates(s.regime);
+  if (!pisCofins || s.year >= 2027) return { rows: [], total: 0 };
+  const pis = row({
+    line,
+    name: 'PIS',
+    component: 'pis',
+    rate: pisCofins.pis,
+    base,
+    treatment: 'embedded',
+    accountRole: 'tax_payable_pis',
+    offsetAccountRole: 'revenue_deduction_pis',
+  });
+  const cofins = row({
+    line,
+    name: 'COFINS',
+    component: 'cofins',
+    rate: pisCofins.cofins,
+    base,
+    treatment: 'embedded',
+    accountRole: 'tax_payable_cofins',
+    offsetAccountRole: 'revenue_deduction_cofins',
+  });
+  return { rows: [pis, cofins], total: pis.taxAmount + cofins.taxAmount };
 }
 
 /**
@@ -372,80 +401,99 @@ function withholdingRows(
 ): DocumentTaxRow[] {
   if (serviceBase <= 0) return [];
   const sales = s.direction === 'sales';
-  // The provider of the service: us on a sale, the supplier on a purchase.
-  const providerSimples = sales ? isSimplesRegime(s.regime) : counterpartySimples;
-  const doc: DocumentTaxLineInput = {
-    lineTotal: serviceBase,
-    taxRateId: null,
-    taxRateName: null,
-    taxCategoryCode: 'standard',
-    rate: 0,
-    jurisdictionMetadata: null,
+  const w: WithholdingContext = {
+    doc: {
+      lineTotal: serviceBase,
+      taxRateId: null,
+      taxRateName: null,
+      taxCategoryCode: 'standard',
+      rate: 0,
+      jurisdictionMetadata: null,
+    },
+    serviceBase,
+    sales,
+    // The provider of the service: us on a sale, the supplier on a purchase.
+    providerSimples: sales ? isSimplesRegime(s.regime) : counterpartySimples,
+    s,
   };
-  const rows: DocumentTaxRow[] = [];
+  return [
+    ...issWithholdingRows(w, num(config.iss)),
+    ...irrfWithholdingRows(w, num(config.irrf)),
+    ...csrfWithholdingRows(w, config.csrf),
+    ...inssWithholdingRows(w, num(config.inss)),
+  ];
+}
 
-  const issRate = num(config.iss);
-  if (issRate && issRate > 0) {
-    let issRole: SystemAccountRole = 'withholding_payable_iss';
-    if (sales) issRole = providerSimples ? 'revenue_deduction_iss' : 'tax_payable_iss';
-    rows.push(row({ line: doc, name: 'ISS retido', component: 'iss_ret', rate: issRate, base: serviceBase, treatment: 'withheld', accountRole: issRole }));
-  }
+interface WithholdingContext {
+  doc: DocumentTaxLineInput;
+  serviceBase: number;
+  sales: boolean;
+  providerSimples: boolean;
+  s: EngineState;
+}
 
-  const irrfRate = num(config.irrf);
-  if (irrfRate && irrfRate > 0) {
-    if (providerSimples) {
-      s.warnings.add('No IRRF is withheld from a Simples Nacional provider.');
-    } else {
-      const irrf = row({
-        line: doc,
-        name: 'IRRF',
-        component: 'irrf',
-        rate: irrfRate,
-        base: serviceBase,
-        treatment: 'withheld',
-        accountRole: sales ? 'withheld_receivable_irrf' : 'withholding_payable_irrf',
-      });
-      if (irrf.taxAmount <= BR_WITHHOLDING_MINIMUM) {
-        s.warnings.add(`IRRF of R$ ${irrf.taxAmount.toFixed(2)} is not withheld (R$ 10.00 or less).`);
-      } else {
-        rows.push(irrf);
-      }
-    }
-  }
+function issWithholdingRows(w: WithholdingContext, issRate: number | undefined): DocumentTaxRow[] {
+  if (!issRate || issRate <= 0) return [];
+  let issRole: SystemAccountRole = 'withholding_payable_iss';
+  if (w.sales) issRole = w.providerSimples ? 'revenue_deduction_iss' : 'tax_payable_iss';
+  return [row({ line: w.doc, name: 'ISS retido', component: 'iss_ret', rate: issRate, base: w.serviceBase, treatment: 'withheld', accountRole: issRole })];
+}
 
-  if (config.csrf) {
-    if (providerSimples) {
-      s.warnings.add('No PIS/COFINS/CSLL is withheld from a Simples Nacional provider.');
-    } else {
-      const csrf = [
-        row({ line: doc, name: 'PIS retido', component: 'pis_ret', rate: 0.65, base: serviceBase, treatment: 'withheld', accountRole: sales ? 'withheld_receivable_pis' : 'withholding_payable_csrf' }),
-        row({ line: doc, name: 'COFINS retida', component: 'cofins_ret', rate: 3, base: serviceBase, treatment: 'withheld', accountRole: sales ? 'withheld_receivable_cofins' : 'withholding_payable_csrf' }),
-        row({ line: doc, name: 'CSLL retida', component: 'csll_ret', rate: 1, base: serviceBase, treatment: 'withheld', accountRole: sales ? 'withheld_receivable_csll' : 'withholding_payable_csrf' }),
-      ];
-      const total = round2(csrf.reduce((sum, r) => sum + r.taxAmount, 0));
-      if (total <= BR_WITHHOLDING_MINIMUM) {
-        s.warnings.add(`PIS/COFINS/CSLL of R$ ${total.toFixed(2)} is not withheld (R$ 10.00 or less).`);
-      } else {
-        rows.push(...csrf);
-      }
-    }
+function irrfWithholdingRows(w: WithholdingContext, irrfRate: number | undefined): DocumentTaxRow[] {
+  if (!irrfRate || irrfRate <= 0) return [];
+  if (w.providerSimples) {
+    w.s.warnings.add('No IRRF is withheld from a Simples Nacional provider.');
+    return [];
   }
+  const irrf = row({
+    line: w.doc,
+    name: 'IRRF',
+    component: 'irrf',
+    rate: irrfRate,
+    base: w.serviceBase,
+    treatment: 'withheld',
+    accountRole: w.sales ? 'withheld_receivable_irrf' : 'withholding_payable_irrf',
+  });
+  if (irrf.taxAmount <= BR_WITHHOLDING_MINIMUM) {
+    w.s.warnings.add(`IRRF of R$ ${irrf.taxAmount.toFixed(2)} is not withheld (R$ 10.00 or less).`);
+    return [];
+  }
+  return [irrf];
+}
 
-  const inssRate = num(config.inss);
-  if (inssRate && inssRate > 0) {
-    rows.push(
-      row({
-        line: doc,
-        name: 'INSS retido',
-        component: 'inss_ret',
-        rate: inssRate,
-        base: serviceBase,
-        treatment: 'withheld',
-        accountRole: sales ? 'withheld_receivable_inss' : 'withholding_payable_inss',
-      }),
-    );
+function csrfWithholdingRows(w: WithholdingContext, csrfEnabled: boolean | null | undefined): DocumentTaxRow[] {
+  if (!csrfEnabled) return [];
+  if (w.providerSimples) {
+    w.s.warnings.add('No PIS/COFINS/CSLL is withheld from a Simples Nacional provider.');
+    return [];
   }
-  return rows;
+  const { doc, serviceBase, sales } = w;
+  const csrf = [
+    row({ line: doc, name: 'PIS retido', component: 'pis_ret', rate: 0.65, base: serviceBase, treatment: 'withheld', accountRole: sales ? 'withheld_receivable_pis' : 'withholding_payable_csrf' }),
+    row({ line: doc, name: 'COFINS retida', component: 'cofins_ret', rate: 3, base: serviceBase, treatment: 'withheld', accountRole: sales ? 'withheld_receivable_cofins' : 'withholding_payable_csrf' }),
+    row({ line: doc, name: 'CSLL retida', component: 'csll_ret', rate: 1, base: serviceBase, treatment: 'withheld', accountRole: sales ? 'withheld_receivable_csll' : 'withholding_payable_csrf' }),
+  ];
+  const total = round2(csrf.reduce((sum, r) => sum + r.taxAmount, 0));
+  if (total <= BR_WITHHOLDING_MINIMUM) {
+    w.s.warnings.add(`PIS/COFINS/CSLL of R$ ${total.toFixed(2)} is not withheld (R$ 10.00 or less).`);
+    return [];
+  }
+  return csrf;
+}
+
+function inssWithholdingRows(w: WithholdingContext, inssRate: number | undefined): DocumentTaxRow[] {
+  if (!inssRate || inssRate <= 0) return [];
+  return [
+    row({
+      line: w.doc,
+      name: 'INSS retido',
+      component: 'inss_ret',
+      rate: inssRate,
+      base: w.serviceBase,
+      treatment: 'withheld',
+      accountRole: w.sales ? 'withheld_receivable_inss' : 'withholding_payable_inss',
+    }),
+  ];
 }
 
 function counterpartyIsForeign(country: string | null | undefined): boolean {

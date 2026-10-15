@@ -14,7 +14,7 @@ import { useJurisdictionLabels } from '@/lib/weldbooks/use-jurisdiction';
 import { normalizeAccountingAddress } from '@/lib/weldbooks/address';
 import { formatPostalAddressLines } from '@/components/address/postal-address';
 import { countryName } from '@/components/address/countries';
-import { classificationsOf, isUsJurisdictionCode } from '@/lib/weldbooks/us-entity';
+import { classificationsOf, isUsJurisdictionCode, type UsTaxClassificationOption } from '@/lib/weldbooks/us-entity';
 import { LedgerCatchUpCard } from './components/ledger-catch-up-card';
 import { FiscalSettingsCard } from './components/fiscal-settings-card';
 import { EcdExportDialog } from '../vat/components/ecd-export-dialog';
@@ -23,6 +23,9 @@ interface AccountingEmailSettings {
   inboxAddress?: string;
   autoScanEnabled?: boolean;
 }
+
+type JurisdictionLabels = ReturnType<typeof useJurisdictionLabels>;
+type SettingsEntity = NonNullable<JurisdictionLabels['entity']>;
 
 function SummaryRow({ label, value, empty }: Readonly<{ label: string; value: React.ReactNode; empty: string }>) {
   return (
@@ -33,29 +36,115 @@ function SummaryRow({ label, value, empty }: Readonly<{ label: string; value: Re
   );
 }
 
-export default function AccountingSettingsPage() {
-  const { data, isLoading } = useAccountingSettings();
-  const qc = useQueryClient();
+/** A code through its label map, the code itself when the map lacks it; null when there is no code. */
+function labelOf(map: unknown, code: string | null | undefined): string | null {
+  return code ? ((map as Record<string, string>)[code] ?? code) : null;
+}
+
+/** The US entity type, tax classification and accounting method rows of the company details. */
+function UsEntitySummaryRows({
+  entity,
+  usClassification,
+}: Readonly<{ entity: SettingsEntity; usClassification: UsTaxClassificationOption | undefined }>) {
+  const { t } = useI18n();
+  const ts = t.accounting.settings;
+  const tu = t.weldbooksUs.setup;
+  const classification = usClassification
+    ? tu.entity.classificationOption
+        .replace('{classification}', (tu.classifications as Record<string, string>)[usClassification.value] ?? usClassification.value)
+        .replace('{form}', usClassification.formLabel)
+    : null;
+  const accountingMethod = entity?.accountingMethod === 'cash' ? 'cash' : 'accrual';
+  return (
+    <>
+      <SummaryRow
+        label={tu.entity.entityType}
+        value={labelOf(tu.entityTypes, entity?.entityType)}
+        empty={ts.notSet}
+      />
+      <SummaryRow
+        label={tu.entity.taxClassification}
+        value={classification}
+        empty={ts.notSet}
+      />
+      <SummaryRow
+        label={tu.entity.accountingMethod}
+        value={entity?.accountingMethod ? tu.entity[accountingMethod] : null}
+        empty={ts.notSet}
+      />
+    </>
+  );
+}
+
+/** The selected entity's legal name, identifiers, regime and address, with a link to edit them. */
+function CompanyDetailsCard({
+  jurisdiction,
+  isUs,
+  usClassification,
+}: Readonly<{ jurisdiction: JurisdictionLabels; isUs: boolean; usClassification: UsTaxClassificationOption | undefined }>) {
   const { t, language } = useI18n();
   const ts = t.accounting.settings;
-  const { entity, features, terminology, labels } = useJurisdictionLabels();
-  const { data: jurisdictions } = useAccountingJurisdictions();
-  const tu = t.weldbooksUs.setup;
-  const isUs = isUsJurisdictionCode(entity?.jurisdictionCode);
-  const usEntityTypes = jurisdictions?.find((j) => isUsJurisdictionCode(j.code))?.entityTypes;
-  const usClassification = classificationsOf(usEntityTypes, entity?.entityType).find(
-    (c) => c.value === entity?.taxClassification,
-  );
-  const [inboxEmail, setInboxEmail] = useState('');
-  const [xafYear, setXafYear] = useState(String(new Date().getFullYear() - 1));
-  const [xafDownloading, setXafDownloading] = useState(false);
-  const [ecdOpen, setEcdOpen] = useState(false);
   const tbr = t.weldbooksBr;
+  const { entity, features, terminology, labels } = jurisdiction;
 
-  const seedWorkflows = useMutation({
-    mutationFn: () => accountingApi.seedWorkflows(),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounting'] }); },
+  const ids = entity?.taxIdentifiers;
+  const taxId = terminology.taxId === 'ein' ? ids?.einOrSsn : ids?.vatNumber;
+  const addressLines = formatPostalAddressLines(normalizeAccountingAddress(entity?.address), {
+    countryName: (code) => countryName(code, language || 'en'),
   });
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+        <div className="space-y-1.5">
+          <CardTitle>{ts.companyDetails}</CardTitle>
+          <CardDescription>{ts.companyDetailsDesc}</CardDescription>
+        </div>
+        {entity ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/weldbooks/entities/$id/edit" params={{ id: entity.id }}>
+              <Pencil className="h-4 w-4 mr-1" aria-hidden />
+              {ts.editEntityDetails}
+            </Link>
+          </Button>
+        ) : null}
+      </CardHeader>
+      {entity ? (
+        <CardContent>
+          <SummaryRow label={ts.legalNameLabel} value={entity.legalName || entity.name} empty={ts.notSet} />
+          <SummaryRow label={labels.taxId} value={taxId} empty={ts.notSet} />
+          <SummaryRow label={labels.registrationId} value={ids?.registrationNumber} empty={ts.notSet} />
+          {features.brTaxReturn ? (
+            <SummaryRow
+              label={tbr.entity.regime}
+              value={labelOf(tbr.entity.regimes, entity?.taxClassification)}
+              empty={ts.notSet}
+            />
+          ) : null}
+          {isUs ? <UsEntitySummaryRows entity={entity} usClassification={usClassification} /> : null}
+          <SummaryRow
+            label={ts.addressLabel}
+            value={
+              addressLines.length > 0 ? (
+                <span className="block">
+                  {addressLines.map((line) => <span key={line} className="block">{line}</span>)}
+                </span>
+              ) : null
+            }
+            empty={ts.notSet}
+          />
+        </CardContent>
+      ) : null}
+    </Card>
+  );
+}
+
+/** The registered scan inbox and the form to register one. */
+function EmailInboxCard({ emailSettings }: Readonly<{ emailSettings: AccountingEmailSettings }>) {
+  const qc = useQueryClient();
+  const { t } = useI18n();
+  const ts = t.accounting.settings;
+  const [inboxEmail, setInboxEmail] = useState('');
 
   const registerInbox = useMutation({
     mutationFn: (email: string) => accountingApi.registerInbox(email),
@@ -65,10 +154,95 @@ export default function AccountingSettingsPage() {
     },
   });
 
-  if (isLoading) return <PageLoader fullScreen={false} />;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{ts.emailInbox}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {emailSettings.inboxAddress ? (
+          <div className="text-sm">
+            <span className="text-muted-foreground">{ts.activeInbox} </span>
+            <span className="font-medium">{emailSettings.inboxAddress}</span>
+            {emailSettings.autoScanEnabled && (
+              <span className="ml-2 text-green-600 dark:text-green-400 text-xs">{ts.autoScanEnabled}</span>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {ts.noInboxRegistered}
+          </p>
+        )}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Input
+            type="email"
+            aria-label={ts.emailInbox}
+            placeholder={ts.inboxEmailPlaceholder}
+            value={inboxEmail}
+            onChange={(e) => setInboxEmail(e.target.value)}
+            className="sm:max-w-sm"
+          />
+          <Button
+            variant="outline"
+            onClick={() => registerInbox.mutate(inboxEmail)}
+            disabled={!inboxEmail || registerInbox.isPending}
+          >
+            {registerInbox.isPending ? ts.registering : ts.registerInbox}
+          </Button>
+        </div>
+        {registerInbox.isSuccess && (
+          <p className="text-sm text-green-600 dark:text-green-400">{ts.inboxRegistered}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
-  const settings = data?.data;
-  const emailSettings = (settings?.emailSettings ?? {}) as AccountingEmailSettings;
+/** Seeds the workflow templates of the module. */
+function SeedDataCard() {
+  const qc = useQueryClient();
+  const { t } = useI18n();
+  const ts = t.accounting.settings;
+
+  const seedWorkflows = useMutation({
+    mutationFn: () => accountingApi.seedWorkflows(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['accounting'] }); },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{ts.seedData}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          {ts.seedDataDesc}
+        </p>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => seedWorkflows.mutate()}
+            disabled={seedWorkflows.isPending}
+            variant="outline"
+          >
+            {seedWorkflows.isPending ? ts.seeding : ts.seedWorkflowTemplates}
+          </Button>
+        </div>
+        {seedWorkflows.isSuccess && (
+          <p className="text-sm text-green-600 dark:text-green-400">
+            {ts.workflowsSeeded.replace('{count}', String(seedWorkflows.data?.data?.templatesCreated ?? 0))}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** The Dutch XAF audit file of a year, as a download. */
+function XafExportCard() {
+  const { t } = useI18n();
+  const ts = t.accounting.settings;
+  const [xafYear, setXafYear] = useState(String(new Date().getFullYear() - 1));
+  const [xafDownloading, setXafDownloading] = useState(false);
 
   const handleXafDownload = async () => {
     setXafDownloading(true);
@@ -88,82 +262,56 @@ export default function AccountingSettingsPage() {
     }
   };
 
-  const ids = entity?.taxIdentifiers;
-  const taxId = terminology.taxId === 'ein' ? ids?.einOrSsn : ids?.vatNumber;
-  const addressLines = formatPostalAddressLines(normalizeAccountingAddress(entity?.address), {
-    countryName: (code) => countryName(code, language || 'en'),
-  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{ts.xafTitle}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">{ts.xafDesc}</p>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            aria-label={ts.xafTitle}
+            value={xafYear}
+            onChange={(e) => setXafYear(e.target.value)}
+            className="max-w-[120px]"
+          />
+          <Button onClick={handleXafDownload} disabled={xafDownloading} variant="outline">
+            {xafDownloading ? ts.xafDownloading : ts.xafDownload}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function AccountingSettingsPage() {
+  const { data, isLoading } = useAccountingSettings();
+  const { t } = useI18n();
+  const ts = t.accounting.settings;
+  const jurisdiction = useJurisdictionLabels();
+  const { entity, features } = jurisdiction;
+  const { data: jurisdictions } = useAccountingJurisdictions();
+  const tu = t.weldbooksUs.setup;
+  const isUs = isUsJurisdictionCode(entity?.jurisdictionCode);
+  const usEntityTypes = jurisdictions?.find((j) => isUsJurisdictionCode(j.code))?.entityTypes;
+  const usClassification = classificationsOf(usEntityTypes, entity?.entityType).find(
+    (c) => c.value === entity?.taxClassification,
+  );
+  const [ecdOpen, setEcdOpen] = useState(false);
+  const tbr = t.weldbooksBr;
+
+  if (isLoading) return <PageLoader fullScreen={false} />;
+
+  const settings = data?.data;
+  const emailSettings = (settings?.emailSettings ?? {}) as AccountingEmailSettings;
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <h1 className="text-2xl font-semibold">{ts.title}</h1>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
-          <div className="space-y-1.5">
-            <CardTitle>{ts.companyDetails}</CardTitle>
-            <CardDescription>{ts.companyDetailsDesc}</CardDescription>
-          </div>
-          {entity ? (
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/weldbooks/entities/$id/edit" params={{ id: entity.id }}>
-                <Pencil className="h-4 w-4 mr-1" aria-hidden />
-                {ts.editEntityDetails}
-              </Link>
-            </Button>
-          ) : null}
-        </CardHeader>
-        {entity ? (
-          <CardContent>
-            <SummaryRow label={ts.legalNameLabel} value={entity.legalName || entity.name} empty={ts.notSet} />
-            <SummaryRow label={labels.taxId} value={taxId} empty={ts.notSet} />
-            <SummaryRow label={labels.registrationId} value={ids?.registrationNumber} empty={ts.notSet} />
-            {features.brTaxReturn ? (
-              <SummaryRow
-                label={tbr.entity.regime}
-                value={entity?.taxClassification ? ((tbr.entity.regimes as Record<string, string>)[entity.taxClassification] ?? entity.taxClassification) : null}
-                empty={ts.notSet}
-              />
-            ) : null}
-            {isUs ? (
-              <>
-                <SummaryRow
-                  label={tu.entity.entityType}
-                  value={entity?.entityType ? ((tu.entityTypes as Record<string, string>)[entity.entityType] ?? entity.entityType) : null}
-                  empty={ts.notSet}
-                />
-                <SummaryRow
-                  label={tu.entity.taxClassification}
-                  value={
-                    usClassification
-                      ? tu.entity.classificationOption
-                          .replace('{classification}', (tu.classifications as Record<string, string>)[usClassification.value] ?? usClassification.value)
-                          .replace('{form}', usClassification.formLabel)
-                      : null
-                  }
-                  empty={ts.notSet}
-                />
-                <SummaryRow
-                  label={tu.entity.accountingMethod}
-                  value={entity?.accountingMethod ? tu.entity[entity.accountingMethod === 'cash' ? 'cash' : 'accrual'] : null}
-                  empty={ts.notSet}
-                />
-              </>
-            ) : null}
-            <SummaryRow
-              label={ts.addressLabel}
-              value={
-                addressLines.length > 0 ? (
-                  <span className="block">
-                    {addressLines.map((line) => <span key={line} className="block">{line}</span>)}
-                  </span>
-                ) : null
-              }
-              empty={ts.notSet}
-            />
-          </CardContent>
-        ) : null}
-      </Card>
+      <CompanyDetailsCard jurisdiction={jurisdiction} isUs={isUs} usClassification={usClassification} />
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
@@ -182,71 +330,9 @@ export default function AccountingSettingsPage() {
 
       <LedgerCatchUpCard />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{ts.emailInbox}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {emailSettings.inboxAddress ? (
-            <div className="text-sm">
-              <span className="text-muted-foreground">{ts.activeInbox} </span>
-              <span className="font-medium">{emailSettings.inboxAddress}</span>
-              {emailSettings.autoScanEnabled && (
-                <span className="ml-2 text-green-600 dark:text-green-400 text-xs">{ts.autoScanEnabled}</span>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {ts.noInboxRegistered}
-            </p>
-          )}
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              type="email"
-              aria-label={ts.emailInbox}
-              placeholder={ts.inboxEmailPlaceholder}
-              value={inboxEmail}
-              onChange={(e) => setInboxEmail(e.target.value)}
-              className="sm:max-w-sm"
-            />
-            <Button
-              variant="outline"
-              onClick={() => registerInbox.mutate(inboxEmail)}
-              disabled={!inboxEmail || registerInbox.isPending}
-            >
-              {registerInbox.isPending ? ts.registering : ts.registerInbox}
-            </Button>
-          </div>
-          {registerInbox.isSuccess && (
-            <p className="text-sm text-green-600 dark:text-green-400">{ts.inboxRegistered}</p>
-          )}
-        </CardContent>
-      </Card>
+      <EmailInboxCard emailSettings={emailSettings} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{ts.seedData}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {ts.seedDataDesc}
-          </p>
-          <div className="flex gap-2">
-            <Button
-              onClick={() => seedWorkflows.mutate()}
-              disabled={seedWorkflows.isPending}
-              variant="outline"
-            >
-              {seedWorkflows.isPending ? ts.seeding : ts.seedWorkflowTemplates}
-            </Button>
-          </div>
-          {seedWorkflows.isSuccess && (
-            <p className="text-sm text-green-600 dark:text-green-400">
-              {ts.workflowsSeeded.replace('{count}', String(seedWorkflows.data?.data?.templatesCreated ?? 0))}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+      <SeedDataCard />
 
       {features.fiscalDocuments && <FiscalSettingsCard />}
 
@@ -265,28 +351,7 @@ export default function AccountingSettingsPage() {
       )}
       <EcdExportDialog open={ecdOpen} onOpenChange={setEcdOpen} />
 
-      {features.xafExport && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{ts.xafTitle}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">{ts.xafDesc}</p>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                aria-label={ts.xafTitle}
-                value={xafYear}
-                onChange={(e) => setXafYear(e.target.value)}
-                className="max-w-[120px]"
-              />
-              <Button onClick={handleXafDownload} disabled={xafDownloading} variant="outline">
-                {xafDownloading ? ts.xafDownloading : ts.xafDownload}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {features.xafExport && <XafExportCard />}
     </div>
   );
 }

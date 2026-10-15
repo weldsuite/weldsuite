@@ -104,6 +104,15 @@ export function resolveEntityKind(
     return { entityType, taxClassification: null };
   }
 
+  return resolveUsEntityKind(entityType, requestedClassification, existing?.taxClassification ?? null);
+}
+
+/** US: the entity type and the classification it elects, checked against each other. */
+function resolveUsEntityKind(
+  entityType: string | null,
+  requestedClassification: string | null | undefined,
+  existingClassification: string | null,
+): { entityType: string | null; taxClassification: string | null } {
   if (entityType && !isUsEntityType(entityType)) {
     throw new EntitySetupError(`entityType must be one of: ${US_ENTITY_TYPES.join(', ')}`);
   }
@@ -111,7 +120,7 @@ export function resolveEntityKind(
     throw new EntitySetupError('taxClassification must be one of: sole_proprietor, disregarded, partnership, s_corp, c_corp, exempt');
   }
 
-  let classification = requestedClassification !== undefined ? requestedClassification : (existing?.taxClassification ?? null);
+  let classification = requestedClassification !== undefined ? requestedClassification : existingClassification;
   if (entityType) {
     if (classification && !isValidTaxClassification(entityType, classification)) {
       // A type change that leaves the old classification invalid falls back to the type's default; an explicit request doesn't.

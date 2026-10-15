@@ -177,6 +177,27 @@ function documentKind(invoice: Pick<InvoiceDetail, 'type'> | undefined): TaxDocu
   return 'invoice';
 }
 
+/** The heading and the submit label of the form: a credit memo has its own, an invoice says new / edit. */
+function invoiceFormTitles(
+  mode: 'add' | 'edit',
+  isCreditMemo: boolean,
+  texts: {
+    tf: { newInvoice: string; editInvoice: string; createInvoice: string; updateInvoice: string };
+    creditMemoTitle: string;
+    creditMemoSave: string;
+    creditNoteName: string;
+  },
+): { title: string; submitText: string } {
+  const { tf } = texts;
+  const invoiceTitle = mode === 'add' ? tf.newInvoice : tf.editInvoice;
+  const title = isCreditMemo ? texts.creditMemoTitle : invoiceTitle;
+  // A credit note saves as "Update credit note", not "Update Invoice".
+  const creditNoteSave = texts.creditMemoSave.replace('{name}', texts.creditNoteName.toLowerCase());
+  const invoiceSave = mode === 'add' ? tf.createInvoice : tf.updateInvoice;
+  const submitText = isCreditMemo ? creditNoteSave.charAt(0).toUpperCase() + creditNoteSave.slice(1) : invoiceSave;
+  return { title, submitText };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -851,11 +872,12 @@ export function InvoiceForm({ mode, invoice }: Readonly<InvoiceFormProps>) {
     { label: tf.total, value: <span className="font-semibold">{formatMoney(totals.total, displayCurrency)}</span> },
   ];
 
-  const title = isCreditMemo ? td.form.creditMemoTitle : mode === 'add' ? tf.newInvoice : tf.editInvoice;
-  // A credit note saves as "Update credit note", not "Update Invoice".
-  const creditNoteSave = td.form.creditMemoSave.replace('{name}', labels.creditNote.toLowerCase());
-  const invoiceSave = mode === 'add' ? tf.createInvoice : tf.updateInvoice;
-  const submitText = isCreditMemo ? creditNoteSave.charAt(0).toUpperCase() + creditNoteSave.slice(1) : invoiceSave;
+  const { title, submitText } = invoiceFormTitles(mode, isCreditMemo, {
+    tf,
+    creditMemoTitle: td.form.creditMemoTitle,
+    creditMemoSave: td.form.creditMemoSave,
+    creditNoteName: labels.creditNote,
+  });
 
   return (
     <EntityFormLayout

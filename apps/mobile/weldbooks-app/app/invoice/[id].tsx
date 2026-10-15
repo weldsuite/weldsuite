@@ -134,12 +134,54 @@ function InvoiceActions({
   );
 }
 
+/** A US draft finalises only with a ship-to (or bill-to) state and ZIP; the app can't edit a draft afterwards. */
+function isMissingUsAddress(invoice: Invoice, isUs: boolean): boolean {
+  return (
+    isUs &&
+    invoice.status === 'draft' &&
+    !isUsAddressTaxable(toAddressDraft(invoice.shippingAddress)) &&
+    !isUsAddressTaxable(toAddressDraft(invoice.billingAddress))
+  );
+}
+
+/** Document type, customer, dates, reference and (US) the ship-to / bill-to addresses. */
+function InvoiceDetailsSection({
+  invoice,
+  isUs,
+  creditNoteLabel,
+}: Readonly<{ invoice: Invoice; isUs: boolean; creditNoteLabel: string }>) {
+  const { t } = useI18n();
+  const { formatDate } = useLocaleFormatters();
+  const isCreditNote = invoice.type === 'credit_note';
+  const shipTo = addressLines(invoice.shippingAddress);
+  const billTo = addressLines(invoice.billingAddress);
+
+  return (
+    <SectionCard title={t.invoiceDetail.details}>
+      {isCreditNote ? (
+        <DetailRow label={t.invoiceDetail.documentType} value={creditNoteLabel} />
+      ) : null}
+      <DetailRow label={t.invoiceDetail.customer} value={invoice.contactName} />
+      {invoice.contactEmail ? <DetailRow label={t.invoiceDetail.email} value={invoice.contactEmail} /> : null}
+      <DetailRow label={t.invoiceDetail.issueDate} value={formatDate(invoice.issueDate)} />
+      <DetailRow label={t.invoiceDetail.dueDate} value={formatDate(invoice.dueDate)} />
+      {invoice.reference ? <DetailRow label={t.invoiceDetail.reference} value={invoice.reference} /> : null}
+      {isUs && shipTo.length > 0 ? (
+        <DetailRow label={t.invoiceDetail.shipTo} value={shipTo.join('\n')} />
+      ) : null}
+      {isUs && billTo.length > 0 && billTo.join() !== shipTo.join() ? (
+        <DetailRow label={t.invoiceDetail.billTo} value={billTo.join('\n')} />
+      ) : null}
+    </SectionCard>
+  );
+}
+
 export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const router = useRouter();
   const { t, format } = useI18n();
-  const { formatDate, currency: entityCurrency } = useLocaleFormatters();
+  const { currency: entityCurrency } = useLocaleFormatters();
   const { isUs, labels, terms } = useJurisdiction();
 
   const [invoice, setInvoice] = useState<Invoice | null>(null);
@@ -238,15 +280,7 @@ export default function InvoiceDetailScreen() {
 
   const currency = documentCurrency(invoice, entityCurrency);
   const balanceDue = toNumber(invoice.balanceDue);
-  const isCreditNote = invoice.type === 'credit_note';
-  const shipTo = addressLines(invoice.shippingAddress);
-  const billTo = addressLines(invoice.billingAddress);
-  // A US draft finalises only with a ship-to (or bill-to) state and ZIP; the app can't edit a draft afterwards.
-  const missingAddress =
-    isUs &&
-    invoice.status === 'draft' &&
-    !isUsAddressTaxable(toAddressDraft(invoice.shippingAddress)) &&
-    !isUsAddressTaxable(toAddressDraft(invoice.billingAddress));
+  const missingAddress = isMissingUsAddress(invoice, isUs);
 
   return (
     <Screen header={header}>
@@ -293,22 +327,7 @@ export default function InvoiceDetailScreen() {
           </Banner>
         ) : null}
 
-        <SectionCard title={t.invoiceDetail.details}>
-          {isCreditNote ? (
-            <DetailRow label={t.invoiceDetail.documentType} value={labels.creditNote} />
-          ) : null}
-          <DetailRow label={t.invoiceDetail.customer} value={invoice.contactName} />
-          {invoice.contactEmail ? <DetailRow label={t.invoiceDetail.email} value={invoice.contactEmail} /> : null}
-          <DetailRow label={t.invoiceDetail.issueDate} value={formatDate(invoice.issueDate)} />
-          <DetailRow label={t.invoiceDetail.dueDate} value={formatDate(invoice.dueDate)} />
-          {invoice.reference ? <DetailRow label={t.invoiceDetail.reference} value={invoice.reference} /> : null}
-          {isUs && shipTo.length > 0 ? (
-            <DetailRow label={t.invoiceDetail.shipTo} value={shipTo.join('\n')} />
-          ) : null}
-          {isUs && billTo.length > 0 && billTo.join() !== shipTo.join() ? (
-            <DetailRow label={t.invoiceDetail.billTo} value={billTo.join('\n')} />
-          ) : null}
-        </SectionCard>
+        <InvoiceDetailsSection invoice={invoice} isUs={isUs} creditNoteLabel={labels.creditNote} />
 
         <DocumentLineItems
           items={invoice.items}

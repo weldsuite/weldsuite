@@ -90,6 +90,58 @@ function taxIdHint(
   return isBr ? texts.cnpjHint : undefined;
 }
 
+/** Why the tax ID cannot be sent: a malformed EIN (US) or CNPJ (Brazil); undefined when it can. */
+function taxIdError(
+  taxId: string,
+  isUs: boolean,
+  isBr: boolean,
+  texts: { einFormat: string; einPrefix: string; cnpjFormat: string; cnpjCheckDigits: string },
+): string | undefined {
+  let message: string | undefined;
+  if (isUs) {
+    const problem = einProblem(taxId);
+    if (problem) message = problem === 'format' ? texts.einFormat : texts.einPrefix;
+  }
+  if (isBr) {
+    const problem = cnpjProblem(taxId);
+    if (problem) message = problem === 'format' ? texts.cnpjFormat : texts.cnpjCheckDigits;
+  }
+  return message;
+}
+
+/** The jurisdiction-specific part of the create body: US organisation and address, Brazilian legal form and regime, else a VAT number. */
+function jurisdictionPayload(draft: {
+  isUs: boolean;
+  isBr: boolean;
+  taxId: string;
+  entityType: string;
+  taxClassification: string;
+  types: ReturnType<typeof usEntityTypes>;
+  dba: string;
+  address: AddressDraft;
+  brEntityType: string;
+  brRegime: string;
+}) {
+  const { taxId } = draft;
+  if (draft.isUs) {
+    return {
+      entityType: draft.entityType,
+      taxClassification: validClassification(draft.types, draft.entityType, draft.taxClassification),
+      dba: draft.dba.trim() || undefined,
+      ein: taxId.trim() ? normalizeEin(taxId) : undefined,
+      address: toApiAddress(draft.address),
+    };
+  }
+  if (draft.isBr) {
+    return {
+      entityType: draft.brEntityType,
+      taxClassification: validBrRegime(draft.brEntityType, draft.brRegime),
+      vatNumber: taxId.trim() ? normalizeCnpj(taxId) : undefined,
+    };
+  }
+  return { vatNumber: taxId.trim() || undefined };
+}
+
 export function CreateEntitySheet({
   visible,
   onClose,
@@ -172,23 +224,16 @@ export function CreateEntitySheet({
       valid = false;
     }
 
+    const taxIdMessage = taxIdError(taxId, isUs, isBr, t.entitySetup);
+    if (taxIdMessage) {
+      setEinError(taxIdMessage);
+      valid = false;
+    }
     if (isUs) {
-      const problem = einProblem(taxId);
-      if (problem) {
-        setEinError(problem === 'format' ? t.entitySetup.einFormat : t.entitySetup.einPrefix);
-        valid = false;
-      }
       // The address is the origin of the company's sales tax, so a state and ZIP are required.
       const problems = usAddressProblems(address, { requireStateAndZip: true });
       setAddressErrors(problems);
       if (Object.keys(problems).length > 0) valid = false;
-    }
-    if (isBr) {
-      const problem = cnpjProblem(taxId);
-      if (problem) {
-        setEinError(problem === 'format' ? t.entitySetup.cnpjFormat : t.entitySetup.cnpjCheckDigits);
-        valid = false;
-      }
     }
     if (!valid) return;
 
@@ -201,21 +246,18 @@ export function CreateEntitySheet({
         jurisdictionCode,
         baseCurrency,
         isDefault: true,
-        ...(isUs
-          ? {
-              entityType,
-              taxClassification: validClassification(types, entityType, taxClassification),
-              dba: dba.trim() || undefined,
-              ein: taxId.trim() ? normalizeEin(taxId) : undefined,
-              address: toApiAddress(address),
-            }
-          : isBr
-            ? {
-                entityType: brEntityType,
-                taxClassification: validBrRegime(brEntityType, brRegime),
-                vatNumber: taxId.trim() ? normalizeCnpj(taxId) : undefined,
-              }
-            : { vatNumber: taxId.trim() || undefined }),
+        ...jurisdictionPayload({
+          isUs,
+          isBr,
+          taxId,
+          entityType,
+          taxClassification,
+          types,
+          dba,
+          address,
+          brEntityType,
+          brRegime,
+        }),
       });
       toast.success(t.entitySetup.created);
       await onCreated();

@@ -74,9 +74,9 @@ async function requireEntity(c: AppContext, db: Database): Promise<EntityRow> {
 
 /** The list view leaves out the XML and the parsed items (they can be large); the detail view has them. */
 function receivedSummary(doc: ReceivedFiscalDocumentRow) {
-  const { xml: _xml, parsed, ...rest } = doc;
+  const { xml, parsed, ...rest } = doc;
   const summary = (parsed as { summary?: Record<string, unknown> } | null)?.summary ?? null;
-  return { ...rest, hasXml: Boolean(doc.xml), summary };
+  return { ...rest, hasXml: Boolean(xml), summary };
 }
 
 async function auditAndPublish(

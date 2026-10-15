@@ -180,6 +180,100 @@ function toFormValues(
   };
 }
 
+type TaxIdentifiersInput = NonNullable<UpdateAccountingEntityInput['taxIdentifiers']>;
+
+interface EntityPayloadOptions {
+  isUs: boolean;
+  isBr: boolean;
+  ibanBanking: boolean;
+  taxIdField: 'vatNumber' | 'einOrSsn';
+}
+
+/**
+ * Send a tax identifier only when it changed: the server validates every
+ * identifier it receives against the jurisdiction (an untouched empty
+ * GSTIN would fail), and a cleared one is sent as '' to remove it.
+ */
+function changedTaxIdentifiers(
+  values: EntityFormValues,
+  entity: AccountingEntity,
+  { isUs, taxIdField }: Pick<EntityPayloadOptions, 'isUs' | 'taxIdField'>,
+): TaxIdentifiersInput {
+  const ids = entity.taxIdentifiers ?? {};
+  const taxIdentifiers: TaxIdentifiersInput = {};
+  if (isUs) {
+    const ein = einPayload(values.us) ?? '';
+    if (ein !== (ids.einOrSsn ?? ids.vatNumber ?? '')) taxIdentifiers.einOrSsn = ein;
+    if (trimmed(values.us.stateTaxId) !== (ids.registrationNumber ?? '')) {
+      taxIdentifiers.registrationNumber = trimmed(values.us.stateTaxId);
+    }
+  } else {
+    if (trimmed(values.taxId) !== (ids[taxIdField] ?? '')) taxIdentifiers[taxIdField] = trimmed(values.taxId);
+    if (trimmed(values.registrationNumber) !== (ids.registrationNumber ?? '')) {
+      taxIdentifiers.registrationNumber = trimmed(values.registrationNumber);
+    }
+  }
+  return taxIdentifiers;
+}
+
+/** The bank details of the form; the fields of the other banking style keep what is stored. */
+function bankDetailsPayload(values: EntityFormValues, entity: AccountingEntity, ibanBanking: boolean) {
+  return ibanBanking
+    ? compact({
+        bankName: values.bankName,
+        iban: values.iban?.replace(/\s+/g, '').toUpperCase(),
+        bic: values.bic?.toUpperCase(),
+        accountNumber: entity.bankDetails?.accountNumber,
+        routingNumber: entity.bankDetails?.routingNumber,
+      })
+    : compact({
+        bankName: values.bankName,
+        accountNumber: values.accountNumber,
+        routingNumber: values.routingNumber,
+        iban: entity.bankDetails?.iban,
+        bic: entity.bankDetails?.bic,
+      });
+}
+
+/** The BR settings of the form, without the identifiers (those go through `taxIdentifiers`). */
+function brSettingsOnly(br: BrEntityValues) {
+  const { taxIdentifiers, ...brPayload } = brEntityPayload(br, {});
+  return brPayload;
+}
+
+/** The update body of the entity form. */
+function entityUpdatePayload(
+  values: EntityFormValues,
+  entity: AccountingEntity,
+  { isUs, isBr, ibanBanking, taxIdField }: EntityPayloadOptions,
+): UpdateAccountingEntityInput {
+  const taxIdentifiers = changedTaxIdentifiers(values, entity, { isUs, taxIdField });
+
+  const payload: UpdateAccountingEntityInput = {
+    name: values.name.trim(),
+    legalName: trimmed(values.legalName),
+    address: cleanPostalAddress(values.address) ?? {},
+    contact: compact({ email: values.email, phone: values.phone, website: values.website }),
+    bankDetails: bankDetailsPayload(values, entity, ibanBanking),
+  };
+  if (isUs) {
+    Object.assign(payload, usPayload(values.us));
+    const ssn = ssnPayload(values.us);
+    if (ssn !== undefined) payload.ssn = ssn;
+  } else {
+    payload.fiscalYearStart = Number(values.fiscalYearStart);
+    if (values.entityType !== NO_ENTITY_TYPE) payload.entityType = values.entityType;
+  }
+  if (isBr) {
+    // Regime, municipality, ISS, Pix ... : the CNPJ and the state registration went with the identifiers above.
+    Object.assign(payload, brSettingsOnly(values.br));
+    const cep = values.address.postalCode ? normalizeCep(values.address.postalCode) : undefined;
+    if (cep && payload.address) payload.address = { ...payload.address, postalCode: cep };
+  }
+  if (Object.keys(taxIdentifiers).length > 0) payload.taxIdentifiers = taxIdentifiers;
+  return payload;
+}
+
 export default function EditEntityPage() {
   const { id } = useParams({ strict: false }) as { id: string };
   const { t, language } = useI18n();
@@ -334,61 +428,7 @@ function EntityDetailsForm({
   const disabled = !canUpdate || updateEntity.isPending;
 
   const submit = async (values: EntityFormValues) => {
-    const ids = entity.taxIdentifiers ?? {};
-    // Send a tax identifier only when it changed: the server validates every
-    // identifier it receives against the jurisdiction (an untouched empty
-    // GSTIN would fail), and a cleared one is sent as '' to remove it.
-    const taxIdentifiers: NonNullable<UpdateAccountingEntityInput['taxIdentifiers']> = {};
-    if (isUs) {
-      const ein = einPayload(values.us) ?? '';
-      if (ein !== (ids.einOrSsn ?? ids.vatNumber ?? '')) taxIdentifiers.einOrSsn = ein;
-      if (trimmed(values.us.stateTaxId) !== (ids.registrationNumber ?? '')) {
-        taxIdentifiers.registrationNumber = trimmed(values.us.stateTaxId);
-      }
-    } else {
-      if (trimmed(values.taxId) !== (ids[taxIdField] ?? '')) taxIdentifiers[taxIdField] = trimmed(values.taxId);
-      if (trimmed(values.registrationNumber) !== (ids.registrationNumber ?? '')) {
-        taxIdentifiers.registrationNumber = trimmed(values.registrationNumber);
-      }
-    }
-
-    const payload: UpdateAccountingEntityInput = {
-      name: values.name.trim(),
-      legalName: trimmed(values.legalName),
-      address: cleanPostalAddress(values.address) ?? {},
-      contact: compact({ email: values.email, phone: values.phone, website: values.website }),
-      bankDetails: ibanBanking
-        ? compact({
-            bankName: values.bankName,
-            iban: values.iban?.replace(/\s+/g, '').toUpperCase(),
-            bic: values.bic?.toUpperCase(),
-            accountNumber: entity.bankDetails?.accountNumber,
-            routingNumber: entity.bankDetails?.routingNumber,
-          })
-        : compact({
-            bankName: values.bankName,
-            accountNumber: values.accountNumber,
-            routingNumber: values.routingNumber,
-            iban: entity.bankDetails?.iban,
-            bic: entity.bankDetails?.bic,
-          }),
-    };
-    if (isUs) {
-      Object.assign(payload, usPayload(values.us));
-      const ssn = ssnPayload(values.us);
-      if (ssn !== undefined) payload.ssn = ssn;
-    } else {
-      payload.fiscalYearStart = Number(values.fiscalYearStart);
-      if (values.entityType !== NO_ENTITY_TYPE) payload.entityType = values.entityType;
-    }
-    if (isBr) {
-      // Regime, municipality, ISS, Pix ... : the CNPJ and the state registration went with the identifiers above.
-      const { taxIdentifiers: _ids, ...brPayload } = brEntityPayload(values.br, {});
-      Object.assign(payload, brPayload);
-      const cep = values.address.postalCode ? normalizeCep(values.address.postalCode) : undefined;
-      if (cep && payload.address) payload.address = { ...payload.address, postalCode: cep };
-    }
-    if (Object.keys(taxIdentifiers).length > 0) payload.taxIdentifiers = taxIdentifiers;
+    const payload = entityUpdatePayload(values, entity, { isUs, isBr, ibanBanking, taxIdField });
 
     try {
       const res = await updateEntity.mutateAsync({ id: entity.id, data: payload });

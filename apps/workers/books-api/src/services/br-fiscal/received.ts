@@ -17,7 +17,7 @@ import { calculateDocumentTax, type DocumentTaxItem } from '../accounting-tax-re
 import { draftRate } from '../accounting-fx';
 import { salesTaxRuntimeFromEnv } from '../sales-tax/runtime';
 import { FiscalDocumentError } from './errors';
-import { FiscalProviderError, type FocusRecord } from './focus-client';
+import { FiscalProviderError, type FocusClient, type FocusEnvironment, type FocusRecord } from './focus-client';
 import { requireFiscalEntity } from './fiscal-documents';
 import { parseNfeXml, XmlParseError, type ParsedNfe } from './nfe-xml';
 import { fiscalEnvironmentOf, fiscalSettingsOf, focusClientFor } from './settings';
@@ -102,7 +102,7 @@ async function attachXml(db: Database, row: ReceivedFiscalDocumentRow, xml: stri
     if (parsed.accessKey !== row.accessKey) {
       throw new XmlParseError('The XML belongs to a different NF-e than this row');
     }
-    const { accessKey: _key, ...columns } = parsedColumns(parsed, xml);
+    const { accessKey, ...columns } = parsedColumns(parsed, xml);
     patch = { ...columns, parsed: { ...existing, nfe: parsed, parseError: null } };
   } catch (err) {
     if (!(err instanceof XmlParseError)) throw err;
@@ -208,21 +208,8 @@ export async function syncReceivedFiscalDocuments(
     if (batch.items.length === 0) break;
     let highest = version;
     for (const item of batch.items) {
-      const stored = await upsertSummary(db, entityId, item);
-      if (!stored) continue;
-      result.fetched++;
-      if (stored.created) result.created++;
-      else result.updated++;
-      const versao = typeof item.versao === 'number' ? item.versao : Number.parseInt(str(item.versao) ?? '', 10);
+      const versao = await syncReceivedItem(db, client, entityId, item, result);
       if (Number.isFinite(versao)) highest = Math.max(highest, versao);
-
-      if (item.nfe_completa === true && !stored.row.xml && result.xmlFetched < MAX_XML_FETCHES) {
-        const xml = await client.receivedXml(stored.row.accessKey);
-        if (xml) {
-          await attachXml(db, stored.row, xml);
-          result.xmlFetched++;
-        }
-      }
     }
     version = highest;
     if (batch.items.length >= batch.totalCount) {
@@ -234,16 +221,48 @@ export async function syncReceivedFiscalDocuments(
   }
 
   result.version = version;
-  if (version !== (settings.receivedNfeVersion ?? 0) || settings.receivedNfeVersionEnv !== environment) {
-    await db
-      .update(schema.entities)
-      .set({
-        jurisdictionSettings: { ...settings, receivedNfeVersion: version, receivedNfeVersionEnv: environment } as Record<string, unknown>,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.entities.id, entity.id));
-  }
+  await saveReceivedVersion(db, entity, settings, environment, version);
   return result;
+}
+
+/**
+ * Store one note of a listing, and its XML once Focus has it, counting it in
+ * `result`. Returns the note's `versao`: NaN when it has none or was skipped.
+ */
+async function syncReceivedItem(db: Database, client: FocusClient, entityId: string, item: FocusRecord, result: SyncResult): Promise<number> {
+  const stored = await upsertSummary(db, entityId, item);
+  if (!stored) return Number.NaN;
+  result.fetched++;
+  if (stored.created) result.created++;
+  else result.updated++;
+  const versao = typeof item.versao === 'number' ? item.versao : Number.parseInt(str(item.versao) ?? '', 10);
+
+  if (item.nfe_completa === true && !stored.row.xml && result.xmlFetched < MAX_XML_FETCHES) {
+    const xml = await client.receivedXml(stored.row.accessKey);
+    if (xml) {
+      await attachXml(db, stored.row, xml);
+      result.xmlFetched++;
+    }
+  }
+  return versao;
+}
+
+/** Keep the high-water mark of the environment in the entity's jurisdiction settings, when it moved. */
+async function saveReceivedVersion(
+  db: Database,
+  entity: EntityRow,
+  settings: ReturnType<typeof fiscalSettingsOf>,
+  environment: FocusEnvironment,
+  version: number,
+): Promise<void> {
+  if (version === (settings.receivedNfeVersion ?? 0) && settings.receivedNfeVersionEnv === environment) return;
+  await db
+    .update(schema.entities)
+    .set({
+      jurisdictionSettings: { ...settings, receivedNfeVersion: version, receivedNfeVersionEnv: environment } as Record<string, unknown>,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.entities.id, entity.id));
 }
 
 // --- Upload ---------------------------------------------------------------------------------------
@@ -366,12 +385,56 @@ function unitPriceOf(item: ParsedNfe['items'][number]): number {
   return Math.round((item.total / item.quantity) * 10000) / 10000;
 }
 
+/** First digit of an entry CFOP by the first digit of the supplier's: 5 -> 1, 6 -> 2, 7 -> 3. */
+const ENTRY_CFOP_FIRST_DIGIT: Record<string, string | undefined> = { '5': '1', '6': '2', '7': '3' };
+
 /** The entry CFOP of a purchase: the supplier's 5xxx / 6xxx / 7xxx becomes 1xxx / 2xxx / 3xxx. */
 export function entryCfop(cfop: string): string | null {
   if (!/^\d{4}$/.test(cfop)) return null;
   if (/^[123]/.test(cfop)) return cfop;
-  const first = cfop[0] === '5' ? '1' : cfop[0] === '6' ? '2' : cfop[0] === '7' ? '3' : null;
+  const first = ENTRY_CFOP_FIRST_DIGIT[cfop[0]];
   return first ? `${first}${cfop.slice(1)}` : null;
+}
+
+type BillLine = DocumentTaxItem & { description: string };
+
+/** A bill line for an NF-e item, with its NCM, entry CFOP and the ICMS / IPI rates the supplier charged. */
+function billLineOf(item: ParsedNfe['items'][number], idx: number, taxRateId: string | null): BillLine {
+  const gross = item.total;
+  const discountPercent = gross > 0 && item.discount > 0 ? ((item.discount / gross) * 100).toFixed(2) : '0';
+  return {
+    id: generateId('bli'),
+    description: item.description || `Item ${idx + 1}`,
+    quantity: String(item.quantity || 1),
+    unitPrice: String(unitPriceOf(item)),
+    discountPercent,
+    sortOrder: idx,
+    taxRateId,
+    ncm: /^\d{8}$/.test(item.ncm) ? item.ncm : null,
+    cfop: entryCfop(item.cfop),
+    fiscalData: {
+      ...(item.origin ? { origin: item.origin } : {}),
+      icmsRate: item.icms.rate,
+      ipiRate: item.ipi.rate,
+    },
+  };
+}
+
+/** The bill lines of an NF-e: one per item, then ICMS ST, freight, insurance and other expenses when there are any. */
+function billLinesOf(parsed: ParsedNfe, taxRateId: string | null): BillLine[] {
+  const lines = parsed.items.map((item, idx) => billLineOf(item, idx, taxRateId));
+  const extras: Array<[string, number]> = [
+    ['ICMS substituição tributária', parsed.icmsSt],
+    ['Frete', parsed.freight],
+    ['Seguro', parsed.insurance],
+    ['Outras despesas acessórias', parsed.other],
+  ];
+  for (const [description, amount] of extras) {
+    if (amount > 0) {
+      lines.push({ id: generateId('bli'), description, quantity: '1', unitPrice: amount.toFixed(2), discountPercent: '0', sortOrder: lines.length, taxRateId: null });
+    }
+  }
+  return lines;
 }
 
 export interface CreateBillArgs {
@@ -428,37 +491,7 @@ export async function createBillFromReceived(
   const purchaseRate = rates.find((r) => brProfileOf(r.jurisdictionMetadata)?.profile === profileName);
 
   const billId = generateId('bil');
-  const lines: Array<DocumentTaxItem & { description: string }> = parsed.items.map((item, idx) => {
-    const gross = item.total;
-    const discountPercent = gross > 0 && item.discount > 0 ? ((item.discount / gross) * 100).toFixed(2) : '0';
-    return {
-      id: generateId('bli'),
-      description: item.description || `Item ${idx + 1}`,
-      quantity: String(item.quantity || 1),
-      unitPrice: String(unitPriceOf(item)),
-      discountPercent,
-      sortOrder: idx,
-      taxRateId: purchaseRate?.id ?? null,
-      ncm: /^\d{8}$/.test(item.ncm) ? item.ncm : null,
-      cfop: entryCfop(item.cfop),
-      fiscalData: {
-        ...(item.origin ? { origin: item.origin } : {}),
-        icmsRate: item.icms.rate,
-        ipiRate: item.ipi.rate,
-      },
-    };
-  });
-  const extras: Array<[string, number]> = [
-    ['ICMS substituição tributária', parsed.icmsSt],
-    ['Frete', parsed.freight],
-    ['Seguro', parsed.insurance],
-    ['Outras despesas acessórias', parsed.other],
-  ];
-  for (const [description, amount] of extras) {
-    if (amount > 0) {
-      lines.push({ id: generateId('bli'), description, quantity: '1', unitPrice: amount.toFixed(2), discountPercent: '0', sortOrder: lines.length, taxRateId: null });
-    }
-  }
+  const lines = billLinesOf(parsed, purchaseRate?.id ?? null);
 
   const baseCurrency = await resolveEntityBaseCurrency(db, entity.id);
   const issueDate = new Date(`${parsed.issueDate ?? new Date().toISOString().slice(0, 10)}T12:00:00Z`);
@@ -482,7 +515,7 @@ export async function createBillFromReceived(
       fiscalData,
     },
   });
-  const { processedItems, taxBreakdown, salesTax: _salesTax, taxWarnings: _warnings, ...billTotals } = totals;
+  const { processedItems, taxBreakdown, salesTax, taxWarnings, ...billTotals } = totals;
 
   const now = new Date();
   const mismatch = Math.abs(Number.parseFloat(billTotals.total) - parsed.total) > 0.05;
@@ -550,7 +583,7 @@ export async function createBillFromReceived(
     .set({ status: 'imported', billId, updatedAt: now })
     .where(eq(schema.receivedFiscalDocuments.id, doc.id))
     .returning();
-  return { bill: { ...bill, items: itemRecords }, document: linked, warnings: totals.taxWarnings ?? [] };
+  return { bill: { ...bill, items: itemRecords }, document: linked, warnings: taxWarnings ?? [] };
 }
 
 /** The data an entity event carries for a received document: no XML. */

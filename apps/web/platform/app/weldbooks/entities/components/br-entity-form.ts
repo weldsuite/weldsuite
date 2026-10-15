@@ -18,7 +18,8 @@ export function addBrEntityIssues(
 ): void {
   const errors = brEntityErrors(values, context);
   for (const [key, code] of Object.entries(errors) as Array<[keyof BrEntityValues | 'cnpj' | 'ie', BrEntityErrorCode]>) {
-    const path = key === 'cnpj' ? paths.cnpj : key === 'ie' ? paths.ie : [...paths.br, key];
+    const brPath = key === 'ie' ? paths.ie : [...paths.br, key];
+    const path = key === 'cnpj' ? paths.cnpj : brPath;
     ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: messages[code] });
   }
 }

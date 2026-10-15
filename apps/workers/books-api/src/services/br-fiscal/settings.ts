@@ -108,10 +108,17 @@ export async function focusClientFor(
   return new FocusClient({ token, environment, fetch: fetchImpl });
 }
 
+/** `text` without the run of `char` at its end. */
+function trimTrailing(text: string, char: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === char) end--;
+  return text.slice(0, end);
+}
+
 function base64Url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return trimTrailing(btoa(binary).replace(/\+/g, '-').replace(/\//g, '_'), '=');
 }
 
 function randomToken(): string {
@@ -172,7 +179,7 @@ export async function registerFiscalWebhooks(args: {
 
   const token = randomToken();
   const secret = randomToken();
-  const url = `${baseUrl.replace(/\/+$/, '')}/public/fiscal-webhooks/${token}`;
+  const url = `${trimTrailing(baseUrl, '/')}/public/fiscal-webhooks/${token}`;
   const hooks: FiscalWebhookConfig['hooks'] = [];
   const failures: string[] = [];
   let lastError: unknown;

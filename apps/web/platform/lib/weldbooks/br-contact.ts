@@ -34,12 +34,18 @@ export interface BrFiscalView {
   taxId?: string;
 }
 
+/** A stored ICMS-contributor flag as the three-way choice of the form. */
+function icmsChoice(icmsContributor: boolean | undefined): BrIcmsChoice {
+  if (icmsContributor === undefined) return 'auto';
+  return icmsContributor ? 'yes' : 'no';
+}
+
 export function brContactValues(brFiscal: BrFiscalView | null | undefined): BrContactValues {
   if (!brFiscal) return DEFAULT_BR_CONTACT;
   return {
     inscricaoMunicipal: brFiscal.inscricaoMunicipal ?? '',
     municipalityCode: brFiscal.municipalityCode ?? '',
-    icmsContributor: brFiscal.icmsContributor === undefined ? 'auto' : brFiscal.icmsContributor ? 'yes' : 'no',
+    icmsContributor: icmsChoice(brFiscal.icmsContributor),
     simplesNacional: brFiscal.simplesNacional === true,
   };
 }

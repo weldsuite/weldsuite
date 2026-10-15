@@ -39,7 +39,8 @@ export function brPixFor(
   const currency = (invoice.currency ?? entity.baseCurrency ?? '').toUpperCase();
   const amount = Number.parseFloat(invoice.balanceDue ?? invoice.total ?? '0');
   const open = invoice.type !== 'credit_note' && invoice.status !== 'draft' && invoice.status !== 'cancelled';
-  if (!key || currency !== 'BRL' || !open || !(amount > 0)) return null;
+  // parseFloat can yield NaN, which the positive-amount check must also reject.
+  if (!key || currency !== 'BRL' || !open || Number.isNaN(amount) || amount <= 0) return null;
   try {
     const payload = buildPixPayload({
       key,

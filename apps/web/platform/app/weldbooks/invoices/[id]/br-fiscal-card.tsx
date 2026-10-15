@@ -223,6 +223,7 @@ export function FiscalDocumentCard({ invoice, canUpdate }: Readonly<FiscalDocume
   const issuable = invoice.status !== 'draft' && invoice.status !== 'cancelled' && !isCreditNote;
   const canIssue =
     canUpdate && issuable && (!current || current.status === 'rejected' || current.status === 'error' || current.status === 'cancelled');
+  const noDocumentNote = issuable ? tf.noneYet : tf.finalizeFirst;
 
   const describe = (err: unknown): IssueProblem => {
     const details = fiscalErrorDetails(err);
@@ -324,7 +325,7 @@ export function FiscalDocumentCard({ invoice, canUpdate }: Readonly<FiscalDocume
 
         {!current && !documents.isError && (
           <p className="text-sm text-muted-foreground">
-            {isCreditNote ? tf.creditNoteNote : issuable ? tf.noneYet : tf.finalizeFirst}
+            {isCreditNote ? tf.creditNoteNote : noDocumentNote}
           </p>
         )}
 

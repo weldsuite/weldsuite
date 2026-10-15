@@ -239,6 +239,12 @@ export function brDocumentChecks(messages: BrDocumentMessages) {
   };
 }
 
+/** A stored buyer-ICMS flag as the three-way choice of the form. */
+function buyerIcmsChoice(value: unknown): BrBuyerIcms {
+  if (value === undefined) return 'auto';
+  return value ? 'yes' : 'no';
+}
+
 /** The document fiscal data of a stored document, as form state. */
 export function brDocumentValuesFromStored(fiscalData: Record<string, unknown> | null | undefined): BrDocumentValues {
   if (!fiscalData) return EMPTY_BR_DOCUMENT;
@@ -250,7 +256,7 @@ export function brDocumentValuesFromStored(fiscalData: Record<string, unknown> |
     brCsrf: w.csrf === true,
     brInss: num(w.inss),
     brFinalConsumer: fiscalData.finalConsumer === true,
-    brBuyerIcms: fiscalData.buyerIcmsContributor === undefined ? 'auto' : fiscalData.buyerIcmsContributor ? 'yes' : 'no',
+    brBuyerIcms: buyerIcmsChoice(fiscalData.buyerIcmsContributor),
     brAccessKey: typeof fiscalData.accessKey === 'string' ? fiscalData.accessKey : '',
   };
 }

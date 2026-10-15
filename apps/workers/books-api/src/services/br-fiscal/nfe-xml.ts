@@ -17,10 +17,6 @@ export interface XmlNode {
   text: string;
 }
 
-const TOKEN =
-  /<!--[\s\S]*?-->|<!\[CDATA\[([\s\S]*?)\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>|<(\/?)([A-Za-z_][\w:.-]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>|([^<]+)/g;
-const ATTRIBUTE = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
 function decode(text: string): string {
@@ -43,28 +39,128 @@ export class XmlParseError extends Error {
   }
 }
 
+// --- Scanner ----------------------------------------------------------------------------
+// Tokens: text (character data, CDATA included), opening and closing tags. Comments,
+// processing instructions and DOCTYPEs are skipped; a `<` that starts none of these is
+// dropped and the scan goes on after it.
+
+type XmlToken =
+  | { kind: 'text'; text: string }
+  | { kind: 'open'; name: string; attrs: Array<[name: string, rawValue: string]>; selfClosing: boolean }
+  | { kind: 'close'; name: string };
+
+interface Scanned {
+  token: XmlToken | null;
+  end: number;
+}
+
+const SPACE = /\s/;
+const NAME_START = /[A-Za-z_]/;
+const NAME_CHAR = /[\w:.-]/;
+/** What ends an attribute name. */
+const ATTR_NAME_END = /[\s=/>]/;
+
+/** The first index at or after `from` whose character `pattern` does not match (`stop` false) or matches (`stop` true). */
+function skip(xml: string, from: number, pattern: RegExp, stop = false): number {
+  let i = from;
+  while (i < xml.length && pattern.test(xml[i]) !== stop) i++;
+  return i;
+}
+
+/** Markup that runs from `open` at `pos` to the first `close` after it; null when it is not there or never closed. */
+function scanDelimited(xml: string, pos: number, open: string, close: string): { inner: string; end: number } | null {
+  if (!xml.startsWith(open, pos)) return null;
+  const at = xml.indexOf(close, pos + open.length);
+  return at === -1 ? null : { inner: xml.slice(pos + open.length, at), end: at + close.length };
+}
+
+/** A comment, CDATA section, processing instruction or DOCTYPE at `pos`. */
+function scanMarkup(xml: string, pos: number): Scanned | null {
+  const cdata = scanDelimited(xml, pos, '<![CDATA[', ']]>');
+  if (cdata) return { token: { kind: 'text', text: cdata.inner }, end: cdata.end };
+  const skipped =
+    scanDelimited(xml, pos, '<!--', '-->') ?? scanDelimited(xml, pos, '<?', '?>') ?? scanDelimited(xml, pos, '<!DOCTYPE', '>');
+  return skipped ? { token: null, end: skipped.end } : null;
+}
+
+/** ` name="value"` (or single quotes) at `from`: at least one space, then the attribute. */
+function scanAttribute(xml: string, from: number): { name: string; rawValue: string; end: number } | null {
+  const nameStart = skip(xml, from, SPACE);
+  if (nameStart === from) return null;
+  const nameEnd = skip(xml, nameStart, ATTR_NAME_END, true);
+  if (nameEnd === nameStart) return null;
+  const equals = skip(xml, nameEnd, SPACE);
+  if (xml[equals] !== '=') return null;
+  const valueStart = skip(xml, equals + 1, SPACE);
+  const quote = xml[valueStart];
+  if (quote !== '"' && quote !== "'") return null;
+  const valueEnd = xml.indexOf(quote, valueStart + 1);
+  if (valueEnd === -1) return null;
+  return { name: xml.slice(nameStart, nameEnd), rawValue: xml.slice(valueStart + 1, valueEnd), end: valueEnd + 1 };
+}
+
+/** An opening, closing or self-closing tag at `pos`. */
+function scanTag(xml: string, pos: number): Scanned | null {
+  let i = pos + 1;
+  const closing = xml[i] === '/';
+  if (closing) i++;
+  if (i >= xml.length || !NAME_START.test(xml[i])) return null;
+  const nameStart = i;
+  i = skip(xml, i + 1, NAME_CHAR);
+  const name = xml.slice(nameStart, i);
+
+  const attrs: Array<[string, string]> = [];
+  for (let attr = scanAttribute(xml, i); attr; attr = scanAttribute(xml, i)) {
+    attrs.push([attr.name, attr.rawValue]);
+    i = attr.end;
+  }
+  i = skip(xml, i, SPACE);
+  const selfClosing = xml[i] === '/';
+  if (selfClosing) i++;
+  if (xml[i] !== '>') return null;
+  const token: XmlToken = closing ? { kind: 'close', name } : { kind: 'open', name, attrs, selfClosing };
+  return { token, end: i + 1 };
+}
+
+function scanAt(xml: string, pos: number): Scanned {
+  if (xml[pos] !== '<') {
+    const next = xml.indexOf('<', pos);
+    const end = next === -1 ? xml.length : next;
+    return { token: { kind: 'text', text: decode(xml.slice(pos, end)) }, end };
+  }
+  return scanMarkup(xml, pos) ?? scanTag(xml, pos) ?? { token: null, end: pos + 1 };
+}
+
+function* scan(xml: string): Generator<XmlToken> {
+  let pos = 0;
+  while (pos < xml.length) {
+    const { token, end } = scanAt(xml, pos);
+    if (token) yield token;
+    pos = end;
+  }
+}
+
+function elementOf(token: Extract<XmlToken, { kind: 'open' }>): XmlNode {
+  const attrs: Record<string, string> = {};
+  for (const [name, rawValue] of token.attrs) attrs[localName(name)] = decode(rawValue);
+  return { name: localName(token.name), attrs, children: [], text: '' };
+}
+
 /** The root element of an XML document. */
 export function parseXml(xml: string): XmlNode {
   const root: XmlNode = { name: '#document', attrs: {}, children: [], text: '' };
   const stack: XmlNode[] = [root];
-  for (const match of xml.matchAll(TOKEN)) {
-    const [, cdata, closing, rawName, rawAttrs, selfClosing, text] = match;
+  for (const token of scan(xml)) {
     const top = stack[stack.length - 1];
-    if (cdata !== undefined) {
-      top.text += cdata;
-    } else if (text !== undefined) {
-      top.text += decode(text);
-    } else if (rawName) {
-      if (closing) {
-        if (stack.length > 1 && top.name === localName(rawName)) stack.pop();
-        else throw new XmlParseError(`Unexpected closing tag </${rawName}>`);
-      } else {
-        const attrs: Record<string, string> = {};
-        for (const attr of (rawAttrs ?? '').matchAll(ATTRIBUTE)) attrs[localName(attr[1])] = decode(attr[2] ?? attr[3] ?? '');
-        const node: XmlNode = { name: localName(rawName), attrs, children: [], text: '' };
-        top.children.push(node);
-        if (!selfClosing) stack.push(node);
-      }
+    if (token.kind === 'text') {
+      top.text += token.text;
+    } else if (token.kind === 'close') {
+      if (stack.length > 1 && top.name === localName(token.name)) stack.pop();
+      else throw new XmlParseError(`Unexpected closing tag </${token.name}>`);
+    } else {
+      const node = elementOf(token);
+      top.children.push(node);
+      if (!token.selfClosing) stack.push(node);
     }
   }
   if (stack.length > 1) throw new XmlParseError(`Unclosed tag <${stack[stack.length - 1].name}>`);

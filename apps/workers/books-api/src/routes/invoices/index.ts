@@ -254,6 +254,13 @@ async function promoteAccountingRole(
 
 type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
 
+/** The billing, shipping and ship-from addresses a PUT/PATCH body changes, normalized. */
+function applyAddressUpdates(updateData: Record<string, unknown>, data: UpdateInvoiceInput): void {
+  if (data.billingAddress !== undefined) updateData.billingAddress = normalizePostalAddress(data.billingAddress);
+  if (data.shippingAddress !== undefined) updateData.shippingAddress = normalizePostalAddress(data.shippingAddress);
+  if (data.shipFromAddress !== undefined) updateData.shipFromAddress = normalizePostalAddress(data.shipFromAddress);
+}
+
 /** Scalar (non-item) columns a PUT/PATCH body may change on a draft invoice. */
 function buildInvoiceFieldUpdates(data: UpdateInvoiceInput): Record<string, unknown> {
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
@@ -268,9 +275,7 @@ function buildInvoiceFieldUpdates(data: UpdateInvoiceInput): Record<string, unkn
   if (data.reference !== undefined) updateData.reference = data.reference;
   if (data.notes !== undefined) updateData.notes = data.notes;
   if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes;
-  if (data.billingAddress !== undefined) updateData.billingAddress = normalizePostalAddress(data.billingAddress);
-  if (data.shippingAddress !== undefined) updateData.shippingAddress = normalizePostalAddress(data.shippingAddress);
-  if (data.shipFromAddress !== undefined) updateData.shipFromAddress = normalizePostalAddress(data.shipFromAddress);
+  applyAddressUpdates(updateData, data);
   if (data.marketplaceFacilitated !== undefined) updateData.marketplaceFacilitated = data.marketplaceFacilitated;
   if (data.revenueAccountId !== undefined) updateData.revenueAccountId = data.revenueAccountId;
   if (data.fiscalData !== undefined) updateData.fiscalData = data.fiscalData;

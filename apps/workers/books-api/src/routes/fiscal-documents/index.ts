@@ -90,7 +90,7 @@ async function requireEntity(c: AppContext, db: Database): Promise<EntityRow> {
 
 /** What the document list shows: the payloads (request body, provider answer) stay on the detail view. */
 function documentSummary(doc: FiscalDocumentRow) {
-  const { requestPayload: _request, responsePayload: _response, ...rest } = doc;
+  const { requestPayload, responsePayload, ...rest } = doc;
   return rest;
 }
 
@@ -160,6 +160,100 @@ app.get('/settings', requirePermission('accounts:read'), async (c) => {
   }
 });
 
+type SettingsUpdate = z.infer<typeof updateSettingsSchema>;
+
+/** The state a settings update builds up before it is saved. */
+interface PendingSettings {
+  entity: EntityRow;
+  /** The stored settings. */
+  settings: FiscalEntitySettings;
+  /** The settings being saved. */
+  nextSettings: FiscalEntitySettings;
+  credentials: FiscalCredentials;
+  environment: SettingsUpdate['environment'];
+  warnings: string[];
+  webhookUrl: string | null;
+}
+
+async function readCredentialsForUpdate(entity: EntityRow, env: Env, token: SettingsUpdate['token']): Promise<FiscalCredentials> {
+  try {
+    return await readFiscalCredentials(entity, env);
+  } catch (err) {
+    // An unreadable blob is replaced by the token being entered now.
+    if (!(err instanceof FiscalDocumentError) || token === undefined) throw err;
+    return {};
+  }
+}
+
+/** The stored settings with the non-credential fields of the update applied. */
+function applySettingsUpdate(settings: FiscalEntitySettings, data: SettingsUpdate): FiscalEntitySettings {
+  const nextSettings: FiscalEntitySettings = { ...settings, fiscalProvider: 'focus_nfe', fiscalEnvironment: data.environment };
+  if (data.nfseStandard) nextSettings.nfseStandard = data.nfseStandard;
+  for (const key of ['dpsSeries', 'simplesCreditRate', 'codigoTributarioMunicipio'] as const) {
+    const value = data[key];
+    if (value === null || value === '') delete nextSettings[key];
+    else if (value !== undefined) (nextSettings as Record<string, unknown>)[key] = value;
+  }
+  return nextSettings;
+}
+
+/**
+ * Stores a new Focus token for the environment after Focus accepted it, and
+ * registers the provider webhooks. Returns the error response when the update
+ * cannot go ahead, null otherwise.
+ */
+async function storeToken(c: AppContext, pending: PendingSettings, token: string): Promise<Response | null> {
+  const { entity, settings, nextSettings, credentials, environment, warnings } = pending;
+  const client = new FocusClient({ token, environment });
+  // The hooks list doubles as the check that Focus accepts the token.
+  try {
+    await client.listHooks();
+  } catch (err) {
+    if (err instanceof FiscalProviderError && err.isAuthFailure) {
+      return error.badRequest(c, 'Focus NFe rejected this token. Copy the company token of the matching environment.');
+    }
+    throw err;
+  }
+  credentials[environment] = token;
+  const orgId = c.get('orgId');
+  if (!orgId) return error.orgRequired(c);
+  try {
+    const registered = await registerFiscalWebhooks({
+      client,
+      env: c.env,
+      orgId,
+      entityId: entity.id,
+      environment,
+      baseUrl: c.env.BOOKS_API_URL || new URL(c.req.url).origin,
+      previous: settings.fiscalWebhook?.[environment],
+    });
+    nextSettings.fiscalWebhook = { ...settings.fiscalWebhook, [environment]: registered.config };
+    pending.webhookUrl = registered.url;
+    warnings.push(...registered.failures.map((f) => `Webhook not registered for ${f}`));
+  } catch (err) {
+    if (!(err instanceof FiscalProviderError)) throw err;
+    // The token works, the hooks do not: issuing still works, statuses then need a manual refresh.
+    warnings.push(`The webhooks could not be registered (${err.detail}). Use refresh on a document to fetch its status.`);
+  }
+  return null;
+}
+
+/** Removes the environment's token and its provider webhooks. */
+async function removeToken(env: Env, pending: PendingSettings): Promise<void> {
+  const { entity, settings, nextSettings, credentials, environment } = pending;
+  let client = null;
+  try {
+    client = await focusClientFor(entity, env, environment);
+  } catch (err) {
+    if (!(err instanceof FiscalDocumentError)) throw err;
+  }
+  await removeFiscalWebhooks(client, env, settings.fiscalWebhook?.[environment]);
+  delete credentials[environment];
+  const remaining = { ...settings.fiscalWebhook };
+  delete remaining[environment];
+  nextSettings.fiscalWebhook = remaining;
+}
+
 // PUT /settings
 app.put('/settings', requirePermission('accounts:update'), zValidator('json', updateSettingsSchema), async (c) => {
   const db = c.get('tenantDb');
@@ -170,68 +264,17 @@ app.put('/settings', requirePermission('accounts:update'), zValidator('json', up
     const previousEnvironment = fiscalEnvironmentOf(settings);
     const environment = data.environment;
 
-    let credentials: FiscalCredentials = {};
-    try {
-      credentials = await readFiscalCredentials(entity, c.env);
-    } catch (err) {
-      // An unreadable blob is replaced by the token being entered now.
-      if (!(err instanceof FiscalDocumentError) || data.token === undefined) throw err;
-    }
-
-    const nextSettings: FiscalEntitySettings = { ...settings, fiscalProvider: 'focus_nfe', fiscalEnvironment: environment };
-    if (data.nfseStandard) nextSettings.nfseStandard = data.nfseStandard;
-    for (const key of ['dpsSeries', 'simplesCreditRate', 'codigoTributarioMunicipio'] as const) {
-      const value = data[key];
-      if (value === null || value === '') delete nextSettings[key];
-      else if (value !== undefined) (nextSettings as Record<string, unknown>)[key] = value;
-    }
-    const warnings: string[] = [];
-    let webhookUrl: string | null = null;
+    const credentials = await readCredentialsForUpdate(entity, c.env, data.token);
+    const nextSettings = applySettingsUpdate(settings, data);
+    const pending: PendingSettings = { entity, settings, nextSettings, credentials, environment, warnings: [], webhookUrl: null };
 
     if (typeof data.token === 'string') {
-      const client = new FocusClient({ token: data.token, environment });
-      // The hooks list doubles as the check that Focus accepts the token.
-      try {
-        await client.listHooks();
-      } catch (err) {
-        if (err instanceof FiscalProviderError && err.isAuthFailure) {
-          return error.badRequest(c, 'Focus NFe rejected this token. Copy the company token of the matching environment.');
-        }
-        throw err;
-      }
-      credentials[environment] = data.token;
-      const orgId = c.get('orgId');
-      if (!orgId) return error.orgRequired(c);
-      try {
-        const registered = await registerFiscalWebhooks({
-          client,
-          env: c.env,
-          orgId,
-          entityId: entity.id,
-          environment,
-          baseUrl: c.env.BOOKS_API_URL || new URL(c.req.url).origin,
-          previous: settings.fiscalWebhook?.[environment],
-        });
-        nextSettings.fiscalWebhook = { ...settings.fiscalWebhook, [environment]: registered.config };
-        webhookUrl = registered.url;
-        warnings.push(...registered.failures.map((f) => `Webhook not registered for ${f}`));
-      } catch (err) {
-        if (!(err instanceof FiscalProviderError)) throw err;
-        // The token works, the hooks do not: issuing still works, statuses then need a manual refresh.
-        warnings.push(`The webhooks could not be registered (${err.detail}). Use refresh on a document to fetch its status.`);
-      }
+      const rejected = await storeToken(c, pending, data.token);
+      if (rejected) return rejected;
     } else if (data.token === null) {
-      let client = null;
-      try {
-        client = await focusClientFor(entity, c.env, environment);
-      } catch (err) {
-        if (!(err instanceof FiscalDocumentError)) throw err;
-      }
-      await removeFiscalWebhooks(client, c.env, settings.fiscalWebhook?.[environment]);
-      delete credentials[environment];
-      const { [environment]: _removed, ...rest } = settings.fiscalWebhook ?? {};
-      nextSettings.fiscalWebhook = rest;
+      await removeToken(c.env, pending);
     }
+    const { warnings, webhookUrl } = pending;
 
     const credentialsChanged = data.token !== undefined;
     const sealed = credentialsChanged ? await sealFiscalCredentials(credentials, c.env) : undefined;
