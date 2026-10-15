@@ -19,9 +19,7 @@ import {
 } from '@weldsuite/ui/components/popover';
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from '@weldsuite/ui/components/command';
@@ -35,6 +33,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { cn } from '@/lib/utils';
 import { useGridContext } from '../context';
 import { SPREADSHEET_EXTRA_COLUMNS } from '../spreadsheet';
+import { AddColumnMenu } from './add-column-menu';
 
 function colIndexToLetter(index: number): string {
   let result = '';
@@ -84,7 +83,6 @@ export function GridHeader() {
     handleMoveColumn,
     handleColumnResize,
     deleteColumn,
-    showColumn,
   } = useGridContext();
 
   const { selectedRows, columnWidths, columns } = state;
@@ -97,12 +95,9 @@ export function GridHeader() {
   const [addColumnHover, setAddColumnHover] = useState(false);
   const addColumnHighlighted = addColumnOpen || addColumnHover;
 
-  // Hidden columns available for the "Add column" picker
-  const hiddenBuiltInColumns = columns.filter((c) => c.visible === false && !c.isCustom);
-  const hiddenCustomColumns = columns.filter((c) => c.visible === false && c.isCustom && !c.isEnrichField);
-  const hiddenEnrichColumns = columns.filter((c) => c.visible === false && c.isEnrichField);
+  // Anything for the "Add column" picker (AddColumnMenu) to offer
+  const hasHiddenColumns = columns.some((c) => c.visible === false);
   const availableEnrichFields = config.availableEnrichFields ?? [];
-  const hasHiddenColumns = hiddenBuiltInColumns.length > 0 || hiddenCustomColumns.length > 0 || hiddenEnrichColumns.length > 0;
   const showAddButton = hasHiddenColumns || availableEnrichFields.length > 0 || !!config.onCreateAttribute;
 
   // Column resize handling
@@ -438,123 +433,7 @@ export function GridHeader() {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[240px] p-0" align="start" alignOffset={2} collisionPadding={16}>
-                    <Command>
-                      <CommandInput placeholder={t('sweep.entities.searchAttributesPlaceholder')} />
-                      <CommandList className="[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent" style={{ maxHeight: '400px' }}>
-                        <CommandEmpty>{t('sweep.entities.noAttributesFound')}</CommandEmpty>
-                        {hiddenBuiltInColumns.length > 0 && (
-                          <CommandGroup>
-                            {hiddenBuiltInColumns.map((col) => (
-                              <CommandItem
-                                key={col.id}
-                                onSelect={() => {
-                                  showColumn(col.id);
-                                  setAddColumnOpen(false);
-                                }}
-                              >
-                                {col.iconUrl ? (
-                                  <img src={col.iconUrl} alt="" className="mr-0.5 h-4 w-4 object-contain" />
-                                ) : (
-                                  col.icon &&
-                                  React.createElement(col.icon, {
-                                    className: 'mr-0.5 h-4 w-4',
-                                  })
-                                )}
-                                {col.name}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        )}
-                        {hiddenCustomColumns.length > 0 && (
-                          <CommandGroup heading={t('sweep.entities.customAttributesHeading')}>
-                            {hiddenCustomColumns.map((col) => (
-                              <CommandItem
-                                key={col.id}
-                                onSelect={() => {
-                                  showColumn(col.id);
-                                  setAddColumnOpen(false);
-                                }}
-                              >
-                                {col.iconUrl ? (
-                                  <img src={col.iconUrl} alt="" className="mr-0.5 h-4 w-4 object-contain" />
-                                ) : (
-                                  col.icon &&
-                                  React.createElement(col.icon, {
-                                    className: 'mr-0.5 h-4 w-4',
-                                  })
-                                )}
-                                {col.name}
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        )}
-                        {(hiddenEnrichColumns.length > 0 || availableEnrichFields.length > 0) && (
-                          <CommandGroup heading={t('sweep.entities.enrichmentHeading')}>
-                            {hiddenEnrichColumns.map((col) => (
-                              <CommandItem
-                                key={col.id}
-                                onSelect={() => {
-                                  showColumn(col.id);
-                                  setAddColumnOpen(false);
-                                }}
-                              >
-                                {col.iconUrl ? (
-                                  <img src={col.iconUrl} alt="" className="mr-0.5 h-4 w-4 object-contain" />
-                                ) : (
-                                  col.icon &&
-                                  React.createElement(col.icon, {
-                                    className: 'mr-0.5 h-4 w-4',
-                                  })
-                                )}
-                                <span className="flex-1">{col.name}</span>
-                                {col.creditCost != null && (
-                                  <span className="flex items-center gap-0.5 text-[11px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] ml-1 px-1 py-0.5">
-                                    {col.creditCost}
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="size-[12px] flex-shrink-0 -translate-y-[0.5px]">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                                    </svg>
-                                  </span>
-                                )}
-                              </CommandItem>
-                            ))}
-                            {availableEnrichFields.map((ef) => (
-                              <CommandItem
-                                key={`${ef.provider}_${ef.operation}`}
-                                onSelect={() => {
-                                  config.onEnableEnrichField?.(ef.provider, ef.operation);
-                                  setAddColumnOpen(false);
-                                }}
-                              >
-                                <img src={ef.logoUrl} alt="" className="mr-0.5 h-4 w-4 object-contain" />
-                                <span className="flex-1">{ef.name}</span>
-                                <span className="flex items-center gap-0.5 text-[11px] font-mono text-gray-400 bg-gray-100 dark:bg-secondary border border-gray-200 dark:border-border rounded-[5px] ml-1 px-1 py-0.5">
-                                  {ef.creditCost}
-                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="size-[12px] flex-shrink-0 -translate-y-[0.5px]">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-                                  </svg>
-                                </span>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        )}
-                        {config.onCreateAttribute && (
-                          <>
-                            <div className="h-px bg-gray-200 dark:bg-accent mx-1" />
-                            <CommandGroup>
-                              <CommandItem
-                                onSelect={() => {
-                                  config.onCreateAttribute!();
-                                  setAddColumnOpen(false);
-                                }}
-                              >
-                                <Plus className="mr-0.5 h-4 w-4" />
-                                {t('sweep.entities.createNewAttribute')}
-                              </CommandItem>
-                            </CommandGroup>
-                          </>
-                        )}
-                      </CommandList>
-                    </Command>
+                    <AddColumnMenu onClose={() => setAddColumnOpen(false)} />
                   </PopoverContent>
                 </Popover>
                 )}

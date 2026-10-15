@@ -14,6 +14,7 @@ import hrPayslipReady from './hr/payslip-ready';
 import hrPortalInvite from './hr/portal-invite';
 import appAccessRequested from './internal/app-access-requested';
 import enterpriseInquiry from './internal/enterprise-inquiry';
+import outboundAbuseAlert from './internal/outbound-abuse-alert';
 import meetInvitation from './meet/invitation';
 import notification from './notifications/notification';
 import partnerDunning from './partner/dunning';
@@ -41,6 +42,7 @@ export const templates = {
   'partner.invitation': partnerInvitation,
   'internal.enterprise-inquiry': enterpriseInquiry,
   'internal.app-access-requested': appAccessRequested,
+  'internal.outbound-abuse-alert': outboundAbuseAlert,
   'reach.access-approved': reachAccessApproved,
   'reach.access-rejected': reachAccessRejected,
 };
@@ -59,6 +61,7 @@ export type { HrBankChangedEmailProps } from './hr/bank-changed';
 export type { HrPayslipReadyEmailProps } from './hr/payslip-ready';
 export type { HrPortalInviteEmailProps } from './hr/portal-invite';
 export type { AppAccessRequestedEmailProps } from './internal/app-access-requested';
+export type { OutboundAbuseAlertEmailProps } from './internal/outbound-abuse-alert';
 export type { EnterpriseInquiryEmailProps } from './internal/enterprise-inquiry';
 export type { MeetInvitationEmailProps } from './meet/invitation';
 export type { NotificationEmailProps } from './notifications/notification';

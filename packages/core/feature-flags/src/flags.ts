@@ -41,6 +41,12 @@ export const FLAGS = {
   // Off stops all warmup sends and engagements; mailboxes keep their ramp day
   // and continue when it is back on. Separate from weldreach-sending.
   'weldreach-warmup': { type: 'boolean', default: true },
+  // Outbound mail guard (docs/plans/weldmail-outbound-abuse.md): `off` skips
+  // the per-workspace ledger, `shadow` decides and logs but never blocks,
+  // `enforce` blocks. Sender ownership and complaint suppressions are enforced
+  // in every mode. Starts in shadow to calibrate the thresholds; target it per
+  // workspace (attribute `workspaceId`, the master id) in Flagship.
+  'weldmail-outbound-guard': { type: 'string', default: 'shadow' },
 } as const satisfies Record<string, FlagDefinition>;
 
 export type FlagDefinition =

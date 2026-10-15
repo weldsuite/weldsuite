@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import {
@@ -14,6 +14,9 @@ import { countryOptions } from './countries';
 import { US_STATES, toUsStateCode } from './us-states';
 import { IN_STATES, findInState, toInStateName } from './in-states';
 import type { PostalAddress } from './postal-address';
+import { mapboxToPostalAddress, needsMapboxRetrieve } from './mapbox-address';
+import { LocationAutocomplete } from '@/app/weldcalendar/components/location-autocomplete';
+import { retrieveLocation, type MapboxSuggestion } from '@/app/weldcalendar/lib/mapbox-search';
 
 const NO_COUNTRY = '__none__';
 
@@ -48,6 +51,10 @@ interface AddressFieldsProps {
  * India it is a picker of the GST states and union territories (stored as the
  * state's name; the GST state code, which decides an invoice's place of
  * supply, is read from it).
+ *
+ * The street line searches Mapbox (limited to the chosen country, if any);
+ * picking a result fills street, city, state, postal code and country. With
+ * no Mapbox token it is a plain input.
  */
 export function AddressFields({ value, onChange, idPrefix, disabled, className }: Readonly<AddressFieldsProps>) {
   const { t, language } = useI18n();
@@ -60,6 +67,20 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
   const countries = useMemo(() => countryOptions(language || 'en'), [language]);
 
   const update = (patch: Partial<PostalAddress>) => onChange({ ...address, ...patch });
+
+  // The address as of the latest render, for applying a Mapbox pick after its
+  // `/retrieve` comes back (by then this render's `address` may be stale).
+  const latest = useRef(address);
+  latest.current = address;
+
+  const handlePick = async (suggestion: MapboxSuggestion, sessionToken: string) => {
+    const full = needsMapboxRetrieve(suggestion)
+      ? ((await retrieveLocation(suggestion.mapbox_id, sessionToken)) ?? suggestion)
+      : suggestion;
+    const picked = mapboxToPostalAddress(full);
+    // Line 2 (apartment, suite) isn't something Mapbox knows; keep what was typed.
+    onChange({ ...latest.current, ...picked, line1: picked.line1 ?? latest.current.line1 ?? '' });
+  };
 
   const handleCountryChange = (next: string) => {
     const code = next === NO_COUNTRY ? '' : next;
@@ -78,13 +99,15 @@ export function AddressFields({ value, onChange, idPrefix, disabled, className }
     <div className={cn('grid grid-cols-1 sm:grid-cols-2 gap-4', className)}>
       <div className="space-y-2 sm:col-span-2">
         <Label htmlFor={id('line1')}>{ta.line1}</Label>
-        <Input
+        <LocationAutocomplete
           id={id('line1')}
           value={address.line1 ?? ''}
           placeholder={ta.line1Placeholder}
-          autoComplete="address-line1"
           disabled={disabled}
-          onChange={(e) => update({ line1: e.target.value })}
+          searchTypes="address,poi"
+          country={country || undefined}
+          onChange={(line1) => update({ line1 })}
+          onSuggestionSelect={(suggestion, sessionToken) => void handlePick(suggestion, sessionToken)}
         />
       </div>
       <div className="space-y-2 sm:col-span-2">

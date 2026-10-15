@@ -3,7 +3,7 @@
  */
 
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { recommended } from '@weldsuite/ai';
+import { DEFAULT_WORKSPACE_AGENT_MODEL } from '@weldsuite/app-api-client/schemas/workspace-agents';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
@@ -112,7 +112,7 @@ export async function createAgent(db: AgentDb, input: CreateAgentInput) {
     icon: input.icon ?? null,
     status: 'draft',
     systemPrompt: input.systemPrompt ?? '',
-    modelId: input.modelId ?? recommended.copilot.free,
+    modelId: input.modelId ?? DEFAULT_WORKSPACE_AGENT_MODEL,
     temperature: input.temperature ?? '0.70',
     maxTokens: input.maxTokens ?? 2048,
     permissions,
@@ -172,15 +172,26 @@ export async function updateAgent(db: AgentDb, id: string, input: UpdateAgentInp
   return getAgent(db, id);
 }
 
-export async function deleteAgent(db: AgentDb, id: string) {
+/**
+ * Soft-delete an agent. Returns false when it does not exist, otherwise its
+ * Claude Managed Agents agent id (if it ever ran) so the caller can archive it.
+ */
+export async function deleteAgent(
+  db: AgentDb,
+  id: string,
+): Promise<false | { anthropicAgentId: string | null }> {
   const { weldagentAgents: a } = schema;
-  const existing = await getAgent(db, id);
+  const [existing] = await db
+    .select({ id: a.id, anthropicAgentId: a.anthropicAgentId })
+    .from(a)
+    .where(and(eq(a.id, id), isNull(a.deletedAt)))
+    .limit(1);
   if (!existing) return false;
   await db
     .update(a)
     .set({ deletedAt: new Date(), updatedAt: new Date(), status: 'paused' })
     .where(eq(a.id, id));
-  return true;
+  return { anthropicAgentId: existing.anthropicAgentId };
 }
 
 export async function listAgentRuns(db: AgentDb, agentId: string, limit = 50) {

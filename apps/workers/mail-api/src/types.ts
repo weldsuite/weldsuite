@@ -1,5 +1,8 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
+import type { RateLimitBinding } from '@weldsuite/mail-domain/outbound';
+import type { OutboundLedger, OutboundPlatformBudget } from '@weldsuite/mail-domain/outbound/ledger';
+import type { OutboundReviewMessage } from '@weldsuite/mail-domain/outbound/consumers';
 
 /**
  * mail-api bindings: the kit's (auth, tenant DB, flags) plus only what
@@ -57,6 +60,26 @@ export interface Env extends KitEnv {
   CF_AI_GATEWAY?: string;
   /** Gateway auth token (`cf-aig-authorization`), for "Authenticated" gateways. */
   CF_AIG_TOKEN?: string;
+
+  // --- Outbound guard (docs/plans/weldmail-outbound-abuse.md) ---------------
+  /** Per-workspace sending ledger; the class is hosted here (src/index.ts). */
+  OUTBOUND_LEDGER?: DurableObjectNamespace<OutboundLedger>;
+  /** Platform-wide daily budget against the Cloudflare quota; hosted here. */
+  OUTBOUND_PLATFORM?: DurableObjectNamespace<OutboundPlatformBudget>;
+  /** Per-sender backstop when the ledger is unreachable (`[[ratelimits]]`). */
+  OUTBOUND_BACKSTOP?: RateLimitBinding;
+  /** AI template reviews queued by the ledgers; consumed by this worker. */
+  MAIL_OUTBOUND_REVIEW?: Queue<OutboundReviewMessage>;
+  /** Queue id that provisioned domains subscribe their Email Sending events to. */
+  MAIL_SENDING_EVENTS_QUEUE_ID?: string;
+  /** Staff address for outbound abuse alerts. */
+  ABUSE_NOTIFY_EMAIL?: string;
+  /** Admin console origin, for links in the alerts. */
+  ADMIN_CONSOLE_URL?: string;
+  /** The Cloudflare account's daily Email Sending quota (recipients); unset = no platform budget. */
+  CF_EMAIL_DAILY_QUOTA?: string;
+  /** Shared secret the admin console sends to /internal/outbound/*. */
+  OUTBOUND_ADMIN_SECRET?: string;
 }
 
 export type Variables = KitVariables;

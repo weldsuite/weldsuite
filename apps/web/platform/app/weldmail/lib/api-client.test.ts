@@ -130,3 +130,66 @@ describe('mailApi.messages reply / forward attachments', () => {
     expect(body.attachments).toEqual(attachments);
   });
 });
+
+describe('mailApi send denials (outbound guard)', () => {
+  const denial = {
+    error: {
+      code: 'SENDING_LIMITED',
+      message: 'Hourly limit reached',
+      details: { code: 'SENDING_LIMITED', window: 'hour', limit: 30, used: 30, retryAfter: '2030-01-02T04:00:00.000Z' },
+    },
+  };
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the code and the details of a refused send, so the compose screen can explain it', async () => {
+    mockFetch(denial, 429);
+    const result = await mailApi.messages.send('acc_1', { to: ['someone@example.com'], body: 'Hi' });
+
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('SENDING_LIMITED');
+    expect(result.errorDetails).toEqual(denial.error.details);
+  });
+
+  it('does the same for reply, forward and a scheduled send-now', async () => {
+    mockFetch(denial, 429);
+    const reply = await mailApi.messages.reply('acc_1', 'msg_1', { body: 'Thanks' });
+    const forward = await mailApi.messages.forward('acc_1', 'msg_1', { to: ['other@example.com'] });
+    const sendNow = await mailApi.scheduled.sendNow('msg_2');
+
+    for (const result of [reply, forward, sendNow]) {
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('SENDING_LIMITED');
+      expect(result.errorDetails).toEqual(denial.error.details);
+    }
+  });
+
+  it('keeps the details of a send-a-draft denial too', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { id: 'd1', accountId: 'acc_1', to: ['someone@example.com'], cc: [], bcc: [], labels: [] } }),
+      } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => denial } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await mailApi.drafts.send('acc_1', 'd1');
+    expect(result).toMatchObject({ success: false, errorCode: 'SENDING_LIMITED', errorDetails: denial.error.details });
+  });
+
+  it('reports who got a partially sent message', async () => {
+    const details = { sent: ['a@x.com'], failed: ['b@x.com'], messageId: 'msg_1' };
+    mockFetch({ error: { code: 'PARTIALLY_SENT', message: 'Sent to 1 of 2 recipients.', details } }, 502);
+    const result = await mailApi.messages.send('acc_1', { to: ['a@x.com', 'b@x.com'], body: 'Hi' });
+
+    expect(result.errorCode).toBe('PARTIALLY_SENT');
+    expect(result.errorDetails).toEqual(details);
+  });
+});

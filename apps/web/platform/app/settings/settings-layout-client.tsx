@@ -21,12 +21,9 @@ function getContentWrapperClassName(pathname: string): string {
   }
   // Plans page - allow internal width control
   if (pathname === '/settings/plans') return PAGE_PADDING_CLASS;
-  // Activity log and WeldHR — slightly wider so the tables fit without scroll
-  if (pathname === '/settings/activity' || pathname === '/settings/apps/weldhr') {
-    return `${PAGE_PADDING_CLASS} max-w-6xl mx-auto`;
-  }
-  // Regular settings pages - constrained width
-  return `${PAGE_PADDING_CLASS} max-w-4xl mx-auto`;
+  // Every other settings page: one fixed column width. `w-full` matters, the
+  // wrapper is a flex item and would otherwise shrink to its content.
+  return `${PAGE_PADDING_CLASS} w-full max-w-[715px] mx-auto`;
 }
 
 /**

@@ -130,7 +130,7 @@ export async function unsubscribe(
         input.userId,
         subscription.accountId,
         { to: [to], subject, body },
-        { waitUntil: input.waitUntil },
+        { waitUntil: input.waitUntil, outbound: { source: 'subscription', kind: 'new_thread' } },
       );
     },
   });

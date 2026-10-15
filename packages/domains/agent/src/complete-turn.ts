@@ -31,6 +31,7 @@ import {
 } from '@weldsuite/core-domain/ai-billing';
 import { getAgent, type AgentDb } from './agents';
 import { runAgentOnce, REQUEST_RUN_TIMEOUT_MS } from './executor';
+import { isManagedAgentsConfigured } from './managed-agents';
 import { asText } from '@weldsuite/text';
 
 const WELDAGENT_SYSTEM =
@@ -69,6 +70,8 @@ export interface AcceptedTurn {
   chatMessages: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Permissions of the user driving the turn — narrows the agent's grants. */
   actorPermissions?: string[] | null;
+  /** The user's IANA timezone, when the client sent one. */
+  timezone?: string | null;
 }
 
 /** Serializable handle for an accepted turn (Workflow payload). */
@@ -79,6 +82,7 @@ export interface AcceptedTurnRef {
   userMessageId: string;
   agentId: string | null;
   actorPermissions?: string[] | null;
+  timezone?: string | null;
 }
 
 type MessageRow = typeof schema.weldagentMessages.$inferSelect;
@@ -195,6 +199,12 @@ async function generatePersonalReply(params: {
   return { text: result.text, creditsUsed, success: true };
 }
 
+/** Tells the agent the user's clock, so "7:00" means their 7:00. */
+function timezoneSystem(timezone: string | null | undefined): string | undefined {
+  if (!timezone) return undefined;
+  return `The user's timezone is ${timezone}. Read and schedule times (routines included) in it unless they say otherwise.`;
+}
+
 export async function defaultTurnGenerator(params: {
   db: AgentDb;
   env: Env;
@@ -204,6 +214,7 @@ export async function defaultTurnGenerator(params: {
   agentId: string | null;
   conversationId?: string;
   actorPermissions?: string[] | null;
+  timezone?: string | null;
   timeoutMs?: number;
 }): Promise<TurnGeneratorResult> {
   if (params.agentId) {
@@ -218,6 +229,7 @@ export async function defaultTurnGenerator(params: {
       agent: {
         id: agent.id,
         name: agent.name,
+        description: agent.description,
         systemPrompt: agent.systemPrompt,
         modelId: agent.modelId,
         temperature: agent.temperature,
@@ -234,9 +246,12 @@ export async function defaultTurnGenerator(params: {
         workspaceId: params.workspaceId,
         env: params.env,
         conversationId: params.conversationId,
+        userTimezone: params.timezone ?? null,
+        actorPermissions: params.actorPermissions ?? null,
       },
       messages: params.messages,
       actorPermissions: params.actorPermissions,
+      extraSystem: timezoneSystem(params.timezone),
       timeoutMs: params.timeoutMs ?? REQUEST_RUN_TIMEOUT_MS,
     });
     return {
@@ -268,6 +283,7 @@ export async function acceptConversationTurn(params: {
   content: string;
   agentId?: string;
   actorPermissions?: string[] | null;
+  timezone?: string | null;
 }): Promise<AcceptedTurn> {
   const { weldagentConversations, weldagentMessages } = schema;
   const db = params.db;
@@ -288,13 +304,14 @@ export async function acceptConversationTurn(params: {
     throw new ConversationNotFoundError(params.conversationId);
   }
 
+  const boundAgentId = params.agentId ?? conversation.agentId ?? null;
+
   // Fail fast on empty credits before accepting the turn into the background.
-  if (isGatewayConfigured(params.env)) {
+  // Agent turns run on Claude Managed Agents; persona turns on the gateway.
+  if (boundAgentId ? isManagedAgentsConfigured(params.env) : isGatewayConfigured(params.env)) {
     const metering = await resolveAiMetering(params.env, params.workspaceId, params.userId);
     await assertAiCredits(metering);
   }
-
-  const boundAgentId = params.agentId ?? conversation.agentId ?? null;
 
   if (params.agentId && !conversation.agentId) {
     await db
@@ -350,6 +367,7 @@ export async function acceptConversationTurn(params: {
     userMessage: serializeMessage(userRow),
     chatMessages,
     actorPermissions: params.actorPermissions ?? null,
+    timezone: params.timezone ?? null,
   };
 }
 
@@ -361,6 +379,7 @@ export function toAcceptedTurnRef(accepted: AcceptedTurn): AcceptedTurnRef {
     userMessageId: accepted.userMessage.id,
     agentId: accepted.boundAgentId,
     actorPermissions: accepted.actorPermissions ?? null,
+    timezone: accepted.timezone ?? null,
   };
 }
 
@@ -409,6 +428,7 @@ export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promi
     userMessage: serializeMessage(rows[index]),
     chatMessages: toModelHistory(rows.slice(0, index + 1)),
     actorPermissions: ref.actorPermissions ?? null,
+    timezone: ref.timezone ?? null,
   };
 }
 
@@ -437,7 +457,8 @@ export async function persistAssistantMessage(params: {
 }): Promise<WeldAgentMessageRow> {
   const { weldagentConversations, weldagentMessages } = schema;
   const assistantMessageId = generateId('msg');
-  const content = params.content.trim() || 'I could not complete that reply. Please try again.';
+  const ranTools = Array.isArray(params.toolInvocations) && params.toolInvocations.length > 0;
+  const content = params.content.trim() || (ranTools ? '' : 'I could not complete that reply. Please try again.');
 
   await params.db.insert(weldagentMessages).values({
     id: assistantMessageId,
@@ -521,6 +542,7 @@ export async function finishAcceptedTurn(params: {
           agentId: input.agentId,
           conversationId: accepted.conversationId,
           actorPermissions: accepted.actorPermissions,
+          timezone: accepted.timezone,
           timeoutMs: params.timeoutMs,
         }));
 
@@ -586,6 +608,7 @@ export async function completeConversationTurn(params: {
   content: string;
   agentId?: string;
   actorPermissions?: string[] | null;
+  timezone?: string | null;
   generate?: TurnGenerator;
   /** Skip push (used when the caller already notified, or in tests). */
   notify?: boolean;
@@ -599,6 +622,7 @@ export async function completeConversationTurn(params: {
     content: params.content,
     agentId: params.agentId,
     actorPermissions: params.actorPermissions,
+    timezone: params.timezone,
   });
 
   return finishAcceptedTurn({

@@ -23,9 +23,10 @@ export function DateEditor({
     dateValue = new Date(value);
   }
   const isValidDate = dateValue && !Number.isNaN(dateValue.getTime());
+  const [open, setOpen] = React.useState(false);
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" className="w-full h-full flex items-center justify-start px-0 cursor-pointer text-left">
           <span
@@ -48,6 +49,7 @@ export function DateEditor({
           onSelect={(date) => {
             onChange?.(date || null);
             onCommit();
+            setOpen(false);
           }}
         />
       </PopoverContent>

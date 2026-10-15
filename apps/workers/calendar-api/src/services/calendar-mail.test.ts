@@ -2,24 +2,56 @@
  * Calendar attendee mail: organizer/member lookups stay local; rendering, i18n
  * and ICS now live in `@weldsuite/emails` (tested there). This file checks the
  * plumbing: which template + props + attachment + recipients + locale
- * `sendCalendarEventEmails` hands to `sendSystemEmail`.
+ * `sendCalendarEventEmails` hands to `sendSystemEmail`, and how each batch goes
+ * through the outbound mail guard first (docs/plans/weldmail-outbound-abuse.md;
+ * the guard itself is faked here and tested in @weldsuite/mail-domain).
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Database } from '@weldsuite/worker-kit/db';
 
-const { sendSystemEmailMock } = vi.hoisted(() => ({ sendSystemEmailMock: vi.fn() }));
+const { sendSystemEmailMock, checkOutboundMock, commitOutboundMock, releaseOutboundMock } = vi.hoisted(() => ({
+  sendSystemEmailMock: vi.fn(),
+  checkOutboundMock: vi.fn(),
+  commitOutboundMock: vi.fn(),
+  releaseOutboundMock: vi.fn(),
+}));
 
 vi.mock('@weldsuite/emails', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/emails')>();
   return { ...actual, sendSystemEmail: sendSystemEmailMock };
 });
 
+// The real OutboundDeniedError (calendar-mail tells a refusal apart by class);
+// the three calls that talk to the ledger are faked.
+vi.mock('@weldsuite/mail-domain/outbound', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/mail-domain/outbound')>();
+  return {
+    ...actual,
+    checkOutbound: checkOutboundMock,
+    commitOutbound: commitOutboundMock,
+    releaseOutbound: releaseOutboundMock,
+  };
+});
+
+import { OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
 import {
   mailTimeZone,
   sendCalendarEventEmails,
   type CalendarMailEvent,
 } from './calendar-mail';
 import type { Env } from '../types';
+
+/** What the routes hand over: the tenant DB (faked, the guard is faked too) and the Clerk org. */
+const outbound = { db: {} as Database, clerkOrgId: 'org_test' };
+const reservation = {
+  ledger: null,
+  reservationId: 'res_1',
+  sender: '',
+  recipients: [],
+  firstContact: [],
+  mode: 'enforce',
+};
 
 const MEETING_URL = 'https://meet.weldsuite.org/acme/wm-dip-zfz-ubv';
 const APP_LINK = 'https://app.weldsuite.org/weldcalendar';
@@ -51,7 +83,16 @@ describe('sendCalendarEventEmails', () => {
     meetingUrl: MEETING_URL,
   };
 
-  afterEach(() => sendSystemEmailMock.mockReset());
+  beforeEach(() => {
+    checkOutboundMock.mockResolvedValue(reservation);
+  });
+
+  afterEach(() => {
+    sendSystemEmailMock.mockReset();
+    checkOutboundMock.mockReset();
+    commitOutboundMock.mockReset();
+    releaseOutboundMock.mockReset();
+  });
 
   function calls() {
     return sendSystemEmailMock.mock.calls as unknown as Array<
@@ -61,6 +102,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('invite: mails every attendee but the organizer, with the calendar.event template and a REQUEST ics', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'invite',
       organizer,
       event,
@@ -83,6 +125,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('gives the member an eventUrl, the guest none; organizer zone applies', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'invite',
       organizer,
       event,
@@ -98,6 +141,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('resolves locale from the member language, else the workspace language, else default', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'invite',
       organizer,
       event,
@@ -119,6 +163,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('defaults locale to en without a member language or a workspace language', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'invite',
       organizer,
       event,
@@ -129,6 +174,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('honours an APP_URL override for member links', async () => {
     await sendCalendarEventEmails({ ...env, APP_URL: 'https://calendar.example.com/' } as unknown as Env, {
+      outbound,
       kind: 'invite',
       organizer,
       event,
@@ -140,6 +186,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('reschedule: REQUEST with a sequence above the floor, and the old time in props', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'reschedule',
       organizer,
       event,
@@ -158,6 +205,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('cancel: METHOD CANCEL, a sequence that supersedes earlier revisions, no meeting/event link', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'cancel',
       organizer,
       event,
@@ -177,6 +225,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('removed: its own kind, still a CANCEL ics that supersedes earlier revisions', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'removed',
       organizer,
       event,
@@ -194,6 +243,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('event timezone wins over the organizer timezone', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'invite',
       organizer,
       event: { ...event, timezone: 'America/New_York' },
@@ -205,6 +255,7 @@ describe('sendCalendarEventEmails', () => {
   it('a bad event time is logged per recipient and never throws', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'invite',
       organizer,
       event: { ...event, startTime: 'garbage' },
@@ -217,6 +268,7 @@ describe('sendCalendarEventEmails', () => {
 
   it('no-ops without any email transport configured', async () => {
     await sendCalendarEventEmails({ ...env, RESEND_API_KEY: undefined } as unknown as Env, {
+      outbound,
       kind: 'invite',
       organizer,
       event,
@@ -226,12 +278,13 @@ describe('sendCalendarEventEmails', () => {
   });
 
   it('no-ops without attendees', async () => {
-    await sendCalendarEventEmails(env, { kind: 'invite', organizer, event, attendees: [] });
+    await sendCalendarEventEmails(env, { kind: 'invite', organizer, event, attendees: [], outbound });
     expect(sendSystemEmailMock).not.toHaveBeenCalled();
   });
 
   it('skips the organizer and blank addresses', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'invite',
       organizer,
       event,
@@ -242,11 +295,184 @@ describe('sendCalendarEventEmails', () => {
 
   it('omits replyTo when the organizer has no email', async () => {
     await sendCalendarEventEmails(env, {
+      outbound,
       kind: 'invite',
       organizer: { name: 'Someone', email: '' },
       event,
       attendees: [{ email: 'guest@example.com' }],
     });
     expect(calls()[0][1].replyTo).toBeUndefined();
+  });
+});
+
+describe('the outbound guard', () => {
+  const env = { RESEND_API_KEY: 're_test', ENVIRONMENT: 'production' } as unknown as Env;
+  const organizer = { name: 'Gert', email: 'gert@acme.com' };
+  const event: CalendarMailEvent = {
+    id: 'evt_1',
+    title: 'Planning',
+    description: 'Agenda in the doc',
+    startTime: START,
+    endTime: END,
+  };
+  const guest = (email: string, name?: string) => ({ email, name });
+
+  afterEach(() => {
+    sendSystemEmailMock.mockReset();
+    checkOutboundMock.mockReset();
+    commitOutboundMock.mockReset();
+    releaseOutboundMock.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  it('is asked once for the whole batch, as a system-sender calendar mail to the attendees', async () => {
+    checkOutboundMock.mockResolvedValue(reservation);
+    await sendCalendarEventEmails(env, {
+      kind: 'invite',
+      organizer,
+      event,
+      attendees: [guest('a@example.com', 'Anna'), guest('B@Example.com'), guest('gert@acme.com'), guest('')],
+      outbound,
+    });
+
+    expect(checkOutboundMock).toHaveBeenCalledTimes(1);
+    const [, db, input] = checkOutboundMock.mock.calls[0]!;
+    expect(db).toBe(outbound.db);
+    expect(input).toMatchObject({
+      subject: { kind: 'workspace', clerkOrgId: 'org_test' },
+      source: 'calendar',
+      kind: 'new_thread',
+      systemSender: true,
+      // The organizer's own address and the blank one are not mailed, so not counted.
+      to: ['a@example.com', 'B@Example.com'],
+      subjectLine: 'Planning',
+      text: 'Agenda in the doc',
+      recipientNames: ['Anna'],
+    });
+    expect(sendSystemEmailMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts every kind of calendar mail, a cancellation too', async () => {
+    checkOutboundMock.mockResolvedValue(reservation);
+    await sendCalendarEventEmails(env, {
+      kind: 'cancel',
+      organizer,
+      event,
+      attendees: [guest('a@example.com')],
+      outbound,
+    });
+    expect(checkOutboundMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits the reservation once every mail went out', async () => {
+    checkOutboundMock.mockResolvedValue(reservation);
+    await sendCalendarEventEmails(env, {
+      kind: 'invite',
+      organizer,
+      event,
+      attendees: [guest('a@example.com'), guest('b@example.com')],
+      outbound,
+    });
+    expect(commitOutboundMock).toHaveBeenCalledTimes(1);
+    expect(commitOutboundMock).toHaveBeenCalledWith(env, outbound.db, reservation, {});
+    expect(releaseOutboundMock).not.toHaveBeenCalled();
+  });
+
+  it('commits only the recipients that got their mail when one send fails', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkOutboundMock.mockResolvedValue(reservation);
+    sendSystemEmailMock.mockImplementation(async (_transport: unknown, options: { to: string }) => {
+      if (options.to === 'bad@example.com') throw new Error('mailbox full');
+    });
+    await sendCalendarEventEmails(env, {
+      kind: 'invite',
+      organizer,
+      event,
+      attendees: [guest('a@example.com'), guest('bad@example.com'), guest('c@example.com')],
+      outbound,
+    });
+    expect(sendSystemEmailMock).toHaveBeenCalledTimes(3);
+    expect(commitOutboundMock).toHaveBeenCalledWith(env, outbound.db, reservation, {
+      sentRecipients: ['a@example.com', 'c@example.com'],
+    });
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the reservation when no mail went out', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkOutboundMock.mockResolvedValue(reservation);
+    sendSystemEmailMock.mockRejectedValue(new Error('transport down'));
+    await sendCalendarEventEmails(env, {
+      kind: 'invite',
+      organizer,
+      event,
+      attendees: [guest('a@example.com')],
+      outbound,
+    });
+    expect(releaseOutboundMock).toHaveBeenCalledWith(env, reservation);
+    expect(commitOutboundMock).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips the whole batch when the guard refuses, and says so in the log', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    checkOutboundMock.mockRejectedValue(
+      new OutboundDeniedError({ code: 'SENDING_LIMITED', window: 'hour', limit: 30, used: 30 }),
+    );
+    await expect(
+      sendCalendarEventEmails(env, {
+        kind: 'invite',
+        organizer,
+        event,
+        attendees: [guest('a@example.com'), guest('b@example.com')],
+        outbound,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(sendSystemEmailMock).not.toHaveBeenCalled();
+    expect(commitOutboundMock).not.toHaveBeenCalled();
+    expect(releaseOutboundMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain('SENDING_LIMITED');
+    expect(String(warn.mock.calls[0]![0])).toContain('evt_1');
+  });
+
+  it('lets the mail through when the guard itself breaks (it fails open)', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkOutboundMock.mockRejectedValue(new Error('ledger bug'));
+    await sendCalendarEventEmails(env, {
+      kind: 'invite',
+      organizer,
+      event,
+      attendees: [guest('a@example.com')],
+      outbound,
+    });
+    expect(sendSystemEmailMock).toHaveBeenCalledTimes(1);
+    // Nothing was reserved, so there is nothing to commit or give back.
+    expect(commitOutboundMock).not.toHaveBeenCalled();
+    expect(releaseOutboundMock).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not asked when there is nobody to mail', async () => {
+    await sendCalendarEventEmails(env, {
+      kind: 'invite',
+      organizer,
+      event,
+      attendees: [guest('gert@acme.com'), guest('')],
+      outbound,
+    });
+    expect(checkOutboundMock).not.toHaveBeenCalled();
+  });
+
+  it('is not asked without an email transport', async () => {
+    await sendCalendarEventEmails({ ...env, RESEND_API_KEY: undefined } as unknown as Env, {
+      kind: 'invite',
+      organizer,
+      event,
+      attendees: [guest('a@example.com')],
+      outbound,
+    });
+    expect(checkOutboundMock).not.toHaveBeenCalled();
   });
 });

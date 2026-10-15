@@ -1312,6 +1312,29 @@ export {
   type ReachWarmupMessage,
   type NewReachWarmupMessage,
 } from './reach-warmup';
+// Outbound mail guard: per-workspace sending policy, staff cases and their trail.
+export {
+  outboundMailPolicies,
+  outboundMailCases,
+  outboundMailEvents,
+  OUTBOUND_POLICY_STATES,
+  OUTBOUND_POLICY_TRUST_LEVELS,
+  OUTBOUND_CASE_TRIGGER_VALUES,
+  OUTBOUND_EVENT_KINDS,
+  type OutboundPolicyState,
+  type OutboundPolicyTrustLevel,
+  type OutboundPolicyLimitOverrides,
+  type OutboundCaseTriggerValue,
+  type OutboundCaseVerdict,
+  type OutboundCaseMetrics,
+  type OutboundEventKind,
+  type OutboundMailPolicy,
+  type NewOutboundMailPolicy,
+  type OutboundMailCase,
+  type NewOutboundMailCase,
+  type OutboundMailEvent,
+  type NewOutboundMailEvent,
+} from './outbound-mail';
 export { appCatalog, appScreenshots, APP_CATEGORIES, type AppCatalogEntry, type NewAppCatalogEntry, type AppScreenshot, type NewAppScreenshot, type AppCategory } from './app-catalog';
 export {
   userApps,

@@ -7,6 +7,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { computeNextRunAt } from '@weldsuite/workflow-integrations/cron';
 import { type AgentDb, getAgent, createAgent, updateAgent } from './agents';
+import { resolveManagedModel } from './managed-agents';
 
 type MemoryKind = 'preference' | 'fact' | 'summary' | 'correction';
 
@@ -239,6 +240,33 @@ export function computeRoutineNextRun(
 ): Date {
   const expr = cronExpr?.trim() || '0 * * * *';
   return computeNextRunAt(expr, timezone || 'UTC', from) ?? computeNextHourlyRun(from);
+}
+
+/**
+ * Why a cron schedule can't run as given, or null when it can. Without this,
+ * a typo'd cron or timezone falls back to hourly (computeRoutineNextRun), so a
+ * daily digest would quietly run every hour.
+ */
+export function routineScheduleError(
+  cronExpr: string | null | undefined,
+  timezone: string | null | undefined,
+): string | null {
+  if (timezone) {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    } catch {
+      return `Unknown timezone "${timezone}". Use an IANA name such as "Europe/Amsterdam".`;
+    }
+  }
+  const expr = cronExpr?.trim();
+  if (!expr) return null;
+  if (expr.split(/\s+/).length !== 5) {
+    return `cronExpr "${expr}" must have five fields (minute hour day month weekday), e.g. "0 7 * * 1-5".`;
+  }
+  if (!computeNextRunAt(expr, timezone || 'UTC', new Date())) {
+    return `cronExpr "${expr}" is not valid or never fires. Use five fields, e.g. "0 7 * * 1-5".`;
+  }
+  return null;
 }
 
 export async function listRoutines(db: AgentDb, agentId?: string) {
@@ -942,7 +970,8 @@ export async function installTemplate(
     systemPrompt: payload.systemPrompt ?? '',
     permissions: payload.permissions ?? ['computer:use', 'browser:use'],
     enabledTools: payload.enabledTools ?? [],
-    modelId: payload.modelId,
+    // Templates exported before agents ran on Claude carry other model ids.
+    modelId: resolveManagedModel(payload.modelId),
     createdBy: input.createdBy,
   });
 

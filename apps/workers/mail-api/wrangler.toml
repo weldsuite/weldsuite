@@ -21,6 +21,23 @@
 #     (@weldsuite/ai). When unset, @weldsuite/ai uses CLOUDFLARE_API_TOKEN.
 #   MAIL_INBOUND_WORKER_NAME (optional; the worker the catch-all rule routes
 #     inbound mail to — defaults to weldsuite-mail-inbound, unset on app-api)
+#   OUTBOUND_ADMIN_SECRET (the outbound guard's staff API, /internal/outbound/*;
+#     same value as the admin console's; at least 32 characters)
+#
+# Outbound guard (docs/plans/weldmail-outbound-abuse.md): this worker hosts the
+# OutboundLedger (one per workspace) and OutboundPlatformBudget Durable Objects
+# that every mail-sending worker binds by script_name, and consumes two queues:
+#   mail-outbound-review-<env>  AI reviews of templates the ledgers queue
+#   mail-sending-events-<env>   Cloudflare Email Sending events (bounces,
+#                               complaints), one Queues event subscription per
+#                               sending domain, created when a domain is
+#                               provisioned (needs MAIL_SENDING_EVENTS_QUEUE_ID
+#                               and a CLOUDFLARE_API_TOKEN with Queues Edit)
+# Ops per env: wrangler queues create mail-outbound-review-<env>,
+# mail-outbound-review-dlq-<env>, mail-sending-events-<env>,
+# mail-sending-events-dlq-<env>; put the sending-events queue's id in
+# MAIL_SENDING_EVENTS_QUEUE_ID; set CF_EMAIL_DAILY_QUOTA to the account's daily
+# Email Sending quota to arm the platform budget.
 #
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
 
@@ -36,7 +53,9 @@ compatibility_flags = ["nodejs_compat"]
 "@clerk/nextjs" = "../../../packages/core/worker-kit/shims/clerk-shim.ts"
 "next/server" = "../../../packages/core/worker-kit/shims/next-shim.ts"
 "next/navigation" = "../../../packages/core/worker-kit/shims/next-shim.ts"
-"react" = "../../../packages/core/worker-kit/shims/react-shim.ts"
+# No "react" alias here (unlike most other API workers): the outbound guard's
+# staff alerts render real system email through @weldsuite/emails, which needs
+# the actual react package, not the empty bundle-size shim.
 
 [observability]
 enabled = true
@@ -46,6 +65,7 @@ head_sampling_rate = 1
 ENVIRONMENT = "development"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+ABUSE_NOTIFY_EMAIL = "gert@weldsuite.org"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -101,6 +121,46 @@ class_name = "SendScheduledEmailWorkflow"
 [triggers]
 crons = ["*/5 * * * *"]
 
+# ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) ----
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+
+[[migrations]]
+tag = "outbound-v1"
+new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
+
+# Per-sender backstop while the ledger is unreachable. Same namespace in every
+# mail-sending worker, so they share the counters on purpose.
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[queues.producers]]
+binding = "MAIL_OUTBOUND_REVIEW"
+queue = "mail-outbound-review-dev"
+
+[[queues.consumers]]
+queue = "mail-outbound-review-dev"
+max_batch_size = 5
+max_batch_timeout = 10
+max_retries = 3
+dead_letter_queue = "mail-outbound-review-dlq-dev"
+
+[[queues.consumers]]
+queue = "mail-sending-events-dev"
+max_batch_size = 50
+max_batch_timeout = 10
+max_retries = 3
+dead_letter_queue = "mail-sending-events-dlq-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -112,7 +172,9 @@ routes = [
 [env.test.vars]
 ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+ABUSE_NOTIFY_EMAIL = "gert@weldsuite.org"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -155,6 +217,46 @@ crons = ["*/5 * * * *"]
 enabled = true
 head_sampling_rate = 1
 
+# ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) ----
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+
+[[env.test.migrations]]
+tag = "outbound-v1"
+new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
+
+# Per-sender backstop while the ledger is unreachable. Same namespace in every
+# mail-sending worker, so they share the counters on purpose.
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[env.test.queues.producers]]
+binding = "MAIL_OUTBOUND_REVIEW"
+queue = "mail-outbound-review-test"
+
+[[env.test.queues.consumers]]
+queue = "mail-outbound-review-test"
+max_batch_size = 5
+max_batch_timeout = 10
+max_retries = 3
+dead_letter_queue = "mail-outbound-review-dlq-test"
+
+[[env.test.queues.consumers]]
+queue = "mail-sending-events-test"
+max_batch_size = 50
+max_batch_timeout = 10
+max_retries = 3
+dead_letter_queue = "mail-sending-events-dlq-test"
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -166,7 +268,9 @@ routes = [
 [env.production.vars]
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+ABUSE_NOTIFY_EMAIL = "gert@weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"
@@ -210,3 +314,43 @@ crons = ["*/5 * * * *"]
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+
+# ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) ----
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+
+[[env.production.migrations]]
+tag = "outbound-v1"
+new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
+
+# Per-sender backstop while the ledger is unreachable. Same namespace in every
+# mail-sending worker, so they share the counters on purpose.
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[env.production.queues.producers]]
+binding = "MAIL_OUTBOUND_REVIEW"
+queue = "mail-outbound-review-production"
+
+[[env.production.queues.consumers]]
+queue = "mail-outbound-review-production"
+max_batch_size = 5
+max_batch_timeout = 10
+max_retries = 3
+dead_letter_queue = "mail-outbound-review-dlq-production"
+
+[[env.production.queues.consumers]]
+queue = "mail-sending-events-production"
+max_batch_size = 50
+max_batch_timeout = 10
+max_retries = 3
+dead_letter_queue = "mail-sending-events-dlq-production"

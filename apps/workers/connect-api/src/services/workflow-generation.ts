@@ -22,12 +22,14 @@
 
 import {
   assertGatewayConfigured,
+  billedModelId,
   createWeldAI,
   generateObject,
   jsonSchema,
   recommended,
   type WeldAI,
   type AiUsage,
+  type ProviderMetadata,
 } from '@weldsuite/ai';
 import type { Env } from '../types';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -353,7 +355,7 @@ export async function generateWorkflowDraft(
   const ai = getAi(env);
   await assertAiCredits(metering);
 
-  let result: { object: GeneratedWorkflowDraft; usage: AiUsage };
+  let result: { object: GeneratedWorkflowDraft; usage: AiUsage; providerMetadata?: ProviderMetadata };
   try {
     result = await generateObject({
       model: ai.model(GENERATION_MODEL),
@@ -369,8 +371,10 @@ export async function generateWorkflowDraft(
     );
   }
 
-  await chargeAiUsage(metering, { modelId: GENERATION_MODEL, usage: result.usage, op: 'workflow_generate' });
+  // A refused third-party model answers from the fallback model; bill and report that.
+  const servedModelId = billedModelId(GENERATION_MODEL, result);
+  await chargeAiUsage(metering, { modelId: servedModelId, usage: result.usage, op: 'workflow_generate' });
 
   const { workflow, warnings } = postValidateDraft(result.object, buildValidationCatalog());
-  return { workflow, warnings, model: GENERATION_MODEL, usage: result.usage };
+  return { workflow, warnings, model: servedModelId, usage: result.usage };
 }

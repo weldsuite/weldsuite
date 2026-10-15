@@ -13,6 +13,12 @@
     "./folders": "./src/folders.ts",
     "./labels": "./src/labels.ts",
     "./messages": "./src/messages.ts",
+    "./outbound": "./src/outbound/index.ts",
+    "./outbound/consumers": "./src/outbound/consumers.ts",
+    "./outbound/content-screen": "./src/outbound/content-screen.ts",
+    "./outbound/fingerprint": "./src/outbound/fingerprint.ts",
+    "./outbound/ledger": "./src/outbound/ledger.ts",
+    "./outbound/policy-store": "./src/outbound/policy-store.ts",
     "./recipient-validation": "./src/recipient-validation.ts",
     "./send": "./src/send.ts",
     "./snooze": "./src/snooze.ts",
@@ -30,6 +36,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@weldsuite/ai": "workspace:*",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/credits": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/email": "workspace:*",
     "@weldsuite/worker-email": "workspace:*",

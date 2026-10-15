@@ -48,6 +48,12 @@ export function createWeldAgentApi(api: ClientApi) {
       );
     },
 
+    getConversation(conversationId: string): Promise<DataResponse<ConversationSummary>> {
+      return api.get<DataResponse<ConversationSummary>>(
+        `/weldagent/conversations/${encodeURIComponent(conversationId)}`,
+      );
+    },
+
     createConversation(
       data: CreateConversationInput,
     ): Promise<DataResponse<ConversationSummary>> {

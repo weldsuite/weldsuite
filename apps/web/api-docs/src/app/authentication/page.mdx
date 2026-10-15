@@ -165,9 +165,9 @@ WeldReach is available on request only: until WeldSuite approves the workspace, 
 
 ---
 
-## Plan requirements
+## Plans
 
-API access depends on your workspace plan. If your plan does not include API access, valid keys still receive `403 Forbidden`. Upgrade your plan to enable the External API.
+The External API is available on every plan, Free included. Plans differ only in their [rate limits](#rate-limits).
 
 For performance, key validation is cached for about 5 minutes after first use, so revoking a key takes effect within that window.
 
@@ -180,8 +180,8 @@ Requests are rate-limited per workspace, by plan tier:
 | Plan | Limit |
 |------|-------|
 | Free | 60 requests / minute |
-| Starter | 300 requests / minute |
-| Professional | 1,000 requests / minute |
+| Business | 300 requests / minute |
+| Scale | 1,000 requests / minute |
 | Enterprise | 5,000 requests / minute |
 
 Every response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`. Exceeding the limit returns `429` with `code: "RATE_LIMITED"` and a `Retry-After` header.
@@ -194,7 +194,6 @@ Every response includes `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-Rat
 |--------|--------|-------|-----|
 | 401 | `UNAUTHORIZED` | Key missing, malformed, revoked, or expired | Check the key / create a new one |
 | 403 | `FORBIDDEN` | Key lacks the required scope | Create a key with the right scope |
-| 403 | `FORBIDDEN` | Plan has no API access | Upgrade your plan |
 | 403 | `APP_ACCESS_REQUIRED` | The workspace has no approved access to an on-request module such as [WeldReach](/weldreach) | Request access in the WeldSuite app store |
 
 ---

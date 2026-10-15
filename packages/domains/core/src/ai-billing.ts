@@ -29,6 +29,8 @@ import {
   priceForModel,
   providerCostUsd,
   creditsForUsage,
+  PROVIDER_MARKUP,
+  CREDITS_PER_USD,
   type AiUsage,
 } from '@weldsuite/ai';
 import { getMasterDb, type MasterDatabase } from '@weldsuite/worker-kit/db';
@@ -121,13 +123,22 @@ export async function chargeAiUsage(
     gateway?: Gateway;
     providerCostUsd?: number;
     coveredByServiceCredit?: boolean;
+    /**
+     * Raw list cost of the work in USD, when the provider reports it directly
+     * (Claude Managed Agents sessions: tokens + sandbox runtime + web search).
+     * Billed at the same markup instead of pricing `usage` per token.
+     */
+    costUsd?: number;
   },
 ): Promise<number> {
   if (!metering) return 0;
   // NOTE: `creditsForUsage` takes the CANONICAL modelId and never the gateway —
   // the customer pays the same no matter who served it. Keep it that way; the
   // gateway only ever affects the OPS ledger below.
-  const credits = creditsForUsage(params.modelId, params.usage);
+  const credits =
+    params.costUsd !== undefined
+      ? creditsForCostUsd(params.costUsd)
+      : creditsForUsage(params.modelId, params.usage);
   if (credits <= 0) return 0;
 
   const meta = {
@@ -173,6 +184,12 @@ export async function chargeAiUsage(
     console.error('[app-api/ai] credit settlement failed (untracked AI usage!):', err);
     return 0;
   }
+}
+
+/** Credits for a raw USD cost at the standard markup, min 1. */
+export function creditsForCostUsd(costUsd: number): number {
+  if (Number.isNaN(costUsd) || costUsd <= 0) return 1;
+  return Math.max(1, Math.ceil(costUsd * PROVIDER_MARKUP * CREDITS_PER_USD));
 }
 
 /**

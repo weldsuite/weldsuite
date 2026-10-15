@@ -4,14 +4,13 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { Link } from '@/lib/router';
 import { Star, Pin, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
 } from '@weldsuite/ui/components/context-menu';
 import type { ConversationItem, ConversationListItemProps } from './types';
-import { getAvatarColor, getLabelColor, filterDisplayLabels } from './utils';
+import { getAvatarColor, getLabelColor, filterDisplayLabels, formatListDate } from './utils';
 
 type LabelDropHandler = ConversationListItemProps['onLabelDrop'];
 
@@ -159,7 +158,7 @@ function ItemHeader({
           <Star className="h-3 w-3 text-yellow-500 fill-yellow-500 -translate-y-[1.5px]" />
         )}
         <span className="text-[11.5px] text-gray-400 dark:text-muted-foreground">
-          {format(new Date(item.date), 'h:mm a')}
+          {formatListDate(new Date(item.date))}
         </span>
       </div>
     </div>

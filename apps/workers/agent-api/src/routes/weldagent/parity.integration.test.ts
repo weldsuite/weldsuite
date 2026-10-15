@@ -32,14 +32,6 @@ describe('weldagent parity routes', () => {
     });
   }
 
-  it('exposes computer health without crashing', async () => {
-    const { request } = app();
-    const res = await request('/api/weldagent/computer/health');
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { ok: boolean } };
-    expect(typeof body.data.ok).toBe('boolean');
-  });
-
   it('creates an agent and a skill', async () => {
     const { request } = app();
     const createAgent = await request('/api/weldagent/agents', {

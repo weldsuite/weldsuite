@@ -6,6 +6,7 @@ import { ComposeProvider } from '@/contexts/compose-context';
 import { CustomerPanelProvider } from '@/contexts/customer-panel-context';
 import { BreadcrumbProvider } from '@/contexts/breadcrumb-context';
 import { MailHeader } from './mail-header';
+import { SendingRestrictionBanner } from './sending-restriction-banner';
 import { ModuleContent } from '@/components/layout/module-content';
 // Lazy + dynamic-only: app-shell also dynamically imports this component (for
 // its own global ComposeProvider scope). A static import here made it a mixed
@@ -24,6 +25,7 @@ function MailLayoutContent({ children }: Readonly<MailLayoutClientProps>) {
   return (
     <div className="flex-1 flex flex-col w-full min-h-0 h-full overflow-hidden">
       <MailHeader />
+      <SendingRestrictionBanner />
       <ModuleContent className="overflow-auto">{children}</ModuleContent>
 
       {/* Floating compose panel */}

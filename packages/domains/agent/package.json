@@ -12,8 +12,11 @@
     "./computer-client": "./src/computer-client.ts",
     "./env": "./src/env.ts",
     "./executor": "./src/executor.ts",
+    "./grants": "./src/grants.ts",
     "./jobs": "./src/jobs.ts",
+    "./managed-agents": "./src/managed-agents.ts",
     "./parity": "./src/parity.ts",
+    "./routine-delivery": "./src/routine-delivery.ts",
     "./routine-index": "./src/routine-index.ts",
     "./run": "./src/run.ts",
     "./subscriptions": "./src/subscriptions.ts",
@@ -28,6 +31,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.133.0",
     "@weldsuite/ai": "workspace:*",
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/chat-domain": "workspace:*",

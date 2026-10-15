@@ -86,6 +86,15 @@ function formatErrorMessage(error: Record<string, unknown>, status: number): str
     if (typeof obj.message === 'string') {
       return obj.message;
     }
+    // `@hono/zod-validator` answers a failed validation with the serialized
+    // ZodError (`{ issues: [{ message, … }], name: 'ZodError' }`); show the
+    // issue messages, not the raw JSON.
+    if (Array.isArray(obj.issues)) {
+      const messages = obj.issues
+        .map((issue) => (issue as { message?: unknown } | null)?.message)
+        .filter((m): m is string => typeof m === 'string' && m.length > 0);
+      if (messages.length > 0) return messages.join('. ');
+    }
     return JSON.stringify(errorValue);
   }
   return `Request failed with status ${status}`;

@@ -147,6 +147,7 @@ name = "weldsuite-workflow-test"
 ENVIRONMENT = "test"
 APP_API_URL = "https://app-api-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -200,6 +201,7 @@ name = "weldsuite-workflow"
 ENVIRONMENT = "production"
 APP_API_URL = "https://app-api.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
+AI_BYOK_PROVIDERS = "anthropic"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"

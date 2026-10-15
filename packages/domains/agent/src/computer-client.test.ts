@@ -1,51 +1,17 @@
 /**
- * Unit tests for agent computer client helpers (no live runtime).
+ * Unit tests for the agent-runtime client transport (no live runtime).
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { computerExec, computerStatus, isAgentComputerConfigured } from './computer-client';
+import { AgentComputerUnavailableError, browserClose } from './computer-client';
 import type { WeldAgentEnv as Env } from './env';
-
-describe('isAgentComputerConfigured', () => {
-  it('requires URL + secret and enabled flag', () => {
-    expect(
-      isAgentComputerConfigured({
-        AGENT_RUNTIME_URL: 'http://localhost:8795',
-        INTERNAL_API_SECRET: 's',
-        AGENT_COMPUTER_ENABLED: 'true',
-      } as Env),
-    ).toBe(true);
-
-    expect(
-      isAgentComputerConfigured({
-        AGENT_RUNTIME_URL: 'http://localhost:8795',
-        INTERNAL_API_SECRET: 's',
-        AGENT_COMPUTER_ENABLED: 'false',
-      } as Env),
-    ).toBe(false);
-
-    expect(
-      isAgentComputerConfigured({
-        AGENT_RUNTIME_URL: '',
-        INTERNAL_API_SECRET: 's',
-      } as Env),
-    ).toBe(false);
-  });
-});
 
 describe('runtime transport', () => {
   const ok = () => new Response('{"ok":true}', { status: 200 });
-  const input = { workspaceId: 'ws_1', command: 'ls' };
+  const input = { workspaceId: 'ws_1', agentId: 'agt_1' };
 
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  it('is configured by the binding alone (no URL, no secret)', () => {
-    expect(isAgentComputerConfigured({ AGENT_RUNTIME: {} as Fetcher } as Env)).toBe(true);
-    expect(
-      isAgentComputerConfigured({ AGENT_RUNTIME: {} as Fetcher, AGENT_COMPUTER_ENABLED: 'false' } as Env),
-    ).toBe(false);
   });
 
   it('prefers the AgentRuntimeInternal binding and sends no Authorization header', async () => {
@@ -53,7 +19,7 @@ describe('runtime transport', () => {
     vi.stubGlobal('fetch', fetchSpy);
     const binding = vi.fn(async (_url: string, _init?: RequestInit) => ok());
 
-    await computerExec(
+    await browserClose(
       {
         AGENT_RUNTIME: { fetch: binding } as unknown as Fetcher,
         AGENT_RUNTIME_URL: 'https://rt.test',
@@ -64,7 +30,7 @@ describe('runtime transport', () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     const [url, init] = binding.mock.calls[0];
-    expect(url).toBe('https://agent-runtime/v1/computer/exec');
+    expect(url).toBe('https://agent-runtime/v1/browser/close');
     expect(new Headers(init?.headers).get('authorization')).toBeNull();
     expect(new Headers(init?.headers).get('content-type')).toBe('application/json');
   });
@@ -73,10 +39,10 @@ describe('runtime transport', () => {
     const fetchSpy = vi.fn(async (_url: string, _init?: RequestInit) => ok());
     vi.stubGlobal('fetch', fetchSpy);
 
-    await computerExec({ AGENT_RUNTIME_URL: 'https://rt.test/', INTERNAL_API_SECRET: 's' } as Env, input);
+    await browserClose({ AGENT_RUNTIME_URL: 'https://rt.test/', INTERNAL_API_SECRET: 's' } as Env, input);
 
     const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe('https://rt.test/v1/computer/exec');
+    expect(url).toBe('https://rt.test/v1/browser/close');
     expect(new Headers(init?.headers).get('authorization')).toBe('Bearer s');
   });
 
@@ -90,7 +56,7 @@ describe('runtime transport', () => {
         INTERNAL_API_SECRET: 's',
       }) as Env;
 
-    await computerExec(
+    await browserClose(
       env(async () => {
         throw new Error('Worker has no entrypoint named "AgentRuntimeInternal"');
       }),
@@ -99,7 +65,7 @@ describe('runtime transport', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     await expect(
-      computerExec(
+      browserClose(
         env(async () => {
           throw new Error('network lost');
         }),
@@ -109,7 +75,7 @@ describe('runtime transport', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('reports the computer as not configured when neither transport is set', async () => {
-    expect(await computerStatus({} as Env, 'ws_1')).toEqual({ enabled: false, reason: 'not_configured' });
+  it('refuses when neither transport is set', async () => {
+    await expect(browserClose({} as Env, input)).rejects.toBeInstanceOf(AgentComputerUnavailableError);
   });
 });

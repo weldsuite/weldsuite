@@ -65,6 +65,7 @@ import * as activityService from '../../services/team/activity';
 import * as memberAccessService from '../../services/team/member-access';
 import { getWorkspaceSeatLimit, type SeatLimit } from '../../services/seat-limits';
 import { alignClerkCapWithPlan } from '../../services/clerk-seat-cap';
+import { removeClerkMembership } from '../../services/member-count';
 import { syncClerkSeatLimit } from '../../services/billing';
 import { invitationRedirectUrl } from '../../services/invitation-redirect';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
@@ -828,15 +829,18 @@ async function resolveMemberRoleChange(
   return { tier, roleIdValue: body.roleId };
 }
 
-/** Push a role change to the Clerk org membership. Returns false on failure. */
+/**
+ * Push a role change to the Clerk org membership. Returns false on failure.
+ * Clerk addresses a membership by the member's user id, not the membership id.
+ */
 async function updateClerkMembershipRole(
   env: Env,
   orgId: string,
-  clerkMembershipId: string,
+  userId: string,
   tier: 'ADMIN' | 'MEMBER' | 'VIEWER',
 ): Promise<boolean> {
   const resp = await fetch(
-    `https://api.clerk.com/v1/organizations/${orgId}/memberships/${clerkMembershipId}`,
+    `https://api.clerk.com/v1/organizations/${orgId}/memberships/${encodeURIComponent(userId)}`,
     {
       method: 'PATCH',
       headers: clerkHeaders(env.CLERK_SECRET_KEY),
@@ -923,7 +927,7 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
 
     if (
       member.clerkMembershipId &&
-      !(await updateClerkMembershipRole(c.env, orgId, member.clerkMembershipId, tier))
+      !(await updateClerkMembershipRole(c.env, orgId, member.userId, tier))
     ) {
       return error.internal(c, 'Failed to update role in Clerk');
     }
@@ -959,13 +963,11 @@ app.delete('/:id', requirePermission('team:delete'), async (c) => {
 
   const headers = clerkHeaders(c.env.CLERK_SECRET_KEY);
 
+  // Removed by user id: Clerk 404s on a membership id, and a membership left
+  // behind keeps the person's access and keeps taking a seat.
   if (member.status === 'ACTIVE' && member.clerkMembershipId) {
-    const resp = await fetch(
-      `https://api.clerk.com/v1/organizations/${orgId}/memberships/${member.clerkMembershipId}`,
-      { method: 'DELETE', headers },
-    );
-    if (!resp.ok && resp.status !== 404) {
-      console.error('[app-api/team-members] Clerk membership delete failed:', resp.status);
+    const removed = await removeClerkMembership(c.env.CLERK_SECRET_KEY, orgId, member.userId);
+    if (!removed) {
       return error.internal(c, 'Failed to remove member from Clerk organization');
     }
   }
